@@ -51,7 +51,7 @@ impl McpFixture {
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database = roost_coord::db::open(&root.join("coord.db"))
+        let database = super::db_support::open_test_database(&root)
             .await
             .expect("a migrated coordinator database");
         let tenant = ensure_self_hosted_tenant(&database, 0)
@@ -198,7 +198,7 @@ pub fn message_of(error: &ConnectError) -> String {
 pub async fn plant_foreign_relay(fixture: &McpFixture) {
     sqlx::query(
         "INSERT INTO dashboards (id, organization_id, slug, name, status, created_at_ms) \
-         SELECT ?1, organization_id, 'other-dashboard', 'Another dashboard', 'active', 0 \
+         SELECT $1, organization_id, 'other-dashboard', 'Another dashboard', 'active', 0 \
          FROM dashboards LIMIT 1",
     )
     .bind(FOREIGN_DASHBOARD)
@@ -207,7 +207,7 @@ pub async fn plant_foreign_relay(fixture: &McpFixture) {
     .expect("the foreign dashboard row");
     sqlx::query(
         "INSERT INTO mcp_relays (id, label, kind, config_json, created_at_ms, dashboard_id) \
-         VALUES (?1, 'A relay of somebody else''s', 'sse', '{}', 5, ?2)",
+         VALUES ($1, 'A relay of somebody else''s', 'sse', '{}', 5, $2)",
     )
     .bind(FOREIGN_RELAY)
     .bind(FOREIGN_DASHBOARD)

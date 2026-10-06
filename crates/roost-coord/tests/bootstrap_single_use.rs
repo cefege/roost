@@ -13,6 +13,7 @@
 // pass it. A second handle makes the question real.
 
 mod auth_device_support;
+mod db_support;
 
 use connectrpc::ErrorCode;
 use roost_coord::auth::bootstrap_tokens::BootstrapTokenKind;

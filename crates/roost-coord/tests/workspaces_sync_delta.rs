@@ -11,6 +11,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod workspaces_support;
 
 use roost_coord::sessions::rpc_workspaces::{

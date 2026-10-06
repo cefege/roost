@@ -61,7 +61,7 @@ pub async fn load_authorized_key(
     kid: &str,
 ) -> Result<Option<AuthorizedKey>, ProtocolError> {
     let row = sqlx::query_as::<_, (Vec<u8>, String)>(
-        "SELECT public_key, label FROM authorized_keys WHERE fingerprint = ?",
+        "SELECT public_key, label FROM authorized_keys WHERE fingerprint = $1",
     )
     .bind(kid)
     .fetch_optional(database.pool())
@@ -79,7 +79,7 @@ pub async fn load_account_device_facts(
         "SELECT device.account_id, account.status
            FROM account_devices AS device
            JOIN accounts AS account ON account.id = device.account_id
-          WHERE device.fingerprint = ?",
+          WHERE device.fingerprint = $1",
     )
     .bind(kid)
     .fetch_optional(database.pool())
@@ -100,14 +100,17 @@ pub async fn load_worker_facts(
     database: &CoordDb,
     kid: &str,
 ) -> Result<(bool, bool), ProtocolError> {
-    let row =
-        sqlx::query_as::<_, (bool,)>("SELECT deleted_at_ms IS NOT NULL FROM workers WHERE fp = ?")
-            .bind(kid)
-            .fetch_optional(database.pool())
-            .await
-            .map_err(sqlx_error)?;
+    // Selected as an integer: the `Any` driver cannot decode a SQLite boolean
+    // expression as `bool`, and Postgres has no implicit boolean-to-integer read.
+    let row = sqlx::query_as::<_, (i64,)>(
+        "SELECT CAST(deleted_at_ms IS NOT NULL AS INTEGER) FROM workers WHERE fp = $1",
+    )
+    .bind(kid)
+    .fetch_optional(database.pool())
+    .await
+    .map_err(sqlx_error)?;
     Ok(match row {
-        Some((tombstoned,)) => (true, tombstoned),
+        Some((tombstoned,)) => (true, tombstoned != 0),
         None => (false, false),
     })
 }
@@ -248,7 +251,7 @@ pub async fn import_authorized_keys(
 
 async fn key_is_revoked(database: &CoordDb, fingerprint: &str) -> Result<bool, ProtocolError> {
     let row = sqlx::query_as::<_, (i64,)>(
-        "SELECT 1 FROM authorized_key_revocations WHERE fingerprint = ?",
+        "SELECT 1 FROM authorized_key_revocations WHERE fingerprint = $1",
     )
     .bind(fingerprint)
     .fetch_optional(database.pool())
@@ -269,7 +272,7 @@ async fn upsert_imported_key(
     let mut transaction = database.pool().begin().await?;
     sqlx::query(
         "INSERT INTO authorized_keys (fingerprint, public_key, label, added_at) \
-         VALUES (?, ?, ?, ?) \
+         VALUES ($1, $2, $3, $4) \
          ON CONFLICT (fingerprint) DO UPDATE SET label = excluded.label",
     )
     .bind(fingerprint)
@@ -279,7 +282,7 @@ async fn upsert_imported_key(
     .execute(&mut *transaction)
     .await?;
     if let Some(account_id) = browser_account_id {
-        let worker = sqlx::query_as::<_, (i64,)>("SELECT 1 FROM workers WHERE fp = ?")
+        let worker = sqlx::query_as::<_, (i64,)>("SELECT 1 FROM workers WHERE fp = $1")
             .bind(fingerprint)
             .fetch_optional(&mut *transaction)
             .await?;
@@ -287,7 +290,7 @@ async fn upsert_imported_key(
             sqlx::query(
                 "INSERT INTO account_devices \
                    (fingerprint, account_id, added_at_ms, last_seen_at_ms) \
-                 VALUES (?, ?, ?, ?) \
+                 VALUES ($1, $2, $3, $4) \
                  ON CONFLICT (fingerprint) DO UPDATE SET last_seen_at_ms = excluded.last_seen_at_ms",
             )
             .bind(fingerprint)

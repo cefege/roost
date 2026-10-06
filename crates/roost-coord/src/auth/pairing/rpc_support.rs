@@ -161,7 +161,7 @@ pub(crate) async fn read_under_token(
 ) -> Result<PollRow, ConnectError> {
     let row = sqlx::query_as::<_, (String, i64)>(
         "SELECT status, expires_at_ms FROM pair_requests \
-          WHERE ephemeral_id = ? AND requester_token_hash = ? \
+          WHERE ephemeral_id = $1 AND requester_token_hash = $2 \
             AND requester_token_hash != ''",
     )
     .bind(ephemeral_id)
@@ -190,7 +190,7 @@ pub(crate) async fn list_pending(
         "SELECT ephemeral_id, label, created_at_ms, user_agent, client_browser, client_os, \
                 client_device_type, source_ip, country_code, region, city, \
                 edge_identity_provider, edge_identity, edge_identity_verified, expires_at_ms \
-           FROM pair_requests WHERE status = 'pending' AND expires_at_ms > ? \
+           FROM pair_requests WHERE status = 'pending' AND expires_at_ms > $1 \
           ORDER BY created_at_ms DESC",
     )
     .bind(now_ms)
@@ -253,7 +253,7 @@ pub(crate) async fn read_status_facts(
     ephemeral_id: &str,
 ) -> super::PairingResult<Option<ApprovalStatusFacts>> {
     let row = sqlx::query_as::<_, (String, Option<String>, i64)>(
-        "SELECT status, approved_by_fp, expires_at_ms FROM pair_requests WHERE ephemeral_id = ?",
+        "SELECT status, approved_by_fp, expires_at_ms FROM pair_requests WHERE ephemeral_id = $1",
     )
     .bind(ephemeral_id)
     .fetch_optional(database.pool())

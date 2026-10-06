@@ -14,6 +14,7 @@
 //! The supersession fences are in `push_dispatch_fences.rs`; this half is
 //! about target resolution, which happens before any fence matters.
 
+mod db_support;
 mod push_fixture;
 
 use std::collections::BTreeSet;
@@ -59,7 +60,7 @@ fn transition(kind: PushTransition, revision: u64) -> AgentPushTransition {
 async fn seed_second_device(fixture: &PushFixture, fp: &str) {
     sqlx::query(
         "INSERT INTO authorized_keys (fingerprint, public_key, label, added_at) \
-         VALUES (?1, ?2, 'second', 1000)",
+         VALUES ($1, $2, 'second', 1000)",
     )
     .bind(fp)
     .bind(vec![1_u8; 32])
@@ -68,7 +69,7 @@ async fn seed_second_device(fixture: &PushFixture, fp: &str) {
     .expect("the second device key");
     sqlx::query(
         "INSERT INTO account_devices (fingerprint, account_id, added_at_ms, last_seen_at_ms) \
-         VALUES (?1, ?2, 1000, 1000)",
+         VALUES ($1, $2, 1000, 1000)",
     )
     .bind(fp)
     .bind(&fixture.account_id)

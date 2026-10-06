@@ -18,6 +18,8 @@
 //! be stated here rather than inherited.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
+
 use std::sync::Arc;
 
 use roost_coord::coord_core::seams::CoordTerminal;
@@ -77,7 +79,7 @@ async fn terminal_seam_wiring_is_the_real_hubs() {
     let root = std::env::temp_dir().join(format!("roost-terminal-seam-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).expect("a scratch directory");
-    let database = roost_coord::db::open(&root.join("coord.db"))
+    let database = db_support::open_test_database(&root)
         .await
         .expect("a migrated coordinator database");
     let services = CoordServices::new(database);

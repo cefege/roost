@@ -46,7 +46,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use futures_util::future::BoxFuture;
 use roost_protocol::wire::{SessionEvent, WorkerFp};
-use sqlx::sqlite::SqliteConnection;
+use sqlx::AnyConnection;
 
 use crate::db::CoordDb;
 use crate::events::agent_conversation_recovery::AgentConversationRecoveryError;
@@ -246,7 +246,7 @@ pub trait LiveEffects: Send + Sync {
 /// `String`, so the bound costs nothing.
 pub type AtomicExtraWork<'a> = Box<
     dyn for<'connection> FnMut(
-            &'connection mut SqliteConnection,
+            &'connection mut AnyConnection,
         ) -> BoxFuture<
             'connection,
             Result<(), Box<dyn std::error::Error + Send + Sync>>,

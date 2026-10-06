@@ -50,7 +50,7 @@ impl std::fmt::Debug for EventLog {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("EventLog")
-            .field("database", &self.database.path())
+            .field("database", &self.database.backend())
             .field("buses", &self.buses)
             .field(
                 "retained_publications",

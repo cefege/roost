@@ -7,6 +7,7 @@
 //! at the socket boundary. The fences at open are `sync_ws_socket_fences.rs`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod sync_ws_socket_support;
 mod ws_client_support;
 mod ws_credential_support;

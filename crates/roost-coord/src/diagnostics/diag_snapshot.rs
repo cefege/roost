@@ -24,10 +24,11 @@ use roost_host::build_identity::{COMPILED_ROOST_ARTIFACT_VERSION, DEV_BUILD_STAM
 use roost_proto as proto;
 use roost_protocol::wire::WorkerFp;
 use serde_json::{Map, Value, json};
-use sqlx::SqlitePool;
+use sqlx::AnyPool;
 
 use crate::auth::principal::require_account_device;
 use crate::coord_core::{Caller, CoordCore};
+use crate::db::{IN_LIST_CHUNK, SqlBuilder, push_in_list};
 use crate::diagnostics::session_state::{
     DiagSessionRow, DiagSessionScope, coord_session_diagnostic,
 };
@@ -216,21 +217,17 @@ struct DiagScope {
     truncated: bool,
 }
 
-async fn read_scope(pool: &SqlitePool, filter_ids: &[String]) -> Result<DiagScope, sqlx::Error> {
+async fn read_scope(pool: &AnyPool, filter_ids: &[String]) -> Result<DiagScope, sqlx::Error> {
     let filtered = !filter_ids.is_empty();
-    let cap = DIAG_SNAPSHOT_MAX_SESSION_FILTER_IDS as i64;
-    let filter_json = json!(filter_ids).to_string();
-    let session_rows: Vec<(String, String, i64)> = sqlx::query_as(
+    let filter: Vec<&str> = filter_ids.iter().map(String::as_str).collect();
+    let session_rows: Vec<(String, String, i64)> = fetch_live_rows(
+        pool,
         "SELECT session.id, session.worker_fp, session.channel \
          FROM sessions AS session JOIN workers AS worker ON worker.fp = session.worker_fp \
-         WHERE session.status = 'open' AND worker.deleted_at_ms IS NULL \
-         AND (?1 = 0 OR session.id IN (SELECT value FROM json_each(?2))) \
-         LIMIT CASE WHEN ?1 = 0 THEN ?3 ELSE -1 END",
+         WHERE session.status = 'open' AND worker.deleted_at_ms IS NULL",
+        "session.id",
+        filtered.then_some(filter.as_slice()),
     )
-    .bind(filtered)
-    .bind(&filter_json)
-    .bind(cap)
-    .fetch_all(pool)
     .await?;
     let session_row_count = session_rows.len();
     let sessions: Vec<DiagSessionRow> = session_rows
@@ -258,22 +255,13 @@ async fn read_scope(pool: &SqlitePool, filter_ids: &[String]) -> Result<DiagScop
     let worker_rows: Vec<(String,)> = if filtered && session_worker_fps.is_empty() {
         Vec::new()
     } else {
-        let worker_json = json!(
-            session_worker_fps
-                .iter()
-                .map(WorkerFp::as_str)
-                .collect::<Vec<_>>()
+        let worker_fps: Vec<&str> = session_worker_fps.iter().map(WorkerFp::as_str).collect();
+        fetch_live_rows(
+            pool,
+            "SELECT fp FROM workers WHERE deleted_at_ms IS NULL",
+            "fp",
+            filtered.then_some(worker_fps.as_slice()),
         )
-        .to_string();
-        sqlx::query_as(
-            "SELECT fp FROM workers WHERE deleted_at_ms IS NULL \
-             AND (?1 = 0 OR fp IN (SELECT value FROM json_each(?2))) \
-             LIMIT CASE WHEN ?1 = 0 THEN ?3 ELSE -1 END",
-        )
-        .bind(filtered)
-        .bind(&worker_json)
-        .bind(cap)
-        .fetch_all(pool)
         .await?
     };
     let truncated = !filtered
@@ -297,4 +285,31 @@ async fn read_scope(pool: &SqlitePool, filter_ids: &[String]) -> Result<DiagScop
         allowed_worker_fps,
         truncated,
     })
+}
+
+/// The rows `select` yields: every one whose `id_column` is in `filter`, or the
+/// first [`DIAG_SNAPSHOT_MAX_SESSION_FILTER_IDS`] when there is no filter.
+async fn fetch_live_rows<Row>(
+    pool: &AnyPool,
+    select: &'static str,
+    id_column: &'static str,
+    filter: Option<&[&str]>,
+) -> Result<Vec<Row>, sqlx::Error>
+where
+    Row: for<'row> sqlx::FromRow<'row, sqlx::any::AnyRow> + Send + Unpin,
+{
+    let Some(filter) = filter else {
+        let cap = DIAG_SNAPSHOT_MAX_SESSION_FILTER_IDS as i64;
+        let mut statement = SqlBuilder::new(select);
+        statement.push(" LIMIT ").push_bind(cap);
+        return statement.build_query_as().fetch_all(pool).await;
+    };
+    let mut rows = Vec::with_capacity(filter.len());
+    for chunk in filter.chunks(IN_LIST_CHUNK) {
+        let mut statement = SqlBuilder::new(select);
+        statement.push(" AND ").push(id_column).push(" IN ");
+        push_in_list(&mut statement, chunk);
+        rows.extend(statement.build_query_as().fetch_all(pool).await?);
+    }
+    Ok(rows)
 }

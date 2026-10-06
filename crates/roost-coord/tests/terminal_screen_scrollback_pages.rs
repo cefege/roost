@@ -7,6 +7,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 #[path = "terminal_screen_support/mod.rs"]
 mod support;
 

@@ -169,10 +169,10 @@ impl StoredRelay {
 /// no consumer depended on it, but a stable answer is the difference between a
 /// caller that can rely on it and one that cannot.
 pub const LIST_RELAYS: &str = "SELECT id, label, kind, config_json, created_at_ms FROM mcp_relays \
-                              WHERE dashboard_id = ?1 ORDER BY created_at_ms, id";
+                              WHERE dashboard_id = $1 ORDER BY created_at_ms, id";
 pub const INSERT_RELAY: &str = "INSERT INTO mcp_relays \
                                (id, label, kind, config_json, created_at_ms, dashboard_id) \
-                               VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
+                               VALUES ($1, $2, $3, $4, $5, $6)";
 
 /// The delete and the existence decision in one statement.
 ///
@@ -180,17 +180,17 @@ pub const INSERT_RELAY: &str = "INSERT INTO mcp_relays \
 /// two-statement form also answers about a relay that stopped existing in
 /// between.
 pub const DELETE_RELAY: &str =
-    "DELETE FROM mcp_relays WHERE id = ?1 AND dashboard_id = ?2 RETURNING id";
+    "DELETE FROM mcp_relays WHERE id = $1 AND dashboard_id = $2 RETURNING id";
 
 /// Whether this dashboard holds the relay, which is the authorization for
 /// publishing against it.
-pub const RELAY_HELD: &str = "SELECT id FROM mcp_relays WHERE id = ?1 AND dashboard_id = ?2";
+pub const RELAY_HELD: &str = "SELECT id FROM mcp_relays WHERE id = $1 AND dashboard_id = $2";
 
 /// The `RETURNING id` column of a removed relay, as text.
 ///
 /// The statement bound the id, so what comes back is what was bound; branding it
 /// is the caller's job, and a row answering with anything else is reported
 /// rather than papered over.
-pub fn removed_id(row: sqlx::sqlite::SqliteRow) -> Result<String, sqlx::Error> {
+pub fn removed_id(row: sqlx::any::AnyRow) -> Result<String, sqlx::Error> {
     row.try_get("id")
 }

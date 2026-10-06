@@ -21,10 +21,10 @@
 use connectrpc::RequestContext;
 use roost_observability::LogFields;
 use roost_observability::log::error as log_error;
-use sqlx::{QueryBuilder, Row, Sqlite};
+use sqlx::Row;
 
 use crate::coord_core::{Caller, CoordCore, ListenerTrust};
-use crate::db::CoordDb;
+use crate::db::{CoordDb, SqlBuilder};
 use crate::events::bus_messages::AuditRow;
 use crate::middleware::audit_policy::{
     AuditSkip, NonConnectSurface, should_persist_connect_audit, should_persist_non_connect_audit,
@@ -296,7 +296,7 @@ async fn insert_rows(
     // One instant for the batch: rows written together must not straddle a
     // millisecond, or a read ordered by (ts, id) disagrees with the bus order.
     let ts = crate::serve::now_ms();
-    let mut statement = QueryBuilder::<Sqlite>::new(
+    let mut statement = SqlBuilder::new(
         "INSERT INTO audit_log (ts, caller_fp, dashboard_id, method, path, status, trace_id) ",
     );
     // `Separated::push` takes SQL text; bound values go in with `push_bind`, or

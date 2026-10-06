@@ -12,7 +12,7 @@
 //! once takes that window every time. A test asserts the shape by racing two
 //! subscribes; see `tests/push_subscription_rpc.rs`.
 
-use sqlx::{Row, SqlitePool};
+use sqlx::{AnyPool, Row};
 
 use crate::push::endpoint_policy::PushInputError;
 
@@ -53,14 +53,14 @@ const UPSERT_SUBSCRIPTION: &str = "\
     INSERT INTO push_subscriptions (
       dashboard_id, viewer_fp, endpoint, p256dh, auth, created_at_ms
     )
-    SELECT ?1, ?2, ?3, ?4, ?5, ?6
+    SELECT $1, $2, $3, $4, $5, $6
     WHERE EXISTS (
       SELECT 1 FROM push_subscriptions
-      WHERE viewer_fp = ?2 AND endpoint = ?3
+      WHERE viewer_fp = $2 AND endpoint = $3
     ) OR (
       SELECT COUNT(*) FROM push_subscriptions
-      WHERE viewer_fp = ?2
-    ) < ?7
+      WHERE viewer_fp = $2
+    ) < $7
     ON CONFLICT (dashboard_id, viewer_fp, endpoint) DO UPDATE SET
       p256dh = excluded.p256dh,
       auth = excluded.auth,
@@ -73,7 +73,7 @@ const UPSERT_SUBSCRIPTION: &str = "\
 /// the behaviour that lets a device recover after the operator raises the cap
 /// or after the device drops a stale endpoint.
 pub async fn store_subscription(
-    pool: &SqlitePool,
+    pool: &AnyPool,
     dashboard_id: &str,
     viewer_fp: &str,
     endpoint: &str,
@@ -104,11 +104,11 @@ pub async fn store_subscription(
 /// Silently succeeds when there was nothing to remove: an unsubscribe for an
 /// endpoint this device never held is the state the caller asked for.
 pub async fn remove_subscription(
-    pool: &SqlitePool,
+    pool: &AnyPool,
     viewer_fp: &str,
     endpoint: &str,
 ) -> Result<(), PushInputError> {
-    sqlx::query("DELETE FROM push_subscriptions WHERE viewer_fp = ?1 AND endpoint = ?2")
+    sqlx::query("DELETE FROM push_subscriptions WHERE viewer_fp = $1 AND endpoint = $2")
         .bind(viewer_fp)
         .bind(endpoint)
         .execute(pool)
@@ -131,7 +131,7 @@ pub async fn remove_subscription(
 /// re-enables it does not have to re-pair every browser -- but receives nothing
 /// while it is disabled.
 pub async fn take_deliverable_subscriptions(
-    pool: &SqlitePool,
+    pool: &AnyPool,
 ) -> Result<Vec<StoredSubscription>, PushInputError> {
     prune_orphaned_subscriptions(pool).await?;
     let rows = sqlx::query(
@@ -170,7 +170,7 @@ fn store_error(error: sqlx::Error) -> PushInputError {
 }
 
 /// Delete every subscription whose fingerprint is no longer an account device.
-async fn prune_orphaned_subscriptions(pool: &SqlitePool) -> Result<(), PushInputError> {
+async fn prune_orphaned_subscriptions(pool: &AnyPool) -> Result<(), PushInputError> {
     sqlx::query(
         "DELETE FROM push_subscriptions \
          WHERE NOT EXISTS ( \
@@ -185,8 +185,8 @@ async fn prune_orphaned_subscriptions(pool: &SqlitePool) -> Result<(), PushInput
 }
 
 /// Count the endpoints one device currently holds. Test and diagnostic use.
-pub async fn subscription_count(pool: &SqlitePool, viewer_fp: &str) -> Result<i64, PushInputError> {
-    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM push_subscriptions WHERE viewer_fp = ?1")
+pub async fn subscription_count(pool: &AnyPool, viewer_fp: &str) -> Result<i64, PushInputError> {
+    sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM push_subscriptions WHERE viewer_fp = $1")
         .bind(viewer_fp)
         .fetch_one(pool)
         .await

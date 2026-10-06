@@ -191,7 +191,7 @@ async fn complete(
         "INSERT INTO authorized_keys ( \
              fingerprint, public_key, label, added_at, paired_from_ip, \
              paired_country, paired_user_agent, paired_edge_identity) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
          ON CONFLICT (fingerprint) DO UPDATE SET \
              label = excluded.label, \
              paired_from_ip = excluded.paired_from_ip, \
@@ -278,7 +278,7 @@ async fn record_attempt(
     now_ms: i64,
 ) -> PairingResult<()> {
     sqlx::query(
-        "UPDATE pair_requests SET verification_attempts = ? WHERE id = ? \
+        "UPDATE pair_requests SET verification_attempts = $1 WHERE id = $2 \
           AND status = 'verification_required'",
     )
     .bind(record.attempts)

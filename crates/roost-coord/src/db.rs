@@ -1,9 +1,13 @@
-//! Opening the coordinator's SQLite file, and the pragmas that make one
-//! connection enough.
+//! Opening the coordinator's database — a SQLite file it owns or a Postgres
+//! server someone else runs — and migrating it before anything reads it.
 //!
 //! Owned by the coordinator. Everything above this file takes a `CoordDb` and
-//! never opens a connection, so the pragma set and the migration are stated in
-//! exactly one place.
+//! never opens a connection, so the connection setup and the migration are
+//! stated in exactly one place; `db/backend.rs` holds the per-backend half.
+//! Every statement in this crate is written once, in the dialect both backends
+//! accept (`$n` placeholders, no SQLite-only functions); the few that cannot be
+//! — `PRAGMA`, `VACUUM`, the backup and export file — branch on
+//! [`CoordDb::backend`] or refuse with [`DbError::SqliteOnly`].
 //!
 //! **THE COORDINATOR NEVER OPENS A v2 DATABASE.** It has its own data
 //! directory, its own database name, and its own squashed migration, and there
@@ -15,11 +19,11 @@
 //! left to import — which is why `roost import-v2` refuses to run while one is
 //! running.
 //!
-//! ONE CONNECTION, NOT A POOL. v2 opens a single `bun:sqlite` handle and Kysely
-//! reads and writes through it (`apps/coord/src/db/connection.ts:26-49`);
+//! SQLITE IS ONE CONNECTION, NOT A POOL. v2 opens a single `bun:sqlite` handle
+//! and Kysely reads and writes through it (`apps/coord/src/db/connection.ts:26-49`);
 //! concurrency comes from WAL plus a busy timeout plus the in-process write gate.
-//! Modelling a reader/writer pool would be a behavioural change, not an
-//! optimisation, so this type is a pool of one and says so.
+//! Modelling a reader/writer pool there would be a behavioural change, not an
+//! optimisation. Postgres arbitrates its own writers, so it gets a real pool.
 //!
 //! `synchronous = NORMAL` IS DELIBERATE AND MUST NOT BE "FIXED" TO FULL. The
 //! comment that settles it (`connection.ts:26-33`): "WAL + synchronous=NORMAL is
@@ -31,30 +35,59 @@
 //! on an OS crash or power loss, not a process crash, and the `events` table is
 //! re-derivable from the worker snapshot every worker emits on reconnect.
 //!
-//! Ports `apps/coord/src/db/connection.ts` and `apps/coord/src/db/migrate.ts`;
-//! `db/migration_validation.rs` ports `migration-validation.ts`. v2's
-//! `migrations-embed.generated.ts` (the SQL baked into the binary) is
-//! `sqlx::migrate!` here, and its Kysely `db/schema.ts` has no counterpart: the
-//! schema is `migrations/0001_init.sql`, and every domain owns its row type.
+//! The schema is `migrations/sqlite/0001_init.sql` and its lockstep Postgres
+//! translation `migrations/postgres/0001_init.sql`; every domain owns its row
+//! type. `db/migration_validation.rs` ports `migration-validation.ts`.
 
+mod backend;
+mod in_list;
 mod migration_validation;
+mod sql_builder;
 
 use std::collections::HashSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-/// The coordinator's database handle: a pool of one, plus the path it owns.
+use roost_host::DatabaseLocation;
+
+pub use backend::POSTGRES_POOL_SIZE;
+pub use in_list::{IN_LIST_CHUNK, push_in_list};
+pub use sql_builder::{Separated, SqlBuilder};
+
+/// Which server is behind a [`CoordDb`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DbBackend {
+    /// A SQLite file this coordinator owns.
+    Sqlite,
+    /// An external Postgres server.
+    Postgres,
+}
+
+impl DbBackend {
+    /// The backend's name in logs.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Sqlite => "sqlite",
+            Self::Postgres => "postgres",
+        }
+    }
+}
+
+/// The coordinator's database handle: the pool, its backend, and the SQLite
+/// file it owns when it owns one.
 #[derive(Debug, Clone)]
 pub struct CoordDb {
-    pool: sqlx::SqlitePool,
-    path: std::path::PathBuf,
+    pool: sqlx::AnyPool,
+    backend: DbBackend,
+    sqlite_path: Option<PathBuf>,
 }
 
 /// Why the database could not be opened or migrated.
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
     /// The pool could not be created, or a statement failed.
-    #[error("sqlite: {0}")]
+    #[error("database: {0}")]
     Sqlite(#[from] sqlx::Error),
     /// A migration could not be read out of the embedded set.
     #[error("migration {name}: {reason}")]
@@ -89,9 +122,13 @@ pub enum DbError {
          directory and `roost import-v2` is how an identity crosses over"
     )]
     UnknownMigration { version: i64 },
+    /// A file-level operation was asked of a database that is not a file.
+    #[error("{0} needs the SQLite backend")]
+    SqliteOnly(&'static str),
 }
 
-/// How long a statement waits for a write lock before giving up.
+/// How long a statement waits for a write lock, or a caller for a pooled
+/// connection, before giving up.
 ///
 /// 5 s (`connection.ts:30`): "prevents SQLITE_BUSY under light write
 /// contention". Above the write gate's own hold time, so a mutation queued behind
@@ -150,53 +187,46 @@ pub fn validate_migration_history<'a>(
 /// Open the coordinator's database, creating and migrating it if needed.
 ///
 /// Migrations run before this returns, so nothing above this line ever observes
-/// a schema that is one migration behind -- and neither does anything observe a
-/// file with foreign-key enforcement off or a row violating one: both refuse the
-/// open, which is what keeps a damaged database from ever binding a port.
-pub async fn open(path: &Path) -> Result<CoordDb, DbError> {
+/// a schema that is one migration behind -- and on SQLite neither does anything
+/// observe a file with foreign-key enforcement off or a row violating one: both
+/// refuse the open, which is what keeps a damaged database from ever binding a
+/// port. Postgres enforces foreign keys unconditionally and owns its own
+/// integrity, so those checks are SQLite's alone.
+pub async fn open(location: &DatabaseLocation) -> Result<CoordDb, DbError> {
+    sqlx::any::install_default_drivers();
     // Captured before the connect, which creates the file: this is the gate
-    // the pre-migration backup hangs on.
-    let existed = path.exists();
-    let options = sqlx::sqlite::SqliteConnectOptions::new()
-        .filename(path)
-        .create_if_missing(true)
-        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-        // See the module header: this is the load-bearing pair, and the
-        // performance note is the incident that fixed it.
-        .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
-        .busy_timeout(BUSY_TIMEOUT)
-        .foreign_keys(true)
-        // Negative means KiB, not pages: 8 MiB explicitly rather than the
-        // implicit 2 MiB default (`connection.ts:36`).
-        .pragma("cache_size", "-8000")
-        // Mapped pages count against the cgroup; keep them out of RSS
-        // (`connection.ts:38`).
-        .pragma("mmap_size", "0")
-        // A 64 MiB backstop on one query's allocations (`connection.ts:40`).
-        .pragma("soft_heap_limit", "67108864")
-        // A ~4 MiB WAL target, pinned so a config change is visible
-        // (`connection.ts:42`).
-        .pragma("wal_autocheckpoint", "1000")
-        // Truncate the -wal back to 32 MiB after a burst instead of never
-        // (`connection.ts:44`).
-        .pragma("journal_size_limit", "33554432");
-
-    let pool = sqlx::sqlite::SqlitePoolOptions::new()
-        // One connection, for the reason in the module header.
-        .max_connections(1)
-        .acquire_timeout(BUSY_TIMEOUT)
-        .connect_with(options)
-        .await?;
-
-    let database = CoordDb {
-        pool,
-        path: path.to_path_buf(),
+    // the pre-migration backup hangs on. A Postgres database always "existed":
+    // its backups are the server operator's.
+    let (database, existed) = match location {
+        DatabaseLocation::SqliteFile(path) => {
+            let existed = path.exists();
+            let pool = backend::connect_sqlite(path).await?;
+            let database = CoordDb {
+                pool,
+                backend: DbBackend::Sqlite,
+                sqlite_path: Some(path.clone()),
+            };
+            (database, existed)
+        }
+        DatabaseLocation::Postgres(url) => {
+            let pool = backend::connect_postgres(url).await?;
+            let database = CoordDb {
+                pool,
+                backend: DbBackend::Postgres,
+                sqlite_path: None,
+            };
+            (database, true)
+        }
     };
+    let backend = database.backend.label();
 
     // v2 verifies enforcement before it reads its migration history
     // (`migrate.ts:292-293`); a migration never runs on an unenforced handle.
     migration_validation::enable_and_verify_foreign_keys(&database).await?;
-    let mut migrator = sqlx::migrate!("./migrations");
+    let mut migrator = match database.backend {
+        DbBackend::Sqlite => sqlx::migrate!("./migrations/sqlite"),
+        DbBackend::Postgres => sqlx::migrate!("./migrations/postgres"),
+    };
     let applied = applied_migrations(&database).await?;
     // Before the backup and before anything runs: a history this build does not
     // recognise is a file it must not write to, and spending one of the
@@ -209,20 +239,19 @@ pub async fn open(path: &Path) -> Result<CoordDb, DbError> {
     migrator.set_ignore_missing(true);
     let pending = pending_migrations(&migrator, &applied);
     if !pending.is_empty() {
-        tracing::info!(path = %path.display(), pending = ?pending, "database migrations pending");
+        tracing::info!(backend, pending = ?pending, "database migrations pending");
     }
 
     // Boot step 3 (contract §1.1): the pre-migration backup, ONLY if the file
     // already existed (`main.ts:60`, backing up a file the connect just created
     // is theatre) AND a migration is pending (`migrate.ts:319`, a restart that
     // migrates nothing must not spend one of the fourteen kept archives).
-    // `existed` is captured BEFORE connecting because the connect creates it.
     //
     // A failure here STOPS the open. v2 passes this as a hook into
     // `runMigrations` (`main.ts:64`), so a backup that cannot be taken fails
     // the migration with it -- if there is no recoverable copy, a destructive
     // migration must not proceed.
-    if existed && !pending.is_empty() {
+    if existed && !pending.is_empty() && database.backend == DbBackend::Sqlite {
         crate::maintenance::backup::run_backup(
             &database,
             crate::maintenance::backup::BackupReason::PreMigration,
@@ -234,7 +263,7 @@ pub async fn open(path: &Path) -> Result<CoordDb, DbError> {
     migration_validation::enable_and_verify_foreign_keys(&database).await?;
     if let Some(final_migration) = pending.last() {
         migration_validation::validate_integrity(&database, final_migration).await?;
-        tracing::info!(path = %path.display(), applied = pending.len(), "database migrated");
+        tracing::info!(backend, applied = pending.len(), "database migrated");
     }
     // Every open, not only after a migration as v2 gates it (`migrate.ts:343`):
     // with one squashed migration that gate would only ever check a file that
@@ -244,20 +273,14 @@ pub async fn open(path: &Path) -> Result<CoordDb, DbError> {
     Ok(database)
 }
 
-/// Every version `_sqlx_migrations` records, or nothing on a file that has
+/// Every version `_sqlx_migrations` records, or nothing on a database that has
 /// never been migrated.
 ///
 /// Read from `_sqlx_migrations` directly rather than through `Migrate`, whose
 /// listing creates that table first -- a write the pre-migration backup must
 /// not be taken after.
 async fn applied_migrations(database: &CoordDb) -> Result<HashSet<i64>, DbError> {
-    let (history_exists,): (bool,) = sqlx::query_as(
-        "SELECT EXISTS (SELECT 1 FROM sqlite_master \
-          WHERE type = 'table' AND name = '_sqlx_migrations')",
-    )
-    .fetch_one(database.pool())
-    .await?;
-    if !history_exists {
+    if !backend::migration_history_exists(database).await? {
         return Ok(HashSet::new());
     }
     Ok(
@@ -270,7 +293,7 @@ async fn applied_migrations(database: &CoordDb) -> Result<HashSet<i64>, DbError>
     )
 }
 
-/// The embedded migrations this file has not applied yet, by description.
+/// The embedded migrations this database has not applied yet, by description.
 fn pending_migrations(migrator: &sqlx::migrate::Migrator, applied: &HashSet<i64>) -> Vec<String> {
     migrator
         .iter()
@@ -282,17 +305,23 @@ fn pending_migrations(migrator: &sqlx::migrate::Migrator, applied: &HashSet<i64>
 }
 
 impl CoordDb {
-    /// The pool. A pool of one, so a caller that sees a pool type is not tempted
-    /// to scale it.
+    /// The pool: one connection on SQLite, [`POSTGRES_POOL_SIZE`] on Postgres.
     #[must_use]
-    pub fn pool(&self) -> &sqlx::SqlitePool {
+    pub fn pool(&self) -> &sqlx::AnyPool {
         &self.pool
     }
 
-    /// The file this handle owns.
+    /// Which server is behind this handle.
     #[must_use]
-    pub fn path(&self) -> &Path {
-        &self.path
+    pub fn backend(&self) -> DbBackend {
+        self.backend
+    }
+
+    /// The SQLite file this handle owns, or `None` on Postgres — the switch
+    /// every file-level feature (backup, export, integrity check) turns on.
+    #[must_use]
+    pub fn sqlite_path(&self) -> Option<&Path> {
+        self.sqlite_path.as_deref()
     }
 
     /// Apply every pending embedded migration.
@@ -321,6 +350,7 @@ impl CoordDb {
     /// handed to an operator as a backup
     /// (`apps/coord/src/db/snapshot.ts:24-26`).
     pub async fn integrity_check(&self) -> Result<bool, DbError> {
+        self.require_sqlite("integrity_check")?;
         let row: (String,) = sqlx::query_as("PRAGMA integrity_check")
             .fetch_one(&self.pool)
             .await?;
@@ -335,13 +365,21 @@ impl CoordDb {
     /// file on failure -- all three are steps, not options, and a snapshot that
     /// skipped any of them is the failure this ordering exists to prevent.
     pub async fn vacuum_into(&self, destination: &Path) -> Result<(), DbError> {
+        self.require_sqlite("vacuum_into")?;
         // The path is BOUND, never interpolated. SQLite's `VACUUM INTO` takes an
         // expression, so a bound parameter is both correct and the only spelling
         // that cannot turn a database path into SQL.
-        sqlx::query("VACUUM INTO ?")
-            .bind(destination.to_string_lossy())
+        sqlx::query("VACUUM INTO $1")
+            .bind(destination.to_string_lossy().into_owned())
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    fn require_sqlite(&self, operation: &'static str) -> Result<(), DbError> {
+        match self.backend {
+            DbBackend::Sqlite => Ok(()),
+            DbBackend::Postgres => Err(DbError::SqliteOnly(operation)),
+        }
     }
 }

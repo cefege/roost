@@ -53,7 +53,7 @@ impl CeremonyFixture {
         let root = std::env::temp_dir().join(format!("roost-pairing-confirm-{label}"));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database = roost_coord::db::open(&root.join("coord.db"))
+        let database = super::db_support::open_test_database(&root)
             .await
             .expect("a migrated database");
         let fixture = Self { database, root };
@@ -94,10 +94,13 @@ impl CeremonyFixture {
              VALUES ('{DASHBOARD}', '{ACCOUNT}', 'admin', 0)"
         ))
         .await;
-        self.exec(&format!(
-            "INSERT INTO authorized_keys (fingerprint, public_key, label, added_at) \
-             VALUES ('{APPROVER}', x'01', 'operator laptop', 0)"
-        ))
+        super::db_support::insert_authorized_key(
+            &self.database,
+            APPROVER,
+            &[1],
+            "operator laptop",
+            None,
+        )
         .await;
         self.exec(&format!(
             "INSERT INTO account_devices (fingerprint, account_id, added_at_ms, last_seen_at_ms) \
@@ -218,7 +221,7 @@ impl CeremonyFixture {
     }
 
     pub async fn status(&self) -> Option<String> {
-        sqlx::query_as::<_, (String,)>("SELECT status FROM pair_requests WHERE ephemeral_id = ?")
+        sqlx::query_as::<_, (String,)>("SELECT status FROM pair_requests WHERE ephemeral_id = $1")
             .bind(HANDLE)
             .fetch_optional(self.database.pool())
             .await

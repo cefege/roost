@@ -214,8 +214,12 @@ fn the_coordinator_database_follows_the_data_directory_override() {
     let config =
         load_coord_config(&env, HostPlatform::Linux).unwrap_or_else(|error| panic!("{error}"));
     assert_eq!(
-        config.db_path,
-        Path::new("/srv/roost/coord").join(COORD_DB_FILE_NAME)
+        config.database.sqlite_file(),
+        Some(
+            Path::new("/srv/roost/coord")
+                .join(COORD_DB_FILE_NAME)
+                .as_path()
+        )
     );
     assert_eq!(
         config.authorized_keys_path,

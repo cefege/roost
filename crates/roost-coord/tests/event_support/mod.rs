@@ -73,6 +73,8 @@ pub fn workspace_id(last: char) -> WorkspaceId {
 pub struct EventFixture {
     /// The handle appends run on.
     pub writer: CoordDb,
+    /// Where the writer's database is, for a second connection to it.
+    pub location: roost_host::DatabaseLocation,
     /// The synchronous second connection. See the module header.
     pub reader: SyncReader,
     /// The buses the publication half publishes to.
@@ -134,14 +136,15 @@ impl EventFixture {
             std::process::id()
         ));
         std::fs::create_dir_all(&directory).expect("the fixture directory is creatable");
-        let path = directory.join("coord.db");
-        let writer = open_database(&path)
+        let location = super::db_support::test_database_location(&directory).await;
+        let writer = open_database(&location)
             .await
             .expect("the fixture database opens");
         seed_tenancy(&writer).await;
-        let reader = SyncReader::open(&path);
+        let reader = SyncReader::open(&location);
         Self {
             writer,
+            location,
             reader,
             buses: Buses::shared(),
             publications: Arc::new(Mutex::new(PendingPublicationStore::new())),
@@ -166,12 +169,13 @@ impl EventFixture {
 
     /// How many durable rows the `events` table holds for one worker's sequence.
     pub async fn rows_for(&self, worker_fp: &WorkerFp, client_seq: u64) -> i64 {
-        let row = sqlx::query("SELECT COUNT(*) FROM events WHERE worker_fp = ? AND client_seq = ?")
-            .bind(worker_fp.as_str())
-            .bind(client_seq as i64)
-            .fetch_one(self.writer.pool())
-            .await
-            .expect("the count query runs");
+        let row =
+            sqlx::query("SELECT COUNT(*) FROM events WHERE worker_fp = $1 AND client_seq = $2")
+                .bind(worker_fp.as_str())
+                .bind(client_seq as i64)
+                .fetch_one(self.writer.pool())
+                .await
+                .expect("the count query runs");
         row.get::<i64, _>(0)
     }
 
@@ -223,7 +227,7 @@ impl EventFixture {
 pub async fn seed_tenancy(database: &CoordDb) {
     sqlx::query(
         "INSERT INTO organizations (id, slug, name, status, created_at_ms) \
-         VALUES (?, ?, ?, 'active', 1)",
+         VALUES ($1, $2, $3, 'active', 1)",
     )
     .bind(ORGANIZATION_ID)
     .bind("fixture-org")
@@ -233,7 +237,7 @@ pub async fn seed_tenancy(database: &CoordDb) {
     .expect("the organization inserts");
     sqlx::query(
         "INSERT INTO dashboards (id, organization_id, slug, name, status, created_at_ms) \
-         VALUES (?, ?, ?, ?, 'active', 1)",
+         VALUES ($1, $2, $3, $4, 'active', 1)",
     )
     .bind(DASHBOARD_ID)
     .bind(ORGANIZATION_ID)
@@ -245,7 +249,7 @@ pub async fn seed_tenancy(database: &CoordDb) {
     for byte in ['d', 'e'] {
         sqlx::query(
             "INSERT INTO workers (fp, label, os, registered_at_ms, last_seen_ms, dashboard_id) \
-             VALUES (?, 'fixture', 'linux', 1, 1, ?)",
+             VALUES ($1, 'fixture', 'linux', 1, 1, $2)",
         )
         .bind(fingerprint(byte).as_str())
         .bind(DASHBOARD_ID)
@@ -268,7 +272,7 @@ impl RecordingEffects {
     /// fixture's second connection.
     pub fn new(fixture: &EventFixture) -> Self {
         Self {
-            reader: Arc::new(SyncReader::open(fixture.writer.path())),
+            reader: Arc::new(SyncReader::open(&fixture.location)),
             observed: Arc::clone(&fixture.observed),
         }
     }

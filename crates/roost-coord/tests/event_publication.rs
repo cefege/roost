@@ -11,6 +11,7 @@
 // IS the failure, which is why `unwrap_used` is denied in product code.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod event_support;
 
 use std::sync::{Arc, Mutex, PoisonError};
@@ -162,7 +163,7 @@ async fn a_closed_event_orphans_its_workspace_and_publishes_the_deletion() {
 
     sqlx::query(
         "INSERT INTO workspaces (id, worker_fp, name, created_at_ms, updated_at_ms, dashboard_id) \
-         VALUES (?, ?, 'w', 1, 1, ?)",
+         VALUES ($1, $2, 'w', 1, 1, $3)",
     )
     .bind(workspace.as_str())
     .bind(worker.as_str())
@@ -208,7 +209,7 @@ async fn a_closed_event_orphans_its_workspace_and_publishes_the_deletion() {
         &[workspace.as_str().to_owned()],
         "the last pane in a workspace deletes it, and says so on the bus"
     );
-    let remaining: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM workspaces WHERE id = ?")
+    let remaining: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM workspaces WHERE id = $1")
         .bind(workspace.as_str())
         .fetch_one(fixture.writer.pool())
         .await

@@ -35,14 +35,16 @@ impl BackupFixture {
         let root = std::env::temp_dir().join(format!("roost-backup-{label}"));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database = roost_coord::db::open(&root.join("coord.db"))
-            .await
-            .expect("a migrated database");
+        let database = roost_coord::db::open(&roost_host::DatabaseLocation::SqliteFile(
+            root.join("coord.db"),
+        ))
+        .await
+        .expect("a migrated database");
         Self { database, root }
     }
 
     fn directory(&self) -> PathBuf {
-        backups_dir(self.database.path())
+        backups_dir(self.database.sqlite_path().expect("a SQLite file"))
     }
 
     /// Create a directory holding a plausible archive name, as if a previous

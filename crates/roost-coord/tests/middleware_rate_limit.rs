@@ -10,6 +10,7 @@
 // the mount's two load-bearing facts are both about the stack: the limiter sits
 // below the caller-origin layer whose address keys it, and below the preflight
 // branch that answers before it.
+mod db_support;
 mod middleware_support;
 
 use middleware_support::{FixtureConfig, ListenerFixture};

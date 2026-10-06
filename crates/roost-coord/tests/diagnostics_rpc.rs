@@ -11,6 +11,7 @@
 //! be stated here rather than inherited.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 #[path = "diagnostics_support/mod.rs"]
 mod diagnostics_support;
 
@@ -317,7 +318,9 @@ async fn a_browser_may_not_upload_diagnostics_and_a_machine_may_not_either() {
 /// parse, and a handler test has no business standing up a real data directory.
 fn declared_origin(public_url: Option<&str>, web_public_url: Option<&str>) -> CoordConfig {
     CoordConfig::parse(CoordConfigInput {
-        db_path: Some("/nonexistent/coord.db".into()),
+        database: Some(roost_host::DatabaseLocation::SqliteFile(
+            "/nonexistent/coord.db".into(),
+        )),
         authorized_keys_path: Some("/nonexistent/authorized_keys".into()),
         log_dir: Some("/nonexistent/logs".into()),
         public_url: public_url.map(str::to_owned),

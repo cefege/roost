@@ -6,13 +6,12 @@
 
 #![allow(dead_code)]
 
-use std::path::Path;
 use std::sync::mpsc;
 
-use sqlx::Connection;
-use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection};
+use roost_host::DatabaseLocation;
+use sqlx::{AnyConnection, ConnectOptions as _, Connection as _};
 
-/// A second connection to the same file, reachable from a synchronous callback.
+/// A second connection to the same database, reachable from a synchronous callback.
 pub struct SyncReader {
     questions: mpsc::Sender<Question>,
 }
@@ -33,8 +32,14 @@ enum Question {
 
 impl SyncReader {
     /// Open the second connection on its own thread and runtime.
-    pub fn open(path: &Path) -> Self {
-        let path = path.to_path_buf();
+    pub fn open(location: &DatabaseLocation) -> Self {
+        let url = match location {
+            DatabaseLocation::SqliteFile(path) => sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(path)
+                .to_url_lossy()
+                .to_string(),
+            DatabaseLocation::Postgres(url) => url.clone(),
+        };
         let (questions, inbox) = mpsc::channel::<Question>();
         let thread = std::thread::Builder::new()
             .name("roost-event-reader".to_owned())
@@ -44,8 +49,8 @@ impl SyncReader {
                     .build()
                     .expect("the reader runtime builds");
                 runtime.block_on(async {
-                    let options = SqliteConnectOptions::new().filename(&path);
-                    let Ok(mut connection) = SqliteConnection::connect_with(&options).await else {
+                    sqlx::any::install_default_drivers();
+                    let Ok(mut connection) = AnyConnection::connect(&url).await else {
                         // A reader that cannot open sees nothing, which every
                         // assertion that depends on it will fail loudly.
                         return;
@@ -58,7 +63,7 @@ impl SyncReader {
                                 answer,
                             } => {
                                 let visible = sqlx::query(
-                                    "SELECT 1 FROM events WHERE worker_fp = ? AND payload_json = ?",
+                                    "SELECT 1 FROM events WHERE worker_fp = $1 AND payload_json = $2",
                                 )
                                 .bind(&worker_fp)
                                 .bind(&payload_json)

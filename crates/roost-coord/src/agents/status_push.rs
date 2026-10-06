@@ -72,7 +72,7 @@ pub trait AgentStatusPushDelivery: Send + Sync {
 /// The production delivery: the push dispatch, over the coordinator's own
 /// collaborators. Constructed once at boot and installed on the schedule.
 pub struct PushTransitions {
-    pool: sqlx::SqlitePool,
+    pool: sqlx::AnyPool,
     allowed_origins: Vec<String>,
     viewers: Arc<dyn ActiveTerminalViewers>,
     transport: Arc<dyn PushNotificationTransport>,
@@ -84,7 +84,7 @@ impl PushTransitions {
     /// Web Push transport.
     #[must_use]
     pub fn new(
-        pool: sqlx::SqlitePool,
+        pool: sqlx::AnyPool,
         allowed_origins: Vec<String>,
         viewers: Arc<dyn ActiveTerminalViewers>,
         transport: Arc<dyn PushNotificationTransport>,

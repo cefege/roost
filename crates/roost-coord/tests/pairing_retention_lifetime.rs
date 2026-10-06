@@ -23,6 +23,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
+
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -61,7 +63,7 @@ impl SweepFixture {
         let root = std::env::temp_dir().join(format!("roost-pairing-sweep-{label}"));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database: CoordDb = roost_coord::db::open(&root.join("coord.db"))
+        let database: CoordDb = db_support::open_test_database(&root)
             .await
             .expect("a migrated database");
         let fixture = Self {
@@ -81,9 +83,10 @@ impl SweepFixture {
                      id, ephemeral_id, public_key, label, status, created_at_ms, decided_at_ms, \
                      ceremony_version, requester_token_hash, verification_code_hash, \
                      verification_attempts, expires_at_ms) \
-                 VALUES ('row-{handle}', '{handle}', x'0102', 'laptop', 'pending', 0, NULL, \
+                 VALUES ('row-{handle}', '{handle}', $1, 'laptop', 'pending', 0, NULL, \
                          1, 'token-digest', NULL, 0, {expires_at_ms})"
             )))
+            .bind(vec![1_u8, 2])
             .execute(self.services.db.pool())
             .await
             .expect("a seed statement to apply");
@@ -91,7 +94,7 @@ impl SweepFixture {
     }
 
     async fn status_of(&self, handle: &str) -> Option<String> {
-        sqlx::query_as::<_, (String,)>("SELECT status FROM pair_requests WHERE ephemeral_id = ?")
+        sqlx::query_as::<_, (String,)>("SELECT status FROM pair_requests WHERE ephemeral_id = $1")
             .bind(handle)
             .fetch_optional(self.services.db.pool())
             .await

@@ -216,12 +216,15 @@ pub async fn apply(source: &Path, target: &Path, now_ms: i64) -> Result<Applied,
             ))
         })?;
     }
-    let database = roost_coord::db::open(target).await.map_err(|error| {
-        CommandFailure::generic(format!(
-            "the v3 database {} could not be opened: {error}",
-            target.display()
-        ))
-    })?;
+    let target_location = roost_host::DatabaseLocation::SqliteFile(target.to_path_buf());
+    let database = roost_coord::db::open(&target_location)
+        .await
+        .map_err(|error| {
+            CommandFailure::generic(format!(
+                "the v3 database {} could not be opened: {error}",
+                target.display()
+            ))
+        })?;
     copy::attach(database.pool(), source).await?;
     let (mode, reports) = copy::apply(database.pool(), &account).await?;
 

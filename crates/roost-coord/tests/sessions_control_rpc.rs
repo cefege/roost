@@ -8,6 +8,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod sessions_support;
 
 use std::sync::{Arc, Mutex};
@@ -322,7 +323,7 @@ async fn assigning_moves_both_representations_and_republishes_every_touched_work
     };
     let column = format!("SELECT workspace_id FROM sessions WHERE id = '{sid}'");
     let junction = format!(
-        "SELECT group_concat(workspace_id) FROM workspace_sessions WHERE session_id = '{sid}'"
+        "SELECT string_agg(workspace_id, ',') FROM workspace_sessions WHERE session_id = '{sid}'"
     );
 
     let sets = sessions_sets_during(&harness, async {

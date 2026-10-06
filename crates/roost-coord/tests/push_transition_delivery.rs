@@ -16,6 +16,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod agent_fixture;
+mod db_support;
 mod push_fixture;
 
 use std::sync::Arc;
@@ -55,23 +56,28 @@ async fn delivering(label: &str) -> (AgentFixture, Arc<FakeTransport>) {
 
 /// A device of the fixture's account, subscribed at `endpoint`.
 async fn subscribed_device(fixture: &AgentFixture, fp: &str, endpoint: &str) {
-    for statement in [
+    sqlx::query(
         "INSERT INTO authorized_keys (fingerprint, public_key, label, added_at) \
-         VALUES (?1, zeroblob(32), 'push-device', 1000)",
+         VALUES ($1, $2, 'push-device', 1000)",
+    )
+    .bind(fp)
+    .bind(vec![0_u8; 32])
+    .execute(fixture.database().pool())
+    .await
+    .expect("the key row");
+    sqlx::query(
         "INSERT INTO account_devices (fingerprint, account_id, added_at_ms, last_seen_at_ms) \
-         VALUES (?1, ?2, 1000, 1000)",
-    ] {
-        sqlx::query(statement)
-            .bind(fp)
-            .bind(&fixture.account_id)
-            .execute(fixture.database().pool())
-            .await
-            .expect("the device row");
-    }
+         VALUES ($1, $2, 1000, 1000)",
+    )
+    .bind(fp)
+    .bind(&fixture.account_id)
+    .execute(fixture.database().pool())
+    .await
+    .expect("the device row");
     sqlx::query(
         "INSERT INTO push_subscriptions \
            (dashboard_id, viewer_fp, endpoint, p256dh, auth, created_at_ms) \
-         VALUES (?1, ?2, ?3, 'abc', 'def', 1000)",
+         VALUES ($1, $2, $3, 'abc', 'def', 1000)",
     )
     .bind(&fixture.dashboard_id)
     .bind(fp)

@@ -18,6 +18,7 @@ pub mod build_identity;
 pub mod coord_config;
 pub mod coord_config_loader;
 pub mod coord_config_origin;
+pub mod database_location;
 pub mod env;
 pub mod host_memory;
 pub mod http_security;
@@ -41,14 +42,16 @@ pub use coord_config::{
 pub use coord_config_loader::{
     ENV_CF_ACCESS_AUD, ENV_CF_ACCESS_TEAM_DOMAIN, ENV_COORD_TERMINAL_MEMORY_BUDGET_BYTES,
     ENV_COORDINATOR_AUDIT_RETENTION_DAYS, ENV_COORDINATOR_AUTHORIZED_KEYS, ENV_COORDINATOR_BIND,
-    ENV_COORDINATOR_DB, ENV_COORDINATOR_JWT_MAX_AGE_SECS, ENV_COORDINATOR_LOG_DIR,
-    ENV_COORDINATOR_PUBLIC_URL, ENV_CORS_ALLOWED_ORIGINS, ENV_PUSH_ALLOWED_ORIGINS,
-    ENV_RELAXED_CSP, ENV_TERMINAL_PEER_ENABLED, ENV_TERMINAL_PEER_STUN_URLS, ENV_TRUST_PROXY,
-    ENV_WEB_DIST_PATH, ENV_WEB_PUBLIC_URL, load_coord_config,
+    ENV_COORDINATOR_DATABASE_URL, ENV_COORDINATOR_DB, ENV_COORDINATOR_JWT_MAX_AGE_SECS,
+    ENV_COORDINATOR_LOG_DIR, ENV_COORDINATOR_PUBLIC_URL, ENV_CORS_ALLOWED_ORIGINS,
+    ENV_PUSH_ALLOWED_ORIGINS, ENV_RELAXED_CSP, ENV_TERMINAL_PEER_ENABLED,
+    ENV_TERMINAL_PEER_STUN_URLS, ENV_TRUST_PROXY, ENV_WEB_DIST_PATH, ENV_WEB_PUBLIC_URL,
+    load_coord_config,
 };
 pub use coord_config_origin::{
     browser_origin, normalize_https_origin, validate_bare_http_origin, validate_bare_https_origin,
 };
+pub use database_location::DatabaseLocation;
 pub use env::{
     EnvSource, HOME_ENV, MapEnv, ProcessEnv, XDG_DATA_HOME_ENV, XDG_STATE_HOME_ENV,
     host_platform_from_os, supported_host_platform,

@@ -27,9 +27,10 @@ use std::process::ExitCode;
 
 use clap::Args;
 use roost_host::coord_config_loader::{
-    ENV_COORDINATOR_DB, ENV_COORDINATOR_PUBLIC_URL, ENV_WEB_PUBLIC_URL,
+    ENV_COORDINATOR_DATABASE_URL, ENV_COORDINATOR_DB, ENV_COORDINATOR_PUBLIC_URL,
+    ENV_WEB_PUBLIC_URL,
 };
-use roost_host::{EnvSource, HostPlatform, ProcessEnv, normalize_https_origin};
+use roost_host::{DatabaseLocation, EnvSource, HostPlatform, ProcessEnv, normalize_https_origin};
 use roost_platform::machine_join_command;
 use roost_worker::runtime::boot::ENV_COORDINATOR_URL;
 
@@ -239,15 +240,30 @@ fn is_loopback_host(origin: &str) -> bool {
         || authority.starts_with("[::1]")
 }
 
-/// The coordinator's own database, as the installed definition names it.
+/// The coordinator's own database, as the installed definition names it, then
+/// as this shell does.
+///
+/// Two whole passes for the reason `dial_url` gives: a shell that exports a
+/// database must not outrank the installed definition's. Within a source the
+/// Postgres URL wins, because the coordinator refuses to boot with both and a
+/// definition carrying the URL is the one it actually boots with.
 pub fn coordinator_database(
     installed: &InstalledEnvironment,
     ambient: &dyn EnvSource,
-) -> Option<PathBuf> {
-    let declared = declared_value(installed, ENV_COORDINATOR_DB)
-        .map(str::to_string)
-        .or_else(|| ambient.get(ENV_COORDINATOR_DB))?;
-    (!declared.trim().is_empty()).then(|| PathBuf::from(declared))
+) -> Option<DatabaseLocation> {
+    database_declared_by(|name| declared_value(installed, name).map(str::to_string))
+        .or_else(|| database_declared_by(|name| ambient.get(name)))
+}
+
+/// The database one source declares, the Postgres URL first.
+fn database_declared_by(lookup: impl Fn(&str) -> Option<String>) -> Option<DatabaseLocation> {
+    let declared = |name: &str| lookup(name).filter(|value| !value.trim().is_empty());
+    declared(ENV_COORDINATOR_DATABASE_URL)
+        .map(DatabaseLocation::Postgres)
+        .or_else(|| {
+            declared(ENV_COORDINATOR_DB)
+                .map(|path| DatabaseLocation::SqliteFile(PathBuf::from(path)))
+        })
 }
 
 fn missing_url_refusal() -> CommandFailure {
@@ -259,10 +275,11 @@ fn missing_url_refusal() -> CommandFailure {
     ))
 }
 
-fn missing_database_refusal() -> CommandFailure {
+pub(crate) fn missing_database_refusal() -> CommandFailure {
     CommandFailure::generic(format!(
-        "this host's installed coordinator service does not declare {ENV_COORDINATOR_DB}, so there \
-         is no database to record an enrollment grant in. Run `roost quickstart` on this machine \
-         first, or reinstall the coordinator service."
+        "this host's installed coordinator service declares neither \
+         {ENV_COORDINATOR_DATABASE_URL} nor {ENV_COORDINATOR_DB}, and this shell exports neither, \
+         so there is no database to record a grant in. Run `roost quickstart` on this machine \
+         first, reinstall the coordinator service, or run this inside the coordinator's container."
     ))
 }

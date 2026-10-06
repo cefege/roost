@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 
 use roost_cli::import_v2::copy::{self, TableReport};
 use roost_cli::import_v2::plan::ImportMode;
+use roost_host::DatabaseLocation;
 use sqlx::AssertSqlSafe;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 
@@ -59,7 +60,8 @@ impl Fixture {
 
     async fn seed_v2(&self) {
         let migration = std::fs::read_to_string(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../roost-coord/migrations/0001_init.sql"),
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../roost-coord/migrations/sqlite/0001_init.sql"),
         )
         .expect("the coordinator's migration is readable");
         let pool = Self::open(&self.v2).await;
@@ -100,7 +102,7 @@ impl Fixture {
         ] {
             sqlx::query(
                 "INSERT INTO authorized_keys (fingerprint, public_key, label, added_at) \
-                 VALUES (?, x'00', ?, 1)",
+                 VALUES ($1, x'00', $2, 1)",
             )
             .bind(&fingerprint)
             .bind(label)
@@ -114,7 +116,7 @@ impl Fixture {
         // like a defect in the importer.
         sqlx::query(
             "INSERT INTO authorized_key_revocations \
-             (fingerprint, revoked_at_ms, revoked_by_fp, reason) VALUES (?, 2, 'revoker', ?)",
+             (fingerprint, revoked_at_ms, revoked_by_fp, reason) VALUES ($1, 2, 'revoker', $2)",
         )
         .bind("c".repeat(64))
         .bind("a machine key that was revoked")
@@ -131,7 +133,7 @@ impl Fixture {
         let pool = Self::open(&self.v2).await;
         sqlx::query(
             "INSERT INTO authorized_keys (fingerprint, public_key, label, added_at) \
-             VALUES (?, x'00', 'paired-later', 3)",
+             VALUES ($1, x'00', 'paired-later', 3)",
         )
         .bind(&fingerprint)
         .execute(&pool)
@@ -139,7 +141,7 @@ impl Fixture {
         .expect("the later key");
         sqlx::query(
             "INSERT INTO account_devices (fingerprint, account_id, added_at_ms, last_seen_at_ms) \
-             VALUES (?, 'acct-import', 3, 3)",
+             VALUES ($1, 'acct-import', 3, 3)",
         )
         .bind(&fingerprint)
         .execute(&pool)
@@ -155,7 +157,7 @@ impl Fixture {
         let pool = Self::open(&self.v2).await;
         sqlx::query(
             "INSERT INTO authorized_key_revocations (fingerprint, revoked_at_ms, revoked_by_fp, reason) \
-             VALUES (?, 4, 'revoker', 'unpaired during the cutover window')",
+             VALUES ($1, 4, 'revoker', 'unpaired during the cutover window')",
         )
         .bind(fingerprint)
         .execute(&pool)
@@ -183,7 +185,7 @@ impl Fixture {
             .await
             .expect("the source has one account");
         source_pool.close().await;
-        let database = roost_coord::db::open(&self.v3)
+        let database = roost_coord::db::open(&DatabaseLocation::SqliteFile(self.v3.clone()))
             .await
             .expect("the target opens and migrates");
         copy::attach(database.pool(), &self.v2)
@@ -219,7 +221,7 @@ impl Fixture {
             .await
             .expect("the source has one account");
         source_pool.close().await;
-        let database = roost_coord::db::open(&self.v3)
+        let database = roost_coord::db::open(&DatabaseLocation::SqliteFile(self.v3.clone()))
             .await
             .expect("the target opens and migrates");
         copy::attach(database.pool(), &self.v2)

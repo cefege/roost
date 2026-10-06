@@ -35,9 +35,11 @@ impl ExportFixture {
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database = roost_coord::db::open(&root.join("coord.db"))
-            .await
-            .expect("a migrated coordinator database");
+        let database = roost_coord::db::open(&roost_host::DatabaseLocation::SqliteFile(
+            root.join("coord.db"),
+        ))
+        .await
+        .expect("a migrated coordinator database");
         Self { database, root }
     }
 
@@ -86,7 +88,10 @@ async fn an_export_is_a_consistent_copy_and_not_the_live_file() {
         snapshot.size > 0,
         "an empty copy is a truncated one that `sqlite3` would refuse"
     );
-    assert_ne!(snapshot.path, fixture.database.path());
+    assert_ne!(
+        Some(snapshot.path.as_path()),
+        fixture.database.sqlite_path()
+    );
     assert_eq!(
         std::fs::metadata(&snapshot.path).expect("the copy").len(),
         snapshot.size,
@@ -94,7 +99,10 @@ async fn an_export_is_a_consistent_copy_and_not_the_live_file() {
          forever for bytes that never arrive"
     );
     // It is a real database, not a copy of one: opening it is the only proof.
-    let reopened = roost_coord::db::open(&snapshot.path).await;
+    let reopened = roost_coord::db::open(&roost_host::DatabaseLocation::SqliteFile(
+        snapshot.path.clone(),
+    ))
+    .await;
     assert!(
         reopened.is_ok(),
         "the copy did not open as a coordinator database: {:?}",
@@ -172,7 +180,11 @@ async fn a_sweep_drops_the_past_the_age_bound_and_then_the_surplus() {
 #[tokio::test]
 async fn a_sweep_never_touches_a_file_that_is_not_an_export_copy() {
     let fixture = ExportFixture::new("foreign").await;
-    let database = fixture.database.path().to_path_buf();
+    let database = fixture
+        .database
+        .sqlite_path()
+        .expect("a SQLite file")
+        .to_path_buf();
     let neighbour = fixture.data_dir().join("coordinator_v3.db-wal");
     std::fs::write(&neighbour, b"wal").expect("a neighbouring file");
     let mislabelled = fixture

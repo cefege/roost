@@ -213,13 +213,13 @@ pub async fn load_session<'executor, E>(
     id: &str,
 ) -> Result<Option<Session>, ProjectionError>
 where
-    E: Executor<'executor, Database = sqlx::Sqlite>,
+    E: Executor<'executor, Database = sqlx::Any>,
 {
     let row = sqlx::query_as::<_, StoredSessionRow>(
         "SELECT id, worker_fp, channel, kind, cwd, workspace_id, status, created_at, closed_at, \
                 custom_title, git_branch, git_remote, pr_number, pr_state, pr_checks, pr_url, \
                 ports_json, spawn_cwd \
-           FROM sessions WHERE id = ?",
+           FROM sessions WHERE id = $1",
     )
     .bind(id)
     .fetch_optional(executor)

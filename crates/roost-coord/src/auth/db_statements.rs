@@ -15,16 +15,16 @@
 //! unhappy.
 
 use connectrpc::{ConnectError, ErrorCode};
-use sqlx::{AssertSqlSafe, Sqlite, Transaction};
+use sqlx::{Any, AssertSqlSafe, Transaction};
 
 use crate::db::CoordDb;
 
 /// The lookups this surface asks most, named once.
-pub(crate) const AUTHORIZED_KEY: &str = "SELECT 1 FROM authorized_keys WHERE fingerprint = ?";
-pub(crate) const WORKER_ROW: &str = "SELECT 1 FROM workers WHERE fp = ?";
+pub(crate) const AUTHORIZED_KEY: &str = "SELECT 1 FROM authorized_keys WHERE fingerprint = $1";
+pub(crate) const WORKER_ROW: &str = "SELECT 1 FROM workers WHERE fp = $1";
 pub(crate) const REVOKED_KEY: &str =
-    "SELECT 1 FROM authorized_key_revocations WHERE fingerprint = ?";
-pub(crate) const ACCOUNT_DEVICE_ROW: &str = "SELECT 1 FROM account_devices WHERE fingerprint = ?";
+    "SELECT 1 FROM authorized_key_revocations WHERE fingerprint = $1";
+pub(crate) const ACCOUNT_DEVICE_ROW: &str = "SELECT 1 FROM account_devices WHERE fingerprint = $1";
 
 /// One bound parameter, so a caller can say what a column actually holds
 /// instead of rendering an integer into a string and hoping SQLite forgives it.
@@ -53,7 +53,7 @@ pub(crate) fn fault(step: &'static str, detail: &impl std::fmt::Display) -> Conn
     )
 }
 
-pub(crate) async fn begin(database: &CoordDb) -> Result<Transaction<'_, Sqlite>, ConnectError> {
+pub(crate) async fn begin(database: &CoordDb) -> Result<Transaction<'_, Any>, ConnectError> {
     database
         .pool()
         .begin()
@@ -61,7 +61,7 @@ pub(crate) async fn begin(database: &CoordDb) -> Result<Transaction<'_, Sqlite>,
         .map_err(|error| internal("begin", &error))
 }
 
-pub(crate) async fn commit(transaction: Transaction<'_, Sqlite>) -> Result<(), ConnectError> {
+pub(crate) async fn commit(transaction: Transaction<'_, Any>) -> Result<(), ConnectError> {
     transaction
         .commit()
         .await
@@ -70,7 +70,7 @@ pub(crate) async fn commit(transaction: Transaction<'_, Sqlite>) -> Result<(), C
 
 /// Run a statement with typed binds.
 pub(crate) async fn run(
-    transaction: &mut Transaction<'_, Sqlite>,
+    transaction: &mut Transaction<'_, Any>,
     sql: &str,
     binds: &[Bind<'_>],
 ) -> Result<(), ConnectError> {
@@ -94,7 +94,7 @@ pub(crate) async fn run(
 
 /// Whether a one-parameter lookup found a row.
 pub(crate) async fn exists1(
-    transaction: &mut Transaction<'_, Sqlite>,
+    transaction: &mut Transaction<'_, Any>,
     sql: &str,
     value: &str,
 ) -> Result<bool, ConnectError> {
@@ -109,7 +109,7 @@ pub(crate) async fn exists1(
 /// Whether a two-parameter lookup found a row, for the account-scoped questions
 /// one arity cannot answer.
 pub(crate) async fn exists2(
-    transaction: &mut Transaction<'_, Sqlite>,
+    transaction: &mut Transaction<'_, Any>,
     sql: &str,
     values: (&str, &str),
 ) -> Result<bool, ConnectError> {
@@ -124,7 +124,7 @@ pub(crate) async fn exists2(
 
 /// The one text column a lookup named.
 pub(crate) async fn column1(
-    transaction: &mut Transaction<'_, Sqlite>,
+    transaction: &mut Transaction<'_, Any>,
     sql: &str,
     value: &str,
 ) -> Result<Option<String>, ConnectError> {
@@ -138,7 +138,7 @@ pub(crate) async fn column1(
 
 /// The one text column a two-parameter lookup named.
 pub(crate) async fn column2(
-    transaction: &mut Transaction<'_, Sqlite>,
+    transaction: &mut Transaction<'_, Any>,
     sql: &str,
     values: (&str, &str),
 ) -> Result<Option<String>, ConnectError> {
@@ -154,10 +154,10 @@ pub(crate) async fn column2(
 /// The stored public key bytes, compared byte-for-byte on a retry: the same
 /// fingerprint with a different key is a second principal wearing its name.
 pub(crate) async fn stored_public_key(
-    transaction: &mut Transaction<'_, Sqlite>,
+    transaction: &mut Transaction<'_, Any>,
     fingerprint: &str,
 ) -> Result<Option<Vec<u8>>, ConnectError> {
-    sqlx::query_as::<_, (Vec<u8>,)>("SELECT public_key FROM authorized_keys WHERE fingerprint = ?")
+    sqlx::query_as::<_, (Vec<u8>,)>("SELECT public_key FROM authorized_keys WHERE fingerprint = $1")
         .bind(fingerprint)
         .fetch_optional(&mut **transaction)
         .await
@@ -167,7 +167,7 @@ pub(crate) async fn stored_public_key(
 
 /// Add a key to `authorized_keys`, shared by a redemption and a rotation.
 pub(crate) async fn insert_authorized_key(
-    transaction: &mut Transaction<'_, Sqlite>,
+    transaction: &mut Transaction<'_, Any>,
     fingerprint: &str,
     public_key: &[u8; 32],
     label: &str,
@@ -176,7 +176,7 @@ pub(crate) async fn insert_authorized_key(
     run(
         transaction,
         "INSERT INTO authorized_keys (fingerprint, public_key, label, added_at) \
-         VALUES (?, ?, ?, ?)",
+         VALUES ($1, $2, $3, $4)",
         &[
             Bind::Text(Some(fingerprint)),
             Bind::Bytes(public_key),
@@ -190,7 +190,7 @@ pub(crate) async fn insert_authorized_key(
 /// Associate a key with an account. A key with no `account_devices` row resolves
 /// to `LegacySelfHosted`, which the Sync upgrade refuses.
 pub(crate) async fn insert_account_device(
-    transaction: &mut Transaction<'_, Sqlite>,
+    transaction: &mut Transaction<'_, Any>,
     fingerprint: &str,
     account_id: &str,
     now: i64,
@@ -198,7 +198,7 @@ pub(crate) async fn insert_account_device(
     run(
         transaction,
         "INSERT INTO account_devices (fingerprint, account_id, added_at_ms, last_seen_at_ms) \
-         VALUES (?, ?, ?, ?)",
+         VALUES ($1, $2, $3, $4)",
         &[
             Bind::Text(Some(fingerprint)),
             Bind::Text(Some(account_id)),

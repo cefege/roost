@@ -265,9 +265,9 @@ pub async fn prepare_coordinator_database(
     config: &CoordConfig,
     now_ms: i64,
 ) -> anyhow::Result<(CoordDb, SelfHostedTenant)> {
-    let database = crate::db::open(&config.db_path)
+    let database = crate::db::open(&config.database)
         .await
-        .with_context(|| format!("coordinator database {}", config.db_path.display()))?;
+        .with_context(|| format!("coordinator database {:?}", config.database))?;
 
     // Step 5, BEFORE the tenancy invariant, so the invariant sees the keys the
     // operator's file just added (`main.ts:73-83`).
@@ -279,7 +279,7 @@ pub async fn prepare_coordinator_database(
         .await
         .with_context(|| "self-hosted tenant invariant")?;
     tracing::info!(
-        path = %config.db_path.display(),
+        backend = database.backend().label(),
         account_id = %tenant.account_id,
         organization_id = %tenant.organization_id,
         dashboard_id = %tenant.dashboard_id,

@@ -59,7 +59,8 @@ pub struct ExportSnapshot {
 /// is the direction a disk bound must not err in.
 pub async fn prepare_export_snapshot(database: &CoordDb) -> Result<ExportSnapshot, ExportError> {
     let directory = database
-        .path()
+        .sqlite_path()
+        .ok_or(ExportError::NotAFile)?
         .parent()
         .ok_or(ExportError::NoDirectory)?
         .to_path_buf();
@@ -159,6 +160,9 @@ pub enum ExportError {
     /// The database path has no parent directory to write a copy beside.
     #[error("the coordinator database path has no parent directory")]
     NoDirectory,
+    /// The database is a Postgres server, not a file to copy.
+    #[error("db export needs the SQLite backend")]
+    NotAFile,
     /// No entropy source, so the copy cannot be given a unique name.
     #[error("db export: no entropy source: {0}")]
     Entropy(#[source] std::io::Error),

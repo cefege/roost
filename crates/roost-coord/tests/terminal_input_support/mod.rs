@@ -47,7 +47,7 @@ impl InputHarness {
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database = roost_coord::db::open(&root.join("coord.db"))
+        let database = super::db_support::open_test_database(&root)
             .await
             .expect("a migrated database");
         let tenant =
@@ -56,7 +56,7 @@ impl InputHarness {
                 .expect("the self-hosted tenant");
         sqlx::query(AssertSqlSafe(
             "INSERT INTO workers (fp, label, os, registered_at_ms, last_seen_ms, dashboard_id) \
-             VALUES (?1, 'laptop', 'linux', 0, 0, ?2)",
+             VALUES ($1, 'laptop', 'linux', 0, 0, $2)",
         ))
         .bind(WORKER_FP)
         .bind(&tenant.dashboard_id)
@@ -76,7 +76,7 @@ impl InputHarness {
         let id = session_id(tail);
         sqlx::query(AssertSqlSafe(
             "INSERT INTO sessions (id, dashboard_id, worker_fp, channel, kind, cwd, status, created_at) \
-             VALUES (?1, ?2, ?3, ?4, 'shell', '/tmp', 'open', 0)",
+             VALUES ($1, $2, $3, $4, 'shell', '/tmp', 'open', 0)",
         ))
         .bind(&id)
         .bind(&self.dashboard_id)

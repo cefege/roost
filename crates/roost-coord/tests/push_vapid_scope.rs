@@ -12,6 +12,7 @@
 // exemption has to be stated here.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod push_fixture;
 
 use std::sync::Arc;
@@ -31,7 +32,7 @@ use sqlx::Row as _;
 /// schema changes. The NULL row sorts first (SQLite orders NULL before every
 /// value), so position 0 is the coordinator-global row whenever it exists.
 async fn vapid_rows(fixture: &PushFixture) -> Vec<(Option<String>, String)> {
-    sqlx::query("SELECT dashboard_id, value FROM app_settings WHERE key = ?1 ORDER BY dashboard_id")
+    sqlx::query("SELECT dashboard_id, value FROM app_settings WHERE key = $1 ORDER BY dashboard_id")
         .bind(VAPID_SETTING_KEY)
         .fetch_all(fixture.database().pool())
         .await

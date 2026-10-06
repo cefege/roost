@@ -31,7 +31,7 @@
 use std::path::Path;
 
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
-use sqlx::{Acquire, AssertSqlSafe, Transaction};
+use sqlx::{Acquire, AnyPool, AssertSqlSafe, Database, Executor, IntoArguments, Transaction};
 
 use crate::command_error::CommandFailure;
 use crate::import_v2::plan::{
@@ -148,7 +148,7 @@ pub async fn estimate(source: &Path, target: &Path) -> Result<Vec<TableReport>, 
 /// it: a target that changed between the decision and the write would
 /// otherwise be written on the strength of a stale answer.
 pub async fn apply(
-    pool: &SqlitePool,
+    pool: &AnyPool,
     imported_account: &str,
 ) -> Result<(ImportMode, Vec<TableReport>), CommandFailure> {
     let mut connection = pool.acquire().await.map_err(|error| {
@@ -203,13 +203,17 @@ pub async fn apply(
 /// owns the v2 file: without it a bug in the statement list would write to a
 /// database belonging to the product being replaced, and the v2 coordinator is
 /// live on this same host during the cutover.
-pub async fn attach(pool: &SqlitePool, source: &Path) -> Result<(), CommandFailure> {
+pub async fn attach<'c, E>(executor: E, source: &Path) -> Result<(), CommandFailure>
+where
+    E: Executor<'c>,
+    <E::Database as Database>::Arguments: IntoArguments<E::Database>,
+{
     let sql = format!(
         "ATTACH DATABASE '{}' AS {SOURCE_SCHEMA}",
         read_only_uri(source).replace('\'', "''")
     );
-    sqlx::query(AssertSqlSafe(sql.as_str()))
-        .execute(pool)
+    sqlx::query::<E::Database>(AssertSqlSafe(sql))
+        .execute(executor)
         .await
         .map_err(|error| {
             CommandFailure::generic(format!(
@@ -291,7 +295,7 @@ async fn attached_read_only(source: &Path, target: &Path) -> Result<SqlitePool, 
 }
 
 async fn installed_accounts(
-    transaction: &mut Transaction<'_, sqlx::Sqlite>,
+    transaction: &mut Transaction<'_, sqlx::Any>,
 ) -> Result<Vec<String>, CommandFailure> {
     let sql = "SELECT id FROM main.accounts";
     sqlx::query_scalar(sql)
@@ -301,7 +305,7 @@ async fn installed_accounts(
 }
 
 async fn target_columns(
-    transaction: &mut Transaction<'_, sqlx::Sqlite>,
+    transaction: &mut Transaction<'_, sqlx::Any>,
     table: &str,
 ) -> Result<Vec<String>, CommandFailure> {
     let sql = columns_sql(table);

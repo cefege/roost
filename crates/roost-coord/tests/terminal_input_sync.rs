@@ -6,6 +6,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod sync_ws_socket_support;
 mod ws_client_support;
 mod ws_credential_support;
@@ -64,12 +65,12 @@ async fn hydrated(label: &str) -> Hydrated {
     for (sql, bind) in [
         (
             "INSERT INTO workers (fp, label, os, registered_at_ms, last_seen_ms, dashboard_id) \
-             VALUES (?1, 'laptop', 'linux', 0, 0, ?2)",
+             VALUES ($1, 'laptop', 'linux', 0, 0, $2)",
             WORKER_FP,
         ),
         (
             "INSERT INTO sessions (id, dashboard_id, worker_fp, channel, kind, cwd, status, created_at) \
-             VALUES (?1, ?2, 'aa00000000000000000000000000000000000000000000000000000000000000', 1, 'shell', '/tmp', 'open', 0)",
+             VALUES ($1, $2, 'aa00000000000000000000000000000000000000000000000000000000000000', 1, 'shell', '/tmp', 'open', 0)",
             SESSION,
         ),
     ] {
@@ -237,7 +238,7 @@ async fn a_sync_batch_reaches_the_worker_and_its_audited_acceptance_returns() {
     assert_eq!(request.tab_id, TAB);
     assert_eq!(request.browser_connection_id, socket_id);
     let audited: Vec<(String, i64)> =
-        sqlx::query_as("SELECT path, status FROM audit_log WHERE caller_fp = ?1")
+        sqlx::query_as("SELECT path, status FROM audit_log WHERE caller_fp = $1")
             .bind(&hydrated.fingerprint)
             .fetch_all(hydrated.fixture.services.db.pool())
             .await

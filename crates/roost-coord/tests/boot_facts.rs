@@ -11,6 +11,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -33,7 +35,7 @@ impl Scratch {
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database = roost_coord::db::open(&root.join("coord.db"))
+        let database = db_support::open_test_database(&root)
             .await
             .expect("a migrated coordinator database");
         Self { root, database }
@@ -48,7 +50,9 @@ impl Drop for Scratch {
 
 fn config(root: &std::path::Path) -> roost_host::CoordConfig {
     roost_host::CoordConfig::parse(roost_host::CoordConfigInput {
-        db_path: Some(root.join("coord.db")),
+        database: Some(roost_host::DatabaseLocation::SqliteFile(
+            root.join("coord.db"),
+        )),
         authorized_keys_path: Some(root.join("authorized_keys")),
         log_dir: Some(root.join("logs")),
         ..Default::default()
@@ -150,8 +154,8 @@ async fn a_booted_coordinator_hands_back_what_boot_established() {
             .boot
             .require_config()
             .expect("a booted config")
-            .db_path,
-        resolved.db_path,
+            .database,
+        resolved.database,
         "a handler reads the config boot resolved, not a copy it defaulted"
     );
     assert_eq!(services.boot.process_epoch(), "epoch-1");

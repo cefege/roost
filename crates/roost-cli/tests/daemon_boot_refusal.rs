@@ -83,8 +83,8 @@ fn the_database_path_comes_from_the_loader_and_never_from_this_process() {
     let env = home().with("ROOST_COORDINATOR_DB", "/srv/roost/coord.db");
     let boot = resolve_from(&args(None), &env, HostPlatform::Linux).unwrap();
     assert_eq!(
-        boot.config.db_path,
-        std::path::PathBuf::from("/srv/roost/coord.db")
+        boot.config.database.sqlite_file(),
+        Some(std::path::Path::new("/srv/roost/coord.db"))
     );
 }
 

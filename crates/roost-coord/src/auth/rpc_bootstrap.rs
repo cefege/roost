@@ -10,7 +10,7 @@
 use connectrpc::{ConnectError, ErrorCode, ServiceResult};
 use roost_platform::HostPlatform;
 use roost_proto as proto;
-use sqlx::{Sqlite, Transaction};
+use sqlx::{Any, Transaction};
 
 use crate::auth::authorized_keys::fingerprint_of_raw_public_key;
 use crate::auth::bootstrap_tokens::{
@@ -114,13 +114,13 @@ pub async fn handle_auth_redeem_worker(
         }
         run(
             &mut transaction,
-            "UPDATE authorized_keys SET label = ? WHERE fingerprint = ?",
+            "UPDATE authorized_keys SET label = $1 WHERE fingerprint = $2",
             &[Bind::Text(Some(&label)), Bind::Text(Some(&fingerprint))],
         )
         .await?;
         run(
             &mut transaction,
-            "UPDATE workers SET label = ?, os = ?, git_sha = ?, last_seen_ms = ? WHERE fp = ?",
+            "UPDATE workers SET label = $1, os = $2, git_sha = $3, last_seen_ms = $4 WHERE fp = $5",
             &[
                 Bind::Text(Some(&label)),
                 Bind::Text(Some(&request.os)),
@@ -138,7 +138,7 @@ pub async fn handle_auth_redeem_worker(
         run(
             &mut transaction,
             "INSERT INTO workers (fp, dashboard_id, label, os, git_sha, host_metrics_json, \
-             registered_at_ms, last_seen_ms) VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
+             registered_at_ms, last_seen_ms) VALUES ($1, $2, $3, $4, $5, NULL, $6, $7)",
             &[
                 Bind::Text(Some(&fingerprint)),
                 Bind::Text(Some(&dashboard_id)),
@@ -187,7 +187,7 @@ pub async fn handle_auth_redeem_browser(
     let stored = stored_public_key(&mut transaction, &fingerprint).await?;
     let device_account = column1(
         &mut transaction,
-        "SELECT account_id FROM account_devices WHERE fingerprint = ?",
+        "SELECT account_id FROM account_devices WHERE fingerprint = $1",
         &fingerprint,
     )
     .await?;
@@ -201,14 +201,14 @@ pub async fn handle_auth_redeem_browser(
         }
         run(
             &mut transaction,
-            "UPDATE authorized_keys SET label = ? WHERE fingerprint = ?",
+            "UPDATE authorized_keys SET label = $1 WHERE fingerprint = $2",
             &[Bind::Text(Some(&label)), Bind::Text(Some(&fingerprint))],
         )
         .await?;
         run(
             &mut transaction,
-            "UPDATE account_devices SET last_seen_at_ms = ? WHERE fingerprint = ? \
-             AND account_id = ?",
+            "UPDATE account_devices SET last_seen_at_ms = $1 WHERE fingerprint = $2 \
+             AND account_id = $3",
             &[
                 Bind::Int(now),
                 Bind::Text(Some(&fingerprint)),
@@ -235,7 +235,7 @@ async fn claim_redemption<'a>(
     fingerprint: &str,
     public_key: &[u8; 32],
     now: i64,
-) -> Result<(Transaction<'a, Sqlite>, BootstrapTokenClaim), ConnectError> {
+) -> Result<(Transaction<'a, Any>, BootstrapTokenClaim), ConnectError> {
     let mut transaction = begin(database).await?;
     let token_hash = bootstrap_tokens::bootstrap_token_digest(token);
     let claim = BootstrapClaim {

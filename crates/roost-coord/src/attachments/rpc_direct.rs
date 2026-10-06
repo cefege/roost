@@ -185,7 +185,7 @@ async fn attachment_session_worker(db: &CoordDb, session_id: &str) -> Result<Str
     let row: Option<(String, String)> = sqlx::query_as(
         "SELECT session.worker_fp, session.status FROM sessions AS session \
          INNER JOIN workers AS worker ON worker.fp = session.worker_fp \
-         WHERE session.id = ?1 AND worker.deleted_at_ms IS NULL",
+         WHERE session.id = $1 AND worker.deleted_at_ms IS NULL",
     )
     .bind(session_id)
     .fetch_optional(db.pool())

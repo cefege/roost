@@ -6,6 +6,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod terminal_input_support;
 
 use std::sync::Arc;

@@ -8,6 +8,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod pairing_support;
 
 use pairing_support::{ACCOUNT, CODE, CeremonyFixture, HANDLE, NOW, REQUESTER_KEY, TOKEN, TTL};

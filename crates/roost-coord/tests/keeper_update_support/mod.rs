@@ -115,13 +115,14 @@ pub fn journaled(action: &str, direction: &str) -> PrepareRequest {
 
 /// Enrol the operator device the handler re-authorizes inside the drain.
 pub async fn enroll_device(fixture: &WorkersFixture) {
-    let key = "00".repeat(32);
-    fixture
-        .exec(&format!(
-            "INSERT INTO authorized_keys (fingerprint, public_key, label, added_at) \
-             VALUES ('{DEVICE_FP}', X'{key}', 'operator', 1)"
-        ))
-        .await;
+    super::db_support::insert_authorized_key(
+        &fixture.database,
+        DEVICE_FP,
+        &[0_u8; 32],
+        "operator",
+        None,
+    )
+    .await;
     fixture
         .exec(&format!(
             "INSERT INTO account_devices (fingerprint, account_id, added_at_ms, last_seen_at_ms) \

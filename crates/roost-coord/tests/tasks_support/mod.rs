@@ -54,7 +54,7 @@ impl TasksFixture {
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database = roost_coord::db::open(&root.join("coord.db"))
+        let database = super::db_support::open_test_database(&root)
             .await
             .expect("a migrated database");
         let tenant =
@@ -104,7 +104,7 @@ impl TasksFixture {
         sqlx::query(AssertSqlSafe(
             "INSERT INTO tasks (id, dashboard_id, state, payload_json, enqueued_at_ms, \
              claimed_at_ms, claimed_by, claim_ttl_ms) \
-             VALUES (?1, (SELECT id FROM dashboards LIMIT 1), ?2, '{}', ?3, NULL, ?4, 900000)",
+             VALUES ($1, (SELECT id FROM dashboards LIMIT 1), $2, '{}', $3, NULL, $4, 900000)",
         ))
         .bind(id)
         .bind(state)

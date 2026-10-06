@@ -8,9 +8,8 @@
 
 use std::time::Duration;
 
-use crate::db::CoordDb;
+use crate::db::{CoordDb, SqlBuilder};
 use crate::serve::now_ms;
-use sqlx::{QueryBuilder, Sqlite};
 
 /// One day. The retention window is counted in these, the sweep runs once per
 /// one, and `backup` schedules on the same value -- one definition so the
@@ -59,7 +58,7 @@ impl AuditSweepOptions {
 
 /// Delete swept-method rows older than the window. Returns the count.
 ///
-/// `ts` is epoch MILLISECONDS (`migrations/0001_init.sql`), and `path` is
+/// `ts` is epoch MILLISECONDS (`migrations/sqlite/0001_init.sql`), and `path` is
 /// `/<service>/<Method>` with a service prefix that varies across proto
 /// packages -- so the match is on the trailing segment, and NEVER on the
 /// `method` column, which the interceptor fills with the literal HTTP verb
@@ -98,18 +97,13 @@ pub async fn sweep_audit_log(
 
 /// Delete one batch: rows older than `cutoff`, on a swept path, oldest first,
 /// capped at `batch_size`.
-async fn run_batch(
-    cutoff: i64,
-    batch_size: i64,
-    pool: &sqlx::SqlitePool,
-) -> Result<u64, sqlx::Error> {
+async fn run_batch(cutoff: i64, batch_size: i64, pool: &sqlx::AnyPool) -> Result<u64, sqlx::Error> {
     // Bounded batches, not one unbounded DELETE: a first run against a large
     // backlog must not hold the write lock for its whole duration on a live
     // coordinator. The LIMIT rides on a subselect, and `audit_log_ts` turns
     // `ts < ?` into a bounded index range scan (`audit-retention.ts:105-118`).
-    let mut statement = QueryBuilder::<Sqlite>::new(
-        "DELETE FROM audit_log WHERE id IN (SELECT id FROM audit_log WHERE ts < ",
-    );
+    let mut statement =
+        SqlBuilder::new("DELETE FROM audit_log WHERE id IN (SELECT id FROM audit_log WHERE ts < ");
     statement.push_bind(cutoff).push(" AND (");
     for (index, method) in AUDIT_SWEEP_METHODS.iter().enumerate() {
         if index > 0 {
@@ -153,7 +147,7 @@ pub async fn cleanup_anonymous_static_audit_log(
                  AND path <> '/internal' AND path NOT LIKE '/internal/%' \
                  AND path <> '/ws' AND path NOT LIKE '/ws/%' \
                  AND path NOT LIKE '/roost.%' \
-               ORDER BY id LIMIT ?)",
+               ORDER BY id LIMIT $1)",
         )
         .bind(limit)
         .execute(database.pool())

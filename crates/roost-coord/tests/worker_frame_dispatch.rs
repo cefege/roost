@@ -12,6 +12,7 @@
 //! stated here. Every panic names a value the test just built.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod frame_dispatch_support;
 mod workers_support;
 
@@ -337,7 +338,7 @@ async fn the_session_a_foreign_open_would_have_claimed_is_never_written() {
         .handle_durable(WORKER_FP, event_frame(opened(OTHER_FP, 1), 1))
         .await;
 
-    let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE id = ?")
+    let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE id = $1")
         .bind(session_id().as_str())
         .fetch_one(fixture.database.pool())
         .await

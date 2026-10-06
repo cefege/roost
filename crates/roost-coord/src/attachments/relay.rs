@@ -40,7 +40,7 @@ pub(super) async fn require_worker_hub_socket(
     worker_fp: &str,
 ) -> Result<WorkerFp, ConnectError> {
     let row: Option<String> =
-        sqlx::query_scalar("SELECT fp FROM workers WHERE fp = ?1 AND deleted_at_ms IS NULL")
+        sqlx::query_scalar("SELECT fp FROM workers WHERE fp = $1 AND deleted_at_ms IS NULL")
             .bind(worker_fp)
             .fetch_optional(db.pool())
             .await

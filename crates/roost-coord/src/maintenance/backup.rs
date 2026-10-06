@@ -68,6 +68,10 @@ pub enum BackupError {
     /// The snapshot could not be taken. No archive was published.
     #[error("backup snapshot: {0}")]
     Snapshot(#[from] SnapshotError),
+    /// The database is not a file this coordinator owns: a Postgres server is
+    /// backed up by whoever runs it.
+    #[error("backups need the SQLite backend; a Postgres database is backed up by its server")]
+    NotAFile,
 }
 
 /// The directory archives live in: a `backups` directory beside the database.
@@ -96,7 +100,10 @@ pub async fn run_backup_at(
     reason: BackupReason,
     now_ms: i64,
 ) -> Result<BackupRecord, BackupError> {
-    let directory = backups_dir(database.path());
+    let Some(database_path) = database.sqlite_path() else {
+        return Err(BackupError::NotAFile);
+    };
+    let directory = backups_dir(database_path);
     let tag = backup_tag(now_ms);
     let archive_path = directory.join(format!("{ARCHIVE_PREFIX}{tag}{ARCHIVE_SUFFIX}"));
     let snapshot_path = directory.join(format!(".{ARCHIVE_PREFIX}{tag}.snapshot.db"));
@@ -287,11 +294,18 @@ fn civil_from_days(days_since_epoch: i64) -> (i64, u32, u32) {
 /// The returned task is detached. A tokio task is dropped when the runtime
 /// shuts down, which is the effect v2's `setInterval(…).unref()` was buying.
 pub fn spawn_scheduled_backups(database: CoordDb) {
-    if !database.path().exists() {
-        tracing::warn!(db_path = %database.path().display(), "backup skipped: no database");
+    let Some(database_path) = database.sqlite_path() else {
+        tracing::info!(
+            backend = database.backend().label(),
+            "scheduled backups disabled: the database is managed externally"
+        );
+        return;
+    };
+    if !database_path.exists() {
+        tracing::warn!(db_path = %database_path.display(), "backup skipped: no database");
         return;
     }
-    let directory = backups_dir(database.path());
+    let directory = backups_dir(database_path);
     tokio::spawn(async move {
         if backup_is_stale(&directory).await {
             run_and_log(&database, BackupReason::Scheduled).await;

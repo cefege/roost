@@ -2280,6 +2280,24 @@ in the NULL scope; every dashboard-scoped key stays scoped.
 **Guard** — `crates/roost-coord/tests/push_vapid_scope.rs` — `a_per_dashboard_vapid_row_is_neither_read_nor_written`,
 `the_identity_is_written_once_to_the_coordinator_global_row`.
 
+### A dynamically built statement works on SQLite and is a syntax error on Postgres
+
+**Symptom** — on the Postgres backend only: `error returned from database: syntax error at or near ")"`
+(or `","`) from a workspace create, a diagnostics snapshot, the tenant check at boot — any statement with an
+`IN (...)` list or an optional column.
+
+**Wrong** — `sqlx::QueryBuilder<Any>`. Its `push_bind` writes the `Any` driver's default placeholder, `?`,
+which SQLite parses and Postgres does not; hand-numbered `$n` text around it does not help, because the
+builder's own holes are still `?`. Also wrong: `json_each($1)` for the list (no Postgres twin) and
+`= ANY($1)` (the `Any` driver cannot bind an array).
+
+**Right** — `roost_coord::db::SqlBuilder`, which numbers every bound value `$n`, and `db::push_in_list`
+chunked at `IN_LIST_CHUNK` for id lists. Static statements spell `$n` by hand; no bare `?` remains.
+
+**Guard** — `crates/roost-coord/src/db/sql_builder.rs` unit tests pin the `$n` rendering; the CI `postgres`
+job runs the whole `roost-coord` suite against a real server with `ROOST_TEST_DATABASE_URL`, and
+`tests/migration_history/backend_parity.rs` crosses one `IN` chunk.
+
 ---
 
 ## Browser platform reality

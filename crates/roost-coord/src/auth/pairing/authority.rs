@@ -118,7 +118,7 @@ pub async fn associate_paired_browser(
     }
     sqlx::query(
         "INSERT INTO account_devices (fingerprint, account_id, added_at_ms, last_seen_at_ms) \
-         VALUES (?, ?, ?, ?) \
+         VALUES ($1, $2, $3, $4) \
          ON CONFLICT (fingerprint) DO UPDATE SET last_seen_at_ms = excluded.last_seen_at_ms",
     )
     .bind(fingerprint)
@@ -137,11 +137,11 @@ pub async fn account_of_device<'a, E>(
     fingerprint: &str,
 ) -> PairingResult<Option<String>>
 where
-    E: sqlx::Executor<'a, Database = sqlx::Sqlite>,
+    E: sqlx::Executor<'a, Database = sqlx::Any>,
 {
     one_string(
         executor,
-        "SELECT account_id FROM account_devices WHERE fingerprint = ?",
+        "SELECT account_id FROM account_devices WHERE fingerprint = $1",
         fingerprint,
     )
     .await
@@ -150,10 +150,10 @@ where
 /// Whether an account can still act for a device.
 pub async fn account_is_active<'a, E>(executor: E, account_id: &str) -> PairingResult<bool>
 where
-    E: sqlx::Executor<'a, Database = sqlx::Sqlite>,
+    E: sqlx::Executor<'a, Database = sqlx::Any>,
 {
     let row = sqlx::query_as::<_, (i64,)>(
-        "SELECT COUNT(*) FROM accounts WHERE id = ? AND status = 'active'",
+        "SELECT COUNT(*) FROM accounts WHERE id = $1 AND status = 'active'",
     )
     .bind(account_id)
     .fetch_one(executor)
@@ -165,7 +165,7 @@ where
 /// The one active account, when there is exactly one.
 pub async fn single_active_account<'a, E>(executor: E) -> PairingResult<Option<String>>
 where
-    E: sqlx::Executor<'a, Database = sqlx::Sqlite>,
+    E: sqlx::Executor<'a, Database = sqlx::Any>,
 {
     // `LIMIT 2`, not `LIMIT 1`: the question is "is there exactly one", and a
     // query that cannot see the second account cannot answer it.
@@ -183,10 +183,10 @@ where
 /// Whether a fingerprint is on the revocation list.
 pub async fn is_revoked<'a, E>(executor: E, fingerprint: &str) -> PairingResult<bool>
 where
-    E: sqlx::Executor<'a, Database = sqlx::Sqlite>,
+    E: sqlx::Executor<'a, Database = sqlx::Any>,
 {
     let row = sqlx::query_as::<_, (i64,)>(
-        "SELECT COUNT(*) FROM authorized_key_revocations WHERE fingerprint = ?",
+        "SELECT COUNT(*) FROM authorized_key_revocations WHERE fingerprint = $1",
     )
     .bind(fingerprint)
     .fetch_one(executor)
@@ -202,9 +202,9 @@ where
 /// a machine must not silently become a browser.
 pub async fn worker_exists<'a, E>(executor: E, fingerprint: &str) -> PairingResult<bool>
 where
-    E: sqlx::Executor<'a, Database = sqlx::Sqlite>,
+    E: sqlx::Executor<'a, Database = sqlx::Any>,
 {
-    let row = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM workers WHERE fp = ?")
+    let row = sqlx::query_as::<_, (i64,)>("SELECT COUNT(*) FROM workers WHERE fp = $1")
         .bind(fingerprint)
         .fetch_one(executor)
         .await
@@ -219,7 +219,7 @@ async fn one_string<'a, E>(
     key: &str,
 ) -> PairingResult<Option<String>>
 where
-    E: sqlx::Executor<'a, Database = sqlx::Sqlite>,
+    E: sqlx::Executor<'a, Database = sqlx::Any>,
 {
     sqlx::query_as::<_, (String,)>(statement)
         .bind(key)

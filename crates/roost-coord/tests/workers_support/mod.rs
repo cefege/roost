@@ -120,7 +120,7 @@ impl WorkersFixture {
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database = roost_coord::db::open(&root.join("coord.db"))
+        let database = super::db_support::open_test_database(&root)
             .await
             .expect("a migrated database");
         roost_coord::auth::self_hosted_tenant::ensure_self_hosted_tenant(&database, 1_000)
@@ -237,7 +237,7 @@ impl WorkersFixture {
     /// what a coordinator restart sees: only what was persisted survives.
     pub async fn restart(&mut self) {
         self.database.pool().close().await;
-        let database = roost_coord::db::open(&self.root.join("coord.db"))
+        let database = super::db_support::open_test_database(&self.root)
             .await
             .expect("the database reopens");
         self.services = Arc::new(CoordServices::new(database.clone()));

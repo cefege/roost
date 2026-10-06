@@ -261,7 +261,7 @@ async fn open_session_ids(
     core: &CoordCore,
     dashboard_id: &str,
 ) -> Result<std::collections::HashSet<String>, ConnectError> {
-    let rows = sqlx::query("SELECT id FROM sessions WHERE dashboard_id = ?1 AND status = 'open'")
+    let rows = sqlx::query("SELECT id FROM sessions WHERE dashboard_id = $1 AND status = 'open'")
         .bind(dashboard_id)
         .fetch_all(core.services.db.pool())
         .await

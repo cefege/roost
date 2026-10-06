@@ -49,7 +49,10 @@ fn the_coordinator_database_filename_is_the_v3_one() {
     let expected = Path::new(LINUX_HOME)
         .join(".local/share/RoostCoordinatorV3")
         .join("coordinator_v3.db");
-    assert_eq!(loaded_config().db_path, expected);
+    assert_eq!(
+        loaded_config().database.sqlite_file(),
+        Some(expected.as_path())
+    );
 }
 
 #[test]

@@ -24,7 +24,7 @@ pub(crate) async fn read_confirmable(
                 client_os, client_device_type, source_ip, country_code, region, city, \
                 edge_identity \
            FROM pair_requests \
-          WHERE ephemeral_id = ? AND requester_token_hash = ? AND requester_token_hash != ''",
+          WHERE ephemeral_id = $1 AND requester_token_hash = $2 AND requester_token_hash != ''",
     )
     .bind(ephemeral_id)
     .bind(requester_token_hash)

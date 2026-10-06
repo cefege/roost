@@ -140,7 +140,7 @@ pub async fn handle_tasks_next_pending(
     // THE CLAIM IS ONE STATEMENT: the row is chosen inside the write that claims
     // it, where a SELECT then an UPDATE would let two devices have one.
     let sql = format!(
-        "UPDATE tasks SET state = 'claimed', claimed_at_ms = ?, claimed_by = ? WHERE id = \
+        "UPDATE tasks SET state = 'claimed', claimed_at_ms = $1, claimed_by = $2 WHERE id = \
          (SELECT id FROM tasks WHERE state = 'pending' ORDER BY enqueued_at_ms LIMIT 1) \
          RETURNING {TASK_COLUMNS}"
     );
@@ -218,7 +218,7 @@ pub async fn handle_tasks_cancel(
     require_account_device(caller)?;
     let _lease = lease(core)?;
     let sql = format!(
-        "UPDATE tasks SET state = 'cancelled', finished_at_ms = ? WHERE id = ? \
+        "UPDATE tasks SET state = 'cancelled', finished_at_ms = $1 WHERE id = $2 \
          AND state NOT IN ('done', 'failed', 'cancelled') RETURNING {TASK_COLUMNS}"
     );
     let row = sqlx::query_as::<_, StoredTaskRow>(AssertSqlSafe(sql))
@@ -256,7 +256,7 @@ async fn read_tasks(
     state: Option<TaskState>,
 ) -> Result<Vec<StoredTaskRow>, sqlx::Error> {
     let filter = if state.is_some() {
-        " WHERE state = ?"
+        " WHERE state = $1"
     } else {
         ""
     };
@@ -273,7 +273,7 @@ async fn read_tasks(
 
 /// One task row by id, or `None` for absent.
 async fn read_task(database: &CoordDb, id: &str) -> Result<Option<StoredTaskRow>, sqlx::Error> {
-    let sql = format!("SELECT {TASK_COLUMNS} FROM tasks WHERE id = ?");
+    let sql = format!("SELECT {TASK_COLUMNS} FROM tasks WHERE id = $1");
     sqlx::query_as::<_, StoredTaskRow>(AssertSqlSafe(sql))
         .bind(id)
         .fetch_optional(database.pool())
@@ -293,7 +293,7 @@ async fn insert_task(
         "INSERT INTO tasks (id, dashboard_id, state, payload_json, enqueued_at_ms, \
          claimed_at_ms, claimed_by, finished_at_ms, result_json, completion_check, \
          completion_check_last_attempt_ms, claim_ttl_ms) \
-         VALUES (?, ?, 'pending', ?, ?, NULL, NULL, NULL, NULL, ?, NULL, ?) \
+         VALUES ($1, $2, 'pending', $3, $4, NULL, NULL, NULL, NULL, $5, NULL, $6) \
          RETURNING {TASK_COLUMNS}"
     );
     sqlx::query_as::<_, StoredTaskRow>(AssertSqlSafe(sql))
@@ -316,8 +316,8 @@ async fn update_task_state(
     result_json: Option<&str>,
 ) -> Result<Option<StoredTaskRow>, sqlx::Error> {
     let sql = format!(
-        "UPDATE tasks SET state = ?, finished_at_ms = COALESCE(?, finished_at_ms), \
-         result_json = COALESCE(?, result_json) WHERE id = ? RETURNING {TASK_COLUMNS}"
+        "UPDATE tasks SET state = $1, finished_at_ms = COALESCE($2, finished_at_ms), \
+         result_json = COALESCE($3, result_json) WHERE id = $4 RETURNING {TASK_COLUMNS}"
     );
     sqlx::query_as::<_, StoredTaskRow>(AssertSqlSafe(sql))
         .bind(state.as_str())

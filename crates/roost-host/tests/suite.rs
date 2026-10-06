@@ -8,6 +8,8 @@
 mod coord_config;
 #[path = "coord_config_blank_settings.rs"]
 mod coord_config_blank_settings;
+#[path = "coord_database_location.rs"]
+mod coord_database_location;
 #[path = "path_overrides.rs"]
 mod path_overrides;
 #[path = "paths.rs"]

@@ -7,6 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod auth_device_support;
+mod db_support;
 mod ws_credential_support;
 
 use std::net::SocketAddr;

@@ -9,6 +9,7 @@
 //! connection. `unwrap`/`expect` are denied outside `#[cfg(test)]`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod worker_link_wire_support;
 mod ws_client_support;
 mod ws_credential_support;
@@ -72,7 +73,7 @@ async fn an_input_result_overtakes_a_parked_append_and_an_rpc_reply_waits_behind
     let mut input = table.create_fresh(Some(&fixture.worker_fp), 0).unwrap();
     let mut ordered = table.create_fresh(Some(&fixture.worker_fp), 0).unwrap();
 
-    let held = fixture.services.db.pool().acquire().await.unwrap();
+    let held = db_support::hold_every_connection(&fixture.services.db).await;
     send_binary(&mut socket, snapshot(&fixture, 2)).await;
     send_binary(&mut socket, input_result(input.request_id())).await;
     let rpc_ok = CoordWorkerUpstream::RpcOk {
@@ -121,7 +122,7 @@ async fn a_queued_downstream_frame_reaches_the_worker_while_an_append_is_parked(
         .current(&fixture.fp())
         .expect("a generation");
 
-    let held = fixture.services.db.pool().acquire().await.unwrap();
+    let held = db_support::hold_every_connection(&fixture.services.db).await;
     send_binary(&mut socket, snapshot(&fixture, 2)).await;
     // Let the link read the snapshot and park on the held connection, so the
     // frame below is queued while the append owns the read loop.

@@ -56,3 +56,40 @@ jobs:
       # gate that is green because it is absent is not a gate.
       - name: wasm32 build
         run: cargo build -p roost-client-core -p roost-protocol -p roost-web -p roost-web-terminal --target wasm32-unknown-unknown
+
+  # The coordinator suite again, against a real Postgres server: every
+  # behaviour test opens its database through `db_support`, which gives each
+  # test its own database on the server ROOST_TEST_DATABASE_URL names. A job of
+  # its own, never steps in `rust` — `release.yml`'s verify job must run exactly
+  # the `rust` job's commands, and `release_asset_names.rs` pins that.
+  postgres:
+    name: coordinator on postgres
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: roost
+          POSTGRES_PASSWORD: roost
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U roost"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+          --shm-size 1g
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-gates
+          add-job-id-key: false
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - name: roost-coord against postgres
+        env:
+          ROOST_TEST_DATABASE_URL: postgres://roost:roost@localhost:5432/postgres
+        run: cargo nextest run -p roost-coord

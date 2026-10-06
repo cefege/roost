@@ -12,6 +12,7 @@
 //! stated here. Every panic names a value the test just built.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod sync_ws_socket_support;
 mod ws_client_support;
 mod ws_credential_support;

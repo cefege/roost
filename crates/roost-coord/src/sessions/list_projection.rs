@@ -84,7 +84,7 @@ pub async fn read_sessions_list_projection(
 ) -> Result<SessionsListProjection, ConnectError> {
     let status = status.map(SessionStatus::as_str);
     let columns = SESSION_COLUMNS.join(", ");
-    let filter = "WHERE (?1 IS NULL OR worker_fp = ?1) AND (?2 IS NULL OR status = ?2)";
+    let filter = "WHERE ($1 IS NULL OR worker_fp = $1) AND ($2 IS NULL OR status = $2)";
     match scope {
         SessionListScope::Public { worker_fp } => {
             let rows: Vec<StoredSessionRow> = sqlx::query_as(AssertSqlSafe(format!(

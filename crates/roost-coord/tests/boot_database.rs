@@ -15,6 +15,7 @@ use tokio::io::AsyncReadExt;
 
 use roost_coord::db::DbError;
 use roost_coord::maintenance::backup::{backups_dir, list_archives};
+use roost_host::DatabaseLocation;
 
 /// A scratch directory, removed on drop.
 struct Scratch {
@@ -66,7 +67,7 @@ async fn archive_count(database_path: &Path) -> usize {
 #[tokio::test]
 async fn a_fresh_database_is_migrated_without_a_backup() {
     let scratch = Scratch::new("fresh");
-    let database = roost_coord::db::open(&scratch.database_path())
+    let database = roost_coord::db::open(&DatabaseLocation::SqliteFile(scratch.database_path()))
         .await
         .expect("a fresh file opens and migrates");
     database.pool().close().await;
@@ -81,9 +82,10 @@ async fn a_fresh_database_is_migrated_without_a_backup() {
 async fn reopening_a_migrated_database_takes_no_backup() {
     let scratch = Scratch::new("reopen");
     for _ in 0..3 {
-        let database = roost_coord::db::open(&scratch.database_path())
-            .await
-            .expect("the file opens");
+        let database =
+            roost_coord::db::open(&DatabaseLocation::SqliteFile(scratch.database_path()))
+                .await
+                .expect("the file opens");
         database.pool().close().await;
     }
 
@@ -112,7 +114,7 @@ async fn an_existing_file_with_a_pending_migration_is_backed_up_first() {
         .expect("a pre-existing row");
     raw.close().await;
 
-    let database = roost_coord::db::open(&scratch.database_path())
+    let database = roost_coord::db::open(&DatabaseLocation::SqliteFile(scratch.database_path()))
         .await
         .expect("the existing file migrates");
     database.pool().close().await;
@@ -150,7 +152,7 @@ async fn an_existing_file_with_a_pending_migration_is_backed_up_first() {
 #[tokio::test]
 async fn a_database_with_a_foreign_key_violation_refuses_to_open() {
     let scratch = Scratch::new("fk-violation");
-    let database = roost_coord::db::open(&scratch.database_path())
+    let database = roost_coord::db::open(&DatabaseLocation::SqliteFile(scratch.database_path()))
         .await
         .expect("a clean database opens");
     database.pool().close().await;
@@ -165,7 +167,7 @@ async fn a_database_with_a_foreign_key_violation_refuses_to_open() {
     .expect("an orphan the enforced handle would refuse");
     raw.close().await;
 
-    let refused = roost_coord::db::open(&scratch.database_path())
+    let refused = roost_coord::db::open(&DatabaseLocation::SqliteFile(scratch.database_path()))
         .await
         .expect_err("an orphan row refuses the open");
     let DbError::ForeignKeyCheck { rows, violations } = &refused else {

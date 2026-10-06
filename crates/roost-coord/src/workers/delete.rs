@@ -20,7 +20,7 @@
 use std::panic::AssertUnwindSafe;
 
 use roost_protocol::wire::{SessionId, WorkerFp};
-use sqlx::SqliteConnection;
+use sqlx::AnyConnection;
 
 use crate::db::CoordDb;
 
@@ -79,13 +79,13 @@ pub async fn delete_worker(
 
 /// The transaction body, on its own connection so the rollback is the caller's.
 async fn commit_deletion(
-    transaction: &mut SqliteConnection,
+    transaction: &mut AnyConnection,
     worker_fp: &str,
     revoked_by_fp: &str,
     now_ms: i64,
 ) -> Result<WorkerDeletion, WorkerDeleteError> {
     let live: Option<String> =
-        sqlx::query_scalar("SELECT fp FROM workers WHERE fp = ? AND deleted_at_ms IS NULL")
+        sqlx::query_scalar("SELECT fp FROM workers WHERE fp = $1 AND deleted_at_ms IS NULL")
             .bind(worker_fp)
             .fetch_optional(&mut *transaction)
             .await?;
@@ -93,14 +93,14 @@ async fn commit_deletion(
         return Err(WorkerDeleteError::NotFound);
     }
     let session_ids = sqlx::query_scalar::<_, String>(
-        "SELECT id FROM sessions WHERE worker_fp = ? ORDER BY created_at, id",
+        "SELECT id FROM sessions WHERE worker_fp = $1 ORDER BY created_at, id",
     )
     .bind(worker_fp)
     .fetch_all(&mut *transaction)
     .await?;
     sqlx::query(
         "INSERT INTO authorized_key_revocations (fingerprint, revoked_at_ms, revoked_by_fp, reason) \
-         VALUES (?, ?, ?, ?)",
+         VALUES ($1, $2, $3, $4)",
     )
     .bind(worker_fp)
     .bind(now_ms)
@@ -109,7 +109,7 @@ async fn commit_deletion(
     .execute(&mut *transaction)
     .await?;
     let tombstoned = sqlx::query_scalar::<_, String>(
-        "UPDATE workers SET deleted_at_ms = ? WHERE fp = ? AND deleted_at_ms IS NULL RETURNING fp",
+        "UPDATE workers SET deleted_at_ms = $1 WHERE fp = $2 AND deleted_at_ms IS NULL RETURNING fp",
     )
     .bind(now_ms)
     .bind(worker_fp)
@@ -120,11 +120,11 @@ async fn commit_deletion(
     }
     // An unused token this worker minted would let the machine re-enrol itself
     // through a credential nobody is looking at any more.
-    sqlx::query("DELETE FROM bootstrap_tokens WHERE used_at_ms IS NULL AND minted_by_fp = ?")
+    sqlx::query("DELETE FROM bootstrap_tokens WHERE used_at_ms IS NULL AND minted_by_fp = $1")
         .bind(worker_fp)
         .execute(&mut *transaction)
         .await?;
-    sqlx::query("DELETE FROM authorized_keys WHERE fingerprint = ?")
+    sqlx::query("DELETE FROM authorized_keys WHERE fingerprint = $1")
         .bind(worker_fp)
         .execute(&mut *transaction)
         .await?;

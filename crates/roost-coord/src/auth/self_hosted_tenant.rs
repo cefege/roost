@@ -32,9 +32,9 @@
 // how a row the previous product wrote arrives carrying the wrong one.
 
 use roost_protocol::{ProtocolError, ProtocolResult};
-use sqlx::{QueryBuilder, Sqlite, Transaction};
+use sqlx::{Any, Transaction};
 
-use crate::db::CoordDb;
+use crate::db::{CoordDb, SqlBuilder};
 
 /// The three ids a self-hosted deployment is made of.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,7 +62,7 @@ fn refuse(reason: &str) -> ProtocolError {
 
 /// Insert the account, organization, dashboard and both memberships.
 async fn create_topology(
-    transaction: &mut Transaction<'_, Sqlite>,
+    transaction: &mut Transaction<'_, Any>,
     now_ms: i64,
 ) -> ProtocolResult<SelfHostedTenant> {
     let account_id = format!("acct_{now_ms}");
@@ -72,33 +72,33 @@ async fn create_topology(
     let statements: [(&str, Vec<String>, Vec<i64>); 5] = [
         (
             "INSERT INTO accounts (id, email_normalized, status, created_at_ms) \
-             VALUES (?, 'local@roost.invalid', 'active', ?)",
+             VALUES ($1, 'local@roost.invalid', 'active', $2)",
             vec![account_id.clone()],
             vec![now_ms],
         ),
         (
             "INSERT INTO organizations (id, slug, name, status, created_at_ms) \
-             VALUES (?, 'personal', 'Personal', 'active', ?)",
+             VALUES ($1, 'personal', 'Personal', 'active', $2)",
             vec![organization_id.clone()],
             vec![now_ms],
         ),
         (
             "INSERT INTO organization_memberships \
                (organization_id, account_id, role, created_at_ms) \
-             VALUES (?, ?, 'owner', ?)",
+             VALUES ($1, $2, 'owner', $3)",
             vec![organization_id.clone(), account_id.clone()],
             vec![now_ms],
         ),
         (
             "INSERT INTO dashboards (id, organization_id, slug, name, status, created_at_ms) \
-             VALUES (?, ?, 'default', 'Personal', 'active', ?)",
+             VALUES ($1, $2, 'default', 'Personal', 'active', $3)",
             vec![dashboard_id.clone(), organization_id.clone()],
             vec![now_ms],
         ),
         (
             "INSERT INTO dashboard_memberships \
                (dashboard_id, account_id, role, created_at_ms) \
-             VALUES (?, ?, 'admin', ?)",
+             VALUES ($1, $2, 'admin', $3)",
             vec![dashboard_id.clone(), account_id.clone()],
             vec![now_ms],
         ),
@@ -126,7 +126,7 @@ async fn create_topology(
 
 /// The organization membership must be exactly this account, as owner.
 async fn require_owner_membership(
-    transaction: &mut Transaction<'_, Sqlite>,
+    transaction: &mut Transaction<'_, Any>,
     organization_id: &str,
     account_id: &str,
 ) -> ProtocolResult<()> {
@@ -139,7 +139,7 @@ async fn require_owner_membership(
         return Err(refuse("organization owner membership is incomplete"));
     }
     let roles: Vec<String> = sqlx::query_scalar(
-        "SELECT role FROM organization_memberships WHERE organization_id = ? AND account_id = ?",
+        "SELECT role FROM organization_memberships WHERE organization_id = $1 AND account_id = $2",
     )
     .bind(organization_id)
     .bind(account_id)
@@ -154,7 +154,7 @@ async fn require_owner_membership(
 
 /// The dashboard membership must be exactly this account, as admin.
 async fn require_admin_membership(
-    transaction: &mut Transaction<'_, Sqlite>,
+    transaction: &mut Transaction<'_, Any>,
     dashboard_id: &str,
     account_id: &str,
 ) -> ProtocolResult<()> {
@@ -167,7 +167,7 @@ async fn require_admin_membership(
         return Err(refuse("dashboard admin membership is incomplete"));
     }
     let roles: Vec<String> = sqlx::query_scalar(
-        "SELECT role FROM dashboard_memberships WHERE dashboard_id = ? AND account_id = ?",
+        "SELECT role FROM dashboard_memberships WHERE dashboard_id = $1 AND account_id = $2",
     )
     .bind(dashboard_id)
     .bind(account_id)
@@ -182,7 +182,7 @@ async fn require_admin_membership(
 
 /// Inspect the topology, creating it when the database is empty.
 async fn inspect_or_create(
-    transaction: &mut Transaction<'_, Sqlite>,
+    transaction: &mut Transaction<'_, Any>,
     now_ms: i64,
 ) -> ProtocolResult<SelfHostedTenant> {
     let accounts: Vec<(String, String)> = sqlx::query_as("SELECT id, status FROM accounts LIMIT 2")
@@ -280,10 +280,10 @@ const GLOBAL_SETTING_KEYS: &[&str] = &[crate::push::vapid::VAPID_SETTING_KEY];
 /// the pragma off. It is kept because a check that costs one comparison is
 /// cheaper than the incident it prevents.
 async fn require_valid_setting_scopes(
-    transaction: &mut Transaction<'_, Sqlite>,
+    transaction: &mut Transaction<'_, Any>,
     dashboard_id: &str,
 ) -> ProtocolResult<()> {
-    let mut scoped_global = QueryBuilder::<Sqlite>::new(
+    let mut scoped_global = SqlBuilder::new(
         "SELECT key, dashboard_id FROM app_settings \
           WHERE dashboard_id IS NOT NULL AND key IN (",
     );
@@ -303,9 +303,8 @@ async fn require_valid_setting_scopes(
         )));
     }
 
-    let mut dashboard_scoped = QueryBuilder::<Sqlite>::new(
-        "SELECT key, dashboard_id FROM app_settings WHERE key NOT IN (",
-    );
+    let mut dashboard_scoped =
+        SqlBuilder::new("SELECT key, dashboard_id FROM app_settings WHERE key NOT IN (");
     push_global_keys(&mut dashboard_scoped);
     dashboard_scoped.push(") AND (dashboard_id IS NULL OR dashboard_id <> ");
     dashboard_scoped.push_bind(dashboard_id);
@@ -327,7 +326,7 @@ async fn require_valid_setting_scopes(
 }
 
 /// Bind every coordinator-global key into an `IN (...)` that is still open.
-fn push_global_keys(statement: &mut QueryBuilder<Sqlite>) {
+fn push_global_keys(statement: &mut SqlBuilder) {
     let mut keys = statement.separated(", ");
     for key in GLOBAL_SETTING_KEYS {
         keys.push_bind(*key);

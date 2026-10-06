@@ -30,7 +30,8 @@
 
 use std::fmt;
 use std::io::Read;
-use std::path::Path;
+
+use roost_host::DatabaseLocation;
 
 use crate::command_error::CommandFailure;
 use crate::deploy::codes;
@@ -123,28 +124,31 @@ pub fn grant_digest(bearer: &str) -> String {
     sha256_hex(bearer.as_bytes())
 }
 
-/// Mint a grant against the coordinator's own database, on this machine.
+/// Mint a grant against the coordinator's own database.
 ///
-/// The database must already exist. `roost_coord::db::open` creates and
+/// A SQLite database must already exist. `roost_coord::db::open` creates and
 /// migrates a file that is not there, which is right for the coordinator's boot
 /// and wrong here: a mistyped or derived path would produce a brand-new empty
 /// database, the tenant would be created in it, and the grant would be printed
 /// into an enrollment command that can never be redeemed — with a junk
 /// database left behind. An existing file is the only proof that this is the
-/// database the running coordinator is actually using.
+/// database the running coordinator is actually using. A Postgres URL is the
+/// one the coordinator itself was given, so it needs no such proof.
 pub async fn mint_host_grant(
-    database: &Path,
+    database: &DatabaseLocation,
     kind: GrantKind,
     label: &str,
     now_ms: i64,
 ) -> Result<OneShotGrant, CommandFailure> {
-    if !database.is_file() {
+    let described = describe_database(database);
+    if let DatabaseLocation::SqliteFile(path) = database
+        && !path.is_file()
+    {
         return Err(codes::refuse(
             codes::NO_COORDINATOR_URL,
             format!(
-                "the coordinator database {} does not exist, so this host is not a coordinator; \
-                 run this command on the machine the coordinator is installed on",
-                database.display()
+                "the coordinator database {described} does not exist, so this host is not a \
+                 coordinator; run this command on the machine the coordinator is installed on"
             ),
         ));
     }
@@ -155,10 +159,7 @@ pub async fn mint_host_grant(
     let opened = roost_coord::db::open(database).await.map_err(|error| {
         codes::refuse(
             codes::NO_COORDINATOR_URL,
-            format!(
-                "the coordinator database {} could not be opened: {error}",
-                database.display()
-            ),
+            format!("the coordinator database {described} could not be opened: {error}"),
         )
     })?;
     let tenant = roost_coord::auth::self_hosted_tenant::ensure_self_hosted_tenant(&opened, now_ms)
@@ -167,8 +168,7 @@ pub async fn mint_host_grant(
             codes::refuse(
                 codes::NO_COORDINATOR_URL,
                 format!(
-                    "this coordinator's tenant could not be resolved from {}: {error}",
-                    database.display()
+                    "this coordinator's tenant could not be resolved from {described}: {error}"
                 ),
             )
         })?;
@@ -176,7 +176,7 @@ pub async fn mint_host_grant(
         "INSERT INTO bootstrap_tokens (\
            token_hash, account_id, dashboard_id, kind, label,\
            created_at_ms, expires_at_ms, used_at_ms, used_by_fp, minted_by_fp)\
-         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, NULL, NULL)",
     )
     .bind(&digest)
     .bind(&tenant.account_id)
@@ -190,10 +190,7 @@ pub async fn mint_host_grant(
     .map_err(|error| {
         codes::refuse(
             codes::NO_COORDINATOR_URL,
-            format!(
-                "the {kind:?} grant could not be recorded in {}: {error}",
-                database.display()
-            ),
+            format!("the {kind:?} grant could not be recorded in {described}: {error}"),
         )
     })?;
 
@@ -201,6 +198,17 @@ pub async fn mint_host_grant(
         bearer,
         expires_at_ms,
     })
+}
+
+/// The database as an operator-facing message names it: the file path, or the
+/// backend alone — a Postgres URL carries a password and never reaches stderr.
+pub(crate) fn describe_database(database: &DatabaseLocation) -> String {
+    match database {
+        DatabaseLocation::SqliteFile(path) => path.display().to_string(),
+        DatabaseLocation::Postgres(_) => {
+            "(the Postgres server in ROOST_COORDINATOR_DATABASE_URL)".to_owned()
+        }
+    }
 }
 
 /// Bytes from the kernel CSPRNG, hex-encoded.
@@ -226,6 +234,8 @@ fn random_hex() -> Result<String, CommandFailure> {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+
+    use roost_host::DatabaseLocation;
 
     use super::{
         BEARER_PREFIX, GRANT_TTL_MS, GrantKind, grant_digest, mint_host_grant, random_hex,
@@ -266,12 +276,12 @@ mod tests {
 
     /// A database created and migrated by the coordinator's own boot, which is
     /// the only database a grant is ever minted into.
-    async fn coordinator_database(tree: &TempTree) -> PathBuf {
-        let path = tree.database();
-        roost_coord::db::open(&path)
+    async fn coordinator_database(tree: &TempTree) -> DatabaseLocation {
+        let database = DatabaseLocation::SqliteFile(tree.database());
+        roost_coord::db::open(&database)
             .await
             .expect("the coordinator database is created and migrated");
-        path
+        database
     }
 
     #[tokio::test]
@@ -339,17 +349,22 @@ mod tests {
     #[tokio::test]
     async fn a_database_that_does_not_exist_is_refused_rather_than_created() {
         let tree = TempTree::new("absent");
-        let database = tree.database();
-        let failure = mint_host_grant(&database, GrantKind::Worker, "add-machine", 1)
-            .await
-            .expect_err("a database that is not there is refused");
+        let path = tree.database();
+        let failure = mint_host_grant(
+            &DatabaseLocation::SqliteFile(path.clone()),
+            GrantKind::Worker,
+            "add-machine",
+            1,
+        )
+        .await
+        .expect_err("a database that is not there is refused");
         assert_eq!(failure.code, codes::NO_COORDINATOR_URL);
         assert!(
-            failure.message.contains(&database.display().to_string()),
+            failure.message.contains(&path.display().to_string()),
             "{failure}"
         );
         assert!(
-            !database.exists(),
+            !path.exists(),
             "a refused mint must not leave a database behind"
         );
     }

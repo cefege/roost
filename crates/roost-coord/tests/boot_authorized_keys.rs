@@ -7,12 +7,14 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use base64::Engine as _;
 use roost_coord::auth::authorized_keys::{fingerprint_of_raw_public_key, parse_ssh_ed25519_line};
 use roost_coord::serve::prepare_coordinator_database;
-use roost_host::{CoordConfig, CoordConfigInput};
+use roost_host::{CoordConfig, CoordConfigInput, DatabaseLocation};
+
+mod db_support;
 
 struct Scratch {
     root: PathBuf,
@@ -33,9 +35,9 @@ impl Scratch {
         self.root.join("authorized_keys")
     }
 
-    fn config(&self) -> CoordConfig {
+    async fn config(&self) -> CoordConfig {
         CoordConfig::parse(CoordConfigInput {
-            db_path: Some(self.root.join("coord.db")),
+            database: Some(db_support::test_database_location(&self.root).await),
             authorized_keys_path: Some(self.keys_path()),
             log_dir: Some(self.root.join("logs")),
             ..CoordConfigInput::default()
@@ -61,7 +63,7 @@ fn ssh_wire_blob(public_key: &[u8; 32]) -> String {
 }
 
 async fn key_labels(config: &CoordConfig) -> Vec<(String, String)> {
-    let database = roost_coord::db::open(&config.db_path)
+    let database = roost_coord::db::open(&config.database)
         .await
         .expect("reopen");
     let rows = sqlx::query_as("SELECT fingerprint, label FROM authorized_keys ORDER BY label")
@@ -72,8 +74,8 @@ async fn key_labels(config: &CoordConfig) -> Vec<(String, String)> {
     rows
 }
 
-async fn device_fingerprints(path: &Path) -> Vec<String> {
-    let database = roost_coord::db::open(path).await.expect("reopen");
+async fn device_fingerprints(location: &DatabaseLocation) -> Vec<String> {
+    let database = roost_coord::db::open(location).await.expect("reopen");
     let rows: Vec<(String,)> =
         sqlx::query_as("SELECT fingerprint FROM account_devices ORDER BY fingerprint")
             .fetch_all(database.pool())
@@ -126,14 +128,14 @@ fn lines_that_are_not_ed25519_keys_are_skipped() {
 #[tokio::test]
 async fn boot_imports_the_file_deduping_and_skipping_invalid_lines() {
     let scratch = Scratch::new("import");
-    let config = scratch.config();
+    let config = scratch.config().await;
     let revoked_key = [3_u8; 32];
-    let database = roost_coord::db::open(&config.db_path)
+    let database = roost_coord::db::open(&config.database)
         .await
         .expect("a database");
     sqlx::query(
         "INSERT INTO authorized_key_revocations (fingerprint, revoked_at_ms, revoked_by_fp, reason) \
-         VALUES (?, 1, 'operator', 'lost')",
+         VALUES ($1, 1, 'operator', 'lost')",
     )
     .bind(fingerprint_of_raw_public_key(&revoked_key))
     .execute(database.pool())
@@ -169,7 +171,7 @@ async fn boot_imports_the_file_deduping_and_skipping_invalid_lines() {
         ]
     );
     assert_eq!(
-        device_fingerprints(&config.db_path).await,
+        device_fingerprints(&config.database).await,
         Vec::<String>::new()
     );
 }
@@ -180,7 +182,7 @@ async fn boot_imports_the_file_deduping_and_skipping_invalid_lines() {
 #[tokio::test]
 async fn a_later_boot_makes_imported_non_worker_keys_devices_of_the_one_account() {
     let scratch = Scratch::new("devices");
-    let config = scratch.config();
+    let config = scratch.config().await;
     let (browser, worker) = ([4_u8; 32], [5_u8; 32]);
     let file = format!(
         "ssh-ed25519 {} browser\nssh-ed25519 {} worker\n",
@@ -194,7 +196,7 @@ async fn a_later_boot_makes_imported_non_worker_keys_devices_of_the_one_account(
         .expect("first boot");
     sqlx::query(
         "INSERT INTO workers (fp, label, os, registered_at_ms, last_seen_ms, dashboard_id) \
-         VALUES (?, 'worker', 'linux', 1, 1, ?)",
+         VALUES ($1, 'worker', 'linux', 1, 1, $2)",
     )
     .bind(fingerprint_of_raw_public_key(&worker))
     .bind(&tenant.dashboard_id)
@@ -209,7 +211,7 @@ async fn a_later_boot_makes_imported_non_worker_keys_devices_of_the_one_account(
     database.pool().close().await;
 
     assert_eq!(
-        device_fingerprints(&config.db_path).await,
+        device_fingerprints(&config.database).await,
         vec![fingerprint_of_raw_public_key(&browser)]
     );
 }
@@ -219,7 +221,7 @@ async fn a_later_boot_makes_imported_non_worker_keys_devices_of_the_one_account(
 #[tokio::test]
 async fn an_absent_or_unreadable_keys_file_does_not_stop_boot() {
     let scratch = Scratch::new("unreadable");
-    let config = scratch.config();
+    let config = scratch.config().await;
     let (database, _tenant) = prepare_coordinator_database(&config, 10)
         .await
         .expect("boot without a keys file");

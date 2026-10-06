@@ -66,13 +66,13 @@ impl SyncFixture {
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database_path = root.join("coord.db");
-        let database = roost_coord::db::open(&database_path)
+        let database_location = super::db_support::test_database_location(&root).await;
+        let database = roost_coord::db::open(&database_location)
             .await
             .expect("a migrated database");
         let resolved = CoordConfig::parse(CoordConfigInput {
             bind: Some("127.0.0.1:0".to_owned()),
-            db_path: Some(database_path),
+            database: Some(database_location),
             authorized_keys_path: Some(root.join("authorized_keys")),
             log_dir: Some(root.join("logs")),
             ..CoordConfigInput::default()
@@ -135,12 +135,13 @@ impl SyncFixture {
     pub async fn enroll_browser(&self, seed: u8) -> (String, String) {
         let now = now_secs();
         let (fingerprint, public_key, token) = mint_coordinator_jwt([seed; 32], now, now + 300);
-        self.exec(&format!(
-            "INSERT INTO authorized_keys (fingerprint, public_key, label, added_at, \
-             paired_from_ip, paired_country) VALUES ('{fingerprint}', x'{}', 'browser', 1000, \
-             '203.0.113.9', 'SE')",
-            hex::encode(public_key),
-        ))
+        super::db_support::insert_authorized_key(
+            &self.services.db,
+            &fingerprint,
+            &public_key,
+            "browser",
+            Some(("203.0.113.9", "SE")),
+        )
         .await;
         self.exec(&format!(
             "INSERT INTO account_devices (fingerprint, account_id, added_at_ms, last_seen_at_ms) \

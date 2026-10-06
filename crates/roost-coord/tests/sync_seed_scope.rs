@@ -9,6 +9,7 @@
 //! and `workers/handlers-workers.ts` (worker delete).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod sync_seed_support;
 mod sync_ws_socket_support;
 mod ws_client_support;

@@ -109,7 +109,7 @@ impl SpawnDispatch<'_> {
     /// Send the command, or say which definite failure rejects the reservation.
     async fn send(&self, req: &SessionsSpawnRequest) -> Result<(), ConnectError> {
         let services = &self.core.services;
-        let existing: Option<String> = sqlx::query_scalar("SELECT id FROM sessions WHERE id = ?1")
+        let existing: Option<String> = sqlx::query_scalar("SELECT id FROM sessions WHERE id = $1")
             .bind(self.session_id.as_str())
             .fetch_optional(services.db.pool())
             .await
@@ -245,7 +245,7 @@ fn spawn_session_id(requested: Option<&str>) -> Result<SessionId, ConnectError> 
 /// The worker a spawn names, when it is registered and not tombstoned.
 async fn registered_worker(core: &CoordCore, worker_fp: &str) -> Result<WorkerFp, ConnectError> {
     let found: Option<String> =
-        sqlx::query_scalar("SELECT fp FROM workers WHERE fp = ?1 AND deleted_at_ms IS NULL")
+        sqlx::query_scalar("SELECT fp FROM workers WHERE fp = $1 AND deleted_at_ms IS NULL")
             .bind(worker_fp)
             .fetch_optional(core.services.db.pool())
             .await

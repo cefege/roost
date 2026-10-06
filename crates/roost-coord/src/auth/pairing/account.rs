@@ -19,7 +19,7 @@
 //! `AlreadyExists`, never a silent overwrite, because an overwrite would let
 //! whoever guesses an id replace the key an operator is about to authorize.
 
-use sqlx::{Sqlite, Transaction};
+use sqlx::{Any, Transaction};
 
 use super::authority;
 use super::provenance::PairRequestProvenance;
@@ -118,7 +118,7 @@ pub async fn create_pair_request(
 
 /// A second create of a live id: the idempotent retry, or a refusal.
 async fn reconcile_existing(
-    transaction: &mut Transaction<'_, Sqlite>,
+    transaction: &mut Transaction<'_, Any>,
     existing: PairRequestRow,
     input: &PairRequestCreate<'_>,
 ) -> PairingResult<CreateOutcome> {
@@ -150,7 +150,7 @@ async fn reconcile_existing(
 /// A first create: refuse a revoked key, reclaim the dead, enforce the cap, and
 /// insert.
 async fn insert_fresh(
-    transaction: &mut Transaction<'_, Sqlite>,
+    transaction: &mut Transaction<'_, Any>,
     input: &PairRequestCreate<'_>,
 ) -> PairingResult<CreateOutcome> {
     let requester_fingerprint = fingerprint_of_raw_public_key(&input.public_key);
@@ -211,11 +211,11 @@ pub async fn apply_approval(
         ApprovalOutcome::Approved { identity } => {
             let changed = sqlx::query(
                 "UPDATE pair_requests \
-                    SET status = 'verification_required', ceremony_version = ?, \
-                        verification_code_hash = ?, verification_attempts = 0, \
-                        approved_by_fp = ?, approved_account_id = ? \
-                  WHERE id = ? AND status = 'pending' AND expires_at_ms > ? \
-                    AND ceremony_version = ?",
+                    SET status = 'verification_required', ceremony_version = $1, \
+                        verification_code_hash = $2, verification_attempts = 0, \
+                        approved_by_fp = $3, approved_account_id = $4 \
+                  WHERE id = $5 AND status = 'pending' AND expires_at_ms > $6 \
+                    AND ceremony_version = $7",
             )
             .bind(i64::from(PAIRING_CEREMONY_VERSION))
             .bind(verification_code_hash)

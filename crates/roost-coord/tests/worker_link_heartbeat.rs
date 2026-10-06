@@ -14,6 +14,7 @@
 //! be stated here rather than inherited.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod worker_link_wire_support;
 mod ws_client_support;
 mod ws_credential_support;

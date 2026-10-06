@@ -2,7 +2,7 @@
 //! one self-hosted account the coordinator created at boot and attach the key
 //! to it. The same two inserts the deleted smoke harness ran against both
 //! coordinators (`main:smoke/terminal/stack-runtime.ts`); the tables are in
-//! `crates/roost-coord/migrations/0001_init.sql`.
+//! `crates/roost-coord/migrations/sqlite/0001_init.sql`.
 
 use std::path::Path;
 use std::time::Duration;

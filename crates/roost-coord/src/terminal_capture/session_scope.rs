@@ -27,7 +27,7 @@ pub(crate) async fn release_closed_session_recordings(
         .collect();
     for (session_id, recording_id) in armed {
         let open: Option<(String,)> =
-            sqlx::query_as("SELECT id FROM sessions WHERE id = ?1 AND status = 'open'")
+            sqlx::query_as("SELECT id FROM sessions WHERE id = $1 AND status = 'open'")
                 .bind(&session_id)
                 .fetch_optional(bridge.services.db.pool())
                 .await
@@ -50,7 +50,7 @@ pub(crate) async fn resolve_open_session_worker(
     let row: Option<(String,)> = sqlx::query_as(
         "SELECT session.worker_fp FROM sessions AS session \
          INNER JOIN workers AS worker ON worker.fp = session.worker_fp \
-         WHERE session.id = ?1 AND session.status = 'open' AND worker.deleted_at_ms IS NULL",
+         WHERE session.id = $1 AND session.status = 'open' AND worker.deleted_at_ms IS NULL",
     )
     .bind(session_id)
     .fetch_optional(services.db.pool())

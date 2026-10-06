@@ -6,9 +6,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use roost_platform::same_worker_folder;
 use roost_protocol::ProtocolError;
 use roost_protocol::wire::{SessionId, WorkerFp, Workspace, WorkspaceId};
-use sqlx::{AssertSqlSafe, FromRow, SqliteConnection};
+use sqlx::{AnyConnection, AssertSqlSafe, FromRow};
 
-use crate::db::CoordDb;
+use crate::coord_core::ids;
+use crate::db::{CoordDb, IN_LIST_CHUNK, SqlBuilder, push_in_list};
 
 /// What a delete takes with it lives in [`super::workspace_delete`], because the
 /// detach and the unclaim are only ever correct immediately before the row
@@ -43,11 +44,11 @@ pub struct CreatedWorkspace {
 #[derive(Debug, thiserror::Error)]
 pub enum WorkspaceError {
     /// The statement failed, or the transaction could not commit.
-    #[error("sqlite: {0}")]
+    #[error("database: {0}")]
     Sqlite(#[from] sqlx::Error),
-    /// A bound id list could not be encoded; no id list is ever spliced into SQL.
-    #[error("id list: {0}")]
-    IdList(#[from] serde_json::Error),
+    /// The kernel CSPRNG could not be read for a new workspace id.
+    #[error("entropy: {0}")]
+    Entropy(#[from] std::io::Error),
     /// A stored value is not legal; the message names the field.
     #[error("workspace value: {0}")]
     Value(#[from] ProtocolError),
@@ -110,7 +111,7 @@ pub(crate) async fn create_workspace(
 ) -> Result<CreatedWorkspace, WorkspaceError> {
     let mut transaction = database.pool().begin().await?;
     let Some(os) = sqlx::query_scalar::<_, String>(
-        "SELECT os FROM workers WHERE fp = ? AND deleted_at_ms IS NULL",
+        "SELECT os FROM workers WHERE fp = $1 AND deleted_at_ms IS NULL",
     )
     .bind(&request.worker_fp)
     .fetch_optional(&mut *transaction)
@@ -132,7 +133,7 @@ pub(crate) async fn create_workspace(
         .cloned()
         .unwrap_or_else(|| request.folder_path.clone());
     let existing = sqlx::query_as::<_, Row>(AssertSqlSafe(format!(
-        "SELECT {COLUMNS} FROM workspaces WHERE worker_fp = ?"
+        "SELECT {COLUMNS} FROM workspaces WHERE worker_fp = $1"
     )))
     .bind(&request.worker_fp)
     .fetch_all(&mut *transaction)
@@ -151,19 +152,10 @@ pub(crate) async fn create_workspace(
     let position: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM workspaces")
         .fetch_one(&mut *transaction)
         .await?;
-    // v2 called `randomUUID()`; no entropy crate is in this crate's dependency
-    // graph, and SQLite's `randomblob` is the one CSPRNG already reachable. The
-    // version and variant nibbles are pinned so the result is a v4 UUID.
-    let id: String = sqlx::query_scalar(
-        "SELECT lower(substr(h,1,8) || '-' || substr(h,9,4) || '-4' || substr(h,14,3) || '-8' \
-         || substr(h,18,3) || '-' || substr(h,21,12)) \
-         FROM (SELECT lower(hex(randomblob(16))) AS h)",
-    )
-    .fetch_one(&mut *transaction)
-    .await?;
+    let id = ids::render_v4(ids::draw::<16>()?);
     let row = sqlx::query_as::<_, Row>(AssertSqlSafe(format!(
         "INSERT INTO workspaces (id, dashboard_id, worker_fp, name, folder_path, color, position, \
-                version, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?) \
+                version, created_at_ms, updated_at_ms) VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $9) \
          RETURNING {COLUMNS}"
     )))
     .bind(&id)
@@ -194,7 +186,7 @@ pub async fn update_workspace(
     now_ms: i64,
 ) -> Result<Workspace, WorkspaceError> {
     let mut transaction = database.pool().begin().await?;
-    let mut update = sqlx::QueryBuilder::<sqlx::Sqlite>::new("UPDATE workspaces SET ");
+    let mut update = SqlBuilder::new("UPDATE workspaces SET ");
     {
         let mut separated = update.separated(", ");
         for (column, value) in [
@@ -252,81 +244,80 @@ pub async fn update_workspace(
 /// reads twice: writing only the junction double-counts a session as a member
 /// and as an orphan. So this MOVES it: sweep, insert, then the column.
 pub(crate) async fn set_membership(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     workspace_id: &str,
     dashboard_id: &str,
     session_ids: &[String],
     now_ms: i64,
 ) -> Result<(), WorkspaceError> {
-    if session_ids.is_empty() {
-        return Ok(());
+    for chunk in session_ids.chunks(IN_LIST_CHUNK) {
+        let mut sweep = SqlBuilder::new("DELETE FROM workspace_sessions WHERE session_id IN ");
+        push_in_list(&mut sweep, chunk);
+        sweep.build().execute(&mut *connection).await?;
+        let mut insert = SqlBuilder::new(
+            "INSERT INTO workspace_sessions (workspace_id, session_id, added_at_ms, dashboard_id) ",
+        );
+        insert.push_values(chunk, |mut row, session_id| {
+            row.push_bind(workspace_id)
+                .push_bind(session_id)
+                .push_bind(now_ms)
+                .push_bind(dashboard_id);
+        });
+        insert.build().execute(&mut *connection).await?;
+        let mut claim = SqlBuilder::new("UPDATE sessions SET workspace_id = ");
+        claim.push_bind(workspace_id).push(" WHERE id IN ");
+        push_in_list(&mut claim, chunk);
+        claim.build().execute(&mut *connection).await?;
     }
-    let ids = serde_json::to_string(session_ids)?;
-    sqlx::query(
-        "DELETE FROM workspace_sessions WHERE session_id IN (SELECT value FROM json_each(?))",
-    )
-    .bind(&ids)
-    .execute(&mut *connection)
-    .await?;
-    sqlx::query(
-        "INSERT INTO workspace_sessions (workspace_id, session_id, added_at_ms, dashboard_id) \
-         SELECT ?, value, ?, ? FROM json_each(?)",
-    )
-    .bind(workspace_id)
-    .bind(now_ms)
-    .bind(dashboard_id)
-    .bind(&ids)
-    .execute(&mut *connection)
-    .await?;
-    sqlx::query(
-        "UPDATE sessions SET workspace_id = ? WHERE id IN (SELECT value FROM json_each(?))",
-    )
-    .bind(workspace_id)
-    .bind(&ids)
-    .execute(&mut *connection)
-    .await?;
     Ok(())
 }
 
 pub(crate) async fn session_cwds(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     session_ids: &[String],
 ) -> Result<BTreeMap<String, String>, WorkspaceError> {
-    Ok(sqlx::query_as::<_, (String, String)>(
-        "SELECT id, cwd FROM sessions WHERE id IN (SELECT value FROM json_each(?))",
-    )
-    .bind(serde_json::to_string(session_ids)?)
-    .fetch_all(&mut *connection)
-    .await?
-    .into_iter()
-    .collect())
+    let mut cwds = BTreeMap::new();
+    for chunk in session_ids.chunks(IN_LIST_CHUNK) {
+        let mut statement = SqlBuilder::new("SELECT id, cwd FROM sessions WHERE id IN ");
+        push_in_list(&mut statement, chunk);
+        cwds.extend(
+            statement
+                .build_query_as::<(String, String)>()
+                .fetch_all(&mut *connection)
+                .await?,
+        );
+    }
+    Ok(cwds)
 }
 
 /// The junction rows of many workspaces in one statement, each with its row's
 /// `version` -- what a `sessions-set` delta carries beside the membership.
 pub(crate) async fn junction(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     workspace_ids: &[String],
 ) -> Result<BTreeMap<String, (i64, Vec<SessionId>)>, WorkspaceError> {
     let mut grouped: BTreeMap<String, (i64, Vec<SessionId>)> = BTreeMap::new();
-    for (workspace_id, version, session_id) in sqlx::query_as::<_, (String, i64, String)>(
-        "SELECT s.workspace_id, w.version, s.session_id FROM workspace_sessions s \
-         JOIN workspaces w ON w.id = s.workspace_id \
-         WHERE s.workspace_id IN (SELECT value FROM json_each(?)) \
-         ORDER BY s.workspace_id, s.session_id",
-    )
-    .bind(serde_json::to_string(workspace_ids)?)
-    .fetch_all(&mut *connection)
-    .await?
-    {
-        let entry = grouped.entry(workspace_id).or_insert((version, Vec::new()));
-        entry.1.push(SessionId::try_from(session_id)?);
+    for chunk in workspace_ids.chunks(IN_LIST_CHUNK) {
+        let mut statement = SqlBuilder::new(
+            "SELECT s.workspace_id, w.version, s.session_id FROM workspace_sessions s \
+             JOIN workspaces w ON w.id = s.workspace_id WHERE s.workspace_id IN ",
+        );
+        push_in_list(&mut statement, chunk);
+        statement.push(" ORDER BY s.workspace_id, s.session_id");
+        for (workspace_id, version, session_id) in statement
+            .build_query_as::<(String, i64, String)>()
+            .fetch_all(&mut *connection)
+            .await?
+        {
+            let entry = grouped.entry(workspace_id).or_insert((version, Vec::new()));
+            entry.1.push(SessionId::try_from(session_id)?);
+        }
     }
     Ok(grouped)
 }
 
 pub(crate) async fn members_of(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     workspace_id: &str,
 ) -> Result<Vec<SessionId>, WorkspaceError> {
     junction(connection, std::slice::from_ref(&workspace_id.to_owned()))

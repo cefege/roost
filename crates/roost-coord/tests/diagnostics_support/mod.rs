@@ -42,7 +42,7 @@ impl AuditFixture {
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database = roost_coord::db::open(&root.join("coord.db"))
+        let database = super::db_support::open_test_database(&root)
             .await
             .expect("a migrated coordinator database");
         let tenant = ensure_self_hosted_tenant(&database, 0)
@@ -51,7 +51,7 @@ impl AuditFixture {
         for fingerprint in [CALLER_ONE, CALLER_TWO] {
             sqlx::query(
                 "INSERT INTO authorized_keys (fingerprint, public_key, label, added_at) \
-                 VALUES (?1, ?2, ?3, 0)",
+                 VALUES ($1, $2, $3, 0)",
             )
             .bind(fingerprint)
             .bind(vec![0_u8; 32])
@@ -79,7 +79,7 @@ impl AuditFixture {
     pub async fn record(&self, caller_fp: &str, method: &str, path: &str, status: u16) {
         sqlx::query(
             "INSERT INTO audit_log (ts, caller_fp, method, path, status, trace_id, dashboard_id) \
-             VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6)",
+             VALUES ($1, $2, $3, $4, $5, NULL, $6)",
         )
         .bind(1_700_000_000_000_i64)
         .bind(caller_fp)

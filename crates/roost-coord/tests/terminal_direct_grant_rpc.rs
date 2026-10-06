@@ -4,6 +4,7 @@
 //! Ports `apps/coord/tests/local-terminal-grant.test.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod terminal_direct_core_support;
 mod terminal_direct_support;
 
@@ -199,7 +200,7 @@ async fn rechecks_durable_authorization_after_the_worker_ack_before_returning_a_
             .direct
             .request_grant(caller, LOCAL_WORKER, LOCAL_TAB, vec![session.clone()]);
     let frame = fixture.direct.next_install(&fixture.local, 0).await;
-    sqlx::query("UPDATE sessions SET status = 'closed' WHERE id = ?1")
+    sqlx::query("UPDATE sessions SET status = 'closed' WHERE id = $1")
         .bind(&session)
         .execute(fixture.direct.core.services.db.pool())
         .await

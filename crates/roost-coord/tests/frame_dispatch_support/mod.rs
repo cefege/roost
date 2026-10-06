@@ -87,7 +87,7 @@ impl LinkFixture {
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database = roost_coord::db::open(&root.join("coord.db"))
+        let database = super::db_support::open_test_database(&root)
             .await
             .expect("a migrated database");
         let tenant =
@@ -176,7 +176,7 @@ impl LinkFixture {
     /// How many `events` rows this worker's sequence wrote.
     pub async fn rows_for(&self, client_seq: u64) -> i64 {
         sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM events WHERE worker_fp = ? AND client_seq = ?",
+            "SELECT COUNT(*) FROM events WHERE worker_fp = $1 AND client_seq = $2",
         )
         .bind(WORKER_FP)
         .bind(client_seq as i64)

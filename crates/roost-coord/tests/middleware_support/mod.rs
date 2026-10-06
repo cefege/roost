@@ -41,7 +41,7 @@ use roost_coord::http::spa::SpaMount;
 use roost_coord::middleware::security::{apply_security_headers, security_options_for_config};
 use roost_coord::rpc::service::CoordinatorServiceImpl;
 use roost_coord::services::CoordServices;
-use roost_host::{CoordConfig, CoordConfigInput};
+use roost_host::{CoordConfig, CoordConfigInput, DatabaseLocation};
 
 pub mod dist;
 
@@ -105,7 +105,9 @@ impl Default for FixtureConfig {
 /// deployment reaches them by.
 pub fn front_door_config(relaxed_csp: bool) -> CoordConfig {
     CoordConfig::parse(CoordConfigInput {
-        db_path: Some(PathBuf::from("/nonexistent/coord.db")),
+        database: Some(DatabaseLocation::SqliteFile(PathBuf::from(
+            "/nonexistent/coord.db",
+        ))),
         authorized_keys_path: Some(PathBuf::from("/nonexistent/authorized_keys")),
         log_dir: Some(PathBuf::from("/nonexistent/logs")),
         public_url: Some(FRONT_DOOR.to_owned()),
@@ -152,8 +154,8 @@ impl ListenerFixture {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
         let dist = config.serve_dist.then(|| write_dist(&root));
-        let database_path = root.join("coord.db");
-        let database = roost_coord::db::open(&database_path)
+        let database_location = super::db_support::test_database_location(&root).await;
+        let database = roost_coord::db::open(&database_location)
             .await
             .expect("a migrated database");
         // `:0` is the case the admission gate's pre-bind window exists for: the
@@ -164,7 +166,7 @@ impl ListenerFixture {
             .unwrap_or_else(|| "127.0.0.1:0".to_owned());
         let resolved = CoordConfig::parse(CoordConfigInput {
             bind: Some(bind),
-            db_path: Some(database_path.clone()),
+            database: Some(database_location),
             authorized_keys_path: Some(root.join("authorized_keys")),
             log_dir: Some(root.join("logs")),
             trust_proxy: Some(config.trust_proxy),

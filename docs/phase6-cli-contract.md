@@ -336,7 +336,9 @@ install.
 
 - `roost coord` — `--bind` overrides `ROOST_COORDINATOR_BIND`, `--db` overrides
   `ROOST_COORDINATOR_DB`. Both are validated by `roost-host` against the same
-  rules the installer enforces.
+  rules the installer enforces. `ROOST_COORDINATOR_DATABASE_URL` (a
+  `postgres://` URL) replaces the SQLite file entirely; setting it together
+  with `ROOST_COORDINATOR_DB` (or `--db`) is refused, never ranked.
 - `roost worker` — `--coordinator-url` overrides `ROOST_COORDINATOR_URL`. The
   keeper socket, pid file, key path and log directory are resolved by
   `roost-worker` from the worker data directory.
@@ -850,6 +852,13 @@ environment answers only for a host with no install. A declared loopback door
 is refused rather than printed, because a worker dialing `127.0.0.1` from
 another machine reaches that machine's own loopback, which is nothing.
 
+**The database comes from the same two sources in the same order**: the
+installed definition's `ROOST_COORDINATOR_DATABASE_URL`, then its
+`ROOST_COORDINATOR_DB`, then the same two from the environment — which is how
+`add-machine` runs inside a coordinator container, whose environment is its
+definition. A SQLite file must already exist; a Postgres URL is the one the
+coordinator itself boots with.
+
 **The printed command is a credential being pasted into a shell**, so every
 value it carries is one single-quoted word, whatever the value contains.
 `tests/add_machine_enrollment.rs` proves that by reading the printed line the
@@ -866,6 +875,29 @@ declared loopback or non-HTTPS door, no installed coordinator database to
 mint the grant against, or a `--label` carrying a control character. 2 for a
 usage error, including `windows` as the platform — v3 ships no Windows host
 install to enroll, and the refusal says so.
+
+---
+
+## `roost add-browser`
+
+```
+roost add-browser [--label NAME]
+```
+
+Mints a one-shot browser grant against this coordinator's database and prints
+the pairing URL that spends it: `<origin>/#pair=<grant>`, the same shape
+`roost quickstart` opens. It is how the first browser pairs with a coordinator
+no desktop can open — a container, a VM, a server reached over SSH.
+
+The database resolves exactly as `add-machine`'s does. The origin is the
+declared `ROOST_WEB_PUBLIC_URL` (installed definition, then environment), else
+`http://127.0.0.1:<port of ROOST_COORDINATOR_BIND>`. The grant rides in the URL
+fragment, which a browser never sends to a server.
+
+**stdout** is the URL and nothing else; **stderr** notes that the grant is
+one-shot and accepted for 24 hours. **Exit codes.** 0 on a minted grant; 1 for
+no resolvable database, an unusable declared front door, or a `--label`
+carrying a control character.
 
 ---
 

@@ -161,7 +161,7 @@ impl UiStateFixture {
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database = roost_coord::db::open(&root.join("coord.db"))
+        let database = super::db_support::open_test_database(&root)
             .await
             .expect("a migrated coordinator database");
         let tenant = roost_coord::auth::self_hosted_tenant::ensure_self_hosted_tenant(&database, 0)
@@ -239,7 +239,7 @@ impl Drop for UiStateFixture {
 async fn seed_worker(database: &CoordDb, dashboard_id: &str) {
     sqlx::query(
         "INSERT INTO workers (fp, label, os, registered_at_ms, last_seen_ms, dashboard_id) \
-         VALUES ('ui-state-worker', 'UI state worker', 'linux', 0, 0, ?1)",
+         VALUES ('ui-state-worker', 'UI state worker', 'linux', 0, 0, $1)",
     )
     .bind(dashboard_id)
     .execute(database.pool())
@@ -250,7 +250,7 @@ async fn seed_worker(database: &CoordDb, dashboard_id: &str) {
 async fn seed_session(database: &CoordDb, dashboard_id: &str) {
     sqlx::query(
         "INSERT INTO sessions (id, worker_fp, channel, kind, cwd, status, created_at, dashboard_id) \
-         VALUES (?1, 'ui-state-worker', 9, 'shell', '/ui', 'open', 0, ?2)",
+         VALUES ($1, 'ui-state-worker', 9, 'shell', '/ui', 'open', 0, $2)",
     )
     .bind(SESSION_ID)
     .bind(dashboard_id)
@@ -262,7 +262,7 @@ async fn seed_session(database: &CoordDb, dashboard_id: &str) {
 async fn seed_key(database: &CoordDb, fingerprint: &str, label: &str) {
     sqlx::query(
         "INSERT INTO authorized_keys (fingerprint, public_key, label, added_at) \
-         VALUES (?1, ?2, ?3, 0)",
+         VALUES ($1, $2, $3, 0)",
     )
     .bind(fingerprint)
     .bind(vec![1_u8; 32])

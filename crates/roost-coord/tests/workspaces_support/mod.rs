@@ -64,7 +64,7 @@ impl WorkspacesFixture {
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database = roost_coord::db::open(&root.join("coord.db"))
+        let database = super::db_support::open_test_database(&root)
             .await
             .expect("a migrated database");
         let tenant =
@@ -141,7 +141,7 @@ impl WorkspacesFixture {
     /// The workspace a session's column names, empty when it names none.
     pub async fn session_workspace_id(&self, session_id: &str) -> String {
         let row: Option<String> =
-            sqlx::query_scalar("SELECT workspace_id FROM sessions WHERE id = ?")
+            sqlx::query_scalar("SELECT workspace_id FROM sessions WHERE id = $1")
                 .bind(session_id)
                 .fetch_one(self.database.pool())
                 .await

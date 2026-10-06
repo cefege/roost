@@ -6,6 +6,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 #[path = "search_support/mod.rs"]
 mod support;
 
@@ -79,13 +80,13 @@ async fn every_cursor_session_is_reauthorized_after_close_or_worker_deletion() {
     );
     harness
         .execute(
-            "UPDATE sessions SET status = 'closed' WHERE id = ?1",
+            "UPDATE sessions SET status = 'closed' WHERE id = $1",
             &closed_id,
         )
         .await;
     harness
         .execute(
-            "UPDATE workers SET deleted_at_ms = 1 WHERE fp = ?1",
+            "UPDATE workers SET deleted_at_ms = 1 WHERE fp = $1",
             WORKER_A2,
         )
         .await;

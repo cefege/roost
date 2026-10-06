@@ -21,6 +21,7 @@
 // IS the failure, which is why `unwrap_used` is denied in product code.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod event_support;
 
 use std::sync::{Arc, Mutex, PoisonError};

@@ -20,7 +20,7 @@
 
 use connectrpc::{ConnectError, ErrorCode, ServiceResult};
 use roost_proto as proto;
-use sqlx::SqlitePool;
+use sqlx::AnyPool;
 
 use crate::auth::principal::require_account_device;
 use crate::coord_core::{Caller, CoordCore};
@@ -98,7 +98,7 @@ impl AuditPageRow {
 
 /// The page statement, with the caller's filters bound rather than interpolated.
 async fn read_page(
-    pool: &SqlitePool,
+    pool: &AnyPool,
     request: &proto::AuditListRequest,
     limit: u32,
 ) -> Result<Vec<AuditPageRow>, sqlx::Error> {
@@ -107,10 +107,10 @@ async fn read_page(
          k.label AS caller_label, a.method AS method, a.path AS path, \
          a.status AS status, a.trace_id AS trace_id \
          FROM audit_log a LEFT JOIN authorized_keys k ON k.fingerprint = a.caller_fp \
-         WHERE (?1 IS NULL OR a.id < ?1) \
-         AND (?2 IS NULL OR a.caller_fp = ?2) \
-         AND (?3 IS NULL OR a.method = ?3) \
-         ORDER BY a.id DESC LIMIT ?4",
+         WHERE ($1 IS NULL OR a.id < $1) \
+         AND ($2 IS NULL OR a.caller_fp = $2) \
+         AND ($3 IS NULL OR a.method = $3) \
+         ORDER BY a.id DESC LIMIT $4",
     )
     .bind(
         request

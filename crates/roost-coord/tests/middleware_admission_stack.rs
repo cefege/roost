@@ -11,6 +11,7 @@
 // here is made over a real socket against the real router. The fixture is
 // `middleware_support`, the single owner of "a coordinator with a migrated
 // database and a bound port".
+mod db_support;
 mod middleware_support;
 
 use middleware_support::{FOREIGN_HOST, FixtureConfig, ListenerFixture};

@@ -13,6 +13,7 @@
 // stated here rather than inherited.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod tasks_support;
 
 use std::sync::Arc;
@@ -248,7 +249,7 @@ async fn an_unbooted_coordinator_refuses_an_enqueue_rather_than_guessing_a_dashb
     ));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).expect("a scratch directory");
-    let database = roost_coord::db::open(&root.join("coord.db"))
+    let database = db_support::open_test_database(&root)
         .await
         .expect("a migrated database");
     roost_coord::auth::self_hosted_tenant::ensure_self_hosted_tenant(&database, 1_000)

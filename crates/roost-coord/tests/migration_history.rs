@@ -23,14 +23,23 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use roost_coord::db::{self, CoordDb, DbError, RETIRED_MIGRATIONS};
+use roost_host::DatabaseLocation;
 use sqlx::AssertSqlSafe;
+
+mod db_support;
+
+/// What a migrated database refuses, asserted on whichever backend
+/// `ROOST_TEST_DATABASE_URL` selects: the same subject as this file's history
+/// checks — the schema the migration leaves — so a submodule, not a second root.
+#[path = "migration_history/backend_parity.rs"]
+mod backend_parity;
 
 /// The version the squashed schema ships as, read out of the embedded set
 /// rather than restated: a test that hardcoded `1` would keep passing if the
 /// squashed migration were renumbered, which is the moment the whole file's
 /// reasoning about "one migration" stopped being true.
 fn embedded_versions() -> HashSet<i64> {
-    let migrator = sqlx::migrate!("./migrations");
+    let migrator = sqlx::migrate!("./migrations/sqlite");
     let versions: HashSet<i64> = migrator.iter().map(|m| m.version).collect();
     assert!(
         !versions.is_empty(),
@@ -66,11 +75,13 @@ impl HistoryFixture {
     /// state a file is in after a migration was removed from a build that had
     /// shipped it.
     async fn with_history_row(&self, version: i64, checksum: i64) -> CoordDb {
-        let database = db::open(&self.path).await.expect("a migrated database");
+        let database = db::open(&DatabaseLocation::SqliteFile(self.path.clone()))
+            .await
+            .expect("a migrated database");
         sqlx::query(AssertSqlSafe(
             "INSERT INTO _sqlx_migrations (version, description, installed_on, \
-             success, checksum, execution_time) VALUES (?, 'gone', \
-             '2026-01-01 00:00:00', 1, ?, 0)",
+             success, checksum, execution_time) VALUES ($1, 'gone', \
+             '2026-01-01 00:00:00', 1, $2, 0)",
         ))
         .bind(version)
         .bind(checksum)
@@ -97,7 +108,7 @@ async fn a_history_row_no_build_declared_is_refused_and_says_which_version() {
     let fixture = HistoryFixture::new("unknown");
     fixture.with_history_row(2_017, 0).await;
 
-    let refusal = db::open(&fixture.path)
+    let refusal = db::open(&DatabaseLocation::SqliteFile(fixture.path.clone()))
         .await
         .expect_err("an unrecognised history is not this build's history");
 
@@ -126,7 +137,11 @@ async fn a_refused_history_is_refused_without_adding_a_row_of_its_own() {
         .await
         .expect("a count");
 
-    assert!(db::open(&fixture.path).await.is_err());
+    assert!(
+        db::open(&DatabaseLocation::SqliteFile(fixture.path.clone()))
+            .await
+            .is_err()
+    );
 
     let after: i64 = sqlx::query_scalar(AssertSqlSafe("SELECT COUNT(*) FROM _sqlx_migrations"))
         .fetch_one(database.pool())
@@ -144,18 +159,25 @@ async fn a_refused_history_is_refused_without_adding_a_row_of_its_own() {
 #[tokio::test]
 async fn the_history_this_build_wrote_is_admitted_and_keeps_booting() {
     let fixture = HistoryFixture::new("healthy");
-    db::open(&fixture.path)
+    db::open(&DatabaseLocation::SqliteFile(fixture.path.clone()))
         .await
         .expect("a fresh file migrates and opens");
     for _ in 0..3 {
-        db::open(&fixture.path).await.expect(
-            "a migrated file re-opens, because a restart is not a \
+        db::open(&DatabaseLocation::SqliteFile(fixture.path.clone()))
+            .await
+            .expect(
+                "a migrated file re-opens, because a restart is not a \
                      migration",
-        );
+            );
     }
     let versions: Vec<i64> =
         sqlx::query_scalar(AssertSqlSafe("SELECT version FROM _sqlx_migrations"))
-            .fetch_all(db::open(&fixture.path).await.expect("open").pool())
+            .fetch_all(
+                db::open(&DatabaseLocation::SqliteFile(fixture.path.clone()))
+                    .await
+                    .expect("open")
+                    .pool(),
+            )
             .await
             .expect("the history");
     assert_eq!(

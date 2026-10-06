@@ -13,6 +13,7 @@
 // stated here rather than inherited.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod tasks_support;
 
 use roost_coord::events::bus_messages::TaskBusMsgKind;

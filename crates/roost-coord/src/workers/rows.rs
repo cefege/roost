@@ -104,7 +104,7 @@ pub async fn read_live_worker(
     worker_fp: &str,
 ) -> Result<Option<StoredWorkerRow>, WorkerRowError> {
     let sql = format!(
-        "SELECT {} FROM workers WHERE deleted_at_ms IS NULL AND fp = ?",
+        "SELECT {} FROM workers WHERE deleted_at_ms IS NULL AND fp = $1",
         worker_projection()
     );
     let row = sqlx::query_as::<_, StoredWorkerRow>(AssertSqlSafe(sql))
@@ -125,7 +125,7 @@ pub async fn read_worker_tombstone(
     worker_fp: &str,
 ) -> Result<Option<WorkerTombstone>, WorkerRowError> {
     let row = sqlx::query_as::<_, (String, Option<i64>)>(
-        "SELECT fp, deleted_at_ms FROM workers WHERE fp = ?",
+        "SELECT fp, deleted_at_ms FROM workers WHERE fp = $1",
     )
     .bind(worker_fp)
     .fetch_optional(database.pool())

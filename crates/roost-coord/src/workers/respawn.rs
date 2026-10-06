@@ -217,7 +217,7 @@ async fn read_open_sessions(
         "SELECT session.id AS id, session.kind AS kind, session.cwd AS cwd \
          FROM sessions AS session \
          INNER JOIN workers AS worker ON worker.fp = session.worker_fp \
-         WHERE session.worker_fp = ? AND session.status = 'open' \
+         WHERE session.worker_fp = $1 AND session.status = 'open' \
          AND worker.deleted_at_ms IS NULL \
          ORDER BY session.created_at, session.id",
     ))

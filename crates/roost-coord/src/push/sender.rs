@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use sha2::Digest;
-use sqlx::SqlitePool;
+use sqlx::AnyPool;
 
 use crate::push::subscription_store::StoredSubscription;
 use crate::push::transport::{
@@ -90,7 +90,7 @@ impl PushDeliveryOptions {
 /// runs at most N futures concurrently and yields each as it settles, which is
 /// also why the results are summed rather than collected in order.
 pub async fn send_push_to_subscriptions(
-    pool: &SqlitePool,
+    pool: &AnyPool,
     subscriptions: &[StoredSubscription],
     payload: &str,
     options: PushDeliveryOptions,
@@ -160,7 +160,7 @@ pub async fn send_push_to_subscriptions(
 /// the only place a single send is about to leave the process: a superseded
 /// transition must not reach the network at all.
 async fn deliver_one(
-    pool: &SqlitePool,
+    pool: &AnyPool,
     subscription: &StoredSubscription,
     payload: &str,
     options: PushDeliveryOptions,
@@ -207,12 +207,12 @@ async fn deliver_one(
 /// bearer-ish credential, and a log line is the wrong place for one
 /// (`push-sender.ts:18-20` does the same).
 async fn prune_dead_subscription(
-    pool: &SqlitePool,
+    pool: &AnyPool,
     subscription: &StoredSubscription,
     error: &PushTransportError,
 ) {
     let pruned =
-        sqlx::query("DELETE FROM push_subscriptions WHERE viewer_fp = ?1 AND endpoint = ?2")
+        sqlx::query("DELETE FROM push_subscriptions WHERE viewer_fp = $1 AND endpoint = $2")
             .bind(&subscription.viewer_fp)
             .bind(&subscription.endpoint)
             .execute(pool)

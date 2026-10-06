@@ -11,6 +11,8 @@ use std::path::PathBuf;
 
 use roost_protocol::{ProtocolError, ProtocolResult};
 
+use crate::database_location::DatabaseLocation;
+
 /// The bind an unset `ROOST_COORDINATOR_BIND` resolves to.
 ///
 /// Loopback, because the coordinator serves plaintext and must never expose the
@@ -42,8 +44,8 @@ const CF_ACCESS_AUD_LEN: usize = 64;
 pub struct CoordConfig {
     /// The listen address, `host:port`.
     pub bind: String,
-    /// The SQLite file the coordinator owns.
-    pub db_path: PathBuf,
+    /// The database the coordinator keeps its durable state in.
+    pub database: DatabaseLocation,
     /// The file listing the Ed25519 keys allowed to pair.
     pub authorized_keys_path: PathBuf,
     /// The SPA build output served on the same listener.
@@ -88,7 +90,7 @@ pub struct CoordConfig {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CoordConfigInput {
     pub bind: Option<String>,
-    pub db_path: Option<PathBuf>,
+    pub database: Option<DatabaseLocation>,
     pub authorized_keys_path: Option<PathBuf>,
     pub web_dist_path: Option<PathBuf>,
     pub jwt_max_age_secs: Option<i64>,
@@ -116,7 +118,9 @@ impl CoordConfig {
     /// an error, so a second URL parser would be a second answer to the same
     /// question.
     pub fn parse(input: CoordConfigInput) -> ProtocolResult<Self> {
-        let db_path = require(input.db_path, "config.db_path")?;
+        let database = input
+            .database
+            .ok_or_else(|| ProtocolError::new("config.database", "is required"))?;
         let authorized_keys_path =
             require(input.authorized_keys_path, "config.authorized_keys_path")?;
         let cf_access_team_domain = match input.cf_access_team_domain {
@@ -137,7 +141,7 @@ impl CoordConfig {
             bind: input
                 .bind
                 .unwrap_or_else(|| DEFAULT_COORDINATOR_BIND.to_string()),
-            db_path,
+            database,
             authorized_keys_path,
             web_dist_path: input.web_dist_path,
             jwt_max_age_secs: positive_or(
@@ -235,10 +239,13 @@ mod tests {
         AUTHORIZED_KEYS_FILE_NAME, COORD_DB_FILE_NAME, CoordConfig, CoordConfigInput,
         DEFAULT_AUDIT_RETENTION_DAYS, DEFAULT_COORDINATOR_BIND, DEFAULT_JWT_MAX_AGE_SECS,
     };
+    use crate::database_location::DatabaseLocation;
 
     fn input() -> CoordConfigInput {
         CoordConfigInput {
-            db_path: Some(PathBuf::from("/var/lib/roost/coordinator.db")),
+            database: Some(DatabaseLocation::SqliteFile(PathBuf::from(
+                "/var/lib/roost/coordinator.db",
+            ))),
             authorized_keys_path: Some(PathBuf::from("/var/lib/roost/authorized_keys.roost")),
             log_dir: Some(PathBuf::from("/var/log/roost")),
             ..CoordConfigInput::default()
@@ -284,7 +291,7 @@ mod tests {
     fn a_missing_required_path_is_refused() {
         assert!(
             CoordConfig::parse(CoordConfigInput {
-                db_path: None,
+                database: None,
                 ..input()
             })
             .is_err()

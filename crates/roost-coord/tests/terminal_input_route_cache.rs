@@ -3,6 +3,8 @@
 //! of that cache so the next lookup falls through to the (absent) row.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
+
 use std::sync::Arc;
 
 use roost_coord::db::CoordDb;
@@ -25,7 +27,7 @@ async fn empty_database(label: &str) -> CoordDb {
     let root = std::env::temp_dir().join(format!("roost-route-cache-{label}"));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).expect("a scratch directory");
-    roost_coord::db::open(&root.join("coord.db"))
+    db_support::open_test_database(&root)
         .await
         .expect("a migrated database")
 }

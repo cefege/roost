@@ -8,6 +8,7 @@
 //! record cases are `terminal_capture_recorder.rs`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod terminal_capture_support;
 
 use roost_coord::terminal_capture::freeze::FreezeContext;

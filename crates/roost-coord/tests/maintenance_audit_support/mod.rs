@@ -34,7 +34,7 @@ impl AuditFixture {
         let root = std::env::temp_dir().join(format!("roost-audit-{label}"));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database = roost_coord::db::open(&root.join("coord.db"))
+        let database = super::db_support::open_test_database(&root)
             .await
             .expect("a migrated database");
         Self { database, root }
@@ -49,19 +49,18 @@ impl AuditFixture {
         status: i64,
         caller_fp: Option<&str>,
     ) -> i64 {
-        sqlx::query(
+        sqlx::query_scalar(
             "INSERT INTO audit_log (ts, caller_fp, method, path, status) \
-             VALUES (?, ?, ?, ?, ?)",
+             VALUES ($1, $2, $3, $4, $5) RETURNING id",
         )
         .bind(ts)
         .bind(caller_fp)
         .bind(http_method)
         .bind(path)
         .bind(status)
-        .execute(self.database.pool())
+        .fetch_one(self.database.pool())
         .await
         .expect("the row applies")
-        .last_insert_rowid()
     }
 
     /// A successful POST from an anonymous caller, the shape of the rows the
@@ -74,9 +73,9 @@ impl AuditFixture {
     /// thousand rows one at a time is testing SQLite's insert speed.
     pub async fn seed_bulk(&self, ts: i64, path: &str, rows: i64) {
         sqlx::query(
-            "WITH RECURSIVE counter(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM counter WHERE i < ?) \
+            "WITH RECURSIVE counter(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM counter WHERE i < $1) \
              INSERT INTO audit_log (ts, caller_fp, method, path, status) \
-             SELECT ?, 'fp', 'POST', ?, 200 FROM counter",
+             SELECT $2, 'fp', 'POST', $3, 200 FROM counter",
         )
         .bind(rows)
         .bind(ts)

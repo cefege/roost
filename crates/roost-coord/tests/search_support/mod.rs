@@ -154,7 +154,7 @@ impl Harness {
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
-        let database = roost_coord::db::open(&root.join("coord.db")).await.unwrap();
+        let database = super::db_support::open_test_database(&root).await.unwrap();
         let tenant =
             roost_coord::auth::self_hosted_tenant::ensure_self_hosted_tenant(&database, 1_000)
                 .await
@@ -166,7 +166,7 @@ impl Harness {
         ] {
             sqlx::query(AssertSqlSafe(
                 "INSERT INTO workers (fp, label, os, registered_at_ms, last_seen_ms, dashboard_id) \
-                 VALUES (?1, ?2, 'linux', 0, 0, ?3)",
+                 VALUES ($1, $2, 'linux', 0, 0, $3)",
             ))
             .bind(fp)
             .bind(label)
@@ -224,7 +224,7 @@ impl Harness {
 
     pub async fn insert_session(&self, id: &str, worker_fp: &str, status: &str, created_at: i64) {
         let dashboard_id: String =
-            sqlx::query_scalar("SELECT dashboard_id FROM workers WHERE fp = ?1")
+            sqlx::query_scalar("SELECT dashboard_id FROM workers WHERE fp = $1")
                 .bind(worker_fp)
                 .fetch_one(self.core.services.db.pool())
                 .await
@@ -232,7 +232,7 @@ impl Harness {
         let channel = i64::from_str_radix(&id[id.len() - 6..], 16).unwrap();
         sqlx::query(AssertSqlSafe(
             "INSERT INTO sessions (id, dashboard_id, worker_fp, channel, kind, cwd, status, created_at) \
-             VALUES (?1, ?2, ?3, ?4, 'shell', '/tmp', ?5, ?6)",
+             VALUES ($1, $2, $3, $4, 'shell', '/tmp', $5, $6)",
         ))
         .bind(id)
         .bind(dashboard_id)

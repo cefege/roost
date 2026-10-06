@@ -90,11 +90,11 @@ pub async fn get_events_since<'executor, E>(
     limit: Option<usize>,
 ) -> Result<Vec<StoredEvent>, EventQueryError>
 where
-    E: Executor<'executor, Database = sqlx::Sqlite>,
+    E: Executor<'executor, Database = sqlx::Any>,
 {
     let query = sqlx::query(
         "SELECT id, payload_json FROM events \
-          WHERE id > ? AND kind != ? ORDER BY id ASC LIMIT ?",
+          WHERE id > $1 AND kind != $2 ORDER BY id ASC LIMIT $3",
     )
     .bind(cursor(since_id)?)
     .bind(PRIVATE_SESSION_EVENT_KIND)
@@ -109,9 +109,9 @@ where
 /// have received, and a private event is not one.
 pub async fn get_event_max_id<'executor, E>(executor: E) -> Result<u64, EventQueryError>
 where
-    E: Executor<'executor, Database = sqlx::Sqlite>,
+    E: Executor<'executor, Database = sqlx::Any>,
 {
-    let row = sqlx::query("SELECT MAX(id) FROM events WHERE kind != ?")
+    let row = sqlx::query("SELECT MAX(id) FROM events WHERE kind != $1")
         .bind(PRIVATE_SESSION_EVENT_KIND)
         .fetch_one(executor)
         .await?;
@@ -129,11 +129,11 @@ pub async fn get_events_through<'executor, E>(
     limit: Option<usize>,
 ) -> Result<Vec<StoredEvent>, EventQueryError>
 where
-    E: Executor<'executor, Database = sqlx::Sqlite>,
+    E: Executor<'executor, Database = sqlx::Any>,
 {
     let query = sqlx::query(
         "SELECT id, payload_json FROM events \
-          WHERE id > ? AND id <= ? AND kind != ? ORDER BY id ASC LIMIT ?",
+          WHERE id > $1 AND id <= $2 AND kind != $3 ORDER BY id ASC LIMIT $4",
     )
     .bind(cursor(cursor_id)?)
     .bind(cursor(cutoff)?)
@@ -143,11 +143,11 @@ where
 }
 
 async fn read_page<'executor, E>(
-    query: sqlx::query::Query<'executor, sqlx::Sqlite, sqlx::sqlite::SqliteArguments>,
+    query: sqlx::query::Query<'executor, sqlx::Any, sqlx::any::AnyArguments>,
     executor: E,
 ) -> Result<Vec<StoredEvent>, EventQueryError>
 where
-    E: Executor<'executor, Database = sqlx::Sqlite>,
+    E: Executor<'executor, Database = sqlx::Any>,
 {
     let rows = query.fetch_all(executor).await?;
     let mut page = Vec::with_capacity(rows.len());

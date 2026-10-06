@@ -7,6 +7,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod maintenance_audit_support;
 
 use maintenance_audit_support::{AuditFixture, days_ago};

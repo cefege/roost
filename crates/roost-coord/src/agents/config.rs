@@ -58,7 +58,7 @@ pub async fn get_agent_config(
     dashboard_id: &str,
 ) -> Result<AgentLauncherConfig, sqlx::Error> {
     let rows = sqlx::query(
-        "SELECT key, value FROM app_settings WHERE dashboard_id = ?1 AND key LIKE 'agent.%'",
+        "SELECT key, value FROM app_settings WHERE dashboard_id = $1 AND key LIKE 'agent.%'",
     )
     .bind(dashboard_id)
     .fetch_all(database.pool())
@@ -108,8 +108,8 @@ pub async fn set_agent_config(
     ] {
         sqlx::query(
             "INSERT INTO app_settings (dashboard_id, key, value, updated_at_ms) \
-             VALUES (?1, ?2, ?3, ?4) \
-             ON CONFLICT (dashboard_id, key) DO UPDATE SET value = ?3, updated_at_ms = ?4",
+             VALUES ($1, $2, $3, $4) \
+             ON CONFLICT (dashboard_id, key) DO UPDATE SET value = $3, updated_at_ms = $4",
         )
         .bind(dashboard_id)
         .bind(key)

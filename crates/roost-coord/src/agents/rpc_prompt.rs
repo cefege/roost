@@ -167,7 +167,7 @@ pub async fn handle_sessions_prompt(
     let browser_fp = require_account_device(caller)?;
     let validated = validate_agent_prompt_request(request)?;
     let open: Option<(String,)> =
-        sqlx::query_as("SELECT id FROM sessions WHERE id = ?1 AND status = 'open'")
+        sqlx::query_as("SELECT id FROM sessions WHERE id = $1 AND status = 'open'")
             .bind(validated.session_id.as_str())
             .fetch_optional(core.services.db.pool())
             .await

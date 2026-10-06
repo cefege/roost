@@ -12,6 +12,7 @@
 //! by holding the coordinator's one pooled database connection.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod terminal_screen_hub_support;
 mod worker_link_wire_support;
 mod ws_client_support;
@@ -141,7 +142,7 @@ fn published_title(fixture: &WireFixture) -> Option<String> {
 async fn a_new_channels_first_frames_wait_for_its_durable_route_and_publish_in_order() {
     let fixture = WireFixture::start("announced-order").await;
     let mut socket = ready_link(&fixture).await;
-    let held = fixture.services.db.pool().acquire().await.unwrap();
+    let held = db_support::hold_every_connection(&fixture.services.db).await;
 
     // The title precedes the `opened` that routes its channel; the cells land
     // while that `opened` is still being appended.
@@ -182,7 +183,7 @@ async fn a_barrier_drop_invalidates_the_sessions_screen_replica() {
     send_binary(&mut socket, cell(5, full_frame(STREAM, 1, 8, 2, &[]))).await;
     assert!(eventually(|| screens.has_valid_cache(&session())).await);
 
-    let held = fixture.services.db.pool().acquire().await.unwrap();
+    let held = db_support::hold_every_connection(&fixture.services.db).await;
     let respawned = SessionEvent::Respawned {
         session_id: session(),
         new_channel: channel(9),
@@ -209,7 +210,7 @@ async fn a_routed_channels_cells_overtake_an_append_still_in_flight() {
     send_binary(&mut socket, opened(&fixture, SESSION, 5, 2)).await;
     expect_ack(&mut socket, 2).await;
 
-    let held = fixture.services.db.pool().acquire().await.unwrap();
+    let held = db_support::hold_every_connection(&fixture.services.db).await;
     send_binary(&mut socket, opened(&fixture, OTHER_SESSION, 7, 3)).await;
     send_binary(&mut socket, cell(5, full_frame(STREAM, 4, 8, 2, &[]))).await;
 

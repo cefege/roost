@@ -19,7 +19,7 @@ use roost_coord::coord_core::boot_facts::BootFacts;
 use roost_coord::coord_core::{Caller, CoordCore, ListenerTrust};
 use roost_coord::db::CoordDb;
 use roost_coord::services::CoordServices;
-use roost_host::{CoordConfig, CoordConfigInput};
+use roost_host::{CoordConfig, CoordConfigInput, DatabaseLocation};
 use sqlx::AssertSqlSafe;
 
 /// Minting and redeeming a grant is one half of this fixture and key derivation
@@ -55,8 +55,8 @@ pub const UNSPENT_GRANT_COUNT: &str =
 pub struct Scratch {
     /// The core every handler is driven through.
     pub core: CoordCore,
-    /// The path, so a test can open a second connection to the same file.
-    pub database_path: PathBuf,
+    /// Where the database is, so a test can open a second connection to it.
+    pub database_location: DatabaseLocation,
     /// The account the tenancy invariant created.
     pub account_id: String,
     /// The dashboard a redeemed worker is scoped to.
@@ -74,11 +74,11 @@ impl Scratch {
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database_path = root.join("coord.db");
-        let (core, tenant) = open_core(&database_path, &root, |_| {}).await;
+        let database_location = super::db_support::test_database_location(&root).await;
+        let (core, tenant) = open_core(&database_location, &root, |_| {}).await;
         Self {
             core,
-            database_path,
+            database_location,
             account_id: tenant.account_id,
             dashboard_id: tenant.dashboard_id,
             root,
@@ -88,7 +88,9 @@ impl Scratch {
     /// A SECOND core on the same file: a second connection, so a race between
     /// two redemptions is one SQLite has to resolve rather than one the pool queued.
     pub async fn second_core(&self) -> CoordCore {
-        open_core(&self.database_path, &self.root, |_| {}).await.0
+        open_core(&self.database_location, &self.root, |_| {})
+            .await
+            .0
     }
 
     /// A third core whose config is rebuilt with `adjust` applied first.
@@ -99,7 +101,7 @@ impl Scratch {
     ) -> CoordCore {
         let root = self.root.join(label);
         std::fs::create_dir_all(&root).expect("a scratch subdirectory");
-        open_core(&self.database_path, &root, adjust).await.0
+        open_core(&self.database_location, &root, adjust).await.0
     }
 
     /// The database handle, for the tests that drive the state layer directly.
@@ -142,12 +144,13 @@ impl Scratch {
     /// bytes are derived from the fingerprint, so a revoked device still has a row.
     pub async fn enroll_device(&self, fingerprint: &str, label: &str) {
         let public_key = public_key_for(fingerprint);
-        self.exec(&format!(
-            "INSERT INTO authorized_keys (fingerprint, public_key, label, added_at, \
-             paired_from_ip, paired_country) VALUES ('{fingerprint}', x'{}', '{label}', 1000, \
-             '203.0.113.9', 'SE')",
-            hex::encode(public_key),
-        ))
+        super::db_support::insert_authorized_key(
+            &self.core.services.db,
+            fingerprint,
+            &public_key,
+            label,
+            Some(("203.0.113.9", "SE")),
+        )
         .await;
         self.exec(&format!(
             "INSERT INTO account_devices (fingerprint, account_id, added_at_ms, last_seen_at_ms) \
@@ -174,23 +177,23 @@ impl Drop for Scratch {
     }
 }
 
-/// Open one connection to `database_path` and build a booted core over it.
+/// Open one connection to `database_location` and build a booted core over it.
 async fn open_core(
-    database_path: &std::path::Path,
+    database_location: &DatabaseLocation,
     root: &std::path::Path,
     adjust: impl FnOnce(&mut CoordConfigInput),
 ) -> (
     CoordCore,
     roost_coord::auth::self_hosted_tenant::SelfHostedTenant,
 ) {
-    let database = roost_coord::db::open(database_path)
+    let database = roost_coord::db::open(database_location)
         .await
         .expect("a migrated database");
     let tenant = roost_coord::auth::self_hosted_tenant::ensure_self_hosted_tenant(&database, 1_000)
         .await
         .expect("the self-hosted tenant");
     let mut input = CoordConfigInput {
-        db_path: Some(database_path.to_path_buf()),
+        database: Some(database_location.clone()),
         authorized_keys_path: Some(root.join("authorized_keys")),
         log_dir: Some(root.join("logs")),
         ..CoordConfigInput::default()

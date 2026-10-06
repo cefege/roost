@@ -59,7 +59,7 @@ impl AuditFixture {
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database = roost_coord::db::open(&root.join("coord.db"))
+        let database = super::db_support::open_test_database(&root)
             .await
             .expect("a migrated database");
         if booted {
@@ -106,7 +106,7 @@ impl AuditFixture {
     async fn seed_tenancy(database: &CoordDb) {
         sqlx::query(
             "INSERT INTO accounts (id, email_normalized, status, created_at_ms) \
-             VALUES (?, ?, 'active', 1)",
+             VALUES ($1, $2, 'active', 1)",
         )
         .bind(ACCOUNT)
         .bind("audit-test@example.invalid")
@@ -115,7 +115,7 @@ impl AuditFixture {
         .expect("the audit account inserts");
         sqlx::query(
             "INSERT INTO organizations (id, slug, name, status, created_at_ms) \
-             VALUES (?, ?, ?, 'active', 1)",
+             VALUES ($1, $2, $3, 'active', 1)",
         )
         .bind(ORGANIZATION)
         .bind("audit-test-org")
@@ -125,7 +125,7 @@ impl AuditFixture {
         .expect("the audit organization inserts");
         sqlx::query(
             "INSERT INTO dashboards (id, organization_id, slug, name, status, created_at_ms) \
-             VALUES (?, ?, ?, ?, 'active', 1)",
+             VALUES ($1, $2, $3, $4, 'active', 1)",
         )
         .bind(DASHBOARD)
         .bind(ORGANIZATION)

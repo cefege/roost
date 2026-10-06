@@ -183,9 +183,11 @@ async fn a_target_belonging_to_another_install_is_refused() {
     // NOT the two-account case: a target with two accounts is refused as "not a
     // v3 install" and names no account, because there is no single install whose
     // identity the operator might have meant.
-    let database = roost_coord::db::open(&fixture.v3)
-        .await
-        .expect("the target opens and migrates");
+    let database = roost_coord::db::open(&roost_host::DatabaseLocation::SqliteFile(
+        fixture.v3.clone(),
+    ))
+    .await
+    .expect("the target opens and migrates");
     sqlx::raw_sql(sqlx::AssertSqlSafe(
         "INSERT INTO accounts (id, email_normalized, status, created_at_ms) \
          VALUES ('acct-other', 'other@roost.test', 'active', 1)"

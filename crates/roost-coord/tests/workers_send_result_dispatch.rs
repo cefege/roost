@@ -8,6 +8,7 @@
 //! outside `#[cfg(test)]`; an integration test is its own crate.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod frame_dispatch_support;
 mod workers_send_support;
 mod workers_support;

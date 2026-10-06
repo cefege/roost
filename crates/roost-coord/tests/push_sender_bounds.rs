@@ -7,6 +7,7 @@
 //! only before the batch lets a superseded transition notify the fleet twice.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod push_fixture;
 
 use std::future::Future;

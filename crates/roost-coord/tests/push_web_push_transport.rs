@@ -14,6 +14,7 @@
 //! be stated here. Every panic names a value the test just built.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod push_fixture;
 
 use std::sync::{Arc, Mutex};

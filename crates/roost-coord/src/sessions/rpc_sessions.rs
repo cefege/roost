@@ -149,7 +149,7 @@ pub async fn handle_sessions_kill(
     let browser_fp = require_account_device(caller)?;
     let _lease = lease(core)?;
     let worker_fp: Option<String> =
-        sqlx::query_scalar("SELECT worker_fp FROM sessions WHERE id = ?1")
+        sqlx::query_scalar("SELECT worker_fp FROM sessions WHERE id = $1")
             .bind(&req.session_id)
             .fetch_optional(core.services.db.pool())
             .await
@@ -276,7 +276,7 @@ pub(super) async fn session_exists(
     core: &CoordCore,
     session_id: &str,
 ) -> Result<bool, ConnectError> {
-    let found: Option<String> = sqlx::query_scalar("SELECT id FROM sessions WHERE id = ?1")
+    let found: Option<String> = sqlx::query_scalar("SELECT id FROM sessions WHERE id = $1")
         .bind(session_id)
         .fetch_optional(core.services.db.pool())
         .await

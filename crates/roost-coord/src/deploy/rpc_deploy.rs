@@ -113,7 +113,7 @@ pub async fn handle_workers_deploy_start(
         .map_err(|error| ConnectError::new(ErrorCode::Unavailable, error.to_string()))?;
     let workers: Vec<WorkerDeployRecord> = sqlx::query_as(
         "SELECT fp, os, label, reachable_addr FROM workers \
-         WHERE deleted_at_ms IS NULL AND (fp = ?1 OR label = ?1 OR reachable_addr = ?1)",
+         WHERE deleted_at_ms IS NULL AND (fp = $1 OR label = $1 OR reachable_addr = $1)",
     )
     .bind(&request.host)
     .fetch_all(core.services.db.pool())

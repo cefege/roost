@@ -19,6 +19,7 @@ use crate::coord_config::{
 use crate::coord_config_origin::{
     normalize_https_origin, validate_bare_http_origin, validate_bare_https_origin,
 };
+use crate::database_location::DatabaseLocation;
 use crate::env::EnvSource;
 use crate::paths::{coord_data_dir, coord_log_dir};
 
@@ -27,6 +28,10 @@ pub const ENV_COORDINATOR_BIND: &str = "ROOST_COORDINATOR_BIND";
 
 /// The SQLite file, defaulting to the coordinator data directory.
 pub const ENV_COORDINATOR_DB: &str = "ROOST_COORDINATOR_DB";
+
+/// A `postgres://` URL. Set, it replaces the SQLite file entirely: the
+/// coordinator keeps no durable state on its own disk.
+pub const ENV_COORDINATOR_DATABASE_URL: &str = "ROOST_COORDINATOR_DATABASE_URL";
 
 /// The authorized-keys file, defaulting to the coordinator data directory.
 pub const ENV_COORDINATOR_AUTHORIZED_KEYS: &str = "ROOST_COORDINATOR_AUTHORIZED_KEYS";
@@ -112,10 +117,7 @@ pub fn load_coord_config(
     };
     let config = CoordConfig::parse(CoordConfigInput {
         bind: env.get(ENV_COORDINATOR_BIND),
-        db_path: Some(
-            env.get(ENV_COORDINATOR_DB)
-                .map_or_else(|| data_dir.join(COORD_DB_FILE_NAME), PathBuf::from),
-        ),
+        database: Some(coordinator_database(env, &data_dir)?),
         authorized_keys_path: Some(
             env.get(ENV_COORDINATOR_AUTHORIZED_KEYS)
                 .map_or_else(|| data_dir.join(AUTHORIZED_KEYS_FILE_NAME), PathBuf::from),
@@ -148,6 +150,36 @@ pub fn load_coord_config(
     })?;
     apply_listener_policy(&config)?;
     Ok(config)
+}
+
+/// The Postgres URL when one is declared, else the SQLite file.
+///
+/// Both at once is refused rather than ranked: an operator who set both meant
+/// one of them, and silently picking a file over the URL (or the reverse) would
+/// boot a coordinator on an empty database that looks healthy.
+fn coordinator_database(
+    env: &dyn EnvSource,
+    data_dir: &std::path::Path,
+) -> ProtocolResult<DatabaseLocation> {
+    let sqlite_file = env.get(ENV_COORDINATOR_DB);
+    let Some(url) = declared_or_absent(env, ENV_COORDINATOR_DATABASE_URL) else {
+        return Ok(DatabaseLocation::SqliteFile(
+            sqlite_file.map_or_else(|| data_dir.join(COORD_DB_FILE_NAME), PathBuf::from),
+        ));
+    };
+    if sqlite_file.is_some() {
+        return Err(ProtocolError::new(
+            ENV_COORDINATOR_DATABASE_URL,
+            format!("set either {ENV_COORDINATOR_DATABASE_URL} or {ENV_COORDINATOR_DB}, not both"),
+        ));
+    }
+    if !DatabaseLocation::is_postgres_url(&url) {
+        return Err(ProtocolError::new(
+            ENV_COORDINATOR_DATABASE_URL,
+            "must be a postgres:// URL",
+        ));
+    }
+    Ok(DatabaseLocation::Postgres(url))
 }
 
 /// The policies that depend on more than one field.

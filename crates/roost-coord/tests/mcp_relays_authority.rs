@@ -12,6 +12,7 @@
 // stated here rather than inherited.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 #[path = "mcp_relays_support/mod.rs"]
 mod mcp_relays_support;
 
@@ -61,14 +62,9 @@ async fn a_worker_principal_has_no_authority_over_the_relay_registry() {
 #[tokio::test]
 async fn a_publish_the_store_cannot_answer_is_refused_inside_the_busy_timeout() {
     let fixture = McpFixture::new("deadline").await;
-    // The coordinator keeps one connection, so holding it is what an unresponsive
-    // store looks like from a handler: the statement can never start.
-    let held = fixture
-        .database()
-        .pool()
-        .acquire()
-        .await
-        .expect("the fixture takes the coordinator's only connection");
+    // Holding every pooled connection is what an unresponsive store looks like
+    // from a handler: the statement can never start.
+    let held = db_support::hold_every_connection(fixture.database()).await;
 
     let started = Instant::now();
     let refused = handle_mcp_publish(

@@ -24,6 +24,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -100,7 +102,7 @@ impl GateFixture {
         let root = std::env::temp_dir().join(format!("roost-pairing-approver-{label}"));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database: CoordDb = roost_coord::db::open(&root.join("coord.db"))
+        let database: CoordDb = db_support::open_test_database(&root)
             .await
             .expect("a migrated database");
         let services = Arc::new(CoordServices::new(database));

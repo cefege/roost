@@ -14,7 +14,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-use sqlx::{Row, SqlitePool};
+use sqlx::{AnyPool, Row};
 use tracing::info;
 
 use crate::rpc::service::now_ms;
@@ -234,7 +234,7 @@ impl fmt::Debug for TranscriptionRuntime {
 
 /// The settings as stored for one tenant.
 pub async fn load_config(
-    pool: &SqlitePool,
+    pool: &AnyPool,
     dashboard_id: &str,
 ) -> Result<TranscriptionConfig, TranscriptionStoreError> {
     let key = stored_key(pool, dashboard_id)
@@ -256,7 +256,7 @@ pub async fn load_config(
 /// `key` is the proto3 optional: absent leaves the stored key alone, present
 /// overwrites it, and present-and-empty clears it.
 pub async fn store_config(
-    pool: &SqlitePool,
+    pool: &AnyPool,
     dashboard_id: &str,
     key: Option<&str>,
     language: &str,
@@ -281,7 +281,7 @@ pub async fn store_config(
 
 /// The stored Deepgram key, or `None` when none is configured.
 pub async fn stored_key(
-    pool: &SqlitePool,
+    pool: &AnyPool,
     dashboard_id: &str,
 ) -> Result<Option<String>, TranscriptionStoreError> {
     match read_setting(pool, dashboard_id, DEEPGRAM_KEY_SETTING).await? {
@@ -296,11 +296,11 @@ pub async fn stored_key(
 /// `transcription.%` prefix v2 matched: a prefix read would let another
 /// dashboard's row answer for this one.
 async fn read_setting(
-    pool: &SqlitePool,
+    pool: &AnyPool,
     dashboard_id: &str,
     key: &str,
 ) -> Result<Option<String>, TranscriptionStoreError> {
-    let row = sqlx::query("SELECT value FROM app_settings WHERE dashboard_id = ?1 AND key = ?2")
+    let row = sqlx::query("SELECT value FROM app_settings WHERE dashboard_id = $1 AND key = $2")
         .bind(dashboard_id)
         .bind(key)
         .fetch_optional(pool)
@@ -312,15 +312,15 @@ async fn read_setting(
 
 /// Upsert one tenant-scoped `app_settings` row.
 async fn put_setting(
-    pool: &SqlitePool,
+    pool: &AnyPool,
     dashboard_id: &str,
     key: &str,
     value: &str,
 ) -> Result<(), TranscriptionStoreError> {
     sqlx::query(
         "INSERT INTO app_settings (dashboard_id, key, value, updated_at_ms) \
-         VALUES (?1, ?2, ?3, ?4) \
-         ON CONFLICT (dashboard_id, key) DO UPDATE SET value = ?3, updated_at_ms = ?4",
+         VALUES ($1, $2, $3, $4) \
+         ON CONFLICT (dashboard_id, key) DO UPDATE SET value = $3, updated_at_ms = $4",
     )
     .bind(dashboard_id)
     .bind(key)

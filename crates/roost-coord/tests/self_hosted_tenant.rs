@@ -10,6 +10,8 @@
 // exemption has to be stated here.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
+
 use std::path::PathBuf;
 
 use roost_coord::auth::self_hosted_tenant::ensure_self_hosted_tenant;
@@ -32,7 +34,7 @@ impl TenantFixture {
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database = roost_coord::db::open(&root.join("coord.db"))
+        let database = db_support::open_test_database(&root)
             .await
             .expect("a migrated database");
         Self { database, root }

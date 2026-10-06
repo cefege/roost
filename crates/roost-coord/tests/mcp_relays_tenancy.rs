@@ -14,6 +14,7 @@
 // stated here rather than inherited.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 #[path = "mcp_relays_support/mod.rs"]
 mod mcp_relays_support;
 

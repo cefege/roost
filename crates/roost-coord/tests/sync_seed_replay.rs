@@ -8,6 +8,8 @@
 //! hold rules come from `apps/coord/src/sync/sync-feed.ts:136-165, 334-345`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
+
 use roost_coord::events::bus_messages::SessionBusMessage;
 use roost_coord::sync_ws::backfill::replay_since;
 use roost_coord::sync_ws::session_replay::{LiveVerdict, RECOVERY_HOLD_MAX_EVENTS, SessionReplay};
@@ -178,7 +180,7 @@ async fn a_live_publisher_runs_between_sixteen_event_replay_batches() {
         std::env::temp_dir().join(format!("roost-sync-seed-priority-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
-    let db = roost_coord::db::open(&root.join("coord.db")).await.unwrap();
+    let db = db_support::open_test_database(&root).await.unwrap();
     let tenant = roost_coord::auth::self_hosted_tenant::ensure_self_hosted_tenant(&db, 0)
         .await
         .unwrap();
@@ -187,7 +189,7 @@ async fn a_live_publisher_runs_between_sixteen_event_replay_batches() {
         let payload = serde_json::to_string(&closed(ts)).unwrap();
         let id: i64 = sqlx::query_scalar(
             "INSERT INTO events (kind, session_id, payload_json, ts, dashboard_id) \
-             VALUES ('closed', ?, ?, ?, ?) RETURNING id",
+             VALUES ('closed', $1, $2, $3, $4) RETURNING id",
         )
         .bind(SESSION)
         .bind(payload)

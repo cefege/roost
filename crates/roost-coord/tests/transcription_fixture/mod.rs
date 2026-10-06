@@ -45,7 +45,7 @@ impl TranscriptionFixture {
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database = roost_coord::db::open(&root.join("coord.db"))
+        let database = super::db_support::open_test_database(&root)
             .await
             .expect("a migrated coordinator database");
         let tenant: SelfHostedTenant =
@@ -124,14 +124,14 @@ impl TranscriptionFixture {
     /// credential this deployment never issued.
     pub async fn seed_foreign_key(&self) {
         let organization_id: String =
-            sqlx::query_scalar("SELECT organization_id FROM dashboards WHERE id = ?1")
+            sqlx::query_scalar("SELECT organization_id FROM dashboards WHERE id = $1")
                 .bind(&self.dashboard_id)
                 .fetch_one(self.database().pool())
                 .await
                 .expect("the tenant's organization");
         sqlx::query(
             "INSERT INTO dashboards (id, organization_id, slug, name, status, created_at_ms) \
-             VALUES ('other-dashboard', ?1, 'other', 'Other', 'active', 0)",
+             VALUES ('other-dashboard', $1, 'other', 'Other', 'active', 0)",
         )
         .bind(&organization_id)
         .execute(self.database().pool())

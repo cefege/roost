@@ -93,9 +93,9 @@ pub async fn apply_worker_registration(
             None => prior.host_identity_json.clone(),
         };
     let sql = format!(
-        "UPDATE workers SET label = ?, os = ?, git_sha = ?, reachable_addr = ?, \
-         host_identity_json = ?, keeper_runtime_json = NULL, last_seen_ms = ? \
-         WHERE fp = ? AND deleted_at_ms IS NULL RETURNING {}",
+        "UPDATE workers SET label = $1, os = $2, git_sha = $3, reachable_addr = $4, \
+         host_identity_json = $5, keeper_runtime_json = NULL, last_seen_ms = $6 \
+         WHERE fp = $7 AND deleted_at_ms IS NULL RETURNING {}",
         worker_projection()
     );
     let updated = sqlx::query_as::<_, StoredWorkerRow>(AssertSqlSafe(sql))
@@ -120,7 +120,7 @@ pub async fn apply_worker_rename(
     label: &str,
 ) -> Result<StoredWorkerRow, WorkerWriteError> {
     let sql = format!(
-        "UPDATE workers SET label = ? WHERE fp = ? AND deleted_at_ms IS NULL RETURNING {}",
+        "UPDATE workers SET label = $1 WHERE fp = $2 AND deleted_at_ms IS NULL RETURNING {}",
         worker_projection()
     );
     let updated = sqlx::query_as::<_, StoredWorkerRow>(AssertSqlSafe(sql))

@@ -9,11 +9,12 @@
 
 use std::path::{Path, PathBuf};
 
-use roost_host::{EnvSource, HostPlatform, worker_data_dir};
+use roost_host::{DatabaseLocation, EnvSource, HostPlatform, worker_data_dir};
 use roost_worker::host::jwt::read_worker_fingerprint;
 use roost_worker::runtime::boot::{ENV_WORKER_KEY_PATH, WORKER_KEY_NAME};
 
 use crate::command_error::CommandFailure;
+use crate::quickstart::grant::describe_database;
 
 /// Whether the local worker's key has a live row in the coordinator's
 /// `workers` table at `database`.
@@ -24,7 +25,7 @@ use crate::command_error::CommandFailure;
 pub async fn worker_already_enrolled(
     env: &dyn EnvSource,
     platform: HostPlatform,
-    database: &Path,
+    database: &DatabaseLocation,
 ) -> Result<bool, CommandFailure> {
     key_has_worker_row(&local_worker_key_path(env, platform)?, database).await
 }
@@ -46,25 +47,28 @@ fn local_worker_key_path(
     Ok(data_dir.join(WORKER_KEY_NAME))
 }
 
-async fn key_has_worker_row(key_path: &Path, database: &Path) -> Result<bool, CommandFailure> {
+async fn key_has_worker_row(
+    key_path: &Path,
+    database: &DatabaseLocation,
+) -> Result<bool, CommandFailure> {
     let Ok(fingerprint) = read_worker_fingerprint(key_path) else {
         return Ok(false);
     };
     let opened = roost_coord::db::open(database).await.map_err(|error| {
         CommandFailure::generic(format!(
             "the coordinator database {} could not be opened: {error}",
-            database.display()
+            describe_database(database)
         ))
     })?;
     let row: Option<(i64,)> =
-        sqlx::query_as("SELECT 1 FROM workers WHERE fp = ? AND deleted_at_ms IS NULL")
+        sqlx::query_as("SELECT 1 FROM workers WHERE fp = $1 AND deleted_at_ms IS NULL")
             .bind(fingerprint.as_str())
             .fetch_optional(opened.pool())
             .await
             .map_err(|error| {
                 CommandFailure::generic(format!(
                     "the worker roster in {} could not be read: {error}",
-                    database.display()
+                    describe_database(database)
                 ))
             })?;
     Ok(row.is_some())
@@ -75,6 +79,8 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
     use std::path::PathBuf;
+
+    use roost_host::DatabaseLocation;
 
     use super::key_has_worker_row;
 
@@ -98,7 +104,7 @@ mod tests {
         }
     }
 
-    async fn register(database: &std::path::Path, fingerprint: &str, deleted: Option<i64>) {
+    async fn register(database: &DatabaseLocation, fingerprint: &str, deleted: Option<i64>) {
         let opened = roost_coord::db::open(database).await.expect("opened");
         let tenant = roost_coord::auth::self_hosted_tenant::ensure_self_hosted_tenant(&opened, 1)
             .await
@@ -106,7 +112,7 @@ mod tests {
         sqlx::query(
             "INSERT INTO workers \
              (fp, label, os, registered_at_ms, last_seen_ms, deleted_at_ms, dashboard_id) \
-             VALUES (?, 'here', 'linux', 1, 1, ?, ?)",
+             VALUES ($1, 'here', 'linux', 1, 1, $2, $3)",
         )
         .bind(fingerprint)
         .bind(deleted)
@@ -121,7 +127,7 @@ mod tests {
     #[tokio::test]
     async fn only_a_key_with_a_live_worker_row_counts_as_enrolled() {
         let scratch = Scratch::new("roster");
-        let database = scratch.0.join("coordinator.sqlite");
+        let database = DatabaseLocation::SqliteFile(scratch.0.join("coordinator.sqlite"));
         roost_coord::db::open(&database).await.expect("migrated");
         let key = scratch.0.join("worker.key");
 
@@ -146,7 +152,7 @@ mod tests {
         );
 
         let deleted = Scratch::new("deleted");
-        let deleted_database = deleted.0.join("coordinator.sqlite");
+        let deleted_database = DatabaseLocation::SqliteFile(deleted.0.join("coordinator.sqlite"));
         roost_coord::db::open(&deleted_database)
             .await
             .expect("migrated");

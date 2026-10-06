@@ -9,6 +9,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod sync_ws_socket_support;
 mod ws_client_support;
 mod ws_credential_support;
@@ -45,13 +46,12 @@ impl ListFixture {
         let (foreign_fp, _, _) = mint_coordinator_jwt([8; 32], now, now + 300);
         let (device_fp, device_token) = stack.enroll_browser(9).await;
         let dashboard = scalar_text(&stack, "SELECT id FROM dashboards LIMIT 1").await;
-        exec(
-            &stack,
-            &format!(
-                "INSERT INTO authorized_keys (fingerprint, public_key, label, added_at) \
-                 VALUES ('{worker_fp}', x'{}', 'test worker', 1000)",
-                hex::encode(public_key)
-            ),
+        db_support::insert_authorized_key(
+            &stack.services.db,
+            &worker_fp,
+            &public_key,
+            "test worker",
+            None,
         )
         .await;
         for fp in [&worker_fp, &foreign_fp] {

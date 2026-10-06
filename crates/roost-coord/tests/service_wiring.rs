@@ -10,6 +10,7 @@
 // The UI and push arms are asserted in `service_wiring_ui_push.rs`; the fixture
 // both files build is `service_wiring_support`, which is the single owner of
 // "a coordinator with a migrated database".
+mod db_support;
 mod service_wiring_support;
 
 use connectrpc::{ErrorCode, RequestContext};

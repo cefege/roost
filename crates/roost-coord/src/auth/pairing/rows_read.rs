@@ -6,7 +6,7 @@
 //! `sqlx` maps positionally and twelve anonymous `Option<String>`s are twelve
 //! ways to end up comparing a status against a digest.
 
-use sqlx::Sqlite;
+use sqlx::Any;
 
 use super::PairingResult;
 use super::rows::PairRequestRow;
@@ -39,13 +39,13 @@ pub async fn read_pair_request<'a, E>(
     ephemeral_id: &str,
 ) -> PairingResult<Option<PairRequestRow>>
 where
-    E: sqlx::Executor<'a, Database = Sqlite>,
+    E: sqlx::Executor<'a, Database = Any>,
 {
     let row = sqlx::query_as::<_, PairRequestColumns>(
         "SELECT id, ephemeral_id, status, ceremony_version, expires_at_ms, label, \
                 requester_token_hash, public_key, approved_account_id, approved_by_fp, \
                 verification_code_hash, verification_attempts \
-           FROM pair_requests WHERE ephemeral_id = ?",
+           FROM pair_requests WHERE ephemeral_id = $1",
     )
     .bind(ephemeral_id)
     .fetch_optional(executor)
@@ -68,14 +68,14 @@ pub async fn read_live_pair_request<'a, E>(
     ephemeral_id: &str,
 ) -> PairingResult<Option<PairRequestRow>>
 where
-    E: sqlx::Executor<'a, Database = Sqlite>,
+    E: sqlx::Executor<'a, Database = Any>,
 {
     let row = sqlx::query_as::<_, PairRequestColumns>(
         "SELECT id, ephemeral_id, status, ceremony_version, expires_at_ms, label, \
                 requester_token_hash, public_key, approved_account_id, approved_by_fp, \
                 verification_code_hash, verification_attempts \
            FROM pair_requests \
-          WHERE ephemeral_id = ? AND status IN ('pending', 'verification_required')",
+          WHERE ephemeral_id = $1 AND status IN ('pending', 'verification_required')",
     )
     .bind(ephemeral_id)
     .fetch_optional(executor)

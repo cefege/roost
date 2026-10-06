@@ -9,6 +9,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod maintenance_audit_support;
 
 use maintenance_audit_support::{
@@ -78,6 +79,11 @@ async fn a_backlog_is_swept_in_several_statements_not_one_unbounded_delete() {
 
 #[tokio::test]
 async fn the_sweep_frees_pages_without_rewriting_the_file() {
+    // Pages and the freelist are SQLite's file layout; a Postgres server owns
+    // its own storage and vacuuming.
+    if db_support::running_on_postgres() {
+        return;
+    }
     let fixture = AuditFixture::new("no-vacuum").await;
     fixture
         .seed_bulk(days_ago(200), SESSIONS_INPUT_PATH, BACKLOG)

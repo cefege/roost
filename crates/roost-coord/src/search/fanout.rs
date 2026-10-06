@@ -18,7 +18,7 @@ use roost_protocol::wire::control::global_search::{GlobalSearchSessionIds, Termi
 use roost_protocol::wire::{SessionId, WorkerFp};
 
 use crate::coord_core::worker_handle::{WorkerHandle, WorkerRegistry};
-use crate::db::CoordDb;
+use crate::db::{CoordDb, IN_LIST_CHUNK, SqlBuilder, push_in_list};
 use crate::search::cursor_types::GlobalSearchSessionPosition;
 use crate::search::options::allocate_global_search_match_limits;
 use crate::search::worker_result::GlobalSearchSessionOutcome;
@@ -65,13 +65,14 @@ const AUTHORIZED_PAGE_SQL: &str = "SELECT session.id, session.worker_fp, COUNT(*
      FROM sessions AS session \
      INNER JOIN workers AS worker ON worker.fp = session.worker_fp \
      WHERE session.status = 'open' AND worker.deleted_at_ms IS NULL \
-     ORDER BY session.created_at DESC, session.id DESC LIMIT ?1";
+     ORDER BY session.created_at DESC, session.id DESC LIMIT $1";
 
+/// The reauthorization predicate; the session id list follows as `IN (...)`.
 const REAUTHORIZE_SQL: &str = "SELECT session.id, session.worker_fp \
      FROM sessions AS session \
      INNER JOIN workers AS worker ON worker.fp = session.worker_fp \
-     WHERE session.id IN (SELECT value FROM json_each(?1)) \
-     AND session.status = 'open' AND worker.deleted_at_ms IS NULL";
+     WHERE session.status = 'open' AND worker.deleted_at_ms IS NULL \
+     AND session.id IN ";
 
 /// The newest `max_sessions` open sessions on undeleted workers.
 pub async fn list_authorized_global_search_sessions(
@@ -105,11 +106,18 @@ pub async fn reauthorize_global_search_sessions(
     positions: &[GlobalSearchSessionPosition],
 ) -> Result<ReauthorizedGlobalSearchSessions, ConnectError> {
     let ids: Vec<&str> = positions.iter().map(|p| p.session_id.as_str()).collect();
-    let rows: Vec<(String, String)> = sqlx::query_as(REAUTHORIZE_SQL)
-        .bind(serde_json::Value::from(ids).to_string())
-        .fetch_all(db.pool())
-        .await
-        .map_err(lookup_failed)?;
+    let mut rows: Vec<(String, String)> = Vec::with_capacity(ids.len());
+    for chunk in ids.chunks(IN_LIST_CHUNK) {
+        let mut statement = SqlBuilder::new(REAUTHORIZE_SQL);
+        push_in_list(&mut statement, chunk);
+        rows.extend(
+            statement
+                .build_query_as::<(String, String)>()
+                .fetch_all(db.pool())
+                .await
+                .map_err(lookup_failed)?,
+        );
+    }
     let worker_by_session: HashMap<String, String> = rows.into_iter().collect();
     let mut result = ReauthorizedGlobalSearchSessions {
         authorized: Vec::new(),

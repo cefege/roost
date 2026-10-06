@@ -12,6 +12,7 @@
 // derived where the options are resolved: a hand-written origin list is not an
 // input the product can produce, so a test built on one asserts a function
 // rather than the policy a browser is handed.
+mod db_support;
 mod middleware_support;
 
 use middleware_support::{

@@ -8,6 +8,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
+
 use std::path::PathBuf;
 
 use roost_coord::auth::self_hosted_tenant::ensure_self_hosted_tenant;
@@ -28,7 +30,7 @@ impl JanitorFixture {
         let root = std::env::temp_dir().join(format!("roost-janitor-{label}"));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database = roost_coord::db::open(&root.join("coord.db"))
+        let database = db_support::open_test_database(&root)
             .await
             .expect("a migrated database");
         let tenant = ensure_self_hosted_tenant(&database, 1_000)
@@ -164,13 +166,15 @@ async fn a_statement_that_throws_does_not_stop_the_others_or_the_boot() {
     let fixture = JanitorFixture::new("throws").await;
     // The first statement refuses, and only it: the trigger fires on a closed
     // session, which is the one row the janitor's first statement removes.
-    fixture
-        .exec(
-            "CREATE TRIGGER refuse_closed_purge BEFORE DELETE ON sessions \
-               WHEN OLD.status = 'closed' \
-               BEGIN SELECT RAISE(ABORT, 'refused'); END",
-        )
-        .await;
+    db_support::install_refusing_trigger(
+        &fixture.database,
+        "refuse_closed_purge",
+        "DELETE",
+        "sessions",
+        "OLD.status = 'closed'",
+        "refused",
+    )
+    .await;
 
     let report = run_startup_janitor(&fixture.database).await;
 
@@ -196,7 +200,7 @@ async fn a_statement_that_throws_does_not_stop_the_others_or_the_boot() {
 
     // The refused statement was attempted, not skipped: with the trigger gone
     // the next run removes exactly what the first one could not.
-    fixture.exec("DROP TRIGGER refuse_closed_purge").await;
+    db_support::drop_refusing_trigger(&fixture.database, "refuse_closed_purge", "sessions").await;
     let retry = run_startup_janitor(&fixture.database).await;
     assert_eq!(retry.failures, 0);
     assert_eq!(retry.deleted_sessions, 1);

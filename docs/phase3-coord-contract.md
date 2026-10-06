@@ -21,8 +21,11 @@ TypeScript, which wins over any inherited habit. The wire is fixed by
 that any mix of Rust and TypeScript components interoperates in tests.
 
 **Companion artifact.** The squashed schema lives in
-`crates/roost-coord/migrations/0001_init.sql`. That file is generated, and its
-header says how; §2 is the prose version of the same facts.
+`crates/roost-coord/migrations/sqlite/0001_init.sql`. That file is generated,
+and its header says how; §2 is the prose version of the same facts. Its
+hand-written Postgres translation,
+`crates/roost-coord/migrations/postgres/0001_init.sql`, changes only in
+lockstep with it (`ROOST_COORDINATOR_DATABASE_URL` selects that backend).
 
 ---
 
@@ -134,7 +137,7 @@ without reading its row re-introduces the incident it was written to prevent.
 ### 2.2 The tables
 
 Twenty-six tables survive. The squashed DDL is
-`crates/roost-coord/migrations/0001_init.sql`; the shape that matters:
+`crates/roost-coord/migrations/sqlite/0001_init.sql`; the shape that matters:
 
 **Identity and tenancy.** `accounts`, `organizations`,
 `organization_memberships`, `dashboards`, `dashboard_memberships`,
@@ -218,7 +221,7 @@ migrations, with nothing to notice.
 
 **v3 runs `sqlx::migrate!` over `crates/roost-coord/migrations/`.** `sqlx`
 records applied migrations in `_sqlx_migrations`, which is why
-`crates/roost-coord/migrations/0001_init.sql` does not contain v2's `_migrations`
+`crates/roost-coord/migrations/sqlite/0001_init.sql` does not contain v2's `_migrations`
 table. The squashed file was produced by replaying all 34 v2 migrations onto an
 empty database and dumping `sqlite_master`; it was then verified to be
 semantically identical to the replayed history (every table's `PRAGMA
@@ -1890,7 +1893,7 @@ the search.
 
 ### The squashed schema
 
-`crates/roost-coord/migrations/0001_init.sql` — the entire schema in one
+`crates/roost-coord/migrations/sqlite/0001_init.sql` — the entire schema in one
 generated migration, replayed from v2's 34-file history and verified semantically
 identical to it (every table's `PRAGMA table_info`, `foreign_key_list`,
 `index_list`, plus every index and trigger's SQL).

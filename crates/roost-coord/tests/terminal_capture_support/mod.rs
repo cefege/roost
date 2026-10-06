@@ -98,7 +98,7 @@ impl CaptureFixture {
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
-        let database = roost_coord::db::open(&root.join("coord.db")).await.unwrap();
+        let database = super::db_support::open_test_database(&root).await.unwrap();
         let tenant = ensure_self_hosted_tenant(&database, 0).await.unwrap();
         let dashboard_id = tenant.dashboard_id.clone();
         let account_id = tenant.account_id.clone();

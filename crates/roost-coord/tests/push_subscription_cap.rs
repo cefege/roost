@@ -21,6 +21,7 @@
 // is an assertion over a value the test just built.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod push_fixture;
 
 use connectrpc::ErrorCode;

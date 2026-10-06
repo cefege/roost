@@ -7,6 +7,7 @@
 //! admission cases are `terminal_capture_admission.rs`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod terminal_capture_support;
 
 use connectrpc::{ConnectError, ErrorCode};

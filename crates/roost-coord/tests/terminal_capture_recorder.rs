@@ -8,6 +8,7 @@
 //! the real hub harness so the hook wiring is proven, not simulated.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod terminal_capture_support;
 mod terminal_screen_hub_support;
 

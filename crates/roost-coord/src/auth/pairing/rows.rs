@@ -10,8 +10,8 @@
 //! `&'static str` it chose, which is what lets [`terminalize`] assemble a
 //! statement no request can influence.
 
-use sqlx::sqlite::SqliteRow;
-use sqlx::{QueryBuilder, Row, Sqlite};
+use sqlx::any::AnyRow;
+use sqlx::{Any, Row};
 
 use super::PairingRefusal;
 use super::PairingResult;
@@ -20,6 +20,7 @@ use super::provenance::ClientDeviceType;
 use super::refuse;
 use super::secrets::{MAX_PENDING_PAIR_REQUESTS, PAIRING_CEREMONY_VERSION};
 use super::status::{ApprovedRequest, LiveRequest, RequestIdentity, StoredStatus, TerminalRequest};
+use crate::db::SqlBuilder;
 
 /// The two reads live in [`super::rows_read`] because a row shape, a SELECT and
 /// an UPDATE that decides every status are one concern, and two SELECTs that
@@ -133,16 +134,16 @@ pub async fn terminalize<'a, E>(
     now_ms: i64,
 ) -> PairingResult<Vec<String>>
 where
-    E: sqlx::Executor<'a, Database = Sqlite>,
+    E: sqlx::Executor<'a, Database = Any>,
 {
-    let mut statement = QueryBuilder::<Sqlite>::new("UPDATE pair_requests SET status = ");
+    let mut statement = SqlBuilder::new("UPDATE pair_requests SET status = ");
     statement.push_bind(terminal.as_wire());
     statement.push(", decided_at_ms = ");
     statement.push_bind(now_ms);
     statement.push(", verification_code_hash = NULL");
     push_selection(&mut statement, selector);
     statement.push(" AND status IN ('pending', 'verification_required') RETURNING ephemeral_id");
-    let rows: Vec<SqliteRow> = statement
+    let rows: Vec<AnyRow> = statement
         .build()
         .fetch_all(executor)
         .await
@@ -155,7 +156,7 @@ where
         .collect()
 }
 
-fn push_selection(statement: &mut QueryBuilder<Sqlite>, selector: LiveSelector) {
+fn push_selection(statement: &mut SqlBuilder, selector: LiveSelector) {
     match selector {
         LiveSelector::ById(id) => {
             statement.push(" WHERE id = ");
@@ -190,7 +191,7 @@ pub async fn mark_expired<'a, E>(
     now_ms: i64,
 ) -> PairingResult<Vec<String>>
 where
-    E: sqlx::Executor<'a, Database = Sqlite>,
+    E: sqlx::Executor<'a, Database = Any>,
 {
     terminalize(
         executor,
@@ -204,7 +205,7 @@ where
 /// How many requests are live right now.
 pub async fn count_live<'a, E>(executor: E) -> PairingResult<i64>
 where
-    E: sqlx::Executor<'a, Database = Sqlite>,
+    E: sqlx::Executor<'a, Database = Any>,
 {
     let row = sqlx::query_as::<_, (i64,)>(
         "SELECT COUNT(*) FROM pair_requests \
@@ -228,7 +229,7 @@ pub async fn insert_request<'a, E>(
     requester_fingerprint: &str,
 ) -> PairingResult<()>
 where
-    E: sqlx::Executor<'a, Database = Sqlite>,
+    E: sqlx::Executor<'a, Database = Any>,
 {
     let affected = sqlx::query(
         "INSERT INTO pair_requests ( \
@@ -238,12 +239,12 @@ where
              user_agent, client_browser, client_os, client_device_type, source_ip, \
              country_code, region, city, edge_identity_provider, edge_identity, \
              edge_identity_verified, expires_at_ms) \
-         SELECT ?, ?, ?, ?, 'pending', ?, NULL, ?, ?, NULL, 0, NULL, NULL, \
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? \
+         SELECT $1, $2, $3, $4, 'pending', $5, NULL, $6, $7, NULL, 0, NULL, NULL, \
+                $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19 \
           WHERE NOT EXISTS ( \
-              SELECT 1 FROM authorized_key_revocations WHERE fingerprint = ?) \
+              SELECT 1 FROM authorized_key_revocations WHERE fingerprint = $20) \
             AND (SELECT COUNT(*) FROM pair_requests \
-                  WHERE status IN ('pending', 'verification_required')) < ?",
+                  WHERE status IN ('pending', 'verification_required')) < $21",
     )
     .bind(input.ephemeral_id)
     .bind(input.ephemeral_id)

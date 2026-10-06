@@ -5,6 +5,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 #[path = "terminal_screen_support/mod.rs"]
 mod support;
 
@@ -118,7 +119,7 @@ async fn the_worker_lookup_answers_v2s_refusal_table() {
     let db = harness.core.services.db.pool();
     sqlx::query(AssertSqlSafe(
         "INSERT INTO workers (fp, label, os, registered_at_ms, last_seen_ms, dashboard_id) \
-         SELECT ?1, 'desk', 'linux', 0, 0, dashboard_id FROM workers WHERE fp = ?2",
+         SELECT $1, 'desk', 'linux', 0, 0, dashboard_id FROM workers WHERE fp = $2",
     ))
     .bind(OFFLINE_FP)
     .bind(WORKER_FP)
@@ -150,7 +151,7 @@ async fn the_worker_lookup_answers_v2s_refusal_table() {
         "a row with no socket: the link is down, retry"
     );
     assert_eq!(offline.message.as_deref(), Some("worker not connected"));
-    sqlx::query("UPDATE workers SET deleted_at_ms = 1 WHERE fp = ?1")
+    sqlx::query("UPDATE workers SET deleted_at_ms = 1 WHERE fp = $1")
         .bind(OFFLINE_FP)
         .execute(db)
         .await

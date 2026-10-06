@@ -9,6 +9,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod sessions_support;
 
 use connectrpc::{ConnectError, ErrorCode};

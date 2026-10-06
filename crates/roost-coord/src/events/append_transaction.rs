@@ -21,10 +21,10 @@
 //! 7. the projection arm, which is the only thing that sets `publishable`.
 
 use roost_protocol::wire::{SessionEvent, SessionId, SessionMap, WorkerFp, WorkspaceId};
-use sqlx::QueryBuilder;
+use sqlx::AnyConnection;
 use sqlx::Row;
-use sqlx::sqlite::SqliteConnection;
 
+use crate::db::SqlBuilder;
 use crate::events::admission::{Admission, admit};
 use crate::events::admission_facts::load_admission_facts;
 use crate::events::agent_conversation_recovery::project_agent_conversation_reference;
@@ -82,7 +82,7 @@ impl CommittedState {
 
 /// The transaction body. It contains no publish call, and cannot.
 pub(crate) async fn run_in_transaction(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     event: SessionEvent,
     caller: &Caller,
     options: &mut AppendOptions<'_>,
@@ -154,14 +154,14 @@ pub(crate) async fn run_in_transaction(
 /// the clause and every redelivered `WSessionEvent` becomes a second durable
 /// event: a `closed` lands twice and a browser folds two closures for one session.
 async fn insert_event(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     state: &CommittedState,
     caller: &Caller,
 ) -> Result<Option<u64>, AppendError> {
     let client_seq = caller.client_seq.map(as_client_seq).transpose()?;
     let inserted = sqlx::query_scalar::<_, i64>(
         "INSERT INTO events (dashboard_id, kind, session_id, worker_fp, payload_json, ts, client_seq) \
-         VALUES (?, ?, ?, ?, ?, ?, ?) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7) \
          ON CONFLICT (worker_fp, client_seq) \
            WHERE worker_fp IS NOT NULL AND client_seq IS NOT NULL DO NOTHING \
          RETURNING id",
@@ -186,7 +186,7 @@ async fn insert_event(
 /// cannot help and a silent refusal would leave the session's junction pointing at
 /// nothing (`event-transaction.ts:123-131`).
 async fn require_workspace(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     event: &SessionEvent,
 ) -> Result<(), AppendError> {
     let SessionEvent::WorkspaceAssigned {
@@ -196,7 +196,7 @@ async fn require_workspace(
     else {
         return Ok(());
     };
-    let row = sqlx::query("SELECT 1 FROM workspaces WHERE id = ?")
+    let row = sqlx::query("SELECT 1 FROM workspaces WHERE id = $1")
         .bind(workspace_id.as_str())
         .fetch_optional(&mut *connection)
         .await?;
@@ -213,7 +213,7 @@ async fn require_workspace(
 /// before the event is serialized, so the log, the projection, the route index and
 /// the Sync publication all see the same set (`event-transaction.ts:132-152`).
 async fn force_closed_ids(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     event: &SessionEvent,
 ) -> Result<Vec<String>, AppendError> {
     let SessionEvent::Snapshot { sessions, .. } = event else {
@@ -222,9 +222,8 @@ async fn force_closed_ids(
     if sessions.is_empty() {
         return Ok(Vec::new());
     }
-    let mut query = QueryBuilder::<sqlx::Sqlite>::new(
-        "SELECT session_id FROM events WHERE kind = 'closed' AND session_id IN (",
-    );
+    let mut query =
+        SqlBuilder::new("SELECT session_id FROM events WHERE kind = 'closed' AND session_id IN (");
     {
         let mut separated = query.separated(", ");
         for session in sessions {
@@ -242,7 +241,7 @@ async fn force_closed_ids(
 /// The projection arm for the event's kind, and the only place `publishable` is
 /// decided.
 async fn project(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     state: &mut CommittedState,
     admission: &Admission,
     caller: &Caller,
@@ -288,7 +287,7 @@ async fn project(
                 // deletes its own `events` row so the loser leaves no phantom log
                 // entry, and reports the refusal.
                 if let Some(event_id) = state.inserted_id {
-                    sqlx::query("DELETE FROM events WHERE id = ?")
+                    sqlx::query("DELETE FROM events WHERE id = $1")
                         .bind(as_event_id(event_id)?)
                         .execute(&mut *connection)
                         .await?;

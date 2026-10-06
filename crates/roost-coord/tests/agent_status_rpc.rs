@@ -11,6 +11,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod agent_fixture;
+mod db_support;
 
 /// The four wait methods are one compilation unit's worth of behaviour and not
 /// one file's worth of lines, and they share every import the list half above

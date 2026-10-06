@@ -53,7 +53,7 @@ impl PromptHarness {
             std::env::temp_dir().join(format!("roost-agent-prompt-{label}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database = roost_coord::db::open(&root.join("coord.db"))
+        let database = super::db_support::open_test_database(&root)
             .await
             .expect("a migrated database");
         let tenant =
@@ -66,7 +66,7 @@ impl PromptHarness {
         ] {
             sqlx::query(AssertSqlSafe(
                 "INSERT INTO workers (fp, label, os, registered_at_ms, last_seen_ms, dashboard_id) \
-                 VALUES (?1, 'w', 'linux', 0, 0, ?2)",
+                 VALUES ($1, 'w', 'linux', 0, 0, $2)",
             ))
             .bind(worker)
             .bind(&tenant.dashboard_id)
@@ -75,7 +75,7 @@ impl PromptHarness {
             .expect("a worker row");
             sqlx::query(AssertSqlSafe(
                 "INSERT INTO sessions (id, dashboard_id, worker_fp, channel, kind, cwd, status, created_at) \
-                 VALUES (?1, ?2, ?3, ?4, 'shell', '/tmp', 'open', 0)",
+                 VALUES ($1, $2, $3, $4, 'shell', '/tmp', 'open', 0)",
             ))
             .bind(session)
             .bind(&tenant.dashboard_id)

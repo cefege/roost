@@ -16,6 +16,7 @@ use sqlx::AssertSqlSafe;
 
 use crate::auth::principal::require_account_device;
 use crate::coord_core::{Caller, CoordCore};
+use crate::db::{IN_LIST_CHUNK, SqlBuilder, push_in_list};
 use crate::rpc::service::{now_ms, ok_response};
 use crate::sessions::workspaces::{
     COLUMNS, Row, WorkspaceError, create_workspace, delete_workspace, detach_members, junction,
@@ -242,7 +243,7 @@ async fn rewrite_membership(
     let mut transaction = core.services.db.pool().begin().await?;
     let target = sqlx::query_as::<_, Row>(AssertSqlSafe(format!(
         "UPDATE workspaces SET updated_at_ms = {now_ms}, version = version + 1 \
-         WHERE id = ? AND version = ? RETURNING {COLUMNS}"
+         WHERE id = $1 AND version = $2 RETURNING {COLUMNS}"
     )))
     .bind(&request.id)
     .bind(i64::try_from(request.if_version).unwrap_or(i64::MAX))
@@ -260,20 +261,23 @@ async fn rewrite_membership(
     // The workspaces losing these sessions, read before the rewrite: after it,
     // the junction no longer names them.
     let mut affected = vec![request.id.clone()];
-    for source in sqlx::query_scalar::<_, String>(
-        "SELECT DISTINCT workspace_id FROM workspace_sessions \
-         WHERE session_id IN (SELECT value FROM json_each(?)) AND workspace_id != ?",
-    )
-    .bind(serde_json::to_string(&members)?)
-    .bind(&request.id)
-    .fetch_all(&mut *transaction)
-    .await?
-    {
-        if !affected.contains(&source) {
-            affected.push(source);
+    for chunk in members.chunks(IN_LIST_CHUNK) {
+        let mut statement = SqlBuilder::new(
+            "SELECT DISTINCT workspace_id FROM workspace_sessions WHERE workspace_id <> ",
+        );
+        statement.push_bind(&request.id).push(" AND session_id IN ");
+        push_in_list(&mut statement, chunk);
+        for source in statement
+            .build_query_scalar::<String>()
+            .fetch_all(&mut *transaction)
+            .await?
+        {
+            if !affected.contains(&source) {
+                affected.push(source);
+            }
         }
     }
-    sqlx::query("DELETE FROM workspace_sessions WHERE workspace_id = ?")
+    sqlx::query("DELETE FROM workspace_sessions WHERE workspace_id = $1")
         .bind(&request.id)
         .execute(&mut *transaction)
         .await?;
@@ -298,11 +302,10 @@ async fn rewrite_membership(
             detach_members(&mut transaction, workspace_id).await?;
         }
     }
-    if !emptied.is_empty() {
-        sqlx::query("DELETE FROM workspaces WHERE id IN (SELECT value FROM json_each(?))")
-            .bind(serde_json::to_string(&emptied)?)
-            .execute(&mut *transaction)
-            .await?;
+    for chunk in emptied.chunks(IN_LIST_CHUNK) {
+        let mut statement = SqlBuilder::new("DELETE FROM workspaces WHERE id IN ");
+        push_in_list(&mut statement, chunk);
+        statement.build().execute(&mut *transaction).await?;
     }
     let mut others = Vec::new();
     for workspace_id in &affected {
@@ -381,7 +384,7 @@ fn refuse(error: WorkspaceError) -> ConnectError {
     let code = match error {
         WorkspaceError::VersionMismatch => ErrorCode::FailedPrecondition,
         WorkspaceError::WorkerNotFound | WorkspaceError::SessionNotFound => ErrorCode::NotFound,
-        WorkspaceError::Sqlite(_) | WorkspaceError::IdList(_) | WorkspaceError::Value(_) => {
+        WorkspaceError::Sqlite(_) | WorkspaceError::Entropy(_) | WorkspaceError::Value(_) => {
             ErrorCode::Internal
         }
     };

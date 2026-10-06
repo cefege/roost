@@ -25,7 +25,7 @@ use roost_observability::LogFields;
 use roost_protocol::wire::{AgentOccupantId, SessionId, StatusEpoch};
 use serde::Serialize;
 use sha2::Digest;
-use sqlx::{Row, SqlitePool};
+use sqlx::{AnyPool, Row};
 
 use crate::push::endpoint_policy::endpoint_origin;
 use crate::push::sender::{PushDeliveryOptions, PushDeliveryResult, send_push_to_subscriptions};
@@ -127,7 +127,7 @@ pub struct AgentPushPayload {
 /// update and has nothing useful to do with an error.
 #[allow(clippy::too_many_arguments)]
 pub async fn fire_push_for_transition(
-    pool: &SqlitePool,
+    pool: &AnyPool,
     transition: &AgentPushTransition,
     allowed_origins: &[String],
     viewers: &dyn ActiveTerminalViewers,
@@ -263,8 +263,8 @@ fn select_targets(
 /// The `status = 'open'` predicate is load-bearing: a session closed between the
 /// transition and this query must not produce a notification about work that no
 /// longer exists.
-async fn open_session(pool: &SqlitePool, session_id: &str) -> Option<(String, Option<String>)> {
-    sqlx::query("SELECT cwd, custom_title FROM sessions WHERE id = ?1 AND status = 'open'")
+async fn open_session(pool: &AnyPool, session_id: &str) -> Option<(String, Option<String>)> {
+    sqlx::query("SELECT cwd, custom_title FROM sessions WHERE id = $1 AND status = 'open'")
         .bind(session_id)
         .fetch_optional(pool)
         .await

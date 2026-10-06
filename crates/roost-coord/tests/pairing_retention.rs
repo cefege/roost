@@ -8,6 +8,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
+
 use std::path::PathBuf;
 
 use roost_coord::auth::pairing::retention::{PAIR_REQUEST_TOMBSTONE_MS, sweep_pair_requests};
@@ -31,7 +33,7 @@ impl RetentionFixture {
         let root = std::env::temp_dir().join(format!("roost-pairing-retention-{label}"));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database = roost_coord::db::open(&root.join("coord.db"))
+        let database = db_support::open_test_database(&root)
             .await
             .expect("a migrated database");
         let fixture = Self { database, root };
@@ -85,31 +87,27 @@ impl RetentionFixture {
         } else {
             &expires_at_ms.to_string()
         };
-        self.exec(&format!(
+        sqlx::query(AssertSqlSafe(format!(
             "INSERT INTO pair_requests ( \
                  id, ephemeral_id, public_key, label, status, created_at_ms, decided_at_ms, \
                  ceremony_version, requester_token_hash, verification_code_hash, \
                  verification_attempts, expires_at_ms) \
-             VALUES ('row-{ephemeral_id}', '{ephemeral_id}', x'0102', 'laptop', '{status}', \
+             VALUES ('row-{ephemeral_id}', '{ephemeral_id}', $1, 'laptop', '{status}', \
                      0, {decided_at}, 1, 'token-digest', \
                      {code_hash}, {attempts}, {expires_at_ms})",
             code_hash = match code_hash {
                 Some(digest) => format!("'{digest}'"),
                 None => "NULL".to_string(),
             }
-        ))
-        .await;
-    }
-
-    async fn exec(&self, statement: &str) {
-        sqlx::query(AssertSqlSafe(statement))
-            .execute(self.database.pool())
-            .await
-            .expect("a seed statement to apply");
+        )))
+        .bind(vec![1_u8, 2])
+        .execute(self.database.pool())
+        .await
+        .expect("a seed statement to apply");
     }
 
     async fn status_of(&self, ephemeral_id: &str) -> Option<String> {
-        sqlx::query_as::<_, (String,)>("SELECT status FROM pair_requests WHERE ephemeral_id = ?")
+        sqlx::query_as::<_, (String,)>("SELECT status FROM pair_requests WHERE ephemeral_id = $1")
             .bind(ephemeral_id)
             .fetch_optional(self.database.pool())
             .await
@@ -120,7 +118,7 @@ impl RetentionFixture {
     async fn code_hash_of(&self, ephemeral_id: &str) -> Option<(Option<String>, i64)> {
         sqlx::query_as::<_, (Option<String>, i64)>(
             "SELECT verification_code_hash, verification_attempts FROM pair_requests \
-              WHERE ephemeral_id = ?",
+              WHERE ephemeral_id = $1",
         )
         .bind(ephemeral_id)
         .fetch_optional(self.database.pool())

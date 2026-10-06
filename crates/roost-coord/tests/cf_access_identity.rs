@@ -98,7 +98,9 @@ fn valid_claims(email: &str) -> String {
 
 fn config(access_on: bool) -> CoordConfig {
     let mut input = CoordConfigInput {
-        db_path: Some(std::env::temp_dir().join("cf-access-probe.db")),
+        database: Some(roost_host::DatabaseLocation::SqliteFile(
+            std::env::temp_dir().join("cf-access-probe.db"),
+        )),
         authorized_keys_path: Some(std::env::temp_dir().join("cf-access-keys")),
         log_dir: Some(std::env::temp_dir().join("cf-access-logs")),
         ..CoordConfigInput::default()

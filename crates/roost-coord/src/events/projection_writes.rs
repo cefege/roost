@@ -33,10 +33,10 @@
 use std::collections::HashSet;
 
 use roost_protocol::wire::{Session, SessionEvent, SessionMap, WorkspaceId};
-use sqlx::QueryBuilder;
+use sqlx::AnyConnection;
 use sqlx::Row;
-use sqlx::sqlite::SqliteConnection;
 
+use crate::db::SqlBuilder;
 use crate::events::projection::{ProjectionError, load_session, session_to_row};
 
 /// Delete a session's junction rows and any workspace left with no sessions,
@@ -53,11 +53,11 @@ use crate::events::projection::{ProjectionError, load_session, session_to_row};
 /// leaves an orphaned junction row and parent workspace behind until the next
 /// coordinator-startup janitor (`event-projection.ts:83-86`).
 pub async fn cascade_closed_session(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     session_id: &str,
 ) -> Result<Vec<WorkspaceId>, ProjectionError> {
     let owner_ids = workspace_ids_for_session(connection, session_id).await?;
-    sqlx::query("DELETE FROM workspace_sessions WHERE session_id = ?")
+    sqlx::query("DELETE FROM workspace_sessions WHERE session_id = $1")
         .bind(session_id)
         .execute(&mut *connection)
         .await?;
@@ -71,7 +71,7 @@ pub async fn cascade_closed_session(
         .filter(|id| !still_has_sessions.contains(id.as_str()))
         .collect::<Vec<_>>();
     if !orphans.is_empty() {
-        let mut delete = QueryBuilder::<sqlx::Sqlite>::new("DELETE FROM workspaces WHERE id IN (");
+        let mut delete = SqlBuilder::new("DELETE FROM workspaces WHERE id IN (");
         {
             let mut separated = delete.separated(", ");
             for id in &orphans {
@@ -93,7 +93,7 @@ pub async fn cascade_closed_session(
 /// append's caller, which the append answers by deleting its own `events` row so a
 /// losing insert leaves no phantom log row (`event-transaction.ts:208-227`).
 pub async fn project_snapshot_sessions(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     sessions: &[Session],
     dashboard_id: &str,
 ) -> Result<(), ProjectionError> {
@@ -103,7 +103,7 @@ pub async fn project_snapshot_sessions(
             "INSERT INTO sessions (id, dashboard_id, worker_fp, channel, kind, cwd, workspace_id, \
                     status, created_at, closed_at, custom_title, git_branch, git_remote, pr_number, \
                     pr_state, pr_checks, pr_url, ports_json, spawn_cwd) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) \
              ON CONFLICT(id) DO UPDATE SET \
                     worker_fp = excluded.worker_fp, channel = excluded.channel, \
                     kind = excluded.kind, cwd = excluded.cwd, status = excluded.status, \
@@ -144,7 +144,7 @@ pub async fn project_snapshot_sessions(
 /// combination "it did not exist, and the insert lost" is a refusal
 /// (`event-transaction.ts:208-227`).
 pub async fn insert_opened_session(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     session: &Session,
     dashboard_id: &str,
 ) -> Result<bool, ProjectionError> {
@@ -153,7 +153,7 @@ pub async fn insert_opened_session(
         "INSERT INTO sessions (id, dashboard_id, worker_fp, channel, kind, cwd, workspace_id, \
                 status, created_at, closed_at, custom_title, git_branch, git_remote, pr_number, \
                 pr_state, pr_checks, pr_url, ports_json, spawn_cwd) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) \
          ON CONFLICT(id) DO NOTHING",
     )
     .bind(row.id)
@@ -186,10 +186,10 @@ pub async fn insert_opened_session(
 /// for a session that is already gone changes nothing, which is what makes a
 /// double close and a deduped replay both harmless.
 pub async fn delete_session(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     session_id: &str,
 ) -> Result<(), ProjectionError> {
-    sqlx::query("DELETE FROM sessions WHERE id = ?")
+    sqlx::query("DELETE FROM sessions WHERE id = $1")
         .bind(session_id)
         .execute(&mut *connection)
         .await?;
@@ -202,7 +202,7 @@ pub async fn delete_session(
 /// on a projection that does not hold the session -- the same answer the fold
 /// itself gives (`event-transaction.ts:243-256`).
 pub async fn fold_and_update_session(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     event: &SessionEvent,
     dashboard_id: &str,
 ) -> Result<Option<Session>, ProjectionError> {
@@ -229,13 +229,13 @@ pub async fn fold_and_update_session(
 /// column leaves a session out of the junction and double-counts it as both a
 /// member and an orphan (`apps/coord/src/sessions/handlers-sessions.ts:277-281`).
 pub async fn set_workspace_membership(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     session_id: &str,
     workspace_id: Option<&str>,
     dashboard_id: &str,
     added_at_ms: i64,
 ) -> Result<(), ProjectionError> {
-    sqlx::query("DELETE FROM workspace_sessions WHERE session_id = ?")
+    sqlx::query("DELETE FROM workspace_sessions WHERE session_id = $1")
         .bind(session_id)
         .execute(&mut *connection)
         .await?;
@@ -244,7 +244,7 @@ pub async fn set_workspace_membership(
     };
     sqlx::query(
         "INSERT INTO workspace_sessions (workspace_id, session_id, added_at_ms, dashboard_id) \
-         VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING",
+         VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
     )
     .bind(workspace_id)
     .bind(session_id)
@@ -257,16 +257,16 @@ pub async fn set_workspace_membership(
 
 /// Write a folded row back over the stored one.
 async fn update_session_row(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     session: &Session,
     dashboard_id: &str,
 ) -> Result<(), ProjectionError> {
     let row = session_to_row(session, dashboard_id);
     sqlx::query(
-        "UPDATE sessions SET dashboard_id = ?, worker_fp = ?, channel = ?, kind = ?, cwd = ?, \
-                workspace_id = ?, status = ?, created_at = ?, closed_at = ?, custom_title = ?, \
-                git_branch = ?, git_remote = ?, pr_number = ?, pr_state = ?, pr_checks = ?, \
-                pr_url = ?, ports_json = ?, spawn_cwd = ? WHERE id = ?",
+        "UPDATE sessions SET dashboard_id = $1, worker_fp = $2, channel = $3, kind = $4, cwd = $5, \
+                workspace_id = $6, status = $7, created_at = $8, closed_at = $9, custom_title = $10, \
+                git_branch = $11, git_remote = $12, pr_number = $13, pr_state = $14, pr_checks = $15, \
+                pr_url = $16, ports_json = $17, spawn_cwd = $18 WHERE id = $19",
     )
     .bind(row.dashboard_id)
     .bind(row.worker_fp)
@@ -294,15 +294,14 @@ async fn update_session_row(
 
 /// The workspaces a session is a member of, deduplicated and in first-seen order.
 async fn workspace_ids_for_session(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     session_id: &str,
 ) -> Result<Vec<WorkspaceId>, ProjectionError> {
     // No literal `?` in the fragment: a QueryBuilder counts every hole in the
     // text it is given, so a placeholder here plus a `push_bind` is two holes and
     // one argument.
-    let mut query = QueryBuilder::<sqlx::Sqlite>::new(
-        "SELECT workspace_id FROM workspace_sessions WHERE session_id = ",
-    );
+    let mut query =
+        SqlBuilder::new("SELECT workspace_id FROM workspace_sessions WHERE session_id = ");
     query.push_bind(session_id);
     let rows = query.build().fetch_all(&mut *connection).await?;
     let mut seen: Vec<WorkspaceId> = Vec::new();
@@ -322,10 +321,10 @@ async fn workspace_ids_for_session(
 
 /// Which of the named workspaces still have at least one session.
 async fn workspaces_with_sessions(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     workspace_ids: &[WorkspaceId],
 ) -> Result<HashSet<String>, ProjectionError> {
-    let mut query = QueryBuilder::<sqlx::Sqlite>::new(
+    let mut query = SqlBuilder::new(
         "SELECT DISTINCT workspace_id FROM workspace_sessions WHERE workspace_id IN (",
     );
     {

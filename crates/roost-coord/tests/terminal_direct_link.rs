@@ -7,6 +7,7 @@
 //! (peer half) and the retirement call of `handlers-workers.ts:210-218`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod terminal_direct_core_support;
 mod terminal_direct_support;
 

@@ -11,6 +11,7 @@
 // An arm that invented a caller, or dropped one, would satisfy "the arm does
 // not fail" while turning the auth interceptor not being mounted into either an
 // authorization bypass or a service that answers machines as browsers.
+mod db_support;
 mod service_wiring_support;
 
 use connectrpc::{ErrorCode, RequestContext};

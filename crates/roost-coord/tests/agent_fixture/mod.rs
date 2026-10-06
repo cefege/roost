@@ -156,7 +156,7 @@ impl AgentFixture {
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database = roost_coord::db::open(&root.join("coord.db"))
+        let database = super::db_support::open_test_database(&root)
             .await
             .expect("a migrated coordinator database");
         let tenant =
@@ -233,7 +233,7 @@ async fn seed_workers(database: &CoordDb, tenant: &SelfHostedTenant) {
         sqlx::query(
             "INSERT INTO workers (dashboard_id, fp, label, os, git_sha, host_metrics_json, \
                                   registered_at_ms, last_seen_ms, reachable_addr) \
-             VALUES (?1, ?2, 'agent-worker', 'linux', NULL, NULL, 1000, 1000, NULL)",
+             VALUES ($1, $2, 'agent-worker', 'linux', NULL, NULL, 1000, 1000, NULL)",
         )
         .bind(&tenant.dashboard_id)
         .bind(fp)
@@ -249,7 +249,7 @@ async fn seed_sessions(database: &CoordDb, tenant: &SelfHostedTenant) {
         sqlx::query(
             "INSERT INTO sessions (id, dashboard_id, worker_fp, channel, kind, cwd, workspace_id, \
                                    status, created_at, closed_at, custom_title, spawn_cwd) \
-             VALUES (?1, ?2, ?3, ?4, 'shell', '/tmp', NULL, 'open', 1000, NULL, NULL, '/tmp')",
+             VALUES ($1, $2, $3, $4, 'shell', '/tmp', NULL, 'open', 1000, NULL, NULL, '/tmp')",
         )
         .bind(id)
         .bind(&tenant.dashboard_id)

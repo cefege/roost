@@ -29,7 +29,7 @@ pub async fn handle_sessions_cursor_pos(
     let _lease = lease(core)?;
     let viewer = viewer_key(browser_fp, caller.tab_id.as_deref());
     let route: Option<(String, i64)> =
-        sqlx::query_as("SELECT worker_fp, channel FROM sessions WHERE id = ?1")
+        sqlx::query_as("SELECT worker_fp, channel FROM sessions WHERE id = $1")
             .bind(&req.session_id)
             .fetch_optional(core.services.db.pool())
             .await

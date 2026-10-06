@@ -6,6 +6,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod attachments_direct_support;
+mod db_support;
 
 use std::sync::Arc;
 

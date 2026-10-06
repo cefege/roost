@@ -11,14 +11,16 @@
 /// prints them. The list is the contract `docs/phase6-cli-contract.md`
 /// documents; a command added here must be documented there in the same change.
 ///
-/// **27, not 21.** 21 is v2's operator-and-daemon surface: v2's 23 command keys
+/// **28, not 21.** 21 is v2's operator-and-daemon surface: v2's 23 command keys
 /// minus the two v3 dropped (`cutover`, `__windows-updater-broker`). v3 adds
 /// four `__remote-*` target-side commands that v2 never had, and a deploy runs
 /// them over ssh; `update`, which v2 also had and v3 had left unreachable
-/// behind a complete implementation nobody could invoke; and `import-v2`, which
-/// has no v2 equivalent because it exists to move v2's state forward. Asserting
-/// 21 would drop exactly the commands this file exists to protect.
-pub const SUBCOMMANDS: [&str; 27] = [
+/// behind a complete implementation nobody could invoke; `import-v2`, which
+/// has no v2 equivalent because it exists to move v2's state forward; and
+/// `add-browser`, which pairs the first browser with a coordinator no desktop
+/// can open. Asserting 21 would drop exactly the commands this file exists to
+/// protect.
+pub const SUBCOMMANDS: [&str; 28] = [
     "coord",
     "worker",
     "keeper",
@@ -35,6 +37,7 @@ pub const SUBCOMMANDS: [&str; 27] = [
     "push",
     "join",
     "add-machine",
+    "add-browser",
     "dev",
     "self-link",
     "__remote-facts",

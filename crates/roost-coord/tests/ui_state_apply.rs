@@ -9,6 +9,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod ui_state_fixture;
 
 use std::sync::{Arc, Mutex};

@@ -48,13 +48,12 @@ pub async fn insert_worker(fixture: &SyncFixture, fp: &str) {
 pub async fn enroll_worker(fixture: &SyncFixture, seed: u8) -> (String, String) {
     let now = now_secs();
     let (fingerprint, public_key, token) = mint_coordinator_jwt([seed; 32], now, now + 300);
-    exec(
-        fixture,
-        &format!(
-            "INSERT INTO authorized_keys (fingerprint, public_key, label, added_at) \
-             VALUES ('{fingerprint}', x'{}', 'worker', 1000)",
-            hex::encode(public_key),
-        ),
+    super::db_support::insert_authorized_key(
+        &fixture.services.db,
+        &fingerprint,
+        &public_key,
+        "worker",
+        None,
     )
     .await;
     insert_worker(fixture, &fingerprint).await;
@@ -112,7 +111,7 @@ pub async fn insert_closed_row(fixture: &SyncFixture, session_id: &str, ts: i64)
     let payload = serde_json::to_string(&closed_event(session_id, ts)).unwrap();
     let id: i64 = sqlx::query_scalar(
         "INSERT INTO events (kind, session_id, payload_json, ts, dashboard_id) \
-         VALUES ('closed', ?, ?, ?, ?) RETURNING id",
+         VALUES ('closed', $1, $2, $3, $4) RETURNING id",
     )
     .bind(session_id)
     .bind(payload)

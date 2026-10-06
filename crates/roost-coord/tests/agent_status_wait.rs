@@ -11,6 +11,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod agent_fixture;
+mod db_support;
 
 /// The two refusal tests are one compilation unit's worth of behaviour and not
 /// one file's worth of lines: a submodule of this binary, so they keep the

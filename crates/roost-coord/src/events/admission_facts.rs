@@ -22,10 +22,10 @@
 use std::collections::HashMap;
 
 use roost_protocol::wire::{Session, SessionEvent, WorkerFp};
-use sqlx::QueryBuilder;
+use sqlx::AnyConnection;
 use sqlx::Row;
-use sqlx::sqlite::SqliteConnection;
 
+use crate::db::SqlBuilder;
 use crate::events::admission::AdmissionFacts;
 use crate::events::visibility::PRIVATE_SESSION_EVENT_KIND;
 
@@ -35,7 +35,7 @@ use crate::events::visibility::PRIVATE_SESSION_EVENT_KIND;
 /// rule has already decided the answer, exactly as v2 returned early from each
 /// branch (`event-admission.ts:35-122`).
 pub async fn load_admission_facts(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     event: &SessionEvent,
     caller_worker_fp: Option<&WorkerFp>,
     client_seq: Option<u64>,
@@ -131,10 +131,10 @@ fn event_claimed_worker_fp(event: &SessionEvent) -> Option<String> {
 }
 
 async fn worker_is_live(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     worker_fp: &str,
 ) -> Result<bool, sqlx::Error> {
-    let row = sqlx::query("SELECT 1 FROM workers WHERE fp = ? AND deleted_at_ms IS NULL")
+    let row = sqlx::query("SELECT 1 FROM workers WHERE fp = $1 AND deleted_at_ms IS NULL")
         .bind(worker_fp)
         .fetch_optional(&mut *connection)
         .await?;
@@ -142,11 +142,11 @@ async fn worker_is_live(
 }
 
 async fn durable_delivery_exists(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     worker_fp: &str,
     client_seq: u64,
 ) -> Result<bool, sqlx::Error> {
-    let row = sqlx::query("SELECT 1 FROM events WHERE worker_fp = ? AND client_seq = ?")
+    let row = sqlx::query("SELECT 1 FROM events WHERE worker_fp = $1 AND client_seq = $2")
         .bind(worker_fp)
         .bind(as_sqlite_integer(client_seq))
         .fetch_optional(&mut *connection)
@@ -155,10 +155,10 @@ async fn durable_delivery_exists(
 }
 
 async fn session_row_exists(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     session_id: &str,
 ) -> Result<bool, sqlx::Error> {
-    let row = sqlx::query("SELECT 1 FROM sessions WHERE id = ?")
+    let row = sqlx::query("SELECT 1 FROM sessions WHERE id = $1")
         .bind(session_id)
         .fetch_optional(&mut *connection)
         .await?;
@@ -166,10 +166,10 @@ async fn session_row_exists(
 }
 
 async fn session_row_owner(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     session_id: &str,
 ) -> Result<Option<String>, sqlx::Error> {
-    let row = sqlx::query("SELECT worker_fp FROM sessions WHERE id = ?")
+    let row = sqlx::query("SELECT worker_fp FROM sessions WHERE id = $1")
         .bind(session_id)
         .fetch_optional(&mut *connection)
         .await?;
@@ -182,14 +182,13 @@ async fn session_row_owner(
 /// `currentRows.some(...)` did: the check is "is any row that exists owned by
 /// somebody else", not "does every announced id exist".
 async fn session_row_owners(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     announced_ids: &[String],
 ) -> Result<HashMap<String, String>, sqlx::Error> {
     if announced_ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let mut query =
-        QueryBuilder::<sqlx::Sqlite>::new("SELECT id, worker_fp FROM sessions WHERE id IN (");
+    let mut query = SqlBuilder::new("SELECT id, worker_fp FROM sessions WHERE id IN (");
     {
         let mut separated = query.separated(", ");
         for id in announced_ids {
@@ -205,13 +204,13 @@ async fn session_row_owners(
 }
 
 async fn existing_workspace_count(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     workspace_ids: &[String],
 ) -> Result<usize, sqlx::Error> {
     if workspace_ids.is_empty() {
         return Ok(0);
     }
-    let mut query = QueryBuilder::<sqlx::Sqlite>::new("SELECT id FROM workspaces WHERE id IN (");
+    let mut query = SqlBuilder::new("SELECT id FROM workspaces WHERE id IN (");
     {
         let mut separated = query.separated(", ");
         for id in workspace_ids {
@@ -224,12 +223,12 @@ async fn existing_workspace_count(
 }
 
 async fn worker_has_durable_opened(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     worker_fp: &str,
     session_id: &str,
 ) -> Result<bool, sqlx::Error> {
     let row = sqlx::query(
-        "SELECT 1 FROM events WHERE session_id = ? AND worker_fp = ? AND kind = 'opened'",
+        "SELECT 1 FROM events WHERE session_id = $1 AND worker_fp = $2 AND kind = 'opened'",
     )
     .bind(session_id)
     .bind(worker_fp)

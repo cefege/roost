@@ -10,6 +10,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod pairing_support;
 
 use pairing_support::{CODE, CeremonyFixture, HANDLE, NOW, OTHER_TOKEN, TOKEN};

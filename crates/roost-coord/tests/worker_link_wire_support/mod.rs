@@ -21,7 +21,6 @@ use roost_host::{CoordConfig, CoordConfigInput};
 use roost_protocol::proto_adapters::coord_worker_proto::{decode_downstream, encode_upstream};
 use roost_protocol::wire::WorkerFp;
 use roost_protocol::wire::coord_worker::{CoordWorkerDownstream, CoordWorkerUpstream};
-use sqlx::AssertSqlSafe;
 use tokio_tungstenite::tungstenite::Message;
 
 use super::ws_client_support::{Dialed, WsClient, dial, next_frame, send_binary};
@@ -50,13 +49,13 @@ impl WireFixture {
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database_path = root.join("coord.db");
-        let database = roost_coord::db::open(&database_path)
+        let database_location = super::db_support::test_database_location(&root).await;
+        let database = roost_coord::db::open(&database_location)
             .await
             .expect("a migrated database");
         let config = CoordConfig::parse(CoordConfigInput {
             bind: Some("127.0.0.1:0".to_owned()),
-            db_path: Some(database_path),
+            database: Some(database_location),
             authorized_keys_path: Some(root.join("authorized_keys")),
             log_dir: Some(root.join("logs")),
             ..CoordConfigInput::default()
@@ -156,23 +155,22 @@ impl Drop for WireFixture {
 
 /// The key row and the worker row a redeemed enrollment would have written.
 async fn enroll_worker(services: &CoordServices, fingerprint: &str, public_key: &[u8; 32]) {
-    for statement in [
-        format!(
-            "INSERT INTO authorized_keys (fingerprint, public_key, label, added_at) \
-             VALUES ('{fingerprint}', x'{}', 'wire-worker', 1000)",
-            hex::encode(public_key)
-        ),
-        format!(
-            "INSERT INTO workers (fp, label, os, registered_at_ms, last_seen_ms, dashboard_id) \
-             VALUES ('{fingerprint}', 'wire-worker', 'linux', 1000, 1000, \
-             (SELECT id FROM dashboards LIMIT 1))"
-        ),
-    ] {
-        sqlx::query(AssertSqlSafe(statement))
-            .execute(services.db.pool())
-            .await
-            .expect("the enrollment row applies");
-    }
+    super::db_support::insert_authorized_key(
+        &services.db,
+        fingerprint,
+        public_key,
+        "wire-worker",
+        None,
+    )
+    .await;
+    sqlx::query(
+        "INSERT INTO workers (fp, label, os, registered_at_ms, last_seen_ms, dashboard_id) \
+         VALUES ($1, 'wire-worker', 'linux', 1000, 1000, (SELECT id FROM dashboards LIMIT 1))",
+    )
+    .bind(fingerprint)
+    .execute(services.db.pool())
+    .await
+    .expect("the enrollment row applies");
 }
 
 /// A `WHello` for `worker_fp`, advertising semantic metadata.

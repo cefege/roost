@@ -15,7 +15,7 @@
 //!
 //! WHY FIRST USE IS SERIALISED BY THE DATABASE. v2 held a module-level
 //! in-flight promise, which serialises one process and nothing else. A
-//! `BEGIN IMMEDIATE` transaction serialises the read-then-generate-then-insert
+//! write transaction (`CoordDb::begin_write`) serialises the read-then-generate-then-insert
 //! against every writer, so the second first-use observes the committed row
 //! instead of minting a second identity. It is the same guarantee with a wider
 //! scope, and it needs no promise to hold.
@@ -23,7 +23,7 @@
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use sqlx::{Row, SqlitePool};
+use sqlx::Row;
 
 use crate::db::CoordDb;
 
@@ -171,7 +171,7 @@ impl VapidKeyStore {
         if let Some(keys) = self.cached() {
             return Ok(keys);
         }
-        let loaded = load_or_create(database.pool(), self.generator.as_ref()).await?;
+        let loaded = load_or_create(database, self.generator.as_ref()).await?;
         *self.cached.lock().map_err(|_| poisoned("cache"))? = Some(loaded.clone());
         Ok(loaded)
     }
@@ -200,21 +200,18 @@ fn poisoned(what: &str) -> VapidError {
 /// Read the coordinator-global row, or create it, inside one write
 /// transaction.
 ///
-/// `BEGIN IMMEDIATE` takes the write lock up front, which is what makes the
-/// read and the insert one decision: a second first-use blocks here, then
+/// [`CoordDb::begin_write`] takes the write lock up front, which is what makes
+/// the read and the insert one decision: a second first-use blocks here, then
 /// observes the row the first one committed and returns it, rather than minting
 /// a second identity. The read-back after the insert is deliberate and is not
 /// dead code -- it is the assertion that the row that landed is the
 /// coordinator-global one, and it is what makes a row written by another
 /// writer the answer rather than a duplicate.
 async fn load_or_create(
-    pool: &SqlitePool,
+    database: &CoordDb,
     generator: &dyn VapidKeyGenerator,
 ) -> Result<VapidKeys, VapidError> {
-    let mut transaction = pool
-        .begin_with("BEGIN IMMEDIATE")
-        .await
-        .map_err(VapidError::Store)?;
+    let mut transaction = database.begin_write().await.map_err(VapidError::Store)?;
     if let Some(stored) = read_row(&mut transaction).await? {
         transaction.commit().await.map_err(VapidError::Store)?;
         return Ok(stored);
@@ -222,7 +219,7 @@ async fn load_or_create(
     let generated = generator.generate()?;
     sqlx::query(
         "INSERT INTO app_settings (dashboard_id, key, value, updated_at_ms) \
-         VALUES (NULL, ?, ?, ?)",
+         VALUES (NULL, $1, $2, $3)",
     )
     .bind(VAPID_SETTING_KEY)
     .bind(
@@ -242,11 +239,11 @@ async fn load_or_create(
 
 /// The NULL-scoped `push.vapid` row, parsed.
 async fn read_row(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    transaction: &mut sqlx::Transaction<'_, sqlx::Any>,
 ) -> Result<Option<VapidKeys>, VapidError> {
     let row = sqlx::query(
         "SELECT value FROM app_settings \
-         WHERE dashboard_id IS NULL AND key = ?",
+         WHERE dashboard_id IS NULL AND key = $1",
     )
     .bind(VAPID_SETTING_KEY)
     .fetch_optional(&mut **transaction)

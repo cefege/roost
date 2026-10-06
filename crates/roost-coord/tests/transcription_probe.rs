@@ -12,6 +12,7 @@
 // exemption has to be stated here.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod transcription_fixture;
 
 use std::sync::Arc;

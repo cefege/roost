@@ -113,19 +113,19 @@ pub async fn load_sync_resource_index(
         Some(owner) => (
             ids(
                 db,
-                "SELECT fp FROM workers WHERE deleted_at_ms IS NULL AND fp = ?1",
+                "SELECT fp FROM workers WHERE deleted_at_ms IS NULL AND fp = $1",
                 Some(owner),
             )
             .await?,
             ids(
                 db,
-                "SELECT id FROM sessions WHERE worker_fp = ?1",
+                "SELECT id FROM sessions WHERE worker_fp = $1",
                 Some(owner),
             )
             .await?,
             ids(
                 db,
-                "SELECT id FROM workspaces WHERE worker_fp = ?1",
+                "SELECT id FROM workspaces WHERE worker_fp = $1",
                 Some(owner),
             )
             .await?,

@@ -41,7 +41,9 @@ rsa.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
-sqlx = { workspace = true, features = ["sqlite", "runtime-tokio", "macros", "migrate"] }
+# `any` so one `CoordDb` serves a SQLite file or a Postgres URL; rustls so a
+# managed Postgres that demands `sslmode=require` is reachable.
+sqlx = { workspace = true, features = ["sqlite", "postgres", "any", "runtime-tokio", "macros", "migrate", "tls-rustls-ring-webpki"] }
 thiserror.workspace = true
 # The export route streams a database copy of unbounded size into a response
 # body; `tokio_util::io::ReaderStream` is the named seam for a file as a body.

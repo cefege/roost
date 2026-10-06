@@ -6,6 +6,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod terminal_input_support;
 
 use roost_coord::terminal_input::input_audit::{INPUT_AUDIT_BATCH_MAX, INPUT_AUDIT_QUEUE_CAP};
@@ -13,7 +14,6 @@ use roost_coord::terminal_input::input_control::{
     InputControlCommand, MAX_INPUT_BYTES, process_input_control,
 };
 use roost_coord::terminal_input::write_control::{TerminalWriteControlResult, TerminalWriteStatus};
-use sqlx::AssertSqlSafe;
 use terminal_input_support::{InputHarness, batch};
 use tokio::task::JoinHandle;
 
@@ -52,13 +52,15 @@ fn start(
 
 /// Fail every audit write whose batch carries `caller_fp`.
 async fn fail_batches_carrying(harness: &InputHarness, caller_fp: &str) {
-    sqlx::query(AssertSqlSafe(format!(
-        "CREATE TRIGGER fail_audit BEFORE INSERT ON audit_log WHEN NEW.caller_fp = '{caller_fp}' \
-         BEGIN SELECT RAISE(ABORT, 'injected audit transaction failure'); END"
-    )))
-    .execute(harness.services.db.pool())
-    .await
-    .unwrap();
+    db_support::install_refusing_trigger(
+        &harness.services.db,
+        "fail_audit",
+        "INSERT",
+        "audit_log",
+        &format!("NEW.caller_fp = '{caller_fp}'"),
+        "injected audit transaction failure",
+    )
+    .await;
 }
 
 async fn yield_to_tasks() {
@@ -72,7 +74,7 @@ async fn yield_to_tasks() {
 async fn audits_commit_in_fifo_batches_of_at_most_64() {
     let harness = InputHarness::new("audit-prefix").await;
     fail_batches_carrying(&harness, "prefix-caller-64").await;
-    let held = harness.services.db.pool().acquire().await.unwrap();
+    let held = db_support::hold_every_connection(&harness.services.db).await;
     let requests = start(&harness, "prefix", 0..66, None);
     yield_to_tasks().await;
     assert!(

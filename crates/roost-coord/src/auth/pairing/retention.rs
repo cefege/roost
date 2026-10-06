@@ -105,8 +105,8 @@ async fn delete_tombstone_batch(database: &CoordDb, cutoff: i64) -> PairingResul
         "DELETE FROM pair_requests WHERE id IN ( \
              SELECT id FROM pair_requests \
               WHERE status NOT IN ('pending', 'verification_required') \
-                AND decided_at_ms IS NOT NULL AND decided_at_ms <= ? \
-              ORDER BY decided_at_ms LIMIT ?) ",
+                AND decided_at_ms IS NOT NULL AND decided_at_ms <= $1 \
+              ORDER BY decided_at_ms LIMIT $2) ",
     )
     .bind(cutoff)
     .bind(PAIR_REQUEST_BATCH_SIZE)

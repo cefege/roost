@@ -285,7 +285,7 @@ impl DirectHarness {
             std::env::temp_dir().join(format!("roost-attachments-{label}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database = roost_coord::db::open(&root.join("coord.db"))
+        let database = super::db_support::open_test_database(&root)
             .await
             .expect("a migrated database");
         let tenant =
@@ -310,7 +310,7 @@ impl DirectHarness {
                 .expect("a fixture row");
         }
         let config = roost_host::CoordConfig::parse(roost_host::CoordConfigInput {
-            db_path: Some(root.join("coord.db")),
+            database: Some(super::db_support::test_database_location(&root).await),
             authorized_keys_path: Some(root.join("authorized_keys")),
             log_dir: Some(root.join("logs")),
             terminal_peer_enabled: Some(true),

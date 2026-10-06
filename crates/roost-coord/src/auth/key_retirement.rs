@@ -16,7 +16,7 @@
 //! use any more.
 
 use connectrpc::ConnectError;
-use sqlx::{Sqlite, Transaction};
+use sqlx::{Any, Transaction};
 
 use crate::auth::db_statements::{Bind, run};
 
@@ -24,7 +24,7 @@ use crate::auth::db_statements::{Bind, run};
 /// half way. The caller holds the transaction, so a failure anywhere above
 /// rolls back the revocation with it.
 pub(crate) async fn retire_principal(
-    transaction: &mut Transaction<'_, Sqlite>,
+    transaction: &mut Transaction<'_, Any>,
     fingerprint: &str,
     revoked_by: &str,
     reason: &str,
@@ -35,7 +35,7 @@ pub(crate) async fn retire_principal(
     run(
         transaction,
         "INSERT INTO authorized_key_revocations (fingerprint, revoked_at_ms, revoked_by_fp, \
-         reason) VALUES (?, ?, ?, ?)",
+         reason) VALUES ($1, $2, $3, $4)",
         &[
             Bind::Text(Some(fingerprint)),
             Bind::Int(now),
@@ -50,7 +50,7 @@ pub(crate) async fn retire_principal(
     run(
         transaction,
         "DELETE FROM bootstrap_tokens WHERE used_at_ms IS NULL \
-         AND (minted_by_fp = ? OR (? <> 0 AND minted_by_fp IS NULL))",
+         AND (minted_by_fp = $1 OR ($2 <> 0 AND minted_by_fp IS NULL))",
         &[
             Bind::Text(Some(fingerprint)),
             Bind::Int(i64::from(sweep_host_grants)),
@@ -59,14 +59,14 @@ pub(crate) async fn retire_principal(
     .await?;
     run(
         transaction,
-        "DELETE FROM push_subscriptions WHERE viewer_fp = ?",
+        "DELETE FROM push_subscriptions WHERE viewer_fp = $1",
         &[Bind::Text(Some(fingerprint))],
     )
     .await?;
     run(
         transaction,
-        "DELETE FROM account_devices WHERE fingerprint = ? \
-         AND (? IS NULL OR account_id = ?)",
+        "DELETE FROM account_devices WHERE fingerprint = $1 \
+         AND ($2 IS NULL OR account_id = $3)",
         &[
             Bind::Text(Some(fingerprint)),
             Bind::Text(account_id),
@@ -76,7 +76,7 @@ pub(crate) async fn retire_principal(
     .await?;
     run(
         transaction,
-        "DELETE FROM authorized_keys WHERE fingerprint = ?",
+        "DELETE FROM authorized_keys WHERE fingerprint = $1",
         &[Bind::Text(Some(fingerprint))],
     )
     .await

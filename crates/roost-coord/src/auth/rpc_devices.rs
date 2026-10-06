@@ -202,14 +202,14 @@ pub async fn handle_devices_rotate_current(
         match &caller.principal {
             Principal::AccountDevice { account_id, .. } => column2(
                 &mut transaction,
-                "SELECT account_id FROM account_devices WHERE fingerprint = ? AND account_id = ?",
+                "SELECT account_id FROM account_devices WHERE fingerprint = $1 AND account_id = $2",
                 (current.as_str(), account_id.as_str()),
             )
             .await?,
             _ => {
                 column1(
                     &mut transaction,
-                    "SELECT account_id FROM account_devices WHERE fingerprint = ?",
+                    "SELECT account_id FROM account_devices WHERE fingerprint = $1",
                     current.as_str(),
                 )
                 .await?
@@ -269,7 +269,7 @@ pub async fn handle_auth_logout(
                 &mut transaction,
                 "SELECT 1 FROM authorized_keys AS key JOIN account_devices AS device \
                  ON device.fingerprint = key.fingerprint \
-                 WHERE key.fingerprint = ? AND device.account_id = ?",
+                 WHERE key.fingerprint = $1 AND device.account_id = $2",
                 (fingerprint.as_str(), account_id.as_str()),
             )
             .await?

@@ -13,6 +13,7 @@
 //! the query was running notify the fleet anyway; checked again inside the
 //! sender, it stops.
 
+mod db_support;
 mod push_fixture;
 
 use std::sync::Arc;

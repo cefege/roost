@@ -97,7 +97,7 @@ impl PushFixture {
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("a scratch directory");
-        let database = roost_coord::db::open(&root.join("coord.db"))
+        let database = super::db_support::open_test_database(&root)
             .await
             .expect("a migrated coordinator database");
         let tenant =
@@ -147,7 +147,7 @@ impl PushFixture {
     /// The endpoints one device currently holds, sorted.
     pub async fn endpoints_for(&self, viewer_fp: &str) -> Vec<String> {
         sqlx::query_scalar::<_, String>(
-            "SELECT endpoint FROM push_subscriptions WHERE viewer_fp = ?1 ORDER BY endpoint",
+            "SELECT endpoint FROM push_subscriptions WHERE viewer_fp = $1 ORDER BY endpoint",
         )
         .bind(viewer_fp)
         .fetch_all(self.database().pool())
@@ -159,7 +159,7 @@ impl PushFixture {
     pub async fn keys_for(&self, endpoint: &str) -> Option<(String, String)> {
         use sqlx::Row as _;
         let row =
-            sqlx::query("SELECT p256dh, auth FROM push_subscriptions WHERE endpoint = ?1 LIMIT 1")
+            sqlx::query("SELECT p256dh, auth FROM push_subscriptions WHERE endpoint = $1 LIMIT 1")
                 .bind(endpoint)
                 .fetch_optional(self.database().pool())
                 .await
@@ -181,7 +181,7 @@ impl PushFixture {
     pub async fn seed_device(&self, account_id: &str, fp: &str) {
         sqlx::query(
             "INSERT INTO authorized_keys (fingerprint, public_key, label, added_at) \
-             VALUES (?1, ?2, 'second', 1000)",
+             VALUES ($1, $2, 'second', 1000)",
         )
         .bind(fp)
         .bind(vec![1_u8; 32])
@@ -190,7 +190,7 @@ impl PushFixture {
         .expect("the second device key row");
         sqlx::query(
             "INSERT INTO account_devices (fingerprint, account_id, added_at_ms, last_seen_at_ms) \
-             VALUES (?1, ?2, 1000, 1000)",
+             VALUES ($1, $2, 1000, 1000)",
         )
         .bind(fp)
         .bind(account_id)
@@ -205,7 +205,7 @@ impl PushFixture {
         sqlx::query(
             "INSERT INTO push_subscriptions \
                (dashboard_id, viewer_fp, endpoint, p256dh, auth, created_at_ms) \
-             VALUES (?1, ?2, ?3, 'abc', 'def', ?4)",
+             VALUES ($1, $2, $3, 'abc', 'def', $4)",
         )
         .bind(dashboard_id)
         .bind(viewer_fp)
@@ -228,7 +228,7 @@ impl Drop for PushFixture {
 async fn seed_device(database: &CoordDb, account_id: &str, fp: &str) {
     sqlx::query(
         "INSERT INTO authorized_keys (fingerprint, public_key, label, added_at) \
-         VALUES (?1, ?2, ?3, ?4)",
+         VALUES ($1, $2, $3, $4)",
     )
     .bind(fp)
     .bind(vec![0_u8; 32])
@@ -239,7 +239,7 @@ async fn seed_device(database: &CoordDb, account_id: &str, fp: &str) {
     .expect("the device key row");
     sqlx::query(
         "INSERT INTO account_devices (fingerprint, account_id, added_at_ms, last_seen_at_ms) \
-         VALUES (?1, ?2, ?3, ?4)",
+         VALUES ($1, $2, $3, $4)",
     )
     .bind(fp)
     .bind(account_id)
@@ -256,7 +256,7 @@ pub async fn seed_open_session(fixture: &PushFixture, cwd: &str) {
     sqlx::query(
         "INSERT INTO workers (dashboard_id, fp, label, os, git_sha, host_metrics_json, \
                               registered_at_ms, last_seen_ms, reachable_addr) \
-         VALUES (?1, ?2, 'push-worker', 'linux', NULL, NULL, ?3, ?3, NULL)",
+         VALUES ($1, $2, 'push-worker', 'linux', NULL, NULL, $3, $3, NULL)",
     )
     .bind(&fixture.dashboard_id)
     .bind(&worker_fp)
@@ -267,7 +267,7 @@ pub async fn seed_open_session(fixture: &PushFixture, cwd: &str) {
     sqlx::query(
         "INSERT INTO sessions (id, dashboard_id, worker_fp, channel, kind, cwd, workspace_id, \
                                status, created_at, closed_at, custom_title, spawn_cwd) \
-         VALUES (?1, ?2, ?3, 1, 'shell', ?4, NULL, 'open', ?5, NULL, NULL, ?4)",
+         VALUES ($1, $2, $3, 1, 'shell', $4, NULL, 'open', $5, NULL, NULL, $4)",
     )
     .bind(SESSION_ID)
     .bind(&fixture.dashboard_id)

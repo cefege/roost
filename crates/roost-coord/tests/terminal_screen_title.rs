@@ -9,6 +9,7 @@
 //! and refuses a legacy `Binary` metadata frame (`live_frames.rs`).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod frame_dispatch_support;
 mod workers_support;
 

@@ -179,10 +179,10 @@ pub async fn apply_worker_heartbeat(
         None => prior.host_identity_json.clone(),
     };
     let sql = format!(
-        "UPDATE workers SET last_seen_ms = ?, keeper_runtime_json = ?, \
-         terminal_core_capacity_json = ?, host_metrics_json = ?, git_sha = ?, \
-         reachable_addr = ?, os = ?, host_identity_json = ? \
-         WHERE fp = ? AND deleted_at_ms IS NULL RETURNING {}",
+        "UPDATE workers SET last_seen_ms = $1, keeper_runtime_json = $2, \
+         terminal_core_capacity_json = $3, host_metrics_json = $4, git_sha = $5, \
+         reachable_addr = $6, os = $7, host_identity_json = $8 \
+         WHERE fp = $9 AND deleted_at_ms IS NULL RETURNING {}",
         worker_projection()
     );
     let updated = sqlx::query_as::<_, StoredWorkerRow>(AssertSqlSafe(sql))
@@ -225,8 +225,8 @@ async fn clear_malformed(
         MalformedClaim::TerminalCoreCapacity => "terminal_core_capacity_json",
     };
     let sql = format!(
-        "UPDATE workers SET last_seen_ms = ?, {column} = NULL \
-         WHERE fp = ? AND deleted_at_ms IS NULL RETURNING {}",
+        "UPDATE workers SET last_seen_ms = $1, {column} = NULL \
+         WHERE fp = $2 AND deleted_at_ms IS NULL RETURNING {}",
         worker_projection()
     );
     let cleared = sqlx::query_as::<_, StoredWorkerRow>(AssertSqlSafe(sql))

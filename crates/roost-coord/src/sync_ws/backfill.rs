@@ -17,7 +17,7 @@
 use std::sync::Arc;
 
 use roost_proto::SyncDomain;
-use sqlx::SqlitePool;
+use sqlx::AnyPool;
 use tokio::sync::oneshot;
 
 use crate::events::bus_messages::SessionBusMessage;
@@ -49,7 +49,7 @@ impl Drop for BackfillTask {
 #[must_use]
 pub fn spawn_backfill(
     link: &Arc<SyncLink>,
-    pool: &SqlitePool,
+    pool: &AnyPool,
     since: u64,
     v2: bool,
     seeded: Option<oneshot::Receiver<()>>,
@@ -83,7 +83,7 @@ pub fn spawn_backfill(
 /// Read the page above `since` and hand it to `emit` in batches of
 /// [`REPLAY_BATCH_EVENTS`], yielding between them. Returns the rows read.
 pub async fn replay_since(
-    pool: &SqlitePool,
+    pool: &AnyPool,
     since: u64,
     mut emit: impl FnMut(&[StoredEvent]),
 ) -> Result<usize, EventQueryError> {
@@ -97,7 +97,7 @@ pub async fn replay_since(
 
 /// The v1 backfill: one page above `since`, then live events stop being
 /// remembered as the boundary (`sync-feed.ts:356-372`).
-async fn backfill_since(link: &SyncLink, pool: &SqlitePool, since: u64) {
+async fn backfill_since(link: &SyncLink, pool: &AnyPool, since: u64) {
     let replayed = replay_since(pool, since, |batch| {
         link.deliver_with(|state| {
             for row in batch {
@@ -135,7 +135,7 @@ async fn backfill_since(link: &SyncLink, pool: &SqlitePool, since: u64) {
 
 /// The v2 recovery through a cutoff fixed after the feed is listening
 /// (`sync-feed.ts:302-354`).
-async fn recover_through_cutoff(link: &SyncLink, pool: &SqlitePool, since: u64) {
+async fn recover_through_cutoff(link: &SyncLink, pool: &AnyPool, since: u64) {
     let cutoff = match get_event_max_id(pool).await {
         Ok(cutoff) => cutoff,
         Err(error) => return fail_recovery(link, since, &error),

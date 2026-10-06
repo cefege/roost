@@ -18,7 +18,7 @@ use roost_protocol::versioning::{
 
 use crate::auth::principal::{device_refusal, require_account_device};
 use crate::coord_core::{Caller, CoordCore};
-use crate::db::CoordDb;
+use crate::db::{CoordDb, IN_LIST_CHUNK, SqlBuilder, push_in_list};
 use crate::terminal_direct::grant_state::{
     LOCAL_TERMINAL_GRANT_TTL_MS, TerminalGrantAuthorization, TerminalGrantRequest,
 };
@@ -108,20 +108,24 @@ pub async fn authorize_terminal_grant_sessions(
 ) -> Result<(), ConnectError> {
     require_bounded_string(worker_fp, "worker_fp")?;
     require_unique_sessions(session_ids)?;
-    let wanted = serde_json::to_string(session_ids)
-        .map_err(|_| capture_failure(Failure::Internal, "session_ids"))?;
-    let rows: Vec<(String, String, String)> = sqlx::query_as(
-        "SELECT session.id, session.worker_fp, session.status FROM sessions AS session
-         INNER JOIN workers AS worker ON worker.fp = session.worker_fp
-         WHERE session.id IN (SELECT value FROM json_each(?1)) AND worker.deleted_at_ms IS NULL",
-    )
-    .bind(wanted)
-    .fetch_all(database.pool())
-    .await
-    .map_err(|error| {
-        tracing::error!(worker_fp, %error, "terminal grant: the session route lookup failed");
-        ConnectError::new(ErrorCode::Internal, "terminal grant authorization failed")
-    })?;
+    let mut rows: Vec<(String, String, String)> = Vec::with_capacity(session_ids.len());
+    for chunk in session_ids.chunks(IN_LIST_CHUNK) {
+        let mut statement = SqlBuilder::new(
+            "SELECT session.id, session.worker_fp, session.status FROM sessions AS session \
+             INNER JOIN workers AS worker ON worker.fp = session.worker_fp \
+             WHERE worker.deleted_at_ms IS NULL AND session.id IN ",
+        );
+        push_in_list(&mut statement, chunk);
+        let chunk_rows = statement
+            .build_query_as::<(String, String, String)>()
+            .fetch_all(database.pool())
+            .await
+            .map_err(|error| {
+                tracing::error!(worker_fp, %error, "terminal grant: the session route lookup failed");
+                ConnectError::new(ErrorCode::Internal, "terminal grant authorization failed")
+            })?;
+        rows.extend(chunk_rows);
+    }
     let routes: HashMap<&str, (&str, &str)> = rows
         .iter()
         .map(|(id, route_worker, status)| (id.as_str(), (route_worker.as_str(), status.as_str())))

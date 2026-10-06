@@ -10,9 +10,9 @@
 //! exists. All of it is one transaction, so a version claim that loses rolls the
 //! detach back with it.
 
-use sqlx::SqliteConnection;
+use sqlx::AnyConnection;
 
-use crate::db::CoordDb;
+use crate::db::{CoordDb, IN_LIST_CHUNK, SqlBuilder, push_in_list};
 use crate::sessions::workspaces::{WorkspaceError, members_of};
 use roost_protocol::wire::{SessionId, WorkspaceId};
 
@@ -24,7 +24,7 @@ pub async fn delete_workspace(
 ) -> Result<WorkspaceId, WorkspaceError> {
     let mut transaction = database.pool().begin().await?;
     detach_members(&mut transaction, workspace_id).await?;
-    let deleted = sqlx::query("DELETE FROM workspaces WHERE id = ? AND version = ?")
+    let deleted = sqlx::query("DELETE FROM workspaces WHERE id = $1 AND version = $2")
         .bind(workspace_id)
         .bind(i64::try_from(if_version).unwrap_or(i64::MAX))
         .execute(&mut *transaction)
@@ -47,7 +47,7 @@ pub async fn delete_workspace(
 /// direction is why `cascade_closed_session` captures the owning workspaces
 /// before it deletes a session.
 pub(crate) async fn detach_members(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     workspace_id: &str,
 ) -> Result<(), WorkspaceError> {
     let members = members_of(connection, workspace_id).await?;
@@ -59,18 +59,17 @@ pub(crate) async fn detach_members(
 /// elsewhere is not stolen out of it. The membership is an argument rather than
 /// a read, because one caller must read it before a statement cascades it away.
 pub(crate) async fn unclaim(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     workspace_id: &str,
     members: &[SessionId],
 ) -> Result<(), WorkspaceError> {
-    let ids: Vec<String> = members.iter().map(|id| id.as_str().to_owned()).collect();
-    sqlx::query(
-        "UPDATE sessions SET workspace_id = NULL WHERE workspace_id = ? \
-         AND id IN (SELECT value FROM json_each(?))",
-    )
-    .bind(workspace_id)
-    .bind(serde_json::to_string(&ids)?)
-    .execute(&mut *connection)
-    .await?;
+    let ids: Vec<&str> = members.iter().map(SessionId::as_str).collect();
+    for chunk in ids.chunks(IN_LIST_CHUNK) {
+        let mut statement =
+            SqlBuilder::new("UPDATE sessions SET workspace_id = NULL WHERE workspace_id = ");
+        statement.push_bind(workspace_id).push(" AND id IN ");
+        push_in_list(&mut statement, chunk);
+        statement.build().execute(&mut *connection).await?;
+    }
     Ok(())
 }

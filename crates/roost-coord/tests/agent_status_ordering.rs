@@ -11,6 +11,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod agent_fixture;
+mod db_support;
 
 use std::sync::{Arc, Mutex};
 

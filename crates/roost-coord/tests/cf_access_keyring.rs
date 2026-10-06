@@ -128,7 +128,9 @@ fn install_ring() -> Arc<YieldingRing> {
 
 fn config() -> CoordConfig {
     let mut input = CoordConfigInput {
-        db_path: Some(std::env::temp_dir().join("cf-access-ring.db")),
+        database: Some(roost_host::DatabaseLocation::SqliteFile(
+            std::env::temp_dir().join("cf-access-ring.db"),
+        )),
         authorized_keys_path: Some(std::env::temp_dir().join("cf-access-ring-keys")),
         log_dir: Some(std::env::temp_dir().join("cf-access-ring-logs")),
         ..CoordConfigInput::default()

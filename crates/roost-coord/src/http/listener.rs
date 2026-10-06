@@ -285,7 +285,14 @@ async fn db_export(State(state): State<Arc<ListenerState>>, request: Request) ->
             return on_host_refusal();
         }
     }
-    if !state.services.db.path().exists() {
+    // Only a SQLite file the coordinator owns can be exported; a Postgres
+    // database answers 404 exactly as a missing file does.
+    if !state
+        .services
+        .db
+        .sqlite_path()
+        .is_some_and(std::path::Path::exists)
+    {
         return (axum::http::StatusCode::NOT_FOUND, "").into_response();
     }
     let snapshot = match prepare_export_snapshot(&state.services.db).await {

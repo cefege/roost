@@ -10,6 +10,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 mod workspaces_support;
 
 use connectrpc::ErrorCode;
@@ -115,12 +116,15 @@ async fn a_failed_delete_leaves_no_half_deleted_tree() {
     fixture.enroll_session(SESSION_A, "/srv/one").await;
     fixture.enroll_session(SESSION_B, "/srv/one").await;
     let doomed = create(&fixture, "/srv/one", &[SESSION_A, SESSION_B]).await;
-    fixture
-        .exec(
-            "CREATE TRIGGER refuse_workspace_delete BEFORE DELETE ON workspaces \
-               BEGIN SELECT RAISE(ABORT, 'delete refused'); END",
-        )
-        .await;
+    db_support::install_refusing_trigger(
+        &fixture.database,
+        "refuse_workspace_delete",
+        "DELETE",
+        "workspaces",
+        "TRUE",
+        "delete refused",
+    )
+    .await;
 
     let refused = handle_workspaces_delete(
         &fixture.core,

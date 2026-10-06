@@ -10,6 +10,7 @@
 //! be stated here rather than inherited.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod db_support;
 #[path = "diag_snapshot_support/mod.rs"]
 mod diag_snapshot_support;
 

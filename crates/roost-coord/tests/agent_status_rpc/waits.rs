@@ -95,7 +95,7 @@ async fn a_wait_that_outlives_its_subscriber_leaves_nothing_behind() {
             &fixture.caller,
             wait_request(SESSION_IDS[0], &["blocked"], 300_000),
         ));
-        let elapsed = tokio::time::timeout(Duration::from_millis(50), &mut parked).await;
+        let elapsed = tokio::time::timeout(Duration::from_secs(1), &mut parked).await;
         assert!(
             elapsed.is_err(),
             "the wait is still parked when the caller leaves"

@@ -56,6 +56,7 @@ use crate::ops::test::TestArgs;
 use crate::ops::version::VersionArgs;
 use crate::push::PushArgs;
 use crate::quickstart::QuickstartArgs;
+use crate::quickstart::add_browser::AddBrowserArgs;
 use crate::quickstart::add_machine::AddMachineArgs;
 use crate::quickstart::join;
 use crate::status::StatusArgs;
@@ -110,6 +111,8 @@ pub enum Command {
     Join,
     /// Mint a one-shot enrollment grant and print an enrollment command.
     AddMachine(AddMachineArgs),
+    /// Mint a one-shot browser pairing grant and print the URL that spends it.
+    AddBrowser(AddBrowserArgs),
     /// Run the coordinator, the worker and the web dev server together.
     Dev(DevArgs),
     /// Put this install's roost on PATH as ~/.local/bin/roost.
@@ -155,6 +158,7 @@ impl Command {
             Command::Push(_) => "push",
             Command::Join => "join",
             Command::AddMachine(_) => "add-machine",
+            Command::AddBrowser(_) => "add-browser",
             Command::Dev(_) => "dev",
             Command::SelfLink => "self-link",
             Command::RemoteFacts(_) => "__remote-facts",
@@ -188,6 +192,7 @@ pub async fn dispatch(cli: Cli) -> Result<ExitCode, CommandFailure> {
         Command::Push(args) => push::run(&args).await,
         Command::Join => join::run(&roost_host::ProcessEnv::new()).await,
         Command::AddMachine(args) => quickstart::add_machine::run(&args).await,
+        Command::AddBrowser(args) => quickstart::add_browser::run(&args).await,
         Command::Dev(args) => dev::run(&args).await,
         Command::Update(args) => update::run(&args).await,
         Command::SelfLink => quickstart::self_link::run(),

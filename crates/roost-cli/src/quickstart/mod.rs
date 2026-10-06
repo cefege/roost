@@ -23,6 +23,7 @@
 //! Progress is stderr, and the service state transitions are `tracing`, which
 //! is the split `docs/phase6-cli-contract.md` § "The stdout rule" states.
 
+pub mod add_browser;
 pub mod add_machine;
 pub mod endpoint;
 pub mod enrolled_worker;
@@ -190,13 +191,18 @@ async fn install_everything(
     eprintln!(">> waiting for {}", endpoint.loopback_origin());
     wait_for_coordinator(&endpoint, &coordinator_spec.log_dir).await?;
 
-    let database = coordinator_spec
-        .environment
-        .get(roost_host::ENV_COORDINATOR_DB)
-        .map(std::path::PathBuf::from)
+    let environment = &coordinator_spec.environment;
+    let database = environment
+        .get(roost_host::ENV_COORDINATOR_DATABASE_URL)
+        .map(|url| roost_host::DatabaseLocation::Postgres(url.clone()))
+        .or_else(|| {
+            environment
+                .get(roost_host::ENV_COORDINATOR_DB)
+                .map(|path| roost_host::DatabaseLocation::SqliteFile(path.into()))
+        })
         .ok_or_else(|| {
             CommandFailure::generic(
-                "the installed coordinator definition does not declare its own database path, so \
+                "the installed coordinator definition does not declare its own database, so \
                  this machine cannot record an enrollment grant",
             )
         })?;
@@ -308,7 +314,7 @@ fn open_paired_browser(
             return Err("this platform has no browser opener in Roost v3".to_string());
         }
     };
-    let paired = format!("{}/#pair={}", endpoint.origin, urlencode(grant));
+    let paired = pairing_url(&endpoint.origin, grant);
     std::process::Command::new(opener)
         .arg(&paired)
         .stdin(std::process::Stdio::null())
@@ -323,6 +329,13 @@ fn open_paired_browser(
                 endpoint.origin
             )
         })
+}
+
+/// The URL that pairs a browser by spending `grant`. The grant rides in the
+/// fragment, which a browser never sends to the server, so it stays out of
+/// request logs.
+pub fn pairing_url(origin: &str, grant: &str) -> String {
+    format!("{origin}/#pair={}", urlencode(grant))
 }
 
 /// Percent-encode the one value that travels in a URL fragment. Everything else

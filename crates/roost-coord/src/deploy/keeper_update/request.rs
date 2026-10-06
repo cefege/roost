@@ -205,7 +205,7 @@ pub async fn read_open_session_ids(
     worker_fp: &WorkerFp,
 ) -> Result<Vec<String>, KeeperUpdateRefusal> {
     let ids = sqlx::query_scalar::<_, String>(
-        "SELECT id FROM sessions WHERE worker_fp = ?1 AND status = 'open' ORDER BY id ASC",
+        "SELECT id FROM sessions WHERE worker_fp = $1 AND status = 'open' ORDER BY id ASC",
     )
     .bind(worker_fp.as_str())
     .fetch_all(database.pool())

@@ -335,7 +335,10 @@ fn a_half_declared_cloudflare_access_pair_is_refused_before_anything_is_parsed()
 fn the_database_and_authorized_keys_default_into_the_data_directory() {
     let config = config(with_home().with("HOME", LINUX_HOME));
     let data_dir = Path::new(LINUX_HOME).join(".local/share/RoostCoordinatorV3");
-    assert_eq!(config.db_path, data_dir.join(COORD_DB_FILE_NAME));
+    assert_eq!(
+        config.database.sqlite_file(),
+        Some(data_dir.join(COORD_DB_FILE_NAME).as_path())
+    );
     assert_eq!(
         config.authorized_keys_path,
         data_dir.join(AUTHORIZED_KEYS_FILE_NAME)

@@ -86,7 +86,7 @@ async fn require_live_worker(
     worker_fp: &WorkerFp,
 ) -> Result<(), KeeperUpdateRefusal> {
     let live: Option<String> =
-        sqlx::query_scalar("SELECT fp FROM workers WHERE fp = ?1 AND deleted_at_ms IS NULL")
+        sqlx::query_scalar("SELECT fp FROM workers WHERE fp = $1 AND deleted_at_ms IS NULL")
             .bind(worker_fp.as_str())
             .fetch_optional(core.services.db.pool())
             .await

@@ -9,6 +9,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod agent_fixture;
+mod db_support;
 
 use agent_fixture::AgentFixture;
 use roost_coord::agents::rpc_status::{handle_agent_config_get, handle_agent_config_set};

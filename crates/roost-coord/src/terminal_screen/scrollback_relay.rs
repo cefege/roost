@@ -179,7 +179,7 @@ impl ScrollbackRelay {
         let worker_fp: Option<String> = sqlx::query_scalar(
             "SELECT session.worker_fp FROM sessions AS session
              INNER JOIN workers AS worker ON worker.fp = session.worker_fp
-             WHERE session.id = ?1 AND worker.deleted_at_ms IS NULL",
+             WHERE session.id = $1 AND worker.deleted_at_ms IS NULL",
         )
         .bind(session_id.as_str())
         .fetch_optional(db.pool())

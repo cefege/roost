@@ -1,13 +1,34 @@
-//! The invariants a coordinator database must hold around its migrations:
+//! The invariants a coordinator SQLite file must hold around its migrations:
 //! SQLite enforces foreign keys, no row violates one, and a freshly migrated
 //! file passes `PRAGMA integrity_check`.
 //!
 //! Owned by `crate::db`; `db::open` is the only caller, before and after the
 //! migration set runs. Ports `apps/coord/src/db/migration-validation.ts`.
+//! Postgres enforces foreign keys unconditionally and has no file to check, so
+//! every function here returns `Ok(())` on that backend.
 
 use sqlx::Row as _;
 
-use super::{CoordDb, DbError};
+use super::{CoordDb, DbBackend, DbError};
+
+/// Whether `database` is SQLite; on Postgres, logs which check was skipped.
+fn applies_to(database: &CoordDb, check: &'static str) -> bool {
+    if database.backend() == DbBackend::Sqlite {
+        return true;
+    }
+    tracing::debug!(
+        backend = database.backend().label(),
+        check,
+        "migration validation skipped: the server enforces it"
+    );
+    false
+}
+
+fn database_label(database: &CoordDb) -> String {
+    database
+        .sqlite_path()
+        .map_or_else(String::new, |path| path.display().to_string())
+}
 
 /// Turn foreign-key enforcement on and refuse a connection that did not keep it.
 ///
@@ -17,6 +38,9 @@ use super::{CoordDb, DbError};
 /// would accept every orphan the rest of the process writes. A SQLite built
 /// without foreign-key support answers no row at all, which is refused too.
 pub(super) async fn enable_and_verify_foreign_keys(database: &CoordDb) -> Result<(), DbError> {
+    if !applies_to(database, "foreign_keys") {
+        return Ok(());
+    }
     sqlx::query("PRAGMA foreign_keys = ON")
         .execute(database.pool())
         .await?;
@@ -24,7 +48,7 @@ pub(super) async fn enable_and_verify_foreign_keys(database: &CoordDb) -> Result
         .fetch_optional(database.pool())
         .await?;
     if enforced.map(|(value,)| value) != Some(1) {
-        tracing::error!(path = %database.path().display(), "database refused: foreign keys unenforced");
+        tracing::error!(path = %database_label(database), "database refused: foreign keys unenforced");
         return Err(DbError::ForeignKeysUnenforced);
     }
     Ok(())
@@ -36,6 +60,9 @@ pub(super) async fn enable_and_verify_foreign_keys(database: &CoordDb) -> Result
 /// this names every distinct pair, so an operator repairing the file sees the
 /// whole job rather than one table per restart.
 pub(super) async fn validate_foreign_keys(database: &CoordDb) -> Result<(), DbError> {
+    if !applies_to(database, "foreign_key_check") {
+        return Ok(());
+    }
     let rows = sqlx::query("PRAGMA foreign_key_check")
         .fetch_all(database.pool())
         .await?;
@@ -53,7 +80,7 @@ pub(super) async fn validate_foreign_keys(database: &CoordDb) -> Result<(), DbEr
     }
     let violations = pairs.join(", ");
     tracing::error!(
-        path = %database.path().display(),
+        path = %database_label(database),
         rows = rows.len(),
         violations = %violations,
         "database refused: foreign key check failed"
@@ -70,6 +97,9 @@ pub(super) async fn validate_foreign_keys(database: &CoordDb) -> Result<(), DbEr
 /// pending migration: a full check is a scan of the whole file, and a boot
 /// that migrated nothing changed nothing it could have corrupted.
 pub(super) async fn validate_integrity(database: &CoordDb, migration: &str) -> Result<(), DbError> {
+    if !applies_to(database, "integrity_check") {
+        return Ok(());
+    }
     let rows: Vec<(String,)> = sqlx::query_as("PRAGMA integrity_check")
         .fetch_all(database.pool())
         .await?;

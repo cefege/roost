@@ -11,6 +11,7 @@
 //! derived deduplication token that lets a second revision replace a stale
 //! notification rather than stack behind it.
 
+mod db_support;
 mod push_fixture;
 
 use std::sync::Arc;

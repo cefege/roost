@@ -25,7 +25,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose;
 use roost_protocol::{ProtocolError, ProtocolResult};
 use sha2::Digest as _;
-use sqlx::{Sqlite, Transaction};
+use sqlx::{Any, Transaction};
 
 use crate::db::CoordDb;
 
@@ -218,7 +218,7 @@ pub async fn mint_bootstrap_token(
     sqlx::query(
         "INSERT INTO bootstrap_tokens (token_hash, account_id, dashboard_id, kind, label, \
          created_at_ms, expires_at_ms, used_at_ms, used_by_fp, minted_by_fp) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, NULL, $8)",
     )
     .bind(token_hash.as_str())
     .bind(account_id)
@@ -316,16 +316,16 @@ pub struct BootstrapClaim<'a> {
 /// re-run the first edit.
 #[rustfmt::skip]
 pub async fn claim_bootstrap_token(
-    transaction: &mut Transaction<'_, Sqlite>,
+    transaction: &mut Transaction<'_, Any>,
     claim: &BootstrapClaim<'_>,
 ) -> ProtocolResult<Option<BootstrapTokenClaim>> {
     let row = sqlx::query_as::<_, (String, String, Option<String>)>(
         "UPDATE bootstrap_tokens AS bt \
-         SET used_at_ms = CASE WHEN bt.used_at_ms IS NULL THEN ? ELSE bt.used_at_ms END, \
-             used_by_fp = CASE WHEN bt.used_at_ms IS NULL THEN ? ELSE bt.used_by_fp END \
-         WHERE bt.token_hash = ? AND bt.kind = ? AND bt.expires_at_ms >= ? \
+         SET used_at_ms = CASE WHEN bt.used_at_ms IS NULL THEN $1 ELSE bt.used_at_ms END, \
+             used_by_fp = CASE WHEN bt.used_at_ms IS NULL THEN $2 ELSE bt.used_by_fp END \
+         WHERE bt.token_hash = $3 AND bt.kind = $4 AND bt.expires_at_ms >= $5 \
            AND NOT EXISTS (SELECT 1 FROM authorized_key_revocations AS submitted \
-                           WHERE submitted.fingerprint = ?) \
+                           WHERE submitted.fingerprint = $6) \
            AND EXISTS (SELECT 1 FROM accounts AS account \
                        WHERE account.id = bt.account_id AND account.status = 'active') \
            AND (bt.minted_by_fp IS NULL OR EXISTS ( \
@@ -338,18 +338,18 @@ pub async fn claim_bootstrap_token(
                    WHERE minter_revocation.fingerprint = minter_key.fingerprint))) \
            AND ((bt.used_at_ms IS NULL \
                  AND NOT EXISTS (SELECT 1 FROM authorized_keys AS fresh_key \
-                                 WHERE fresh_key.fingerprint = ?) \
+                                 WHERE fresh_key.fingerprint = $7) \
                  AND NOT EXISTS (SELECT 1 FROM workers AS fresh_worker \
-                                 WHERE fresh_worker.fp = ?) \
+                                 WHERE fresh_worker.fp = $8) \
                  AND NOT EXISTS (SELECT 1 FROM account_devices AS fresh_device \
-                                 WHERE fresh_device.fingerprint = ?)) \
-             OR (bt.used_at_ms IS NOT NULL AND bt.used_by_fp = ? \
+                                 WHERE fresh_device.fingerprint = $9)) \
+             OR (bt.used_at_ms IS NOT NULL AND bt.used_by_fp = $10 \
                  AND EXISTS (SELECT 1 FROM authorized_keys AS retry_key \
-                             WHERE retry_key.fingerprint = ? AND retry_key.public_key = ?) \
-                 AND ((? = 'worker' AND EXISTS (SELECT 1 FROM workers AS retry_worker \
-                             WHERE retry_worker.fp = ? AND retry_worker.deleted_at_ms IS NULL)) \
-                   OR (? = 'browser' AND EXISTS (SELECT 1 FROM account_devices AS retry_device \
-                             WHERE retry_device.fingerprint = ? \
+                             WHERE retry_key.fingerprint = $11 AND retry_key.public_key = $12) \
+                 AND (($13 = 'worker' AND EXISTS (SELECT 1 FROM workers AS retry_worker \
+                             WHERE retry_worker.fp = $14 AND retry_worker.deleted_at_ms IS NULL)) \
+                   OR ($15 = 'browser' AND EXISTS (SELECT 1 FROM account_devices AS retry_device \
+                             WHERE retry_device.fingerprint = $16 \
                                AND retry_device.account_id = bt.account_id))))) \
          RETURNING account_id, label, minted_by_fp",
     )

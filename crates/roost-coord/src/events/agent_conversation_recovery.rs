@@ -29,7 +29,7 @@
 
 use roost_protocol::agent_conversation_reference::AgentConversationReferenceV1;
 use roost_protocol::wire::{SessionId, WorkerFp};
-use sqlx::sqlite::SqliteConnection;
+use sqlx::AnyConnection;
 
 /// Why a recovery reference was not written.
 #[derive(Debug, thiserror::Error)]
@@ -56,7 +56,7 @@ pub enum AgentConversationRecoveryError {
 /// how an agent that dropped its conversation says so without making the next
 /// reference look stale.
 pub async fn project_agent_conversation_reference(
-    connection: &mut SqliteConnection,
+    connection: &mut AnyConnection,
     session_id: &SessionId,
     reference: Option<&AgentConversationReferenceV1>,
     client_seq: u64,
@@ -78,9 +78,9 @@ pub async fn project_agent_conversation_reference(
         .map_err(|_| AgentConversationRecoveryError::InvalidWorkerSequence)?;
     sqlx::query(
         "UPDATE sessions \
-            SET agent_reference_json = ?, agent_reference_client_seq = ? \
-          WHERE id = ? AND worker_fp = ? \
-            AND (agent_reference_client_seq IS NULL OR agent_reference_client_seq < ?)",
+            SET agent_reference_json = $1, agent_reference_client_seq = $2 \
+          WHERE id = $3 AND worker_fp = $4 \
+            AND (agent_reference_client_seq IS NULL OR agent_reference_client_seq < $5)",
     )
     .bind(reference_json)
     .bind(sequence)

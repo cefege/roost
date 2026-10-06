@@ -94,7 +94,7 @@ fn collect_prior_workspaces(
         let prior = Arc::clone(&prior);
         Box::pin(async move {
             let held: Vec<String> = sqlx::query_scalar(
-                "SELECT workspace_id FROM workspace_sessions WHERE session_id = ?1",
+                "SELECT workspace_id FROM workspace_sessions WHERE session_id = $1",
             )
             .bind(&session_id)
             .fetch_all(&mut *connection)
@@ -142,7 +142,7 @@ async fn publish_sessions_set(core: &CoordCore, workspace_id: &str) -> Result<()
 }
 
 async fn version_of(core: &CoordCore, workspace_id: &str) -> Result<Option<i64>, ConnectError> {
-    sqlx::query_scalar("SELECT version FROM workspaces WHERE id = ?1")
+    sqlx::query_scalar("SELECT version FROM workspaces WHERE id = $1")
         .bind(workspace_id)
         .fetch_optional(core.services.db.pool())
         .await
