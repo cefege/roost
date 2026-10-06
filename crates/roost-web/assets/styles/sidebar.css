@@ -726,20 +726,6 @@
   gap: var(--md-space-3);
   margin-bottom: var(--md-space-7);
 }
-.home-landing-menu {
-  width: var(--control-touch-target);
-  height: var(--control-touch-target);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  background: transparent;
-  border: none;
-  border-radius: var(--md-shape-full);
-  color: var(--md-sys-color-on-surface);
-  font: var(--md-title-m-weight) var(--md-title-m-size)/var(--md-title-m-line) var(--md-font);
-  cursor: pointer;
-}
 .home-landing-mark {
   font: var(--md-title-l-weight) var(--md-title-l-size)/var(--md-title-l-line) var(--md-font);
   letter-spacing: 0.5px;

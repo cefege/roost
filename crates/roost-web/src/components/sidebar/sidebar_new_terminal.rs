@@ -1,6 +1,6 @@
-//! The sidebar's pinned action bar: "New terminal" opens the folder picker on
-//! the target machine, and with two or more machines online a picker menu
-//! chooses that machine. Ports
+//! The sidebar's pinned action bar: the target machine's name — with two or
+//! more machines online, the trigger of a picker menu; with one, a plain
+//! label — then a compact "New" that opens the folder picker on it. Ports
 //! `apps/web/src/components/sidebar/SidebarNewTerminal.tsx`; `SidebarRoot`
 //! mounts it below both panels. The target rule is `new_terminal_target`.
 
@@ -168,21 +168,6 @@ pub fn SidebarNewTerminal() -> Element {
     let new_target = target_fp.clone();
     rsx! {
         footer { class: "workbench-sidebar-actionbar", "data-testid": "sidebar-new-terminal",
-            Button {
-                class: "workbench-sidebar-actionbar__new",
-                variant: ButtonVariant::Default,
-                size: ButtonSize::Sm,
-                icon: "add",
-                "data-testid": "sidebar-new-terminal-button",
-                title: "New terminal in a folder",
-                disabled: target_fp.is_none(),
-                onclick: move |_| {
-                    if let Some(fp) = new_target.clone() {
-                        navigate.call(Route::Browse { worker_fp: Some(fp) }.to_path());
-                    }
-                },
-                "New terminal"
-            }
             if online.len() > 1 {
                 Button {
                     id: MACHINE_TRIGGER_ID,
@@ -219,6 +204,30 @@ pub fn SidebarNewTerminal() -> Element {
                     span { class: "workbench-sidebar-actionbar__machine-label", {target_label.clone()} }
                     Icon { name: "expand_more", class: "workbench-sidebar-actionbar__machine-chevron", size: IconSize::Sm }
                 }
+            } else if !target_label.is_empty() {
+                span {
+                    class: "workbench-sidebar-actionbar__machine",
+                    "data-testid": "sidebar-new-terminal-machine-label",
+                    title: target_label.clone(),
+                    StatusDot { status: "ok" }
+                    span { class: "workbench-sidebar-actionbar__machine-label", {target_label.clone()} }
+                }
+            }
+            Button {
+                class: "workbench-sidebar-actionbar__new",
+                variant: ButtonVariant::Secondary,
+                size: ButtonSize::Sm,
+                icon: "add",
+                "data-testid": "sidebar-new-terminal-button",
+                "aria-label": "New terminal",
+                title: "New terminal in a folder",
+                disabled: target_fp.is_none(),
+                onclick: move |_| {
+                    if let Some(fp) = new_target.clone() {
+                        navigate.call(Route::Browse { worker_fp: Some(fp) }.to_path());
+                    }
+                },
+                "New"
             }
             if let (true, Some(anchor)) = (menu_open(), menu_anchor()) {
                 div {

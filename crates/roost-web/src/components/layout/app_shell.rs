@@ -20,8 +20,8 @@ use super::activity_bar::ActivityBar;
 use super::mobile_bar::MobileTopBar;
 use super::mobile_sidebar_drawer::MobileSidebarDrawer;
 use super::shell_style::{
-    ComposerGeometry, editor_style, is_terminal_path, keyboard_shift, shell_style,
-    shows_mobile_top_bar,
+    ComposerGeometry, drawer_intent_for_route, editor_style, is_terminal_path, keyboard_shift,
+    shell_style, shows_mobile_top_bar,
 };
 use super::sidebar_region::SidebarRegion;
 use super::status_bar::StatusBar;
@@ -105,13 +105,15 @@ pub fn AppShell(children: Element) -> Element {
         .as_ref()
         .and_then(|chrome| chrome.folder.clone());
 
-    // A route change closes the compact drawer; the first render is not one.
-    let mut last_path = use_signal(|| path.clone());
-    if *last_path.peek() != path {
-        last_path.set(path.clone());
-        if compact {
-            pump.dispatch(ClientEvent::Sidebar(SidebarIntent::CloseDrawer));
-        }
+    // The drawer follows the route and the size class, first render included:
+    // a compact home opens on the session list, anything else closes it.
+    let drawer_key = (path.clone(), compact);
+    let mut last_drawer_key = use_signal(|| None::<(String, bool)>);
+    if last_drawer_key.peek().as_ref() != Some(&drawer_key) {
+        last_drawer_key.set(Some(drawer_key));
+        pump.dispatch(ClientEvent::Sidebar(drawer_intent_for_route(
+            compact, &path,
+        )));
     }
     #[cfg(target_arch = "wasm32")]
     {

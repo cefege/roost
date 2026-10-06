@@ -1,6 +1,7 @@
 //! The deck's chrome above its terminals: on a desktop host each pane's tab
 //! strip, the divider handles, the drop-zone highlight and the arrange menu; on
-//! a compact host the phone bar, twice while a swipe slides the neighbour's in.
+//! a compact host the phone bar, twice while a swipe slides the neighbour's in,
+//! or the route's plain top bar when there is no session to put a bar over.
 //! Called inline by `terminal_deck` (plain render functions, no hooks); every
 //! gesture runs a `DeckOperations` command. Ports the chrome half of
 //! `apps/web/src/components/deck/TerminalDeck.tsx`.
@@ -17,6 +18,7 @@ use super::pane_divider::PaneDivider;
 use super::pane_strip::PaneStrip;
 use super::terminal_deck_model::DeckFrame;
 use super::terminal_deck_operations::{DeckOperations, DropOverlay};
+use crate::components::layout::mobile_bar::MobileRouteTopBar;
 use crate::motion::drop_zones::DropZone;
 
 /// The desktop chrome for `frame`.
@@ -128,8 +130,15 @@ pub fn compact_chrome(
     active_session_id: &str,
     width: f64,
 ) -> Element {
+    // The shell hides its own top bar on terminal routes because this bar
+    // replaces it; with no session there is no bar to replace it with, and the
+    // drawer would be reachable only by a swipe a TV remote cannot make.
     if frame.mobile_tabs.is_empty() {
-        return rsx! {};
+        return rsx! {
+            div { "data-testid": "mobile-strip-wrap", style: mobile_bar_style(None, "", width).css(),
+                MobileRouteTopBar {}
+            }
+        };
     }
     let neighbor = bar_neighbor_id(swipe, true).map(str::to_owned);
     let bar_style = |session_id: &str| mobile_bar_style(swipe, session_id, width).css();

@@ -1,13 +1,18 @@
 //! The inline geometry the workbench shell writes: the grid's height and
 //! sidebar-width properties, the editor region's keyboard shift and composer
-//! reservation, the `--roost-main-left` offset, and when the compact top bar
-//! shows. Ports `shellStyle`, `editorStyle` and the memos of
+//! reservation, the `--roost-main-left` offset, when the compact top bar
+//! shows, and where the compact drawer stands on each route. Ports
+//! `shellStyle`, `editorStyle` and the memos of
 //! `apps/web/src/components/layout/AppShell.tsx`; read by `AppShell`.
 //!
 //! A compact terminal route reserves the composer's RESTING row whether or not
 //! the composer is mounted, and the soft keyboard only translates the region:
 //! a PTY resize makes an inline TUI repaint, and one repainting in place
 //! duplicates rows into history. `keyboard_resize` is the explicit opt-in.
+
+use roost_client_core::store::sidebar::SidebarIntent;
+
+use crate::routes::Route;
 
 /// What the composer is doing, when a composer is mounted.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -120,4 +125,61 @@ pub fn shows_mobile_top_bar(compact: bool, pathname: &str, terminal_route: bool)
 /// has not resolved yet still shifts for the keyboard.
 pub fn is_terminal_path(pathname: &str) -> bool {
     pathname.starts_with("/s/") || pathname.starts_with("/t/") || pathname.starts_with("/w/")
+}
+
+/// Where the drawer stands when the route or the size class changes.
+///
+/// A compact home opens it: the home landing names no session, and on a TV
+/// remote with no swipe it would be a dead end, so the session list IS the
+/// compact home. Every other route closes it, and so does the desktop layout,
+/// where a drawer left open by a narrower window would still hide the
+/// portaled composer.
+pub fn drawer_intent_for_route(compact: bool, pathname: &str) -> SidebarIntent {
+    if compact && Route::parse(pathname) == Route::Home {
+        SidebarIntent::OpenDrawer
+    } else {
+        SidebarIntent::CloseDrawer
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_compact_home_opens_on_the_session_list() {
+        for pathname in ["/", "", "/?from=pair", "/#top"] {
+            assert_eq!(
+                drawer_intent_for_route(true, pathname),
+                SidebarIntent::OpenDrawer,
+                "{pathname}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_compact_route_that_shows_something_closes_the_drawer() {
+        for pathname in [
+            "/s/abc",
+            "/t/fp/src",
+            "/w/ws1",
+            "/browse",
+            "/settings",
+            "/help",
+        ] {
+            assert_eq!(
+                drawer_intent_for_route(true, pathname),
+                SidebarIntent::CloseDrawer,
+                "{pathname}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_desktop_home_never_opens_the_drawer() {
+        assert_eq!(
+            drawer_intent_for_route(false, "/"),
+            SidebarIntent::CloseDrawer
+        );
+    }
 }
