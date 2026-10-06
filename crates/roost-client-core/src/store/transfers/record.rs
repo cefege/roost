@@ -26,6 +26,29 @@ impl TransferDirection {
     }
 }
 
+/// Which path an upload's bytes took, shown on its card so a reader can tell
+/// a direct copy from one relayed through the coordinator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransferRoute {
+    /// The browser and the worker are on one machine: the local door.
+    Local,
+    /// A WebRTC data channel straight to the worker.
+    PeerToPeer,
+    /// Relayed chunk by chunk through the coordinator.
+    Coordinator,
+}
+
+impl TransferRoute {
+    /// The card's label.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Local => "Local",
+            Self::PeerToPeer => "Direct",
+            Self::Coordinator => "Via coordinator",
+        }
+    }
+}
+
 /// Where a transfer is in its life.
 ///
 /// `Stalled` is the one state v2 has no name for: a card that stopped advancing.
@@ -180,6 +203,8 @@ pub struct Transfer {
     /// object URL and revokes it when the card leaves the map — see
     /// [`TransferStack::take_removed`].
     pub preview_url: Option<String>,
+    /// The path the bytes are taking, once a carrier is chosen.
+    pub route: Option<TransferRoute>,
     /// When a settled card removes itself, or `None` while it is unsettled.
     pub dismiss_at_ms: Option<u64>,
     /// When the last progress tick landed, for the stall deadline.

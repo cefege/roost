@@ -14,7 +14,7 @@ use roost_web::components::md::icon::icon_class;
 use roost_web::components::md::icon_button::icon_button_aria;
 use roost_web::components::md::list::list_class;
 use roost_web::components::md::list_row::{is_in_app_navigation_click, list_row_class};
-use roost_web::components::md::metric_tile::metric_bar_width;
+use roost_web::components::md::progress_bar::progress_fill_width;
 use roost_web::components::md::sheet::sheet_class;
 use roost_web::components::md::skeleton::skeleton_style;
 use roost_web::components::md::status_dot::{status_dot_style, status_dot_token};
@@ -203,10 +203,11 @@ fn caller_style_comes_last_so_it_wins_layout_ties() {
 }
 
 #[test]
-fn the_metric_bar_is_clamped_to_its_track() {
-    assert_eq!(metric_bar_width(0.42), "width: 42%;");
-    assert_eq!(metric_bar_width(1.7), "width: 100%;");
-    assert_eq!(metric_bar_width(-0.2), "width: 0%;");
+fn the_progress_fill_is_clamped_to_its_track() {
+    assert_eq!(progress_fill_width(0.42), "width: 42.0%;");
+    assert_eq!(progress_fill_width(1.7), "width: 100.0%;");
+    assert_eq!(progress_fill_width(-0.2), "width: 0.0%;");
+    assert_eq!(progress_fill_width(f64::NAN), "width: 0.0%;");
 }
 
 #[test]

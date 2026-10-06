@@ -15,7 +15,9 @@ use roost_client_core::client::attachments::transfer::ledger::{
     begin_upload_card, record_upload_progress, settle_upload_card,
 };
 use roost_client_core::store::Store;
-use roost_client_core::store::transfers::{TransferState, add_transfer, mark_transfer_state};
+use roost_client_core::store::transfers::{
+    TransferRoute, TransferState, add_transfer, mark_transfer_state, set_transfer_route,
+};
 
 use super::upload_id::now_ms;
 use super::upload_plan::UploadOutcome;
@@ -71,6 +73,11 @@ pub fn mark_deduplicated(store: &mut Store, upload_id: &str) {
 /// One acknowledged byte count. Returns whether the card changed.
 pub fn record_progress(store: &mut Store, upload_id: &str, bytes_done: u64) -> bool {
     record_upload_progress(store, upload_id, bytes_done, now_ms())
+}
+
+/// A carrier opened and bytes are about to take this route.
+pub fn mark_route(store: &mut Store, upload_id: &str, route: TransferRoute) {
+    set_transfer_route(store, upload_id, route);
 }
 
 /// Settle the card from the outcome, and report the path a caller should type

@@ -97,7 +97,10 @@ impl AttachmentDirectEnvironment for BrowserDirectEnvironment<'_> {
         {
             use crate::platform::attachments::loopback::AttachmentLoopbackCarrier;
             match AttachmentLoopbackCarrier::open(door, grant).await {
-                Ok(mut carrier) => self.send_on(&mut carrier).await,
+                Ok(mut carrier) => {
+                    self.mark_route(roost_client_core::store::transfers::TransferRoute::Local);
+                    self.send_on(&mut carrier).await
+                }
                 Err(refusal) => RouteOutcome::Refused(refusal),
             }
         }
@@ -119,7 +122,10 @@ impl AttachmentDirectEnvironment for BrowserDirectEnvironment<'_> {
             let pump = self.pump;
             let negotiate = async |request| negotiate_attachment_peer(pump, request).await;
             match AttachmentPeerCarrier::open(grant, peer_id, negotiate).await {
-                Ok(mut carrier) => self.send_on(&mut carrier).await,
+                Ok(mut carrier) => {
+                    self.mark_route(roost_client_core::store::transfers::TransferRoute::PeerToPeer);
+                    self.send_on(&mut carrier).await
+                }
                 Err(refusal) => RouteOutcome::Refused(refusal),
             }
         }
@@ -133,6 +139,13 @@ impl AttachmentDirectEnvironment for BrowserDirectEnvironment<'_> {
 
 #[cfg(target_arch = "wasm32")]
 impl BrowserDirectEnvironment<'_> {
+    /// Name the opened carrier on this upload's card.
+    fn mark_route(&self, route: roost_client_core::store::transfers::TransferRoute) {
+        let upload_id = self.request.upload_id.as_str();
+        self.pump
+            .write_store(|store| super::upload_card::mark_route(store, upload_id, route));
+    }
+
     /// Run the chunk loop on an opened carrier and report how the route ended.
     async fn send_on<C: crate::platform::attachments::AttachmentCarrier>(
         &self,

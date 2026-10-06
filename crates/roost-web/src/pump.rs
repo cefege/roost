@@ -228,7 +228,24 @@ impl Pump {
             self.notify_frame_listeners();
         }
         if swept {
+            self.release_removed_transfer_previews();
             self.notify_sweep_listeners();
+        }
+    }
+
+    /// Revoke the preview object URL of every card that left the stack, by
+    /// dismissal or by its own deadline. The store owns the card; the host owns
+    /// the URL it minted, and the sweep is the one pass every removal reaches.
+    fn release_removed_transfer_previews(&self) {
+        let removed = self
+            .inner
+            .core
+            .borrow_mut()
+            .store_mut()
+            .transfers
+            .take_removed();
+        for preview in removed.into_iter().filter_map(|card| card.preview_url) {
+            crate::components::terminal_chrome::dom::revoke_preview(&preview);
         }
     }
 

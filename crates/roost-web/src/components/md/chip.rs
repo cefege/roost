@@ -16,7 +16,7 @@ pub fn chip_selected_attribute(selected: Option<bool>) -> Option<&'static str> {
     (selected == Some(true)).then_some("true")
 }
 
-/// A chip.
+/// A chip. `small` is the inline badge size a card row uses.
 #[component]
 pub fn Chip(
     label: String,
@@ -25,7 +25,9 @@ pub fn Chip(
     onclick: Option<EventHandler<()>>,
     title: Option<String>,
     test_id: Option<String>,
+    #[props(default)] small: bool,
 ) -> Element {
+    let size = small.then_some("sm");
     let content = rsx! {
         if let Some(icon) = icon {
             Icon { name: icon, size: IconSize::Sm }
@@ -37,6 +39,7 @@ pub fn Chip(
             button {
                 r#type: "button",
                 class: "roost-chip",
+                "data-size": size,
                 "data-selected": chip_selected_attribute(selected),
                 "aria-pressed": selected.map(|selected| selected.to_string()),
                 "data-testid": test_id,
@@ -48,6 +51,7 @@ pub fn Chip(
         None => rsx! {
             span {
                 class: "roost-chip",
+                "data-size": size,
                 "data-selected": chip_selected_attribute(selected),
                 "data-testid": test_id,
                 title,

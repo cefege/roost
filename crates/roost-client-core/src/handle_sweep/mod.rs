@@ -28,7 +28,9 @@
 //! - the agent-status acknowledgement write, and the retirement of the released
 //!   occupants this profile has already been told about;
 //! - the foreground liveness probe and its proof deadline, because a pane that
-//!   stopped painting has no other watchdog.
+//!   stopped painting has no other watchdog;
+//! - the transfer cards' stall and dismissal deadlines, so a finished upload's
+//!   card leaves on its own.
 //!
 //! Depends on `effect`, `store` and `terminal`; called only by `handle_event`.
 
@@ -56,6 +58,8 @@ pub fn handle_sweep(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
 
     // Closes whose undo window ran out owe their session a kill.
     crate::handle_close_kill::issue_due_kills(store, now_ms, out);
+
+    crate::store::transfers::sweep_transfers(store, now_ms);
 
     // The acknowledgement ledger second, and for the same reason: one write per
     // sweep no matter how many rows the reader looked at since the last one.

@@ -429,7 +429,7 @@ to the coordinator's NodePort (30413). Needs zig 0.16.0, `cargo-zigbuild`
 
 ## Failure index
 
-[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md) is the symptom→fix index: 141
+[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md) is the symptom→fix index: 143
 entries, one `###` heading each, with `**Symptom**` (the grep string),
 `**Wrong**`, `**Right**`, and `**Guard**` (the test or lint check
 that pins it). It is the only actively maintained institutional memory in this repo and

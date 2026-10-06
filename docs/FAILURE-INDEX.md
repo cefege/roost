@@ -2423,6 +2423,50 @@ unspoken tail is dropped, a stale or misaligned mark is ignored rather than obey
 the whole hypothesis; `crates/roost-web/tests/voice_draft_settle.rs` — an unmounted composer leaves the draft
 it started from, stored and displayed.
 
+### Send stays hidden for seconds after a dictation is stopped
+
+**Symptom** — "after I press Stop the transcript is already there, but Send stays disabled for a few seconds" /
+the mic sits in `data-state="finalizing"` for ~3 s after every stop that followed a pause.
+
+**Wrong** — shorten `FINALIZE_WAIT_MS`, or enable Send as soon as the hypothesis is empty. The deadline is the
+fallback for a stream that never answers, and an empty hypothesis does not prove the service has answered
+every frame it was sent: both ship a sentence the answer was still going to change. Equally wrong: let Send
+submit the field mid-finalize — it ships an unproven tail and drops the words still in flight.
+
+**Right** — **end a stopped stream with a message the service always answers, and queue a Send pressed while
+it does.** Deepgram answers `Finalize` only while it holds unanswered audio, and with an EMPTY transcript when
+its endpointing already finalized the last phrase; `deepgram_frames::read_message` dropped that empty result
+before reading `from_finalize`, so nothing settled before the 3 s deadline. `voice/deepgram_ending.rs::end`
+stops the device at the press and sends `CloseStream`, whose last results, `Metadata` summary
+(`Frame::StreamEnded`) and close all settle the recording once. `voice/send_gate.rs::SendGate` keeps Send on
+screen while finalizing; the press reaches the mic through `components/mobile_voice_send.rs` and becomes
+`VoiceEvent::SendPressed`, and the ending that commits the words emits `VoiceEffect::SubmitDraft` after the
+commit. Walking away, a discard or a failure drop the queued press. The finalize watchdog
+(`components/mobile_voice_watchdog.rs`) applies `WatchdogExpired`, so a wedged stream still ends.
+
+**Guard** — `crates/roost-web/src/voice/send_gate.rs` — a finalizing mic offers Send and queues it, a live one
+withholds it; `crates/roost-web/src/voice/state/tests.rs` — a queued Send submits once, after the commit, and
+only for an ending the operator asked for; `crates/roost-web/src/voice/deepgram_frames.rs` — the `Metadata`
+summary reads as the stream's end.
+
+### A finished upload's card never leaves the dock
+
+**Symptom** — "the Transfers popup keeps every 'Uploaded' card until I click ×" / a `running` card that
+stopped advancing never reads as stalled / blob preview URLs outlive their cards.
+
+**Wrong** — dismiss the card from a component timer, or stamp a fresh wall-clock deadline in the row. The
+deadlines already exist as data (`dismiss_at_ms`, `last_progress_ms`); a second timer is a second clock that
+disagrees with them.
+
+**Right** — **run `store::transfers::sweep_transfers` from `handle_sweep`, on the same monotonic timeline
+the cards are stamped with.** The sweep is the only way time reaches the client core, and nothing called the
+transfer sweep, so neither deadline ever fired. The cards were also stamped with `Date.now()` while the sweep
+carries `performance.now()`; `terminal_chrome::upload_id::now_ms` now reads the core's `BrowserClock`. The
+pump drains `TransferStack::take_removed` on every sweep and revokes each departed card's preview URL.
+
+**Guard** — `crates/roost-client-core/tests/store_transfers.rs`
+`the_client_sweep_dismisses_a_finished_upload_card`.
+
 ### A diagnostic sink throws into the path it was observing
 
 **Symptom** — "terminal input silently dies once SPA diagnostics are on" /

@@ -85,6 +85,7 @@ pub fn BrowseEntryList(
                         label: count.to_string(),
                         icon: Some("terminal".to_owned()),
                         title: Some(format!("{count} terminal{}", if count == 1 { "" } else { "s" })),
+                        small: true,
                     }
                 }),
                 selected: active_idx == index as i64,

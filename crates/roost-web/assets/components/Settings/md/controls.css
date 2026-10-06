@@ -261,6 +261,40 @@ button.roost-chip:disabled {
   color: var(--md-sys-color-on-surface-variant);
   cursor: not-allowed;
 }
+/* THE row badge: a passive label inside a list row. It is not a touch target,
+   and the coarse-pointer minimum below would otherwise stretch the whole row. */
+.roost-chip[data-size="sm"] {
+  font: var(--md-label-s-weight) var(--md-label-s-size)/var(--md-label-s-line) var(--md-font);
+  min-height: var(--md-space-6);
+  padding: 0 var(--md-space-2);
+}
+/* ─── Progress bar ─────────────────────────────────────────────── */
+.roost-progress {
+  background: var(--md-sys-color-surface-container-highest);
+  border-radius: var(--md-shape-full);
+  block-size: var(--md-space-1);
+  inline-size: 100%;
+  overflow: hidden;
+  position: relative;
+}
+.roost-progress__fill {
+  background: var(--md-sys-color-primary);
+  block-size: 100%;
+  border-radius: inherit;
+  transition: width var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard);
+}
+.roost-progress[data-indeterminate="true"] .roost-progress__fill {
+  animation: roost-progress-sweep var(--md-sys-motion-duration-extra-long4) var(--md-sys-motion-easing-standard) infinite;
+  inline-size: 40%;
+  position: absolute;
+}
+@keyframes roost-progress-sweep {
+  from { inset-inline-start: -40%; }
+  to { inset-inline-start: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .roost-progress[data-indeterminate="true"] .roost-progress__fill { animation: none; inline-size: 100%; opacity: 0.4; }
+}
 /* ─── Select ───────────────────────────────────────────────────── */
 .roost-select {
   color: var(--md-sys-color-on-surface);

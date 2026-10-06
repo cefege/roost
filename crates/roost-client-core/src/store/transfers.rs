@@ -33,7 +33,10 @@
 
 use crate::store::Store;
 
+pub mod deadlines;
 pub mod record;
+
+pub use deadlines::sweep_transfers;
 
 use self::record::RateSample;
 
@@ -63,7 +66,9 @@ const MIN_RATE_DELTA_MS: u64 = 50;
 /// (`transfers.ts:41`).
 const EMA_ALPHA: f64 = 0.4;
 
-pub use record::{NewTransfer, Transfer, TransferDirection, TransferStack, TransferState};
+pub use record::{
+    NewTransfer, Transfer, TransferDirection, TransferRoute, TransferStack, TransferState,
+};
 
 /// What one progress tick decided, before it is written to a card.
 struct ProgressUpdate {
@@ -95,6 +100,7 @@ pub fn add_transfer(store: &mut Store, new: NewTransfer) -> Option<Transfer> {
         state: new.state,
         err: None,
         preview_url: new.preview_url,
+        route: None,
         dismiss_at_ms: if new.state.self_dismisses() {
             Some(new.now_ms.saturating_add(TRANSFER_DISMISS_AFTER_MS))
         } else {
@@ -302,6 +308,19 @@ pub fn mark_transfer_state(
     true
 }
 
+/// Name the route a card's bytes are taking. Returns whether the card changed.
+pub fn set_transfer_route(store: &mut Store, id: &str, route: TransferRoute) -> bool {
+    let Some(transfer) = store.transfers.transfers.get_mut(id) else {
+        return false;
+    };
+    if transfer.route == Some(route) {
+        return false;
+    }
+    transfer.route = Some(route);
+    store.note_change();
+    true
+}
+
 /// Remove one card, by hand or because its dismissal deadline passed.
 pub fn remove_transfer(store: &mut Store, id: &str) -> bool {
     if !store.transfers.transfers.contains_key(id) {
@@ -309,56 +328,6 @@ pub fn remove_transfer(store: &mut Store, id: &str) -> bool {
     }
     store.transfers.drop_card(id);
     store.note_change();
-    true
-}
-
-/// Run the two transfer deadlines: call stalled cards stalled, and remove the
-/// settled cards whose dismissal has come.
-///
-/// Called by the sweep. Returns whether any card changed, so a caller can skip a
-/// repaint it has already accounted for.
-pub fn sweep_transfers(store: &mut Store, now_ms: u64) -> bool {
-    let stalled: Vec<String> = store
-        .transfers
-        .transfers
-        .values()
-        .filter(|transfer| {
-            transfer.state == TransferState::Running
-                && transfer
-                    .last_progress_ms
-                    .is_some_and(|last| now_ms.saturating_sub(last) >= TRANSFER_STALL_AFTER_MS)
-        })
-        .map(|transfer| transfer.id.clone())
-        .collect();
-    let due: Vec<String> = store
-        .transfers
-        .transfers
-        .values()
-        .filter(|transfer| {
-            transfer
-                .dismiss_at_ms
-                .is_some_and(|deadline| now_ms >= deadline)
-        })
-        .map(|transfer| transfer.id.clone())
-        .collect();
-    if stalled.is_empty() && due.is_empty() {
-        return false;
-    }
-    for id in &stalled {
-        if let Some(transfer) = store.transfers.transfers.get_mut(id) {
-            transfer.state = TransferState::Stalled;
-        }
-    }
-    for id in &due {
-        store.transfers.drop_card(id);
-    }
-    store.note_change();
-    tracing::debug!(
-        target: "store",
-        stalled = stalled.len(),
-        removed = due.len(),
-        "transfer deadlines"
-    );
     true
 }
 

@@ -71,11 +71,10 @@ pub async fn content_digest(_bytes: &[u8]) -> Result<String, String> {
     Err("this build has no content digest".to_owned())
 }
 
-/// Unix milliseconds, the clock every transfer-card transition is stamped
-/// with. A card's dismissal deadline and its ETA are both wall-clock facts, and
-/// the client core's monotonic clock is anchored to the navigation, so the two
-/// would not be comparable if they came from the same source.
+/// Milliseconds on the client core's monotonic clock, the one every transfer
+/// card is stamped with: the sweep reads the same timeline, so a card's
+/// dismissal and stall deadlines fire when they say.
 pub fn now_ms() -> u64 {
-    use crate::platform::clock::WallClock;
-    WallClock.now_ms()
+    use roost_client_core::Clock as _;
+    crate::platform::clock::BrowserClock::new().now_ms()
 }

@@ -327,6 +327,13 @@ async fn upload_on_a_carrier(job: &QueuedUpload, plan: &UploadPlan) -> UploadOut
 async fn relay(job: &QueuedUpload, plan: &UploadPlan) -> UploadOutcome {
     let pump = job.pump.clone();
     let upload_id = plan.upload_id.clone();
+    write_store(&pump, |store| {
+        upload_card::mark_route(
+            store,
+            &upload_id,
+            roost_client_core::store::transfers::TransferRoute::Coordinator,
+        );
+    });
     let bytes = job.file.bytes.clone();
     let result = upload_host::relay_upload(&pump, plan, &bytes, |settled| {
         write_store(&pump, |store| {

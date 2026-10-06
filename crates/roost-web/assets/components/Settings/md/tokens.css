@@ -265,11 +265,6 @@
   height: var(--md-space-7);
   background: none;
 }
-/* A passive count badge is not a touch target, and the coarse-pointer rule's
-   44px minimum would otherwise stretch the whole dense row. */
-.md-list-row--dense .md-list-row__trailing .roost-chip {
-  min-block-size: var(--md-space-6);
-}
 .md-list-row--dense .md-list-row__headline {
   font: var(--md-body-m-weight) var(--md-body-m-size)/var(--md-body-m-line) var(--md-font);
 }
@@ -407,16 +402,6 @@
 
 .md-metric-tile__bar {
   margin-top: var(--md-space-2);
-  height: 4px;
-  border-radius: var(--md-shape-full);
-  background: var(--md-sys-color-surface-container-highest);
-  overflow: hidden;
-}
-.md-metric-tile__bar > span {
-  display: block;
-  height: 100%;
-  background: var(--md-sys-color-primary);
-  border-radius: inherit;
 }
 
 

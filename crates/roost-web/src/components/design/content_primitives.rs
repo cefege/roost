@@ -1,6 +1,6 @@
 //! The `/design` gallery's "Content primitives" section: cards, lists (stacked,
-//! contained and dense grid), binding chips, skeletons, metric tiles, the empty
-//! state, surfaces, status dots and the terminal stream indicator. Ported from
+//! contained and dense grid), binding chips, skeletons, progress bars, metric
+//! tiles, the empty state, surfaces, status dots and the terminal stream indicator. Ported from
 //! that section of `apps/web/src/components/design/DesignGallery.tsx`;
 //! `gallery.rs` mounts it. Every specimen is a shipped md primitive.
 
@@ -9,7 +9,7 @@ use dioxus::prelude::*;
 use super::catalog::{DENSE_GRID_ROWS, STATUS_DOTS, STREAM_INDICATOR_STATES, gallery_grid_style};
 use crate::components::md::{
     BindingChip, Button, ButtonVariant, Card, CardVariant, Chip, EmptyState, Icon, IconButton,
-    List, ListLayout, ListRow, MetricTile, SectionTitle, Skeleton, StatusDot, Surface,
+    List, ListLayout, ListRow, MetricTile, ProgressBar, SectionTitle, Skeleton, StatusDot, Surface,
     SurfaceRadius,
 };
 
@@ -95,7 +95,7 @@ pub fn ContentPrimitives() -> Element {
                     support: rsx! { {row.support} },
                     selected: row.selected,
                     onclick: move |_| {},
-                    trailing: rsx! { Chip { label: "2", icon: "terminal", title: "2 terminals" } },
+                    trailing: rsx! { Chip { label: "2", icon: "terminal", title: "2 terminals", small: true } },
                 }
             }
         }
@@ -108,6 +108,19 @@ pub fn ContentPrimitives() -> Element {
             BindingChip { "LB/RB" }
         }
         div { style: "height: var(--md-space-5);" }
+
+        SectionTitle { "Progress bar and small chip (transfer cards)" }
+        div {
+            style: "display: flex; flex-direction: column; gap: var(--md-space-3); \
+                    margin-bottom: var(--md-space-5);",
+            ProgressBar { value: Some(0.62), label: "Determinate specimen" }
+            ProgressBar { value: None, label: "Indeterminate specimen" }
+            div { style: "display: flex; gap: var(--md-space-2);",
+                Chip { label: "Local", small: true }
+                Chip { label: "Direct", small: true }
+                Chip { label: "Via coordinator", small: true }
+            }
+        }
 
         SectionTitle { "Skeleton (loading placeholder)" }
         List { contained: true,

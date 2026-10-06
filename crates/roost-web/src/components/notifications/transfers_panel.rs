@@ -36,12 +36,13 @@ pub fn TransfersPanel() -> Element {
             elevation: 3,
             radius: SurfaceRadius::Md,
             border: true,
-            style: "display: flex; flex-direction: column; gap: var(--md-space-2); width: 100%;".to_owned(),
+            style: "display: flex; flex-direction: column; gap: var(--md-space-1); inline-size: min(var(--roost-toast-max-inline-size), 100%); padding-block-start: var(--md-space-2);",
             div {
-                style: "display: flex; align-items: center; gap: var(--md-space-2);",
+                style: "display: flex; align-items: center; gap: var(--md-space-2); padding-inline: var(--md-space-4);",
                 span {
                     id: "transfer-popup-title",
-                    style: "flex: 1; font-size: var(--md-title-s-size); font-weight: var(--md-title-s-weight);",
+                    class: "md-title-s",
+                    style: "flex: 1;",
                     "Transfers"
                 }
                 span {

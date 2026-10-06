@@ -2,14 +2,14 @@
 //! surface and supplies the card; the lifecycle and the per-job progress are
 //! `roost_client_core::store::transfers`, read here rather than reimplemented.
 //! Ports `apps/web/src/components/notifications/TransferRow.tsx`, and its
-//! settled-line wording for the three outcomes.
+//! settled-line wording for the three outcomes; the route chip is v3's.
 
 use dioxus::prelude::*;
-use roost_client_core::store::transfers::{Transfer, TransferState};
+use roost_client_core::store::transfers::{Transfer, TransferDirection, TransferState};
 
 use super::store_write::write_store;
 use super::transfer_outcome::{TransferOutcome, transfer_outcome};
-use crate::components::md::{Icon, IconButton, IconButtonSize, ListRow};
+use crate::components::md::{Chip, IconButton, IconButtonSize, ListRow, ProgressBar};
 use crate::display_format::{format_bytes, format_eta, format_speed};
 use crate::pump::use_store;
 
@@ -19,17 +19,15 @@ pub fn TransferRow(transfer: Transfer) -> Element {
     let pump = use_store();
     let id = transfer.id.clone();
     let name = transfer.name.clone();
-    let glyph = match transfer.direction {
-        roost_client_core::store::transfers::TransferDirection::Up => "upload",
-        roost_client_core::store::transfers::TransferDirection::Down => "download",
-    };
     let preview = transfer.preview_url.clone();
+    let glyph = transfer_glyph(transfer.direction, &transfer.name);
     let outcome = transfer_outcome(&transfer);
     let settled = transfer.state.is_terminal();
     let progress_value = progress_fraction(&transfer);
     let meta = meta_line(&transfer, outcome);
     let meta_color = meta_color(&transfer, outcome);
     let outcome_name = outcome.map(TransferOutcome::as_str);
+    let route = transfer.route.map(|route| route.label());
 
     let dismiss = move |_event: MouseEvent| {
         write_store(&pump, |store| {
@@ -37,28 +35,39 @@ pub fn TransferRow(transfer: Transfer) -> Element {
         });
     };
 
-    let leading = rsx! {
-        if let Some(source) = preview {
+    let leading = preview.map(|source| {
+        rsx! {
             img {
                 "data-testid": "transfer-preview",
                 src: source,
                 alt: "",
                 style: "width: 100%; height: 100%; border-radius: var(--md-shape-sm); object-fit: cover;",
             }
-        } else {
-            Icon { name: glyph }
+        }
+    });
+    let leading_icon = leading.is_none().then(|| glyph.to_owned());
+    let headline = rsx! {
+        span { style: "display: flex; align-items: center; gap: var(--md-space-2); min-width: 0;",
+            span {
+                title: name.clone(),
+                style: "flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;",
+                "{name}"
+            }
+            if let Some(route) = route {
+                Chip {
+                    label: route.to_owned(),
+                    small: true,
+                    title: format!("Sent {}", route.to_lowercase()),
+                    test_id: "transfer-route".to_owned(),
+                }
+            }
         }
     };
     let support = rsx! {
         span {
-            style: "display: flex; flex-direction: column; gap: var(--md-space-1);",
+            style: "display: flex; flex-direction: column; gap: var(--md-space-1); padding-block-start: var(--md-space-1);",
             if !settled {
-                progress {
-                    "aria-label": "Transfer progress",
-                    max: "1",
-                    value: progress_value.map(|fraction| format!("{fraction}")),
-                    style: "width: 100%; height: var(--md-space-1); accent-color: var(--md-sys-color-primary);",
-                }
+                ProgressBar { value: progress_value, label: format!("{name} progress") }
             }
             span {
                 class: "md-body-s",
@@ -81,11 +90,32 @@ pub fn TransferRow(transfer: Transfer) -> Element {
     rsx! {
         ListRow {
             test_id: Some("transfer-row".to_owned()),
-            leading: Some(leading),
-            headline: rsx! { span { title: name.clone(), "{name}" } },
+            leading_icon,
+            leading,
+            headline,
             support: Some(support),
             trailing: Some(trailing),
         }
+    }
+}
+
+/// The glyph a card without an image preview shows: what kind of file it is,
+/// read from the name, so a video never paints a broken image.
+fn transfer_glyph(direction: TransferDirection, name: &str) -> &'static str {
+    let extension = name
+        .rsplit_once('.')
+        .map(|(_, extension)| extension.to_ascii_lowercase())
+        .unwrap_or_default();
+    match extension.as_str() {
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "heic" | "svg" | "bmp" => "image",
+        "mp4" | "mov" | "webm" | "mkv" | "avi" | "m4v" => "movie",
+        "mp3" | "wav" | "m4a" | "ogg" | "flac" | "opus" => "audio_file",
+        "pdf" => "picture_as_pdf",
+        "zip" | "tar" | "gz" | "tgz" | "xz" | "zst" | "7z" | "rar" => "folder_zip",
+        _ => match direction {
+            TransferDirection::Up => "upload_file",
+            TransferDirection::Down => "download",
+        },
     }
 }
 
