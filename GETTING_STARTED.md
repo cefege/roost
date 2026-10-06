@@ -116,8 +116,23 @@ read-only root filesystem, can be rescheduled freely, and its backups are the
 Postgres operator's. Without that variable it uses its SQLite file under
 `/var/lib/roost`, which must then be a volume. Setting both it and
 `ROOST_COORDINATOR_DB` is refused. Run exactly one coordinator: live terminal
-fan-out is in-process. Container installs start on a fresh database; there is
-no SQLite-to-Postgres mover.
+fan-out is in-process.
+
+An existing SQLite install moves onto Postgres with `roost db-to-postgres`:
+stop the coordinator, then
+
+```sh
+export ROOST_COORDINATOR_DATABASE_URL=postgres://roost:…@db-host:5432/roost
+roost db-to-postgres                  # --from defaults to this install's file
+```
+
+Both ends are migrated to this build's schema, every table is copied in one
+transaction, identity sequences continue past the copied ids, and each table's
+count is checked against the source. A target that already holds rows (a
+coordinator booted against it first) is refused unless you pass `--replace`.
+Then swap `ROOST_COORDINATOR_DB` for `ROOST_COORDINATOR_DATABASE_URL` in the
+coordinator's environment. Paired browsers, enrolled workers and push
+subscriptions all carry over, because they are rows.
 
 On one machine, with Docker:
 
@@ -130,20 +145,33 @@ docker compose exec coordinator roost add-browser
 to pair. On Kubernetes, with the chart in `deploy/helm/roost-coordinator`:
 
 ```sh
-helm install roost deploy/helm/roost-coordinator -n roost --create-namespace \
+helm install roost-coordinator deploy/helm/roost-coordinator -n roost --create-namespace \
   --set database.existingSecret=roost-db \
   --set publicUrl=https://roost.example.com \
   --set ingress.enabled=true --set ingress.className=nginx \
   --set ingress.host=roost.example.com
-kubectl -n roost exec deploy/roost-roost-coordinator -- roost add-browser
-kubectl -n roost exec deploy/roost-roost-coordinator -- roost add-machine --platform linux
+kubectl -n roost exec deploy/roost-coordinator -- roost add-browser
+kubectl -n roost exec deploy/roost-coordinator -- roost add-machine --platform linux
 ```
 
-`roost-db` is a Secret with the key `ROOST_COORDINATOR_DATABASE_URL`; for a
-throwaway evaluation, `--set postgres.enabled=true --set postgres.password=…`
-runs a single in-chart Postgres instead. The pod is probed on `/readyz` (the
-database answers and the process is not draining) and `/healthz`; on `SIGTERM`
-it withdraws readiness and gives open connections 20 s before exiting.
+`roost-db` is a Secret with the key `ROOST_COORDINATOR_DATABASE_URL`. Or run
+the chart's own single Postgres: `--set postgres.enabled=true --set
+postgres.password=…`, plus `--set postgres.backup.enabled=true` for a daily
+`pg_dump` CronJob that keeps 14 archives on its own PVC (restore with
+`pg_restore --clean --if-exists -d roost <archive>`). On a multi-node cluster
+pin the coordinator, Postgres and its backups to one node with `nodeSelector`.
+`--set replicas=0` stops the coordinator for maintenance such as a
+`roost db-to-postgres --replace` through `kubectl port-forward`; the chart
+refuses any count but 0 or 1. The pod is probed on `/readyz` (the database
+answers and the process is not draining) and `/healthz`; on `SIGTERM` it
+withdraws readiness and gives open connections 20 s before exiting.
+
+When the front door is a TCP proxy on another machine rather than an ingress
+(for example a Caddy host forwarding over a tailnet), expose the coordinator
+with `service.type=NodePort`, `service.externalTrafficPolicy=Local` so the
+pod sees the proxy's own address, `trustedProxyCidrs` set to that address,
+and `networkPolicy.enabled=true` with `networkPolicy.fromCidrs` naming it, so
+nothing else reaches the port.
 
 Behind a load balancer or ingress the front door reaches the coordinator over
 the network, not loopback, so declare the proxy networks:

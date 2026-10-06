@@ -1,4 +1,4 @@
-The Roost coordinator is starting as {{ include "roost.fullname" . }} (one replica).
+The Roost coordinator is starting as {{ include "roost.fullname" . }} ({{ int .Values.replicas }} replica).
 
 Pair the first browser — prints a one-shot URL on {{ .Values.publicUrl | default "the coordinator's own port" }}:
 
@@ -15,6 +15,21 @@ front door MUST overwrite that header with the real client address, never
 append to it: the first entry is taken as the caller.
 {{- end }}
 {{- if .Values.postgres.enabled }}
+{{- if .Values.postgres.backup.enabled }}
 
-The in-chart Postgres is for evaluation: one instance, no backups.
+The in-chart Postgres is one instance; {{ include "roost.postgresName" . }}-backup keeps
+{{ .Values.postgres.backup.keep }} pg_dump archives on the {{ include "roost.postgresName" . }}-backups PVC
+({{ .Values.postgres.backup.schedule }}). Copy them off the node for disaster recovery.
+{{- else }}
+
+The in-chart Postgres is one instance with no backups (postgres.backup.enabled).
 {{- end }}
+{{- end }}
+
+Moving a SQLite install here: stop the coordinator (--set replicas=0), then
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ if .Values.postgres.enabled }}{{ include "roost.postgresName" . }}{{ else }}<your-postgres>{{ end }} 15432:5432 &
+  ROOST_COORDINATOR_DATABASE_URL=postgres://roost:<password>@127.0.0.1:15432/roost \
+    roost db-to-postgres --from coordinator_v3.db --replace
+
+and start it again (--set replicas=1).

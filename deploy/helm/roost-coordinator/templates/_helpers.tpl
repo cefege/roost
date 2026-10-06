@@ -1,5 +1,11 @@
+{{- /* The release name alone when it already names the chart, so a release
+       called roost-coordinator is not roost-coordinator-roost-coordinator. */}}
 {{- define "roost.fullname" -}}
+{{- if contains .Chart.Name .Release.Name -}}
+{{- .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
 {{- printf "%s-%s" .Release.Name .Chart.Name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "roost.labels" -}}

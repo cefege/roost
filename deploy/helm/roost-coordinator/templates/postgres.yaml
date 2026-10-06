@@ -1,5 +1,5 @@
 {{- if .Values.postgres.enabled }}
-{{- /* Evaluation only: one instance, one PVC, no backups. */}}
+{{- /* One instance, one PVC; backups are the CronJob below when enabled. */}}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -46,6 +46,16 @@ spec:
     spec:
       securityContext:
         fsGroup: 70
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # A clean shutdown checkpoints; an unclean one replays WAL on start.
+      terminationGracePeriodSeconds: 60
       containers:
         - name: postgres
           image: {{ .Values.postgres.image }}
@@ -68,6 +78,14 @@ spec:
             exec:
               command: ["pg_isready", "-U", "roost", "-d", "roost"]
             periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "roost", "-d", "roost"]
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.postgres.resources | nindent 12 }}
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
@@ -79,4 +97,92 @@ spec:
         resources:
           requests:
             storage: {{ .Values.postgres.storage }}
+{{- if .Values.postgres.backup.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "roost.postgresName" . }}-backups
+  labels:
+    {{- include "roost.labels" . | nindent 4 }}
+  annotations:
+    # The archives outlive an uninstall; deleting them is a separate decision.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.postgres.backup.storage }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "roost.postgresName" . }}-backup
+  labels:
+    {{- include "roost.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.postgres.backup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/instance: {{ .Release.Name }}
+            app.kubernetes.io/component: postgres-backup
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 70
+            runAsGroup: 70
+            fsGroup: 70
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: pg-dump
+              image: {{ .Values.postgres.image }}
+              env:
+                - name: PGHOST
+                  value: {{ include "roost.postgresName" . }}
+                - name: PGUSER
+                  value: roost
+                - name: PGDATABASE
+                  value: roost
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "roost.postgresName" . }}
+                      key: POSTGRES_PASSWORD
+                - name: KEEP
+                  value: {{ .Values.postgres.backup.keep | quote }}
+              # A dump is published only once complete: a crash mid-dump leaves a
+              # .partial that the next run's prune removes, never a short archive.
+              # Restore: pg_restore --clean --if-exists -d roost <archive>.
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  stamp="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
+                  rm -f /backups/*.partial
+                  pg_dump --format=custom --file="/backups/roost-${stamp}.dump.partial"
+                  mv "/backups/roost-${stamp}.dump.partial" "/backups/roost-${stamp}.dump"
+                  ls -1t /backups/roost-*.dump | tail -n "+$((KEEP + 1))" | xargs -r rm -f
+                  ls -l /backups
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: {{ include "roost.postgresName" . }}-backups
+{{- end }}
 {{- end }}

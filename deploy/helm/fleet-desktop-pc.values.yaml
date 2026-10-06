@@ -1,0 +1,45 @@
+# Our fleet's coordinator: k3s on desktop-pc, Postgres in-chart, reached only by
+# the edge Caddy on ovh1 (mike.roosttt.com -> Cloudflare tunnel -> ovh1 Caddy ->
+# roost-saas-legacy-bridge -> this NodePort over the tailnet).
+#
+#   helm upgrade --install roost-coordinator deploy/helm/roost-coordinator \
+#     -n roost --create-namespace -f deploy/helm/fleet-desktop-pc.values.yaml \
+#     --set image.tag=<release, e.g. 3.0.0-rc.9> \
+#     --set postgres.password="$(kubectl -n roost get secret roost-coordinator-postgres \
+#                                 -o jsonpath='{.data.POSTGRES_PASSWORD}' | base64 -d)"
+#
+# The first install generates the password instead (openssl rand -hex 24).
+
+publicUrl: https://mike.roosttt.com
+
+# ovh1's tailnet address: the only peer whose X-Forwarded-For (Caddy sets it to
+# CF-Connecting-IP) is believed, and the only address allowed to the port.
+trustProxy: true
+trustedProxyCidrs: ["100.103.95.19/32"]
+
+service:
+  type: NodePort
+  nodePort: 30413
+  externalTrafficPolicy: Local
+
+networkPolicy:
+  enabled: true
+  fromCidrs: ["100.103.95.19/32"]
+
+# mini-pc is a second node; Postgres' local-path volume lives on desktop-pc.
+nodeSelector:
+  kubernetes.io/hostname: desktop-pc
+
+env:
+  ROOST_COORDINATOR_AUDIT_RETENTION_DAYS: "90"
+  ROOST_COORDINATOR_JWT_MAX_AGE_SECS: "300"
+  ROOST_RELAXED_CSP: "0"
+  ROOST_TERMINAL_PEER_ENABLED: "1"
+  ROOST_TERMINAL_PEER_STUN_URLS: stun:stun.cloudflare.com:3478
+
+postgres:
+  enabled: true
+  storage: 20Gi
+  backup:
+    enabled: true
+    keep: 14

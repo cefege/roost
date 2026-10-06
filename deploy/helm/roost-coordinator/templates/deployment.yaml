@@ -5,6 +5,9 @@
 {{- else if .Values.trustProxy }}
 {{- fail "trustProxy without trustedProxyCidrs pins the coordinator to a loopback bind no Service can reach; set trustedProxyCidrs" }}
 {{- end }}
+{{- if not (has (int .Values.replicas) (list 0 1)) }}
+{{- fail "replicas must be 1, or 0 for maintenance: two coordinators would split sockets and fan-out" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,7 +18,7 @@ spec:
   # One replica is the contract, not a default: sockets, terminal replicas and
   # the bus are in-process, and two coordinators would split them. Recreate,
   # so a rollout never runs two at once.
-  replicas: 1
+  replicas: {{ int .Values.replicas }}
   strategy:
     type: Recreate
   selector:
@@ -40,6 +43,14 @@ spec:
         fsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: coordinator
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"

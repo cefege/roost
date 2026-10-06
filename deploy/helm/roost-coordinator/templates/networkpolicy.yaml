@@ -13,9 +13,44 @@ spec:
   ingress:
     # Only the front door reaches the coordinator; kubelet probes are not
     # subject to NetworkPolicy.
+    {{- if or (kindIs "map" .Values.networkPolicy.fromNamespaceSelector) .Values.networkPolicy.fromCidrs }}
     - from:
+        {{- if kindIs "map" .Values.networkPolicy.fromNamespaceSelector }}
         - namespaceSelector:
             {{- toYaml .Values.networkPolicy.fromNamespaceSelector | nindent 12 }}
+        {{- end }}
+        {{- range .Values.networkPolicy.fromCidrs }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
       ports:
         - port: http
+    {{- end }}
+{{- if .Values.postgres.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "roost.postgresName" . }}
+  labels:
+    {{- include "roost.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: postgres
+  policyTypes: [Ingress]
+  ingress:
+    # The coordinator and the backup job; nothing else in the cluster.
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "roost.selectorLabels" . | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              app.kubernetes.io/component: postgres-backup
+      ports:
+        - port: postgres
+{{- end }}
 {{- end }}

@@ -27,8 +27,23 @@ trustedProxyCidrs:
 # Extra non-secret ROOST_* settings, as name: value.
 env: {}
 
+# 1, or 0 to stop the coordinator for maintenance (a `roost db-to-postgres
+# --replace` into its database). Never more than one: see the Deployment.
+replicas: 1
+
 service:
+  # ClusterIP behind an Ingress; NodePort when the front door is a TCP proxy
+  # on another machine (then set externalTrafficPolicy: Local, so the
+  # coordinator and the NetworkPolicy see that proxy's own address).
+  type: ClusterIP
   port: 4113
+  nodePort: null
+  externalTrafficPolicy: ""
+
+# Where the coordinator, Postgres and its backups run. Postgres' volume is
+# node-local on most single-node storage classes, so pin all three together.
+nodeSelector: {}
+tolerations: []
 
 ingress:
   enabled: false
@@ -50,12 +65,28 @@ resources:
 networkPolicy:
   enabled: false
   # Namespaces allowed to reach the coordinator (the ingress controller's).
-  fromNamespaceSelector: {}
+  # Omit to allow none.
+  fromNamespaceSelector: null
+  # Addresses outside the cluster allowed to reach it, e.g. the front-door
+  # proxy's address through a NodePort with externalTrafficPolicy: Local.
+  fromCidrs: []
 
-# A single-instance Postgres for evaluation only: one PVC, no backups, no
-# replication. Use a managed or operator-run Postgres in production.
+# A single-instance Postgres: one PVC, no replication. With backup.enabled a
+# CronJob keeps `keep` daily pg_dump archives on a second PVC; copy them off
+# the node for disaster recovery.
 postgres:
   enabled: false
   image: postgres:17-alpine
   storage: 10Gi
   password: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  backup:
+    enabled: false
+    schedule: "17 3 * * *"
+    keep: 14
+    storage: 5Gi
