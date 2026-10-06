@@ -1,7 +1,8 @@
-//! The operator commands that read a repository or a service definition and
-//! print the result: `version`, `logs`, `state`, `reset`, `skill`, `test`, and
-//! the hidden `__keeper-contract` probe. Each is its own file and owns its own
-//! argument parsing and output; this module only names them.
+//! The operator commands that read a repository, a service definition or a
+//! database and print the result: `version`, `logs`, `state`, `reset`,
+//! `skill`, `test`, `db-to-postgres`, and the hidden `__keeper-contract` probe.
+//! Each is its own file and owns its own argument parsing and output; this
+//! module only names them.
 //!
 //! Every one of these prints something a person asked for by running it, which
 //! is why `println!` is right here and `tracing` is wrong. The line between the
@@ -10,6 +11,7 @@
 //! the screen, and a line about what the fleet did overnight belongs in the
 //! log `roost doctor` reads.
 
+pub mod db_to_postgres;
 pub mod keeper_contract;
 pub mod logs;
 pub mod reset;

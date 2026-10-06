@@ -1106,6 +1106,59 @@ JSON failure line described under [The failure line](#the-failure-line).
 
 ---
 
+## `roost db-to-postgres`
+
+```
+roost db-to-postgres [--from PATH] [--to URL] [--replace]
+```
+
+Copies a v3 coordinator's SQLite database into a Postgres database, so the
+coordinator can run stateless against `ROOST_COORDINATOR_DATABASE_URL`. The
+copy is `roost_coord::db::sqlite_to_postgres`, in the crate that owns both
+schemas.
+
+**Defaults.** `--from` is the file this host's installed coordinator declares
+in `ROOST_COORDINATOR_DB`, then the one this shell exports, then the default
+data directory's. `--to` is `ROOST_COORDINATOR_DATABASE_URL` from this shell,
+which keeps the password out of the process list; it must be a `postgres://`
+or `postgresql://` URL.
+
+**Both ends are migrated first, by the coordinator's own `db::open`**, so the
+source and the target carry this build's schema. The table set, each column's
+Postgres type and the foreign-key order are read from the target's catalog and
+checked against the source's: a table or column on one side only is a
+refusal, not a dropped field.
+
+**One transaction.** User triggers are disabled for the copy (they re-check
+invariants the SQLite file's identical triggers enforced when each row was
+written, and would make insert order part of correctness); foreign keys stay
+on. Rows move in batches of 2 000 through one `INSERT … SELECT FROM UNNEST`
+per batch; every identity sequence is moved past the largest copied id; every
+table's copied count is checked against the source's. A failure anywhere
+rolls the target back untouched.
+
+**A target holding rows is refused** — a coordinator already booted against
+it creates its own account, and a second one is a state v3 does not have.
+`--replace` empties every coordinator table first, inside the same
+transaction. Stop the coordinator using the target before either.
+
+**The source must be idle.** When `--from` is this host's installed
+coordinator's file and that service is running, the command refuses: rows
+written mid-copy would be missing from the target with nothing to say so.
+
+**stdout** is the source path, then one line per table with its row count,
+then the total and the elapsed time. The URL is never printed.
+
+**Exit codes.**
+
+| Situation | Code |
+| --- | --- |
+| copied | 0 |
+| no target URL, or not a Postgres URL; the source file is missing; the target holds rows and `--replace` was not given; the installed coordinator is running on the source | 2 |
+| either end could not be opened or migrated; the schemas disagree; a value does not fit its column; a count mismatch; a statement failed | 1 |
+
+---
+
 ## `roost update`
 
 ```

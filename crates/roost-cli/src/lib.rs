@@ -47,6 +47,7 @@ use crate::deploy::{DeployArgs, KeeperRefreshArgs};
 use crate::dev::DevArgs;
 use crate::doctor::DoctorArgs;
 use crate::import_v2::ImportV2Args;
+use crate::ops::db_to_postgres::DbToPostgresArgs;
 use crate::ops::keeper_contract::KeeperContractArgs;
 use crate::ops::logs::LogsArgs;
 use crate::ops::reset::ResetArgs;
@@ -91,6 +92,8 @@ pub enum Command {
     Status(StatusArgs),
     /// Carry a v2 coordinator's account, devices and keys into this install.
     ImportV2(ImportV2Args),
+    /// Copy a SQLite coordinator database into Postgres.
+    DbToPostgres(DbToPostgresArgs),
     /// Anomaly digest from this host's logs and the coordinator's audit log.
     Doctor(DoctorArgs),
     /// Print the roost version, or the build SHA with --build.
@@ -149,6 +152,7 @@ impl Command {
             Command::Status(_) => "status",
             Command::Doctor(_) => "doctor",
             Command::ImportV2(_) => "import-v2",
+            Command::DbToPostgres(_) => "db-to-postgres",
             Command::Version(_) => "version",
             Command::Logs(_) => "logs",
             Command::Deploy(_) => "deploy",
@@ -198,6 +202,7 @@ pub async fn dispatch(cli: Cli) -> Result<ExitCode, CommandFailure> {
         Command::SelfLink => quickstart::self_link::run(),
         Command::RemoteFacts(args) => deploy::remote_commands::facts(&args),
         Command::ImportV2(args) => import_v2::run(&args).await,
+        Command::DbToPostgres(args) => ops::db_to_postgres::run(&args).await,
         Command::RemoteEvidence(args) => deploy::remote_commands::evidence(&args),
         Command::RemoteTransaction(args) => deploy::remote_commands::transaction(&args).await,
         Command::RemoteApply(args) => deploy::remote_commands::apply(&args).await,

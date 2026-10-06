@@ -44,6 +44,7 @@ mod backend;
 mod in_list;
 mod migration_validation;
 mod sql_builder;
+pub mod sqlite_to_postgres;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};

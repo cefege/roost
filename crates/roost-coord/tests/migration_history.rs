@@ -34,6 +34,11 @@ mod db_support;
 #[path = "migration_history/backend_parity.rs"]
 mod backend_parity;
 
+/// The copy from a migrated SQLite file into a migrated Postgres database:
+/// whether the two schemas this file guards carry the same rows.
+#[path = "migration_history/sqlite_to_postgres.rs"]
+mod sqlite_to_postgres;
+
 /// The version the squashed schema ships as, read out of the embedded set
 /// rather than restated: a test that hardcoded `1` would keep passing if the
 /// squashed migration were renumbered, which is the moment the whole file's
