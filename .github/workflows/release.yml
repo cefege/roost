@@ -6,9 +6,9 @@ name: release
 # `WEB_ASSET_NAME` for the page. They are NOT derived from the target triple:
 # macOS arm64 publishes an unsuffixed `roost`, so a workflow that named assets
 # after triples would publish `roost-aarch64-apple-darwin` and 404 on the one
-# platform with the most machines. `join.sh:63-75` resolves the same four names,
-# and a machine that joins by script and a machine that later runs `roost update`
-# must end up on the same release.
+# platform with the most machines. `install.sh`'s `asset_name` resolves the same
+# four names, and a machine that installs by script and a machine that later runs
+# `roost update` must end up on the same release.
 #
 # `crates/roost-cli/tests/release_asset_names.rs` fails if the names here stop
 # matching that table, or if this file's verify job stops running ci.yml's
@@ -171,9 +171,9 @@ jobs:
           cp "$out/roost"        "dist/${{ matrix.roost_asset }}"
           cp "$out/roost-keeper" "dist/${{ matrix.keeper_asset }}"
           chmod +x "dist/${{ matrix.roost_asset }}" "dist/${{ matrix.keeper_asset }}"
-          # macOS runners ship `shasum`, not `sha256sum`; join.sh:90-92 falls
-          # back for the same reason. The sidecar FORMAT is the standard
-          # `<hash>  <name>`, which join.sh:122 parses with `cut -d' ' -f1`.
+          # macOS runners ship `shasum`, not `sha256sum`; install.sh's `sha256_of`
+          # falls back for the same reason. The sidecar FORMAT is the standard
+          # `<hash>  <name>`, which install.sh's `fetch_roost` parses with `cut -d' ' -f1`.
           for asset in "${{ matrix.roost_asset }}" "${{ matrix.keeper_asset }}"; do
             if command -v sha256sum >/dev/null 2>&1; then
               ( cd dist && sha256sum "$asset" > "$asset.sha256" )

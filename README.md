@@ -172,33 +172,33 @@ requirements.
 
 ## Install
 
-Roost v0.5.0 publishes coordinator/worker binaries for macOS arm64/x64 and
-Linux arm64/x64. POSIX hosts use launchd or `systemd --user`; browsing devices
-need only a modern browser. The installer checks the binary against its GitHub
-Release SHA-256 sidecar.
+Roost publishes coordinator/worker binaries for macOS arm64/x64 and Linux
+arm64/x64. POSIX hosts use launchd or `systemd --user`; browsing devices need
+only a modern browser. One command installs everything on the first machine:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install-binary.sh | bash
-"$HOME/.local/bin/roost" quickstart
+curl -fsSL https://raw.githubusercontent.com/cefege/roost/v3/install.sh | bash
 ```
 
-Quickstart starts persistent local services, deploys the first worker, and
-opens a paired browser at `http://127.0.0.1:4103`. Rerunning it preserves the
-installed endpoint and state while reactivating the coordinator and opening a
-new browser pairing flow.
+It fetches the newest v3 release's `roost` and `roost-keeper`, checks each
+against the SHA-256 digest published beside it, and runs `roost quickstart`,
+which installs the coordinator, this machine's worker and the web app as
+persistent user services and opens a paired browser at `http://127.0.0.1:4113`.
+No domain, proxy, toolchain or other runtime is needed. Rerunning it preserves
+the installed endpoint and state while reactivating the coordinator and opening
+a new browser pairing flow. Add `-s -- --dry-run` after `bash` to print every
+file it would write and change nothing.
 
 For optional expansion, pass a strict HTTPS origin with no credentials, query,
 fragment, or path beyond `/`:
 
 ```sh
-"$HOME/.local/bin/roost" quickstart --coordinator-url "https://roost.example.com"
+roost quickstart --coordinator-url "https://roost.example.com"
 ```
 
-Windows host releases are paused: v0.5.0 publishes no Windows coordinator,
-worker, installer, join script, or update path. Windows remains supported as a
-browser client.
-
-For source development only, `curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install.sh | bash` installs Bun and a checkout that tracks `main`; it is not the pinned production release path.
+Windows host releases are paused: Roost publishes no Windows coordinator,
+worker, installer, or update path. Windows remains supported as a browser
+client.
 
 Quickstart sends its one-shot `#pair` fragment directly to the local browser
 opener and never prints or logs the secret. The fragment is absent from HTTP

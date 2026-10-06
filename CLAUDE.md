@@ -366,7 +366,7 @@ cargo xtask fleet build --version <tag>
 CI (`.github/workflows/ci.yml`) runs the `rust` job on ubuntu-latest AND
 macos-latest. `.github/workflows/release.yml` publishes a `v3.*` tag: it
 re-runs the `rust` job's commands and builds four triples, whose assets
-`install.sh` and `join.sh` fetch for a machine outside the fleet below. No gate
+`install.sh` fetches for a machine outside the fleet below. No gate
 needs a deployed coordinator, a tailnet, or a human driving a browser.
 
 ### Build discipline

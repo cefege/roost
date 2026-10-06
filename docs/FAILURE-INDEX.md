@@ -3754,11 +3754,12 @@ is refused. And `roost join` resolved its install directories from the ambient e
 worker definition was resolved from a cleaned one. A join pasted into a terminal that v2 opened inherits
 v2's `ROOST_WORKER_DATA_DIR`.
 
-**Right** — join.sh keeps the pair in the temporary directory where it checked both digests, hands that
-copy to `roost join`, and removes it once the join returns. `join::install_locations` resolves the
+**Right** — install.sh (which join.sh forwards to) keeps the pair in the temporary directory where it
+checked both digests, hands that copy to `roost join` or `roost quickstart`, and removes it once that
+returns. `join::install_locations` resolves the
 service and bin directories from `install_environment`, the same environment the definition comes from.
 
-**Guard** — `crates/roost-cli/tests/join_script.rs`:
+**Guard** — `crates/roost-cli/tests/install_script.rs`:
 `a_join_that_fetches_leaves_a_v2_binary_at_the_self_link_location_alone` serves a fake release over
 `file://`. `crates/roost-cli/tests/join_enrollment.rs`:
 `a_join_from_a_v2_terminal_installs_where_its_definition_points_and_not_into_v2`.

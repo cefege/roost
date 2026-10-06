@@ -51,7 +51,7 @@ use crate::quickstart::install::{
     report_change, report_rotation, require_local_linger, service_dir,
 };
 use crate::quickstart::specs::{coordinator_spec, local_worker_spec};
-use crate::quickstart::web_source::install_local_bundle;
+use crate::quickstart::web_source::{install_local_bundle, install_web_bundle};
 use crate::services::install::{default_program_path, release_bin_dir};
 use crate::services::service_spec::ServiceRole;
 use crate::services::web_bundle::validate as validate_bundle;
@@ -177,8 +177,13 @@ async fn install_everything(
     install_programs(&programs, &bin_dir)?;
     // The bundle goes in before either definition names it, for the same reason
     // the programs do: a definition pointing at a directory that is not there
-    // yet is a service whose first activation serves nothing.
-    let web_dir = install_local_bundle(web_dist, &bin_dir)?;
+    // yet is a service whose first activation serves nothing. With no
+    // `--web-dist`, a release build installs the bundle published with its own
+    // tag, so a bare quickstart opens a page rather than a 404.
+    let web_dir = match web_dist {
+        Some(source) => Some(install_local_bundle(source, &bin_dir)?),
+        None => install_web_bundle(env, &bin_dir).await?,
+    };
 
     let coordinator_spec =
         coordinator_spec(env, platform, &bin_dir, &endpoint, web_dir.as_deref())?;

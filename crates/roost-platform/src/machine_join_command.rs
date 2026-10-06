@@ -12,9 +12,9 @@
 use crate::shell_quote::posix_shell_quote;
 
 /// The script a new machine runs, in the order its own usage text shows it. The
-/// same URL `join.sh` documents, so the command printed here and the command
+/// same URL `install.sh` documents, so the command printed here and the command
 /// the script describes cannot drift apart silently.
-pub const JOIN_SCRIPT_URL: &str = "https://raw.githubusercontent.com/cefege/roost/v3/join.sh";
+pub const INSTALL_SCRIPT_URL: &str = "https://raw.githubusercontent.com/cefege/roost/v3/install.sh";
 
 /// The door the new machine's worker dials.
 pub const COORDINATOR_URL_ENV: &str = "ROOST_COORDINATOR_URL";
@@ -51,7 +51,7 @@ pub fn machine_join_command(
         "{BOOTSTRAP_TOKEN_ENV}={}",
         posix_shell_quote(bootstrap_token)
     );
-    format!("curl -fsSL {JOIN_SCRIPT_URL} | {url_setting} {grant_setting}{label_setting} bash")
+    format!("curl -fsSL {INSTALL_SCRIPT_URL} | {url_setting} {grant_setting}{label_setting} bash")
 }
 
 #[cfg(test)]

@@ -15,7 +15,7 @@ pub mod worker_service_env;
 
 pub use host_platform::{HostPlatform, PlatformError};
 pub use machine_join_command::{
-    BOOTSTRAP_TOKEN_ENV, COORDINATOR_URL_ENV, JOIN_SCRIPT_URL, WORKER_LABEL_ENV,
+    BOOTSTRAP_TOKEN_ENV, COORDINATOR_URL_ENV, INSTALL_SCRIPT_URL, WORKER_LABEL_ENV,
     machine_join_command,
 };
 pub use native_path::{

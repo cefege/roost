@@ -12,7 +12,7 @@
 //!
 //! THERE IS NO PLATFORM CHOOSER. v2 offered one because its Windows branch ran
 //! a different bootstrap; v3 ships Linux and macOS host installs only, and the
-//! `join.sh` this command pipes detects the target's own system. A control that
+//! `install.sh` this command pipes detects the target's own system. A control that
 //! changes nothing is a control nobody tested, so the dialog offers the label
 //! the command actually carries and nothing else.
 

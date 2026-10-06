@@ -178,7 +178,7 @@ async fn a_clean_checkout_is_accepted_and_its_commit_is_the_identity() {
     assert!(!stamp.ends_with("-dirty"), "{stamp}");
 }
 
-/// A release fetched by `join.sh` runs from a staging directory that is no
+/// A release fetched by `install.sh` runs from a staging directory that is no
 /// checkout, and the working directory it was started from may be some other
 /// checkout entirely. It enrols as the commit compiled into it, which is the
 /// stamp its worker reports, without asking git anything: before this, every

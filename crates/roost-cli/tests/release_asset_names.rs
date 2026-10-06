@@ -1,12 +1,12 @@
 //! The names a release publishes, and the commands the gate runs, are stated in
 //! more than one file because more than one process needs them. This test is the
 //! only thing that notices when one of those files stops agreeing with the
-//! others; it reads `assets.rs`'s table, `join.sh`, and both workflows, and
+//! others; it reads `assets.rs`'s table, `install.sh`, and both workflows, and
 //! fails when any pair diverges.
 //!
 //! The failure it prevents is silent and platform-shaped: a name that exists in
 //! one table and not another is a 404 on exactly one architecture, so four
-//! machines work and one cannot join.
+//! machines work and one cannot install.
 //!
 //! **What it does NOT check, so do not read a green as more than it is:** it
 //! compares strings. It cannot see a `cp` that points at a directory cargo does
@@ -24,7 +24,7 @@ use roost_host::HostPlatform;
 /// The four (platform, arch) pairs a release publishes, in the order
 /// `assets.rs` matches them. This list is the SET being compared, not a fourth
 /// naming: it names no asset, so adding a fifth target means editing
-/// `assets.rs` and `join.sh`, and this test follows.
+/// `assets.rs` and `install.sh`, and this test follows.
 const PUBLISHED: [(HostPlatform, &str); 4] = [
     (HostPlatform::Linux, "x64"),
     (HostPlatform::Linux, "arm64"),
@@ -108,7 +108,7 @@ fn the_release_matrix_publishes_exactly_the_names_assets_rs_resolves() {
         matrix_assets(".github/workflows/release.yml", "roost_asset"),
         expected_roost,
         "release.yml's roost_asset values have drifted from release_asset_name. \
-         assets.rs is the authority, and join.sh must agree with it too."
+         assets.rs is the authority, and install.sh must agree with it too."
     );
     assert_eq!(
         matrix_assets(".github/workflows/release.yml", "keeper_asset"),
@@ -124,9 +124,9 @@ fn the_release_matrix_publishes_exactly_the_names_assets_rs_resolves() {
 /// substitution's count is not exercised by any name here. These assertions
 /// exist so the four names are checked as VALUES rather than trusted through
 /// prose: a change to the substitution has to edit them, and a name that stopped
-/// matching `join.sh` fails here rather than as a 404 on one architecture.
+/// matching `install.sh` fails here rather than as a 404 on one architecture.
 #[test]
-fn the_four_published_names_are_the_ones_join_sh_fetches() {
+fn the_four_published_names_are_the_ones_install_sh_fetches() {
     let expected_roost = [
         (HostPlatform::Linux, "x64", "roost-linux-x64"),
         (HostPlatform::Linux, "arm64", "roost-linux-arm64"),
@@ -144,7 +144,7 @@ fn the_four_published_names_are_the_ones_join_sh_fetches() {
         assert_eq!(
             release_asset_name(platform, arch).unwrap(),
             want,
-            "{} {} publishes a name no join.sh can fetch",
+            "{} {} publishes a name no install.sh can fetch",
             platform.display_name(),
             arch
         );
@@ -161,14 +161,14 @@ fn the_four_published_names_are_the_ones_join_sh_fetches() {
 }
 
 #[test]
-fn join_sh_resolves_the_same_four_names() {
-    let script = read_repo("join.sh");
+fn install_sh_resolves_the_same_four_names() {
+    let script = read_repo("install.sh");
     for (platform, arch) in PUBLISHED {
         let name = release_asset_name(platform, arch).unwrap();
         let quoted = format!("'{name}'");
         assert!(
             script.contains(&quoted) || script.contains(&format!("\"{name}\"")),
-            "join.sh never mentions {name}, so a machine that joins by script \
+            "install.sh never mentions {name}, so a machine that installs by script \
              would not find the asset assets.rs says exists for {}",
             platform.display_name()
         );

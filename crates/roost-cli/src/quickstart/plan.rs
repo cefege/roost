@@ -71,10 +71,13 @@ pub struct QuickstartPlan {
     /// the reason one of them gets none. Resolved through the same function the
     /// install uses, so a dry run cannot describe a rotation a real run skips.
     pub rotation: Vec<RotationPlan>,
-    /// Where the web bundle would be installed, or `None` when this run was
-    /// given no bundle. Both definitions name this path and `roost status` reads
+    /// Where the web bundle would be installed, or `None` when this run has
+    /// none to install. Both definitions name this path and `roost status` reads
     /// it back out of the installed coordinator.
     pub web_dir: Option<std::path::PathBuf>,
+    /// The release tag the bundle would be downloaded from, or `None` when the
+    /// operator named a `--web-dist` or this is a source build.
+    pub web_release: Option<String>,
 }
 
 /// Resolve the whole plan, touching nothing.
@@ -96,10 +99,17 @@ pub fn resolve_plan(
     let bin_dir = release_bin_dir(env, platform)?;
     let program = bin_dir.join(crate::deploy::apply_release::ROOST_PROGRAM);
     // The directory a real run would install the bundle into, decided here so
-    // the printed definitions name the same path the install writes. A run
-    // given no `--web-dist` resolves to `None`, and neither definition carries
-    // the setting — the honest state of a machine given no bundle.
-    let web_dir = web_dist.map(|_| web_bundle::release_web_dir(&bin_dir));
+    // the printed definitions name the same path the install writes. A
+    // `--web-dist` wins; otherwise a release build downloads its own tag's
+    // bundle, and a source build with neither resolves to `None`, so neither
+    // definition carries the setting — the honest state of a machine with no
+    // bundle.
+    let web_release = match web_dist {
+        Some(_) => None,
+        None => crate::quickstart::web_source::published_bundle_tag(env),
+    };
+    let web_dir = (web_dist.is_some() || web_release.is_some())
+        .then(|| web_bundle::release_web_dir(&bin_dir));
     let home = env.home_dir().ok_or_else(|| {
         crate::command_error::CommandFailure::generic(
             "a first run needs a home directory, and this process could not resolve one",
@@ -151,6 +161,7 @@ pub fn resolve_plan(
         ),
         rotation,
         web_dir,
+        web_release,
     })
 }
 
@@ -251,17 +262,20 @@ pub fn print_plan(plan: &QuickstartPlan, platform: HostPlatform) {
             .definition_text(platform)
             .unwrap_or_else(|error| format!("<this platform renders no definition: {error}>"))
     );
-    match &plan.web_dir {
-        Some(web_dir) => {
-            println!("web bundle");
+    println!("web bundle");
+    match (&plan.web_dir, &plan.web_release) {
+        (Some(web_dir), web_release) => {
             println!("  {}", web_dir.display());
+            if let Some(tag) = web_release {
+                println!("    downloaded from the {tag} release and checked against its digest.");
+            }
             println!("    both definitions would serve this directory. It is the release's own,");
             println!("    so retiring the release retires the page with it.");
         }
-        None => {
-            println!("web bundle");
-            println!("  none: this run was given no --web-dist, so neither definition would");
-            println!("    serve a page and the coordinator answers 404 for every URL.");
+        (None, _) => {
+            println!("  none: this source build publishes no bundle and this run was given no");
+            println!("    --web-dist, so neither definition would serve a page and the");
+            println!("    coordinator answers 404 for every URL.");
         }
     }
     println!();

@@ -1,30 +1,69 @@
 <!-- AUDIENCE: human -->
 # Getting started with Roost
 
-The v0.5.0 self-hosted coordinator/worker runtime is released for macOS
-arm64/x64 and Linux arm64/x64. Production fleet rollout remains pending.
+Roost's coordinator and workers run on macOS arm64/x64 and Linux arm64/x64.
 
 **Only coordinator and worker machines need a supported host OS.** Everything
 you browse *from* — a Mac, a Windows PC, a Linux desktop, an iPhone, an Android
 phone, an iPad, an Android tablet, whatever — needs nothing but a modern
 browser (optionally added to the home screen as a PWA).
 
-## Start locally, then add a front door when you need one
+## Install
 
-Roost starts as persistent local services. On a supported macOS or Linux host,
-bare `roost quickstart` installs a coordinator and first worker, then opens and
-pairs a browser at `http://127.0.0.1:4103`. You need no domain, HTTPS proxy,
-VPN, or external URL for this first machine.
+On the Mac or Linux machine that will host Roost, run:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/cefege/roost/v3/install.sh | bash
+```
+
+That one command:
+
+1. Fetches the newest v3 release's `roost` and `roost-keeper` for this machine
+   and checks each against the SHA-256 digest published beside it. A v3 `roost`
+   already in `~/.local/bin` or on `PATH` is used instead.
+2. Runs `roost quickstart`, which installs the coordinator and this machine's
+   worker as user services (launchd on macOS, `systemd --user` on Linux),
+   installs the web app published with the same release, waits for the
+   coordinator to answer, and links `~/.local/bin/roost`.
+3. Prints a status readout and opens your browser at `http://127.0.0.1:4113`,
+   already paired.
+
+You need no domain, HTTPS proxy, VPN, toolchain or other runtime. On Linux,
+quickstart turns on linger for your account so the services outlive logout,
+and refuses before writing anything when the account may not.
+
+To see every file it would write first, with nothing changed:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/cefege/roost/v3/install.sh | bash -s -- --dry-run
+```
+
+Rerunning the install is safe: it preserves the installed endpoint, database,
+worker and keeper, reactivates the coordinator, and opens a new browser pairing.
+
+On a machine with no desktop to open a browser on (a server reached over SSH),
+run `roost add-browser` there and open the URL it prints wherever you have a
+browser that can reach the coordinator.
+
+Coordinator startup creates and thereafter validates the single local tenant
+automatically: the internal `local@roost.invalid` account, its `personal`
+organization, and the `default` dashboard. There is no separate organization
+bootstrap command to run before quickstart or after an upgrade.
+
+> **Windows host releases are paused.** Roost publishes no Windows
+> coordinator, worker, installer, or update path. Windows remains supported as
+> a browser client.
+
+## Start locally, then add a front door when you need one
 
 The fresh local coordinator service uses this profile:
 
 ```text
-ROOST_COORDINATOR_BIND=127.0.0.1:4103
+ROOST_COORDINATOR_BIND=127.0.0.1:4113
 ROOST_TRUST_PROXY=0
 ROOST_WEB_PUBLIC_URL=
 ROOST_COORDINATOR_PUBLIC_URL=
-ROOST_CORS_ALLOWED_ORIGINS=http://127.0.0.1:4103
-ROOST_SKIP_ENV_LOCAL=1
+ROOST_CORS_ALLOWED_ORIGINS=http://127.0.0.1:4113
 ```
 
 The coordinator listens only on loopback and serves plaintext there. Its local
@@ -52,56 +91,10 @@ can reach it. The front door's declared browser origin seeds the SPA's CSP
 `connect-src` and Sync WebSocket allowlist, so it must be exactly the browser
 origin — scheme, host, and non-default port included.
 
-`apps/coord/scripts/install.sh` takes the bind port from
-`ROOST_COORD_LOOPBACK_PORT` (default 4103) and persists the resolved
-`ROOST_COORDINATOR_BIND`, so the service definition states the listener once.
-
 `ROOST_COORDINATOR_PUBLIC_URL` remains optional and separate: use it only when
 workers should dial a different HTTPS door from browsers. The worker URL
 precedence is `ROOST_COORDINATOR_URL` → `ROOST_COORDINATOR_PUBLIC_URL` →
 `ROOST_WEB_PUBLIC_URL`.
-
-> **Windows host releases are paused.** v0.5.0 publishes no Windows
-> coordinator, worker, installer, join script, or package. Windows remains
-> supported as a browser client, but there is no supported Windows host
-> install, enrollment, or update procedure in this release.
-
-## Install + run
-
-On macOS arm64/x64 or Linux arm64/x64, install the published binary. The
-installer verifies it against the adjacent GitHub Release SHA-256 sidecar:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install-binary.sh | bash
-```
-
-Then start the local installation:
-
-```sh
-"$HOME/.local/bin/roost" quickstart
-```
-
-Quickstart builds the SPA, installs the persistent loopback coordinator service,
-deploys the local worker, waits for health and worker registration, prints a
-status readout, and opens an already-authorized local browser. Rerunning it
-preserves the installed endpoint and state, reactivates the coordinator, and
-opens a new browser pairing flow without replacing a healthy worker or its
-keeper.
-
-The source/development path is separate and intended for macOS or Linux:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/install.sh | bash
-```
-
-That command installs Bun and a checkout which tracks `main`; it is not a
-pinned production release.
-
-Coordinator startup creates and thereafter validates the single local tenant
-automatically: the internal `local@roost.invalid` account, its `personal`
-organization, and the `default` dashboard. Existing coherent single-tenant
-databases keep their IDs and names. There is no separate organization bootstrap
-command to run before quickstart or after an upgrade.
 
 ## Run the coordinator in a container or on Kubernetes
 
@@ -500,7 +493,7 @@ notification opens that session.
 
 ## Add another machine
 
-v0.5.0 enrolls macOS or Linux workers. **Settings → Machines → Add machine**
+Roost enrolls macOS or Linux workers. **Settings → Machines → Add machine**
 first checks whether the coordinator advertises an HTTPS enrollment address. A
 local-only Roost does not mint a command: choose an
 operator-managed HTTPS address, run
@@ -523,10 +516,14 @@ The enrollment address uses the installed coordinator declaration:
 minting a token rather than selecting another origin.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/cefege/roost/main/join.sh | \
+curl -fsSL https://raw.githubusercontent.com/cefege/roost/v3/install.sh | \
   ROOST_COORDINATOR_URL="https://roost.example.com" \
   ROOST_BOOTSTRAP_TOKEN="roost_bt_…" bash
 ```
+
+This is the same `install.sh` as the first machine's: given the grant it runs
+`roost join` instead of `roost quickstart`. Coordinators that print a
+`…/v3/join.sh` URL reach the same script.
 
 The public worker path `/ws/coord-worker/*` must pass on a shared front door.
 Give workers a separately declared `ROOST_COORDINATOR_PUBLIC_URL` only when the

@@ -52,10 +52,12 @@ mod doctor_digest_shape;
 mod import_v2_copy;
 #[path = "import_v2_plan.rs"]
 mod import_v2_plan;
+#[path = "install_script.rs"]
+mod install_script;
+#[path = "install_script_modes.rs"]
+mod install_script_modes;
 #[path = "join_enrollment.rs"]
 mod join_enrollment;
-#[path = "join_script.rs"]
-mod join_script;
 #[path = "local_programs_keeper.rs"]
 mod local_programs_keeper;
 #[path = "push_fleet_plan.rs"]

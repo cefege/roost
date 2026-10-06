@@ -42,7 +42,7 @@ pub fn source_root(env: &dyn EnvSource) -> Result<PathBuf, CommandFailure> {
 /// for a `dev`-stamped binary, its checkout's commit through [`joined_build_sha`].
 ///
 /// The compiled commit wins because it is what the installed worker reports. A
-/// release fetched by `join.sh` runs from a staging directory that is no
+/// release fetched by `install.sh` runs from a staging directory that is no
 /// checkout at all, and reading whatever checkout happens to be the working
 /// directory would enrol the machine as some other build.
 pub async fn join_identity(env: &dyn EnvSource) -> Result<String, CommandFailure> {
