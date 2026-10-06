@@ -123,14 +123,14 @@ pub fn WorkbenchShellSpecimen() -> Element {
                         span { class: "workbench-sidebar-actionbar__machine-label", "mini" }
                         Icon { name: "expand_more", class: "workbench-sidebar-actionbar__machine-chevron", size: IconSize::Sm }
                     }
-                    Button { class: "workbench-sidebar-actionbar__new", variant: ButtonVariant::Secondary, size: ButtonSize::Sm, icon: "add", "aria-label": "New terminal", "New" }
+                    Button { class: "workbench-sidebar-actionbar__new", variant: ButtonVariant::Default, size: ButtonSize::Sm, icon: "add", "aria-label": "New terminal", "New" }
                 }
                 footer { class: "workbench-sidebar-actionbar", "aria-label": "One machine online",
                     span { class: "workbench-sidebar-actionbar__machine",
                         StatusDot { status: "ok" }
                         span { class: "workbench-sidebar-actionbar__machine-label", "desktop-pc" }
                     }
-                    Button { class: "workbench-sidebar-actionbar__new", variant: ButtonVariant::Secondary, size: ButtonSize::Sm, icon: "add", "aria-label": "New terminal", "New" }
+                    Button { class: "workbench-sidebar-actionbar__new", variant: ButtonVariant::Default, size: ButtonSize::Sm, icon: "add", "aria-label": "New terminal", "New" }
                 }
             }
             main {

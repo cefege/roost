@@ -215,7 +215,7 @@ pub fn SidebarNewTerminal() -> Element {
             }
             Button {
                 class: "workbench-sidebar-actionbar__new",
-                variant: ButtonVariant::Secondary,
+                variant: ButtonVariant::Default,
                 size: ButtonSize::Sm,
                 icon: "add",
                 "data-testid": "sidebar-new-terminal-button",
