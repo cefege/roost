@@ -68,6 +68,8 @@ mod direct_carrier_retirement;
 mod direct_carrier_route_loss;
 #[path = "direct_carrier_staging.rs"]
 mod direct_carrier_staging;
+#[path = "download_transfer.rs"]
+mod download_transfer;
 #[path = "folder_name_validation.rs"]
 mod folder_name_validation;
 #[path = "global_search_across_machines.rs"]

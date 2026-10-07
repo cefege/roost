@@ -18,6 +18,7 @@ pub mod agents;
 pub mod attachments;
 pub mod auth;
 pub mod carriers;
+pub mod download;
 pub mod global_search;
 pub mod local;
 pub mod predictive_echo;

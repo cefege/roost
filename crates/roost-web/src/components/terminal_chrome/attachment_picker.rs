@@ -75,15 +75,7 @@ pub(super) fn spawn_read_chosen(
     // Off the render path, because minting a preview is asynchronous.
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_futures::spawn_local(async move {
-        let mut chosen = Vec::with_capacity(files.len());
-        for file in files {
-            chosen.push(ChosenFile {
-                name: dom::file_name(&file),
-                size_bytes: dom::file_size(&file),
-                preview_url: dom::preview_url(&file).await,
-                file,
-            });
-        }
+        let chosen = read_chosen(files).await;
         if !chosen.is_empty() {
             on_chosen.call(chosen);
         }
@@ -91,6 +83,22 @@ pub(super) fn spawn_read_chosen(
     // A host with no file picker has nothing to read.
     #[cfg(not(target_arch = "wasm32"))]
     let _ = (files, on_chosen);
+}
+
+/// Read `files` into `ChosenFile`s, previews minted, in the order given. The
+/// one reader behind the picker, a drop, and a paste.
+#[cfg(target_arch = "wasm32")]
+pub(super) async fn read_chosen(files: Vec<web_sys::File>) -> Vec<ChosenFile> {
+    let mut chosen = Vec::with_capacity(files.len());
+    for file in files {
+        chosen.push(ChosenFile {
+            name: dom::file_name(&file),
+            size_bytes: dom::file_size(&file),
+            preview_url: dom::preview_url(&file).await,
+            file,
+        });
+    }
+    chosen
 }
 
 /// The previews of the files an upload has in flight, above the composer field.

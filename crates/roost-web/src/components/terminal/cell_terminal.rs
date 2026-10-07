@@ -29,9 +29,7 @@ use crate::components::layout::window_size::use_is_compact;
 use crate::components::terminal_chrome::attachment_picker::ChosenFile;
 use crate::components::terminal_chrome::composer::{ComposerPlacement, TerminalComposer};
 use crate::components::terminal_chrome::pane_geometry_dom::PaneDockHandle;
-use crate::components::terminal_chrome::short_paths::short_path_preference;
-use crate::components::terminal_chrome::upload::{UploadContext, enqueue_attachments};
-use crate::components::terminal_chrome::upload_host::DirectIdentity;
+use crate::components::terminal_chrome::terminal_upload::upload_into_terminal;
 use crate::input_nav::modality::NavModality;
 use crate::platform::worker_paths::BrowserWorkerPaths;
 use crate::pump::use_pump;
@@ -228,28 +226,15 @@ pub fn CellTerminal(
     let attach_session = session_id.clone();
     let attach_worker = session.worker_fp.as_str().to_owned();
     let on_attach = move |chosen: Vec<ChosenFile>| {
-        if chosen.is_empty() {
-            return;
-        }
-        let tab_id = {
-            let core = attach_pump.core();
-            let borrowed = core.borrow();
-            borrowed.store().tab_id.clone()
-        };
-        let device_fingerprint = attach_pump
-            .rpc()
-            .device_key()
-            .map(|key| key.fingerprint().to_owned())
-            .unwrap_or_default();
-        let context = upload_context(&attach_session, &attach_worker, tab_id, device_fingerprint);
         let sink_handle = attach_handle.clone();
-        // A trailing space, so the next thing the user types is a new word and
-        // not an extension of the path. Typed raw, not bracketed: the path is a
-        // word of the command line being composed, not pasted content.
-        let sink: Rc<dyn Fn(&str)> = Rc::new(move |quoted: &str| {
-            sink_handle.send_raw_text(&format!("{quoted} "));
-        });
-        enqueue_attachments(&attach_pump, &context, chosen, sink);
+        let type_raw: Rc<dyn Fn(&str)> = Rc::new(move |text: &str| sink_handle.send_raw_text(text));
+        upload_into_terminal(
+            &attach_pump,
+            &attach_session,
+            &attach_worker,
+            chosen,
+            type_raw,
+        );
     };
     let drop_hover =
         use_terminal_file_drop(&session_id, drop_flags, handle.clone(), on_attach.clone());
@@ -374,27 +359,5 @@ pub fn CellTerminal(
                 }
             }
         }
-    }
-}
-
-/// The upload context this pane's attach button drives.
-///
-/// The tab and device are read here, not per upload, so every file of one
-/// gesture is bound to the same identity. What the tab can reach — the door,
-/// WebRTC — is read per upload, when the route is chosen.
-fn upload_context(
-    session_id: &str,
-    worker_fp: &str,
-    tab_id: String,
-    device_fingerprint: String,
-) -> UploadContext {
-    UploadContext {
-        session_id: session_id.to_owned(),
-        worker_fp: Some(worker_fp.to_owned()),
-        short_path: short_path_preference(),
-        identity: DirectIdentity {
-            tab_id,
-            device_fingerprint,
-        },
     }
 }

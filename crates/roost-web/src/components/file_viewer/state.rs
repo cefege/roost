@@ -93,6 +93,16 @@ impl ViewerContent {
     pub fn is_loading(&self) -> bool {
         matches!(self, Self::Loading)
     }
+
+    /// Whether the read named a file the Download action can pull: any file
+    /// the worker answered for, whether or not the sheet can render it.
+    #[must_use]
+    pub fn is_downloadable(&self) -> bool {
+        matches!(
+            self,
+            Self::Text { .. } | Self::Binary { .. } | Self::Empty | Self::TooLarge { .. }
+        )
+    }
 }
 
 /// The state one read produced. `file_path` names the file the bytes came from,

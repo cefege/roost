@@ -102,9 +102,13 @@ pub(super) fn attach(shared: &Rc<PaneShared>) {
                 on_controller_data(&shared, text);
             }
         }),
-        on_paste: Box::new(move |text: &str, _event: &web_sys::ClipboardEvent| {
+        on_paste: Box::new(move |text: &str, event: &web_sys::ClipboardEvent| {
             if let Some(shared) = keys.upgrade() {
-                paste_text(&shared, text);
+                // A paste carrying files (a screenshot) is an upload, typed as
+                // its remote path; its clipboard text, if any, is not typed.
+                if !super::paste_files::upload_pasted_files(&shared, event) {
+                    paste_text(&shared, text);
+                }
             }
         }),
         aria_label: Some(format!("Terminal input — {}", shared.title.borrow())),
