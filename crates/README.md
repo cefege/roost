@@ -22,7 +22,7 @@ registry, `Session` is the user-facing row, `Channel` is a PTY connection,
 | `roost-client-core` | The UI-free client: Connect client, Sync state machine, store fold, terminal-stream replica and route election, input lanes, encoders, find paging. | — |
 | `roost-web-terminal` | The imperative `web-sys` terminal renderer and its input, IME, mouse, selection and link controllers. | — |
 | `roost-web` | The Dioxus 0.7 web application: routes, components, static assets. | — |
-| `roost-cli` | The `roost` binary: `coord`, `worker`, `quickstart`, `join`, `add-machine`, `add-browser`, `status`, `doctor`, `update`, `deploy`, `push`, `api` (28 headless verbs), `skill`, `db-to-postgres`, `import-v2`. | `roost` |
+| `roost-cli` | The `roost` binary: `coord`, `worker`, `quickstart`, `join`, `add-machine`, `add-browser`, `status`, `doctor`, `update`, `deploy`, `push`, `api` (28 headless verbs), `skill`, `db-to-postgres`, `db-to-sqlite`, `import-v2`. | `roost` |
 | `roost-bench` | The v2-vs-v3 speed benchmark: boots each stack in isolation, drives one headless Chromium over CDP, samples `/proc` CPU/RSS, writes `target/bench/runs/<id>/report.md`. A developer tool, never shipped. | `roost-bench` |
 
 ## Dependency DAG
