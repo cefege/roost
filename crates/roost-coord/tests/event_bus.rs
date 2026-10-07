@@ -159,7 +159,7 @@ fn dropping_the_subscription_unsubscribes() {
 }
 
 #[test]
-fn the_thirteen_buses_carry_their_v2_bounds() {
+fn the_fourteen_buses_carry_their_v2_bounds() {
     let buses = Buses::new();
     assert_eq!(buses.session_bus.capacity(), 256);
     assert_eq!(buses.workspace_bus.capacity(), 64);
@@ -172,6 +172,7 @@ fn the_thirteen_buses_carry_their_v2_bounds() {
     assert_eq!(buses.worker_routable_bus.capacity(), 64);
     assert_eq!(buses.global_presence_bus.capacity(), 64);
     assert_eq!(buses.title_bus.capacity(), 256);
+    assert_eq!(buses.clipboard_bus.capacity(), 256);
     assert_eq!(buses.last_activity_bus.capacity(), 256);
     assert_eq!(
         buses.ui_bus.capacity(),

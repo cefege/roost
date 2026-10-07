@@ -41,6 +41,8 @@ fn metadata(channel: i64, title: &str) -> CoordWorkerUpstream {
         title: title.to_owned(),
         activity_changed: false,
         activity_ts_ms: 1_000,
+        clipboard_changed: false,
+        clipboard: String::new(),
     })
 }
 

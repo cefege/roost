@@ -243,6 +243,16 @@ pub(super) fn apply_frame(
         SyncFrame::WorkspaceDelta { delta } => fold_workspace_delta(store, delta),
         SyncFrame::TaskDelta { delta } => fold_task_delta(store, delta),
         SyncFrame::McpMessage { message } => fold_mcp_message(store, message),
+        SyncFrame::TerminalClipboard { session_id, text } => {
+            store.terminal_clipboard_requests.push(
+                crate::store::clipboard_requests::TerminalClipboardRequest {
+                    session_id: session_id.clone(),
+                    text: text.clone(),
+                    delivery_seq,
+                },
+            );
+            store.note_change();
+        }
         SyncFrame::WorkerPresence { event } => {
             fold_worker_presence(store, event, out);
             // A heartbeat moves no worker in or out of the pre-warm selection.

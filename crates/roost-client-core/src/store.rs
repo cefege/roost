@@ -12,6 +12,7 @@ pub mod browse_entries;
 pub mod browse_machine;
 pub mod browse_paths;
 pub mod browse_state;
+pub mod clipboard_requests;
 pub mod folder_activity;
 pub mod folder_name_validation;
 pub(crate) mod frames_revision;
@@ -32,6 +33,7 @@ pub mod spotlight;
 pub mod sync_feeds;
 pub mod sync_smoke;
 pub mod terminal_nav_pad;
+mod terminal_replicas;
 pub mod terminal_transport;
 pub mod toasts;
 pub mod transfers;
@@ -222,6 +224,8 @@ pub struct Store {
     pub last_activity_ms: BTreeMap<String, i64>,
     /// Who is looking at each session, replaced per `viewers` notice.
     pub session_viewers: BTreeMap<String, Vec<SessionViewer>>,
+    /// Pending terminal clipboard writes, drained by the host.
+    pub terminal_clipboard_requests: clipboard_requests::TerminalClipboardRequests,
     /// Opaque presence notices for the panes' presence handlers, oldest first.
     pub presence_notices: VecDeque<PresenceNotice>,
     /// Live audit rows, newest first, deduplicated by id and bounded.
@@ -319,32 +323,12 @@ impl Store {
             presence_notices: VecDeque::new(),
             audit_rows: VecDeque::new(),
             ui_commands: VecDeque::new(),
+            terminal_clipboard_requests: clipboard_requests::TerminalClipboardRequests::default(),
             transport_probes: BTreeMap::new(),
             pending_transport_probes: BTreeMap::new(),
             announced_pairings: VecDeque::new(),
             terminal_smoke_faults: crate::terminal::smoke_faults::TerminalSmokeFaults::default(),
         }
-    }
-
-    /// A session's replica, creating it on first use.
-    ///
-    /// Created lazily because a session with no pane has no replica to keep, and
-    /// a pre-created one per session in a large account is a per-session grid the
-    /// client never needed to hold.
-    pub fn terminal_mut(&mut self, session_id: &str, worker_fp: &str) -> &mut TerminalSession {
-        self.terminal
-            .entry(session_id.to_string())
-            .or_insert_with(|| TerminalSession::new(session_id, worker_fp))
-    }
-
-    /// A session's replica, if one exists.
-    pub fn terminal(&self, session_id: &str) -> Option<&TerminalSession> {
-        self.terminal.get(session_id)
-    }
-
-    /// A session's replica, mutable, if one exists.
-    pub fn terminal_mut_if_present(&mut self, session_id: &str) -> Option<&mut TerminalSession> {
-        self.terminal.get_mut(session_id)
     }
 
     /// How many mutations this store has accepted.
@@ -364,13 +348,6 @@ impl Store {
     /// The generation the client is currently fenced to, from the live socket.
     pub fn sync_terminal_token(&self) -> Option<TerminalToken> {
         self.sync.terminal_token()
-    }
-
-    /// Whether a session's replica is holding a complete baseline.
-    pub fn is_paintable(&self, session_id: &str) -> bool {
-        self.terminal
-            .get(session_id)
-            .is_some_and(|session| session.baseline_ready())
     }
 
     /// The next Connect call id. Monotonic, so a late result is still correlatable.

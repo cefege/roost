@@ -131,6 +131,8 @@ async fn metadata_frames(capabilities: Vec<String>) -> Vec<Up> {
         title: "vim".to_owned(),
         activity_changed: false,
         activity_ts_ms: 0,
+        clipboard_changed: false,
+        clipboard: String::new(),
     };
     assert!(live.uplink.send(Up::TerminalMetadata(metadata)));
     let raw = Binary {

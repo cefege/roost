@@ -124,6 +124,11 @@ pub enum ToastIntent {
         /// The session to reveal.
         session_id: String,
     },
+    /// Write a terminal clipboard request after the operator's gesture.
+    CopyText {
+        /// The text the operator explicitly chose to copy.
+        text: String,
+    },
 }
 
 /// The button a card offers.
@@ -219,6 +224,15 @@ impl ToastOptions {
         self.action = Some(ToastAction {
             label: label.into(),
             intent: ToastIntent::RevealSession { session_id },
+        });
+        self
+    }
+
+    /// Attach a copy button for text requiring an explicit user gesture.
+    pub fn with_copy_action(mut self, text: impl Into<String>) -> Self {
+        self.action = Some(ToastAction {
+            label: "Copy".to_owned(),
+            intent: ToastIntent::CopyText { text: text.into() },
         });
         self
     }

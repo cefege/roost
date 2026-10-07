@@ -19,6 +19,7 @@ Sync is the authenticated browser metadata, control, terminal-fallback, and auth
 | `SyncDomainReadyCommand`, `SyncDomainSubscriptionCommand` | `protocol/proto/roost/v1/sync.proto:134-143` | v2 domain hydration and subscription transitions. |
 | `InputAccepted`, `InputRejected`, `InputAmbiguous` | `protocol/proto/roost/v1/sync.proto:229-249` | Truthful terminal-write result correlated by session, `input_seq`, and domain generation. |
 | `KeepaliveFrame` | `protocol/proto/roost/v1/sync.proto:324-326` | Timestamp-only liveness frame. |
+| `TerminalClipboardFrame` | `protocol/proto/roost/v1/sync.proto` | One-shot OSC 52 clipboard write for an observed session. Volatile event: not retained or seeded on reconnect; text is at most 256 KiB. |
 
 ## State machine
 

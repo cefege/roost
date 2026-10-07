@@ -38,6 +38,15 @@ message SessionPresence {
 }
 
 
+// A one-shot OSC 52 clipboard write requested by terminal output. The
+// coordinator resolves the worker channel to its session and broadcasts this
+// volatile event only to Sync viewers observing that session; it is not seeded
+// on reconnect.
+message TerminalClipboardFrame {
+  string session_id = 1;
+  string text = 2;
+}
+
 // OSC 0/2 terminal title, parsed centrally by coord (terminal-title-hub) from
 // the same relayed byte stream and fanned out here. Volatile (re-derived from
 // output) — NOT backfilled on reconnect; seeded on Sync connect like status.
@@ -295,6 +304,7 @@ message FirehoseFrame {
     TerminalViewStateFrame terminal_view_state = 48;
     TerminalInputRouteResult input_route_result = 49;
     TerminalTransportProbeResult terminal_transport_probe_result = 50;
+    TerminalClipboardFrame terminal_clipboard = 51;
   }
 }
 

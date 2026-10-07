@@ -209,6 +209,13 @@ pub enum SyncFrame {
         /// The title.
         title: String,
     },
+    /// A one-shot OSC 52 write requested by terminal output.
+    TerminalClipboard {
+        /// The session that emitted the request.
+        session_id: String,
+        /// The requested clipboard contents.
+        text: String,
+    },
     /// The coordinator-stamped last-activity time of a session.
     LastActivity {
         /// The session.
@@ -271,6 +278,7 @@ impl SyncFrame {
             | Self::SessionViewers { .. }
             | Self::SessionPresence { .. }
             | Self::TerminalTitle { .. }
+            | Self::TerminalClipboard { .. }
             | Self::LastActivity { .. } => Some(SyncDomain::Terminal),
             Self::WorkerPresence { .. } | Self::WorkerRoutable { .. } => Some(SyncDomain::Workers),
             Self::WorkspaceDelta { .. } => Some(SyncDomain::Workspaces),
@@ -323,6 +331,7 @@ impl SyncFrame {
             Self::WorkerPresence { .. } => "worker_presence",
             Self::WorkerRoutable { .. } => "worker_routable",
             Self::TerminalTitle { .. } => "terminal_title",
+            Self::TerminalClipboard { .. } => "terminal_clipboard",
             Self::LastActivity { .. } => "last_activity",
             Self::PairRequestDelta { .. } => "pair_request_delta",
             Self::UiState => "ui_state",
@@ -345,6 +354,7 @@ impl SyncFrame {
             | Self::SessionViewers { session_id, .. }
             | Self::SessionPresence { session_id, .. }
             | Self::TerminalTitle { session_id, .. }
+            | Self::TerminalClipboard { session_id, .. }
             | Self::LastActivity { session_id, .. } => Some(session_id),
             Self::InputRouteResult { result } => Some(result.session_id.as_str()),
             Self::AgentStatus { update, .. } => Some(update.common.session_id.as_str()),

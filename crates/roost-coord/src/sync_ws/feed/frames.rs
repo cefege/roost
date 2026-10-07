@@ -20,15 +20,16 @@ use roost_proto::__buffa::oneof::task_delta_proto::Kind as TaskKind;
 use roost_proto::__buffa::oneof::workspace_delta_proto::Kind as WorkspaceKind;
 use roost_proto::{
     AgentStatusFrame, AuditRow as PbAuditRow, FirehoseFrame, McpRelayEvent, McpStreamMessageProto,
-    PairCompleted, PairRequest, PairRequestDeltaProto, TaskDeltaProto, TerminalTitleFrame,
-    Workspace as PbWorkspace, WorkspaceDeltaProto, WorkspaceSessionsSet,
+    PairCompleted, PairRequest, PairRequestDeltaProto, TaskDeltaProto, TerminalClipboardFrame,
+    TerminalTitleFrame, Workspace as PbWorkspace, WorkspaceDeltaProto, WorkspaceSessionsSet,
 };
 use roost_protocol::wire::{
     AgentStatusUpdate, McpRelayDelta, McpStreamMessage, WorkspaceDelta, event_to_proto,
 };
 
 use crate::events::bus_messages::{
-    AuditRow, PairRequestDelta, SessionBusMessage, SessionTitleUpdate, TaskBusMsg, TaskBusMsgKind,
+    AuditRow, PairRequestDelta, SessionBusMessage, SessionClipboardWrite, SessionTitleUpdate,
+    TaskBusMsg, TaskBusMsgKind,
 };
 use crate::events::visibility::kind_is_public;
 use crate::sync_ws::feed::{FeedFrame, FeedRefusal, as_f64, as_u32, as_u64};
@@ -255,6 +256,18 @@ pub fn session_title_frame(title: &SessionTitleUpdate) -> FeedFrame {
             session_id: title.session_id.clone(),
             title: title.title.clone(),
             ..TerminalTitleFrame::default()
+        }))),
+        ..FirehoseFrame::default()
+    })
+}
+
+/// One OSC 52 clipboard write requested by a terminal's output.
+pub fn session_clipboard_frame(write: &SessionClipboardWrite) -> FeedFrame {
+    FeedFrame::of(FirehoseFrame {
+        frame: Some(Frame::TerminalClipboard(Box::new(TerminalClipboardFrame {
+            session_id: write.session_id.clone(),
+            text: write.text.clone(),
+            ..TerminalClipboardFrame::default()
         }))),
         ..FirehoseFrame::default()
     })

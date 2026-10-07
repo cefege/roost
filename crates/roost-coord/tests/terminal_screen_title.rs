@@ -160,6 +160,8 @@ async fn a_negotiated_metadata_frame_feeds_the_title_and_activity_hubs() {
         title: "semantic title".to_owned(),
         activity_changed: true,
         activity_ts_ms: 123,
+        clipboard_changed: false,
+        clipboard: String::new(),
     });
     let outcome = dispatcher.handle_now(WORKER_FP, live_frame(71, metadata));
 
@@ -167,6 +169,47 @@ async fn a_negotiated_metadata_frame_feeds_the_title_and_activity_hubs() {
     assert_eq!(outcome, DispatchOutcome::Handled);
     assert_eq!(*titles.lock().unwrap(), ["semantic title"]);
     assert_eq!(*activity.lock().unwrap(), [123]);
+}
+
+/// An OSC 52 write is an event: it reaches the clipboard bus once, as sent,
+/// and leaves nothing behind that a later Sync link could be seeded with.
+#[tokio::test]
+async fn a_clipboard_write_is_published_once_and_retained_nowhere() {
+    let fixture = LinkFixture::new("metadata-clipboard").await;
+    let dispatcher = negotiated(&fixture);
+    let buses = &fixture.services.buses;
+    let (titles, title_subscription) = collect(buses, SEMANTIC_SESSION);
+    let writes = Arc::new(Mutex::new(Vec::new()));
+    let recorded = Arc::clone(&writes);
+    let clipboard_subscription = buses.clipboard_bus.subscribe(move |write| {
+        recorded
+            .lock()
+            .unwrap()
+            .push((write.session_id.clone(), write.text.clone()));
+    });
+
+    let metadata = CoordWorkerUpstream::TerminalMetadata(TerminalMetadata {
+        channel_id: ChannelId::try_from(CHANNEL).unwrap(),
+        title_changed: false,
+        title: String::new(),
+        activity_changed: false,
+        activity_ts_ms: 0,
+        clipboard_changed: true,
+        clipboard: "git log --oneline".to_owned(),
+    });
+    let outcome = dispatcher.handle_now(WORKER_FP, live_frame(72, metadata));
+
+    drop((title_subscription, clipboard_subscription));
+    assert_eq!(outcome, DispatchOutcome::Handled);
+    assert_eq!(
+        *writes.lock().unwrap(),
+        [(SEMANTIC_SESSION.to_owned(), "git log --oneline".to_owned())]
+    );
+    assert!(
+        titles.lock().unwrap().is_empty(),
+        "a clipboard-only record is not a title"
+    );
+    assert!(fixture.services.titles.title_snapshot().is_empty());
 }
 
 // v2 terminal-metadata-adapter.test.ts "drops input-direction and

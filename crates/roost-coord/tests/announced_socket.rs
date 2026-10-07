@@ -91,6 +91,8 @@ fn title(on: u32, text: &str) -> Vec<u8> {
         title: text.to_owned(),
         activity_changed: false,
         activity_ts_ms: 0,
+        clipboard_changed: false,
+        clipboard: String::new(),
     }))
 }
 

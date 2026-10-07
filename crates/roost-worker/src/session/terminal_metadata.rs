@@ -2,8 +2,10 @@
 //! `apps/worker/src/session/session-terminal-metadata.ts` (per-channel title and
 //! activity facts, the negotiated flag, the fair 32-frame flush, replay after the
 //! snapshot barrier) and `packages/protocol/src/terminal-metadata.ts`
-//! (`TerminalTitleParser`). `session::emit` observes every chunk; the cadence
-//! flushes into the link's coalescing lane.
+//! (`TerminalTitleParser`), plus the OSC 52 clipboard write, which rides the
+//! same record but is an event: sent once, never reasserted by a replay.
+//! `session::emit` observes every chunk; the cadence flushes into the link's
+//! coalescing lane.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -143,7 +145,8 @@ fn bounded_carry(value: &str) -> String {
         .collect()
 }
 
-/// v2 `TerminalMetadataState`: one channel's retained facts.
+/// v2 `TerminalMetadataState`: one channel's retained facts, and the clipboard
+/// write still waiting for its one send.
 #[derive(Debug, Default, Clone)]
 pub struct ChannelMetadata {
     parser: TerminalTitleParser,
@@ -151,8 +154,10 @@ pub struct ChannelMetadata {
     title_key: Option<String>,
     pub activity_ts_ms: Option<i64>,
     last_activity_published_at_ms: Option<i64>,
+    pub clipboard: Option<String>,
     title_dirty: bool,
     activity_dirty: bool,
+    pub clipboard_dirty: bool,
 }
 
 /// The semantic lane: every channel's facts, the ready ring, and the flag.
@@ -183,7 +188,20 @@ impl TerminalMetadataStage {
     /// v2 `observeTerminalMetadata`: record one chunk without retaining it.
     /// Returns whether a flush became owed.
     pub fn observe(&mut self, channel_id: ChannelId, bytes: &[u8], now_ms: i64) -> bool {
-        if bytes.is_empty() {
+        self.observe_live(channel_id, bytes, None, now_ms)
+    }
+
+    /// [`Self::observe`] for a live chunk, with the newest clipboard write it
+    /// parsed. A write seen before the link negotiated metadata is dropped
+    /// rather than held: by the time the link is up the operator has moved on.
+    pub fn observe_live(
+        &mut self,
+        channel_id: ChannelId,
+        bytes: &[u8],
+        clipboard: Option<String>,
+        now_ms: i64,
+    ) -> bool {
+        if bytes.is_empty() && clipboard.is_none() {
             return false;
         }
         let state = self.channels.entry(channel_id).or_default();
@@ -196,15 +214,23 @@ impl TerminalMetadataStage {
             state.title_dirty = true;
             title_changed = true;
         }
-        state.activity_ts_ms = Some(now_ms);
-        let activity_due = state
-            .last_activity_published_at_ms
-            .is_none_or(|published| now_ms - published >= TERMINAL_METADATA_ACTIVITY_THROTTLE_MS);
+        let clipboard_changed = clipboard.is_some() && self.negotiated;
+        if let Some(text) = clipboard.filter(|_| self.negotiated) {
+            state.clipboard = Some(text);
+            state.clipboard_dirty = true;
+        }
+        if !bytes.is_empty() {
+            state.activity_ts_ms = Some(now_ms);
+        }
+        let activity_due = !bytes.is_empty()
+            && state.last_activity_published_at_ms.is_none_or(|published| {
+                now_ms - published >= TERMINAL_METADATA_ACTIVITY_THROTTLE_MS
+            });
         if activity_due {
             state.activity_dirty = true;
         }
         if self.negotiated
-            && (title_changed || activity_due)
+            && (title_changed || activity_due || clipboard_changed)
             && !self.ready_set.contains(&channel_id)
         {
             return self.mark_ready(channel_id);
@@ -271,8 +297,10 @@ impl TerminalMetadataStage {
             let title = state.title.clone();
             let activity = state.activity_ts_ms;
             let title_changed = state.title_dirty && title.is_some();
+            let clipboard_changed = state.clipboard_dirty && state.clipboard.is_some();
+            let clipboard = state.clipboard.clone().unwrap_or_default();
             let activity_changed = state.activity_dirty && activity.is_some();
-            if !title_changed && !activity_changed {
+            if !title_changed && !activity_changed && !clipboard_changed {
                 continue;
             }
             let result = send(TerminalMetadata {
@@ -281,6 +309,8 @@ impl TerminalMetadataStage {
                 title: title.clone().unwrap_or_default(),
                 activity_changed,
                 activity_ts_ms: activity.map_or(0, |ts| u64::try_from(ts).unwrap_or(0)),
+                clipboard_changed,
+                clipboard: clipboard.clone(),
             });
             frames += 1;
             if result == MetadataSend::Dropped {
@@ -302,7 +332,12 @@ impl TerminalMetadataStage {
                     state.activity_dirty = false;
                 }
             }
-            if (state.title_dirty || state.activity_dirty) && !self.ready_set.contains(&channel_id)
+            if clipboard_changed && state.clipboard.as_deref() == Some(clipboard.as_str()) {
+                state.clipboard = None;
+                state.clipboard_dirty = false;
+            }
+            if (state.title_dirty || state.activity_dirty || state.clipboard_dirty)
+                && !self.ready_set.contains(&channel_id)
             {
                 self.ready.push_back(channel_id);
                 self.ready_set.insert(channel_id);

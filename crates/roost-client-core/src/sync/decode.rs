@@ -204,6 +204,10 @@ fn map_arm(frame: Frame, domain_generation: u64) -> Result<SyncFrame, String> {
         }),
         Frame::CellGridChunk(value) => Ok(terminal::cell_grid_chunk(*value)),
         Frame::TerminalViewState(value) => Ok(terminal::view_state(*value, domain_generation)),
+        Frame::TerminalClipboard(value) => Ok(SyncFrame::TerminalClipboard {
+            session_id: value.session_id,
+            text: value.text,
+        }),
         Frame::TerminalTitle(value) => Ok(SyncFrame::TerminalTitle {
             session_id: value.session_id,
             title: value.title,

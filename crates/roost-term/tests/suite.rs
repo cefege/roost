@@ -6,6 +6,8 @@
 
 #[path = "cell_model.rs"]
 mod cell_model;
+#[path = "clipboard_writes.rs"]
+mod clipboard_writes;
 #[path = "dyn_dispatch_parity.rs"]
 mod dyn_dispatch_parity;
 #[path = "emitter_row_cap.rs"]

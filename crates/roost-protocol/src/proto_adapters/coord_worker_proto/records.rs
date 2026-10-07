@@ -181,9 +181,9 @@ pub(super) fn update_progress_from_proto(progress: &WUpdateProgress) -> UpdatePr
     }
 }
 
-/// Compact terminal metadata, in both directions. The two `changed` booleans
-/// are what separate "the title is now empty" from "the title did not change
-/// on this frame", so they travel rather than being inferred.
+/// Compact terminal metadata, in both directions. Changed flags distinguish
+/// empty values from unchanged fields; clipboard text is emitted as an event,
+/// never inferred from a retained title/activity snapshot.
 pub(super) fn metadata_to_proto(metadata: &TerminalMetadata) -> ProtocolResult<WTerminalMetadata> {
     Ok(WTerminalMetadata {
         channel_id: metadata.channel_id.as_u32(),
@@ -191,6 +191,8 @@ pub(super) fn metadata_to_proto(metadata: &TerminalMetadata) -> ProtocolResult<W
         title: metadata.title.clone(),
         activity_changed: metadata.activity_changed,
         activity_ts_ms: metadata.activity_ts_ms,
+        clipboard_changed: metadata.clipboard_changed,
+        clipboard: metadata.clipboard.clone(),
         ..Default::default()
     })
 }
@@ -204,6 +206,8 @@ pub(super) fn metadata_from_proto(
         title: metadata.title.clone(),
         activity_changed: metadata.activity_changed,
         activity_ts_ms: metadata.activity_ts_ms,
+        clipboard_changed: metadata.clipboard_changed,
+        clipboard: metadata.clipboard.clone(),
     })
 }
 

@@ -288,6 +288,8 @@ mod session_binding;
 mod session_cell_emit;
 #[path = "session_cell_sink.rs"]
 mod session_cell_sink;
+#[path = "session_clipboard_ingest.rs"]
+mod session_clipboard_ingest;
 #[path = "session_cwd_event.rs"]
 mod session_cwd_event;
 #[path = "session_git_ports.rs"]

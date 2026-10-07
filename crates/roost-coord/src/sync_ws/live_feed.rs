@@ -10,9 +10,10 @@
 //! are `sync_ws::backfill` and `sync_ws::seed`.
 //!
 //! EVERY ROW OF `feed::BUS_FRAME_ADAPTERS` IS SUBSCRIBED HERE, AND NO OTHER BUS.
-//! Thirteen buses, the same thirteen `startSyncFeed` subscribes: twelve at
-//! install, and `audit_bus` on demand -- eagerly for a v1 socket, which has no
-//! domain commands, and only on `domainSubscribe` for a v2 one.
+//! Fourteen buses, the thirteen `startSyncFeed` subscribes plus the OSC 52
+//! `clipboard_bus`: thirteen at install, and `audit_bus` on demand -- eagerly
+//! for a v1 socket, which has no domain commands, and only on
+//! `domainSubscribe` for a v2 one.
 
 use std::any::Any;
 use std::sync::Arc;
@@ -26,8 +27,8 @@ use crate::sync_ws::backfill::reset_terminal_for_recovery;
 use crate::sync_ws::driver::{LinkState, SyncLink};
 use crate::sync_ws::feed::FeedFrame;
 use crate::sync_ws::feed::frames::{
-    agent_status_frame, audit_frame, mcp_frame, pair_frame, session_message_frame,
-    session_title_frame, task_frame, workspace_frame,
+    agent_status_frame, audit_frame, mcp_frame, pair_frame, session_clipboard_frame,
+    session_message_frame, session_title_frame, task_frame, workspace_frame,
 };
 use crate::sync_ws::feed::last_activity::last_activity_frame;
 use crate::sync_ws::feed::presence::{presence_echo_is_own_notice, session_presence_frame};
@@ -37,7 +38,7 @@ use crate::sync_ws::session_replay::LiveVerdict;
 
 /// One socket's live subscriptions. Dropping it unsubscribes every bus.
 pub struct LiveFeed {
-    /// The twelve eager subscriptions, held only to be dropped.
+    /// The thirteen eager subscriptions, held only to be dropped.
     subscriptions: Vec<Box<dyn Any + Send + Sync>>,
     /// The audit source, present while this socket wants audit rows.
     audit: Option<Subscription<AuditRow>>,
@@ -64,7 +65,7 @@ impl LiveFeed {
         viewer: UiViewer,
         viewer_key: Option<String>,
     ) -> Self {
-        let mut subscriptions: Vec<Box<dyn Any + Send + Sync>> = Vec::with_capacity(12);
+        let mut subscriptions: Vec<Box<dyn Any + Send + Sync>> = Vec::with_capacity(13);
         let sink = Arc::clone(link);
         subscriptions.push(Box::new(buses.session_bus.subscribe(move |message| {
             sink.deliver_with(|state| route_session(state, message));
@@ -108,6 +109,12 @@ impl LiveFeed {
         subscriptions.push(Box::new(buses.title_bus.subscribe(move |title| {
             sink.deliver_with(|state| {
                 observes(state, &title.session_id).then(|| session_title_frame(title))
+            });
+        })));
+        let sink = Arc::clone(link);
+        subscriptions.push(Box::new(buses.clipboard_bus.subscribe(move |write| {
+            sink.deliver_with(|state| {
+                observes(state, &write.session_id).then(|| session_clipboard_frame(write))
             });
         })));
         let sink = Arc::clone(link);

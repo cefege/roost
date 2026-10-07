@@ -65,7 +65,7 @@ const BUS_TARGET: &str = "events.bus";
 /// A broadcast bus with a bounded replay ring.
 ///
 /// A clone is another handle on the same bus, which is what makes `Arc<Buses>` in
-/// the services struct the right way to hand thirteen of them to a transport.
+/// the services struct the right way to hand fourteen of them to a transport.
 pub struct BoundedBus<T> {
     inner: Arc<BusInner<T>>,
 }

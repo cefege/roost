@@ -256,6 +256,20 @@ impl WorkerFrameDispatcher {
                 .titles
                 .observe_title(&services.buses, session_id.as_str(), &metadata.title);
         }
+        if metadata.clipboard_changed {
+            services.buses.clipboard_bus.publish(
+                crate::events::bus_messages::SessionClipboardWrite {
+                    session_id: session_id.as_str().to_owned(),
+                    text: metadata.clipboard.clone(),
+                },
+            );
+            // The length only: the text is the operator's clipboard.
+            tracing::debug!(
+                worker_fp = %worker,
+                clipboard_bytes = metadata.clipboard.len(),
+                "terminal emitted an OSC 52 clipboard write"
+            );
+        }
         if metadata.activity_changed
             && let Ok(observed_at_ms) = i64::try_from(metadata.activity_ts_ms)
         {

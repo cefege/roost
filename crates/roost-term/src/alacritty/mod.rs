@@ -10,11 +10,12 @@
 //! the one place that does.
 //!
 //! The event listener is [`replies::ReplyListener`]: `PtyWrite` — alacritty
-//! answering a probe — is queued for the query-reply lane, and every other
-//! event (title, clipboard, bell) is dropped, because the PTY reader behind
-//! them belongs to the worker, not to a core that only renders. The processor
-//! parses THROUGH synchronized updates ([`replies::ParseThrough`]), and a
-//! shadow parser ([`csi_shadow`]) records the CSI sequences `vte` drops.
+//! answering a probe — is queued for the query-reply lane, an OSC 52 store is
+//! queued for the browser's clipboard, and every other event (title, bell) is
+//! dropped, because the PTY reader behind them belongs to the worker, not to a
+//! core that only renders. Both queues are emptied by a replay `write`. The
+//! processor parses THROUGH synchronized updates ([`replies::ParseThrough`]),
+//! and a shadow parser ([`csi_shadow`]) records the CSI sequences `vte` drops.
 
 pub(crate) mod cell;
 mod csi_shadow;
@@ -30,7 +31,7 @@ use crate::core::{CursorState, TerminalCore};
 use crate::unhandled::UnhandledSequenceRing;
 use cell::LinkScope;
 use csi_shadow::CsiShadow;
-use replies::{ParseThrough, ReplyListener, ReplyQueue};
+use replies::{ClipboardQueue, ParseThrough, ReplyListener, ReplyQueue};
 
 /// The scrollback capacity Roost runs every terminal with.
 pub const SCROLLBACK_LINES: usize = 10_000;
@@ -43,6 +44,8 @@ pub struct AlacrittyCore {
     /// What the term has answered and nobody has popped, shared with the
     /// listener the term owns.
     replies: ReplyQueue,
+    /// OSC 52 stores parsed live and not yet taken, shared the same way.
+    clipboard_writes: ClipboardQueue,
     /// The second parse that observes dropped CSI; one per core, for its life.
     csi_shadow: CsiShadow,
     /// Per-core link identity; see `cell` for why alacritty's own ids are not
@@ -74,15 +77,17 @@ impl AlacrittyCore {
             ..alacritty_terminal::term::Config::default()
         };
         let replies = ReplyQueue::default();
+        let clipboard_writes = ClipboardQueue::default();
         let term = Term::new(
             config,
             &GridSize { cols, rows },
-            ReplyListener::new(replies.clone()),
+            ReplyListener::new(replies.clone(), clipboard_writes.clone()),
         );
         Self {
             term,
             processor: Processor::new(),
             replies,
+            clipboard_writes,
             csi_shadow: CsiShadow::default(),
             links: LinkScope::new(),
             dirty: Vec::new(),
@@ -110,6 +115,7 @@ impl TerminalCore for AlacrittyCore {
     fn write(&mut self, bytes: &[u8]) {
         self.parse(bytes);
         self.replies.discard();
+        self.clipboard_writes.discard();
     }
 
     fn write_raw(&mut self, bytes: &[u8]) {
@@ -118,6 +124,10 @@ impl TerminalCore for AlacrittyCore {
 
     fn get_response(&mut self) -> Option<String> {
         self.replies.pop()
+    }
+
+    fn take_clipboard_writes(&mut self) -> Vec<String> {
+        self.clipboard_writes.take()
     }
 
     fn unhandled_sequences(&self) -> &UnhandledSequenceRing {

@@ -41,7 +41,8 @@ pub fn is_compact_terminal_metadata(encoded_bytes: u64) -> bool {
 }
 
 /// Coalesce two facts for one channel: each changed field keeps its newest
-/// value, and a field either fact changed stays changed. `None` only when the
+/// value, and a field either fact changed stays changed. A pending clipboard
+/// event survives later title/activity-only observations. `None` only when the
 /// merged frame does not encode, which the caller treats as not compact.
 #[must_use]
 pub fn merge_terminal_metadata(
@@ -58,12 +59,19 @@ pub fn merge_terminal_metadata(
     } else {
         previous
     };
+    let newest_clipboard = if incoming.clipboard_changed {
+        incoming
+    } else {
+        previous
+    };
     let metadata = TerminalMetadata {
         channel_id: incoming.channel_id,
         title_changed: previous.title_changed || incoming.title_changed,
         title: newest_title.title.clone(),
         activity_changed: previous.activity_changed || incoming.activity_changed,
         activity_ts_ms: newest_activity.activity_ts_ms,
+        clipboard_changed: previous.clipboard_changed || incoming.clipboard_changed,
+        clipboard: newest_clipboard.clipboard.clone(),
     };
     let frame = CoordWorkerUpstream::TerminalMetadata(metadata);
     let encoded_bytes = u64::try_from(encode_upstream(&frame).ok()?.len()).ok()?;

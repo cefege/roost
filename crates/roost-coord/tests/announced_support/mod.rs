@@ -162,6 +162,8 @@ pub fn metadata(
         title: title.to_owned(),
         activity_changed,
         activity_ts_ms,
+        clipboard_changed: false,
+        clipboard: String::new(),
     })
 }
 

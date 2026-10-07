@@ -38,14 +38,16 @@ message WRpcOk { string request_id = 1; string data_json = 2; }
 message WRpcError { string request_id = 1; string message = 2; }
 message WBinary { uint32 channel_id = 1; uint32 direction = 2; uint64 seq = 3; bytes data = 4; }
 
-// Compact semantic terminal metadata. The booleans preserve an intentional
-// empty title and distinguish an unchanged field from a reconnect replay.
+// Compact semantic terminal metadata. Changed flags preserve intentional empty
+// values; clipboard writes are one-shot UTF-8 text, capped at 256 KiB.
 message WTerminalMetadata {
   uint32 channel_id = 1;
   bool title_changed = 2;
   string title = 3;
   bool activity_changed = 4;
   uint64 activity_ts_ms = 5;
+  bool clipboard_changed = 6;
+  string clipboard = 7;
 }
 
 // T2.2 — in-band JWT rotation. Worker sends this BEFORE the current

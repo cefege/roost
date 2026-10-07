@@ -21,6 +21,7 @@ Each worker dials one long-lived, full-duplex binary WebSocket to the coordinato
 | `WInputResult`, `WTerminalStreamResult` | `protocol/proto/roost/v1/worker_transport.proto:96-159` | Truthful write/stream outcome with write phase and failure classification. |
 | `WTerminalViewState`, `WTerminalViewProjection` | `protocol/proto/roost/v1/worker_transport.proto:170-187` | Worker-owned view result and coordinator presence/diagnostic projection. |
 | Direct grant/peer/attachment result frames | `protocol/proto/roost/v1/worker_transport.proto` | Coordinator-authorized direct terminal/attachment admission and liveness. |
+| `WTerminalMetadata` | `protocol/proto/roost/v1/worker_transport.proto` | Volatile semantic title/activity updates plus one-shot OSC 52 clipboard writes; clipboard text is bounded to 256 KiB and is not replayed after link loss. |
 
 ## State machine
 

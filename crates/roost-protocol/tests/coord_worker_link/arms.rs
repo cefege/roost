@@ -149,6 +149,8 @@ pub fn upstream_arms() -> Vec<(&'static str, CoordWorkerUpstream)> {
                 title: "vim".to_owned(),
                 activity_changed: true,
                 activity_ts_ms: 1_700_000_000_001,
+                clipboard_changed: true,
+                clipboard: "copied text".to_owned(),
             }),
         ),
         (

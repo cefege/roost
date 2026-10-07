@@ -89,24 +89,32 @@ pub trait TerminalCore {
     /// renders nothing for it, which is the emulator's decision and not an
     /// error the caller could act on.
     ///
-    /// Any reply the bytes provoke is DISCARDED, along with anything still
-    /// queued: this is the replay and rebuild entry, and a probe answered from
-    /// history would be a reply to a question nobody is waiting on — landing
-    /// on the application's stdin ahead of the next live answer, which is how
-    /// a cursor report ends up answering a device-attributes query. v2 drained
-    /// and dropped the queue after every such write; here a plain write cannot
+    /// Any reply or clipboard write the bytes provoke is DISCARDED, along with
+    /// anything still queued: this is the replay and rebuild entry, and a probe
+    /// answered from history would be a reply to a question nobody is waiting
+    /// on — landing on the application's stdin ahead of the next live answer,
+    /// which is how a cursor report ends up answering a device-attributes
+    /// query. A clipboard write replayed from history would overwrite the
+    /// operator's clipboard with text they copied long ago. v2 drained and
+    /// dropped the queue after every such write; here a plain write cannot
     /// leave one behind.
     fn write(&mut self, bytes: &[u8]);
 
-    /// Feed PTY output and KEEP the replies it provokes for
-    /// [`TerminalCore::get_response`]. v2's `writeRaw`: the live query-reply
-    /// lane is its only caller, and it drains after every call.
+    /// Feed PTY output and KEEP the replies and clipboard writes it provokes
+    /// for [`TerminalCore::get_response`] and
+    /// [`TerminalCore::take_clipboard_writes`]. v2's `writeRaw`: the live
+    /// ingest is its only caller, and it drains both after every call.
     fn write_raw(&mut self, bytes: &[u8]);
 
     /// Pop the oldest reply the core owes the application, `None` when none is
     /// queued. v2's `getResponse`: ONE per call, in the order the core
     /// produced them, so a caller drains until `None`.
     fn get_response(&mut self) -> Option<String>;
+
+    /// Take the OSC 52 clipboard stores the live bytes asked for, oldest
+    /// first, already decoded. Write-only: a program can never read the
+    /// operator's clipboard through this core.
+    fn take_clipboard_writes(&mut self) -> Vec<String>;
 
     /// The CSI sequences this core's dispatcher dropped, as a never-cleared
     /// ring. A partial detector by construction: it sees unrecognised CSI, not

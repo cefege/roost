@@ -139,25 +139,40 @@ pub fn ToastCard(toast_id: ToastId) -> Element {
         }
     });
 
-    // Dismiss THEN navigate, in that order and through one call: revealing first
+    // Dismiss THEN act, in that order and through one call: revealing first
     // would leave a card on screen pointing at the session the user just left.
     let reveal: EventHandler<MouseEvent> = EventHandler::new({
         let pump = pump.clone();
         let id = toast_id.clone();
         let mut notify_target = notify_target;
         move |_event: MouseEvent| {
-            let revealed = write_store(&pump, |store| {
-                let ToastIntent::RevealSession { session_id } =
-                    take_toast_action(store, &id)?.intent;
-                let href =
-                    session_by_id(store, &session_id).map(|session| terminal_href(store, session));
-                Some((session_id, href))
-            });
-            let Some((session_id, href)) = revealed else {
+            let action = write_store(&pump, |store| take_toast_action(store, &id));
+            let Some(action) = action else {
                 return;
             };
             notify_target.clear(&id);
-            navigate.call(href.unwrap_or_else(|| format!("/s/{session_id}")));
+            match action.intent {
+                ToastIntent::RevealSession { session_id } => {
+                    let href = {
+                        let core = pump.core();
+                        let core = core.borrow();
+                        session_by_id(core.store(), &session_id)
+                            .map(|session| terminal_href(core.store(), session))
+                    };
+                    navigate.call(href.unwrap_or_else(|| format!("/s/{session_id}")));
+                }
+                ToastIntent::CopyText { text } => {
+                    let pump = pump.clone();
+                    let session_id = id.subject.clone();
+                    // Called inside the click, which is the gesture the
+                    // browser refused the original write for.
+                    clipboard::copy_text_then(&text, move |accepted| {
+                        if accepted {
+                            super::terminal_clipboard::raise_copied_toast(&pump, &session_id);
+                        }
+                    });
+                }
+            }
         }
     });
 

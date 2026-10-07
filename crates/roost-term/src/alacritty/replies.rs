@@ -1,15 +1,18 @@
 //! What `alacritty_terminal` says back to the application, and the parser
 //! policy that decides WHEN it says it. [`super::AlacrittyCore`] owns both; the
 //! worker's query-reply lane (`crates/roost-worker/src/session/query_reply.rs`)
-//! drains the queue. Ports the response queue v2's `@wterm/core` exposed as
-//! `getResponse` (`apps/worker/src/terminal/terminal-query-reply.ts` read it).
+//! drains the reply queue and the worker's ingest drains the clipboard queue.
+//! Ports the response queue v2's `@wterm/core` exposed as `getResponse`
+//! (`apps/worker/src/terminal/terminal-query-reply.ts` read it).
 //!
-//! THE QUEUE. alacritty answers a probe by sending `Event::PtyWrite` to its
+//! THE QUEUES. alacritty answers a probe by sending `Event::PtyWrite` to its
 //! listener, synchronously, from inside the parse. The listener here appends
 //! each one, in order, to a queue the core pops one reply at a time — the
-//! `getResponse` contract. Every other event is dropped: the colour, text-area
-//! and clipboard requests need a window this core does not have, and v2's core
-//! answered none of them either.
+//! `getResponse` contract. An OSC 52 store arrives the same way as
+//! `Event::ClipboardStore`, already base64-decoded, and goes to its own queue
+//! for the browser. Every other event is dropped: the colour and text-area
+//! requests need a window this core does not have, and an OSC 52 READ is
+//! refused by alacritty's default `Osc52::OnlyCopy` before it gets here.
 //!
 //! PARSE-THROUGH. `vte`'s default processor BUFFERS every byte after
 //! `CSI ? 2026 h` until the closing `l` (or 2 MiB), and only an embedder that
@@ -25,6 +28,42 @@ use std::time::Duration;
 
 use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::vte::ansi::Timeout;
+
+/// The largest OSC 52 store forwarded, in decoded UTF-8 bytes. A clipboard
+/// write rides the semantic-metadata lane to every browser watching the
+/// session, so one program must not be able to push megabytes down it.
+pub(crate) const CLIPBOARD_WRITE_MAX_BYTES: usize = 256 * 1024;
+
+/// The clipboard writes a live parse produced, oldest first. Shared with the
+/// listener for the same reason as [`ReplyQueue`].
+#[derive(Debug, Default, Clone)]
+pub(crate) struct ClipboardQueue {
+    queued: Arc<Mutex<VecDeque<String>>>,
+}
+
+impl ClipboardQueue {
+    pub(crate) fn take(&self) -> Vec<String> {
+        self.lock().drain(..).collect()
+    }
+
+    /// Drop everything queued: a store parsed from history is a write the
+    /// operator already received, or never asked for.
+    pub(crate) fn discard(&self) {
+        self.lock().clear();
+    }
+
+    fn push(&self, text: String) {
+        if text.len() <= CLIPBOARD_WRITE_MAX_BYTES {
+            self.lock().push_back(text);
+        }
+    }
+
+    fn lock(&self) -> MutexGuard<'_, VecDeque<String>> {
+        self.queued
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
 
 /// The replies a core has produced and nobody has popped yet, oldest first.
 ///
@@ -58,21 +97,24 @@ impl ReplyQueue {
     }
 }
 
-/// The `Term`'s event listener: `PtyWrite` onto the queue, everything else away.
+/// The `Term`'s listener routes probe replies and bounded clipboard writes.
 pub(crate) struct ReplyListener {
     queue: ReplyQueue,
+    clipboard: ClipboardQueue,
 }
 
 impl ReplyListener {
-    pub(crate) fn new(queue: ReplyQueue) -> Self {
-        Self { queue }
+    pub(crate) fn new(queue: ReplyQueue, clipboard: ClipboardQueue) -> Self {
+        Self { queue, clipboard }
     }
 }
 
 impl EventListener for ReplyListener {
     fn send_event(&self, event: Event) {
-        if let Event::PtyWrite(reply) = event {
-            self.queue.lock().push_back(reply);
+        match event {
+            Event::PtyWrite(reply) => self.queue.lock().push_back(reply),
+            Event::ClipboardStore(_, text) => self.clipboard.push(text),
+            _ => {}
         }
     }
 }

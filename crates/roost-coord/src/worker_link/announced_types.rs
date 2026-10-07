@@ -21,8 +21,11 @@ pub const ANNOUNCED_CHANNEL_MAX_WAIT: Duration = Duration::from_millis(3_000);
 /// Channels with a retained semantic record, early and recovery together.
 pub const SEMANTIC_METADATA_MAX_CHANNELS: usize = 64;
 
-/// The largest encoded metadata frame that counts as compact.
-pub const SEMANTIC_METADATA_MAX_BYTES: u64 = 4 * 1024;
+/// The largest encoded metadata frame the channel barrier retains: the 4 KiB a
+/// title-and-activity record needs, plus the worker's 256 KiB OSC 52 cap
+/// (`roost-term` `CLIPBOARD_WRITE_MAX_BYTES`), so a clipboard write that lands
+/// before its channel is announced is held rather than dropped.
+pub const SEMANTIC_METADATA_MAX_BYTES: u64 = 4 * 1024 + 256 * 1024;
 
 /// How long a metadata fact may wait for its channel's announcement.
 pub const SEMANTIC_METADATA_PREANNOUNCE_MAX: Duration = Duration::from_millis(3_000);

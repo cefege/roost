@@ -187,6 +187,17 @@ pub struct SessionTitleUpdate {
     pub title: String,
 }
 
+/// A one-shot OSC 52 clipboard write requested by terminal output.
+///
+/// This is a volatile event, never retained or seeded to a new Sync subscriber.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionClipboardWrite {
+    /// The session whose terminal emitted the request.
+    pub session_id: String,
+    /// UTF-8 text requested for the browser clipboard.
+    pub text: String,
+}
+
 /// A last-activity timestamp from a semantic worker observation.
 ///
 /// The coordinator throttles the live fan-out; the retained value is what lets

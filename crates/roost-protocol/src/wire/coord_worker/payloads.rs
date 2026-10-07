@@ -104,8 +104,9 @@ pub struct RefreshJwt {
     pub jwt: String,
 }
 
-/// Compact semantic terminal metadata: title and activity as state rather than
-/// as PTY bytes, so a change costs a fixed frame however long the line is.
+/// Compact semantic terminal metadata: title, activity and clipboard as state
+/// rather than PTY bytes. Clipboard writes are events, so the changed flag
+/// survives coalescing without turning the text into retained state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TerminalMetadata {
     pub channel_id: ChannelId,
@@ -113,6 +114,8 @@ pub struct TerminalMetadata {
     pub title: String,
     pub activity_changed: bool,
     pub activity_ts_ms: u64,
+    pub clipboard_changed: bool,
+    pub clipboard: String,
 }
 
 /// Journal-backed progress of one update job on the worker host. Replayed

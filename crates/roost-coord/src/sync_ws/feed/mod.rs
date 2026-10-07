@@ -217,6 +217,10 @@ pub const BUS_FRAME_ADAPTERS: &[(&str, &str)] = &[
     ("audit_bus", "sync_ws::feed::frames::audit_frame"),
     ("title_bus", "sync_ws::feed::frames::session_title_frame"),
     (
+        "clipboard_bus",
+        "sync_ws::feed::frames::session_clipboard_frame",
+    ),
+    (
         "presence_bus",
         "sync_ws::feed::worker_frames::worker_presence_frame",
     ),
