@@ -4,7 +4,6 @@
 
 mod crate_dag;
 mod design_raw;
-mod tv_fixed_edges;
 mod file_size;
 mod fleet;
 mod fmt;
@@ -13,6 +12,7 @@ mod ratchet;
 mod source_tree;
 mod stdout_rule;
 mod test_suite;
+mod tv_fixed_edges;
 mod unreached_module;
 mod violation;
 

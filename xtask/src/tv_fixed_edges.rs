@@ -269,7 +269,10 @@ pub fn run() -> CheckOutcome {
         let relative = source_tree::repo_relative(&path);
         violations.extend(inspect(&parse_rules(&css), &tv_rules, &relative));
     }
-    CheckOutcome { checked, violations }
+    CheckOutcome {
+        checked,
+        violations,
+    }
 }
 
 #[cfg(test)]
@@ -307,9 +310,13 @@ mod tests {
     fn zero_edges_need_no_override_but_nonzero_edges_do() {
         let source =
             parse_rules(".drawer { position: fixed; inset: 0; right: 0px; bottom: 12px; }");
-        let tv =
-            parse_rules("[data-tv=\"true\"] .drawer { bottom: var(--tv-overscan-block); }");
-        assert!(has_tv_override(&source[0], "bottom", "--tv-overscan-block", &tv));
+        let tv = parse_rules("[data-tv=\"true\"] .drawer { bottom: var(--tv-overscan-block); }");
+        assert!(has_tv_override(
+            &source[0],
+            "bottom",
+            "--tv-overscan-block",
+            &tv
+        ));
         assert!(inspect(&source, &tv, "shared.css").is_empty());
     }
 
@@ -329,8 +336,12 @@ mod tests {
     #[test]
     fn excludes_tokens_tv_stylesheet_and_nested_files() {
         assert!(!is_style_file("crates/roost-web/assets/styles/tv.css"));
-        assert!(!is_style_file("crates/roost-web/assets/styles/theme-vars.css"));
-        assert!(!is_style_file("crates/roost-web/assets/styles/nested/other.css"));
+        assert!(!is_style_file(
+            "crates/roost-web/assets/styles/theme-vars.css"
+        ));
+        assert!(!is_style_file(
+            "crates/roost-web/assets/styles/nested/other.css"
+        ));
         assert!(is_style_file("crates/roost-web/assets/styles/sidebar.css"));
     }
 }
