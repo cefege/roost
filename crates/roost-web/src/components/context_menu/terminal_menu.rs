@@ -18,7 +18,6 @@ pub const TERMINAL_MENU_ITEMS: &[(&str, &str)] = &[
     ("ctx-cancel", "Cancel"),
 ];
 
-
 /// Touch capability is not a layout mode, so ONLY the compact boundary decides:
 /// a KDE session or a touch-capable desktop still right-clicks with a mouse.
 pub fn uses_action_sheet(compact: bool) -> bool {
@@ -140,11 +139,7 @@ pub fn TerminalActionSheet(
         }
     }
 }
-fn run_terminal_menu_key(
-    event: &KeyboardEvent,
-    menu_id: &str,
-    on_escape: impl FnOnce() + 'static,
-) {
+fn run_terminal_menu_key(event: &KeyboardEvent, menu_id: &str, on_escape: impl FnOnce() + 'static) {
     #[cfg(target_arch = "wasm32")]
     if let Some(native) = event.data().downcast::<web_sys::KeyboardEvent>().cloned()
         && let Some(menu) = web_sys::window()

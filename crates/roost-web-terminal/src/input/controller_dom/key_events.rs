@@ -18,14 +18,20 @@ pub(super) fn on_key_down(shared: &Rc<ControllerShared>, event: &Event) {
         return;
     };
     let key = event.key();
-    let event_type = if event.repeat() { KeyEventType::Repeat } else { KeyEventType::Press };
+    let event_type = if event.repeat() {
+        KeyEventType::Repeat
+    } else {
+        KeyEventType::Press
+    };
     let key_event = keyboard_event(event, &key, event_type);
     let application = (shared.options.cursor_keys_application)();
     let kitty_flags = (shared.options.kitty_keyboard_flags)();
     let Ok(state) = shared.state.try_borrow() else {
         return;
     };
-    let action = state.key_down_with_flags(&key_event, application, kitty_flags, || selection_has_text(&shared.doc));
+    let action = state.key_down_with_flags(&key_event, application, kitty_flags, || {
+        selection_has_text(&shared.doc)
+    });
     drop(state);
     match action {
         KeyDownAction::Browser => {}
@@ -53,18 +59,16 @@ pub(super) fn on_key_up(shared: &Rc<ControllerShared>, event: &Event) {
     if kitty_flags & 2 == 0 || keyup_is_browser_owned(shared, &key_event, kitty_flags) {
         return;
     }
-    let Some(bytes) = shared
-        .state
-        .try_borrow()
-        .ok()
-        .and_then(|state| state.dispatch_keydown_with_flags(&key_event, application, kitty_flags))
+    let Some(bytes) =
+        shared.state.try_borrow().ok().and_then(|state| {
+            state.dispatch_keydown_with_flags(&key_event, application, kitty_flags)
+        })
     else {
         return;
     };
     event.prevent_default();
     (shared.options.on_data)(&bytes);
 }
-
 
 fn keyup_is_browser_owned(
     shared: &ControllerShared,
@@ -75,12 +79,14 @@ fn keyup_is_browser_owned(
         return false;
     }
     let command = event.modifiers.ctrl || event.modifiers.meta || event.modifiers.super_key;
-    (command
-        && event.key.eq_ignore_ascii_case("c")
-        && selection_has_text(&shared.doc))
+    (command && event.key.eq_ignore_ascii_case("c") && selection_has_text(&shared.doc))
         || (command && event.key.eq_ignore_ascii_case("v"))
 }
-pub(super) fn keyboard_event<'a>(event: &KeyboardEvent, key: &'a str, event_type: KeyEventType) -> TerminalKeyEvent<'a> {
+pub(super) fn keyboard_event<'a>(
+    event: &KeyboardEvent,
+    key: &'a str,
+    event_type: KeyEventType,
+) -> TerminalKeyEvent<'a> {
     let modifiers = Modifiers {
         shift: event.shift_key(),
         alt: event.alt_key(),
@@ -101,7 +107,7 @@ pub(super) fn keyboard_event<'a>(event: &KeyboardEvent, key: &'a str, event_type
         && key.chars().count() == 1
         && (!modifiers.ctrl && !modifiers.meta && !modifiers.super_key
             || event.get_modifier_state("AltGraph")))
-        .then_some(key);
+    .then_some(key);
     TerminalKeyEvent {
         key,
         modifiers,
@@ -120,14 +126,32 @@ fn unshifted_key(key: &str, code: &str) -> Option<char> {
         return Some(character.to_ascii_lowercase());
     }
     let unshifted = match character {
-        '!' => '1', '@' => '2', '#' => '3', '$' => '4', '%' => '5',
-        '^' => '6', '&' => '7', '*' => '8', '(' => '9', ')' => '0',
-        '_' => '-', '+' => '=', '{' => '[', '}' => ']', '|' => '\\',
-        ':' => ';', '"' => char::from_u32(39)?, '<' => ',', '>' => '.', '?' => '/',
+        '!' => '1',
+        '@' => '2',
+        '#' => '3',
+        '$' => '4',
+        '%' => '5',
+        '^' => '6',
+        '&' => '7',
+        '*' => '8',
+        '(' => '9',
+        ')' => '0',
+        '_' => '-',
+        '+' => '=',
+        '{' => '[',
+        '}' => ']',
+        '|' => '\\',
+        ':' => ';',
+        '"' => char::from_u32(39)?,
+        '<' => ',',
+        '>' => '.',
+        '?' => '/',
         '~' => '`',
         _ => return character.to_lowercase().next(),
     };
-    base_layout_key(code).filter(|base| base.is_ascii_punctuation()).or(Some(unshifted))
+    base_layout_key(code)
+        .filter(|base| base.is_ascii_punctuation())
+        .or(Some(unshifted))
 }
 
 fn functional_key(event: &KeyboardEvent, code: &str) -> Option<NamedKey> {
@@ -181,21 +205,54 @@ fn functional_key(event: &KeyboardEvent, code: &str) -> Option<NamedKey> {
 
 fn base_layout_key(code: &str) -> Option<char> {
     match code {
-        "KeyA" => Some('a'), "KeyB" => Some('b'), "KeyC" => Some('c'), "KeyD" => Some('d'),
-        "KeyE" => Some('e'), "KeyF" => Some('f'), "KeyG" => Some('g'), "KeyH" => Some('h'),
-        "KeyI" => Some('i'), "KeyJ" => Some('j'), "KeyK" => Some('k'), "KeyL" => Some('l'),
-        "KeyM" => Some('m'), "KeyN" => Some('n'), "KeyO" => Some('o'), "KeyP" => Some('p'),
-        "KeyQ" => Some('q'), "KeyR" => Some('r'), "KeyS" => Some('s'), "KeyT" => Some('t'),
-        "KeyU" => Some('u'), "KeyV" => Some('v'), "KeyW" => Some('w'), "KeyX" => Some('x'),
-        "KeyY" => Some('y'), "KeyZ" => Some('z'),
-        "Digit0" => Some('0'), "Digit1" => Some('1'), "Digit2" => Some('2'),
-        "Digit3" => Some('3'), "Digit4" => Some('4'), "Digit5" => Some('5'),
-        "Digit6" => Some('6'), "Digit7" => Some('7'), "Digit8" => Some('8'),
-        "Digit9" => Some('9'), "Space" => Some(' '),
-        "Minus" => Some('-'), "Equal" => Some('='), "BracketLeft" => Some('['),
-        "BracketRight" => Some(']'), "Backslash" => Some('\\'), "Semicolon" => Some(';'),
-        "Quote" => Some('\''), "Comma" => Some(','), "Period" => Some('.'),
-        "Slash" => Some('/'), "Backquote" => Some('`'),
+        "KeyA" => Some('a'),
+        "KeyB" => Some('b'),
+        "KeyC" => Some('c'),
+        "KeyD" => Some('d'),
+        "KeyE" => Some('e'),
+        "KeyF" => Some('f'),
+        "KeyG" => Some('g'),
+        "KeyH" => Some('h'),
+        "KeyI" => Some('i'),
+        "KeyJ" => Some('j'),
+        "KeyK" => Some('k'),
+        "KeyL" => Some('l'),
+        "KeyM" => Some('m'),
+        "KeyN" => Some('n'),
+        "KeyO" => Some('o'),
+        "KeyP" => Some('p'),
+        "KeyQ" => Some('q'),
+        "KeyR" => Some('r'),
+        "KeyS" => Some('s'),
+        "KeyT" => Some('t'),
+        "KeyU" => Some('u'),
+        "KeyV" => Some('v'),
+        "KeyW" => Some('w'),
+        "KeyX" => Some('x'),
+        "KeyY" => Some('y'),
+        "KeyZ" => Some('z'),
+        "Digit0" => Some('0'),
+        "Digit1" => Some('1'),
+        "Digit2" => Some('2'),
+        "Digit3" => Some('3'),
+        "Digit4" => Some('4'),
+        "Digit5" => Some('5'),
+        "Digit6" => Some('6'),
+        "Digit7" => Some('7'),
+        "Digit8" => Some('8'),
+        "Digit9" => Some('9'),
+        "Space" => Some(' '),
+        "Minus" => Some('-'),
+        "Equal" => Some('='),
+        "BracketLeft" => Some('['),
+        "BracketRight" => Some(']'),
+        "Backslash" => Some('\\'),
+        "Semicolon" => Some(';'),
+        "Quote" => Some('\''),
+        "Comma" => Some(','),
+        "Period" => Some('.'),
+        "Slash" => Some('/'),
+        "Backquote" => Some('`'),
         _ => None,
     }
 }

@@ -49,14 +49,10 @@ fn a_kitty_query_split_across_chunks_is_answered_once() {
     assert_eq!(answer(&mut core, &mut carry, b"u").bytes, "\x1b[?0u");
 }
 
-
 #[test]
 fn a_primary_da_sharing_the_chunk_is_answered_in_probe_order() {
     let reply = answer_fresh(b"\x1b[?u\x1b[c\x1b[6n");
-    assert_eq!(
-        reply.bytes,
-        format!("\x1b[?0u{PRIMARY_DA_REPLY}\x1b[1;1R")
-    );
+    assert_eq!(reply.bytes, format!("\x1b[?0u{PRIMARY_DA_REPLY}\x1b[1;1R"));
 }
 
 /// Concatenating every native ahead of every synthesized reply would answer

@@ -29,7 +29,10 @@ pub fn terminal_key_sequence_for_event(
     if event_type == KeyEventType::Release
         && event_reporting
         && !all_keys
-        && matches!(chord.kind, KeyKind::Named(NamedKey::Enter | NamedKey::Tab | NamedKey::Backspace))
+        && matches!(
+            chord.kind,
+            KeyKind::Named(NamedKey::Enter | NamedKey::Tab | NamedKey::Backspace)
+        )
     {
         return None;
     }
@@ -46,12 +49,9 @@ pub fn terminal_key_sequence_for_event(
         return legacy_key_sequence(chord, cursor_keys_application);
     }
 
-    if let Some(bytes) = functional_sequence(
-        chord,
-        cursor_keys_application,
-        kitty_flags,
-        event_type,
-    ) {
+    if let Some(bytes) =
+        functional_sequence(chord, cursor_keys_application, kitty_flags, event_type)
+    {
         return Some(bytes);
     }
 
@@ -119,7 +119,11 @@ fn functional_sequence(
 
     if let Some((normal, application, final_byte)) = navigation(chord.kind) {
         if !include_parameter {
-            return Some(if cursor_keys_application { application.to_owned() } else { normal.to_owned() });
+            return Some(if cursor_keys_application {
+                application.to_owned()
+            } else {
+                normal.to_owned()
+            });
         }
         return Some(format!("\x1b[1;{parameter}{final_byte}"));
     }
@@ -165,7 +169,9 @@ fn kitty_modifier_parameter(modifiers: Modifiers) -> u32 {
 
 pub(super) fn kitty_key_code(kind: KeyKind, unshifted: Option<char>) -> Option<u32> {
     let code = match kind {
-        KeyKind::Printable(character) => unshifted.unwrap_or(character.to_lowercase().next()?) as u32,
+        KeyKind::Printable(character) => {
+            unshifted.unwrap_or(character.to_lowercase().next()?) as u32
+        }
         KeyKind::Named(NamedKey::Escape) => 27,
         KeyKind::Named(NamedKey::Enter) => 13,
         KeyKind::Named(NamedKey::Tab) => 9,

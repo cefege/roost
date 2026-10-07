@@ -139,8 +139,13 @@ impl NamedKey {
             "Tab" => Self::Tab,
             "Escape" => Self::Escape,
             _ if key.strip_prefix('F').is_some_and(|number| {
-                number.parse::<u8>().is_ok_and(|number| (1..=35).contains(&number))
-            }) => Self::Function(key[1..].parse().ok()?),
+                number
+                    .parse::<u8>()
+                    .is_ok_and(|number| (1..=35).contains(&number))
+            }) =>
+            {
+                Self::Function(key[1..].parse().ok()?)
+            }
             "CapsLock" => Self::Functional(57358),
             "ScrollLock" => Self::Functional(57359),
             "NumLock" => Self::Functional(57360),
@@ -205,7 +210,6 @@ impl KeyKind {
     }
 }
 
-
 /// The eight modifier levels represented by kitty's modifier field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Modifiers {
@@ -221,10 +225,19 @@ pub struct Modifiers {
 
 impl Modifiers {
     pub const NONE: Self = Self {
-        shift: false, alt: false, ctrl: false, meta: false,
-        super_key: false, hyper: false, caps_lock: false, num_lock: false,
+        shift: false,
+        alt: false,
+        ctrl: false,
+        meta: false,
+        super_key: false,
+        hyper: false,
+        caps_lock: false,
+        num_lock: false,
     };
-    pub const SHIFT: Self = Self { shift: true, ..Self::NONE };
+    pub const SHIFT: Self = Self {
+        shift: true,
+        ..Self::NONE
+    };
 }
 
 /// Kitty key-event type, carried only when the terminal requested event types.

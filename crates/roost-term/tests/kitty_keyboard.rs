@@ -29,7 +29,6 @@ fn push_and_pop_restore_previous_flags() {
     assert_eq!(core.kitty_keyboard_flags(), 4);
     core.write_raw(b"\x1b[<u");
     assert_eq!(core.kitty_keyboard_flags(), 1);
-
 }
 
 #[test]

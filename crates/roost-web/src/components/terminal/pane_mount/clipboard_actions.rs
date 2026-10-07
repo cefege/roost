@@ -2,7 +2,7 @@
 //! They keep clipboard plumbing separate from the renderer lifecycle and
 //! delegate to the existing clipboard and paste-guard implementations.
 
-use super::{clipboard, input, PaneMount};
+use super::{PaneMount, clipboard, input};
 
 impl PaneMount {
     /// Copy the current terminal selection through clipboard history.

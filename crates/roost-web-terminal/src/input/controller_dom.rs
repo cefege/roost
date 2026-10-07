@@ -15,15 +15,15 @@ use web_sys::{
     FocusOptions, HtmlTextAreaElement, InputEvent, KeyboardEvent, Node,
 };
 
-use crate::input::chord::KeyEventType;
 use crate::cell_renderer_dom::DomSetupError;
+use crate::input::chord::KeyEventType;
 use crate::input::controller::{
     FocusRefused, FocusSurface, InputControllerState, TerminalKeyEvent, TextareaCommit, force_focus,
 };
 
 mod key_events;
-use key_events::{on_key_down, on_key_up};
 use super::options::TerminalInputOptions;
+use key_events::{on_key_down, on_key_up};
 
 struct ControllerShared {
     state: RefCell<InputControllerState>,
@@ -132,12 +132,10 @@ impl TerminalInputController {
     pub fn dispatch_keydown(&self, event: &TerminalKeyEvent<'_>) -> bool {
         let application = (self.shared.options.cursor_keys_application)();
         let kitty_flags = (self.shared.options.kitty_keyboard_flags)();
-        let Some(bytes) = self
-            .shared
-            .state
-            .try_borrow()
-            .ok()
-            .and_then(|state| state.dispatch_keydown_with_flags(event, application, kitty_flags))
+        let Some(bytes) =
+            self.shared.state.try_borrow().ok().and_then(|state| {
+                state.dispatch_keydown_with_flags(event, application, kitty_flags)
+            })
         else {
             return false;
         };
@@ -189,7 +187,6 @@ impl Drop for TerminalInputController {
         self.destroy();
     }
 }
-
 
 fn on_paste(shared: &Rc<ControllerShared>, event: &Event) {
     let Some(event) = event.dyn_ref::<ClipboardEvent>() else {

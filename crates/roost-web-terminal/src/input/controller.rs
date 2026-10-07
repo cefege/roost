@@ -7,12 +7,8 @@
 
 use std::cell::RefCell;
 
-use crate::input::chord::{
-    AlternateKeys, KeyChord, KeyEventType, KeyKind, Modifiers, NamedKey,
-};
-use crate::input::keys::{
-    FOCUS_REPORT_IN, FOCUS_REPORT_OUT, terminal_key_sequence_for_event,
-};
+use crate::input::chord::{AlternateKeys, KeyChord, KeyEventType, KeyKind, Modifiers, NamedKey};
+use crate::input::keys::{FOCUS_REPORT_IN, FOCUS_REPORT_OUT, terminal_key_sequence_for_event};
 
 /// The byte Meta+Backspace sends: readline's kill-to-line-start, which is what
 /// that chord does in every macOS text field.
@@ -181,8 +177,7 @@ impl InputControllerState {
             return KeyDownAction::Browser;
         }
         let all_keys = kitty_flags & 8 != 0;
-        let command =
-            event.modifiers.meta || event.modifiers.super_key || event.modifiers.ctrl;
+        let command = event.modifiers.meta || event.modifiers.super_key || event.modifiers.ctrl;
         if !all_keys && command && event.key.eq_ignore_ascii_case("c") && selection_has_text() {
             return KeyDownAction::Browser;
         }

@@ -31,9 +31,9 @@ use super::terminal_nav_pad::TerminalNavPad;
 use super::terminal_offline_notice::TerminalOfflineNotice;
 use super::terminal_paste_guard::TerminalPasteGuard;
 use super::terminal_startup_overlay::TerminalStartupOverlay;
+use crate::components::deck::deck_dom;
 use crate::components::layout::window_size::{use_is_compact, use_tv_layout};
 use crate::components::terminal::terminal_context_menu::TerminalContextMenu;
-use crate::components::deck::deck_dom;
 use crate::components::terminal_chrome::attachment_picker::ChosenFile;
 use crate::components::terminal_chrome::composer::TerminalComposer;
 use crate::components::terminal_chrome::composer_key_tray::KeyTray;
@@ -62,7 +62,6 @@ struct PaneStoreView {
     drawer_open: bool,
     nav_pad_open: bool,
 }
-
 
 /// The pane. Props are v2's `CellTerminalProps`, snake-cased.
 #[component]

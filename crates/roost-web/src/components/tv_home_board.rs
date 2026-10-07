@@ -4,8 +4,8 @@
 
 use std::collections::BTreeSet;
 
-use dioxus::prelude::*;
 use dioxus::html::input_data::MouseButton;
+use dioxus::prelude::*;
 use roost_client_core::store::navigation::query::attention_navigation_documents;
 use roost_client_core::store::navigation::{NavigationSearchAttention, NavigationSearchDocument};
 use roost_client_core::store::sidebar::documents::store_navigation_documents;
@@ -166,11 +166,35 @@ mod tests {
     fn sessions_are_ordered_by_status_band_then_shared_attention_order() {
         let documents = vec![
             document("rest", "idle", None, false, 0),
-            document("done-seen", "done", Some(NavigationSearchAttention::Done), false, 8),
+            document(
+                "done-seen",
+                "done",
+                Some(NavigationSearchAttention::Done),
+                false,
+                8,
+            ),
             document("working", "working", None, false, 3),
-            document("blocked-seen", "blocked", Some(NavigationSearchAttention::Blocked), false, 9),
-            document("done-unseen", "done", Some(NavigationSearchAttention::Done), true, 2),
-            document("blocked-unseen", "blocked", Some(NavigationSearchAttention::Blocked), true, 1),
+            document(
+                "blocked-seen",
+                "blocked",
+                Some(NavigationSearchAttention::Blocked),
+                false,
+                9,
+            ),
+            document(
+                "done-unseen",
+                "done",
+                Some(NavigationSearchAttention::Done),
+                true,
+                2,
+            ),
+            document(
+                "blocked-unseen",
+                "blocked",
+                Some(NavigationSearchAttention::Blocked),
+                true,
+                1,
+            ),
         ];
         let ids: Vec<_> = order_tv_home_documents(&documents)
             .iter()
@@ -178,7 +202,14 @@ mod tests {
             .collect();
         assert_eq!(
             ids,
-            ["blocked-unseen", "blocked-seen", "working", "done-unseen", "done-seen", "rest"]
+            [
+                "blocked-unseen",
+                "blocked-seen",
+                "working",
+                "done-unseen",
+                "done-seen",
+                "rest"
+            ]
         );
         assert!(order_tv_home_documents(&[]).is_empty());
     }
@@ -191,14 +222,36 @@ mod tests {
         arrival: u64,
     ) -> NavigationSearchDocument {
         NavigationSearchDocument {
-            session_id: session_id.to_owned(), href: String::new(), display_title: String::new(),
-            custom_title: None, terminal_title: None, cwd: String::new(), spawn_cwd: None,
-            workspace_id: None, workspace_name: None, folder_key: String::new(), worker_label: String::new(),
-            worker_fp: String::new(), git_branch: None, git_remote: None, pull_request_number: None,
-            pull_request_state: None, pull_request_checks: None, pull_request_url: None, port_label: None,
-            search_text: String::new(), activity_at: 0, available: true, agent_status: Some(status.to_owned()),
-            agent_attention: attention, agent_unseen: unseen, agent_id: None, agent_message: None,
-            agent_updated_at_ms: None, agent_arrival: arrival, client_only: false,
+            session_id: session_id.to_owned(),
+            href: String::new(),
+            display_title: String::new(),
+            custom_title: None,
+            terminal_title: None,
+            cwd: String::new(),
+            spawn_cwd: None,
+            workspace_id: None,
+            workspace_name: None,
+            folder_key: String::new(),
+            worker_label: String::new(),
+            worker_fp: String::new(),
+            git_branch: None,
+            git_remote: None,
+            pull_request_number: None,
+            pull_request_state: None,
+            pull_request_checks: None,
+            pull_request_url: None,
+            port_label: None,
+            search_text: String::new(),
+            activity_at: 0,
+            available: true,
+            agent_status: Some(status.to_owned()),
+            agent_attention: attention,
+            agent_unseen: unseen,
+            agent_id: None,
+            agent_message: None,
+            agent_updated_at_ms: None,
+            agent_arrival: arrival,
+            client_only: false,
         }
     }
 }

@@ -97,7 +97,6 @@ pub struct ColumnRange {
 /// this explicit zero-tail value instead of a second policy.
 pub const SB_SNAPSHOT_HISTORY_ROWS: usize = 0;
 
-
 /// One terminal grid as the worker renders it; `full` marks a viewport-only
 /// authoritative checkpoint, as opposed to a delta.
 #[derive(Debug, Clone, PartialEq, Eq)]

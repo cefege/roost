@@ -6,8 +6,7 @@ use dioxus::prelude::*;
 
 use super::pane_handle::PaneHandle;
 use crate::components::context_menu::terminal_menu::{
-    TerminalActionSheet, TerminalFloatingMenu, should_open_terminal_context_menu,
-    uses_action_sheet,
+    TerminalActionSheet, TerminalFloatingMenu, should_open_terminal_context_menu, uses_action_sheet,
 };
 
 #[derive(Debug, Clone)]

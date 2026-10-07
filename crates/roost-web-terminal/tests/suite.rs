@@ -34,6 +34,8 @@ mod grid_geometry;
 mod history_page_placement;
 #[path = "input_controller.rs"]
 mod input_controller;
+#[path = "kitty_functional_keys.rs"]
+mod kitty_functional_keys;
 #[path = "kitty_keyboard.rs"]
 mod kitty_keyboard;
 #[path = "link_target_classification.rs"]

@@ -22,6 +22,7 @@ mod paint;
 mod paste_files;
 mod prompt_jump;
 mod scroll;
+mod text_input;
 
 use crate::components::terminal_chrome::attachment_picker::ChosenFile;
 use std::cell::{Cell, RefCell};
@@ -319,38 +320,6 @@ impl PaneMount {
         paint::sync_store(&self.shared);
     }
 
-    /// Send one named key through the textarea encoder (the key sheet).
-    pub fn dispatch_key(&self, key: &str) {
-        input::dispatch_named_key(&self.shared, key);
-    }
-
-    /// Send composed text, framed like a paste, optionally submitted.
-    pub fn send_text(&self, text: &str, submit: bool) {
-        input::send_text(&self.shared, text, submit);
-    }
-
-    /// Send text as typed bytes, never framed as a paste.
-    pub fn send_raw_text(&self, text: &str) {
-        input::send_bytes(&self.shared, text.as_bytes().to_vec(), false);
-    }
-
-    /// Type text as the keyboard would, spending a latched Ctrl on it.
-    pub fn type_text(&self, text: &str) {
-        input::on_controller_data(&self.shared, text);
-    }
-
-    /// Paste text through the multiline guard.
-    pub fn paste_text(&self, text: &str) {
-        input::paste_text(&self.shared, text);
-    }
-
-    /// Give the keyboard to the pane's textarea.
-    pub fn force_focus(&self) {
-        if let Some(controller) = self.shared.input.borrow().as_ref() {
-            controller.force_focus();
-        }
-    }
-
     /// Re-claim the view: the offline notice's retry.
     pub fn retry_view(&self) {
         actions::perform(&self.shared, vec![PaneAction::RepublishView]);
@@ -365,7 +334,6 @@ impl PaneMount {
     pub fn jump_to_live(&self) {
         scroll::jump_to_live(&self.shared);
     }
-
 }
 
 impl Drop for PaneMount {

@@ -10,8 +10,8 @@
 
 mod kitty;
 
-use crate::input::chord::{KeyChord, KeyKind, NamedKey};
 pub use self::kitty::terminal_key_sequence_for_event;
+use crate::input::chord::{KeyChord, KeyKind, NamedKey};
 
 /// The three bytes a focus report is written as under DECSET 1004. The
 /// application asked WHICH SURFACE owns the keyboard, and only a real focus
@@ -173,7 +173,11 @@ fn legacy_key_sequence(chord: &KeyChord, cursor_keys_application: bool) -> Optio
     if chord.kind == KeyKind::Named(NamedKey::Enter) && chord.modifiers.shift {
         return Some(format!(
             "\x1b[13;{}u",
-            modifier_parameter(chord.modifiers.shift, chord.modifiers.alt, chord.modifiers.ctrl)
+            modifier_parameter(
+                chord.modifiers.shift,
+                chord.modifiers.alt,
+                chord.modifiers.ctrl
+            )
         ));
     }
     if chord.kind == KeyKind::Named(NamedKey::Tab)
@@ -183,29 +187,53 @@ fn legacy_key_sequence(chord: &KeyChord, cursor_keys_application: bool) -> Optio
     {
         return Some("\x1b[Z".to_string());
     }
-    let modifier = modifier_parameter(chord.modifiers.shift, chord.modifiers.alt, chord.modifiers.ctrl);
+    let modifier = modifier_parameter(
+        chord.modifiers.shift,
+        chord.modifiers.alt,
+        chord.modifiers.ctrl,
+    );
     if let Some((normal, application, final_byte)) = navigation(chord.kind) {
         return Some(if modifier == 1 {
-            if cursor_keys_application { application.to_string() } else { normal.to_string() }
+            if cursor_keys_application {
+                application.to_string()
+            } else {
+                normal.to_string()
+            }
         } else {
             format!("\x1b[1;{modifier}{final_byte}")
         });
     }
     if let Some(code) = tilde_code(chord.kind) {
-        return Some(if modifier == 1 { format!("\x1b[{code}~") } else { format!("\x1b[{code};{modifier}~") });
+        return Some(if modifier == 1 {
+            format!("\x1b[{code}~")
+        } else {
+            format!("\x1b[{code};{modifier}~")
+        });
     }
     if let Some(final_byte) = ss3_final(chord.kind) {
-        return Some(if modifier == 1 { format!("\x1bO{final_byte}") } else { format!("\x1b[1;{modifier}{final_byte}") });
+        return Some(if modifier == 1 {
+            format!("\x1bO{final_byte}")
+        } else {
+            format!("\x1b[1;{modifier}{final_byte}")
+        });
     }
     if let Some(bytes) = simple_bytes(chord.kind) {
-        return Some(if chord.modifiers.alt { format!("\x1b{bytes}") } else { bytes.to_string() });
+        return Some(if chord.modifiers.alt {
+            format!("\x1b{bytes}")
+        } else {
+            bytes.to_string()
+        });
     }
     if let KeyKind::Printable(character) = chord.kind
         && !chord.modifiers.ctrl
         && !chord.modifiers.meta
         && !chord.modifiers.super_key
     {
-        return Some(if chord.modifiers.alt { format!("\x1b{character}") } else { character.to_string() });
+        return Some(if chord.modifiers.alt {
+            format!("\x1b{character}")
+        } else {
+            character.to_string()
+        });
     }
     None
 }
