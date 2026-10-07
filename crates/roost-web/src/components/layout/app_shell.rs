@@ -119,6 +119,7 @@ pub fn AppShell(children: Element) -> Element {
     {
         super::app_shell_dom::use_main_left(compact, reading.collapsed, reading.sidebar_width);
         super::app_shell_dom::use_shell_listeners(pump.clone(), compact);
+        super::keyboard_offset::use_keyboard_offset();
     }
     let toggle_pump = pump.clone();
     let on_toggle_sidebar = move |()| toggle_desktop_sidebar(&toggle_pump, compact);

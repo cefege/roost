@@ -11,6 +11,7 @@ pub mod folder_list;
 pub mod folder_row;
 pub mod folder_row_context_menu;
 pub mod machine_action_items;
+pub mod machine_health;
 pub mod rel_time_tick;
 pub mod row_chips;
 pub mod row_swipe;

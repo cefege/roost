@@ -137,7 +137,7 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
             }
             span { class: "df-row__visual", style: "display: contents; pointer-events: none;",
                 span { class: "df-leading df-leading--machine",
-                    MachineIdentityMark { worker, context_title: group.spawn_cwd.clone() }
+                    MachineIdentityMark { worker: worker.clone(), context_title: group.spawn_cwd.clone() }
                 }
                 span { class: "df-flat-body",
                     span { class: "df-flat-top",
@@ -209,6 +209,9 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
             }
             if let Some(target) = menu() {
                 FolderRowContextMenu { target, on_close: move |()| menu.set(None) }
+            }
+            if let Some(machine_worker) = &worker {
+                super::machine_health::MachineHealth { worker: machine_worker.clone() }
             }
         }
     }

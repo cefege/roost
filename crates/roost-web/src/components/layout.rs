@@ -14,6 +14,7 @@ pub mod app_shell;
 #[cfg(target_arch = "wasm32")]
 mod app_shell_dom;
 pub mod drawer_gesture;
+pub mod keyboard_offset;
 pub mod mobile_bar;
 pub mod mobile_sidebar_drawer;
 pub mod notification_dock_lift;
