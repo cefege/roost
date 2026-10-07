@@ -144,8 +144,9 @@ wins.
 
 - **agent CLI** — an arbitrary terminal program, such as `omp`, Claude Code, or
   Codex, launched inside a normal shell PTY. Roost transports its terminal
-  input and output but does not interpret its lifecycle, transcript, tools, or
-  approval prompts. There is no structured agent session type or agent API.
+  input and output but does not interpret its transcript, tools, or approval
+  prompts. There is no structured agent session type; the only agent API is
+  the volatile status surface (Get/List/Wait) and the fenced one-shot prompt.
 
 - **agent runtime state** — what a coding agent inside a shell PTY is doing:
   `working`, `blocked` (waiting on the user), or `idle`. Volatile metadata on a
@@ -184,11 +185,12 @@ wins.
   Source: `crates/roost-client-core/src/client/agents/status_policy.rs`,
   `crates/roost-client-core/src/client/agents/seen.rs`.
 
-- **notification suppression** — the three rules that stop duplicate or unwanted
-  alerts: viewing a session cancels its pending notification and acknowledges
-  the revision; one browser profile delivers one notification even with many
-  tabs open (a storage/Web-Locks claim); and the coordinator skips Web Push to a
-  device that is already viewing the transitioning session.
+- **notification suppression** — the rules that stop duplicate or unwanted
+  in-app alerts: viewing a session cancels its pending notification and
+  acknowledges the revision; one browser profile delivers one notification
+  even with many tabs open (a storage/Web-Locks claim). v3 has no Web Push
+  delivery yet — the coordinator's push code never reaches a browser because
+  no browser subscribes — so no "already viewing" push skip runs in practice.
   Source: `crates/roost-web/src/components/notifications/agent_notifications/`,
   `crates/roost-coord/src/push/dispatch.rs`, `crates/roost-coord/src/push/viewers.rs`.
 

@@ -462,10 +462,11 @@ authorized browser. Later devices should always use that Settings pairing flow.
 ## Pair your phone
 
 Phone pairing needs an HTTPS front door that the phone can reach. After
-promotion and front-door configuration, open that HTTPS origin, then choose
-**Settings → Pair a device** in Roost on an already-authorized browser and scan
-the QR with the phone's camera. On a tailnet front door, install the Tailscale
-app on the phone and sign in to the same tailnet first.
+promotion and front-door configuration, open that HTTPS origin on the phone,
+then choose **Request access** there: an already-paired browser approves the
+request and shows a 6-digit code, which you type on the phone. On a tailnet
+front door, install the Tailscale app on the phone and sign in to the same
+tailnet first.
 
 Pairing is what authorizes a device. Network reachability, a VPN membership, or
 a login your front door performs on its own does not authorize a phone as a
@@ -478,19 +479,11 @@ done) with no setup: the sidebar row, tab, and folder rollup update themselves,
 and a background agent that stops for input or finishes raises an in-app toast
 plus an unseen count in the browser tab title.
 
-OS notifications — the kind that reach you when Roost isn't the tab you're
-looking at — need one explicit grant per device, because the browser only asks
-on a real click:
-
-1. Open Roost on that device and go to **Settings → Notifications**.
-2. Turn on **Desktop notifications** and accept the browser permission prompt.
-   On iPhone/iPad, add Roost to the home screen first and open it from there —
-   Safari only allows notifications for installed web apps.
-3. Optionally turn on a sound for "needs input" and/or "finished".
-
-Each device subscribes separately, and a device that is actively viewing the
-session it is about does not get an OS notification for it. Tapping a
-notification opens that session.
+Settings → Notifications also shows Desktop notifications and sound switches,
+but v3 does not yet deliver either: no OS notification reaches you outside the
+tab, no sound plays, and the browser is never subscribed for Web Push. The
+in-app toast, the View action, and the tab title badge are the shipped
+delivery; the OS push and sound path is planned.
 
 ## Add another machine
 
