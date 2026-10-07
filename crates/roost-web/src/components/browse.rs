@@ -60,25 +60,37 @@ pub fn BrowseSurface(route: Route) -> Element {
 }
 
 /// `/browse` before a machine is chosen: the newest session's online machine,
-/// else any online machine, else home. One navigation on mount, so the reader
-/// never sees a picker with nothing to browse.
+/// else any online machine, else home. One navigation, taken once the store can
+/// answer, so the reader never sees a picker with nothing to browse.
 #[component]
 fn BrowseRedirect() -> Element {
     let navigate = use_navigate();
     let pump = use_store();
-    use_hook(move || {
-        let target = {
-            let core = pump.core();
-            let core = core.borrow();
-            let now_ms = i64::try_from(core.clock().now_ms()).unwrap_or(i64::MAX);
-            default_browse_worker(core.store(), now_ms)
-        };
-        match target {
-            Some(worker_fp) => navigate.call(browse_href(&worker_fp)),
-            None => navigate.call("/".to_owned()),
+    let target = {
+        let core = pump.core();
+        let core = core.borrow();
+        let now_ms = i64::try_from(core.clock().now_ms()).unwrap_or(i64::MAX);
+        browse_redirect_target(core.store(), now_ms)
+    };
+    let navigated = use_hook(|| std::rc::Rc::new(std::cell::Cell::new(false)));
+    use_effect(use_reactive((&target,), move |(target,)| {
+        let Some(href) = target else { return };
+        if !navigated.replace(true) {
+            navigate.call(href);
         }
-    });
+    }));
     rsx! {}
+}
+
+/// Where a bare `/browse` goes, or `None` while a cold store cannot answer yet:
+/// before the first snapshot and the worker registry land, "no machine online"
+/// is indistinguishable from "not heard yet", and sending the reader home then
+/// would be wrong.
+fn browse_redirect_target(store: &Store, now_ms: i64) -> Option<String> {
+    if !store.hydrated || !workers_hydrated(store) {
+        return None;
+    }
+    Some(default_browse_worker(store, now_ms).map_or_else(|| "/".to_owned(), |fp| browse_href(&fp)))
 }
 
 /// The machine `/browse` opens on: the newest session's machine while it is
