@@ -456,15 +456,24 @@ URL metadata; the loaded Roost app redeems it.
 
 Do not try to copy a pairing secret from terminal output, shell history, logs,
 or screenshots. If the platform opener fails, arrange a working local browser
-opener and rerun quickstart, or use **Settings → Pair a device** from an already
-authorized browser. Later devices should always use that Settings pairing flow.
+opener and rerun quickstart, or pair from an already authorized browser in
+**Settings → Devices**. Later devices should always use that Settings pairing
+flow.
 
 ## Pair your phone
 
 Phone pairing needs an HTTPS front door that the phone can reach. After
-promotion and front-door configuration, open that HTTPS origin on the phone,
-then choose **Request access** there: an already-paired browser approves the
-request and shows a 6-digit code, which you type on the phone. On a tailnet
+promotion and front-door configuration, open **Settings → Devices → Pair a
+phone** on an already-paired browser and press **Show pairing code**: it mints
+one browser grant and draws its `#pair=` link as a QR code, valid for one use
+within 24 hours. Scan it with the phone's camera; the page opens and pairs with
+nothing to type. A loopback-only install shows no code and says to declare the
+front door first. `roost add-browser` draws the same QR beside the URL in a
+terminal (`--no-qr` turns it off).
+
+Without a camera, open the HTTPS origin on the phone and choose **Request
+access**: an already-paired browser approves the request under **Approve a
+browser** and shows a 6-digit code, which you type on the phone. On a tailnet
 front door, install the Tailscale app on the phone and sign in to the same
 tailnet first.
 
@@ -479,11 +488,14 @@ done) with no setup: the sidebar row, tab, and folder rollup update themselves,
 and a background agent that stops for input or finishes raises an in-app toast
 plus an unseen count in the browser tab title.
 
-Settings → Notifications also shows Desktop notifications and sound switches,
-but v3 does not yet deliver either: no OS notification reaches you outside the
-tab, no sound plays, and the browser is never subscribed for Web Push. The
-in-app toast, the View action, and the tab title badge are the shipped
-delivery; the OS push and sound path is planned.
+**Settings → Notifications → Desktop** subscribes this browser to Web Push: the
+switch asks for notification permission on the click, then registers the
+service worker and subscription with the coordinator. A needs-input or done
+transition then reaches you as an OS notification even when Roost is not the
+tab you are looking at, except on a device already viewing that session;
+clicking it opens the session. On iPhone and iPad, notifications reach only a
+Roost installed with **Share → Add to Home Screen**. The two sound switches
+play a short tone on the same alerts that raise a toast.
 
 ## Add another machine
 

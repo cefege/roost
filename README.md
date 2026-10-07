@@ -201,10 +201,11 @@ requests and `Referer` headers. If the opener fails, fix the local opener and
 rerun quickstart, or pair from an already authorized browser; never move an
 enrollment secret through shell history, chat, logs, or screenshots.
 
-To add a phone, first make the promoted HTTPS origin reachable to it, then use
-**Settings → Pair a device**: a browser that is already paired approves the
-request and shows a 6-digit code to type on the new device, which then signs
-itself in.
+To add a phone, first make the promoted HTTPS origin reachable to it, then open
+**Settings → Devices → Pair a phone** on a browser that is already paired and
+scan the QR code it shows; the phone opens Roost and signs itself in. Without a
+camera, request access on the phone and type the 6-digit code the paired
+browser shows.
 
 The full walkthrough is in [`GETTING_STARTED.md`](GETTING_STARTED.md).
 

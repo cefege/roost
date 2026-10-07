@@ -188,9 +188,8 @@ wins.
 - **notification suppression** — the rules that stop duplicate or unwanted
   in-app alerts: viewing a session cancels its pending notification and
   acknowledges the revision; one browser profile delivers one notification
-  even with many tabs open (a storage/Web-Locks claim). v3 has no Web Push
-  delivery yet — the coordinator's push code never reaches a browser because
-  no browser subscribes — so no "already viewing" push skip runs in practice.
+  even with many tabs open (a storage/Web-Locks claim). Web Push skips a
+  device that is already viewing the session.
   Source: `crates/roost-web/src/components/notifications/agent_notifications/`,
   `crates/roost-coord/src/push/dispatch.rs`, `crates/roost-coord/src/push/viewers.rs`.
 
