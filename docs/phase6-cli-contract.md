@@ -1159,6 +1159,55 @@ then the total and the elapsed time. The URL is never printed.
 
 ---
 
+## `roost db-to-sqlite`
+
+```
+roost db-to-sqlite [--from URL] [--to PATH] [--replace]
+```
+
+The reverse of `roost db-to-postgres`: copies a v3 coordinator's Postgres
+database into a SQLite file, so the coordinator can run file-backed again
+under `ROOST_COORDINATOR_DB`. The copy is `roost_coord::db::postgres_to_sqlite`,
+which reads the same Postgres catalog plan as the forward copy, so one table
+list drives both directions.
+
+**Defaults.** `--from` is `ROOST_COORDINATOR_DATABASE_URL` from this shell; it
+must be a `postgres://` or `postgresql://` URL. `--to` is the file this host's
+installed coordinator declares in `ROOST_COORDINATOR_DB`, then the one this
+shell exports, then the default data directory's. A missing file and its
+directory are created.
+
+**Both ends are migrated first, by the coordinator's own `db::open`**, and the
+SQLite schema is checked against the Postgres plan: a table or column on one
+side only is a refusal.
+
+**The source is read in one `REPEATABLE READ, READ ONLY` snapshot**, so a
+coordinator still writing it does not tear the copy; rows it writes after the
+snapshot are not in the file. **The target is written in one SQLite
+transaction.** Its triggers are dropped and recreated inside that transaction
+(SQLite has no `DISABLE TRIGGER`), foreign keys are deferred to the commit,
+every column is inserted as stored (so `AUTOINCREMENT` continues past the
+copied ids), and every table's count is checked against the snapshot's. A
+failure anywhere rolls the file back.
+
+**A target holding rows is refused**; `--replace` empties every coordinator
+table first, inside the same transaction. **The target must be idle**: when
+`--to` is this host's installed coordinator's file and that service is
+running, the command refuses.
+
+**stdout** is the target path, then one line per table with its row count,
+then the total and the elapsed time. The URL is never printed.
+
+**Exit codes.**
+
+| Situation | Code |
+| --- | --- |
+| copied | 0 |
+| no source URL, or not a Postgres URL; the target holds rows and `--replace` was not given; the installed coordinator is running on the target | 2 |
+| either end could not be opened or migrated; the target directory could not be created; the schemas disagree; a value does not fit its column; a count mismatch; a statement failed | 1 |
+
+---
+
 ## `roost update`
 
 ```

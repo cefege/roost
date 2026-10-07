@@ -128,6 +128,18 @@ Then swap `ROOST_COORDINATOR_DB` for `ROOST_COORDINATOR_DATABASE_URL` in the
 coordinator's environment. Paired browsers, enrolled workers and push
 subscriptions all carry over, because they are rows.
 
+The reverse, Postgres back to a SQLite file, is `roost db-to-sqlite`. It reads
+the source in one consistent snapshot, so the Postgres coordinator may keep
+running; stop the one that will use the file:
+
+```sh
+export ROOST_COORDINATOR_DATABASE_URL=postgres://roost:…@db-host:5432/roost
+roost db-to-sqlite                    # --to defaults to this install's file
+```
+
+Then swap `ROOST_COORDINATOR_DATABASE_URL` for `ROOST_COORDINATOR_DB` in the
+coordinator's environment.
+
 On one machine, with Docker:
 
 ```sh
