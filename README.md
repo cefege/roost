@@ -267,9 +267,9 @@ cargo test --workspace --doc
 cargo xtask lint
 ```
 
-Releases to our own fleet go through `cargo xtask fleet build --version <tag>`
-and `cargo xtask fleet install --version <tag>` (hosts in `xtask/fleet.json`);
-public `v3.*` tags are built by `.github/workflows/release.yml`. Operating
+Every release is built on GitHub: a `v3.*` tag runs
+`.github/workflows/release.yml`, and `cargo xtask fleet install --version <tag>`
+downloads that release onto our own hosts (`xtask/fleet.json`). Operating
 rules are in [`CLAUDE.md`](CLAUDE.md).
 
 ## Built by

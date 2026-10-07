@@ -1,7 +1,8 @@
 //! `xtask/fleet.json`: the machines a release installs onto, in install order,
-//! and how to reach each one. Read by `fleet::build` (the Mac build host) and
-//! `fleet::install` (every host). A host with `"ssh": null` is this machine,
-//! and its commands run locally instead of over ssh.
+//! and how to reach each one. Read by `fleet::install`; `Platform` also names
+//! the directory `fleet::fetch` puts each platform's binaries in. A host with
+//! `"ssh": null` is this machine, and its commands run locally instead of over
+//! ssh.
 
 use std::io::Write;
 use std::path::Path;
@@ -12,8 +13,6 @@ use serde::Deserialize;
 /// The whole file.
 #[derive(Debug, Deserialize)]
 pub struct Fleet {
-    /// The ssh name of the Mac whose warm `~/roost-build` builds the macOS pair.
-    pub mac_build_host: String,
     /// Install order; a host running a coordinator service comes first.
     pub hosts: Vec<FleetHost>,
     /// A coordinator that runs on Kubernetes, upgraded before every host.

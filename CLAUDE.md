@@ -337,7 +337,10 @@ critical failure — the plan IS the answer.
 
 ### Commands
 
-Per-change gates, run in `~/repos/roost-v3`:
+The per-change gates. They run on GitHub (`ci.yml`, on every push and pull
+request to `v3`); push a branch and open a pull request to run them. On
+desktop-pc, which also runs the production k3s workloads, run only scoped
+commands (below), never the workspace-wide ones:
 
 ```
 cargo xtask fmt             # cargo fmt --check, over the crates we author
@@ -352,38 +355,39 @@ Plain `cargo test` on a crate's integration suite is unsupported: its tests
 share one process there, and several install process-global state. Use
 nextest. One test: `cargo nextest run -p <crate> <module>::<test>`.
 
-Before a release tag:
-
-```
-# The vendored terminal core is not a workspace member — `cargo fmt` walks
-# local path dependencies regardless of `exclude`, and reformatting vendored
-# code would make the diff against upstream unreviewable. Its own suite runs
-# by manifest path.
-cargo test --manifest-path third_party/alacritty_terminal/Cargo.toml
-cargo build -p roost-client-core -p roost-protocol -p roost-web -p roost-web-terminal --target wasm32-unknown-unknown
-cargo xtask fleet build --version <tag>
-```
+Before a release tag, `release.yml`'s `verify` job runs the same gates plus
+the vendored terminal core's suite
+(`cargo test --manifest-path third_party/alacritty_terminal/Cargo.toml`; it is
+not a workspace member, because `cargo fmt` walks local path dependencies
+regardless of `exclude`) and the wasm32 build of the browser crates.
 
 CI (`.github/workflows/ci.yml`) runs the `rust` job on ubuntu-latest AND
 macos-latest. `.github/workflows/release.yml` publishes a `v3.*` tag: it
-re-runs the `rust` job's commands and builds four triples, whose assets
-`install.sh` fetches for a machine outside the fleet below. No gate
-needs a deployed coordinator, a tailnet, or a human driving a browser.
+re-runs the `rust` job's commands and builds four triples and the web bundle,
+whose assets `install.sh` and `cargo xtask fleet install` fetch. No gate
+needs a deployed coordinator, a tailnet, or a human driving a browser. The
+repository is public, so GitHub-hosted runners cost nothing.
 
 ### Build discipline
 
-**One cargo command at a time per machine.** Parallel cold builds on one box
-compete for CPU and RAM and finish later than the same builds run in series.
-On desktop-pc, `~/.local/bin/cargo` enforces this itself — a machine-wide
-lock, CPUs 0–3, inside `rust-build.slice` — so plain `cargo …` is correct
-there and no `flock` wrapper is needed. On every other machine an agent wraps
-every `cargo`/`dx` invocation as `flock /tmp/roost-cargo.lock cargo …`.
-**Never `cargo clean` a workspace on desktop-pc**: a cold workspace rebuild is
-the load that preceded every host reset, and sccache plus the warm `target/`
-make it unnecessary. While iterating, run scoped commands
-(`cargo check -p <crate>`, `cargo nextest run -p <crate> <module>`) and run
-the full gates once, at the end. Real parallelism means a different machine
-per agent.
+**desktop-pc is a production host.** Its k3s runs the Roost coordinator,
+Immich, Nextcloud, Forgejo, Home Assistant and monitoring. Release builds,
+workspace-wide gates, stress runs and load generators do not run there: they
+run on GitHub. An agent on desktop-pc runs only scoped commands
+(`cargo check -p <crate>`, `cargo clippy -p <crate>`,
+`cargo nextest run -p <crate> <module>`), never starts a process that exists
+to burn CPU (`yes`, `stress-ng`, `--stress-count`), and reproduces a flaky
+test on CI rather than locally. CPU-burning processes an agent started there,
+outside the cargo cap, once held the CPUs at 75 % pressure for half an hour and
+slowed every production service.
+
+**One cargo command at a time per machine.** On desktop-pc,
+`~/.local/bin/cargo` enforces this itself — a machine-wide lock, CPUs 0–3,
+inside `rust-build.slice` — so plain `cargo …` is correct there; it caps cargo
+and its children only, not anything else an agent starts. On every other
+machine an agent wraps every `cargo`/`dx` invocation as
+`flock /tmp/roost-cargo.lock cargo …`. **Never `cargo clean` a workspace on
+desktop-pc**: sccache plus the warm `target/` make it unnecessary.
 
 **Each worktree builds into its own `target/`.** Never point two worktrees at
 one `CARGO_TARGET_DIR`. Cargo identifies a path crate by its
@@ -401,30 +405,30 @@ and the incremental workspace crates recompile per worktree.
 
 ### Release to the fleet
 
-Our own machines take a release from this checkout, not from GitHub Actions.
-The host list, install order and service names are `xtask/fleet.json`.
+Our own machines take a release from GitHub: `release.yml` builds it, this
+checkout installs it. The host list, install order and service names are
+`xtask/fleet.json`.
 
 ```
-cargo xtask fleet build --version <tag>     # clean tree only; artifacts in target/fleet/<tag>/
+git tag <tag> && git push origin <tag>      # release.yml + container.yml build everything
 cargo xtask fleet install --version <tag> [--host <name>]…
 ```
 
-`fleet build` builds the Linux pair here through `cargo zigbuild` against
-glibc 2.28 (one binary for every Linux host), the macOS pair on the warm
-`~/roost-build` of the Mac named in `fleet.json` (HEAD's `git archive`, only
-changed files copied, then an incremental cargo build), and the web bundle
-through `dx`, stamping the tag and HEAD's sha
-into both binaries. `fleet install` first upgrades the coordinator, which runs
-on desktop-pc's k3s against an in-chart Postgres (`fleet.json` `coordinator`,
-values in `deploy/helm/fleet-desktop-pc.values.yaml`): it refuses until
-`.github/workflows/container.yml` has published the tag's image to ghcr, so
-push the tag first, then `helm upgrade`s and checks the pod reports the tag and
-sha. It then copies the tag into each host's `versions/<tag>/`, repoints the
-systemd units or the LaunchAgent at it, restarts them, and fails a host whose
-keeper pid changed. The public door is unchanged: `mike.roosttt.com` reaches
-ovh1's edge Caddy, whose `roost-saas-legacy-bridge` forwards over the tailnet
-to the coordinator's NodePort (30413). Needs zig 0.16.0, `cargo-zigbuild`
-0.23.4, `helm` and `kubectl` on this machine.
+`fleet install` downloads the tag's release assets with `gh` into
+`target/fleet/<tag>/` (the Linux x64 and macOS arm64 pairs and the web
+bundle), checks each against its `.sha256`, and records the commit the tag
+names; it refuses until `release.yml` has published the release. It then
+upgrades the coordinator, which runs on desktop-pc's k3s against an in-chart
+Postgres (`fleet.json` `coordinator`, values in
+`deploy/helm/fleet-desktop-pc.values.yaml`): it refuses until
+`.github/workflows/container.yml` has published the tag's image to ghcr, then
+`helm upgrade`s and checks the pod reports the tag and sha. It then copies the
+tag into each host's `versions/<tag>/`, repoints the systemd units or the
+LaunchAgent at it, restarts them, and fails a host whose binary reports
+another commit or whose keeper pid changed. The public door is unchanged:
+`mike.roosttt.com` reaches ovh1's edge Caddy, whose `roost-saas-legacy-bridge`
+forwards over the tailnet to the coordinator's NodePort (30413). Needs `gh`,
+`helm` and `kubectl` on this machine.
 
 ---
 

@@ -19,7 +19,7 @@ const KEEPER_PID_LINE: &str = "PID=$(cat \"$ROOT/mux-keeper.pid\" 2>/dev/null ||
 if [ \"$PID\" != none ] && kill -0 \"$PID\" 2>/dev/null; then echo \"$PID\"; else echo \"dead:$PID\"; fi\n";
 const COORDINATOR_URL: &str = "https://mike.roosttt.com";
 
-/// A tag `fleet build` finished: its directory and the commit it was built at.
+/// A tag `fleet::fetch` downloaded: its directory and the commit it names.
 pub struct BuiltRelease {
     tag: String,
     sha: String,
@@ -31,7 +31,7 @@ impl BuiltRelease {
         let dir = super::release_dir(tag);
         let path = dir.join("manifest.json");
         let text = std::fs::read_to_string(&path)
-            .map_err(|error| format!("{}: {error}; run fleet build first", path.display()))?;
+            .map_err(|error| format!("{}: {error}", path.display()))?;
         let manifest: serde_json::Value =
             serde_json::from_str(&text).map_err(|error| format!("{}: {error}", path.display()))?;
         let field = |name: &str| {

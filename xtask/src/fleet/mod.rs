@@ -1,12 +1,11 @@
-//! `cargo xtask fleet build|install` — the release path for our own machines.
-//! `build` produces every artifact of one tag under `target/fleet/<tag>/` (Linux
-//! through zig on this machine, macOS on a warm Mac, the web bundle through
-//! dx); `install` upgrades the Kubernetes coordinator to the tag's image, then
-//! puts the tag on each host in `xtask/fleet.json` and restarts its services,
-//! refusing a host whose keeper did not survive the restart.
+//! `cargo xtask fleet install` — the release path for our own machines. It
+//! downloads one tag's GitHub release (built by `.github/workflows/release.yml`)
+//! into `target/fleet/<tag>/`, upgrades the Kubernetes coordinator to the tag's
+//! image, then puts the tag on each host in `xtask/fleet.json` and restarts its
+//! services, refusing a host whose keeper did not survive the restart.
 
-mod build;
 mod coordinator;
+mod fetch;
 mod install;
 mod manifest;
 
@@ -20,26 +19,14 @@ use crate::source_tree;
 
 #[derive(Subcommand)]
 pub enum FleetCommand {
-    /// Build `roost`, `roost-keeper` (Linux and macOS) and the web bundle for
-    /// one tag into target/fleet/<tag>/.
-    Build(BuildArgs),
-    /// Install a built tag on the fleet and restart its services.
+    /// Download a published release and install it on the fleet, restarting
+    /// its services.
     Install(InstallArgs),
 }
 
 #[derive(Args)]
-pub struct BuildArgs {
-    /// The release tag stamped into the binaries, e.g. v3.0.0-rc.6.
-    #[arg(long)]
-    version: String,
-    /// The Mac that builds the macOS pair; defaults to fleet.json's.
-    #[arg(long)]
-    mac_host: Option<String>,
-}
-
-#[derive(Args)]
 pub struct InstallArgs {
-    /// The tag `fleet build` produced.
+    /// The published release tag, e.g. v3.0.0-rc.12.
     #[arg(long)]
     version: String,
     /// Install only these hosts (fleet.json names); default: all, in order.
@@ -49,7 +36,6 @@ pub struct InstallArgs {
 
 pub fn run(command: &FleetCommand) -> ExitCode {
     let outcome = match command {
-        FleetCommand::Build(arguments) => build_command(arguments),
         FleetCommand::Install(arguments) => install_command(arguments),
     };
     match outcome {
@@ -59,20 +45,6 @@ pub fn run(command: &FleetCommand) -> ExitCode {
             ExitCode::FAILURE
         }
     }
-}
-
-fn build_command(arguments: &BuildArgs) -> Result<(), String> {
-    check_tag(&arguments.version)?;
-    let fleet = manifest::Fleet::load(&fleet_file())?;
-    let mac_host = arguments.mac_host.clone().unwrap_or(fleet.mac_build_host);
-    let started = Instant::now();
-    build::build_release(&arguments.version, &mac_host)?;
-    println!(
-        "xtask fleet: {} built in {}s",
-        arguments.version,
-        started.elapsed().as_secs()
-    );
-    Ok(())
 }
 
 fn install_command(arguments: &InstallArgs) -> Result<(), String> {
@@ -90,6 +62,7 @@ fn install_command(arguments: &InstallArgs) -> Result<(), String> {
     }) {
         return Err(format!("{unknown} is not a host in xtask/fleet.json"));
     }
+    fetch::fetch_release(&arguments.version)?;
     let release = install::BuiltRelease::load(&arguments.version)?;
     let started = Instant::now();
     if let Some(coordinator) = fleet
@@ -114,7 +87,7 @@ fn fleet_file() -> PathBuf {
     source_tree::repo_root().join("xtask").join("fleet.json")
 }
 
-/// The output directory of one tag's build.
+/// The directory one tag's downloaded release is kept in.
 fn release_dir(tag: &str) -> PathBuf {
     source_tree::repo_root()
         .join("target")

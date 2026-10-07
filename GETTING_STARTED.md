@@ -651,9 +651,10 @@ derives its own hostname and reachable address. Exporting either variable while
 deploying to a host that has no prior install refuses the deploy rather than
 registering that host under this machine's name.
 
-Our own fleet's maintainer flow is `cargo xtask fleet build --version <tag>`
-then `cargo xtask fleet install --version <tag>`, driven by
-`xtask/fleet.json`; see `CLAUDE.md` § Release to the fleet.
+Our own fleet's maintainer flow is: push a `v3.*` tag, let `release.yml` build
+it, then `cargo xtask fleet install --version <tag>`, which downloads that
+release and installs it on the hosts in `xtask/fleet.json`; see `CLAUDE.md`
+§ Release to the fleet.
 
 ## Automatic terminal transport
 
