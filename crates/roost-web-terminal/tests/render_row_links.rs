@@ -47,6 +47,7 @@ fn linked(text: &str, uri: &str, key: &str) -> CellSpan {
 fn row(spans: Vec<CellSpan>) -> CellRow {
     CellRow {
         index: 0,
+        mark: 0,
         spans: Arc::from(spans),
     }
 }

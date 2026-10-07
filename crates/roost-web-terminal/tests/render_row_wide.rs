@@ -37,6 +37,7 @@ fn run(text: &str) -> CellSpan {
 fn row_of(spans: Vec<CellSpan>) -> CellRow {
     CellRow {
         index: 0,
+        mark: 0,
         spans: Arc::from(spans),
     }
 }
@@ -50,6 +51,38 @@ fn paint(row: &CellRow, hits: Option<&[FindHit]>, active_col: Option<u32>) -> Fa
         &mut StyleCache::default(),
     )
     .unwrap()
+}
+
+#[test]
+fn prompt_rows_carry_their_exit_status_as_a_data_attribute() {
+    let open = CellRow {
+        mark: roost_protocol::cell::row_mark::PROMPT,
+        ..row_of(Vec::new())
+    };
+    let success = CellRow {
+        mark: roost_protocol::cell::row_mark::PROMPT | roost_protocol::cell::row_mark::EXIT_OK,
+        ..row_of(Vec::new())
+    };
+    let failure = CellRow {
+        mark: roost_protocol::cell::row_mark::PROMPT | roost_protocol::cell::row_mark::EXIT_FAILED,
+        ..row_of(Vec::new())
+    };
+    assert_eq!(
+        paint(&open, None, None).attribute("data-prompt").as_deref(),
+        Some("open")
+    );
+    assert_eq!(
+        paint(&success, None, None)
+            .attribute("data-prompt")
+            .as_deref(),
+        Some("ok")
+    );
+    assert_eq!(
+        paint(&failure, None, None)
+            .attribute("data-prompt")
+            .as_deref(),
+        Some("err")
+    );
 }
 
 /// A pinned box counts its declared `ch` width; an unboxed narrow run counts

@@ -183,6 +183,7 @@ pub fn mismatched_full_frame(record: &SessionRecord, seq: u64) -> CellGridFrame 
     };
     frame.viewport_rows[0] = CellRow {
         index: 0,
+        mark: 0,
         spans: vec![span].into(),
     };
     frame

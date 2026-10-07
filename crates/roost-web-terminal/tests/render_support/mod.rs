@@ -43,6 +43,7 @@ pub fn row(index: u32, text: &str) -> CellRow {
     };
     CellRow {
         index,
+        mark: 0,
         spans: Arc::from(spans),
     }
 }

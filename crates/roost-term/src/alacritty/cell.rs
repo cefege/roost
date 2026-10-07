@@ -114,6 +114,7 @@ pub(crate) fn cell_data(
         bg_rgb,
         link_uri,
         link_key,
+        semantic_mark: cell.semantic_mark(),
     }
 }
 

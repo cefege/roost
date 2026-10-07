@@ -179,6 +179,7 @@ fn own_row_shells(rows: &[CellRow]) -> Vec<CellRow> {
         .map(|row| CellRow {
             index: row.index,
             spans: Arc::clone(&row.spans),
+            mark: row.mark,
         })
         .collect()
 }

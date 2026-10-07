@@ -200,6 +200,19 @@
      rowHeight()/sizeBlock() derive every scroll position from. */
   height: 1.2em;
 }
+/* OSC 133 prompt status sits in the row's left padding without changing its
+   terminal text or grid geometry. */
+.cell-grid .cell-row[data-prompt] { position: relative; }
+.cell-grid .cell-row[data-prompt]::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  right: 100%;
+  inline-size: var(--md-space-1);
+  background: var(--text-lo);
+}
+.cell-grid .cell-row[data-prompt="ok"]::before { background: var(--status-ok); }
+.cell-grid .cell-row[data-prompt="err"]::before { background: var(--status-err); }
 /* Scrollback rows are packed into .cell-block groups (CellGridRenderer). Skipping
    layout/paint of off-screen blocks keeps a reveal reflow + scrollHeight reads
    O(blocks) not O(history) — the fix for the deep-history pane-switch freeze.

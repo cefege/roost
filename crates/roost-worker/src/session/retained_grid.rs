@@ -213,9 +213,10 @@ impl CellRowJson {
 
 impl Serialize for CellRowJson {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut row = serializer.serialize_struct("CellRow", 2)?;
+        let mut row = serializer.serialize_struct("CellRow", 3)?;
         row.serialize_field("index", &self.0.index)?;
         row.serialize_field("spans", &CellSpansJson(&self.0.spans))?;
+        row.serialize_field("mark", &self.0.mark)?;
         row.end()
     }
 }

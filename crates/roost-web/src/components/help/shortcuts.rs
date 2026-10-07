@@ -39,7 +39,7 @@ use BindingPart::{Chord, Keys};
 /// Every shortcut the application advertises, grouped by category in source
 /// order — the controller rows name physical caps so a legend row in
 /// `input_nav::pad_hints` is greppable from here.
-pub const SHORTCUTS: [ShortcutEntry; 31] = [
+pub const SHORTCUTS: [ShortcutEntry; 32] = [
     ShortcutEntry {
         category: "Navigation",
         label: "Command palette",
@@ -158,6 +158,11 @@ pub const SHORTCUTS: [ShortcutEntry; 31] = [
         category: "Terminal",
         label: "Find in scrollback",
         parts: &[Chord(PlatformShortcut::TerminalFind, "⌘F / Ctrl+⇧F")],
+    },
+    ShortcutEntry {
+        category: "Terminal",
+        label: "Previous / next prompt",
+        parts: &[Keys("⌘⇧↑ / ⌘⇧↓ · Ctrl+⇧↑ / Ctrl+⇧↓")],
     },
     ShortcutEntry {
         category: "Terminal",

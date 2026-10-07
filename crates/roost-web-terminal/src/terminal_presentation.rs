@@ -48,7 +48,8 @@ pub fn preserves_foreground_reader_hold(reason: Option<ReaderIntentReason>) -> b
             | ReaderIntentReason::Wheel
             | ReaderIntentReason::Touch
             | ReaderIntentReason::Selection
-            | ReaderIntentReason::Find,
+            | ReaderIntentReason::Find
+            | ReaderIntentReason::PromptJump,
         ) => true,
         None => false,
     }

@@ -73,7 +73,12 @@ pub fn TerminalClipboard() -> Element {
                         session_id = %session_id,
                         "browser refused a terminal clipboard write; offering a Copy button"
                     );
-                    raise_manual_copy_toast(&pump, &session_id, fallback_text);
+                    raise_manual_copy_toast(
+                        &pump,
+                        &session_id,
+                        "The terminal copied text. Click Copy to put it on your clipboard.",
+                        fallback_text,
+                    );
                 }
             });
         }
@@ -105,7 +110,9 @@ pub fn raise_copied_toast(pump: &Pump, session_id: &str) {
 
 /// The card for a refused write: a preview, and a Copy button whose click is
 /// the user gesture the browser asked for. One per session, newest wins.
-fn raise_manual_copy_toast(pump: &Pump, session_id: &str, text: String) {
+/// Also used by "Copy last command output", whose write lands after an await
+/// and so outside the palette press that asked for it.
+pub fn raise_manual_copy_toast(pump: &Pump, session_id: &str, message: &str, text: String) {
     let id = ToastId::new(
         ToastSource::Host {
             name: "terminal-clipboard-manual",
@@ -120,13 +127,6 @@ fn raise_manual_copy_toast(pump: &Pump, session_id: &str, text: String) {
         .with_details(preview)
         .with_copy_action(text);
     write_store(pump, |store| {
-        add_toast(
-            store,
-            id,
-            "The terminal copied text. Click Copy to put it on your clipboard.",
-            ToastKind::Warn,
-            options,
-            now_ms(),
-        );
+        add_toast(store, id, message, ToastKind::Warn, options, now_ms());
     });
 }

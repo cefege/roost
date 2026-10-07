@@ -29,6 +29,17 @@ pub fn render_row<E: RenderElement>(
     let element = factory.create_element("div")?;
     element.set_class_name("cell-row");
     element.set_attribute(ROW_COLUMNS_ATTR, &row_column_count(row).to_string());
+    let prompt = row.mark & roost_protocol::cell::row_mark::PROMPT != 0;
+    if prompt {
+        let state = if row.mark & roost_protocol::cell::row_mark::EXIT_FAILED != 0 {
+            "err"
+        } else if row.mark & roost_protocol::cell::row_mark::EXIT_OK != 0 {
+            "ok"
+        } else {
+            "open"
+        };
+        element.set_attribute("data-prompt", state);
+    }
     if row.spans.is_empty() {
         element.set_text(" ");
         return Ok(element);

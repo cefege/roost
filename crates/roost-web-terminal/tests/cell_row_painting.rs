@@ -33,6 +33,7 @@ fn span(text: &str, columns: u32) -> CellSpan {
 fn row(spans: Vec<CellSpan>) -> CellRow {
     CellRow {
         index: 0,
+        mark: 0,
         spans: Arc::from(spans),
     }
 }
@@ -250,6 +251,19 @@ fn the_row_hash_folds_link_identity_without_hashing_the_whole_uri() {
     assert_ne!(
         row_hash(&row(vec![painted]), None, None),
         row_hash(&row(vec![longer_uri]), None, None)
+    );
+}
+
+#[test]
+fn a_semantic_mark_changes_the_row_hash() {
+    let unmarked = row(vec![span("output", 6)]);
+    let marked = CellRow {
+        mark: roost_protocol::cell::row_mark::OUTPUT,
+        ..unmarked.clone()
+    };
+    assert_ne!(
+        row_hash(&unmarked, None, None),
+        row_hash(&marked, None, None)
     );
 }
 

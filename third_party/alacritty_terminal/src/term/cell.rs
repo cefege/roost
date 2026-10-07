@@ -126,6 +126,8 @@ pub struct CellExtra {
     zerowidth: Vec<char>,
     underline_color: Option<Color>,
     hyperlink: Option<Hyperlink>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    semantic_mark: u8,
 }
 
 /// Content and attributes of a single cell in the terminal grid.
@@ -166,6 +168,25 @@ impl Cell {
         Arc::make_mut(extra).zerowidth.push(character);
     }
 
+    /// Set the semantic mark stored in this cell.
+    #[inline]
+    pub fn set_semantic_mark(&mut self, bits: u8) {
+        if bits == 0 {
+            if let Some(extra) = self.extra.as_mut() {
+                Arc::make_mut(extra).semantic_mark = 0;
+            }
+        } else {
+            let extra = self.extra.get_or_insert(Default::default());
+            Arc::make_mut(extra).semantic_mark = bits;
+        }
+    }
+
+    /// Semantic mark stored in this cell.
+    #[inline]
+    pub fn semantic_mark(&self) -> u8 {
+        self.extra.as_ref().map_or(0, |extra| extra.semantic_mark)
+    }
+
     /// Remove all wide char data from a cell.
     #[inline(never)]
     pub fn clear_wide(&mut self) {
@@ -180,10 +201,11 @@ impl Cell {
     pub fn set_underline_color(&mut self, color: Option<Color>) {
         // If we reset color and we don't have zerowidth we should drop extra storage.
         if color.is_none()
-            && self
-                .extra
-                .as_ref()
-                .is_none_or(|extra| extra.zerowidth.is_empty() && extra.hyperlink.is_none())
+            && self.extra.as_ref().is_none_or(|extra| {
+                extra.zerowidth.is_empty()
+                    && extra.hyperlink.is_none()
+                    && extra.semantic_mark == 0
+            })
         {
             self.extra = None;
         } else {
@@ -201,10 +223,11 @@ impl Cell {
     /// Set hyperlink.
     pub fn set_hyperlink(&mut self, hyperlink: Option<Hyperlink>) {
         let should_drop = hyperlink.is_none()
-            && self
-                .extra
-                .as_ref()
-                .is_none_or(|extra| extra.zerowidth.is_empty() && extra.underline_color.is_none());
+            && self.extra.as_ref().is_none_or(|extra| {
+                extra.zerowidth.is_empty()
+                    && extra.underline_color.is_none()
+                    && extra.semantic_mark == 0
+            });
 
         if should_drop {
             self.extra = None;
@@ -320,5 +343,18 @@ mod tests {
         row[Column(9)].flags.insert(super::Flags::WRAPLINE);
 
         assert_eq!(row.line_length(), Column(10));
+    }
+
+    #[test]
+    fn semantic_mark_is_lazy_and_clears_with_cell_reset() {
+        let mut cell = Cell::default();
+        assert_eq!(cell.semantic_mark(), 0);
+        assert!(cell.extra.is_none());
+
+        cell.set_semantic_mark(1);
+        assert_eq!(cell.semantic_mark(), 1);
+        cell.reset(&Cell::default());
+        assert_eq!(cell.semantic_mark(), 0);
+        assert!(cell.extra.is_none());
     }
 }

@@ -15,11 +15,13 @@ pub fn text_row(index: u32, text: &str) -> CellRow {
     if text.is_empty() {
         return CellRow {
             index,
+            mark: 0,
             spans: Arc::from(Vec::new()),
         };
     }
     CellRow {
         index,
+        mark: 0,
         spans: Arc::from(vec![CellSpan {
             text: text.to_owned(),
             fg: DEFAULT_COLOR,

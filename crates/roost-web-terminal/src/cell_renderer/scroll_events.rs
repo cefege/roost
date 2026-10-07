@@ -189,14 +189,48 @@ impl<E: RenderElement> CellGridRenderer<E> {
     /// interval would land the reader in blank space that no page was ever
     /// asked for.
     pub fn scroll_to_scrollback_row(&mut self, absolute_index: u32) -> bool {
+        self.scroll_to_scrollback_row_for(absolute_index, ReaderIntentReason::Find)
+    }
+
+    /// [`Self::scroll_to_scrollback_row`], parked for `reason` rather than for
+    /// find: a prompt jump is a position, not a find-bar anchor.
+    pub fn scroll_to_scrollback_row_for(
+        &mut self,
+        absolute_index: u32,
+        reason: ReaderIntentReason,
+    ) -> bool {
         if !self.has_painted_scrollback_range(absolute_index, absolute_index.saturating_add(1)) {
             return false;
         }
+        self.scroll_to_absolute_row(absolute_index, reason)
+    }
+
+    /// Scroll a row of the live screen to the same place a history reveal puts
+    /// its row: a third of the way down. The screen is always painted, so the
+    /// only refusal is a row the current frame does not have.
+    pub fn scroll_to_viewport_row_for(
+        &mut self,
+        viewport_row: u32,
+        reason: ReaderIntentReason,
+    ) -> bool {
+        let Some(frame) = self.frame.as_ref() else {
+            return false;
+        };
+        if viewport_row >= frame.rows {
+            return false;
+        }
+        let absolute = u32::try_from(frame.scrollback_total)
+            .unwrap_or(u32::MAX)
+            .saturating_add(viewport_row);
+        self.scroll_to_absolute_row(absolute, reason)
+    }
+
+    fn scroll_to_absolute_row(&mut self, absolute_index: u32, reason: ReaderIntentReason) -> bool {
         let row_height = self.row_height();
         if row_height <= 0.0 {
             return false;
         }
-        self.enter_reading(ReaderIntentReason::Find);
+        self.enter_reading(reason);
         let top = self.spacer.offset_top() + f64::from(absolute_index) * row_height;
         let target = (top - self.client_height() / 3.0).clamp(0.0, self.scroll_max());
         self.write_scroll_top(target);

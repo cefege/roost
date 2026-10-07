@@ -34,7 +34,7 @@ pub enum ReaderIntent {
     Reading,
 }
 
-/// Why a reader parked. `selection` and `find` own an anchor; the other three
+/// Why a reader parked. `selection` and `find` own an anchor; the other four
 /// are a POSITION and nothing else.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReaderIntentReason {
@@ -48,6 +48,10 @@ pub enum ReaderIntentReason {
     Selection,
     /// A find match the pane scrolled to.
     Find,
+    /// A shell prompt the reader jumped to (Mod+Shift+Up/Down). A position:
+    /// it is released like a scroll, and only names who parked the reader so
+    /// the next jump continues from the prompt this one landed on.
+    PromptJump,
 }
 
 impl ReaderIntentReason {
@@ -55,7 +59,10 @@ impl ReaderIntentReason {
     /// bottom loses nothing, so it is the one class a box resize or a hold
     /// release may end.
     pub fn is_position_only(self) -> bool {
-        matches!(self, Self::NativeScroll | Self::Wheel | Self::Touch)
+        matches!(
+            self,
+            Self::NativeScroll | Self::Wheel | Self::Touch | Self::PromptJump
+        )
     }
 }
 

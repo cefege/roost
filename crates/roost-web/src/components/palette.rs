@@ -12,6 +12,7 @@
 
 pub mod body;
 pub mod controller_map;
+pub mod copy_command_output;
 pub mod dom;
 pub mod list_keys;
 pub mod outcome;

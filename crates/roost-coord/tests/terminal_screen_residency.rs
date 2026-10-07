@@ -31,6 +31,7 @@ fn session(tail: &str) -> SessionId {
 fn proto_row(index: u32) -> roost_proto::PbCellRow {
     roost_proto::PbCellRow {
         index,
+        mark: 0,
         spans: vec![roost_proto::PbCellSpan {
             text: "$ ".to_owned(),
             fg: 0,

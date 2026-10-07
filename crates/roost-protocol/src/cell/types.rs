@@ -78,6 +78,8 @@ pub struct CellRow {
     /// renumbers rows, and cells a renderer already painted must not be copied
     /// to do that.
     pub spans: Arc<[CellSpan]>,
+    /// OR of the OSC 133 marks on this row's cells (`super::row_mark`).
+    pub mark: u8,
 }
 
 /// A column range of a row, the output of `text_range_to_columns`.

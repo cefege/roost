@@ -44,6 +44,7 @@ message PbCellSpan {
 message PbCellRow {
   uint32 index = 1;         // viewport: 0..rows-1; scrollback: absolute line #
   repeated PbCellSpan spans = 2;
+  uint32 mark = 3;          // OR of known semantic marks on the row's cells
 }
 
 message PbCellGridFrame {

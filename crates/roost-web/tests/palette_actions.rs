@@ -281,6 +281,20 @@ fn every_catalog_command_names_a_surface_the_host_can_open() {
     );
     assert!(sibling.is_command());
 
+    let copy_output = palette_outcome(&row(
+        None,
+        Some(PaletteAction::CopyLastCommandOutput {
+            session_id: "session-1".to_owned(),
+        }),
+    ));
+    assert_eq!(
+        copy_output,
+        PaletteOutcome::CopyLastCommandOutput {
+            session_id: "session-1".to_owned(),
+        }
+    );
+    assert!(copy_output.is_command());
+
     let route = palette_outcome(&row(Some("/search?scope=attention"), None));
     assert_eq!(
         route,

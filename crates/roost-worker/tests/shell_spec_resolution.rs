@@ -215,6 +215,75 @@ fn a_shell_is_launched_with_a_bootstrap_that_reports_its_folder() {
     assert_eq!(spec.env_value("SAVEHIST"), Some("10000"));
 }
 
+/// The bash bootstrap, run by a real bash: every finished command reports its
+/// status with OSC 133 `D` before the next prompt's `A`, `PS0` marks each
+/// command's output with `C`, and the user's own `PROMPT_COMMAND` (a starship,
+/// say) still sees the command's real `$?`. Skipped on a host without bash.
+#[test]
+fn the_bash_bootstrap_marks_commands_and_keeps_the_users_exit_status() {
+    let Ok(bash) = which_bash() else {
+        return;
+    };
+    let scratch = Scratch::new("spec-bootstrap-run");
+    let home = scratch.path("home");
+    std::fs::create_dir_all(&home).expect("the fixture makes a home");
+    std::fs::write(home.join(".bashrc"), "PROMPT_COMMAND='echo user-saw-$?'\n")
+        .expect("the fixture writes the user's bashrc");
+    let rcfile = roost_worker::host::shell_bootstrap::ensure_bootstrap(
+        &scratch.path("bootstrap"),
+        ShellFlavour::Bash,
+    )
+    .expect("the bootstrap is written");
+    let mut child = std::process::Command::new(bash)
+        .args(["--noprofile", "--rcfile"])
+        .arg(&rcfile)
+        .arg("-i")
+        .env("HOME", &home)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("bash starts");
+    {
+        use std::io::Write as _;
+        let mut stdin = child.stdin.take().expect("bash has a stdin");
+        stdin.write_all(b"false\ntrue\n").expect("the commands are written");
+    }
+    let output = child.wait_with_output().expect("bash exits at end of input");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    let failed = stdout
+        .find("\x1b]133;D;1\x07")
+        .expect("`false` reports status 1");
+    let succeeded = stdout
+        .find("\x1b]133;D;0\x07")
+        .map(|first| {
+            stdout[first + 1..]
+                .find("\x1b]133;D;0\x07")
+                .map_or(first, |next| first + 1 + next)
+        })
+        .expect("`true` reports status 0");
+    assert!(failed < succeeded, "statuses out of order: {stdout:?}");
+    assert!(
+        stdout.contains("user-saw-1"),
+        "the user's PROMPT_COMMAND lost the real exit status: {stdout:?}"
+    );
+    assert_eq!(
+        stderr.matches("\x1b]133;C\x07").count(),
+        2,
+        "PS0 marks each command's output once: {stderr:?}"
+    );
+}
+
+fn which_bash() -> Result<std::path::PathBuf, ()> {
+    ["/bin/bash", "/usr/bin/bash", "/opt/homebrew/bin/bash"]
+        .into_iter()
+        .map(std::path::PathBuf::from)
+        .find(|path| path.is_file())
+        .ok_or(())
+}
+
 /// A shell script the user writes has to be able to tell which session it is
 /// running inside, so the id travels in the PTY's own environment and not only
 /// on the record.

@@ -44,6 +44,7 @@ fn mixed_row() -> Vec<CellSpan> {
 fn cell_row(index: u32, spans: Vec<CellSpan>) -> CellRow {
     CellRow {
         index,
+        mark: 0,
         spans: Arc::from(spans),
     }
 }

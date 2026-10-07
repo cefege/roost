@@ -42,6 +42,11 @@ pub enum PaletteOutcome {
         /// The folder to spawn in.
         cwd: String,
     },
+    /// The newest finished command's output, copied to the clipboard.
+    CopyLastCommandOutput {
+        /// The session whose terminal is read.
+        session_id: String,
+    },
     /// Nothing: the row names neither a route nor a command.
     Nothing,
 }
@@ -72,6 +77,9 @@ pub fn palette_outcome(item: &PaletteItem) -> PaletteOutcome {
         Some(PaletteAction::SpawnSibling { worker_fp, cwd }) => {
             PaletteOutcome::SpawnSibling { worker_fp, cwd }
         }
+        Some(PaletteAction::CopyLastCommandOutput { session_id }) => {
+            PaletteOutcome::CopyLastCommandOutput { session_id }
+        }
         None => PaletteOutcome::Nothing,
     }
 }
@@ -98,6 +106,9 @@ pub fn perform(pump: &Pump, navigate: &EventHandler<String>, item: &PaletteItem)
         }
         PaletteOutcome::SpawnSibling { worker_fp, cwd } => {
             spawn_sibling(pump, navigate, worker_fp, cwd);
+        }
+        PaletteOutcome::CopyLastCommandOutput { session_id } => {
+            super::copy_command_output::copy_last_command_output(pump.clone(), session_id);
         }
         PaletteOutcome::Nothing => {}
     }

@@ -17,6 +17,7 @@ use roost_web_terminal::painted_history::{
 fn row(index: u32) -> CellRow {
     CellRow {
         index,
+        mark: 0,
         spans: Arc::from([CellSpan {
             text: format!("row {index}"),
             fg: 7,

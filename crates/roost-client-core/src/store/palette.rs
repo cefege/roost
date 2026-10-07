@@ -69,6 +69,11 @@ pub enum PaletteAction {
         /// The folder to spawn in.
         cwd: String,
     },
+    /// Copy the last completed command's output from an open session.
+    CopyLastCommandOutput {
+        /// The session whose retained terminal rows are read.
+        session_id: String,
+    },
 }
 
 /// One row.
@@ -142,11 +147,12 @@ pub struct CommandPaletteContext {
 }
 
 /// The catalog's closed set of core action ids.
-pub const CORE_ACTION_IDS: [&str; 4] = [
+pub const CORE_ACTION_IDS: [&str; 5] = [
     "core.search.all",
     "core.attention.open",
     "core.task.queue-folder",
     "core.session.new-sibling",
+    "core.session.copy-last-command-output",
 ];
 
 /// Whether `text` matches every one of the already-normalized terms.
@@ -244,17 +250,28 @@ pub fn core_action_items(context: &CommandPaletteContext) -> Vec<PaletteItem> {
             },
         ));
     }
-    if let (Some(target), true) = (context.active_session.clone(), context.worker_routable) {
+    if let Some(target) = context.active_session.clone() {
         items.push(targeted_action(
-            "core.session.new-sibling",
+            "core.session.copy-last-command-output",
             &target,
             context.auth_generation,
-            "New sibling terminal",
-            PaletteAction::SpawnSibling {
-                worker_fp: target.worker_fp.clone(),
-                cwd: target.cwd.clone(),
+            "Copy last command output",
+            PaletteAction::CopyLastCommandOutput {
+                session_id: target.id.clone(),
             },
         ));
+        if context.worker_routable {
+            items.push(targeted_action(
+                "core.session.new-sibling",
+                &target,
+                context.auth_generation,
+                "New sibling terminal",
+                PaletteAction::SpawnSibling {
+                    worker_fp: target.worker_fp.clone(),
+                    cwd: target.cwd.clone(),
+                },
+            ));
+        }
     }
     items
 }

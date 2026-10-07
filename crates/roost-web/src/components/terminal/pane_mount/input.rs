@@ -330,6 +330,12 @@ fn run_reserved_chord(shared: &PaneShared, chord: ReservedChord) {
         ReservedChord::OpenFind => super::find_io::open(shared),
         ReservedChord::Copy => copy_selection(),
         ReservedChord::Paste => paste_from_clipboard(shared),
+        ReservedChord::PreviousPrompt => {
+            super::prompt_jump::jump_prompt(shared, super::prompt_jump::PromptDirection::Previous)
+        }
+        ReservedChord::NextPrompt => {
+            super::prompt_jump::jump_prompt(shared, super::prompt_jump::PromptDirection::Next)
+        }
     }
 }
 

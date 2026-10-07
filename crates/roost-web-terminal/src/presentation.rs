@@ -279,7 +279,7 @@ pub fn create_renderer_presentation_snapshot(
 /// rather than a merge: the worker is the only authority on immutable history,
 /// so a disagreement means the DOM holds a row no frame ever described.
 pub fn same_scrollback_row(left: &CellRow, right: &CellRow) -> bool {
-    left.index == right.index && left.spans == right.spans
+    left.index == right.index && left.mark == right.mark && left.spans == right.spans
 }
 
 /// When a renderer boundary was crossed, for the incident recorder that reads

@@ -58,6 +58,12 @@ path = "tests/roost_discarded_history.rs"
 name = "roost_linefeed_pending_wrap"
 path = "tests/roost_linefeed_pending_wrap.rs"
 
+# Roost addition: the guard on P7, semantic marks survive prompt writes. See
+# ROOST-PATCHES.md.
+[[test]]
+name = "roost_semantic_mark"
+path = "tests/roost_semantic_mark.rs"
+
 [dependencies.base64]
 version = "0.22.0"
 

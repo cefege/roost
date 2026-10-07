@@ -58,6 +58,7 @@ impl RetainedGrid for EvictingGrid {
             present.then(|| {
                 CellRowJson::owned(roost_protocol::cell::CellRow {
                     index: absolute_row,
+                    mark: 0,
                     spans: std::sync::Arc::from(vec![roost_protocol::cell::CellSpan {
                         text: format!("row {absolute_row}"),
                         fg: 0,

@@ -41,6 +41,7 @@ fn span(text: &str, columns: u32) -> CellSpan {
 fn row(index: u32, spans: Vec<CellSpan>) -> CellRow {
     CellRow {
         index,
+        mark: 0,
         spans: Arc::from(spans),
     }
 }
@@ -271,15 +272,21 @@ fn a_row_converts_both_ways_and_keeps_its_true_colour_and_link() {
     linked.bg_rgb = Some(0x101010);
     linked.link_uri = Some("https://example.test/x".to_owned());
     linked.link_key = Some("k-4".to_owned());
-    let original = row(4, vec![linked]);
+    let original = CellRow::with_mark(4, Arc::from(vec![linked]), 0b0101);
 
     let wire = cell_row_to_proto(&original);
+    assert_eq!(wire.mark, 0b0101);
     assert_eq!(wire.spans[0].fg, 7);
     assert_eq!(wire.spans[0].fg_rgb, Some(0x00ff00));
 
     let decoded = cell_row_from_proto(&wire).expect("a bounded row decodes");
     assert_eq!(decoded, original);
     assert_eq!(decoded.spans[0].link_key.as_deref(), Some("k-4"));
+
+    let mut future = wire;
+    future.mark |= 0x8000_0000;
+    let decoded = cell_row_from_proto(&future).expect("unknown marks are ignored");
+    assert_eq!(decoded.mark, 0b0101);
 }
 
 #[test]

@@ -157,6 +157,7 @@ fn full_frame() -> CellGridFrame {
         viewport_rows: (0..24)
             .map(|index| CellRow {
                 index,
+                mark: 0,
                 // `CellRow`'s spans are shared with every other sink that
                 // renders this frame, so they are an `Arc`, not a `Vec`.
                 spans: std::sync::Arc::from(Vec::new()),

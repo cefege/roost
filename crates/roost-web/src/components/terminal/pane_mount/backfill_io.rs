@@ -50,7 +50,8 @@ pub(super) fn perform_backfill(shared: &PaneShared, work: Vec<BackfillAction>) {
                 });
             }
             BackfillAction::FindSettled { row, painted } => {
-                super::find_io::on_row_settled(shared, row, painted)
+                super::find_io::on_row_settled(shared, row, painted);
+                super::prompt_jump::on_row_settled(shared, row, painted);
             }
         }
     }

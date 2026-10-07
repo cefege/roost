@@ -271,7 +271,11 @@ fn a_clipboard_write_is_sent_once_and_never_reasserted() {
     stage.set_negotiated(true);
     stage.observe_live(channel(7), b"", Some("copied".to_owned()), 1_000);
     flush_if_due(&mut stage, &mut sent, 1_000);
-    assert_eq!(sent.len(), 1, "the pre-negotiation write is dropped, not held");
+    assert_eq!(
+        sent.len(),
+        1,
+        "the pre-negotiation write is dropped, not held"
+    );
     assert!(sent[0].clipboard_changed);
     assert_eq!(sent[0].clipboard, "copied");
 

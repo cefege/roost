@@ -65,6 +65,7 @@ pub fn empty_frame(
             .into_iter()
             .map(|(index, spans)| CellRow {
                 index,
+                mark: 0,
                 spans: Arc::from(spans.unwrap_or_default()),
             })
             .collect(),

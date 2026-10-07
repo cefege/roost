@@ -43,6 +43,7 @@ fn frame() -> CellGridFrame {
         viewport_rows: (0..2)
             .map(|index| CellRow {
                 index,
+                mark: 0,
                 spans: Arc::from(Vec::new()),
             })
             .collect(),

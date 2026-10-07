@@ -47,6 +47,7 @@ fn a_link_difference_defeats_the_shift() {
     let head = text_row(0, "a");
     let linked_head = |uri: &str| CellRow {
         index: 0,
+        mark: 0,
         spans: Arc::from(vec![CellSpan {
             link_uri: Some(uri.to_owned()),
             link_key: Some("run-1".to_owned()),

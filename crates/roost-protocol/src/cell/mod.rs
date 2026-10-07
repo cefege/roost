@@ -13,6 +13,7 @@ pub mod frame_chunk_validation;
 pub mod frame_chunks;
 mod frame_structure;
 pub mod proto;
+pub mod row_mark;
 pub mod types;
 
 pub use delta_batch::{CellDeltaBatch, fold_cell_delta_batch};

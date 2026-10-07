@@ -48,6 +48,7 @@ fn frame(seq: u64) -> CellGridFrame {
         viewport_rows: (0..ROWS)
             .map(|row| CellRow {
                 index: row,
+                mark: 0,
                 spans: vec![span()].into(),
             })
             .collect(),

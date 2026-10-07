@@ -64,6 +64,15 @@ fn copy_paste_and_find_chords_are_reserved_but_plain_ctrl_keys_stay_the_ptys() {
     assert_eq!(reserved_chord("f", meta), Some(ReservedChord::OpenFind));
     assert_eq!(reserved_chord("c", ctrl), None);
     assert_eq!(reserved_chord("f", ctrl), None);
+    assert_eq!(
+        reserved_chord("ArrowUp", ctrl_shift),
+        Some(ReservedChord::PreviousPrompt)
+    );
+    assert_eq!(
+        reserved_chord("ArrowDown", ctrl_shift),
+        Some(ReservedChord::NextPrompt)
+    );
+    assert_eq!(reserved_chord("ArrowUp", ctrl), None);
     let alted = ChordModifiers {
         alt: true,
         ..ctrl_shift

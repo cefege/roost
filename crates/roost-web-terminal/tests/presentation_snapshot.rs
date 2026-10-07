@@ -22,6 +22,7 @@ use roost_web_terminal::reader_intent::{ReaderAnchor, ReaderIntent, ReaderIntent
 fn row(index: u32) -> CellRow {
     CellRow {
         index,
+        mark: 0,
         spans: Arc::from([CellSpan {
             text: format!("row {index}"),
             fg: 7,
@@ -226,6 +227,7 @@ fn the_same_painted_row_is_recognised_across_an_independent_decode() {
     assert!(same_scrollback_row(&left, &right));
     let different_text = CellRow {
         index: 4,
+        mark: 0,
         spans: Arc::from([CellSpan {
             text: "other".to_string(),
             fg: 7,
@@ -239,5 +241,10 @@ fn the_same_painted_row_is_recognised_across_an_independent_decode() {
         }]),
     };
     assert!(!same_scrollback_row(&left, &different_text));
+    let marked = CellRow {
+        mark: roost_protocol::cell::row_mark::PROMPT,
+        ..left.clone()
+    };
+    assert!(!same_scrollback_row(&left, &marked));
     assert!(!same_scrollback_row(&left, &row(5)));
 }

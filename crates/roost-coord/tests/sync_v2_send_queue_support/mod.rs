@@ -53,6 +53,7 @@ pub(crate) fn cell_frame(session_id: &str, marker: &str, seq: u64) -> FirehoseFr
             grid_epoch: format!("{session_id}:grid"),
             viewport_rows: vec![PbCellRow {
                 index: 0,
+                mark: 0,
                 spans: vec![PbCellSpan {
                     text: marker.to_owned(),
                     ..PbCellSpan::default()

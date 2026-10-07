@@ -359,6 +359,7 @@ pub fn canonical_frame_in(
             };
             CellRow {
                 index,
+                mark: 0,
                 spans: vec![span; spans_per_row].into(),
             }
         })

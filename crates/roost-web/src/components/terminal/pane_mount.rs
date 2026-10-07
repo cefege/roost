@@ -17,6 +17,7 @@ mod interactions;
 mod link_targets;
 mod paint;
 mod paste_files;
+mod prompt_jump;
 mod scroll;
 
 use std::cell::{Cell, RefCell};
@@ -88,6 +89,7 @@ pub(super) struct PaneState {
     pub offline: OfflineWatch,
     pub backfill: ScrollbackBackfill,
     pub find: find_io::PaneFind,
+    pub prompt_seek: prompt_jump::PromptSeek,
     pub view_opened: bool,
     pub published: Option<(u32, u32)>,
     pub has_reconciled_frame: bool,
@@ -220,6 +222,7 @@ impl PaneMount {
                     &init.session_id,
                     &crate::platform::terminal_view_id::mint_view_id().unwrap_or_default(),
                 ),
+                prompt_seek: prompt_jump::PromptSeek::default(),
                 view_opened: false,
                 published: None,
                 has_reconciled_frame: false,

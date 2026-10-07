@@ -134,6 +134,16 @@ fn a_palette_row_carries_the_credential_generation_its_action_captured() {
         })
     );
     assert_eq!(captured_generation(sibling), Some(7));
+    let copy_output = items
+        .iter()
+        .find(|item| item.id.starts_with("core.session.copy-last-command-output"))
+        .expect("an active session offers a copy-output action");
+    assert_eq!(
+        copy_output.action,
+        Some(PaletteAction::CopyLastCommandOutput {
+            session_id: "00000000-0000-4000-8000-00000000000a".to_owned(),
+        })
+    );
     assert!(
         !items
             .iter()
@@ -175,6 +185,11 @@ fn a_palette_row_for_an_unreachable_machine_is_not_offered() {
             .iter()
             .any(|item| item.id.starts_with("core.session.new-sibling")),
         "a spawn against an unreachable machine fails, so the row is not offered"
+    );
+    assert!(
+        items
+            .iter()
+            .any(|item| { item.id.starts_with("core.session.copy-last-command-output") })
     );
     assert!(
         items

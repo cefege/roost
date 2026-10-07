@@ -19,8 +19,14 @@ use crate::row_spans::row_to_spans;
 
 /// One viewport row's spans.
 pub fn viewport_row_spans(core: &dyn TerminalCore, row: u16, cols: u16) -> Arc<[CellSpan]> {
+    viewport_row(core, row, cols).0
+}
+
+/// One viewport row's spans and OR-ed semantic marks.
+fn viewport_row(core: &dyn TerminalCore, row: u16, cols: u16) -> (Arc<[CellSpan]>, u8) {
     let cells: Vec<_> = (0..cols).map(|col| core.viewport_cell(row, col)).collect();
-    Arc::from(row_to_spans(&cells, cells.len()))
+    let mark = cells.iter().fold(0, |mark, cell| mark | cell.semantic_mark);
+    (Arc::from(row_to_spans(&cells, cells.len())), mark)
 }
 
 /// One retained line's spans, addressed by the core's newest-first offset.
@@ -28,11 +34,17 @@ pub fn viewport_row_spans(core: &dyn TerminalCore, row: u16, cols: u16) -> Arc<[
 /// The line's own stored width bounds the read, never the current viewport
 /// width: a history line keeps the width it was written at and can be wider.
 pub fn scrollback_offset_spans(core: &dyn TerminalCore, offset: usize) -> Arc<[CellSpan]> {
+    scrollback_offset_row(core, offset).0
+}
+
+/// One retained line's spans and OR-ed semantic marks.
+fn scrollback_offset_row(core: &dyn TerminalCore, offset: usize) -> (Arc<[CellSpan]>, u8) {
     let length = core.scrollback_line_len(offset);
     let cells: Vec<_> = (0..length)
         .map(|col| core.scrollback_cell(offset, col as u16))
         .collect();
-    Arc::from(row_to_spans(&cells, cells.len()))
+    let mark = cells.iter().fold(0, |mark, cell| mark | cell.semantic_mark);
+    (Arc::from(row_to_spans(&cells, cells.len())), mark)
 }
 
 /// One retained line, addressed by its monotonic absolute index.
@@ -46,10 +58,8 @@ fn scrollback_row(
     let offset = retained
         .saturating_sub(1)
         .saturating_sub(absolute - sb_dropped) as usize;
-    CellRow {
-        index: u32::try_from(absolute).unwrap_or(u32::MAX),
-        spans: scrollback_offset_spans(core, offset),
-    }
+    let (spans, mark) = scrollback_offset_row(core, offset);
+    CellRow::with_mark(u32::try_from(absolute).unwrap_or(u32::MAX), spans, mark)
 }
 
 /// The scalar state every frame carries, read once.
@@ -105,9 +115,9 @@ pub fn grid_to_cell_frame(
     let mut frame = scalar_state(core, seq, grid_epoch, stream_id, sb_dropped, 0, true);
     let cols = core.cols();
     frame.viewport_rows = (0..core.rows())
-        .map(|row| CellRow {
-            index: u32::from(row),
-            spans: viewport_row_spans(core, row, cols),
+        .map(|row| {
+            let (spans, mark) = viewport_row(core, row, cols);
+            CellRow::with_mark(u32::from(row), spans, mark)
         })
         .collect();
     let mono_total = frame.scrollback_total;
@@ -144,9 +154,9 @@ pub fn grid_delta_frame(
     let cols = core.cols();
     frame.viewport_rows = (0..core.rows())
         .filter(|row| core.is_dirty_row(*row))
-        .map(|row| CellRow {
-            index: u32::from(row),
-            spans: viewport_row_spans(core, row, cols),
+        .map(|row| {
+            let (spans, mark) = viewport_row(core, row, cols);
+            CellRow::with_mark(u32::from(row), spans, mark)
         })
         .collect();
     let retained = core.scrollback_count() as u64;

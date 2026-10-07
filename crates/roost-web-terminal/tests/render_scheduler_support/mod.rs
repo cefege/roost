@@ -35,6 +35,7 @@ pub fn row_shell(index: u32, cells: &[&str]) -> CellRow {
     let spans: Vec<CellSpan> = cells.iter().map(|cell| span(cell)).collect();
     CellRow {
         index,
+        mark: 0,
         spans: Arc::from(spans),
     }
 }
@@ -46,6 +47,7 @@ pub fn row_shell_of(index: u32, count: usize, text: &str) -> CellRow {
     let spans: Vec<CellSpan> = (0..count).map(|_| span(text)).collect();
     CellRow {
         index,
+        mark: 0,
         spans: Arc::from(spans),
     }
 }

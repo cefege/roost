@@ -270,3 +270,35 @@ moved to. Deleting the P6 line fails it with the cursor one row lower. The
 `smoke/terminal/terminal-render-main-repaint.spec.ts` case "a fast in-place
 status rewrite never duplicates rows into history" guards the symptom end to
 end: before the patch the repro retains 32 of 40 generations; after, none.
+
+## P7 — semantic marks survive prompt writes
+
+`src/term/cell.rs` and `src/term/mod.rs`.
+
+### What upstream does
+
+Cell extras hold attributes that are uncommon enough to allocate lazily:
+zero-width characters, underline color and hyperlinks. `Term::write_at_cursor`
+replaces the destination cell's extra storage with the cursor template's extras,
+so any cell-local metadata not represented in that template is lost on write.
+Grid reset and erase paths replace cells with fresh template cells, while
+reflow moves existing cells.
+
+### Why Roost needs it
+
+OSC 133 marks the cursor cell before prompt text is drawn there. The mark must
+remain attached to that cell as printable content overwrites it, so the grid
+continues to identify prompt and command boundaries. A clear or reset is
+different: its cells no longer represent the prior screen, so marks should be
+discarded. Resizing reflows cell contents and must carry marks with them.
+
+### The change
+
+`CellExtra` stores a `semantic_mark: u8`, and `Cell` exposes getter and setter
+methods; setting zero does not allocate extras. `write_at_cursor` reads the
+destination mark before replacing its extras and restores it afterward.
+Existing reset and erase replacements construct fresh cells, which therefore
+clear marks; reflow preserves marks by moving cells unchanged.
+
+`tests/roost_semantic_mark.rs` covers lazy access, prompt-cell writes, reflow,
+and erasure.

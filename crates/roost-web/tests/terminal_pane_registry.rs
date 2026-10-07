@@ -108,6 +108,7 @@ fn a_painted_marker_is_found_by_row_and_character_column() {
 fn row(index: u32, text: &str) -> CellRow {
     CellRow {
         index,
+        mark: 0,
         spans: Arc::from(vec![CellSpan {
             text: text.to_owned(),
             fg: 0,

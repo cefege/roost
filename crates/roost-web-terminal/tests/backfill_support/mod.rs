@@ -44,6 +44,7 @@ pub fn response(start: u32, end: u32, total: u64) -> ScrollbackPage {
 fn history_row(index: u32) -> CellRow {
     CellRow {
         index,
+        mark: 0,
         spans: Arc::from([CellSpan {
             text: format!("row-{index}"),
             fg: 256,

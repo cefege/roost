@@ -53,6 +53,7 @@ fn cell_frame(session_id: &str, marker: &str, seq: u64) -> FirehoseFrame {
             grid_epoch: format!("{session_id}:grid"),
             viewport_rows: vec![roost_proto::PbCellRow {
                 index: 0,
+                mark: 0,
                 spans: vec![roost_proto::PbCellSpan {
                     text: marker.to_owned(),
                     ..roost_proto::PbCellSpan::default()
@@ -170,6 +171,7 @@ fn chunk_part(session_id: &str, marker: &str, index: u32, count: u32) -> SharedC
             grid_epoch: format!("{session_id}:grid"),
             viewport_rows: vec![roost_proto::PbCellRow {
                 index,
+                mark: 0,
                 spans: vec![roost_proto::PbCellSpan {
                     text: marker.to_owned(),
                     ..roost_proto::PbCellSpan::default()

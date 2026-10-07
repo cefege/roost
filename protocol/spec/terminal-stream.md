@@ -12,7 +12,7 @@ The worker owns the authoritative terminal core. Sync, loopback, and WebRTC carr
 
 | Message | File | Meaning |
 | --- | --- | --- |
-| `PbCellSpan`, `PbCellRow` | `protocol/proto/roost/v1/cell.proto:9-47` | Styled cell runs with explicit column occupancy and indexed rows. |
+| `PbCellSpan`, `PbCellRow` | `protocol/proto/roost/v1/cell.proto:9-47` | Styled cell runs with explicit column occupancy and indexed rows; row `mark` is the OR of prompt, output, and command-exit marks on its cells. |
 | `PbCellGridFrame` | `protocol/proto/roost/v1/cell.proto:49-92` | Authoritative full/delta, cursor, modes, stream ID, epoch, sequence, viewport, and scrollback. |
 | `PbCellGridChunk` | `protocol/proto/roost/v1/cell.proto:95-105` | Bounded whole-row part of one authoritative full. |
 | `FirehoseFrame.cell_grid`, `cell_grid_chunk` | `protocol/proto/roost/v1/sync.proto:274-277` | Sync terminal delivery. |

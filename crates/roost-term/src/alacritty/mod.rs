@@ -19,6 +19,8 @@
 
 pub(crate) mod cell;
 mod csi_shadow;
+mod prompt_marks;
+mod prompt_marks_apply;
 mod replies;
 
 use alacritty_terminal::Term;
@@ -61,6 +63,10 @@ pub struct AlacrittyCore {
     /// this snapshot, which is also one damage read per PTY chunk instead of
     /// one per row.
     dirty: Vec<u16>,
+    /// Carries an OSC 133 mark split across PTY chunks to the next one.
+    prompt_marks: prompt_marks::PromptMarkScanner,
+    /// Whether a command ran since the last prompt, and how it ended.
+    command_lifecycle: prompt_marks_apply::CommandLifecycle,
 }
 
 impl AlacrittyCore {
@@ -90,6 +96,8 @@ impl AlacrittyCore {
             clipboard_writes,
             csi_shadow: CsiShadow::default(),
             links: LinkScope::new(),
+            prompt_marks: prompt_marks::PromptMarkScanner::default(),
+            command_lifecycle: prompt_marks_apply::CommandLifecycle::default(),
             dirty: Vec::new(),
         }
     }
@@ -226,8 +234,23 @@ impl TerminalCore for AlacrittyCore {
 impl AlacrittyCore {
     /// Both parses and the damage read one PTY chunk costs.
     fn parse(&mut self, bytes: &[u8]) {
-        self.processor.advance(&mut self.term, bytes);
-        self.csi_shadow.advance(bytes);
+        let marks = self.prompt_marks.scan(bytes);
+        if marks.is_empty() {
+            self.processor.advance(&mut self.term, bytes);
+            self.csi_shadow.advance(bytes);
+        } else {
+            let mut start = 0;
+            for marker in marks {
+                let chunk = &bytes[start..marker.end];
+                self.processor.advance(&mut self.term, chunk);
+                self.csi_shadow.advance(chunk);
+                self.apply_prompt_mark(marker.mark);
+                start = marker.end;
+            }
+            let remainder = &bytes[start..];
+            self.processor.advance(&mut self.term, remainder);
+            self.csi_shadow.advance(remainder);
+        }
         self.snapshot_damage();
     }
 

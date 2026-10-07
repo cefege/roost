@@ -53,6 +53,7 @@ fn grid(seq: u64, full: bool) -> PbCellGridFrame {
         grid_epoch: "epoch-1".to_owned(),
         viewport_rows: vec![PbCellRow {
             index: 0,
+            mark: 0,
             spans: vec![PbCellSpan {
                 text: format!("ROW-{seq}"),
                 ..PbCellSpan::default()

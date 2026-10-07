@@ -71,6 +71,10 @@ pub enum ReservedChord {
     Paste,
     /// Open find.
     OpenFind,
+    /// Jump to the preceding prompt boundary.
+    PreviousPrompt,
+    /// Jump to the next prompt boundary.
+    NextPrompt,
 }
 
 /// The modifier levels a document keydown carried.
@@ -82,14 +86,17 @@ pub struct ChordModifiers {
     pub alt: bool,
 }
 
-/// `Mod+Shift+C` copies and `Mod+Shift+V` pastes; `Cmd+F` or `Ctrl+Shift+F`
-/// opens find. Plain `Ctrl+C` / `Ctrl+V` / `Ctrl+F` stay the PTY's.
+/// `Mod+Shift+C` copies and `Mod+Shift+V` pastes; `Mod+Shift+ArrowUp/Down`
+/// jumps between prompts. Cmd+F or Ctrl+Shift+F opens find.
+/// Plain Ctrl+C / Ctrl+V / Ctrl+F stay the PTY's.
 pub fn reserved_chord(key: &str, modifiers: ChordModifiers) -> Option<ReservedChord> {
     let key = key.to_lowercase();
     if (modifiers.meta || modifiers.ctrl) && modifiers.shift && !modifiers.alt {
         match key.as_str() {
             "c" => return Some(ReservedChord::Copy),
             "v" => return Some(ReservedChord::Paste),
+            "arrowup" => return Some(ReservedChord::PreviousPrompt),
+            "arrowdown" => return Some(ReservedChord::NextPrompt),
             _ => {}
         }
     }

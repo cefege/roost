@@ -997,6 +997,7 @@ impl<T> Term<T> {
         let fg = self.grid.cursor.template.fg;
         let bg = self.grid.cursor.template.bg;
         let flags = self.grid.cursor.template.flags;
+        let semantic_mark = self.grid.cursor_cell().semantic_mark();
         let extra = self.grid.cursor.template.extra.clone();
 
         let mut cursor_cell = self.grid.cursor_cell();
@@ -1026,6 +1027,9 @@ impl<T> Term<T> {
         cursor_cell.bg = bg;
         cursor_cell.flags = flags;
         cursor_cell.extra = extra;
+        if semantic_mark != 0 {
+            cursor_cell.set_semantic_mark(semantic_mark);
+        }
     }
 
     #[inline]

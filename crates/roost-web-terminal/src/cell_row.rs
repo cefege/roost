@@ -286,9 +286,10 @@ fn utf16_len(text: &str) -> u32 {
 }
 
 /// Visual identity of a row, as a 32-bit FNV-1a hash of every attribute the row
-/// painter sets: span structure, text, colors, flags, link identity and find
-/// hits. Rows with equal hashes paint identically, so the viewport diff skips
-/// them.
+/// painter sets: span structure, text, colors, flags, link identity, find hits
+/// and the row's OSC 133 mark, which paints the prompt gutter without changing
+/// any span. Rows with equal hashes paint identically, so the viewport diff
+/// skips them.
 ///
 /// Allocation-free on purpose — a string-keyed hash would build one string per
 /// viewport row per frame AND re-derive every span's style for every row that
@@ -303,7 +304,7 @@ fn utf16_len(text: &str) -> u32 {
 /// per row per frame would cost far more than the collision it rules out.
 pub fn row_hash(row: &CellRow, hits: Option<&[FindHit]>, active_col: Option<u32>) -> u32 {
     let mut hash = fold(
-        FNV_OFFSET,
+        fold(FNV_OFFSET, u32::from(row.mark)),
         u32::try_from(row.spans.len()).unwrap_or(u32::MAX),
     );
     for span in row.spans.iter() {

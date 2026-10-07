@@ -259,6 +259,7 @@ impl RetainedGrid for FakeGrid {
         // the serialisation the page command actually ships.
         let row = CellRow {
             index: absolute_row,
+            mark: 0,
             spans: std::sync::Arc::from(vec![CellSpan {
                 text: format!("row {absolute_row}"),
                 fg: 0,

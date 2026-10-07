@@ -12,6 +12,8 @@ mod clipboard_writes;
 mod dyn_dispatch_parity;
 #[path = "emitter_row_cap.rs"]
 mod emitter_row_cap;
+#[path = "prompt_marks.rs"]
+mod prompt_marks;
 #[path = "reply_queue.rs"]
 mod reply_queue;
 #[path = "span_encoder.rs"]

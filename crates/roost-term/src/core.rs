@@ -52,10 +52,12 @@ pub struct CellData {
     /// 0xRRGGBB, when the colour is not a palette entry.
     pub fg_rgb: Option<u32>,
     pub bg_rgb: Option<u32>,
-    /// The OSC 8 destination, resolved by the core.
+    /// URI associated with the OSC 8 link run.
     pub link_uri: Option<String>,
     /// Identity of the link run this cell belongs to.
     pub link_key: Option<String>,
+    /// OSC 133 semantic marks stored on the emulator cell.
+    pub semantic_mark: u8,
 }
 
 impl Default for CellData {
@@ -71,6 +73,7 @@ impl Default for CellData {
             bg_rgb: None,
             link_uri: None,
             link_key: None,
+            semantic_mark: 0,
         }
     }
 }

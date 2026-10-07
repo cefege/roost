@@ -43,6 +43,7 @@ pub fn cell_row_to_proto(row: &CellRow) -> PbCellRow {
     PbCellRow {
         index: row.index,
         spans: row.spans.iter().map(span_to_proto).collect(),
+        mark: u32::from(row.mark & crate::cell::row_mark::KNOWN),
         __buffa_unknown_fields: Default::default(),
     }
 }
@@ -64,7 +65,7 @@ pub fn cell_row_from_proto_bounded(row: &PbCellRow, max_columns: u32) -> Protoco
         };
         spans.push(span_from_proto(span, position, strings)?);
     }
-    checked_row(row.index, spans, max_columns)
+    checked_row(row.index, row.mark, spans, max_columns)
 }
 
 /// One wire row into the value model, MOVING its strings out of the message
@@ -80,14 +81,16 @@ fn cell_row_from_proto_owned(row: PbCellRow, max_columns: u32) -> ProtocolResult
         };
         spans.push(span_from_proto(&span, position, strings)?);
     }
-    checked_row(index, spans, max_columns)
+    checked_row(index, row.mark, spans, max_columns)
 }
 
-fn checked_row(index: u32, spans: Vec<CellSpan>, max_columns: u32) -> ProtocolResult<CellRow> {
-    let value = CellRow {
-        index,
-        spans: Arc::from(spans),
-    };
+fn checked_row(
+    index: u32,
+    mark: u32,
+    spans: Vec<CellSpan>,
+    max_columns: u32,
+) -> ProtocolResult<CellRow> {
+    let value = CellRow::with_mark(index, Arc::from(spans), mark as u8);
     assert_cell_row_spans(&value, max_columns)?;
     Ok(value)
 }

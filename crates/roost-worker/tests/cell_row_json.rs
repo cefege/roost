@@ -42,10 +42,12 @@ fn linked() -> CellSpan {
 /// a palette entry up by that same field, so an omitted `fg` is a black span
 /// that compares unequal to the identical black span beside it, and every frame
 /// repaints every row.
+/// Semantic mark bits use the proto-JSON `mark` spelling as well.
 #[test]
 fn a_row_is_spelled_the_way_the_browser_already_parses_it() {
     let row = CellRow {
         index: 7,
+        mark: 5,
         spans: Arc::from(vec![plain(), linked()]),
     };
     let encoded = serde_json::to_string(&CellRowJson::owned(row)).expect("a row encodes");
@@ -56,9 +58,9 @@ fn a_row_is_spelled_the_way_the_browser_already_parses_it() {
             r#"{"text":"plain","fg":0,"bg":0,"flags":0,"columns":5},"#,
             r#"{"text":"link","fg":256,"bg":17,"flags":1,"fgRgb":65407,"bgRgb":1052688,"#,
             r#""columns":4,"linkUri":"https://example.test/d","linkKey":"run-1"}"#,
-            r#"]}"#
+            r#"],"mark":5}"#
         ),
-        "the shape and field order the browser parses, unchanged"
+        "the proto-JSON shape appends mark after the existing row fields"
     );
     // The presence assertions live HERE rather than against a returned
     // `Value`, because there is no longer a `Value` to index. The projection is
@@ -79,6 +81,7 @@ fn a_row_is_spelled_the_way_the_browser_already_parses_it() {
 fn a_row_without_a_link_carries_no_link_fields() {
     let row = CellRow {
         index: 0,
+        mark: 0,
         spans: Arc::from(vec![plain()]),
     };
     let span = &serde_json::from_str::<serde_json::Value>(
@@ -99,6 +102,7 @@ fn a_link_uri_and_its_run_identity_travel_together() {
     half.link_key = None;
     let row = CellRow {
         index: 0,
+        mark: 0,
         spans: Arc::from(vec![half]),
     };
     let span = &serde_json::from_str::<serde_json::Value>(

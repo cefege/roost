@@ -37,6 +37,7 @@ fn wide(text: &str, columns: u32) -> CellSpan {
 fn row(index: u32, spans: Vec<CellSpan>) -> CellRow {
     CellRow {
         index,
+        mark: 0,
         spans: spans.into(),
     }
 }

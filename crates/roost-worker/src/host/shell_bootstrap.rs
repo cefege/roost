@@ -1,6 +1,6 @@
-//! The two files a resolved POSIX launch contract points at: a bootstrap rcfile
-//! that emits OSC 7, and a per-cwd history file. Written by the resolver during
-//! resolution, read by bash/zsh and by nothing in this crate. Depends on
+//! The two files a resolved POSIX launch contract points at: bootstrap rcfiles
+//! that emit OSC 7 and OSC 133 shell marks, and a per-cwd history file. Written
+//! by the resolver during resolution, read by bash/zsh and by nothing here.
 //! `sha2` for the history slug and on `roost_protocol`'s own home layout — and
 //! on no other module here.
 //!
@@ -90,7 +90,15 @@ pub fn ensure_bootstrap(root: &Path, flavour: ShellFlavour) -> io::Result<PathBu
 const BASH_BOOTSTRAP: &str = r#"# roost: source the user's real bashrc first so PATH/aliases still load
 if [ -f "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi
 roost_emit_osc7() { printf '\033]7;file://%s%s\033\\' "${HOSTNAME}" "$PWD"; }
-PROMPT_COMMAND="roost_emit_osc7${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
+roost_prompt_command() {
+    local roost_status=$?
+    printf '\033]133;D;%s\007' "$roost_status"
+    roost_emit_osc7
+    printf '\033]133;A\007'
+    return "$roost_status"
+}
+PROMPT_COMMAND="roost_prompt_command${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
+PS0=$'\033]133;C\007'"${PS0}"
 roost_emit_osc7
 "#;
 
@@ -99,8 +107,20 @@ unsetopt PROMPT_SP PROMPT_CR 2>/dev/null
 PROMPT_EOL_MARK=''
 # Source the real user zshrc so theme/aliases/path still load
 if [ -f "$HOME/.zshrc" ]; then source "$HOME/.zshrc"; fi
-function roost_emit_osc7 { print -Pn "\e]7;file://${HOST}${PWD}\e\\" }
-autoload -Uz add-zsh-hook 2>/dev/null && add-zsh-hook chpwd roost_emit_osc7
+function roost_emit_osc7 { printf '\033]7;file://%s%s\033\\' "${HOST}" "$PWD" }
+function roost_precmd_marks {
+    local roost_status=$?
+    printf '\033]133;D;%s\007\033]133;A\007' "$roost_status"
+    return "$roost_status"
+}
+function roost_preexec_mark { printf '\033]133;C\007' }
+# precmd_functions is prepended rather than hooked so the status the mark
+# reports is the command's, before any theme's precmd runs another command.
+if autoload -Uz add-zsh-hook 2>/dev/null; then
+    precmd_functions=(roost_precmd_marks ${precmd_functions:#roost_precmd_marks})
+    add-zsh-hook preexec roost_preexec_mark
+    add-zsh-hook chpwd roost_emit_osc7
+fi
 roost_emit_osc7
 "#;
 
