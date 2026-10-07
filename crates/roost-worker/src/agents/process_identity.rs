@@ -18,6 +18,7 @@ const RUNTIME_COMMANDS: [&str; 4] = ["node", "nodejs", "bun", "deno"];
 pub fn builtin_agent_commands(agent: BuiltinAgentId) -> &'static [&'static str] {
     match agent {
         BuiltinAgentId::Codex => &["codex"],
+        BuiltinAgentId::Claude => &["claude", "claude-code"],
         BuiltinAgentId::Gemini => &["gemini"],
         BuiltinAgentId::OpenCode => &["opencode", "open-code"],
         BuiltinAgentId::Cursor => &["cursor-agent"],
@@ -34,6 +35,12 @@ pub fn builtin_agent_commands(agent: BuiltinAgentId) -> &'static [&'static str] 
 fn agent_package_markers(agent: BuiltinAgentId) -> &'static [&'static str] {
     match agent {
         BuiltinAgentId::Codex => &["/@openai/codex/", "/codex/"],
+        BuiltinAgentId::Claude => &[
+            "/@anthropic-ai/claude-code/",
+            "/claude-code/",
+            "/.claude/local/",
+            "/.local/bin/claude",
+        ],
         BuiltinAgentId::Gemini => &["/@google/gemini-cli/", "/gemini-cli/"],
         BuiltinAgentId::OpenCode => &["/opencode/"],
         BuiltinAgentId::Cursor => &["/cursor-agent/"],

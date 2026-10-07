@@ -117,6 +117,33 @@ fn recognizes_runtime_package_launchers_without_reading_shell_command_text() {
 }
 
 #[test]
+fn recognizes_the_claude_code_process_by_every_identity_it_answers_to() {
+    let native = record(20, 10, "claude", "/usr/local/bin/claude");
+    assert_eq!(identify_agent_process(&native), Some(Agent::Claude));
+    let npm = record(
+        21,
+        10,
+        "node",
+        "node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+    );
+    assert_eq!(identify_agent_process(&npm), Some(Agent::Claude));
+    let local_installer = record(
+        22,
+        10,
+        "node",
+        "node /home/me/.claude/local/claude-code/cli.js",
+    );
+    assert_eq!(
+        identify_agent_process(&local_installer),
+        Some(Agent::Claude)
+    );
+    let alias = record(23, 10, "claude-code", "claude-code");
+    assert_eq!(identify_agent_process(&alias), Some(Agent::Claude));
+    let other = record(24, 10, "claude", "claude doctor --verbose fake-args");
+    assert_eq!(identify_agent_process(&other), Some(Agent::Claude));
+}
+
+#[test]
 fn parses_ps_rows_as_v2s_pattern_does() {
     let rows = parse_ps_snapshot(
         "  10     1    10    -1 bash /bin/bash -c  echo  hi\ngarbage\n 11 10 11 11 omp\n",

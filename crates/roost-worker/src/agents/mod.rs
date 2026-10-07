@@ -27,6 +27,7 @@ pub mod manifest_engine;
 mod manifest_regex;
 mod manifest_syntax;
 pub mod manifests;
+mod manifests_claude;
 pub mod peer_process_id;
 pub mod process_identity;
 pub mod process_scan;
@@ -54,6 +55,7 @@ pub mod status_stack;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum BuiltinAgentId {
     Codex,
+    Claude,
     Gemini,
     OpenCode,
     Cursor,
@@ -67,8 +69,9 @@ pub enum BuiltinAgentId {
 
 impl BuiltinAgentId {
     /// Every built-in agent, in the order the manifests are evaluated.
-    pub const ALL: [BuiltinAgentId; 10] = [
+    pub const ALL: [BuiltinAgentId; 11] = [
         Self::Codex,
+        Self::Claude,
         Self::Gemini,
         Self::OpenCode,
         Self::Cursor,
@@ -87,6 +90,7 @@ impl BuiltinAgentId {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Codex => "codex",
+            Self::Claude => "claude",
             Self::Gemini => "gemini",
             Self::OpenCode => "opencode",
             Self::Cursor => "cursor",
