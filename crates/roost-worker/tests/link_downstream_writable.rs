@@ -39,6 +39,7 @@ fn frame() -> CellGridFrame {
         mouse_tracking: MouseTracking::None,
         mouse_sgr: false,
         focus_events: false,
+        kitty_keyboard_flags: 0,
         full: true,
         viewport_rows: (0..2)
             .map(|index| CellRow {

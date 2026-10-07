@@ -1052,6 +1052,15 @@ impl<T> Term<T> {
         trace!("Setting keyboard mode to {new_mode:?}");
         self.mode |= new_mode;
     }
+
+    fn active_keyboard_modes(&self) -> KeyboardModes {
+        let flags = u8::from(self.mode.contains(TermMode::DISAMBIGUATE_ESC_CODES))
+            | (u8::from(self.mode.contains(TermMode::REPORT_EVENT_TYPES)) << 1)
+            | (u8::from(self.mode.contains(TermMode::REPORT_ALTERNATE_KEYS)) << 2)
+            | (u8::from(self.mode.contains(TermMode::REPORT_ALL_KEYS_AS_ESC)) << 3)
+            | (u8::from(self.mode.contains(TermMode::REPORT_ASSOCIATED_TEXT)) << 4);
+        KeyboardModes::from_bits_truncate(flags)
+    }
 }
 
 impl<T> Dimensions for Term<T> {
@@ -1322,8 +1331,8 @@ impl<T: EventListener> Handler for Term<T> {
         }
 
         trace!("Reporting active keyboard mode");
-        let current_mode =
-            self.keyboard_mode_stack.last().unwrap_or(&KeyboardModes::NO_MODE).bits();
+
+        let current_mode = self.active_keyboard_modes().bits();
         let text = format!("\x1b[?{current_mode}u");
         self.event_proxy.send_event(Event::PtyWrite(text));
     }
@@ -1337,7 +1346,7 @@ impl<T: EventListener> Handler for Term<T> {
         trace!("Pushing `{mode:?}` keyboard mode into the stack");
 
         if self.keyboard_mode_stack.len() >= KEYBOARD_MODE_STACK_MAX_DEPTH {
-            let removed = self.title_stack.remove(0);
+            let removed = self.keyboard_mode_stack.remove(0);
             trace!(
                 "Removing '{removed:?}' from bottom of keyboard mode stack that exceeds its \
                  maximum depth"
@@ -1370,6 +1379,12 @@ impl<T: EventListener> Handler for Term<T> {
         }
 
         self.set_keyboard_mode(mode.into(), apply);
+        let active_mode = self.active_keyboard_modes();
+        if let Some(current_mode) = self.keyboard_mode_stack.last_mut() {
+            *current_mode = active_mode;
+        } else {
+            self.keyboard_mode_stack.push(active_mode);
+        }
     }
 
     #[inline]

@@ -36,7 +36,7 @@ pub mod options;
 #[cfg(target_arch = "wasm32")]
 pub mod pane_selection;
 
-pub use chord::{KeyChord, KeyKind, Modifiers, NamedKey};
+pub use chord::{AlternateKeys, KeyChord, KeyEventType, KeyKind, Modifiers, NamedKey};
 pub use compose_selection::{
     ComposeEffects, ComposeSelection, ComposerSelection, PaneInputs, SelectionChangeFacts,
     SelectionDirection,
@@ -47,7 +47,7 @@ pub use controller::{
 };
 pub use keys::{
     FOCUS_REPORT_IN, FOCUS_REPORT_OUT, apply_ctrl_modifier, is_terminal_printable_key,
-    modifier_parameter, terminal_key_sequence,
+    modifier_parameter, terminal_key_sequence, terminal_key_sequence_for_event,
 };
 pub use selection::{
     DomNodeId, FocusOwner, HoldSync, LiveSelection, OwnedRow, RestoreWrite, RetainedRange,

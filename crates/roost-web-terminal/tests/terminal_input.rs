@@ -270,13 +270,6 @@ fn the_modifier_parameter_is_xterms_shift_alt_ctrl_sum() {
     assert_eq!(modifier_parameter(true, true, true), 8);
 }
 
-#[test]
-fn an_unmapped_named_key_produces_no_bytes_rather_than_a_guess() {
-    assert_eq!(KeyKind::from_dom_key("F13"), KeyKind::BrowserOwned);
-    assert_eq!(KeyKind::from_dom_key("ContextMenu"), KeyKind::BrowserOwned);
-    assert!(named(NamedKey::Function(12)).to_bytes(false).is_some());
-    assert!(named(NamedKey::Function(12)).to_bytes(true).is_some());
-}
 
 /// Every chord the pane can produce, in both cursor modes.
 fn the_panes_key_space() -> Vec<(KeyChord, bool)> {

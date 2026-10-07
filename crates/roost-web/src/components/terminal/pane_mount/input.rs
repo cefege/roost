@@ -9,9 +9,7 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
-use roost_web_terminal::input::{
-    Modifiers, TerminalInputController, TerminalInputOptions, TerminalKeyEvent,
-};
+use roost_web_terminal::input::{TerminalInputController, TerminalInputOptions, TerminalKeyEvent};
 use wasm_bindgen::JsCast as _;
 use wasm_bindgen::closure::Closure;
 use web_sys::{Event, EventTarget, KeyboardEvent, MouseEvent};
@@ -86,9 +84,15 @@ pub(super) fn dispatch_named_key(shared: &PaneShared, key: &str) {
 pub(super) fn attach(shared: &Rc<PaneShared>) {
     let weak = shared.weak_self();
     let keys = shared.weak_self();
+    let kitty_keyboard = shared.weak_self();
     let focus = shared.weak_self();
     let data = shared.weak_self();
     let options = TerminalInputOptions {
+        kitty_keyboard_flags: Box::new(move || {
+            kitty_keyboard
+                .upgrade()
+                .map_or(0, |shared| shared.modes.get().kitty_keyboard_flags)
+        }),
         cursor_keys_application: Box::new(move || {
             weak.upgrade()
                 .is_some_and(|shared| shared.modes.get().cursor_keys_app)
@@ -302,18 +306,7 @@ fn on_document_key_down(shared: &PaneShared, event: &Event) {
             return;
         }
         controller.force_focus();
-        let terminal_key = TerminalKeyEvent {
-            key: &key,
-            modifiers: Modifiers {
-                shift: key_event.shift_key(),
-                alt: key_event.alt_key(),
-                ctrl: key_event.ctrl_key(),
-                meta: key_event.meta_key(),
-            },
-            alt_graph,
-            is_composing: key_event.is_composing(),
-        };
-        if controller.dispatch_keydown(&terminal_key) {
+        if controller.dispatch_keydown_from_event(key_event) {
             event.prevent_default();
             event.stop_propagation();
         }

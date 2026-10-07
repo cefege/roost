@@ -61,6 +61,7 @@ fn frame() -> CellGridFrame {
         mouse_tracking: MouseTracking::ButtonMotion,
         mouse_sgr: true,
         focus_events: true,
+        kitty_keyboard_flags: 21,
         full: true,
         viewport_rows: vec![
             row(0, vec![span("hi", 2), span("中", 2)]),

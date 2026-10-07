@@ -87,6 +87,7 @@ fn scalar_state(
         mouse_tracking: core.mouse_tracking(),
         mouse_sgr: core.mouse_sgr(),
         focus_events: core.focus_events(),
+        kitty_keyboard_flags: core.kitty_keyboard_flags(),
         full,
         viewport_rows: Vec::new(),
         scrollback_rows: Vec::new(),

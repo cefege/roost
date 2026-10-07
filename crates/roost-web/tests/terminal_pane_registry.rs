@@ -140,6 +140,7 @@ fn a_preview_shows_the_newest_non_blank_rows_oldest_first() {
         mouse_tracking: roost_protocol::cell::MouseTracking::None,
         mouse_sgr: false,
         focus_events: false,
+        kitty_keyboard_flags: 0,
         full: true,
         viewport_rows: vec![row(0, "top"), row(1, "   "), row(2, "prompt")],
         scrollback_rows: (0..30)

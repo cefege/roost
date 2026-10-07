@@ -16,13 +16,11 @@
 //! Concatenating every native ahead of every synthesized reply would answer
 //! `CSI c` then `CSI 6n` backwards.
 //!
-//! v2 PARITY OF THE NATIVE SET. v2's core answered exactly the cursor report
-//! (and the Kitty keyboard query, which v2 muted). alacritty also answers DA1
-//! (`?6c`), DA2, `CSI 5n`, DECRQM and `CSI 18t`; those are WITHHELD here and
-//! counted, so the application sees the bytes v2 sent — DA1 answered once, as
-//! [`PRIMARY_DA_REPLY`]. Anything but a cursor report is withheld, which is
-//! also what keeps a Kitty keyboard report (a promise the browser's legacy-key
-//! encoder cannot keep) off the PTY.
+//! v2's core answered cursor and Kitty keyboard queries (v2 muted Kitty).
+//! Alacritty also answers DA1 (`?6c`), DA2, `CSI 5n`, DECRQM and `CSI 18t`;
+//! those are WITHHELD so DA1 is synthesized once. Cursor and Kitty reports pass.
+//!
+//! A Kitty keyboard query is segmented like a synthesized probe to preserve ordering; replay uses [`TerminalCore::write`].
 //!
 //! THE WRITE-BACK. [`QueryReplyLane`] is the synchronous sending half the
 //! ingest path holds; [`QueryReplyWriter::run`] writes each batch through
@@ -186,7 +184,7 @@ fn drain_core_replies(core: &mut dyn TerminalCore, reply: &mut QueryReply) {
         if native.is_empty() {
             continue;
         }
-        if !is_cursor_position_report(&native) {
+        if !is_cursor_position_report(&native) && !is_kitty_keyboard_report(&native) {
             reply.withheld_native += 1;
             continue;
         }
@@ -211,8 +209,19 @@ fn is_cursor_position_report(reply: &str) -> bool {
     digits(row) && digits(col)
 }
 
-/// The reply Roost owes for one complete CSI with body `body` and final
-/// `final_byte`, or `None` when the core answers it or it is not a probe.
+/// `CSI ? flags u`: a query reply from the live terminal core.
+fn is_kitty_keyboard_report(reply: &str) -> bool {
+    let Some(flags) = reply
+        .strip_prefix("\x1b[?")
+        .and_then(|rest| rest.strip_suffix('u'))
+    else {
+        return false;
+    };
+    flags.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+/// A synthesized reply for one complete CSI, or `Some("")` to drain a native
+/// reply at that probe boundary; `None` means the CSI is not a handled probe.
 fn synthesized_reply(body: &[u8], final_byte: u8) -> Option<&'static str> {
     let private = match body.first() {
         Some(&first) if (PRIVATE_MIN..=PRIVATE_MAX).contains(&first) => first,
@@ -222,6 +231,7 @@ fn synthesized_reply(body: &[u8], final_byte: u8) -> Option<&'static str> {
     match (final_byte, private) {
         (b'c', 0) if zero_params(params) => Some(PRIMARY_DA_REPLY),
         (b'q', b'>') if zero_params(params) => Some(XTVERSION_REPLY),
+        (b'u', b'?') if params.is_empty() => Some(""),
         _ => None,
     }
 }

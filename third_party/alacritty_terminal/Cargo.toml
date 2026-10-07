@@ -64,6 +64,11 @@ path = "tests/roost_linefeed_pending_wrap.rs"
 name = "roost_semantic_mark"
 path = "tests/roost_semantic_mark.rs"
 
+# Roost addition: the guard on P8, the kitty keyboard mode stack cap.
+[[test]]
+name = "roost_kitty_keyboard_stack"
+path = "tests/roost_kitty_keyboard_stack.rs"
+
 [dependencies.base64]
 version = "0.22.0"
 

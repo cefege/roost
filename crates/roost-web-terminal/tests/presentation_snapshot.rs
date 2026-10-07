@@ -56,6 +56,7 @@ fn frame(rows: u32, cols: u32, seq: u64) -> CellGridFrame {
         mouse_tracking: MouseTracking::None,
         mouse_sgr: false,
         focus_events: false,
+        kitty_keyboard_flags: 0,
         full: true,
         viewport_rows: Vec::new(),
         scrollback_rows: Vec::new(),

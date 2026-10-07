@@ -7,8 +7,12 @@
 
 use std::cell::RefCell;
 
-use crate::input::chord::{KeyChord, KeyKind, Modifiers};
-use crate::input::keys::{FOCUS_REPORT_IN, FOCUS_REPORT_OUT, terminal_key_sequence};
+use crate::input::chord::{
+    AlternateKeys, KeyChord, KeyEventType, KeyKind, Modifiers, NamedKey,
+};
+use crate::input::keys::{
+    FOCUS_REPORT_IN, FOCUS_REPORT_OUT, terminal_key_sequence_for_event,
+};
 
 /// The byte Meta+Backspace sends: readline's kill-to-line-start, which is what
 /// that chord does in every macOS text field.
@@ -21,12 +25,16 @@ pub const META_BACKSPACE_BYTES: &str = "\x15";
 pub struct TerminalKeyEvent<'a> {
     /// `KeyboardEvent.key`.
     pub key: &'a str,
-    /// The four modifier levels.
+    /// The modifier state at the event.
     pub modifiers: Modifiers,
     /// `getModifierState("AltGraph")`.
     pub alt_graph: bool,
     /// `KeyboardEvent.isComposing`.
     pub is_composing: bool,
+    pub event_type: KeyEventType,
+    pub associated_text: Option<&'a str>,
+    pub alternate_keys: AlternateKeys,
+    pub key_override: Option<super::chord::NamedKey>,
 }
 
 impl<'a> TerminalKeyEvent<'a> {
@@ -37,6 +45,14 @@ impl<'a> TerminalKeyEvent<'a> {
             modifiers: Modifiers::NONE,
             alt_graph: false,
             is_composing: false,
+            event_type: KeyEventType::Press,
+            associated_text: None,
+            alternate_keys: AlternateKeys {
+                shifted: None,
+                base_layout: None,
+                unshifted: None,
+            },
+            key_override: None,
         }
     }
 
@@ -46,10 +62,25 @@ impl<'a> TerminalKeyEvent<'a> {
         self
     }
 
-    /// The chord the encoder takes.
+    /// The chord the encoder takes in legacy mode.
     pub fn chord(&self) -> KeyChord {
+        self.chord_with_flags(0)
+    }
+
+    /// The physical keypad key is distinct when its key event has no text.
+    pub fn chord_with_flags(&self, kitty_flags: u8) -> KeyChord {
+        let keypad_key = kitty_flags & 1 != 0
+            && self.key.chars().count() != 1
+            && matches!(self.key_override, Some(NamedKey::Functional(57399..=57427)));
+        let use_key_override = kitty_flags & 8 != 0 || keypad_key;
         KeyChord {
-            kind: KeyKind::from_dom_key(self.key),
+            kind: if use_key_override {
+                self.key_override
+                    .map(KeyKind::Named)
+                    .unwrap_or_else(|| KeyKind::from_dom_key(self.key))
+            } else {
+                KeyKind::from_dom_key(self.key)
+            },
             modifiers: self.modifiers,
             alt_graph: self.alt_graph,
             is_composing: self.is_composing,
@@ -135,17 +166,33 @@ impl InputControllerState {
         cursor_keys_application: bool,
         selection_has_text: impl FnOnce() -> bool,
     ) -> KeyDownAction {
+        self.key_down_with_flags(event, cursor_keys_application, 0, selection_has_text)
+    }
+
+    /// Decide one keydown with active kitty progressive-enhancement flags.
+    pub fn key_down_with_flags(
+        &self,
+        event: &TerminalKeyEvent<'_>,
+        cursor_keys_application: bool,
+        kitty_flags: u8,
+        selection_has_text: impl FnOnce() -> bool,
+    ) -> KeyDownAction {
         if self.destroyed || self.composing || event.is_composing || event.is_text_services_key() {
             return KeyDownAction::Browser;
         }
-        let command = event.modifiers.meta || event.modifiers.ctrl;
-        if command && event.key.eq_ignore_ascii_case("c") && selection_has_text() {
+        let all_keys = kitty_flags & 8 != 0;
+        let command =
+            event.modifiers.meta || event.modifiers.super_key || event.modifiers.ctrl;
+        if !all_keys && command && event.key.eq_ignore_ascii_case("c") && selection_has_text() {
             return KeyDownAction::Browser;
         }
-        if command && event.key.eq_ignore_ascii_case("v") {
+        if !all_keys && command && event.key.eq_ignore_ascii_case("v") {
             return KeyDownAction::FocusForPaste;
         }
-        if event.modifiers.meta && !event.modifiers.ctrl {
+        if kitty_flags == 0
+            && (event.modifiers.meta || event.modifiers.super_key)
+            && !event.modifiers.ctrl
+        {
             if event.key == "Backspace" {
                 return KeyDownAction::Write(META_BACKSPACE_BYTES.to_string());
             }
@@ -154,9 +201,14 @@ impl InputControllerState {
             }
             return KeyDownAction::Browser;
         }
-        // Once the focused textarea receives a non-IME, non-platform key, the
-        // browser must not scroll or activate surrounding UI.
-        match terminal_key_sequence(&event.chord(), cursor_keys_application) {
+        match terminal_key_sequence_for_event(
+            &event.chord_with_flags(kitty_flags),
+            cursor_keys_application,
+            kitty_flags,
+            event.event_type,
+            event.associated_text,
+            event.alternate_keys,
+        ) {
             Some(bytes) => KeyDownAction::Write(bytes),
             None => KeyDownAction::Consume,
         }
@@ -170,10 +222,27 @@ impl InputControllerState {
         event: &TerminalKeyEvent<'_>,
         cursor_keys_application: bool,
     ) -> Option<String> {
+        self.dispatch_keydown_with_flags(event, cursor_keys_application, 0)
+    }
+
+    /// Dispatch a key event using the current kitty keyboard flags.
+    pub fn dispatch_keydown_with_flags(
+        &self,
+        event: &TerminalKeyEvent<'_>,
+        cursor_keys_application: bool,
+        kitty_flags: u8,
+    ) -> Option<String> {
         if self.destroyed {
             return None;
         }
-        terminal_key_sequence(&event.chord(), cursor_keys_application)
+        terminal_key_sequence_for_event(
+            &event.chord_with_flags(kitty_flags),
+            cursor_keys_application,
+            kitty_flags,
+            event.event_type,
+            event.associated_text,
+            event.alternate_keys,
+        )
     }
 
     /// A composition began. The caller empties the textarea.

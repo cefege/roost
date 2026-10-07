@@ -68,6 +68,7 @@ pub fn full_frame(seq: u64, text: &str) -> CellGridFrame {
         mouse_tracking: MouseTracking::None,
         mouse_sgr: false,
         focus_events: false,
+        kitty_keyboard_flags: 0,
         full: true,
         viewport_rows: vec![row_shell(0, &[text])],
         scrollback_rows: Vec::new(),

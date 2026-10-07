@@ -8,7 +8,10 @@
 //! `apps/web/src/client/input/terminalInput.ts` (`terminalKeySequence`,
 //! `applyCtrlModifier`, `isTerminalPrintableKey`).
 
+mod kitty;
+
 use crate::input::chord::{KeyChord, KeyKind, NamedKey};
+pub use self::kitty::terminal_key_sequence_for_event;
 
 /// The three bytes a focus report is written as under DECSET 1004. The
 /// application asked WHICH SURFACE owns the keyboard, and only a real focus
@@ -89,6 +92,7 @@ fn tilde_code(kind: KeyKind) -> Option<u32> {
         KeyKind::Named(NamedKey::Delete) => 3,
         KeyKind::Named(NamedKey::PageUp) => 5,
         KeyKind::Named(NamedKey::PageDown) => 6,
+        KeyKind::Named(NamedKey::Function(3)) => 13,
         KeyKind::Named(NamedKey::Function(5)) => 15,
         KeyKind::Named(NamedKey::Function(6)) => 17,
         KeyKind::Named(NamedKey::Function(7)) => 18,
@@ -107,7 +111,6 @@ fn ss3_final(kind: KeyKind) -> Option<char> {
     let final_byte = match kind {
         KeyKind::Named(NamedKey::Function(1)) => 'P',
         KeyKind::Named(NamedKey::Function(2)) => 'Q',
-        KeyKind::Named(NamedKey::Function(3)) => 'R',
         KeyKind::Named(NamedKey::Function(4)) => 'S',
         _ => return None,
     };
@@ -132,27 +135,37 @@ fn simple_bytes(kind: KeyKind) -> Option<&'static str> {
 /// `cursor_keys_application` is the worker's DECCKM mode, read per event: a
 /// shell that enables application cursor keys mid-session must see its own
 /// encoding on the very next keystroke.
-pub fn terminal_key_sequence(chord: &KeyChord, cursor_keys_application: bool) -> Option<String> {
+pub fn terminal_key_sequence(
+    chord: &KeyChord,
+    cursor_keys_application: bool,
+    kitty_flags: u8,
+) -> Option<String> {
+    terminal_key_sequence_for_event(
+        chord,
+        cursor_keys_application,
+        kitty_flags,
+        super::chord::KeyEventType::Press,
+        None,
+        super::chord::AlternateKeys::default(),
+    )
+}
+
+fn legacy_key_sequence(chord: &KeyChord, cursor_keys_application: bool) -> Option<String> {
     if chord.is_composing || matches!(chord.kind, KeyKind::BrowserOwned) {
         return None;
     }
-    // Windows reports AltGraph either explicitly or as Ctrl+Alt over a
-    // printable character. Both are text input, and treating the second form
-    // as a Ctrl binding would send a control byte and an ESC prefix for one
-    // character of a word.
     if chord.is_alt_graph()
         && let KeyKind::Printable(character) = chord.kind
     {
         return Some(character.to_string());
     }
-    // A real Meta shortcut belongs to the browser or the app. The pane's two
-    // terminal-specific macOS exceptions are the controller's, not this one's.
-    if chord.modifiers.meta && !chord.modifiers.ctrl {
+    if (chord.modifiers.meta || chord.modifiers.super_key) && !chord.modifiers.ctrl {
         return None;
     }
     if chord.modifiers.ctrl
         && !chord.modifiers.alt
         && !chord.modifiers.meta
+        && !chord.modifiers.super_key
         && let KeyKind::Printable(character) = chord.kind
     {
         return ctrl_byte(character).map(|byte| byte.to_string());
@@ -160,11 +173,7 @@ pub fn terminal_key_sequence(chord: &KeyChord, cursor_keys_application: bool) ->
     if chord.kind == KeyKind::Named(NamedKey::Enter) && chord.modifiers.shift {
         return Some(format!(
             "\x1b[13;{}u",
-            modifier_parameter(
-                chord.modifiers.shift,
-                chord.modifiers.alt,
-                chord.modifiers.ctrl
-            )
+            modifier_parameter(chord.modifiers.shift, chord.modifiers.alt, chord.modifiers.ctrl)
         ));
     }
     if chord.kind == KeyKind::Named(NamedKey::Tab)
@@ -174,52 +183,29 @@ pub fn terminal_key_sequence(chord: &KeyChord, cursor_keys_application: bool) ->
     {
         return Some("\x1b[Z".to_string());
     }
-    let modifier = modifier_parameter(
-        chord.modifiers.shift,
-        chord.modifiers.alt,
-        chord.modifiers.ctrl,
-    );
+    let modifier = modifier_parameter(chord.modifiers.shift, chord.modifiers.alt, chord.modifiers.ctrl);
     if let Some((normal, application, final_byte)) = navigation(chord.kind) {
         return Some(if modifier == 1 {
-            if cursor_keys_application {
-                application.to_string()
-            } else {
-                normal.to_string()
-            }
+            if cursor_keys_application { application.to_string() } else { normal.to_string() }
         } else {
             format!("\x1b[1;{modifier}{final_byte}")
         });
     }
     if let Some(code) = tilde_code(chord.kind) {
-        return Some(if modifier == 1 {
-            format!("\x1b[{code}~")
-        } else {
-            format!("\x1b[{code};{modifier}~")
-        });
+        return Some(if modifier == 1 { format!("\x1b[{code}~") } else { format!("\x1b[{code};{modifier}~") });
     }
     if let Some(final_byte) = ss3_final(chord.kind) {
-        return Some(if modifier == 1 {
-            format!("\x1bO{final_byte}")
-        } else {
-            format!("\x1b[1;{modifier}{final_byte}")
-        });
+        return Some(if modifier == 1 { format!("\x1bO{final_byte}") } else { format!("\x1b[1;{modifier}{final_byte}") });
     }
     if let Some(bytes) = simple_bytes(chord.kind) {
-        return Some(if chord.modifiers.alt {
-            format!("\x1b{bytes}")
-        } else {
-            bytes.to_string()
-        });
+        return Some(if chord.modifiers.alt { format!("\x1b{bytes}") } else { bytes.to_string() });
     }
     if let KeyKind::Printable(character) = chord.kind
         && !chord.modifiers.ctrl
         && !chord.modifiers.meta
+        && !chord.modifiers.super_key
     {
-        return Some(if chord.modifiers.alt {
-            format!("\x1b{character}")
-        } else {
-            character.to_string()
-        });
+        return Some(if chord.modifiers.alt { format!("\x1b{character}") } else { character.to_string() });
     }
     None
 }

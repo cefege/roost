@@ -81,6 +81,7 @@ pub(super) struct FrameModes {
     pub mouse_sgr: bool,
     pub focus_events: bool,
     pub mouse_tracking: roost_protocol::cell::MouseTracking,
+    pub kitty_keyboard_flags: u8,
 }
 
 /// Every native state machine the pane drives, behind one borrow.

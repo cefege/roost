@@ -1,7 +1,6 @@
 //! The reply lane's core half against a real core: replies leave in the order
 //! the probes appeared, a probe split across chunks is answered exactly once,
 //! the native set is v2's (a cursor report, nothing else), and a replay never
-//! answers history. Ports `apps/worker/tests/terminal/terminal-query-reply-kitty.test.ts`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_term::{AlacrittyCore, TerminalCore};
@@ -17,33 +16,47 @@ fn answer_fresh(chunk: &[u8]) -> QueryReply {
     answer(&mut AlacrittyCore::new(80, 24), &mut Vec::new(), chunk)
 }
 
-/// The Kitty keyboard query is a promise the browser's legacy-key encoder
-/// cannot keep. v2's core answered it and the lane muted the answer; this core
-/// must not answer it at all, and the lane must stay silent either way.
 #[test]
-fn a_kitty_keyboard_query_is_never_answered() {
+fn a_kitty_keyboard_query_is_answered_with_the_live_flags() {
     let mut core = AlacrittyCore::new(80, 24);
-    core.write_raw(b"\x1b[?u");
-    assert_eq!(core.get_response(), None, "the core makes no Kitty promise");
-    assert_eq!(answer_fresh(b"\x1b[?u").bytes, "");
+    let mut carry = Vec::new();
+    assert_eq!(answer(&mut core, &mut carry, b"\x1b[?u").bytes, "\x1b[?0u");
+    assert_eq!(
+        answer(&mut core, &mut carry, b"\x1b[=3;1u\x1b[?u").bytes,
+        "\x1b[?3u"
+    );
 }
 
 #[test]
-fn a_cursor_report_still_reaches_the_pty_when_a_kitty_probe_precedes_it() {
-    let reply = answer_fresh(b"\x1b[?u\x1b[6n");
-    assert_eq!(reply.bytes, "\x1b[1;1R");
-    assert_eq!(reply.synth_bytes, 0);
+fn a_replayed_kitty_query_does_not_produce_a_reply() {
+    let mut core = AlacrittyCore::new(80, 24);
+    core.write(b"\x1b[=1u\x1b[?u");
+    assert_eq!(core.get_response(), None);
+    assert_eq!(core.kitty_keyboard_flags(), 1, "replay restores mode state");
 }
 
 #[test]
-fn pushing_kitty_flags_never_makes_the_lane_speak() {
-    assert_eq!(answer_fresh(b"\x1b[>1u\x1b[?u\x1b[<u").bytes, "");
+fn a_live_query_preserves_reply_order_around_synthesized_probes() {
+    let reply = answer_fresh(b"\x1b[=1u\x1b[?u\x1b[c\x1b[6n");
+    assert_eq!(reply.bytes, format!("\x1b[?1u{PRIMARY_DA_REPLY}\x1b[1;1R"));
 }
+
+#[test]
+fn a_kitty_query_split_across_chunks_is_answered_once() {
+    let mut core = AlacrittyCore::new(80, 24);
+    let mut carry = Vec::new();
+    assert_eq!(answer(&mut core, &mut carry, b"\x1b[?").bytes, "");
+    assert_eq!(answer(&mut core, &mut carry, b"u").bytes, "\x1b[?0u");
+}
+
 
 #[test]
 fn a_primary_da_sharing_the_chunk_is_answered_in_probe_order() {
     let reply = answer_fresh(b"\x1b[?u\x1b[c\x1b[6n");
-    assert_eq!(reply.bytes, format!("{PRIMARY_DA_REPLY}\x1b[1;1R"));
+    assert_eq!(
+        reply.bytes,
+        format!("\x1b[?0u{PRIMARY_DA_REPLY}\x1b[1;1R")
+    );
 }
 
 /// Concatenating every native ahead of every synthesized reply would answer

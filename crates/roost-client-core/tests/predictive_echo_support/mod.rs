@@ -61,6 +61,7 @@ pub fn empty_frame(
         mouse_tracking: MouseTracking::None,
         mouse_sgr: false,
         focus_events: false,
+        kitty_keyboard_flags: 0,
         viewport_rows: rows
             .into_iter()
             .map(|(index, spans)| CellRow {

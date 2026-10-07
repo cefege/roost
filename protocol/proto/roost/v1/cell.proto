@@ -88,6 +88,7 @@ message PbCellGridFrame {
   // baseline names base_seq=0; each delta names the preceding emitted seq.
   string stream_id = 25;
   uint64 base_seq = 26;
+  uint32 kitty_keyboard_flags = 27; // Kitty keyboard progressive-enhancement flags (bits 0–4)
 }
 
 // One deterministic whole-row part of an oversized full snapshot. Every part

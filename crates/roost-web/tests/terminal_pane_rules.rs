@@ -133,6 +133,7 @@ fn frame(stream: &str, epoch: &str, seq: u64) -> CellGridFrame {
         mouse_tracking: roost_protocol::cell::MouseTracking::None,
         mouse_sgr: false,
         focus_events: false,
+        kitty_keyboard_flags: 0,
         full: true,
         viewport_rows: Vec::new(),
         scrollback_rows: Vec::new(),

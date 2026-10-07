@@ -185,6 +185,11 @@ pub trait TerminalCore {
     /// `DECSET 1004`.
     fn focus_events(&self) -> bool;
 
+    /// Active kitty keyboard protocol flags, as a five-bit mask.
+    fn kitty_keyboard_flags(&self) -> u8 {
+        0
+    }
+
     /// The eviction origin every absolute history index is measured from.
     ///
     /// This is a read of the core's own counter, not an inference from

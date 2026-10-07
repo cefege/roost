@@ -37,6 +37,7 @@ pub fn clone_cell_grid_frame_without_history(frame: &CellGridFrame) -> CellGridF
         mouse_tracking: frame.mouse_tracking,
         mouse_sgr: frame.mouse_sgr,
         focus_events: frame.focus_events,
+        kitty_keyboard_flags: frame.kitty_keyboard_flags,
         full: frame.full,
         viewport_rows: clone_rows(&frame.viewport_rows),
         scrollback_rows: Vec::new(),

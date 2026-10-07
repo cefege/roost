@@ -378,6 +378,7 @@ pub fn canonical_frame_in(
         mouse_tracking: Default::default(),
         mouse_sgr: false,
         focus_events: false,
+        kitty_keyboard_flags: 0,
         full: true,
         viewport_rows,
         scrollback_rows: Vec::new(),

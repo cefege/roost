@@ -14,6 +14,8 @@ mod dyn_dispatch_parity;
 mod emitter_row_cap;
 #[path = "prompt_marks.rs"]
 mod prompt_marks;
+#[path = "kitty_keyboard.rs"]
+mod kitty_keyboard;
 #[path = "reply_queue.rs"]
 mod reply_queue;
 #[path = "span_encoder.rs"]

@@ -149,6 +149,7 @@ fn paint_owed(shared: &PaneShared, now: u64) {
         mouse_sgr: canonical.mouse_sgr,
         focus_events: canonical.focus_events,
         mouse_tracking: canonical.mouse_tracking,
+        kitty_keyboard_flags: canonical.kitty_keyboard_flags,
     });
     set_if_changed(shared.ui.alt_screen, canonical.alt_screen);
     let delivery = shared.state.borrow_mut().feed.painted(&canonical, revision);

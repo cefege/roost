@@ -86,6 +86,7 @@ impl AlacrittyCore {
     /// small ring and reaches saturation in a readable number of lines.
     pub fn with_history(cols: u16, rows: u16, scrolling_history: usize) -> Self {
         let config = alacritty_terminal::term::Config {
+            kitty_keyboard: true,
             scrolling_history,
             ..alacritty_terminal::term::Config::default()
         };
@@ -248,6 +249,15 @@ impl TerminalCore for AlacrittyCore {
 
     fn focus_events(&self) -> bool {
         self.term.mode().contains(TermMode::FOCUS_IN_OUT)
+    }
+
+    fn kitty_keyboard_flags(&self) -> u8 {
+        let mode = self.term.mode();
+        u8::from(mode.contains(TermMode::DISAMBIGUATE_ESC_CODES))
+            | (u8::from(mode.contains(TermMode::REPORT_EVENT_TYPES)) << 1)
+            | (u8::from(mode.contains(TermMode::REPORT_ALTERNATE_KEYS)) << 2)
+            | (u8::from(mode.contains(TermMode::REPORT_ALL_KEYS_AS_ESC)) << 3)
+            | (u8::from(mode.contains(TermMode::REPORT_ASSOCIATED_TEXT)) << 4)
     }
 }
 

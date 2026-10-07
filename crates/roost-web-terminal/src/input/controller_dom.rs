@@ -15,13 +15,14 @@ use web_sys::{
     FocusOptions, HtmlTextAreaElement, InputEvent, KeyboardEvent, Node,
 };
 
+use crate::input::chord::KeyEventType;
 use crate::cell_renderer_dom::DomSetupError;
-use crate::input::chord::Modifiers;
 use crate::input::controller::{
-    FocusRefused, FocusSurface, InputControllerState, KeyDownAction, TerminalKeyEvent,
-    TextareaCommit, force_focus,
+    FocusRefused, FocusSurface, InputControllerState, TerminalKeyEvent, TextareaCommit, force_focus,
 };
 
+mod key_events;
+use key_events::{on_key_down, on_key_up};
 use super::options::TerminalInputOptions;
 
 struct ControllerShared {
@@ -89,6 +90,7 @@ impl TerminalInputController {
             listeners: Vec::new(),
         };
         controller.listen("keydown", on_key_down);
+        controller.listen("keyup", on_key_up);
         controller.listen("paste", on_paste);
         controller.listen("compositionstart", on_composition_start);
         controller.listen("compositionend", on_composition_end);
@@ -129,17 +131,25 @@ impl TerminalInputController {
     /// the key has no terminal encoding or the controller is destroyed.
     pub fn dispatch_keydown(&self, event: &TerminalKeyEvent<'_>) -> bool {
         let application = (self.shared.options.cursor_keys_application)();
+        let kitty_flags = (self.shared.options.kitty_keyboard_flags)();
         let Some(bytes) = self
             .shared
             .state
             .try_borrow()
             .ok()
-            .and_then(|state| state.dispatch_keydown(event, application))
+            .and_then(|state| state.dispatch_keydown_with_flags(event, application, kitty_flags))
         else {
             return false;
         };
         (self.shared.options.on_data)(&bytes);
         true
+    }
+
+    /// Encode one browser key using the same physical-key metadata as the textarea.
+    pub fn dispatch_keydown_from_event(&self, event: &KeyboardEvent) -> bool {
+        let key = event.key();
+        let key_event = key_events::keyboard_event(event, &key, KeyEventType::Press);
+        self.dispatch_keydown(&key_event)
     }
 
     /// Remove every listener and the textarea. Idempotent.
@@ -180,44 +190,6 @@ impl Drop for TerminalInputController {
     }
 }
 
-fn on_key_down(shared: &Rc<ControllerShared>, event: &Event) {
-    let Some(event) = event.dyn_ref::<KeyboardEvent>() else {
-        return;
-    };
-    let key = event.key();
-    let key_event = TerminalKeyEvent {
-        key: &key,
-        modifiers: Modifiers {
-            shift: event.shift_key(),
-            alt: event.alt_key(),
-            ctrl: event.ctrl_key(),
-            meta: event.meta_key(),
-        },
-        alt_graph: event.get_modifier_state("AltGraph"),
-        is_composing: event.is_composing(),
-    };
-    let application = (shared.options.cursor_keys_application)();
-    let Ok(state) = shared.state.try_borrow() else {
-        return;
-    };
-    let action = state.key_down(&key_event, application, || selection_has_text(&shared.doc));
-    drop(state);
-    match action {
-        KeyDownAction::Browser => {}
-        // The platform paste is NOT prevented: its ClipboardEvent is admitted
-        // once, through the paste listener, files and bracketed framing included.
-        KeyDownAction::FocusForPaste => focus_without_scroll(&shared.textarea),
-        KeyDownAction::SelectPane => {
-            event.prevent_default();
-            select_contents(&shared.doc, &shared.root);
-        }
-        KeyDownAction::Write(bytes) => {
-            event.prevent_default();
-            (shared.options.on_data)(&bytes);
-        }
-        KeyDownAction::Consume => event.prevent_default(),
-    }
-}
 
 fn on_paste(shared: &Rc<ControllerShared>, event: &Event) {
     let Some(event) = event.dyn_ref::<ClipboardEvent>() else {

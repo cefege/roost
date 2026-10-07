@@ -20,6 +20,8 @@ pub type PasteHandler = Box<dyn Fn(&str, &ClipboardEvent)>;
 pub struct TerminalInputOptions {
     /// DECCKM as the worker reports it.
     pub cursor_keys_application: Box<dyn Fn() -> bool>,
+    /// Kitty progressive-enhancement flags as the worker reports them.
+    pub kitty_keyboard_flags: Box<dyn Fn() -> u8>,
     /// DECSET 1004 as the worker reports it: real focus and blur become PTY
     /// reports while the application asks for them.
     pub focus_events_enabled: Box<dyn Fn() -> bool>,

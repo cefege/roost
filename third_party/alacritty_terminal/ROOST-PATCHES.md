@@ -302,3 +302,34 @@ clear marks; reflow preserves marks by moving cells unchanged.
 
 `tests/roost_semantic_mark.rs` covers lazy access, prompt-cell writes, reflow,
 and erasure.
+
+## P8 — keyboard-mode stack eviction targets its own stack
+
+`src/term/mod.rs`, `Term::push_keyboard_mode`.
+
+The upstream stack cap removed its oldest entry from `title_stack` rather than
+`keyboard_mode_stack`. At the cap, an application pushing keyboard modes could
+panic on an empty title stack or evict unrelated title state. Pushing now
+removes the oldest keyboard mode, preserving the specified bounded-stack
+behavior. `tests/roost_kitty_keyboard_stack.rs` pushes past the cap, then pops
+to prove the oldest entry was evicted and the active mode returns to zero.
+
+## P9 — keyboard queries report the active flags
+
+`src/term/mod.rs`, `Term::report_keyboard_mode`.
+
+The query encodes the flags currently applied to the terminal mode, rather
+than depending on the push stack's representation. The upstream stack did not
+track direct set operations, so its top could be stale. The query test sets
+flags and checks the reported value.
+
+## P10 — set keyboard flags persist across pushes and screen switches
+
+`src/term/mod.rs`, `Handler::set_keyboard_mode`.
+
+Setting flags updates the current stack entry, creating the screen's baseline
+entry only when the stack is empty. This lets a later push restore the flags
+that were active before it, without adding a stack frame on each set. Screen
+switches retain that entry with their own screen's stack.
+`roost-term/tests/kitty_keyboard.rs` checks set-then-push restoration and
+independent set modes on both screens.

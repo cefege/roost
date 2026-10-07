@@ -110,6 +110,7 @@ const CTRL_ALT: Modifiers = Modifiers {
     alt: true,
     ctrl: true,
     meta: false,
+    ..Modifiers::NONE
 };
 
 #[test]
