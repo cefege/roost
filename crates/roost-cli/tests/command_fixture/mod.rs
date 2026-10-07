@@ -11,16 +11,17 @@
 /// prints them. The list is the contract `docs/phase6-cli-contract.md`
 /// documents; a command added here must be documented there in the same change.
 ///
-/// **29, not 21.** 21 is v2's operator-and-daemon surface: v2's 23 command keys
+/// **30, not 21.** 21 is v2's operator-and-daemon surface: v2's 23 command keys
 /// minus the two v3 dropped (`cutover`, `__windows-updater-broker`). v3 adds
 /// four `__remote-*` target-side commands that v2 never had, and a deploy runs
 /// them over ssh; `update`, which v2 also had and v3 had left unreachable
 /// behind a complete implementation nobody could invoke; `import-v2`, which
 /// has no v2 equivalent because it exists to move v2's state forward;
 /// `add-browser`, which pairs the first browser with a coordinator no desktop
-/// can open; and `db-to-postgres`, which moves a SQLite install onto Postgres.
+/// can open; and `db-to-postgres` and `db-to-sqlite`, which move a coordinator
+/// between SQLite and Postgres in either direction.
 /// Asserting 21 would drop exactly the commands this file exists to protect.
-pub const SUBCOMMANDS: [&str; 29] = [
+pub const SUBCOMMANDS: [&str; 30] = [
     "coord",
     "worker",
     "keeper",
@@ -28,6 +29,7 @@ pub const SUBCOMMANDS: [&str; 29] = [
     "status",
     "import-v2",
     "db-to-postgres",
+    "db-to-sqlite",
     "doctor",
     "version",
     "logs",
