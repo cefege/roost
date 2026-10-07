@@ -29,15 +29,15 @@ pub fn keyboard_cover_px(
     covered.max(0.0).round() as u32
 }
 
-/// The `--kb-offset` declaration for a covered band.
+/// The `--kb-offset` value for a covered band.
 #[must_use]
-pub fn keyboard_offset_declaration(covered_px: u32) -> String {
-    format!("--kb-offset: {covered_px}px;")
+pub fn keyboard_offset_value(covered_px: u32) -> String {
+    format!("{covered_px}px")
 }
 
 #[cfg(target_arch = "wasm32")]
 mod mount {
-    use super::{keyboard_cover_px, keyboard_offset_declaration};
+    use super::{keyboard_cover_px, keyboard_offset_value};
     use dioxus::prelude::*;
     use wasm_bindgen::JsCast as _;
     use wasm_bindgen::closure::Closure;
@@ -73,7 +73,7 @@ mod mount {
         let covered = keyboard_cover_px(layout_height(), viewport.height(), viewport.offset_top());
         let _ = root
             .style()
-            .set_property("--kb-offset", &keyboard_offset_declaration(covered));
+            .set_property("--kb-offset", &keyboard_offset_value(covered));
         tracing::debug!(target: "shell", covered, "published the soft keyboard cover");
     }
 
@@ -115,7 +115,7 @@ pub use mount::use_keyboard_offset;
 
 #[cfg(test)]
 mod tests {
-    use super::{keyboard_cover_px, keyboard_offset_declaration};
+    use super::{keyboard_cover_px, keyboard_offset_value};
 
     #[test]
     fn an_open_keyboard_covers_the_gap_between_the_viewports() {
@@ -145,8 +145,8 @@ mod tests {
     }
 
     #[test]
-    fn the_declaration_writes_the_variable() {
-        assert_eq!(keyboard_offset_declaration(300), "--kb-offset: 300px;");
-        assert_eq!(keyboard_offset_declaration(0), "--kb-offset: 0px;");
+    fn the_value_is_a_pixel_length_set_property_accepts() {
+        assert_eq!(keyboard_offset_value(300), "300px");
+        assert_eq!(keyboard_offset_value(0), "0px");
     }
 }

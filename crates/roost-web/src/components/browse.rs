@@ -65,8 +65,8 @@ pub fn BrowseSurface(route: Route) -> Element {
 #[component]
 fn BrowseRedirect() -> Element {
     let navigate = use_navigate();
+    let pump = use_store();
     use_hook(move || {
-        let pump = use_store();
         let target = {
             let core = pump.core();
             let core = core.borrow();

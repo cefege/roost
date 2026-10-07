@@ -346,9 +346,11 @@ aside[data-testid="sidebar-desktop"] {
 /* Machine health: one collapsed summary line under the folder row, expanding to
    the metric tiles. Full-row links above it stay clickable (the toggle raises
    itself); the readout is secondary, so it never steals the row's emphasis. */
+.df-row:has(> .df-machine-health) { flex-wrap: wrap; }
 .df-machine-health {
   position: relative;
   z-index: 2;
+  flex: 1 0 100%;
   pointer-events: auto;
   min-inline-size: 0;
 }
