@@ -4,13 +4,15 @@
 //! `super::PoolChannel` and `session::sinks::ChannelBinding` — nothing here.
 //!
 //! TWO TABLES, BECAUSE A SPAWN HAS A GAP. A binding is registered BEFORE its
-//! spawn frame is written, so the first PTY bytes after the acknowledgement
-//! have somewhere to go; and the acknowledgement is what carries the pid, which
-//! is half of the wire pair `PoolChannel` announces. So an in-flight spawn holds
-//! an output binding with no channel yet, and it is a separate table precisely
-//! because it is NOT announceable: a channel the keeper has not acknowledged is
-//! not a channel the keeper will reap, and announcing it would pin a PTY that
-//! was never opened.
+//! spawn frame is written, and the acknowledgement is what carries the pid,
+//! which is half of the wire pair `PoolChannel` announces. So an in-flight spawn
+//! holds an output binding with no channel yet, and it is a separate table
+//! precisely because it is NOT announceable: a channel the keeper has not
+//! acknowledged is not a channel the keeper will reap, and announcing it would
+//! pin a PTY that was never opened. Nor is it routed to: `pool_spawn` promotes
+//! it before releasing the connection the dispatcher takes frames under, so a
+//! frame routed while its id is in flight was queued before the spawn frame was
+//! written and is not the new channel's.
 //!
 //! NO LOCK IS EVER HELD ACROSS A BINDING CALL. Every method here returns owned
 //! values — a cloned `Arc`, a `PoolChannel`, a vector — and the caller invokes

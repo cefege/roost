@@ -12,6 +12,7 @@
 // only consumer is `support/mod.rs`, whose own consumers declare it at their
 // roots. A declaration here would be a second one to keep in step.
 
+use std::collections::VecDeque;
 use std::io::{ErrorKind, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -210,9 +211,9 @@ impl Drop for Keeper {
 pub struct Client {
     stream: UnixStream,
     decoder: FrameDecoder,
-    /// Frames that arrived behind the `HelloResp` in the read that carried it,
-    /// handed to the next `read_until` rather than lost.
-    pending: Vec<MuxFrame>,
+    /// Frames decoded but not yet handed out: whatever arrived behind the frame
+    /// that ended the last `read_until`, in the same read, kept for the next.
+    pending: VecDeque<MuxFrame>,
     hello: Option<KeeperHelloResponse>,
 }
 
@@ -234,7 +235,6 @@ impl Client {
             "nothing reaches a connection before its HelloResp"
         );
         client.hello = Some(answer.parse_json().expect("the HelloResp decodes"));
-        client.pending = seen;
         client
     }
 
@@ -248,7 +248,7 @@ impl Client {
         Self {
             stream,
             decoder: FrameDecoder::new(),
-            pending: Vec::new(),
+            pending: VecDeque::new(),
             hello: None,
         }
     }
@@ -274,17 +274,30 @@ impl Client {
 
     /// Read frames until `predicate` holds over everything seen, failing at the
     /// deadline with `what` and the frame types that did arrive.
+    ///
+    /// Returns the SHORTEST run of frames that satisfies `predicate`; anything
+    /// decoded behind it stays in `pending` for the next call. The keeper
+    /// writes a spawn's ack and its child's first output back to back, so a
+    /// reader that falls behind takes both in one read, and a wait that
+    /// returned both would hand the next wait a stream whose output was gone.
     pub fn read_until(
         &mut self,
         what: &str,
         mut predicate: impl FnMut(&[MuxFrame]) -> bool,
     ) -> Vec<MuxFrame> {
         let start = Instant::now();
-        let mut seen: Vec<MuxFrame> = std::mem::take(&mut self.pending);
+        let mut seen: Vec<MuxFrame> = Vec::new();
         let mut chunk = vec![0u8; 4096];
-        while start.elapsed() < DEADLINE {
+        loop {
             if predicate(&seen) {
                 return seen;
+            }
+            if let Some(frame) = self.pending.pop_front() {
+                seen.push(frame);
+                continue;
+            }
+            if start.elapsed() >= DEADLINE {
+                break;
             }
             match self.stream.read(&mut chunk) {
                 Ok(0) => break,
@@ -297,7 +310,7 @@ impl Client {
                             ..
                         } = event
                         {
-                            seen.push(MuxFrame {
+                            self.pending.push_back(MuxFrame {
                                 frame_type,
                                 channel_id,
                                 payload,
@@ -307,9 +320,6 @@ impl Client {
                 }
                 Err(_) => {}
             }
-        }
-        if predicate(&seen) {
-            return seen;
         }
         panic!(
             "never saw {what} within {DEADLINE:?}; saw {:?}",

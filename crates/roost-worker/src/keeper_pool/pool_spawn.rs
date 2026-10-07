@@ -13,6 +13,7 @@
 
 use std::sync::Arc;
 
+use roost_keeper::client_error::ClientError;
 use roost_protocol::wire::brand::ChannelId;
 
 use super::error::PoolError;
@@ -31,12 +32,14 @@ impl KeeperPool {
     /// keeper's own maximum after an adoption; a second copy here meant a fresh
     /// worker could mint, from this one, an id a surviving keeper still held.
     ///
-    /// The output binding is registered BEFORE the spawn frame is written, so
-    /// the first bytes after the acknowledgement have a session to reach. An id
-    /// the keeper is already known to hold is refused before anything is
-    /// written, because a colliding spawn is answered `channel_id in use` and
-    /// the new terminal simply fails with a reason that names the wire rather
-    /// than the collision.
+    /// The output binding is registered BEFORE the spawn frame is written, and
+    /// the channel is acknowledged in the table BEFORE the connection handle is
+    /// released, so the first bytes after the acknowledgement have a session to
+    /// reach: the dispatcher takes frames only under that handle. An id the
+    /// keeper is already known to hold is refused before anything is written,
+    /// because a colliding spawn is answered `channel_id in use` and the new
+    /// terminal simply fails with a reason that names the wire rather than the
+    /// collision.
     pub fn spawn(
         &self,
         channel_id: ChannelId,
@@ -61,12 +64,17 @@ impl KeeperPool {
         if self.channels.begin_spawn(channel_id, output) {
             tracing::warn!(channel_id, "respawning a channel the keeper already owns");
         }
-        match self
-            .keeper
-            .with(|client| client.spawn(channel_id, command.command, cols, rows))
-        {
-            Ok(pid) => {
-                if let Err(err) = self.channels.finish_spawn(channel_id, pid) {
+        // The keeper writes the child's first bytes, and for a short-lived
+        // child its exit, right behind the acknowledgement. Promoted after the
+        // handle was released, the dispatcher could take and route both first,
+        // to a channel the table did not yet answer for, and drop them.
+        let opened = self.keeper.with(|client| -> Result<_, ClientError> {
+            let pid = client.spawn(channel_id, command.command, cols, rows)?;
+            Ok((pid, self.channels.finish_spawn(channel_id, pid)))
+        });
+        match opened {
+            Ok((pid, tracked)) => {
+                if let Err(err) = tracked {
                     // The PTY is real; only the pool's record of it is gone. The
                     // strays reaper is the designed answer to a channel nobody
                     // tracks, and saying so beats a caller that believes it has

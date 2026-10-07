@@ -9,7 +9,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use keeper_pool_support::{
-    KeeperFixture, channel, child_environment, opened, refused, session, sh_spec, wait_until,
+    KeeperFixture, channel, child_environment, child_text, opened, refused, session, sh_spec,
+    wait_until,
 };
 use roost_worker::keeper_pool::PoolError;
 use roost_worker::session::sinks::ChannelBinding;
@@ -136,6 +137,51 @@ fn concurrent_spawns_are_answered_one_for_one() {
         8,
         "every answered spawn is announced"
     );
+}
+
+/// THE FIRST BYTES AND THE EXIT RIDE RIGHT BEHIND THE ACK. A child that prints
+/// and exits at once has both on the wire before its spawning thread runs
+/// again, so a pool that acknowledged the channel only after releasing the
+/// connection let the dispatcher route them to a channel its table did not yet
+/// answer for: a session that showed nothing, or showed nothing and never
+/// ended. Sixteen at once, because the dispatcher wins that race only
+/// sometimes.
+#[test]
+fn a_child_that_prints_and_exits_at_once_is_heard_and_ends() {
+    let keeper = KeeperFixture::start();
+    let pool = keeper.pool();
+    let threads: Vec<_> = (0..16)
+        .map(|index| {
+            let pool = Arc::clone(&pool);
+            std::thread::spawn(move || {
+                let marker = format!("brief-{index}");
+                let (binding, record) = session("brief-child");
+                opened(
+                    pool.spawn(
+                        channel(index + 1),
+                        &sh_spec(&["-c", &format!("echo {marker}; exit 3")], &[]),
+                        80,
+                        24,
+                        Arc::new(binding) as Arc<dyn ChannelBinding>,
+                    ),
+                    "every brief spawn is answered",
+                );
+                (marker, record.settled())
+            })
+        })
+        .collect();
+
+    for thread in threads {
+        let (marker, seen) = match thread.join() {
+            Ok(settled) => settled,
+            Err(_) => panic!("a brief child's session never settled"),
+        };
+        assert!(
+            child_text(&seen).contains(&marker),
+            "{marker} was never delivered: {seen:?}"
+        );
+        assert_eq!(seen.exit, Some(Some(3)), "{marker} ended wrongly: {seen:?}");
+    }
 }
 
 /// A REFUSAL MUST LEAVE NOTHING BEHIND. A spawn that failed has no PTY, so a
