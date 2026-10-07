@@ -17,6 +17,7 @@
 use std::sync::Arc;
 
 use roost_proto::SyncDomain;
+use roost_protocol::wire::sync_ws::SYNC_RESET_CURSOR_AHEAD_OF_LOG;
 use sqlx::AnyPool;
 use tokio::sync::oneshot;
 
@@ -145,7 +146,7 @@ async fn recover_through_cutoff(link: &SyncLink, pool: &AnyPool, since: u64) {
             state.replay.rewind_to_log_end(cutoff);
             None
         });
-        return stop_recovery(link, "cursor_ahead_of_log");
+        return stop_recovery(link, SYNC_RESET_CURSOR_AHEAD_OF_LOG);
     }
     let mut cursor = since;
     while cursor < cutoff {

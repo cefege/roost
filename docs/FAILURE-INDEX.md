@@ -2192,6 +2192,42 @@ enrolled or retried as a transport failure.
 
 **Guard** — `crates/roost-client-core/src/sync/hydration.rs` — `the_probe_runs_once_per_dial_after_the_subscribed_wait`.
 
+### Every browser reconnect resets the terminal domain with `cursor_ahead_of_log`
+
+**Symptom** — after the coordinator moved to a new database, every `sync socket open` in its log carries the
+same `since` and is followed by `the terminal domain is reset because recovery cannot close the gap`
+`reason=cursor_ahead_of_log`; the browser re-hydrates its terminals on every redial and never stops.
+
+**Wrong** — re-hydrating on the reset and keeping the recovery cursor. `RecoveryWatermark::note` only moves
+forward, so a cursor above the new log's end is never passed by any event that log hands out: the browser
+sends it as `since` on every dial, and the coordinator resets for it every time.
+
+**Right** — a terminal `domain_reset` whose reason is `SYNC_RESET_CURSOR_AHEAD_OF_LOG`
+(`crates/roost-protocol/src/wire/sync_ws.rs`, emitted by `roost-coord`'s `sync_ws::backfill`) rewinds the
+cursor to zero (`RecoveryWatermark::rewind_to_log_start`), persisted on the next sweep; other reset reasons
+keep it.
+
+**Guard** — `crates/roost-client-core/tests/sync_domain_reset.rs`:
+`a_cursor_ahead_of_the_log_is_dropped_so_the_new_log_s_events_move_it_again`,
+`a_terminal_reset_for_any_other_reason_keeps_the_cursor`.
+
+### A fresh or reset Sync socket is closed `1013 age_limit` right after a slow hydration
+
+**Symptom** — `sync socket closing` `reason=age_limit` `code=1013` within seconds of `sync socket open`, with
+the oldest unacknowledged frame sent before that socket's terminal `domain_ready`; the browser flashes
+disconnected and redials.
+
+**Wrong** — applying the pre-hydration queue without acknowledging it. `handle_sync_frame` retains application
+frames until the terminal snapshot publishes and acknowledges nothing it retained; `hydrate` applied them
+silently, so the coordinator's 3 s ACK window kept aging them until the next live frame's cumulative ack, and
+a link that went quiet was closed.
+
+**Right** — `hydrate` sends one cumulative `Ack` for the highest retained `delivery_seq` of the generation that
+is still accepting, as v2's `dispatchSyncFrameCausally` acknowledged a replayed retained frame.
+
+**Guard** — `crates/roost-client-core/tests/sync_domain_reset.rs`:
+`frames_held_while_a_reset_terminal_domain_rehydrates_are_acknowledged_when_it_publishes`.
+
 ---
 
 ## Coordinator RPC, audit and data integrity

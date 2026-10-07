@@ -224,14 +224,21 @@ pub fn handle_direct_frame(
     }
 }
 
-/// Apply everything the pre-hydration queue held, in arrival order.
+/// Apply everything the pre-hydration queue held, in arrival order, and
+/// acknowledge what the current socket delivered.
 ///
 /// The queue is drained ONCE, and a frame arriving while it drains is retained
 /// again rather than applied behind the queue's back — otherwise the order the
 /// coordinator sequenced them in is lost.
+///
+/// The held frames were never acknowledged on arrival, and the coordinator's
+/// ACK window has been aging them since it sent them. Without this ack a link
+/// that goes quiet after a slow hydration is closed for backpressure
+/// (`1013 age_limit`) with nothing actually behind.
 pub(crate) fn hydrate(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
     store.hydrated = true;
     store.note_change();
+    let mut highest_current_seq = 0;
     for held in store.sync.take_retained() {
         // Deliberately not generation gated: the frame was accepted before the
         // redial, and the coordinator will not send it again.
@@ -243,6 +250,16 @@ pub(crate) fn hydrate(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
             now_ms,
             out,
         );
+        // The acknowledgement IS gated, as on the live path: a sequence from a
+        // retired socket means nothing to the current one.
+        if store.sync.accepts(held.generation) {
+            highest_current_seq = highest_current_seq.max(held.delivery_seq);
+        }
+    }
+    if highest_current_seq > 0 && store.sync.socket_id().is_some() {
+        out.push(Effect::SendSync(SyncCommand::Ack {
+            ack_delivery_seq: highest_current_seq,
+        }));
     }
 }
 

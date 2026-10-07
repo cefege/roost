@@ -68,6 +68,18 @@ impl RecoveryWatermark {
         Some(pending)
     }
 
+    /// Drop the cursor because the coordinator's log does not contain it, and
+    /// owe storage the zero on the next sweep.
+    ///
+    /// `note` only moves forward, so a cursor above the log's end is never
+    /// passed by any event that log hands out: kept, it is sent as `since` on
+    /// every redial and the coordinator resets the terminal domain for it every
+    /// time.
+    pub fn rewind_to_log_start(&mut self) {
+        self.last_seen = 0;
+        self.pending = Some(0);
+    }
+
     /// Discard the cursor and everything owed to storage.
     pub fn reset(&mut self, storage: &dyn KeyValueStore) {
         self.last_seen = 0;
@@ -119,5 +131,20 @@ mod tests {
         watermark.reset(&storage);
         assert_eq!(watermark.last_seen, 0);
         assert_eq!(watermark.take_pending(), None);
+    }
+
+    #[test]
+    fn a_rewound_cursor_persists_zero_and_then_follows_lower_ids() {
+        let storage = MemoryKeyValueStore::new();
+        storage.set("roost.syncLastEventId", "33590");
+        let mut watermark = RecoveryWatermark::from_storage(&storage);
+        watermark.rewind_to_log_start();
+        assert_eq!(
+            watermark.take_pending(),
+            Some(0),
+            "storage holds the stale cursor until the sweep overwrites it"
+        );
+        assert!(watermark.note(7), "an id below the old cursor moves it now");
+        assert_eq!(watermark.take_pending(), Some(7));
     }
 }

@@ -1,6 +1,6 @@
 //! The Sync WebSocket handshake every client of the coordinator's sync stream
-//! shares: its path, its auth subprotocol, and the capability-negotiation query
-//! values.
+//! shares: its path, its auth subprotocol, the capability-negotiation query
+//! values, and the recovery reset reason both ends act on.
 //!
 //! These are wire protocol, not configuration. The coordinator's upgrade path
 //! matches on them exactly, so a value changes only with a negotiation bump
@@ -25,6 +25,13 @@ pub use crate::versioning::SYNC_QUERY_V2;
 /// Every negotiation value understood on the sync upgrade, in the order the
 /// coordinator tests them.
 pub const SYNC_QUERY_VALUES: [&str; 2] = [SYNC_QUERY_FLOW_V1, SYNC_QUERY_V2];
+
+/// The terminal-domain reset reason a v2 socket receives when its `since` names
+/// an event above the coordinator's log end. That cursor was taken from another
+/// log — a coordinator moved to or restored from a different database — so the
+/// client must drop it, not merely re-hydrate: a cursor no event of this log
+/// can pass is a reset on every redial.
+pub const SYNC_RESET_CURSOR_AHEAD_OF_LOG: &str = "cursor_ahead_of_log";
 
 #[cfg(test)]
 mod tests {

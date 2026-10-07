@@ -7,6 +7,7 @@
 //! control folds live in the sibling `fold_*` files; this match only routes.
 
 use roost_protocol::wire::WorkerPresenceEvent;
+use roost_protocol::wire::sync_ws::SYNC_RESET_CURSOR_AHEAD_OF_LOG;
 
 use crate::effect::Effect;
 use crate::store::Store;
@@ -95,6 +96,9 @@ pub(super) fn apply_frame(
             // `routableChunks` (`sync-inbound.ts:140-143`).
             if *domain == SyncDomain::Workers {
                 store.routable_assembly.clear();
+            }
+            if *domain == SyncDomain::Terminal && reason == SYNC_RESET_CURSOR_AHEAD_OF_LOG {
+                store.sync.watermark.rewind_to_log_start();
             }
             // A terminal reset drops the snapshot the client is holding live
             // rows against, so the hold reopens for the same reason a new
@@ -273,6 +277,10 @@ pub(super) fn apply_frame(
             *duration_ms,
             delivery_seq,
         ),
+        SyncFrame::WorkerPresence { event } => {
+            fold_worker_presence(store, event, out);
+            // A heartbeat moves no worker in or out of the pre-warm selection.
+            if !matches!(**event, WorkerPresenceEvent::Heartbeat { .. }) {
                 crate::handle_terminal::reconcile_prewarm(store, now_ms, out);
             }
         }
