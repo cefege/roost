@@ -13,7 +13,8 @@ use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{AudioContext, AudioProcessingEvent, Blob, BlobPropertyBag, Event, MessageEvent};
 
 use super::audio_capture::{MODULE_TIMEOUT_MS, WORKLET_PROCESSOR, WORKLET_SOURCE};
-use super::audio_capture::{deliver, raced, with_mic};
+use super::audio_capture::{deliver, with_mic};
+use super::raced_step::raced;
 
 /// Load the inline worklet and connect the graph through it.
 pub async fn attach_worklet(

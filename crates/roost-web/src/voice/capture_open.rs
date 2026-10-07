@@ -13,13 +13,14 @@ use wasm_bindgen::closure::Closure;
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{AudioContext, MediaStream};
 
-use super::audio_capture::{OPEN_TIMEOUT_MS, RacedFailure, raced, with_mic};
+use super::audio_capture::{OPEN_TIMEOUT_MS, with_mic};
 use super::audio_graph::{attach_script_processor, attach_worklet};
 use super::capture_facts::CapturePath;
 use super::handshake::{
     MicOpenFailure, audio_session_stalled, message_failure, mic_open_failure, mic_open_outcome,
 };
 use super::pcm::Resampler;
+use super::raced_step::{RacedFailure, raced};
 
 /// The whole open, in the order iOS requires.
 pub(super) async fn open_pipeline(generation: u64) -> Result<(), MicOpenFailure> {
@@ -72,12 +73,19 @@ pub(super) async fn open_pipeline(generation: u64) -> Result<(), MicOpenFailure>
     } else {
         CapturePath::ScriptProcessor
     };
-    with_mic(|mic| {
-        mic.context = Some(context);
-        mic.stream = Some(stream);
+    // One graph per page: a stream published over another would leave the
+    // first one's tracks live with nothing left that stops them.
+    let (replaced_stream, replaced_context) = with_mic(|mic| {
         mic.resampler = Some(Resampler::new(rate));
         mic.path.set(path);
+        (mic.stream.replace(stream), mic.context.replace(context))
     });
+    if let Some(stream) = replaced_stream {
+        stop_stream(&stream);
+    }
+    if let Some(context) = replaced_context {
+        let _ = context.close();
+    }
     Ok(())
 }
 

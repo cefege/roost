@@ -52,8 +52,12 @@ mod deepgram_session;
 pub mod engine_events;
 #[cfg(target_arch = "wasm32")]
 mod grant;
+#[cfg(target_arch = "wasm32")]
+mod idle_release;
 #[cfg(any(target_arch = "wasm32", test))]
 pub mod open_device;
+#[cfg(target_arch = "wasm32")]
+mod raced_step;
 #[cfg(target_arch = "wasm32")]
 pub mod web_speech;
 

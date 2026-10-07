@@ -68,6 +68,7 @@ was checked against it on 2026-10-06.
 | **DEFERRED** | Kitty keyboard protocol | The worker withholds the Kitty keyboard query and its reports (the browser's legacy-key model cannot honor them); cursor reports + DA1 only. Planned. | `crates/roost-worker/src/session/query_reply.rs` |
 | **DEFERRED** | Ligatures | The bundled JetBrains Mono Nerd Font renders with `font-variant-ligatures: none`; ligature shaping is deliberately off. Planned. | `crates/roost-web/assets/styles/sidebar.css` |
 | **DEFERRED** | Custom color schemes | Exactly two built-in themes, Light and Dark, plus System auto; no user-defined palette import. Planned. | `crates/roost-web/src/theme/themes.rs` |
+| **DEFERRED** | Telegram-style upload UI | Uploads work end to end (rows above); the surface does not. Progress lives in transfer-popup cards that operators find unclear; the target is Telegram's flow — a staged attachment tray with previews before sending, then one clear per-file row through queued / sending / sent. A non-media file shows a generic Material glyph in the thumbnail slot (only PDF and archives get a specific one), so a `.csv` or `.log` is indistinguishable at a glance; the slot should carry the extension as a label (e.g. `PDF`) with the name and size beside it. Planned. | `crates/roost-web/src/components/notifications/transfer_row.rs`, `crates/roost-web/src/components/terminal_chrome/terminal_upload.rs` |
 
 ---
 
