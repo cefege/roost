@@ -30,9 +30,9 @@ impl KeeperHandle {
     /// Take the lock and borrow the client.
     ///
     /// The lock is held for the call and no longer, and every client call is a
-    /// bounded wait, so a caller must not hold it across anything else. That is
-    /// the whole contract, which is why it is one method rather than a public
-    /// field.
+    /// bounded wait, so a caller must not hold it across anything else that
+    /// waits. That is the whole contract, which is why it is one method rather
+    /// than a public field.
     pub fn with<T>(&self, use_client: impl FnOnce(&KeeperClient) -> T) -> T {
         match self.0.lock() {
             Ok(client) => use_client(&client),

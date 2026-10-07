@@ -4,6 +4,8 @@
 //! or lifecycle bug, not a terminal bug.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use std::time::Duration;
+
 use roost_keeper::codec::MuxFrameType;
 use roost_keeper::frames::ExitFrame;
 
@@ -67,6 +69,46 @@ fn an_exit_is_reported_over_the_socket() {
         .expect("the exit is in what was read");
     let exit: ExitFrame = exit_frame.parse_json().expect("it decodes");
     assert_eq!(exit.exit_code, Some(5));
+    drop(client);
+    server.finish();
+}
+
+/// A WAIT TAKES ONLY WHAT IT WAITED FOR. The keeper writes a spawn's ack, its
+/// child's output and its exit back to back, so a test thread that falls
+/// behind reads all three in one read. The frames behind the ack belong to the
+/// next wait; a harness that dropped them reported a keeper that lost output
+/// it had delivered, which is how the exit test above failed on a loaded host.
+#[test]
+fn frames_behind_the_awaited_one_are_kept_for_the_next_wait() {
+    let temp = TempDir::new("behind");
+    let server = InProcessKeeper::serve(&temp, 1);
+    let mut client = server.connect();
+    client.send(&support::spawn_with(
+        1,
+        support::running("echo behind; exit 0"),
+        80,
+        24,
+    ));
+    // Behind on purpose: by the first read, the ack, the output and the exit
+    // are all waiting on the socket.
+    std::thread::sleep(Duration::from_millis(500));
+
+    let to_the_ack = client.read_until("a spawn ack", |f| {
+        f.iter().any(|f| f.frame_type == MuxFrameType::SpawnAck)
+    });
+    assert_eq!(
+        to_the_ack.last().map(|f| f.frame_type),
+        Some(MuxFrameType::SpawnAck),
+        "a wait returns nothing past the frame it waited for"
+    );
+    client.read_until("the output behind the ack", |frames| {
+        frames.iter().any(|f| {
+            f.frame_type == MuxFrameType::PtyOut && f.payload.windows(6).any(|w| w == b"behind")
+        })
+    });
+    client.read_until("the exit behind the output", |f| {
+        f.iter().any(|f| f.frame_type == MuxFrameType::Exit)
+    });
     drop(client);
     server.finish();
 }
