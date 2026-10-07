@@ -13,6 +13,7 @@ use dioxus::prelude::*;
 use super::pane_mount::{PaneMount, PaneMountInit};
 use super::pane_registry::PaneRegistry;
 use super::pane_state::{PaneFlags, PaneUi};
+use crate::components::terminal_chrome::attachment_picker::ChosenFile;
 use crate::pump::Pump;
 
 /// What a mount needs besides the element.
@@ -27,6 +28,7 @@ pub struct PaneMountRequest {
     pub panes: PaneRegistry,
     /// The router's handler, for the links this pane's terminal paints.
     pub navigate: EventHandler<String>,
+    pub staged_files: Signal<Vec<ChosenFile>>,
 }
 
 /// The mounted pane, if any. Cheap to clone; every clone is the same handle.
@@ -77,6 +79,7 @@ impl PaneHandle {
                 pump: request.pump,
                 panes: request.panes,
                 navigate: request.navigate,
+                staged_files: request.staged_files,
             },
         );
         let previous = self.mount.replace(mounted);

@@ -116,10 +116,11 @@ pub fn settle_card(store: &mut Store, upload_id: &str, outcome: &UploadOutcome) 
     }
 }
 
-/// A refusal that happened before any carrier was chosen, so the card is put on
-/// the stack only to say why it left.
+/// Refuse before choosing a carrier, preserving a queued row when it exists.
 pub fn refuse_card(store: &mut Store, upload_id: &str, file_name: &str, reason: &str) {
-    begin_upload_card(store, upload_id, file_name, 0, now_ms());
+    if store.transfers.transfer(upload_id).is_none() {
+        begin_upload_card(store, upload_id, file_name, 0, now_ms());
+    }
     mark_transfer_state(
         store,
         upload_id,

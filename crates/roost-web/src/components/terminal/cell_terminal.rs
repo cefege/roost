@@ -38,7 +38,7 @@ use crate::components::terminal_chrome::composer::TerminalComposer;
 use crate::components::terminal_chrome::composer_key_tray::KeyTray;
 use crate::components::terminal_chrome::composer_placement::ComposerPlacement;
 use crate::components::terminal_chrome::pane_geometry_dom::PaneDockHandle;
-use crate::components::terminal_chrome::terminal_upload::upload_into_terminal;
+use crate::components::terminal_chrome::terminal_upload::{send_attachments, stage_attachments};
 use crate::input_nav::modality::NavModality;
 use crate::platform::worker_paths::BrowserWorkerPaths;
 use crate::pump::use_pump;
@@ -77,6 +77,7 @@ pub fn CellTerminal(
     let navigate = use_navigate();
     let ui = PaneUi::use_pane_ui();
     let handle = use_hook(PaneHandle::default);
+    let staged_files = use_signal(Vec::<ChosenFile>::new);
     let session_id = session.id.as_str().to_owned();
     // A TV remote and a gamepad both drive DOM focus, and neither of them can
     // put focus on a box that is not focusable — which is the whole "I can't
@@ -163,6 +164,7 @@ pub fn CellTerminal(
         pump: pump.clone(),
         panes: panes.clone(),
         navigate,
+        staged_files,
     };
     let on_display_mounted = move |event: MountedEvent| {
         let mut request = mount_request.clone();
@@ -247,26 +249,18 @@ pub fn CellTerminal(
             }),
         }
     });
-    // The attach button uploads and then types the committed path into this
-    // pane's own PTY, which is the one sink a composer has: a file the user
-    // picked for THIS terminal belongs in THIS terminal.
-    let attach_handle = handle.clone();
-    let attach_pump = pump.clone();
-    let attach_session = session_id.clone();
-    let attach_worker = session.worker_fp.as_str().to_owned();
-    let on_attach = move |chosen: Vec<ChosenFile>| {
-        let sink_handle = attach_handle.clone();
-        let type_raw: Rc<dyn Fn(&str)> = Rc::new(move |text: &str| sink_handle.send_raw_text(text));
-        upload_into_terminal(
-            &attach_pump,
-            &attach_session,
-            &attach_worker,
-            chosen,
-            type_raw,
-        );
-    };
+    // All entry points share this pane's tray; Send targets this pane's PTY.
+    let on_attach = stage_attachments(staged_files, session_id.clone());
+    let on_send_uploads = send_attachments(
+        pump.clone(),
+        session_id.clone(),
+        session.worker_fp.as_str().to_owned(),
+        handle.clone(),
+    );
     let drop_hover =
-        use_terminal_file_drop(&session_id, drop_flags, handle.clone(), on_attach.clone());
+        use_terminal_file_drop(&session_id, drop_flags, handle.clone(), move |chosen| {
+            on_attach.call(chosen)
+        });
     let retry_handle = handle.clone();
     let paste_handle = handle.clone();
     let sibling_id = view.offline_sibling.clone();
@@ -332,7 +326,9 @@ pub fn CellTerminal(
                     handle: handle.clone(),
                     active: surface_active,
                     placement: ComposerPlacement::Viewport,
-                    on_attach: on_attach.clone(),
+                    staged_files,
+                    on_send_uploads,
+                    on_attach,
                     read_context: Some(crate::components::terminal::cell_terminal_dictation::dictation_context(panes.clone(), session_id.as_str())),
                 }
             }
@@ -345,7 +341,9 @@ pub fn CellTerminal(
                     handle: handle.clone(),
                     active: in_layout == Some(true) && surface_active,
                     placement: ComposerPlacement::Pane,
-                    on_attach: on_attach.clone(),
+                    staged_files,
+                    on_send_uploads,
+                    on_attach,
                     read_context: Some(crate::components::terminal::cell_terminal_dictation::dictation_context(panes.clone(), session_id.as_str())),
                     on_measured: move |measured: u32| growth_px.set(measured),
                     dock_handle: dock,

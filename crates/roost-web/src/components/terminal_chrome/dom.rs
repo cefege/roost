@@ -28,6 +28,27 @@ pub fn blur(element: &MountedData) {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn blur(_element: &MountedData) {}
 
+/// Whether Enter came from the composer field or a staged-file row.
+#[cfg(target_arch = "wasm32")]
+pub fn enter_targets_composer_or_staged_row(event: &KeyboardEvent) -> bool {
+    use dioxus::web::WebEventExt as _;
+
+    let Some(target) = event
+        .try_as_web_event()
+        .and_then(|native| native.target())
+        .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
+    else {
+        return false;
+    };
+    target.tag_name() == "TEXTAREA" || target.get_attribute("role").as_deref() == Some("listitem")
+}
+
+/// Native keyboard events do not expose browser targets.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn enter_targets_composer_or_staged_row(_event: &KeyboardEvent) -> bool {
+    true
+}
+
 /// Size a field to its content, the way a controlled textarea has to be sized
 /// after every write. The `auto` write first is what makes this a MEASUREMENT
 /// and not a copy of the last height: with a previous pixel height in place the

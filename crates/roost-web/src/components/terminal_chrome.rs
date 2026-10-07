@@ -12,6 +12,7 @@
 pub mod attachment_picker;
 pub mod capture_consent;
 pub mod composer;
+pub mod composer_attachments;
 pub mod composer_claim;
 pub mod composer_dictation;
 pub mod composer_drafts;
@@ -31,3 +32,4 @@ pub mod upload_card;
 pub mod upload_host;
 pub mod upload_id;
 pub mod upload_plan;
+pub mod upload_tray;

@@ -16,6 +16,7 @@ use dioxus::html::ModifiersInteraction as _;
 use dioxus::prelude::*;
 
 use super::attachment_picker::{AttachmentInput, ChosenFile};
+use super::composer_attachments::{StagedAttachments, clear_staged_files, send_staged_files};
 use super::composer_claim::use_viewport_claim;
 use super::composer_dictation::{
     GhostMirror, SharedBinding, VoiceControl, use_dictation, use_dictation_context,
@@ -63,6 +64,8 @@ pub fn TerminalComposer(
     #[props(default)] placement: ComposerPlacement,
     #[props(default)] pending: bool,
     on_attach: EventHandler<Vec<ChosenFile>>,
+    staged_files: Signal<Vec<ChosenFile>>,
+    on_send_uploads: EventHandler<Vec<ChosenFile>>,
     /// Where the dock's measured growth above its resting row is reported, in
     /// pixels: the pane translates its display by it so a growing draft never
     /// takes rows from the grid. Only the pane placement has a flow to push.
@@ -231,20 +234,27 @@ pub fn TerminalComposer(
         // A live recording owns the field: an Enter then would send a
         // half-heard sentence, so it stays the newline the key is for. A
         // stopped one takes it as Send, as the button does.
+        // A staged attachment send takes priority over the draft submit.
         if event.key() == Key::Enter
             && !event.modifiers().contains(Modifiers::SHIFT)
             && dictation_for_keys.send_gate().offers_send()
             && enter_submits(&event)
+            && dom::enter_targets_composer_or_staged_row(&event)
         {
             event.prevent_default();
-            press_send();
+            if !staged_files().is_empty() {
+                send_staged_files(staged_files, on_send_uploads);
+            } else {
+                press_send();
+            }
             return;
         }
-        // Escape only drops the field's focus, so the terminal's own shortcuts
-        // resume routing.
+        // Escape cancels staged files; otherwise focus returns to the terminal.
         if event.key() == Key::Escape {
             event.prevent_default();
-            if let Some(field) = field.peek().as_ref() {
+            if !staged_files().is_empty() {
+                clear_staged_files(staged_files);
+            } else if let Some(field) = field.peek().as_ref() {
                 dom::blur(field);
             }
         }
@@ -267,6 +277,7 @@ pub fn TerminalComposer(
             "data-active": if active { "true" } else { "false" },
             aria_hidden: (!active).then_some("true"),
             style: placement.position(),
+            onkeydown: on_key_down,
             onmounted: move |event: MountedEvent| {
                 if let Some(handle) = dock_handle.as_ref() {
                     handle.attach(event.data(), on_measured);
@@ -279,6 +290,10 @@ pub fn TerminalComposer(
                     slot.attach(event.data());
                 }
             },
+            StagedAttachments {
+                staged_files,
+                on_send_uploads,
+            }
             div {
                 class: "term-chat__box",
                 "data-testid": "chat-box",
@@ -316,7 +331,6 @@ pub fn TerminalComposer(
                             draft.set(event.value());
                             status.set(SubmissionStatus::default());
                         },
-                        onkeydown: on_key_down,
                     }
                     if ghost.has_ghost() {
                         GhostMirror { ghost: ghost.clone() }

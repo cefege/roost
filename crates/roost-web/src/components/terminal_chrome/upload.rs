@@ -1,17 +1,8 @@
-//! The upload driver: one chosen file in, one settled path out, with a
-//! transfer card for every step and a serial queue that preserves the order the
-//! user picked in.
+//! The per-file upload driver: one chosen file in, one settled path out,
+//! queued serially to preserve the user's pick order.
 //!
-//! The ORDER of the steps is the contract. A dedup probe first, because a hit
-//! must cost no upload; then the direct carriers, because a direct route that
-//! works must not put a byte through the coordinator; then the relay, which is
-//! the carrier that is always left. A failure that crossed the byte boundary
-//! settles as AMBIGUOUS and is never retried — the one rule here that protects
-//! the worker's disk from a doubled upload.
-//! Ports `enqueueAttachmentTo` and its serial queue in
-//! `apps/web/src/lib/attachments.ts`; the decisions are `super::upload_plan`'s,
-//! the network acts are `super::upload_host`'s, and the card is
-//! `super::upload_card`'s.
+//! Its contract is dedup probe, then direct carriers, then relay. A failure
+//! after crossing the byte boundary is ambiguous and is never retried.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -49,6 +40,7 @@ struct QueuedUpload {
     pump: Pump,
     session_id: String,
     worker_fp: Option<String>,
+    upload_id: String,
     file: ChosenFile,
     short_path: bool,
     identity: DirectIdentity,
@@ -73,7 +65,7 @@ pub struct UploadContext {
 /// to `sink`.
 ///
 /// Returns as soon as the queue is armed. The uploads are serial and
-/// asynchronous, and the card on the dock is what reports their progress.
+/// asynchronous, and the transfer list reports each file's progress.
 pub fn enqueue_attachments(
     pump: &Pump,
     context: &UploadContext,
@@ -86,10 +78,33 @@ pub fn enqueue_attachments(
     PENDING.with(|pending| {
         let mut queue = pending.borrow_mut();
         for file in files {
+            let Some(upload_id) = mint_upload_id() else {
+                if let Some(preview) = file.preview_url.as_deref() {
+                    super::dom::revoke_preview(preview);
+                }
+                tracing::warn!(
+                    target: "attachments",
+                    session = %context.session_id,
+                    "this document cannot mint an upload id, so nothing was sent"
+                );
+                continue;
+            };
+            let id = upload_id.clone();
+            let preview = UploadPreview(file.preview_url.clone());
+            write_store(pump, |store| {
+                upload_card::begin_card(store, &id, &file.name, file.size_bytes, &preview);
+            });
+            tracing::debug!(
+                target: "attachments",
+                session = %context.session_id,
+                upload = %upload_id,
+                "attachment upload queued"
+            );
             queue.push(QueuedUpload {
                 pump: pump.clone(),
                 session_id: context.session_id.clone(),
                 worker_fp: context.worker_fp.clone(),
+                upload_id,
                 file,
                 short_path: context.short_path,
                 identity: context.identity.clone(),
@@ -123,16 +138,9 @@ fn drain_queue() {
     });
 }
 
-/// Upload one file and settle its card.
+/// Upload one file and settle its transfer row.
 async fn run_one(job: QueuedUpload) {
-    let Some(upload_id) = mint_upload_id() else {
-        tracing::warn!(
-            target: "attachments",
-            session = %job.session_id,
-            "this document cannot mint an upload id, so nothing was sent"
-        );
-        return;
-    };
+    let upload_id = job.upload_id.clone();
     let plan = match UploadPlan::for_file(
         &job.session_id,
         job.worker_fp.as_deref(),
@@ -148,13 +156,9 @@ async fn run_one(job: QueuedUpload) {
         }
     };
 
-    let preview = UploadPreview(job.file.preview_url.clone());
     let pump = job.pump.clone();
     let id = upload_id.clone();
-    let name = plan.file_name.clone();
-    let total = plan.total_bytes;
     write_store(&pump, |store| {
-        upload_card::begin_card(store, &id, &name, total, &preview);
         upload_card::mark_hashing(store, &id);
     });
 

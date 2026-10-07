@@ -1,7 +1,7 @@
 //! The one surface that aggregates every upload and download. It is a dock
-//! child, so the jobs survive pane switches without claiming a corner of their
-//! own; the cards are `roost_client_core::store::transfers::TransferStack` and
-//! each row reads its own card.
+//! child, so jobs survive pane switches without claiming a corner of their
+//! own; each per-file progress row reads the shared transfer ledger.
+//! Upload previews are released when their keyed row leaves the list.
 //! Ports `apps/web/src/components/notifications/TransferCard.tsx`.
 
 use dioxus::prelude::*;
@@ -52,7 +52,7 @@ pub fn TransfersPanel() -> Element {
             }
             List {
                 for card in cards {
-                    TransferRow { transfer: card }
+                    TransferRow { key: "{card.id}", transfer: card }
                 }
             }
         }

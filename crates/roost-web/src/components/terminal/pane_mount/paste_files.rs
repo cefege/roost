@@ -1,14 +1,10 @@
-//! File paste into a terminal pane: the clipboard files a paste event carried,
-//! handed to the same upload path a drop takes. Called by `pane_mount::input`'s
-//! paste handler; the upload is `terminal_chrome::terminal_upload`'s.
-
-#[cfg(target_arch = "wasm32")]
-use std::rc::Rc;
+//! File paste into a terminal pane: clipboard files are staged in the pane's
+//! composer rather than uploaded immediately.
+//! Called by `pane_mount::input`; the picker supplies file previews.
 
 use super::PaneShared;
 
-/// Upload the files `event` carried, the way a drop uploads them, and answer
-/// whether there were any.
+/// Stage the files `event` carried, and answer whether it carried any.
 #[cfg(target_arch = "wasm32")]
 pub(super) fn upload_pasted_files(shared: &PaneShared, event: &web_sys::ClipboardEvent) -> bool {
     let Some(file_list) = event.clipboard_data().and_then(|data| data.files()) else {
@@ -20,18 +16,15 @@ pub(super) fn upload_pasted_files(shared: &PaneShared, event: &web_sys::Clipboar
     if files.is_empty() {
         return false;
     }
-    let pane = shared.weak_self();
-    let type_raw: Rc<dyn Fn(&str)> = Rc::new(move |text: &str| {
-        if let Some(pane) = pane.upgrade() {
-            super::input::send_bytes(&pane, text.as_bytes().to_vec(), false);
-        }
-    });
-    crate::components::terminal_chrome::terminal_upload::upload_pasted_files(
-        &shared.pump,
-        &shared.session_id,
-        &shared.worker_fp,
+    tracing::info!(
+        target: "attachments",
+        session = %shared.session_id,
+        files = files.len(),
+        "clipboard attachments staged"
+    );
+    crate::components::terminal_chrome::terminal_upload::stage_pasted_files(
+        shared.staged_files,
         files,
-        type_raw,
     );
     true
 }

@@ -1,18 +1,17 @@
-//! Reading what the user picked out of the file input, and the previews of
-//! those choices. The input itself is a hidden sibling of the composer's attach
-//! button — v2 wired the same way, with the parent's own ref — because iOS
-//! refuses a programmatic click that is not inside the gesture that asked for
-//! it.
-//! Ports the picker side of
-//! `apps/web/src/components/terminal/TerminalComposeButton.tsx`'s
-//! `onAttachFiles`, and the local preview of `apps/web/src/client/attachments.ts`.
+//! Read chosen files and create local image previews for staged attachments.
+//! The hidden input stays beside the composer's attach button because iOS
+//! rejects programmatic clicks outside the gesture that requested them.
 
 use dioxus::prelude::*;
 
 use super::dom;
+use super::upload_tray::{extension_label, format_file_size};
 use crate::components::md::focus_scope::VISUALLY_HIDDEN_STYLE;
 use crate::components::md::form_field::scoped_element_id;
-use crate::components::md::{Surface, SurfaceRadius};
+use crate::components::md::{
+    ButtonVariant, Icon, IconButton, IconButtonSize, IconSize, List, ListRow, Surface,
+    SurfaceRadius,
+};
 
 /// One chosen file: its name, length and the browser's handle to it. The
 /// bytes are read a chunk at a time while the upload runs, so a large video is
@@ -25,8 +24,8 @@ pub struct ChosenFile {
     pub size_bytes: u64,
     /// The browser's handle, read through `dom::read_file_range`.
     pub file: web_sys::File,
-    /// A local object URL for the transfer card's preview, when the browser
-    /// could mint one. The card's owner releases it with
+    /// A local object URL for this file's image preview, when available. The
+    /// staged tray or transfer row releases it with
     /// [`crate::components::terminal_chrome::dom::revoke_preview`].
     pub preview_url: Option<String>,
 }
@@ -101,13 +100,9 @@ pub(super) async fn read_chosen(files: Vec<web_sys::File>) -> Vec<ChosenFile> {
     chosen
 }
 
-/// The previews of the files an upload has in flight, above the composer field.
-///
-/// The preview is a LOCAL object URL minted at pick time, so an image is on
-/// screen while the coordinator's dedup probe is still held — waiting for the
-/// worker to answer would show nothing at all for the slow half of an upload.
+/// The staged attachments and their keyboard-accessible removal controls.
 #[component]
-pub fn AttachmentPreview(files: Vec<ChosenFile>) -> Element {
+pub fn AttachmentPreview(files: Vec<ChosenFile>, on_remove: EventHandler<usize>) -> Element {
     let label_id = use_hook(|| scoped_element_id("attachment-preview-strip"));
     if files.is_empty() {
         return rsx! {};
@@ -118,25 +113,84 @@ pub fn AttachmentPreview(files: Vec<ChosenFile>) -> Element {
             elevation: 2,
             radius: SurfaceRadius::Sm,
             test_id: Some("attachment-preview-strip".to_owned()),
-            role: Some("group".to_owned()),
+            role: Some("list".to_owned()),
             aria_labelledby: Some(label_id.clone()),
-            style: "display: flex; flex-wrap: wrap; gap: var(--md-space-2); padding: var(--md-space-2);".to_owned(),
-            span { id: label_id, style: VISUALLY_HIDDEN_STYLE, "Attachments" }
-            for file in files {
-                span {
-                    class: "md-label-s",
-                    title: file.name.clone(),
-                    if let Some(source) = file.preview_url.as_ref() {
-                        img {
-                            "data-testid": "attachment-preview",
-                            src: source,
-                            alt: "",
-                            style: "width: var(--md-space-9); height: var(--md-space-9); border-radius: var(--md-shape-sm); object-fit: cover;",
-                        }
-                    }
-                    "{file.name}"
+            span { id: label_id, style: VISUALLY_HIDDEN_STYLE, "Attachments staged for sending" }
+            List {
+                for (index, file) in files.into_iter().enumerate() {
+                    StagedAttachmentRow { key: "{index}-{file.name}", file, index, on_remove }
                 }
             }
         }
     }
+}
+
+#[component]
+fn StagedAttachmentRow(file: ChosenFile, index: usize, on_remove: EventHandler<usize>) -> Element {
+    let leading = if let Some(source) = file.preview_url.as_ref() {
+        Some(rsx! {
+            img {
+                "data-testid": "attachment-preview",
+                src: source,
+                alt: "",
+                style: "width: var(--md-space-9); height: var(--md-space-9); border-radius: var(--md-shape-sm); object-fit: cover;",
+            }
+        })
+    } else {
+        Some(rsx! {
+            span {
+                class: "md-label-s",
+                style: "display: grid; place-items: center; width: var(--md-space-9); height: var(--md-space-9); border-radius: var(--md-shape-sm); background: var(--md-sys-color-surface-container-high);",
+                if video_file(&file) {
+                    Icon { name: "movie".to_owned(), size: IconSize::Sm }
+                } else {
+                    "{extension_label(&file.name)}"
+                }
+            }
+        })
+    };
+    let name = file.name.clone();
+    let headline = rsx! {
+        span {
+            title: name.clone(),
+            style: "overflow: hidden; text-overflow: ellipsis; white-space: nowrap;",
+            "{name}"
+        }
+    };
+    let support = rsx! { span { "{format_file_size(file.size_bytes)}" } };
+    let trailing = rsx! {
+        IconButton {
+            icon: "close",
+            label: "Remove {name}",
+            title: "Remove {name}",
+            variant: ButtonVariant::Ghost,
+            size: IconButtonSize::IconSm,
+            onclick: move |_| on_remove.call(index),
+        }
+    };
+    rsx! {
+        div {
+            tabindex: "0",
+            role: "listitem",
+            "data-testid": "staged-attachment",
+            aria_label: "{name}, {format_file_size(file.size_bytes)}",
+            ListRow {
+                leading,
+                headline,
+                support: Some(support),
+                trailing: Some(trailing),
+                dense: true,
+            }
+        }
+    }
+}
+
+fn video_file(file: &ChosenFile) -> bool {
+    file.file.type_().starts_with("video/")
+        || file.name.rsplit_once('.').is_some_and(|(_, extension)| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "mp4" | "mov" | "webm" | "mkv" | "avi" | "m4v"
+            )
+        })
 }

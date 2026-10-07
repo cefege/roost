@@ -21,10 +21,12 @@ mod paste_files;
 mod prompt_jump;
 mod scroll;
 
+use crate::components::terminal_chrome::attachment_picker::ChosenFile;
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
 use dioxus::prelude::EventHandler;
+use dioxus::prelude::Signal;
 use roost_client_core::ClientEvent;
 use roost_web_terminal::CellGridRenderer;
 use roost_web_terminal::backfill::ScrollbackBackfill;
@@ -57,6 +59,7 @@ pub struct PaneMountInit {
     /// handler, where no Dioxus context is readable, and a terminal file link
     /// opens a route — so the handle travels in rather than being looked up.
     pub navigate: EventHandler<String>,
+    pub staged_files: Signal<Vec<ChosenFile>>,
 }
 
 impl std::fmt::Debug for PaneMountInit {
@@ -111,6 +114,7 @@ pub(super) struct PaneShared {
     pub panes: PaneRegistry,
     /// The router's handler, for the links this pane's terminal paints.
     pub navigate: EventHandler<String>,
+    pub staged_files: Signal<Vec<ChosenFile>>,
     pub ui: PaneUi,
     pub display: HtmlElement,
     pub renderer: Rc<RefCell<CellGridRenderer>>,
@@ -201,6 +205,7 @@ impl PaneMount {
             panes: init.panes,
             ui: init.ui,
             navigate: init.navigate,
+            staged_files: init.staged_files,
             display,
             renderer: Rc::clone(&renderer),
             mount_id: Cell::new(0),

@@ -1,8 +1,8 @@
-//! One upload or download inside the transfer popup. The popup owns the sole
-//! surface and supplies the card; the lifecycle and the per-job progress are
-//! `roost_client_core::store::transfers`, read here rather than reimplemented.
-//! Ports `apps/web/src/components/notifications/TransferRow.tsx`, and its
-//! settled-line wording for the three outcomes; the route chip is v3's.
+//! One upload or download per file in the transfer list. The popup owns the
+//! list and supplies the ledger record; progress stays in the shared transfer
+//! store rather than a parallel upload-only state.
+//! Ports `apps/web/src/components/notifications/TransferRow.tsx`; the route
+//! chip and upload outcome wording use the current transport and ledger rules.
 
 use dioxus::prelude::*;
 use roost_client_core::store::transfers::{Transfer, TransferDirection, TransferState};
@@ -13,13 +13,19 @@ use crate::components::md::{Chip, IconButton, IconButtonSize, ListRow, ProgressB
 use crate::display_format::{format_bytes, format_eta, format_speed};
 use crate::pump::use_store;
 
-/// One card.
+/// One per-file transfer row.
 #[component]
 pub fn TransferRow(transfer: Transfer) -> Element {
     let pump = use_store();
     let id = transfer.id.clone();
     let name = transfer.name.clone();
     let preview = transfer.preview_url.clone();
+    let release_preview = preview.clone();
+    use_drop(move || {
+        if let Some(url) = release_preview.as_deref() {
+            crate::components::terminal_chrome::dom::revoke_preview(url);
+        }
+    });
     let glyph = transfer_glyph(transfer.direction, &transfer.name);
     let outcome = transfer_outcome(&transfer);
     let settled = transfer.state.is_terminal();
@@ -103,8 +109,8 @@ pub fn TransferRow(transfer: Transfer) -> Element {
     }
 }
 
-/// The glyph a card without an image preview shows: what kind of file it is,
-/// read from the name, so a video never paints a broken image.
+/// The glyph a row without an image preview shows, read from the file name so
+/// a video never paints a broken image.
 fn transfer_glyph(direction: TransferDirection, name: &str) -> &'static str {
     let extension = name
         .rsplit_once('.')
@@ -123,10 +129,10 @@ fn transfer_glyph(direction: TransferDirection, name: &str) -> &'static str {
     }
 }
 
-/// The progress bar's value, or `None` for a card with no meaningful fraction
-/// yet: a queued or hashing card has sent nothing, and a running card with no
-/// declared total has nothing to be a fraction OF. Those render as the
-/// indeterminate bar rather than a bar that jumps to full.
+/// The progress bar's value, or `None` for a row with no meaningful fraction
+/// yet: a queued or hashing row has sent nothing, and a running row with no
+/// declared total has nothing to be a fraction OF.
+/// Both use an indeterminate bar rather than one that jumps to full.
 fn progress_fraction(transfer: &Transfer) -> Option<f64> {
     if matches!(
         transfer.state,
@@ -140,16 +146,16 @@ fn progress_fraction(transfer: &Transfer) -> Option<f64> {
     transfer.fraction()
 }
 
-/// The card's second line, and the only place the three settled outcomes read
-/// differently from one another.
+/// The row's second line, including the settled outcomes.
 fn meta_line(transfer: &Transfer, outcome: Option<TransferOutcome>) -> String {
     let line = match transfer.state {
         TransferState::Queued => "Queued…".to_owned(),
         TransferState::Hashing => "Checking…".to_owned(),
         TransferState::Dedup => "Already uploaded · reused".to_owned(),
-        TransferState::Failed | TransferState::Ambiguous => {
-            transfer.err.clone().unwrap_or_default()
+        TransferState::Failed => {
+            format!("Failed · {}", transfer.err.clone().unwrap_or_default())
         }
+        TransferState::Ambiguous => transfer.err.clone().unwrap_or_default(),
         TransferState::Done => {
             format!(
                 "{} · {}",
@@ -157,12 +163,18 @@ fn meta_line(transfer: &Transfer, outcome: Option<TransferOutcome>) -> String {
                 format_bytes(transfer.bytes_total as f64)
             )
         }
-        _ => progress_line(transfer),
+        TransferState::Running => {
+            format!("{} · {}", active_verb(transfer), progress_line(transfer))
+        }
+        TransferState::Stalled => format!(
+            "{} · stalled · {}",
+            active_verb(transfer),
+            progress_line(transfer)
+        ),
     };
     match outcome {
-        // The card must say what the user is being asked to decide: these bytes
-        // may already be on the worker, so sending them again is a doubled
-        // upload. Nothing here retries on its own.
+        // The row must say what decision an ambiguous result asks the user to
+        // make: bytes may already be on the worker, so another send could double them.
         Some(TransferOutcome::Ambiguous) => {
             format!("{line} · not retried — check the worker before sending again")
         }
@@ -172,8 +184,15 @@ fn meta_line(transfer: &Transfer, outcome: Option<TransferOutcome>) -> String {
 
 fn verb(transfer: &Transfer) -> &'static str {
     match transfer.direction {
-        roost_client_core::store::transfers::TransferDirection::Up => "Uploaded",
+        roost_client_core::store::transfers::TransferDirection::Up => "Sent",
         roost_client_core::store::transfers::TransferDirection::Down => "Downloaded",
+    }
+}
+
+fn active_verb(transfer: &Transfer) -> &'static str {
+    match transfer.direction {
+        TransferDirection::Up => "Sending",
+        TransferDirection::Down => "Receiving",
     }
 }
 
@@ -211,8 +230,8 @@ fn progress_line(transfer: &Transfer) -> String {
     }
 }
 
-/// The settled line's colour, and the ambiguous card's own warning colour: a
-/// write whose fate is unknown is neither a success nor a clean failure.
+/// The settled line's colour and ambiguous row's warning colour.
+/// A write whose fate is unknown is neither a success nor a clean failure.
 fn meta_color(transfer: &Transfer, outcome: Option<TransferOutcome>) -> &'static str {
     match outcome {
         Some(TransferOutcome::Rejected) => "var(--md-sys-color-error)",
