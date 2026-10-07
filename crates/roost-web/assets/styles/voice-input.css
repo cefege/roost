@@ -708,7 +708,7 @@
     "esc   tab  ctrl  alt"
     "home  up   end   pgup"
     "left  down right pgdn"
-    "back  ent  ent   ent"
+    "back  space space ent"
     "mouse mouse mouse mouse";
   gap: var(--md-space-1);
 }
@@ -771,6 +771,11 @@
   width: auto;
   background: var(--md-sys-color-primary);
   color: var(--md-sys-color-on-primary);
+}
+
+.term-nav__key--space {
+  grid-area: space;
+  width: auto;
 }
 
 .term-nav__key--mouse {

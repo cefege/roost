@@ -326,6 +326,11 @@ impl PaneMount {
         input::send_bytes(&self.shared, text.as_bytes().to_vec(), false);
     }
 
+    /// Type text as the keyboard would, spending a latched Ctrl on it.
+    pub fn type_text(&self, text: &str) {
+        input::on_controller_data(&self.shared, text);
+    }
+
     /// Paste text through the multiline guard.
     pub fn paste_text(&self, text: &str) {
         input::paste_text(&self.shared, text);

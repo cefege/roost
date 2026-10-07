@@ -144,7 +144,7 @@ pub fn TerminalNavPad(
     }
 }
 
-/// The fifteen cells, in v2's DOM order.
+/// The sixteen cells: v2's fifteen in v2's DOM order, plus Space before Enter.
 fn grid_cells(
     handle: &PaneHandle,
     pump: &Pump,
@@ -242,6 +242,17 @@ fn grid_cells(
             KeyFace::Icon("keyboard_double_arrow_down"),
             "PageDown",
         ),
+        NavCell {
+            area: "space",
+            test_id: "nav-space",
+            aria_label: "Space",
+            face: KeyFace::Label("space"),
+            latched: None,
+            press: {
+                let handle = handle.clone();
+                EventHandler::new(move |_event: MouseEvent| handle.type_text(" "))
+            },
+        },
         key(
             "enter",
             "nav-enter",

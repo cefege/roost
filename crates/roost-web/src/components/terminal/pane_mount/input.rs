@@ -45,8 +45,9 @@ pub(super) fn send_bytes(shared: &PaneShared, bytes: Vec<u8>, predicts: bool) {
     super::echo::after_dispatch(shared, &bytes, predicts);
 }
 
-/// The controller's data, with the one-shot Ctrl latch applied.
-fn on_controller_data(shared: &PaneShared, data: &str) {
+/// The controller's data, with the one-shot Ctrl latch applied. Also the path
+/// the key sheet's Space types through, so a latched Ctrl spends on it.
+pub(super) fn on_controller_data(shared: &PaneShared, data: &str) {
     let mut armed = shared.ui.ctrl_armed;
     let latched = *armed.peek();
     if latched {
@@ -171,7 +172,11 @@ fn may_own_focus(shared: &PaneShared) -> bool {
     !state.flags.pending && state.flags.view_active() && state.flags.focused && state.page_visible
 }
 
-/// Focus moves to this pane's textarea when it becomes the focused pane.
+/// Focus moves to this pane's textarea when it becomes the focused pane —
+/// except on a touch device, where focusing the textarea IS opening the soft
+/// keyboard: opening the app or switching terminals must not throw a keyboard
+/// over the screen. There the keyboard comes only from a tap on the terminal
+/// (`on_display_mouse_down` / `on_display_click`), which the operator chose.
 pub(super) fn focus_if_owner(shared: &PaneShared, previous: PaneFlags, flags: PaneFlags) {
     if !may_own_focus(shared) {
         set_if_changed(shared.ui.ctrl_armed, false);
@@ -181,7 +186,10 @@ pub(super) fn focus_if_owner(shared: &PaneShared, previous: PaneFlags, flags: Pa
     }
     let became_owner =
         !previous.focused || !previous.view_active() || previous.pending != flags.pending;
-    if became_owner && let Some(controller) = shared.input.borrow().as_ref() {
+    if !became_owner || crate::components::deck::deck_dom::is_touch_device() {
+        return;
+    }
+    if let Some(controller) = shared.input.borrow().as_ref() {
         controller.force_focus();
     }
 }
