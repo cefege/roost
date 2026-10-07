@@ -8,9 +8,10 @@
 //! layout `AppShell` opens the drawer over it, and once that drawer is closed
 //! the brand row carries the focusable control that reopens it.
 //!
-//! The shortcut labels are the platform's, not literals: `⌘K` on a Mac and
-//! `Ctrl+K` elsewhere are the same shortcut, and a page that hard-codes the
-//! glyph teaches a Linux reader a key they do not have.
+//! The shortcut labels come from `PlatformShortcut`, the one shortcut map, so a
+//! Windows reader is shown the Ctrl+Shift chord they actually press and a Mac
+//! reader the ⌘ one, from the same source the shortcut handler matches on.
+use crate::platform::browser_platform::{BrowserPlatform, PlatformShortcut};
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
 use roost_client_core::store::sidebar::SidebarIntent;
@@ -21,26 +22,37 @@ use crate::components::layout::window_size::use_is_compact;
 use crate::components::md::{Icon, IconButton};
 use crate::pump::use_store;
 
-/// A shortcut the landing advertises, and the glyph each platform shows for it.
+/// A shortcut the landing advertises. The Windows binding comes from
+/// `PlatformShortcut::windows_label` — the map the key handler matches, so the
+/// label and the behaviour cannot disagree — while the macOS and Linux forms
+/// are the display strings every other surface also writes (`⌘K` / `Ctrl+K`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Shortcut {
     /// What the shortcut does, in the reader's words.
     pub action: &'static str,
     /// The key as a platform-independent name.
     pub key: &'static str,
-    /// The glyph macOS shows.
-    pub mac_glyph: &'static str,
-    /// The glyph every other platform shows.
-    pub other_glyph: &'static str,
+    /// The shortcut whose binding the label names, when it has one.
+    pub shortcut: Option<PlatformShortcut>,
+    /// The label macOS shows.
+    pub mac_label: &'static str,
+    /// The label Linux and an undetected platform show.
+    pub linux_label: &'static str,
 }
 
 impl Shortcut {
-    /// The glyph for a platform, named so the label and the `kbd` cannot differ.
-    pub const fn glyph(self, apple: bool) -> &'static str {
-        if apple {
-            self.mac_glyph
+    /// The glyph for a platform, from the one shortcut map where one exists.
+    #[must_use]
+    pub fn glyph(self, platform: BrowserPlatform) -> &'static str {
+        if platform == BrowserPlatform::Windows
+            && let Some(shortcut) = self.shortcut
+        {
+            return shortcut.windows_label();
+        }
+        if platform == BrowserPlatform::MacOs {
+            self.mac_label
         } else {
-            self.other_glyph
+            self.linux_label
         }
     }
 }
@@ -50,26 +62,32 @@ pub const SHORTCUTS: [Shortcut; 3] = [
     Shortcut {
         action: "to open the Command palette",
         key: "commandPalette",
-        mac_glyph: "⌘K",
-        other_glyph: "Ctrl+K",
+        shortcut: Some(PlatformShortcut::CommandPalette),
+        mac_label: "⌘K",
+        linux_label: "Ctrl+K",
     },
     Shortcut {
         action: "to filter the sidebar",
         key: "sidebarSearch",
-        mac_glyph: "⌘F",
-        other_glyph: "Ctrl+F",
+        shortcut: Some(PlatformShortcut::SidebarSearch),
+        mac_label: "⌘F",
+        linux_label: "Ctrl+F",
     },
+    // Not a `PlatformShortcut`: the "?" chord is matched directly in
+    // `keyboard_shortcuts` and is the same key on every platform, so it carries
+    // no enum entry and no Windows binding.
     Shortcut {
         action: "for all shortcuts",
         key: "shortcuts",
-        mac_glyph: "Shift ?",
-        other_glyph: "Shift ?",
+        shortcut: None,
+        mac_label: "Shift ?",
+        linux_label: "Shift ?",
     },
 ];
 
 /// The landing page.
 #[component]
-pub fn HomeLanding(apple_keyboard: bool) -> Element {
+pub fn HomeLanding(reader_platform: BrowserPlatform) -> Element {
     let pump = use_store();
     let compact = use_is_compact();
     // Only while the drawer is shut: an open drawer already shows the list, and
@@ -95,7 +113,7 @@ pub fn HomeLanding(apple_keyboard: bool) -> Element {
                     if index > 0 {
                         " · "
                     }
-                    kbd { class: "home-landing-kbd", {shortcut.glyph(apple_keyboard)} }
+                    kbd { class: "home-landing-kbd", {shortcut.glyph(reader_platform)} }
                     " {shortcut.action}"
                 }
             }
@@ -106,7 +124,7 @@ pub fn HomeLanding(apple_keyboard: bool) -> Element {
                 div { class: "home-landing-empty-title", "Open a workspace" }
                 div { class: "home-landing-empty-sub",
                     "Select a workspace from the sidebar, or press "
-                    kbd { class: "home-landing-kbd", {SHORTCUTS[0].glyph(apple_keyboard)} }
+                    kbd { class: "home-landing-kbd", {SHORTCUTS[0].glyph(reader_platform)} }
                     " to open the Command palette."
                 }
             }
@@ -117,13 +135,28 @@ pub fn HomeLanding(apple_keyboard: bool) -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::platform::browser_platform::BrowserPlatform;
 
     #[test]
-    fn a_mac_shortcut_reads_as_the_command_key_and_others_as_control() {
-        // The glyph is the platform's, so a Linux reader is not told to press a
-        // key their keyboard does not have.
-        assert_eq!(SHORTCUTS[0].glyph(true), "⌘K");
-        assert_eq!(SHORTCUTS[0].glyph(false), "Ctrl+K");
+    fn a_mac_shortcut_reads_as_the_command_key() {
+        // The glyph is the platform's, from the one shortcut map.
+        assert_eq!(SHORTCUTS[0].glyph(BrowserPlatform::MacOs), "⌘K");
+        assert_eq!(SHORTCUTS[1].glyph(BrowserPlatform::MacOs), "⌘F");
+    }
+
+    #[test]
+    fn a_linux_reader_gets_the_control_chord() {
+        assert_eq!(SHORTCUTS[0].glyph(BrowserPlatform::Linux), "Ctrl+K");
+        assert_eq!(SHORTCUTS[1].glyph(BrowserPlatform::Linux), "Ctrl+F");
+    }
+
+    #[test]
+    fn a_windows_reader_gets_the_windows_binding_not_the_linux_one() {
+        // Windows shifts the palette and sidebar chords (a plain Ctrl+letter
+        // belongs to the PTY there), so the landing must not teach Ctrl+K.
+        assert_eq!(SHORTCUTS[0].glyph(BrowserPlatform::Windows), "Ctrl+Shift+P");
+        assert_eq!(SHORTCUTS[1].glyph(BrowserPlatform::Windows), "Ctrl+Shift+F");
+        assert_eq!(SHORTCUTS[0].glyph(BrowserPlatform::Other), "Ctrl+K");
     }
 
     #[test]
@@ -135,6 +168,9 @@ mod tests {
 
     #[test]
     fn a_shift_shortcut_is_the_same_glyph_on_every_platform() {
-        assert_eq!(SHORTCUTS[2].glyph(true), SHORTCUTS[2].glyph(false));
+        assert_eq!(
+            SHORTCUTS[2].glyph(BrowserPlatform::MacOs),
+            SHORTCUTS[2].glyph(BrowserPlatform::Windows)
+        );
     }
 }

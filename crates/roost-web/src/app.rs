@@ -320,7 +320,7 @@ fn RouteContent(surface: Surface, route: Route) -> Element {
     let navigate = router_state::use_navigate();
     match surface {
         Surface::Served(ServedSurface::Home) => rsx! {
-            crate::components::home::HomeLanding { apple_keyboard: apple_keyboard() }
+            crate::components::home::HomeLanding { reader_platform: reader_platform() }
         },
         Surface::Served(ServedSurface::MainPane) => rsx! { MainPane { route } },
         Surface::Served(ServedSurface::Design) => {
@@ -343,14 +343,15 @@ fn RouteContent(surface: Surface, route: Route) -> Element {
     }
 }
 
-/// Whether this platform's keyboard uses the Command key (decides the glyph a
-/// shortcut is advertised with). An unknown platform reads as `Ctrl`.
-fn apple_keyboard() -> bool {
+/// The platform whose bindings the landing names. A native build has no
+/// navigator; Linux is the default the macOS/Linux labels are written for.
+fn reader_platform() -> crate::platform::browser_platform::BrowserPlatform {
     #[cfg(target_arch = "wasm32")]
     {
         crate::platform::browser_platform::browser_platform()
-            == crate::platform::browser_platform::BrowserPlatform::MacOs
     }
     #[cfg(not(target_arch = "wasm32"))]
-    false
+    {
+        crate::platform::browser_platform::BrowserPlatform::Linux
+    }
 }
