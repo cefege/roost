@@ -8,7 +8,10 @@
 //! terminal view hub (`push-dispatch.ts:92`) rather than a viewer double. v2's
 //! push threshold is the working -> blocked EDGE
 //! (`agent-status-push-scheduler.ts:98`); idle -> blocked is not a push, which
-//! `agent_status_push.rs` pins.
+//! `agent_status_push.rs` pins. The last case registers its device through
+//! `PushSubscribe`/`PushUnsubscribe`, exactly as the web client's Desktop
+//! switch does, so the row the RPC writes is proven to be the row the
+//! dispatch reads.
 //!
 //! `unwrap` and `expect` are denied outside `#[cfg(test)]`, and an integration
 //! test is its own crate rather than a module of one, so the exemption has to
@@ -23,11 +26,19 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use agent_fixture::{AgentFixture, SESSION_IDS, WORKER_A, status, worker};
-use push_fixture::{FakeTransport, PUSH_ORIGIN, RecordedDelivery, viewer_fp};
+use push_fixture::{
+    FakeTransport, PUSH_ORIGIN, RecordedDelivery, browser_caller, seed_device, viewer_fp,
+};
 use roost_coord::agents::status_hub::AgentStatusAcceptance;
 use roost_coord::agents::status_push::PushTransitions;
+use roost_coord::coord_core::CoordCore;
+use roost_coord::push::PushRuntime;
 use roost_coord::push::dispatch::ActiveTerminalViewers;
+use roost_coord::push::rpc::{
+    handle_push_get_config, handle_push_subscribe, handle_push_unsubscribe,
+};
 use roost_coord::terminal_view::{NoTerminalViewSink, SocketRegistration};
+use roost_proto::{PushGetConfigRequest, PushSubscribeRequest, PushUnsubscribeRequest};
 use serde_json::{Value, json};
 
 /// The push debounce the hub runs under, short so the test does not wait v2's
@@ -181,5 +192,68 @@ async fn a_blocked_agent_notifies_every_subscribed_device_not_viewing_the_sessio
     assert_eq!(
         endpoints(&deliveries[1..]),
         vec![background_endpoint, watcher_endpoint]
+    );
+}
+
+#[tokio::test]
+async fn a_needs_input_transition_pushes_to_the_subscription_the_browser_registered() {
+    let (fixture, transport) = delivering("push-rpc-e2e").await;
+    // The same services with the push surface installed, as `serve.rs` builds.
+    let push_core = CoordCore::with_push(
+        Arc::clone(&fixture.core.services),
+        PushRuntime::new(fixture.dashboard_id.clone(), vec![PUSH_ORIGIN.to_owned()]),
+    );
+    let device = viewer_fp('f');
+    seed_device(fixture.database(), &fixture.account_id, &device).await;
+    let caller = browser_caller(&device, &fixture.account_id);
+
+    let config = handle_push_get_config(&push_core, &caller, PushGetConfigRequest::default())
+        .await
+        .expect("a paired browser reads the push config");
+    assert!(config.body.available);
+    assert!(!config.body.vapid_public_key_b64.is_empty());
+    let endpoint = format!("{PUSH_ORIGIN}/desktop-switch");
+    let subscribed = handle_push_subscribe(
+        &push_core,
+        &caller,
+        PushSubscribeRequest {
+            endpoint: endpoint.clone(),
+            p256dh: "BPk-browser_key".to_owned(),
+            auth: "c2VjcmV0".to_owned(),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("the browser's subscription is admitted");
+    assert!(subscribed.body.ok);
+
+    retain(&fixture, json!({"revision": 1, "state": "working"}));
+    retain(&fixture, json!({"revision": 2, "state": "blocked"}));
+    let deliveries = settled(&transport, 1).await;
+    assert_eq!(endpoints(&deliveries), vec![endpoint.clone()]);
+    let payload: Value = serde_json::from_str(&deliveries[0].body).expect("a JSON payload");
+    assert_eq!(payload["sessionId"], SESSION_IDS[0]);
+    assert_eq!(payload["kind"], "blocked");
+    assert_eq!(payload["body"], "Needs your input");
+
+    // Turning the switch off removes the row the dispatch reads.
+    let unsubscribed = handle_push_unsubscribe(
+        &push_core,
+        &caller,
+        PushUnsubscribeRequest {
+            endpoint,
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("the browser's unsubscribe is admitted");
+    assert!(unsubscribed.body.ok);
+    retain(&fixture, json!({"revision": 3, "state": "working"}));
+    retain(&fixture, json!({"revision": 4, "state": "blocked"}));
+    tokio::time::sleep(DEBOUNCE * 10).await;
+    assert_eq!(
+        transport.attempted(),
+        1,
+        "an unsubscribed browser is not pushed again"
     );
 }

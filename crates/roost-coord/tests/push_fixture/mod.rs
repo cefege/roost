@@ -224,8 +224,8 @@ impl Drop for PushFixture {
 }
 
 /// Insert the `authorized_keys` and `account_devices` rows a subscription's
-/// foreign keys resolve against.
-async fn seed_device(database: &CoordDb, account_id: &str, fp: &str) {
+/// foreign keys resolve against, on any coordinator database.
+pub async fn seed_device(database: &CoordDb, account_id: &str, fp: &str) {
     sqlx::query(
         "INSERT INTO authorized_keys (fingerprint, public_key, label, added_at) \
          VALUES ($1, $2, $3, $4)",
