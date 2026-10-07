@@ -214,6 +214,12 @@ async fn store_entry(
     )
     .fetch_optional(&mut *transaction)
     .await?;
+    // Two copies inside one millisecond would tie on the timestamp and fall
+    // back to the random id, so "newest first" could list them backwards: the
+    // stored stamp always moves past the newest one.
+    let created_at_ms = newest.as_ref().map_or(now_ms, |entry| {
+        now_ms.max(entry.created_at_ms.saturating_add(1))
+    });
     let row = if let Some(mut newest) = newest.filter(|entry| entry.text == text) {
         sqlx::query(
             "UPDATE clipboard_entries SET source_session_id = $1, source_worker_fp = $2, \
@@ -222,14 +228,14 @@ async fn store_entry(
         .bind(session_id)
         .bind(worker_fp)
         .bind(source_kind)
-        .bind(now_ms)
+        .bind(created_at_ms)
         .bind(&newest.id)
         .execute(&mut *transaction)
         .await?;
         newest.source_session_id = session_id.map(str::to_owned);
         newest.source_worker_fp = worker_fp.map(str::to_owned);
         newest.source_kind = source_kind.to_owned();
-        newest.created_at_ms = now_ms;
+        newest.created_at_ms = created_at_ms;
         newest
     } else {
         let id = new_id()?;
@@ -242,7 +248,7 @@ async fn store_entry(
         .bind(session_id)
         .bind(worker_fp)
         .bind(source_kind)
-        .bind(now_ms)
+        .bind(created_at_ms)
         .execute(&mut *transaction)
         .await?;
         ClipboardRow {
@@ -251,7 +257,7 @@ async fn store_entry(
             source_session_id: session_id.map(str::to_owned),
             source_worker_fp: worker_fp.map(str::to_owned),
             source_kind: source_kind.to_owned(),
-            created_at_ms: now_ms,
+            created_at_ms,
         }
     };
     sqlx::query(

@@ -1,4 +1,4 @@
-//! The ONE `CoordinatorService` implementation: all 103 methods in one `impl`,
+//! The ONE `CoordinatorService` implementation: all 107 methods in one `impl`,
 //! one file because two impl blocks of one trait are E0119. Signatures follow
 //! `protocol/proto/roost/v1/coordinator.proto`; each implemented arm resolves its
 //! caller through `service::caller_of` and delegates to its domain handler.
