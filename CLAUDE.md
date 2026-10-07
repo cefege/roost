@@ -101,15 +101,17 @@ Non-negotiable for every change.
    stays empty. After a split lowers a count, re-snapshot with
    `cargo xtask lint --update-size-baseline`.
 
-   The cap has exactly one waiver mechanism, `STRUCTURAL_EXEMPTIONS` in
-   `xtask/src/file_size.rs`, and it is a list of `(path, reason)` pairs
-   answering "what stops you splitting this?" — currently only
+   The cap has one waiver list, `STRUCTURAL_EXEMPTIONS` in
+   `xtask/src/file_size.rs`, of `(path, reason)` pairs answering "what stops
+   you splitting this?" — currently only
    `crates/roost-coord/src/rpc/service_impl.rs`, whose single
    `impl CoordinatorService` cannot span blocks (E0119) and whose arms may
-   not be `macro_rules!`-generated, and `crates/roost-coord/tests/suite.rs`,
-   the generated one-binary test root, which outgrew the cap at two lines per
-   test file. An exempt file is neither counted nor
-   snapshotted. **Adding an entry needs a reason that survives that
+   not be `macro_rules!`-generated. Beside it, one class is waived by rule:
+   every crate's generated `tests/suite.rs`, whose text the test-suite gate
+   holds byte for byte to the `tests/` listing — nothing in it is
+   hand-written, and the second root a split needs is what that gate forbids
+   (`test_suite::is_generated_suite_root`). An exempt file is neither counted
+   nor snapshotted. **Adding an entry needs a reason that survives that
    question**; a weak reason is a bug in the list. See
    `docs/phase3-coord-contract.md` §12.11.
 

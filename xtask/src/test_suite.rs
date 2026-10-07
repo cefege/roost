@@ -112,6 +112,22 @@ fn declares_suite_target(manifest: &str) -> bool {
     manifest.lines().any(|line| line.trim() == AUTOTESTS_OFF) && manifest.contains(SUITE_TARGET)
 }
 
+/// Whether a repo-relative, `/`-separated path is a generated suite root,
+/// `crates/<crate>/tests/suite.rs`, whose text `run` holds to `suite_source`.
+pub fn is_generated_suite_root(path: &str) -> bool {
+    let mut segments = path.split('/');
+    matches!(
+        (
+            segments.next(),
+            segments.next(),
+            segments.next(),
+            segments.next(),
+            segments.next(),
+        ),
+        (Some("crates"), Some(name), Some("tests"), Some(SUITE_FILE), None) if !name.is_empty()
+    )
+}
+
 /// The generated root. `#[path]` makes each former root a mod-rs-owned module,
 /// so its own `mod fixture;` lines keep resolving against `tests/`.
 fn suite_source(stems: &[String]) -> String {
