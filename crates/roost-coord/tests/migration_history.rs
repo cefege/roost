@@ -39,6 +39,11 @@ mod backend_parity;
 #[path = "migration_history/sqlite_to_postgres.rs"]
 mod sqlite_to_postgres;
 
+/// The reverse copy, Postgres into a fresh SQLite file: the round trip lands
+/// the file the forward copy started from.
+#[path = "migration_history/postgres_to_sqlite.rs"]
+mod postgres_to_sqlite;
+
 /// The version the squashed schema ships as, read out of the embedded set
 /// rather than restated: a test that hardcoded `1` would keep passing if the
 /// squashed migration were renumbered, which is the moment the whole file's

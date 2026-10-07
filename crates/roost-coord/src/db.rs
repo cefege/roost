@@ -43,6 +43,7 @@
 mod backend;
 mod in_list;
 mod migration_validation;
+pub mod postgres_to_sqlite;
 mod sql_builder;
 pub mod sqlite_to_postgres;
 

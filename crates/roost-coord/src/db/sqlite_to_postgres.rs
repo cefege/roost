@@ -20,7 +20,7 @@ use sqlx::postgres::PgConnection;
 use sqlx::{AssertSqlSafe, Connection as _};
 
 use self::batch::{TableBatch, source_select};
-use self::catalog::{TablePlan, quote_identifier, read_target_plan, verify_source_matches};
+use self::catalog::{TablePlan, quote_identifier, read_postgres_plan, verify_sqlite_matches};
 use super::{CoordDb, DbError};
 
 /// Rows per `INSERT … UNNEST` statement: large enough that a round trip per
@@ -37,11 +37,20 @@ pub enum ExistingRows {
 }
 
 /// Why a copy did not happen. Nothing was written to the target in any case.
+/// Shared by both directions, so the messages name the source and target
+/// rather than an engine.
 #[derive(Debug, thiserror::Error)]
 pub enum TransferError {
     /// The source file is not there; opening it would create an empty one.
     #[error("the SQLite database {} does not exist", .0.display())]
     SourceMissing(PathBuf),
+    /// The target file's directory could not be created.
+    #[error("cannot create {}: {source}", .path.display())]
+    TargetDirectory {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
     /// One end could not be opened or migrated.
     #[error("the {side} database could not be opened: {source}")]
     Open {
@@ -54,22 +63,22 @@ pub enum TransferError {
     Database(#[from] sqlx::Error),
     /// The target holds rows and the caller did not ask to replace them.
     #[error(
-        "the Postgres database already holds rows in {tables}; point at an empty database, or \
+        "the target database already holds rows in {tables}; point at an empty database, or \
          replace its contents deliberately"
     )]
     TargetNotEmpty { tables: String },
     /// The two migrated schemas disagree, or use a type this copy cannot carry.
     #[error("the SQLite and Postgres schemas disagree: {0}")]
     SchemaMismatch(String),
-    /// A source value does not decode as its target column's type.
-    #[error("{table}.{column} holds a value Postgres cannot take: {reason}")]
+    /// A source value does not decode as its column's type.
+    #[error("{table}.{column} holds a value the target cannot take: {reason}")]
     Value {
         table: String,
         column: String,
         reason: String,
     },
     /// A table's copied count differs from its source count.
-    #[error("{table}: copied {copied} rows but the SQLite file holds {expected}")]
+    #[error("{table}: copied {copied} rows but the source holds {expected}")]
     CountMismatch {
         table: String,
         copied: u64,
@@ -133,8 +142,8 @@ pub async fn copy_sqlite_to_postgres(
     // wants the native driver's typed array binds, on a connection of its own.
     target.pool().close().await;
     let mut connection = PgConnection::connect(target_url).await?;
-    let plan = read_target_plan(&mut connection).await?;
-    verify_source_matches(&source, &plan).await?;
+    let plan = read_postgres_plan(&mut connection).await?;
+    verify_sqlite_matches(&source, &plan).await?;
 
     let mut transaction = connection.begin().await?;
     prepare_target(&mut transaction, &plan, existing).await?;

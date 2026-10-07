@@ -49,7 +49,7 @@ pub async fn run(args: &DbToPostgresArgs) -> Result<ExitCode, CommandFailure> {
             None => coordinator_database(&env, platform)?,
         },
     };
-    let target = target_url(args.to.as_deref(), &env)?;
+    let target = target_url(args.to.as_deref(), &env, "--to")?;
     refuse_if_source_is_live(&env, platform, &source, installed_source.as_deref())?;
 
     let existing = if args.replace {
@@ -66,8 +66,9 @@ pub async fn run(args: &DbToPostgresArgs) -> Result<ExitCode, CommandFailure> {
 }
 
 /// The SQLite file this host's installed coordinator boots with, if it
-/// declares one, else the one this shell names.
-fn installed_sqlite_file(env: &dyn EnvSource, platform: HostPlatform) -> Option<PathBuf> {
+/// declares one, else the one this shell names. Also `db-to-sqlite`'s default
+/// target.
+pub fn installed_sqlite_file(env: &dyn EnvSource, platform: HostPlatform) -> Option<PathBuf> {
     let installed = installed_coordinator(env, platform);
     declared_value(&installed, ENV_COORDINATOR_DB)
         .map(str::to_owned)
@@ -76,23 +77,28 @@ fn installed_sqlite_file(env: &dyn EnvSource, platform: HostPlatform) -> Option<
         .map(PathBuf::from)
 }
 
-/// The target URL, from the flag or the shell, and refused unless it names
-/// Postgres.
-pub fn target_url(flag: Option<&str>, env: &dyn EnvSource) -> Result<String, CommandFailure> {
+/// A Postgres URL, from `flag` (named `flag_name` in the refusal) or the
+/// shell, and refused unless it names Postgres. The Postgres side of both
+/// copy directions.
+pub fn target_url(
+    flag: Option<&str>,
+    env: &dyn EnvSource,
+    flag_name: &str,
+) -> Result<String, CommandFailure> {
     let url = flag
         .map(str::to_owned)
         .or_else(|| env.get(ENV_COORDINATOR_DATABASE_URL))
         .filter(|url| !url.trim().is_empty())
         .ok_or_else(|| {
             CommandFailure::usage(format!(
-                "no target database: pass --to postgres://… or export \
+                "no Postgres database: pass {flag_name} postgres://… or export \
                  {ENV_COORDINATOR_DATABASE_URL}"
             ))
         })?;
     if !DatabaseLocation::is_postgres_url(&url) {
-        return Err(CommandFailure::usage(
-            "the target must be a postgres:// or postgresql:// URL",
-        ));
+        return Err(CommandFailure::usage(format!(
+            "{flag_name} must be a postgres:// or postgresql:// URL"
+        )));
     }
     Ok(url)
 }
@@ -123,7 +129,7 @@ fn refuse_if_source_is_live(
     }
 }
 
-fn same_file(left: &Path, right: &Path) -> bool {
+pub fn same_file(left: &Path, right: &Path) -> bool {
     match (left.canonicalize(), right.canonicalize()) {
         (Ok(left), Ok(right)) => left == right,
         _ => left == right,
@@ -174,16 +180,17 @@ mod tests {
     fn the_flag_outranks_the_shell_and_a_non_postgres_url_is_refused() {
         let env = MapEnv::new().with(ENV_COORDINATOR_DATABASE_URL, "postgres://shell/db");
         assert_eq!(
-            target_url(Some("postgresql://flag/db"), &env).expect("a postgres flag"),
+            target_url(Some("postgresql://flag/db"), &env, "--to").expect("a postgres flag"),
             "postgresql://flag/db"
         );
         assert_eq!(
-            target_url(None, &env).expect("the shell's url"),
+            target_url(None, &env, "--to").expect("the shell's url"),
             "postgres://shell/db"
         );
-        let refused = target_url(Some("sqlite:///tmp/x.db"), &env).expect_err("not postgres");
+        let refused =
+            target_url(Some("sqlite:///tmp/x.db"), &env, "--to").expect_err("not postgres");
         assert_eq!(refused.code, crate::command_error::REJECTED_INVOCATION);
-        let missing = target_url(None, &MapEnv::new()).expect_err("nothing named");
+        let missing = target_url(None, &MapEnv::new(), "--to").expect_err("nothing named");
         assert_eq!(missing.code, crate::command_error::REJECTED_INVOCATION);
     }
 }
