@@ -167,6 +167,7 @@ pub fn metadata(
         command_finished: false,
         command_exit_code: None,
         command_duration_ms: 0,
+        bell: false,
     })
 }
 

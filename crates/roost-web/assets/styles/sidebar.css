@@ -827,3 +827,33 @@
   outline: none;
 }
 
+/* Terminal bell: a brief primary-tinted flash over a pane whose session rang
+   (notifications/terminal_bell.rs sets data-bell for the animation's length).
+   Under reduced motion it is a static inset outline for the same moment. */
+[data-testid="cell-terminal-pane"][data-bell="ring"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: var(--md-sys-color-primary);
+  opacity: 0;
+  animation: terminal-bell-flash 400ms var(--md-sys-motion-easing-standard);
+}
+@keyframes terminal-bell-flash {
+  0% { opacity: 0.16; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-testid="cell-terminal-pane"][data-bell="ring"]::after {
+    animation: none;
+    background: none;
+    opacity: 1;
+    box-shadow: inset 0 0 0 var(--md-space-1) var(--md-sys-color-primary);
+  }
+}
+.terminal-bell-mark {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--md-sys-color-primary);
+}
+

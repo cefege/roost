@@ -15,6 +15,16 @@ use crate::components::term_font_stepper::TermFontStepper;
 use crate::pump::use_store;
 use crate::term_font_size::{reset_term_font, use_device_default_term_font_px};
 
+/// The bell delivery preferences, in their displayed order.
+fn bell_options() -> Vec<SelectOption> {
+    vec![
+        SelectOption::new("visual", "Visual"),
+        SelectOption::new("sound", "Sound"),
+        SelectOption::new("both", "Visual and sound"),
+        SelectOption::new("off", "Off"),
+    ]
+}
+
 /// The four predictive-echo modes, in the reader's words.
 fn predict_options() -> Vec<SelectOption> {
     vec![
@@ -40,6 +50,7 @@ pub fn TerminalPane() -> Element {
     let copy_pump = pump.clone();
     let reset_pump = pump.clone();
     let predict_pump = pump.clone();
+    let bell_pump = pump.clone();
     rsx! {
         div {
             class: "settings-pane",
@@ -105,6 +116,20 @@ pub fn TerminalPane() -> Element {
                     p { class: "md-body-s", style: "color: var(--md-sys-color-on-surface-variant); margin: 0;",
                         "Paints each typed character immediately and reconciles it when the terminal confirms. Adaptive only engages on a high-latency link; Always shows it everywhere except fullscreen apps (for example vim); Experimental shows guesses instantly but may flicker. This device only; applies immediately."
                     }
+                }
+            }
+            Card { title: "Bell",
+                Select {
+                    test_id: "terminal-bell-pref",
+                    label: "Terminal bell",
+                    value: prefs.terminal_bell.as_str().to_owned(),
+                    options: bell_options(),
+                    on_change: move |value| bell_pump.dispatch(ClientEvent::Shell(
+                        ShellIntent::SetTerminalBell { value }
+                    )),
+                }
+                p { class: "md-body-s", style: "color: var(--md-sys-color-on-surface-variant); margin: 0;",
+                    "Visual flashes the terminal briefly. Sound plays a short bell tone. Visual and sound does both. Off disables both; an unseen session still keeps a bell marker until viewed. Reduced-motion devices use a static border pulse."
                 }
             }
         }

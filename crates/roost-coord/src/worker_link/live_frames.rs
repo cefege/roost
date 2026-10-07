@@ -302,6 +302,15 @@ impl WorkerFrameDispatcher {
                 "a long shell command finished"
             );
         }
+        if metadata.bell {
+            services
+                .buses
+                .bell_bus
+                .publish(crate::events::bus_messages::SessionBell {
+                    session_id: session_id.as_str().to_owned(),
+                });
+            tracing::debug!(worker_fp = %worker, session_id = %session_id, "terminal bell received");
+        }
         if metadata.activity_changed
             && let Ok(observed_at_ms) = i64::try_from(metadata.activity_ts_ms)
         {

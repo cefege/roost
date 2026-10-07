@@ -196,6 +196,7 @@ pub(super) fn metadata_to_proto(metadata: &TerminalMetadata) -> ProtocolResult<W
         command_finished: metadata.command_finished,
         command_exit_code: metadata.command_exit_code,
         command_duration_ms: metadata.command_duration_ms,
+        bell: metadata.bell,
         ..Default::default()
     })
 }
@@ -214,6 +215,7 @@ pub(super) fn metadata_from_proto(
         command_finished: metadata.command_finished,
         command_exit_code: metadata.command_exit_code,
         command_duration_ms: metadata.command_duration_ms,
+        bell: metadata.bell,
     })
 }
 

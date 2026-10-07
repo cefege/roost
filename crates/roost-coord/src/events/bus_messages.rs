@@ -253,6 +253,13 @@ pub struct SessionPresenceUpdate {
     pub data: Value,
 }
 
+/// A terminal's one-shot BEL notification, never retained or seeded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionBell {
+    /// The observed session.
+    pub session_id: String,
+}
+
 /// Volatile coding-agent and UI control traffic.
 ///
 /// `state` upserts a tab's reported state, `command` is a legacy control that

@@ -242,6 +242,7 @@ fn a_backpressured_title_survives_a_later_activity_only_record() {
         command_finished: true,
         command_exit_code: Some(9),
         command_duration_ms: 12_000,
+        bell: true,
     };
     let activity = TerminalMetadata {
         channel_id: channel(9),
@@ -254,6 +255,7 @@ fn a_backpressured_title_survives_a_later_activity_only_record() {
         command_finished: false,
         command_exit_code: None,
         command_duration_ms: 0,
+        bell: false,
     };
     let merged = merge_terminal_metadata(Some(&pending), &activity);
     assert!(merged.title_changed && merged.activity_changed);
@@ -266,6 +268,7 @@ fn a_backpressured_title_survives_a_later_activity_only_record() {
     assert!(merged.command_finished);
     assert_eq!(merged.command_exit_code, Some(9));
     assert_eq!(merged.command_duration_ms, 12_000);
+    assert!(merged.bell, "a pending bell event survives coalescing");
     assert_eq!(merge_terminal_metadata(None, &activity), activity);
 }
 
@@ -276,9 +279,15 @@ fn a_backpressured_title_survives_a_later_activity_only_record() {
 fn a_clipboard_write_is_sent_once_and_never_reasserted() {
     let mut stage = TerminalMetadataStage::default();
     let mut sent = Vec::new();
-    stage.observe_live(channel(7), b"", Some("before negotiation".to_owned()), 500);
+    stage.observe_live(
+        channel(7),
+        b"",
+        Some("before negotiation".to_owned()),
+        0,
+        500,
+    );
     stage.set_negotiated(true);
-    stage.observe_live(channel(7), b"", Some("copied".to_owned()), 1_000);
+    stage.observe_live(channel(7), b"", Some("copied".to_owned()), 0, 1_000);
     flush_if_due(&mut stage, &mut sent, 1_000);
     assert_eq!(
         sent.len(),
@@ -308,6 +317,7 @@ fn clipboard_event_coalesces_without_erasing_a_pending_title() {
         channel(7),
         b"\x1b]2;terminal title\x07",
         Some("clipboard text".to_owned()),
+        0,
         1_000,
     );
     flush_if_due(&mut stage, &mut sent, 1_000);
@@ -356,4 +366,27 @@ fn publishes_only_long_live_command_finishes_once() {
         sent[1..].iter().all(|record| !record.command_finished),
         "a completed command is an event and must not be replayed"
     );
+}
+
+#[test]
+fn terminal_bells_are_rate_limited_per_channel_and_not_replayed() {
+    let mut stage = TerminalMetadataStage::default();
+    let mut sent = Vec::new();
+    stage.set_negotiated(true);
+
+    assert!(stage.observe_live(channel(7), b"", None, 1, 1_000));
+    flush_if_due(&mut stage, &mut sent, 1_000);
+    assert_eq!(sent.len(), 1);
+    assert!(sent[0].bell);
+
+    assert!(!stage.observe_live(channel(7), b"", None, 2, 1_499));
+    assert!(!stage.flush_due());
+    assert!(stage.observe_live(channel(7), b"", None, 1, 1_500));
+    flush_if_due(&mut stage, &mut sent, 1_500);
+    assert_eq!(sent.len(), 2);
+    assert!(sent[1].bell);
+
+    stage.replay();
+    flush_if_due(&mut stage, &mut sent, 2_000);
+    assert_eq!(sent.len(), 2, "reconnect replay never reasserts a bell");
 }

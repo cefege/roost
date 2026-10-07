@@ -13,7 +13,7 @@ use crate::store::prefs::notify::NotifyPref;
 use crate::store::prefs::terminal_font::reset_term_font_px;
 use crate::store::prefs::{
     set_copy_on_select, set_keyboard_resize, set_keyterm_biasing, set_mouse_forward,
-    set_notify_pref, set_predict_mode, set_term_font_px, step_term_font_px,
+    set_notify_pref, set_predict_mode, set_term_font_px, set_terminal_bell, step_term_font_px,
 };
 use crate::store::shell_dialogs::RenameDialogRequest;
 use crate::store::toasts::{ToastId, ToastKind, ToastOptions, ToastSource, add_toast};
@@ -65,6 +65,16 @@ pub enum ShellIntent {
     SetPredictMode {
         /// The raw stored spelling a control produced; normalised on the way in.
         value: String,
+    },
+    /// Choose what a terminal BEL does on this device.
+    SetTerminalBell {
+        /// The stored spelling a control produced; unknown values read as Visual.
+        value: String,
+    },
+    /// The operator has seen a session: drop its unseen-bell mark.
+    ClearTerminalBell {
+        /// The session now on screen.
+        session_id: String,
     },
     /// Zoom the terminal font by `delta` pixels (clamped).
     StepTermFont {
@@ -142,6 +152,8 @@ impl ShellIntent {
             Self::SetKeytermBiasing { .. } => "set_keyterm_biasing",
             Self::SetNotifyPref { .. } => "set_notify_pref",
             Self::SetPredictMode { .. } => "set_predict_mode",
+            Self::SetTerminalBell { .. } => "set_terminal_bell",
+            Self::ClearTerminalBell { .. } => "clear_terminal_bell",
             Self::SetSidebarWidth { .. } => "set_sidebar_width",
             Self::StepTermFont { .. } => "step_term_font",
             Self::ResetTermFont { .. } => "reset_term_font",
@@ -178,6 +190,18 @@ pub fn apply_shell_intent(
             set_notify_pref(store, storage, *pref, *value)
         }
         ShellIntent::SetPredictMode { value } => set_predict_mode(store, storage, value),
+        ShellIntent::SetTerminalBell { value } => set_terminal_bell(
+            store,
+            storage,
+            crate::store::prefs::TerminalBell::parse(Some(value)),
+        ),
+        ShellIntent::ClearTerminalBell { session_id } => {
+            let cleared = store.terminal_bells.clear(session_id);
+            if cleared {
+                store.note_change();
+            }
+            cleared
+        }
         ShellIntent::StepTermFont { delta } => step_term_font_px(store, storage, *delta),
         ShellIntent::ResetTermFont { default_px } => {
             reset_term_font_px(store, storage, *default_px)

@@ -138,8 +138,16 @@ impl TonePlayer {
     /// Play `kind`'s cue now. Audio is an optional surface: a browser that
     /// refuses a context or a node logs and stays silent.
     pub fn play(&self, kind: AgentNotificationKind) {
+        if self.play_notes(tone_for(kind)) {
+            tracing::debug!(target: "notifications", ?kind, "notification tone played");
+        }
+    }
+
+    /// Play `notes` now, under the same refusal rules as [`Self::play`].
+    /// Returns whether every note was scheduled.
+    pub fn play_notes(&self, notes: &[ToneNote]) -> bool {
         let Some(context) = self.context() else {
-            return;
+            return false;
         };
         // A context created before the reader interacted with the page starts
         // suspended under the autoplay policy; resuming is allowed once they have.
@@ -147,17 +155,17 @@ impl TonePlayer {
             let _ = context.resume();
         }
         let start = context.current_time();
-        for note in tone_for(kind) {
+        for note in notes {
             if let Err(error) = schedule_note(&context, start, note) {
                 tracing::warn!(
                     target: "notifications",
                     error = %crate::platform::device_key::describe_js(&error),
                     "notification tone refused"
                 );
-                return;
+                return false;
             }
         }
-        tracing::debug!(target: "notifications", ?kind, "notification tone played");
+        true
     }
 
     fn context(&self) -> Option<web_sys::AudioContext> {
@@ -183,6 +191,12 @@ impl TonePlayer {
     /// A native build has no audio output; the cue is a browser surface.
     pub fn play(&self, kind: AgentNotificationKind) {
         tracing::debug!(target: "notifications", ?kind, "notification tone has no audio output");
+    }
+
+    /// A native build has no audio output, so nothing is ever played.
+    pub fn play_notes(&self, notes: &[ToneNote]) -> bool {
+        tracing::debug!(target: "notifications", notes = notes.len(), "tone has no audio output");
+        false
     }
 }
 

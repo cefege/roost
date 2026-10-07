@@ -97,15 +97,20 @@ impl ReplyQueue {
     }
 }
 
-/// The `Term`'s listener routes probe replies and bounded clipboard writes.
+/// The `Term`'s listener routes replies, bounded clipboard writes and BEL events.
 pub(crate) struct ReplyListener {
     queue: ReplyQueue,
     clipboard: ClipboardQueue,
+    bells: BellQueue,
 }
 
 impl ReplyListener {
-    pub(crate) fn new(queue: ReplyQueue, clipboard: ClipboardQueue) -> Self {
-        Self { queue, clipboard }
+    pub(crate) fn new(queue: ReplyQueue, clipboard: ClipboardQueue, bells: BellQueue) -> Self {
+        Self {
+            queue,
+            clipboard,
+            bells,
+        }
     }
 }
 
@@ -114,8 +119,37 @@ impl EventListener for ReplyListener {
         match event {
             Event::PtyWrite(reply) => self.queue.lock().push_back(reply),
             Event::ClipboardStore(_, text) => self.clipboard.push(text),
+            Event::Bell => self.bells.record(),
             _ => {}
         }
+    }
+}
+
+/// The BELs parsed since the core last took them. A count, not a queue: the
+/// worker rate-limits rings, so how many arrived matters, not their order.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct BellQueue {
+    queued: Arc<Mutex<u32>>,
+}
+
+impl BellQueue {
+    pub(crate) fn take(&self) -> u32 {
+        std::mem::take(&mut *self.lock())
+    }
+
+    pub(crate) fn discard(&self) {
+        *self.lock() = 0;
+    }
+
+    fn record(&self) {
+        let mut queued = self.lock();
+        *queued = queued.saturating_add(1);
+    }
+
+    fn lock(&self) -> MutexGuard<'_, u32> {
+        self.queued
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
 

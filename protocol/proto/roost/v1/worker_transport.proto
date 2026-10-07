@@ -52,6 +52,8 @@ message WTerminalMetadata {
   bool command_finished = 8;
   optional sint32 command_exit_code = 9;
   uint64 command_duration_ms = 10;
+  // At least one BEL was parsed from live PTY output; an event, not state.
+  bool bell = 11;
 }
 
 // T2.2 — in-band JWT rotation. Worker sends this BEFORE the current

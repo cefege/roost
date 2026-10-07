@@ -18,11 +18,13 @@
 pub mod flags;
 pub mod notify;
 pub mod predict;
+pub mod terminal_bell;
 pub mod terminal_font;
 
 pub use flags::{set_copy_on_select, set_keyboard_resize, set_keyterm_biasing, set_mouse_forward};
 pub use notify::{NotifyPrefs, set_notify_pref};
 pub use predict::{PredictMode, set_predict_mode};
+pub use terminal_bell::{TerminalBell, set_terminal_bell};
 pub use terminal_font::{set_term_font_px, step_term_font_px};
 
 use self::terminal_font::{TERM_FONT_MAX_PX, TERM_FONT_MIN_PX, TERMINAL_FONT_DEFAULT_PX};
@@ -72,6 +74,9 @@ pub struct Prefs {
     pub predict: PredictMode,
     /// The terminal's font size in pixels, bounded on both sides.
     pub term_font_px: u32,
+    /// What a terminal BEL does on this device. A flash by default: sound is
+    /// an interruption the operator opts into.
+    pub terminal_bell: TerminalBell,
 }
 
 impl Default for Prefs {
@@ -84,6 +89,7 @@ impl Default for Prefs {
             notify: NotifyPrefs::default(),
             predict: PredictMode::Adaptive,
             term_font_px: TERMINAL_FONT_DEFAULT_PX,
+            terminal_bell: TerminalBell::Visual,
         }
     }
 }
@@ -132,6 +138,9 @@ pub fn load_prefs(store: &mut Store, storage: &dyn KeyValueStore, defaults: &Pre
         notify: notify::parse(storage.get(NOTIFY_PREFS_KEY).as_deref()),
         predict: predict::parse(storage.get(PREDICT_MODE_KEY).as_deref()),
         term_font_px: read_term_font_px(storage, defaults.term_font_px),
+        terminal_bell: TerminalBell::parse(
+            storage.get(terminal_bell::TERMINAL_BELL_KEY).as_deref(),
+        ),
     };
     if next == store.prefs {
         return false;

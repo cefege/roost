@@ -105,8 +105,8 @@ pub struct RefreshJwt {
 }
 
 /// Compact semantic terminal metadata: title, activity and clipboard as state
-/// rather than PTY bytes. Clipboard writes and command completions are events,
-/// so their changed flags survive coalescing without turning them into
+/// rather than PTY bytes. Clipboard writes, command completions and bells are
+/// events, so their changed flags survive coalescing without turning them into
 /// retained state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TerminalMetadata {
@@ -122,6 +122,8 @@ pub struct TerminalMetadata {
     pub command_finished: bool,
     pub command_exit_code: Option<i32>,
     pub command_duration_ms: u64,
+    /// At least one BEL was parsed from live PTY output in this record.
+    pub bell: bool,
 }
 
 /// Journal-backed progress of one update job on the worker host. Replayed

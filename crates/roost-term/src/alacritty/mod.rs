@@ -11,9 +11,10 @@
 //!
 //! The event listener is [`replies::ReplyListener`]: `PtyWrite` — alacritty
 //! answering a probe — is queued for the query-reply lane, an OSC 52 store is
-//! queued for the browser's clipboard, and every other event (title, bell) is
-//! dropped, because the PTY reader behind them belongs to the worker, not to a
-//! core that only renders. Both queues are emptied by a replay `write`. The
+//! queued for the browser's clipboard, a BEL is counted for the worker's
+//! one-shot bell event, and every other event (title) is dropped, because the
+//! PTY reader behind it belongs to the worker, not to a core that only
+//! renders. All three queues are emptied by a replay `write`. The
 //! processor parses THROUGH synchronized updates ([`replies::ParseThrough`]),
 //! and a shadow parser ([`csi_shadow`]) records the CSI sequences `vte` drops.
 
@@ -35,7 +36,7 @@ use crate::core::{CommandEvent, CursorState, TerminalCore};
 use crate::unhandled::UnhandledSequenceRing;
 use cell::LinkScope;
 use csi_shadow::CsiShadow;
-use replies::{ClipboardQueue, ParseThrough, ReplyListener, ReplyQueue};
+use replies::{BellQueue, ClipboardQueue, ParseThrough, ReplyListener, ReplyQueue};
 
 /// The scrollback capacity Roost runs every terminal with.
 pub const SCROLLBACK_LINES: usize = 10_000;
@@ -71,6 +72,8 @@ pub struct AlacrittyCore {
     command_lifecycle: prompt_marks_apply::CommandLifecycle,
     /// Live shell command lifecycle events not yet taken by the worker.
     command_events: VecDeque<CommandEvent>,
+    /// Live bell events not yet taken by the worker.
+    bells: BellQueue,
 }
 
 impl AlacrittyCore {
@@ -88,10 +91,11 @@ impl AlacrittyCore {
         };
         let replies = ReplyQueue::default();
         let clipboard_writes = ClipboardQueue::default();
+        let bells = BellQueue::default();
         let term = Term::new(
             config,
             &GridSize { cols, rows },
-            ReplyListener::new(replies.clone(), clipboard_writes.clone()),
+            ReplyListener::new(replies.clone(), clipboard_writes.clone(), bells.clone()),
         );
         Self {
             term,
@@ -103,6 +107,7 @@ impl AlacrittyCore {
             prompt_marks: prompt_marks::PromptMarkScanner::default(),
             command_lifecycle: prompt_marks_apply::CommandLifecycle::default(),
             command_events: VecDeque::new(),
+            bells,
             dirty: Vec::new(),
         }
     }
@@ -129,6 +134,7 @@ impl TerminalCore for AlacrittyCore {
         self.parse(bytes);
         self.replies.discard();
         self.clipboard_writes.discard();
+        self.bells.discard();
         self.command_events.clear();
     }
 
@@ -143,8 +149,13 @@ impl TerminalCore for AlacrittyCore {
     fn take_clipboard_writes(&mut self) -> Vec<String> {
         self.clipboard_writes.take()
     }
+
     fn take_command_events(&mut self) -> Vec<CommandEvent> {
         self.command_events.drain(..).collect()
+    }
+
+    fn take_bell_events(&mut self) -> u32 {
+        self.bells.take()
     }
 
     fn unhandled_sequences(&self) -> &UnhandledSequenceRing {

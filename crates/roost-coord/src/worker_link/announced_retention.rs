@@ -81,6 +81,7 @@ pub fn merge_terminal_metadata(
         command_finished: previous.command_finished || incoming.command_finished,
         command_exit_code: newest_command.command_exit_code,
         command_duration_ms: newest_command.command_duration_ms,
+        bell: previous.bell || incoming.bell,
     };
     let frame = CoordWorkerUpstream::TerminalMetadata(metadata);
     let encoded_bytes = u64::try_from(encode_upstream(&frame).ok()?.len()).ok()?;

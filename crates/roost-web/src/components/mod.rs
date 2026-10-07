@@ -45,4 +45,5 @@ pub mod settings_navigation;
 pub mod sidebar;
 pub mod term_font_stepper;
 pub mod terminal;
+pub mod terminal_bell_mark;
 pub mod terminal_chrome;

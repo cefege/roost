@@ -277,6 +277,10 @@ pub(super) fn apply_frame(
             *duration_ms,
             delivery_seq,
         ),
+        SyncFrame::TerminalBell { session_id } => {
+            store.terminal_bells.ring(session_id);
+            store.note_change();
+        }
         SyncFrame::WorkerPresence { event } => {
             fold_worker_presence(store, event, out);
             // A heartbeat moves no worker in or out of the pre-warm selection.

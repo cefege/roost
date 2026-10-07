@@ -2,9 +2,9 @@
 //! `apps/worker/src/session/session-terminal-metadata.ts` (per-channel title and
 //! activity facts, the negotiated flag, the fair 32-frame flush, replay after the
 //! snapshot barrier) and `packages/protocol/src/terminal-metadata.ts`
-//! (`TerminalTitleParser`). OSC 52 clipboard writes and long-command finishes
-//! are events: sent once, never reasserted by a replay. `session::emit` observes
-//! every chunk; the cadence flushes into the link's coalescing lane.
+//! (`TerminalTitleParser`). OSC 52 clipboard writes, long-command finishes and
+//! bells are events: sent once, never reasserted by a replay. `session::emit`
+//! observes every chunk; the cadence flushes into the link's coalescing lane.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -25,6 +25,9 @@ pub const TERMINAL_TITLE_MAX_LENGTH: usize = 256;
 pub const TERMINAL_METADATA_ACTIVITY_THROTTLE_MS: i64 = 60_000;
 /// Minimum live command duration included in terminal metadata.
 pub const COMMAND_FINISHED_MIN_DURATION_MS: i64 = 10_000;
+/// A channel rings at most once per this window: a program that prints BEL in
+/// a loop (a held key at a prompt, `yes $'\a'`) must not flood every browser.
+pub const TERMINAL_BELL_RATE_LIMIT_MS: i64 = 500;
 
 /// What one send into the link did (v2 `TransportSendResult`, reduced to the
 /// one distinction the flush acts on).
@@ -50,6 +53,8 @@ pub struct ChannelMetadata {
     command_started_at_ms: Option<i64>,
     command_finished: Option<(i32, u64)>,
     command_dirty: bool,
+    bell_pending: bool,
+    last_bell_at_ms: Option<i64>,
 }
 
 /// The semantic lane: every channel's facts, the ready ring, and the flag.
@@ -80,20 +85,22 @@ impl TerminalMetadataStage {
     /// v2 `observeTerminalMetadata`: record one chunk without retaining it.
     /// Returns whether a flush became owed.
     pub fn observe(&mut self, channel_id: ChannelId, bytes: &[u8], now_ms: i64) -> bool {
-        self.observe_live(channel_id, bytes, None, now_ms)
+        self.observe_live(channel_id, bytes, None, 0, now_ms)
     }
 
-    /// [`Self::observe`] for a live chunk, with the newest clipboard write it
-    /// parsed. A write seen before the link negotiated metadata is dropped
-    /// rather than held: by the time the link is up the operator has moved on.
+    /// [`Self::observe`] for a live chunk, with the newest clipboard write and
+    /// the BEL count it parsed. A write or bell seen before the link negotiated
+    /// metadata is dropped rather than held: by the time the link is up the
+    /// operator has moved on.
     pub fn observe_live(
         &mut self,
         channel_id: ChannelId,
         bytes: &[u8],
         clipboard: Option<String>,
+        bell_count: u32,
         now_ms: i64,
     ) -> bool {
-        if bytes.is_empty() && clipboard.is_none() {
+        if bytes.is_empty() && clipboard.is_none() && bell_count == 0 {
             return false;
         }
         let state = self.channels.entry(channel_id).or_default();
@@ -111,6 +118,15 @@ impl TerminalMetadataStage {
             state.clipboard = Some(text);
             state.clipboard_dirty = true;
         }
+        let bell_due = self.negotiated
+            && bell_count > 0
+            && state.last_bell_at_ms.is_none_or(|last_bell| {
+                now_ms.saturating_sub(last_bell) >= TERMINAL_BELL_RATE_LIMIT_MS
+            });
+        if bell_due {
+            state.bell_pending = true;
+            state.last_bell_at_ms = Some(now_ms);
+        }
         if !bytes.is_empty() {
             state.activity_ts_ms = Some(now_ms);
         }
@@ -122,7 +138,7 @@ impl TerminalMetadataStage {
             state.activity_dirty = true;
         }
         if self.negotiated
-            && (title_changed || activity_due || clipboard_changed)
+            && (title_changed || activity_due || clipboard_changed || bell_due)
             && !self.ready_set.contains(&channel_id)
         {
             return self.mark_ready(channel_id);
@@ -221,7 +237,13 @@ impl TerminalMetadataStage {
             let clipboard_changed = state.clipboard_dirty && state.clipboard.is_some();
             let clipboard = state.clipboard.clone().unwrap_or_default();
             let activity_changed = state.activity_dirty && activity.is_some();
-            if !title_changed && !activity_changed && !clipboard_changed && !command_finished {
+            let bell = state.bell_pending;
+            if !title_changed
+                && !activity_changed
+                && !clipboard_changed
+                && !command_finished
+                && !bell
+            {
                 continue;
             }
             let result = send(TerminalMetadata {
@@ -237,6 +259,7 @@ impl TerminalMetadataStage {
                 command_duration_ms: command
                     .filter(|_| command_finished)
                     .map_or(0, |(_, duration)| duration),
+                bell,
             });
             frames += 1;
             if result == MetadataSend::Dropped {
@@ -266,10 +289,14 @@ impl TerminalMetadataStage {
                 state.command_finished = None;
                 state.command_dirty = false;
             }
+            if bell {
+                state.bell_pending = false;
+            }
             if (state.title_dirty
                 || state.activity_dirty
                 || state.clipboard_dirty
-                || state.command_dirty)
+                || state.command_dirty
+                || state.bell_pending)
                 && !self.ready_set.contains(&channel_id)
             {
                 self.ready.push_back(channel_id);

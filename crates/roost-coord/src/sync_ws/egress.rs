@@ -299,6 +299,7 @@ pub fn frame_kind(frame: &FirehoseFrame) -> &'static str {
         Some(Frame::ClipboardHistory(_)) => "clipboard_history",
         Some(Frame::TerminalClipboard(_)) => "terminal_clipboard",
         Some(Frame::TerminalCommandFinished(_)) => "terminal_command_finished",
+        Some(Frame::TerminalBell(_)) => "terminal_bell",
         Some(Frame::LastActivity(_)) => "last_activity",
         Some(Frame::PairRequestDelta(_)) => "pair_request_delta",
         Some(Frame::UiState(_)) => "ui_state",

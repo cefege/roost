@@ -205,3 +205,10 @@ pub(super) fn command_finished(value: roost_proto::TerminalCommandFinishedFrame)
         duration_ms: value.duration_ms,
     }
 }
+
+/// A terminal BEL event is volatile and applies only to its session.
+pub(super) fn bell(value: roost_proto::TerminalBellFrame) -> SyncFrame {
+    SyncFrame::TerminalBell {
+        session_id: value.session_id,
+    }
+}

@@ -124,6 +124,8 @@ pub trait TerminalCore {
     /// first, already decoded. Write-only: a program can never read the
     /// operator's clipboard through this core.
     fn take_clipboard_writes(&mut self) -> Vec<String>;
+    /// Number of bell events parsed from live PTY output since the last take.
+    fn take_bell_events(&mut self) -> u32;
     /// Take command lifecycle markers parsed from the live PTY stream, oldest first.
     fn take_command_events(&mut self) -> Vec<CommandEvent>;
 

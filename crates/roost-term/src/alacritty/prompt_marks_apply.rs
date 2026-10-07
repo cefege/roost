@@ -112,4 +112,15 @@ mod tests {
         core.write(b"\x1b]133;C\x07\x1b]133;D;0\x07");
         assert!(core.take_command_events().is_empty());
     }
+
+    #[test]
+    fn live_bell_is_emitted_once_and_replay_discards_it() {
+        let mut core = AlacrittyCore::new(80, 24);
+        core.write_raw(b"\x07\x07");
+        assert_eq!(core.take_bell_events(), 2);
+        assert_eq!(core.take_bell_events(), 0);
+
+        core.write(b"\x07");
+        assert_eq!(core.take_bell_events(), 0);
+    }
 }

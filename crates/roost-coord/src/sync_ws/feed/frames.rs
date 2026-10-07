@@ -29,8 +29,8 @@ use roost_protocol::wire::{
 };
 
 use crate::events::bus_messages::{
-    AuditRow, PairRequestDelta, SessionBusMessage, SessionClipboardWrite, SessionCommandFinished,
-    SessionTitleUpdate, TaskBusMsg, TaskBusMsgKind,
+    AuditRow, PairRequestDelta, SessionBell, SessionBusMessage, SessionClipboardWrite,
+    SessionCommandFinished, SessionTitleUpdate, TaskBusMsg, TaskBusMsgKind,
 };
 use crate::events::visibility::kind_is_public;
 use crate::sync_ws::feed::{FeedFrame, FeedRefusal, as_f64, as_u32, as_u64};
@@ -320,6 +320,19 @@ pub fn session_command_finished_frame(finished: &SessionCommandFinished) -> Feed
                 exit_code: finished.exit_code.unwrap_or_default(),
                 duration_ms: finished.duration_ms,
                 ..TerminalCommandFinishedFrame::default()
+            },
+        ))),
+        ..FirehoseFrame::default()
+    })
+}
+
+/// One PTY BEL event for a session observed by this socket.
+pub fn session_bell_frame(bell: &SessionBell) -> FeedFrame {
+    FeedFrame::of(FirehoseFrame {
+        frame: Some(Frame::TerminalBell(Box::new(
+            roost_proto::TerminalBellFrame {
+                session_id: bell.session_id.clone(),
+                ..roost_proto::TerminalBellFrame::default()
             },
         ))),
         ..FirehoseFrame::default()

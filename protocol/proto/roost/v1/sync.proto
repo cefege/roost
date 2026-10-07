@@ -58,6 +58,12 @@ message TerminalCommandFinishedFrame {
   uint64 duration_ms = 4;
 }
 
+// One-shot terminal BEL event for an observed session. Volatile: never retained
+// or seeded on reconnect.
+message TerminalBellFrame {
+  string session_id = 1;
+}
+
 // OSC 0/2 terminal title, parsed centrally by coord (terminal-title-hub) from
 // the same relayed byte stream and fanned out here. Volatile (re-derived from
 // output) — NOT backfilled on reconnect; seeded on Sync connect like status.
@@ -333,6 +339,7 @@ message FirehoseFrame {
     TerminalClipboardFrame terminal_clipboard = 51;
     TerminalCommandFinishedFrame terminal_command_finished = 52;
     ClipboardHistoryFrame clipboard_history = 53;
+    TerminalBellFrame terminal_bell = 54;
   }
 }
 

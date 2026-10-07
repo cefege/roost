@@ -165,6 +165,7 @@ pub fn merge_terminal_metadata(
     let command_finished =
         update.command_finished || held.is_some_and(|held| held.command_finished);
     let command_update = update.command_finished;
+    let bell = update.bell || held.is_some_and(|held| held.bell);
     TerminalMetadata {
         channel_id: update.channel_id,
         title_changed: update.title_changed || held.is_some_and(|held| held.title_changed),
@@ -196,5 +197,6 @@ pub fn merge_terminal_metadata(
         } else {
             held.map_or(0, |held| held.command_duration_ms)
         },
+        bell,
     }
 }

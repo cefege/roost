@@ -245,6 +245,7 @@ pub const BUS_FRAME_ADAPTERS: &[(&str, &str)] = &[
         "sync_ws::feed::last_activity::last_activity_frame",
     ),
     ("ui_bus", "sync_ws::feed::ui::ui_bus_frame"),
+    ("bell_bus", "sync_ws::feed::frames::session_bell_frame"),
 ];
 
 /// A stored millisecond stamp as the `uint64` the wire carries.

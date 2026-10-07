@@ -34,6 +34,7 @@ pub mod sidebar;
 pub mod spotlight;
 pub mod sync_feeds;
 pub mod sync_smoke;
+pub mod terminal_bells;
 pub mod terminal_nav_pad;
 mod terminal_replicas;
 pub mod terminal_transport;
@@ -228,6 +229,8 @@ pub struct Store {
     pub session_viewers: BTreeMap<String, Vec<SessionViewer>>,
     /// Pending command-completion events, drained by the browser notification scheduler.
     pub command_finished_requests: command_finished_requests::CommandFinishedRequests,
+    /// Terminal bells not yet presented, and sessions that rang off screen.
+    pub terminal_bells: terminal_bells::TerminalBells,
     /// The coordinator's bounded clipboard history and snapshot readiness.
     pub clipboard_history: clipboard_history::ClipboardHistory,
     /// Pending terminal clipboard writes, drained by the host.
@@ -333,6 +336,7 @@ impl Store {
             clipboard_history: clipboard_history::ClipboardHistory::default(),
             command_finished_requests: command_finished_requests::CommandFinishedRequests::default(
             ),
+            terminal_bells: terminal_bells::TerminalBells::default(),
             transport_probes: BTreeMap::new(),
             pending_transport_probes: BTreeMap::new(),
             announced_pairings: VecDeque::new(),

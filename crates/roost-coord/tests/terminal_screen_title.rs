@@ -165,6 +165,7 @@ async fn a_negotiated_metadata_frame_feeds_the_title_and_activity_hubs() {
         command_finished: false,
         command_exit_code: None,
         command_duration_ms: 0,
+        bell: false,
     });
     let outcome = dispatcher.handle_now(WORKER_FP, live_frame(71, metadata));
 
@@ -202,6 +203,7 @@ async fn a_clipboard_write_is_published_once_and_retained_nowhere() {
         command_finished: false,
         command_exit_code: None,
         command_duration_ms: 0,
+        bell: false,
     });
     let outcome = dispatcher.handle_now(WORKER_FP, live_frame(72, metadata));
 

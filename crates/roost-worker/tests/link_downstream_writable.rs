@@ -137,6 +137,7 @@ async fn metadata_frames(capabilities: Vec<String>) -> Vec<Up> {
         command_finished: false,
         command_exit_code: None,
         command_duration_ms: 0,
+        bell: false,
     };
     assert!(live.uplink.send(Up::TerminalMetadata(metadata)));
     let raw = Binary {

@@ -14,6 +14,7 @@ pub mod desktop_push_bridge;
 pub mod notify_target;
 pub mod pad_hint_bar;
 pub mod store_write;
+pub mod terminal_bell;
 pub mod terminal_clipboard;
 pub mod toast_card;
 pub mod toast_stack;
@@ -69,6 +70,7 @@ pub fn NotificationDock() -> Element {
         agent_notifications::AgentAttention {}
         terminal_clipboard::TerminalClipboard {}
         command_finished::CommandFinished {}
+        terminal_bell::TerminalBellPresenter {}
         desktop_push_bridge::DesktopPushBridge {}
     }
 }

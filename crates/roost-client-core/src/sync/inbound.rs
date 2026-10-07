@@ -238,6 +238,11 @@ pub enum SyncFrame {
         /// Elapsed command time in milliseconds.
         duration_ms: u64,
     },
+    /// One BEL event emitted by a terminal session.
+    TerminalBell {
+        /// The session that emitted BEL.
+        session_id: String,
+    },
     /// The coordinator-stamped last-activity time of a session.
     LastActivity {
         /// The session.
@@ -302,6 +307,7 @@ impl SyncFrame {
             | Self::TerminalTitle { .. }
             | Self::TerminalClipboard { .. }
             | Self::CommandFinished { .. }
+            | Self::TerminalBell { .. }
             | Self::LastActivity { .. } => Some(SyncDomain::Terminal),
             Self::WorkerPresence { .. } | Self::WorkerRoutable { .. } => Some(SyncDomain::Workers),
             Self::WorkspaceDelta { .. } => Some(SyncDomain::Workspaces),
@@ -358,6 +364,7 @@ impl SyncFrame {
             Self::TerminalClipboard { .. } => "terminal_clipboard",
             Self::ClipboardHistory { .. } => "clipboard_history",
             Self::CommandFinished { .. } => "terminal_command_finished",
+            Self::TerminalBell { .. } => "terminal_bell",
             Self::LastActivity { .. } => "last_activity",
             Self::PairRequestDelta { .. } => "pair_request_delta",
             Self::UiState => "ui_state",
@@ -382,6 +389,7 @@ impl SyncFrame {
             | Self::TerminalTitle { session_id, .. }
             | Self::TerminalClipboard { session_id, .. }
             | Self::CommandFinished { session_id, .. }
+            | Self::TerminalBell { session_id }
             | Self::LastActivity { session_id, .. } => Some(session_id),
             Self::InputRouteResult { result } => Some(result.session_id.as_str()),
             Self::AgentStatus { update, .. } => Some(update.common.session_id.as_str()),
