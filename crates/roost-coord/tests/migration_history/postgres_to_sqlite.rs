@@ -74,11 +74,10 @@ async fn contents(database: &CoordDb) -> Vec<String> {
             .iter()
             .map(|column| format!("quote(\"{column}\")"))
             .collect();
-        let order: Vec<String> = (1..=columns.len()).map(|index| index.to_string()).collect();
+        // One rendered column, ordered by itself: equal rows sort equally.
         let rows: Vec<String> = sqlx::query_scalar(AssertSqlSafe(format!(
-            "SELECT {} FROM \"{table}\" ORDER BY {}",
-            quoted.join(" || '|' || "),
-            order.join(", ")
+            "SELECT {} FROM \"{table}\" ORDER BY 1",
+            quoted.join(" || '|' || ")
         )))
         .fetch_all(database.pool())
         .await
