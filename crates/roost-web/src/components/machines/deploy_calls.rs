@@ -12,9 +12,9 @@
 
 use dioxus::prelude::*;
 #[cfg(target_arch = "wasm32")]
-use roost_client_core::client::rpc::calls::settings::machines::{
-    GetCoordinatorIdentity, MintWorkerBootstrap,
-};
+use roost_client_core::client::rpc::calls::settings::bootstrap::{BootstrapKind, MintBootstrap};
+#[cfg(target_arch = "wasm32")]
+use roost_client_core::client::rpc::calls::settings::machines::GetCoordinatorIdentity;
 #[cfg(target_arch = "wasm32")]
 use roost_platform::machine_join_command;
 
@@ -91,7 +91,8 @@ fn run_mint(pump: Pump, mut model: Signal<DeployModel>, generation: u64, label: 
         let Some(coordinator_url) = model.write().coordinator_url().map(str::to_owned) else {
             return;
         };
-        let request = MintWorkerBootstrap {
+        let request = MintBootstrap {
+            kind: BootstrapKind::Worker,
             label: label.clone(),
         };
         match rpc.call(&request).await {

@@ -159,6 +159,12 @@
   --md-shape-xl: 28px;
   --md-shape-full: 9999px;
 
+  /* Pairing QR code. Theme-invariant on purpose: a phone camera reads dark
+     modules on a light field, and many refuse a code drawn inverted, so a dark
+     theme must not flip it. The SVG draws its modules in currentColor. */
+  --qr-module: #000000;
+  --qr-field: #ffffff;
+
   /* Soft-keyboard inset (px). Desktop default 0; lib/keyboardInset.ts
      overrides at runtime on mobile. Declared here so the cascade has a base
      and var(--kb-offset) resolves without a literal fallback. */

@@ -1,18 +1,21 @@
 //! Path and shell conventions, with no I/O, no clock, no environment and no
 //! async: the host platform vocabulary, a lexical path algebra that
 //! implements POSIX and Windows rules explicitly, the one POSIX shell quoter,
-//! the enrollment command that quoter builds, and the environment entry names
-//! an installed service definition carries. Every crate that touches the
-//! filesystem depends on this instead of asking the OS directly.
+//! the enrollment command that quoter builds, the browser pairing link, and
+//! the environment entry names an installed service definition carries. Every
+//! crate that touches the filesystem depends on this instead of asking the OS
+//! directly.
 
 #![forbid(unsafe_code)]
 
+pub mod browser_pairing_link;
 pub mod host_platform;
 pub mod machine_join_command;
 mod native_path;
 pub mod shell_quote;
 pub mod worker_service_env;
 
+pub use browser_pairing_link::{PAIR_FRAGMENT_KEY, browser_pairing_link};
 pub use host_platform::{HostPlatform, PlatformError};
 pub use machine_join_command::{
     BOOTSTRAP_TOKEN_ENV, COORDINATOR_URL_ENV, INSTALL_SCRIPT_URL, WORKER_LABEL_ENV,

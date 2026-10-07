@@ -35,11 +35,14 @@ mod approver;
 mod failure;
 mod notices;
 mod other_options;
+mod phone_pairing;
+pub mod phone_qr;
 mod request_card;
 mod requester;
 mod status;
 
 pub use notices::{NoticeTone, PairingPageHeader, PairingStatusNotice};
+pub use phone_pairing::PhonePairingCard;
 pub use requester::{PairingRequester, use_pairing_requester};
 
 use dioxus::prelude::*;
@@ -154,9 +157,9 @@ fn RequesterPanel(requester: PairingRequester) -> Element {
     }
 }
 
-/// The trusted half: the pending requests. The code dialog is NOT here — it is
-/// mounted by [`PairSurface`] so it outlives the page the approver walked away
-/// from.
+/// The trusted half: the pending requests, and the code a phone scans to pair
+/// without a request at all. The code dialog is NOT here — it is mounted by
+/// [`PairSurface`] so it outlives the page the approver walked away from.
 #[component]
 fn ApproverPanel(approver: approver::PairApprover, has_workers: bool) -> Element {
     rsx! {
@@ -167,5 +170,6 @@ fn ApproverPanel(approver: approver::PairApprover, has_workers: bool) -> Element
             }
         }
         approval_list::ApprovalList { approver }
+        PhonePairingCard {}
     }
 }

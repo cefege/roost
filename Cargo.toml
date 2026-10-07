@@ -79,6 +79,11 @@ portable-pty = "0.9.0"
 # the scrollback cap.
 alacritty_terminal = { version = "0.26.0", path = "third_party/alacritty_terminal" }
 str0m = "0.23.1"
+# The pairing QR: the CLI draws the matrix itself in half blocks and the web
+# client uses the SVG renderer, so neither needs the `image` raster stack.
+qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
+# Test-only decoder that proves a rendered pairing QR reads back as its link.
+rqrr = { version = "0.11.0", default-features = false }
 idb = "0.6.5"
 rust-embed = "8.12.0"
 regex = "1.13.1"

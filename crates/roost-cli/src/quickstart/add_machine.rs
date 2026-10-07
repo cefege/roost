@@ -227,17 +227,22 @@ pub fn worker_dialable_origin(declared: &str) -> Result<Option<String>, CommandF
 }
 
 /// Whether a URL's authority names this machine rather than the fleet. A
-/// worker dialling it from another machine would reach nothing.
-fn is_loopback_host(origin: &str) -> bool {
+/// worker dialling it, or a phone opening it, from another machine would reach
+/// nothing. The port is not part of the answer: `localhost:8443` is loopback.
+pub(crate) fn is_loopback_host(origin: &str) -> bool {
     let authority = origin
         .split("://")
         .nth(1)
         .unwrap_or(origin)
         .to_ascii_lowercase();
-    authority == "localhost"
-        || authority.ends_with(".localhost")
-        || authority.starts_with("127.")
-        || authority.starts_with("[::1]")
+    let host = match authority.split_once(']') {
+        Some((bracketed, _port)) => format!("{bracketed}]"),
+        None => authority.split(':').next().unwrap_or(&authority).to_owned(),
+    };
+    host == "localhost"
+        || host.ends_with(".localhost")
+        || host.starts_with("127.")
+        || host == "[::1]"
 }
 
 /// The coordinator's own database, as the installed definition names it, then
