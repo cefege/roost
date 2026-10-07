@@ -5,6 +5,7 @@
 //! Ports `apps/web/src/renderer/cellRow.ts`.
 
 pub mod dom;
+pub mod ligatures;
 pub mod style_cache;
 
 use roost_protocol::cell::{

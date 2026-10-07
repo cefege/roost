@@ -147,6 +147,21 @@ fn adjacent_spans_sharing_a_link_key_paint_one_anchor() {
     assert_eq!(anchors.len(), 1);
     assert_eq!(child_texts(&anchors[0]), ["bold", "plain"]);
 }
+#[test]
+fn ligatures_join_matching_spans_without_changing_grid_columns() {
+    let factory = FakeEl::new("div");
+    factory.set_attribute("data-ligatures", "true");
+    let element = render_row(
+        &row(vec![run(">"), run("=")]),
+        &factory,
+        None,
+        None,
+        &mut StyleCache::default(),
+    )
+    .unwrap();
+    assert_eq!(child_texts(&element), [">="]);
+    assert_eq!(element.attribute(ROW_COLUMNS_ATTR).as_deref(), Some("2"));
+}
 
 #[test]
 fn unlinked_cells_between_two_same_key_runs_end_the_anchor() {

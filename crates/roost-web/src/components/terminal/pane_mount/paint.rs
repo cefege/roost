@@ -32,6 +32,7 @@ pub(super) struct StoreRead {
     pub(super) status: Option<PaneViewStatus>,
     transport: Option<&'static str>,
     gestures_forwarded_pref: bool,
+    terminal_ligatures: bool,
 }
 
 /// How a paint reached the renderer.
@@ -54,6 +55,7 @@ pub(super) fn read_store(shared: &PaneShared) -> StoreRead {
         transport: session_terminal_transport_kind(store, &shared.session_id)
             .map(transport_attribute),
         gestures_forwarded_pref: store.prefs.mouse_forward,
+        terminal_ligatures: store.prefs.terminal_ligatures,
     }
 }
 
@@ -71,6 +73,7 @@ pub(super) fn sync_store(shared: &PaneShared) {
         }
         advanced
     };
+    super::ligatures::sync_ligatures(shared, read.terminal_ligatures);
     set_if_changed(shared.ui.transport, read.transport);
     set_if_changed(
         shared.ui.gestures_forwarded,

@@ -26,10 +26,11 @@ use roost_client_core::store::prefs::terminal_font::{
     TERM_FONT_MAX_PX, TERM_FONT_MIN_PX, TERMINAL_FONT_DEFAULT_PX, TERMINAL_FONT_TV_DEFAULT_PX,
     reset_term_font_px, set_term_font_px, step_term_font_px,
 };
+use roost_client_core::store::prefs::terminal_ligatures::set_terminal_ligatures;
 use roost_client_core::store::prefs::{
     COPY_ON_SELECT_KEY, KEYBOARD_RESIZE_KEY, KEYTERM_BIASING_KEY, MOUSE_FORWARD_KEY,
-    NOTIFY_PREFS_KEY, PREDICT_MODE_KEY, PrefDefaults, TERM_FONT_PX_KEY, clear_account_scoped_prefs,
-    load_prefs,
+    NOTIFY_PREFS_KEY, PREDICT_MODE_KEY, PrefDefaults, TERM_FONT_PX_KEY, TERMINAL_LIGATURES_KEY,
+    clear_account_scoped_prefs, load_prefs,
 };
 use roost_client_core::{ClientCore, KeyValueStore, MemoryClock, MemoryKeyValueStore};
 
@@ -75,6 +76,7 @@ fn the_two_flags_that_default_off_load_as_off_and_the_two_that_default_on_load_a
     );
     assert_eq!(store.prefs.term_font_px, 14);
     assert_eq!(store.prefs.predict, PredictMode::Adaptive);
+    assert!(!store.prefs.terminal_ligatures);
     assert!(store.prefs.notify.in_app);
     assert!(
         !store.prefs.notify.desktop,
@@ -110,6 +112,11 @@ fn preferences_round_trip_through_storage() {
         assert!(set_term_font_px(store, &storage, 19));
         assert!(step_term_font_px(store, &storage, 3));
         assert_eq!(store.prefs.term_font_px, 22);
+        assert!(set_terminal_ligatures(store, &storage, true));
+        assert!(
+            !set_terminal_ligatures(store, &storage, true),
+            "an unchanged preference is not a transition"
+        );
         assert!(set_notify_pref(
             store,
             &storage,
@@ -130,6 +137,7 @@ fn preferences_round_trip_through_storage() {
     assert_eq!(storage.get(MOUSE_FORWARD_KEY).as_deref(), Some("1"));
     assert_eq!(storage.get(PREDICT_MODE_KEY).as_deref(), Some("always"));
     assert_eq!(storage.get(TERM_FONT_PX_KEY).as_deref(), Some("22"));
+    assert_eq!(storage.get(TERMINAL_LIGATURES_KEY).as_deref(), Some("1"));
     assert!(
         storage
             .get(NOTIFY_PREFS_KEY)
@@ -151,6 +159,7 @@ fn preferences_round_trip_through_storage() {
     );
     assert_eq!(store.prefs.predict, PredictMode::Always);
     assert_eq!(store.prefs.term_font_px, 22);
+    assert!(store.prefs.terminal_ligatures);
     assert!(store.prefs.notify.desktop);
     assert!(store.prefs.notify.blocked_sound);
     assert!(
@@ -172,6 +181,7 @@ fn a_corrupt_stored_preference_falls_back_instead_of_failing_the_boot() {
     storage.set(TERM_FONT_PX_KEY, "-4");
     storage.set(PREDICT_MODE_KEY, "psychic");
     storage.set(NOTIFY_PREFS_KEY, "{not json at all");
+    storage.set(TERMINAL_LIGATURES_KEY, "yes");
     let mut core = client();
     let before = core.store().revision();
     assert!(load_prefs(core.store_mut(), &storage, &defaults()));
@@ -191,6 +201,10 @@ fn a_corrupt_stored_preference_falls_back_instead_of_failing_the_boot() {
         "its default is on — the default is a property of the flag"
     );
     assert!(store.prefs.mouse_forward, "its default is on");
+    assert!(
+        !store.prefs.terminal_ligatures,
+        "an unrecognized ligature value falls back to off"
+    );
     assert_eq!(
         store.prefs.term_font_px, 14,
         "an unparseable size is the device default"

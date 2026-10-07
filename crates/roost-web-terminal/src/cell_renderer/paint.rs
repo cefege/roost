@@ -79,6 +79,15 @@ impl<E: RenderElement> CellGridRenderer<E> {
         self.attach_viewport_overlays();
         Ok(())
     }
+    /// Rebuild every live row after the text-run shaping preference changes.
+    pub fn refresh_cell_text_runs(&mut self) -> bool {
+        for element in self.row_elements.drain(..) {
+            element.remove();
+        }
+        self.row_hashes.clear();
+        let history_refreshed = self.repaint_scrollback_rows();
+        self.render_viewport_repair().is_ok() && history_refreshed
+    }
 
     /// Patch only the rows a delta changed, after discarding the rows a proven
     /// viewport shift rotated away.
@@ -270,6 +279,36 @@ impl<E: RenderElement> CellGridRenderer<E> {
                 return;
             }
         }
+    }
+    fn repaint_scrollback_rows(&self) -> bool {
+        let mut repainted = true;
+        for block_index in 0..self.child_count() {
+            let Some(block) = self.child_at(block_index) else {
+                continue;
+            };
+            if block.class_name() != BLOCK_CLASS {
+                continue;
+            }
+            for child_index in 0..block.child_count() {
+                let Some(child) = block.child_at(child_index) else {
+                    continue;
+                };
+                let Some(index) = child
+                    .attribute("data-row-index")
+                    .and_then(|value| value.parse::<u32>().ok())
+                else {
+                    continue;
+                };
+                let Some(row) = self.painted.row_at(index) else {
+                    continue;
+                };
+                match self.render_scrollback_row(row) {
+                    Ok(replacement) => child.replace_with(&replacement),
+                    Err(_) => repainted = false,
+                }
+            }
+        }
+        repainted
     }
 
     /// Paint one immutable history row, stamping the absolute index the

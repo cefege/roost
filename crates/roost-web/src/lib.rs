@@ -38,6 +38,7 @@ pub mod syntax_lite;
 pub mod term_font_size;
 pub mod terminal_file_link;
 pub mod terminal_href;
+pub mod terminal_schemes;
 pub mod theme;
 pub mod ui_bridge;
 pub mod voice;

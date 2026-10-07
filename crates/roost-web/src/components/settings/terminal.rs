@@ -11,6 +11,7 @@ use roost_client_core::store::prefs::PredictMode;
 use roost_client_core::store::shell_intent::ShellIntent;
 
 use crate::components::md::{Button, ButtonVariant, Card, Select, SelectOption, SwitchRow};
+use crate::components::settings::color_schemes::TerminalColorSchemes;
 use crate::components::term_font_stepper::TermFontStepper;
 use crate::pump::use_store;
 use crate::term_font_size::{reset_term_font, use_device_default_term_font_px};
@@ -51,6 +52,7 @@ pub fn TerminalPane() -> Element {
     let reset_pump = pump.clone();
     let predict_pump = pump.clone();
     let bell_pump = pump.clone();
+    let ligatures_pump = pump.clone();
     rsx! {
         div {
             class: "settings-pane",
@@ -132,6 +134,18 @@ pub fn TerminalPane() -> Element {
                     "Visual flashes the terminal briefly. Sound plays a short bell tone. Visual and sound does both. Off disables both; an unseen session still keeps a bell marker until viewed. Reduced-motion devices use a static border pulse."
                 }
             }
+            Card { title: "Text shaping",
+                SwitchRow {
+                    test_id: "terminal-ligatures-toggle",
+                    headline: "Font ligatures",
+                    support: "Allow programming-font ligatures across adjacent terminal cells with matching style. Grid columns remain fixed. This device only.",
+                    checked: prefs.terminal_ligatures,
+                    on_change: move |on| ligatures_pump.dispatch(ClientEvent::Shell(
+                        ShellIntent::SetTerminalLigatures { on }
+                    )),
+                }
+            }
+            TerminalColorSchemes {}
         }
     }
 }

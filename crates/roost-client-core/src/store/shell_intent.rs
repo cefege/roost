@@ -91,6 +91,11 @@ pub enum ShellIntent {
         /// Pixels.
         px: u32,
     },
+    /// Enable or disable programming ligatures without changing grid metrics.
+    SetTerminalLigatures {
+        /// Whether ligature shaping is enabled.
+        on: bool,
+    },
     /// Open the rename dialog.
     OpenRenameDialog(RenameDialogRequest),
     /// Close the rename dialog.
@@ -158,6 +163,7 @@ impl ShellIntent {
             Self::StepTermFont { .. } => "step_term_font",
             Self::ResetTermFont { .. } => "reset_term_font",
             Self::SetTermFont { .. } => "set_term_font",
+            Self::SetTerminalLigatures { .. } => "set_terminal_ligatures",
             Self::OpenRenameDialog(_) => "open_rename_dialog",
             Self::CloseRenameDialog => "close_rename_dialog",
             Self::OpenQueueTaskDialog { .. } => "open_queue_task_dialog",
@@ -207,6 +213,9 @@ pub fn apply_shell_intent(
             reset_term_font_px(store, storage, *default_px)
         }
         ShellIntent::SetTermFont { px } => set_term_font_px(store, storage, *px),
+        ShellIntent::SetTerminalLigatures { on } => {
+            crate::store::prefs::set_terminal_ligatures(store, storage, *on)
+        }
         ShellIntent::OpenRenameDialog(request) => {
             note(store, |dialogs| dialogs.open_rename(request.clone()))
         }

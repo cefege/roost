@@ -133,6 +133,7 @@
 /* Theme the terminal text-selection tint. */
 .wterm ::selection {
   background: var(--terminal-selection);
+  color: var(--terminal-selection-fg, inherit);
 }
 
 /* R11 CellGridRenderer (cellRenderer.ts). Paints pre-rendered cells;
@@ -148,6 +149,7 @@
   -webkit-text-size-adjust: none;
   text-size-adjust: none;
 }
+.cell-grid[data-ligatures="true"] { font-variant-ligatures: common-ligatures contextual; }
 .cell-grid .cell-scrollback,
 .cell-grid .cell-viewport {
   width: calc(var(--cell-cols, 80) * 1ch);
@@ -241,6 +243,7 @@
   width: 1ch;
   height: 1lh;
   background: var(--term-cursor, var(--term-fg));
+  color: var(--terminal-cursor-text, var(--term-bg));
   opacity: 0.7;
   pointer-events: none;
   animation: none;

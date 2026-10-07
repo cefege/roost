@@ -12,6 +12,7 @@ pub mod agent_launcher;
 pub mod agents;
 pub mod attachments;
 pub mod audit;
+pub mod color_schemes;
 pub mod connection;
 pub mod devices;
 pub mod format;

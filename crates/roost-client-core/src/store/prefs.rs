@@ -20,12 +20,14 @@ pub mod notify;
 pub mod predict;
 pub mod terminal_bell;
 pub mod terminal_font;
+pub mod terminal_ligatures;
 
 pub use flags::{set_copy_on_select, set_keyboard_resize, set_keyterm_biasing, set_mouse_forward};
 pub use notify::{NotifyPrefs, set_notify_pref};
 pub use predict::{PredictMode, set_predict_mode};
 pub use terminal_bell::{TerminalBell, set_terminal_bell};
 pub use terminal_font::{set_term_font_px, step_term_font_px};
+pub use terminal_ligatures::set_terminal_ligatures;
 
 use self::terminal_font::{TERM_FONT_MAX_PX, TERM_FONT_MIN_PX, TERMINAL_FONT_DEFAULT_PX};
 use crate::platform::KeyValueStore;
@@ -45,6 +47,8 @@ pub const NOTIFY_PREFS_KEY: &str = "roost.notifications.prefs.v2";
 pub const PREDICT_MODE_KEY: &str = "roostPredict";
 /// See [`COPY_ON_SELECT_KEY`].
 pub const TERM_FONT_PX_KEY: &str = "roost.termFontSize";
+/// Per-device terminal ligature shaping preference.
+pub const TERMINAL_LIGATURES_KEY: &str = "roost.terminalLigatures";
 
 /// Every per-device preference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,6 +81,8 @@ pub struct Prefs {
     /// What a terminal BEL does on this device. A flash by default: sound is
     /// an interruption the operator opts into.
     pub terminal_bell: TerminalBell,
+    /// Shape compatible terminal cells together for programming ligatures.
+    pub terminal_ligatures: bool,
 }
 
 impl Default for Prefs {
@@ -90,6 +96,7 @@ impl Default for Prefs {
             predict: PredictMode::Adaptive,
             term_font_px: TERMINAL_FONT_DEFAULT_PX,
             terminal_bell: TerminalBell::Visual,
+            terminal_ligatures: false,
         }
     }
 }
@@ -137,6 +144,7 @@ pub fn load_prefs(store: &mut Store, storage: &dyn KeyValueStore, defaults: &Pre
         mouse_forward: read_flag(storage, MOUSE_FORWARD_KEY, true),
         notify: notify::parse(storage.get(NOTIFY_PREFS_KEY).as_deref()),
         predict: predict::parse(storage.get(PREDICT_MODE_KEY).as_deref()),
+        terminal_ligatures: read_flag(storage, TERMINAL_LIGATURES_KEY, false),
         term_font_px: read_term_font_px(storage, defaults.term_font_px),
         terminal_bell: TerminalBell::parse(
             storage.get(terminal_bell::TERMINAL_BELL_KEY).as_deref(),

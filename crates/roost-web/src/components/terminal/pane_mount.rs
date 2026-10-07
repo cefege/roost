@@ -15,6 +15,7 @@ mod echo;
 mod find_io;
 mod input;
 mod interactions;
+mod ligatures;
 mod link_targets;
 mod paint;
 mod paste_files;

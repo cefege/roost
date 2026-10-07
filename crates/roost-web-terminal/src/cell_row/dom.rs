@@ -8,7 +8,9 @@ use crate::cell_renderer_dom::DomResult;
 use crate::cell_row::style_cache::StyleCache;
 use crate::cell_row::{
     FindHit, LINK_KEY_ATTR, ROW_COLUMNS_ATTR, ROW_HAS_LINKS_ATTR, SpanSlice, TERMINAL_LINK_CLASS,
-    TERMINAL_LINK_TARGET_ATTR, row_column_count, slice_text, span_slices,
+    TERMINAL_LINK_TARGET_ATTR,
+    ligatures::{LigatureRun, ligature_runs},
+    row_column_count, slice_text, span_slices,
 };
 use crate::link_target::{TerminalLinkTarget, classify_terminal_link_target};
 use crate::render_element::RenderElement;
@@ -51,7 +53,24 @@ pub fn render_row<E: RenderElement>(
     let mut column = 0u32;
     let mut anchor: Option<E> = None;
     let mut anchor_key = String::new();
-    for span in row.spans.iter() {
+    let ligature_runs = (factory.attribute("data-ligatures").as_deref() == Some("true"))
+        .then(|| ligature_runs(&row.spans, marked));
+    let mut run_index = 0;
+    let mut span_index = 0;
+    while span_index < row.spans.len() {
+        let run = if let Some(runs) = &ligature_runs {
+            let run = runs[run_index];
+            run_index += 1;
+            run
+        } else {
+            LigatureRun {
+                start: span_index,
+                end: span_index + 1,
+            }
+        };
+        let spans = &row.spans[run.start..run.end];
+        span_index = run.end;
+        let span = &spans[0];
         let host = match span.link_uri.as_deref() {
             None => {
                 anchor = None;
@@ -78,8 +97,13 @@ pub fn render_row<E: RenderElement>(
                 anchor.clone().unwrap_or_else(|| element.clone())
             }
         };
+        let mut shaped = span.clone();
+        if run.end - run.start > 1 {
+            shaped.text = spans.iter().map(|part| part.text.as_str()).collect();
+            shaped.columns = spans.iter().map(|part| part.columns).sum();
+        }
         column = paint_span(
-            span,
+            &shaped,
             &host,
             if marked { hits } else { None },
             active_col,
