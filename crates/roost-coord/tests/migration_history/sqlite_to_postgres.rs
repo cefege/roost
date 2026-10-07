@@ -54,7 +54,7 @@ impl Drop for Scratch {
 
 /// A source with a tenant, a key plus its revocation (an order the target's
 /// insert triggers would refuse), and events whose ids have a gap.
-async fn seed_source(path: &std::path::Path) {
+pub(super) async fn seed_source(path: &std::path::Path) {
     let source = db::open(&DatabaseLocation::SqliteFile(path.to_path_buf()))
         .await
         .expect("a migrated SQLite source");
@@ -82,7 +82,11 @@ async fn seed_source(path: &std::path::Path) {
     source.pool().close().await;
 }
 
-async fn insert_event(database: &CoordDb, ts: i64, dashboard_id: &str) -> sqlx::Result<i64> {
+pub(super) async fn insert_event(
+    database: &CoordDb,
+    ts: i64,
+    dashboard_id: &str,
+) -> sqlx::Result<i64> {
     sqlx::query_scalar(
         "INSERT INTO events (kind, session_id, payload_json, ts, dashboard_id) \
          VALUES ('opened', 's1', '{}', $1, $2) RETURNING id",

@@ -1,10 +1,12 @@
-//! What a copy from SQLite to Postgres moves: the target's tables in an order
-//! every foreign key accepts, each table's columns and their Postgres types,
-//! and which columns are identities whose sequences must follow the copied ids.
+//! What a copy between SQLite and Postgres moves, in either direction: the
+//! Postgres schema's tables in an order every foreign key accepts, each
+//! table's columns and their Postgres types, and which columns are identities
+//! whose sequences must follow the copied ids.
 //!
 //! Read from the Postgres catalog after `db::open` migrated it, and checked
 //! against the SQLite file's own schema, so a drift between the two migration
-//! sets is a refusal before any row moves. Called by `sqlite_to_postgres`.
+//! sets is a refusal before any row moves. Called by `sqlite_to_postgres` and
+//! `postgres_to_sqlite`.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -72,8 +74,10 @@ pub struct TablePlan {
 /// The migration bookkeeping table each side keeps for itself.
 const MIGRATIONS_TABLE: &str = "_sqlx_migrations";
 
-/// Every table the target holds, parents before children.
-pub async fn read_target_plan(target: &mut PgConnection) -> Result<Vec<TablePlan>, TransferError> {
+/// Every table the Postgres database holds, parents before children.
+pub async fn read_postgres_plan(
+    target: &mut PgConnection,
+) -> Result<Vec<TablePlan>, TransferError> {
     let names: Vec<String> = sqlx::query_scalar(
         "SELECT c.relname::text FROM pg_class c \
          JOIN pg_namespace n ON n.oid = c.relnamespace \
@@ -168,10 +172,10 @@ pub fn order_parents_first(
     Ok(ordered)
 }
 
-/// Refuse a source whose tables or columns differ from the target's: both
-/// sides were migrated by this build, so a difference is a build whose two
-/// migration sets disagree, and copying across it would drop data silently.
-pub async fn verify_source_matches(
+/// Refuse a SQLite file whose tables or columns differ from the Postgres plan:
+/// both sides were migrated by this build, so a difference is a build whose
+/// two migration sets disagree, and copying across it would drop data silently.
+pub async fn verify_sqlite_matches(
     source: &CoordDb,
     plan: &[TablePlan],
 ) -> Result<(), TransferError> {

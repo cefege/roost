@@ -12,6 +12,7 @@
 //! log `roost doctor` reads.
 
 pub mod db_to_postgres;
+pub mod db_to_sqlite;
 pub mod keeper_contract;
 pub mod logs;
 pub mod reset;
