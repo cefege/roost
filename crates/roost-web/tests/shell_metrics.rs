@@ -31,6 +31,17 @@ fn the_compact_boundary_is_exclusive() {
 }
 
 #[test]
+fn a_television_reporting_a_phone_sized_viewport_gets_the_desktop_shell() {
+    // 1080p at devicePixelRatio 2 is 960×540 CSS px: phone-sized by the
+    // boundary, but the phone shell is wrong for a ten-foot screen.
+    let tv_viewport = classify(960, 540);
+    assert_eq!(tv_viewport, SizeClass::Compact);
+    assert!(!is_compact_shell(tv_viewport, true));
+    assert!(is_compact_shell(tv_viewport, false));
+    assert!(!is_compact_shell(SizeClass::Desktop, false));
+}
+
+#[test]
 fn every_terminal_route_highlights_sessions() {
     for pathname in ["/", "/s/abc", "/t/fp123/src", "/w/ws1", "/w/ws1/t/ch1"] {
         assert_eq!(

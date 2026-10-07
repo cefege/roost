@@ -17,6 +17,8 @@ pub mod composer_dictation;
 pub mod composer_drafts;
 pub mod composer_gate;
 pub mod composer_geometry;
+pub mod composer_key_tray;
+pub mod composer_placement;
 pub mod dom;
 pub mod file_drop;
 pub mod file_drop_dom;

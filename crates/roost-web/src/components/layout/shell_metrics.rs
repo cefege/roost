@@ -40,6 +40,14 @@ pub fn classify(width: u32, height: u32) -> SizeClass {
     }
 }
 
+/// Whether the shell is the compact (phone) one. A television never is: its
+/// browser commonly reports 960×540 CSS px on a 1080p panel, which the size
+/// boundary reads as a phone, and the phone shell's top bar, drawer and docked
+/// composer are the wrong answer for a ten-foot screen driven by a D-pad.
+pub fn is_compact_shell(class: SizeClass, tv_layout: bool) -> bool {
+    class == SizeClass::Compact && !tv_layout
+}
+
 /// Which activity-rail destination a pathname selects.
 ///
 /// A destination is a PREFIX match, exactly as v2's memos were: `/settings/machines`

@@ -10,7 +10,7 @@
 
 use dioxus::prelude::*;
 
-use super::composer::ComposerPlacement;
+use super::composer_placement::ComposerPlacement;
 
 /// What the dock reads off the store: the flag alone, so an unrelated revision
 /// does not re-render a dock the reader is typing into.

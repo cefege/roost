@@ -91,6 +91,7 @@ pub fn AppShell(children: Element) -> Element {
     let location = use_location();
     let path = location();
     let compact = use_is_compact();
+    let tv = super::window_size::use_tv_layout();
     let reading = read_shell(pump.core().borrow().store(), &path);
     // Re-read every render, because the dock publishes on a ResizeObserver and
     // a composer that grew does not otherwise bump the store.
@@ -114,10 +115,21 @@ pub fn AppShell(children: Element) -> Element {
         pump.dispatch(ClientEvent::Sidebar(drawer_intent_for_route(
             compact, &path,
         )));
+        // On a TV the sidebar slides OVER the terminal, so picking a session
+        // from it puts it away: the terminal is what the operator came for.
+        if tv && terminal_route && !reading.collapsed {
+            pump.dispatch(ClientEvent::Sidebar(SidebarIntent::ToggleCollapsed));
+        }
     }
     #[cfg(target_arch = "wasm32")]
     {
-        super::app_shell_dom::use_main_left(compact, reading.collapsed, reading.sidebar_width);
+        // A TV's slide-over sidebar covers the editor rather than pushing it,
+        // so the editor's left edge never moves for it.
+        super::app_shell_dom::use_main_left(
+            compact,
+            reading.collapsed || tv,
+            reading.sidebar_width,
+        );
         super::app_shell_dom::use_shell_listeners(pump.clone(), compact);
         super::keyboard_offset::use_keyboard_offset();
     }

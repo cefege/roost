@@ -21,6 +21,7 @@ use crate::input_nav::pad_router::{PAD_HINT_IDLE_MS, PadActionRouter};
 use crate::input_nav::pad_surfaces::{
     KeypadFocusCancel, PadDom, PadFocus, PadSurfaces, SyntheticKey,
 };
+use crate::input_nav::remote_keys::RemoteKey;
 
 /// Run one poll's intents against the live document and `surfaces`, then arm
 /// the legend's idle hide. The App passes this as `install_gamepad_source`'s
@@ -67,6 +68,24 @@ pub fn dispatch_pad_actions(
             PAD_HINT_IDLE_MS as i32,
         );
     }
+}
+
+/// Run one TV remote key against the live document and `surfaces`. Returns
+/// whether it was claimed: OK only on the terminal box, where it opens the key
+/// tray, so everywhere else it keeps its native activation.
+pub fn dispatch_remote_key(
+    mut router: Signal<PadActionRouter>,
+    surfaces: &mut dyn PadSurfaces,
+    key: RemoteKey,
+) -> bool {
+    let mut dom = BrowserPadDom::default();
+    let action = match key {
+        RemoteKey::Back => PadAction::Back,
+        RemoteKey::Ok if dom.focus().terminal_box => PadAction::Activate,
+        RemoteKey::Ok => return false,
+    };
+    router.with_mut(|router| router.run_remote_action(action, &mut dom, surfaces));
+    true
 }
 
 /// The browser document, as the controller router sees it.

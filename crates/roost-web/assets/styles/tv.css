@@ -1,6 +1,9 @@
-/* Ten-foot presentation. One root attribute (data-tv, written by lib/tvMode.ts)
-   re-declares the dimension and type tokens every component already
-   references, so no component needs a TV branch.
+/* Ten-foot presentation. One root attribute (data-tv, written by
+   input_nav/modality_dom.rs) re-declares the dimension and type tokens every
+   component already references. The layout differences live here too: a TV
+   always gets the desktop workbench (window_size::use_is_compact), whose
+   sidebar slides over the editor, and the terminal keys sit in an input tray
+   on the composer bar.
    The token block is `html[data-tv="true"]` rather than `[data-tv="true"]` so
    it outranks theme-vars.css's `@media (any-pointer: coarse) :root` block by
    specificity: source order alone would make the win depend on import order.
@@ -76,31 +79,40 @@ html[data-tv="true"] {
   outline-offset: calc(var(--md-space-1) * -1);
 }
 
-/* TerminalNavButtons and its toggle are portaled to <body> as position:fixed
-   surfaces, so they escape .workbench-shell's overscan padding entirely, and
-   the env(safe-area-inset-*) they lean on is 0px on a television. Without
-   these offsets the TV's only raw-key surface lands in the cropped bezel. */
-[data-tv="true"] .term-nav-toggle {
-  right: calc(var(--tv-overscan-inline) + var(--md-space-4));
-  bottom: calc(var(--tv-overscan-block) + 152px);
+/* The input tray: on a television the terminal keys sit on the composer bar's
+   top edge (inside .term-chat__box, which is position: relative) instead of
+   floating in a corner, so text, mic, Send and keys are one surface. The pane
+   lifts its display by --term-tray-height while the tray is open, so the keys
+   never cover the prompt and the PTY is never resized for them. */
+[data-tv="true"] {
+  --term-tray-key: var(--control-touch-target);
+  --term-tray-height: calc(var(--term-tray-key) * 2 + var(--md-space-1) * 3);
 }
-
-[data-tv="true"] .term-nav {
-  right: calc(var(--tv-overscan-inline) + var(--md-space-4));
-  bottom: calc(var(--tv-overscan-block) + 220px);
-  /* The base max-height subtracts a 220px literal matching the base `bottom`.
-     Raising `bottom` without raising this lets a tall sheet run off the top of
-     the frame; the overscan is subtracted twice — once for the raised bottom,
-     once to keep the sheet's top edge clear of the cropped edge too. */
-  max-height: max(
-    0px,
-    calc(
-      100dvh
-      - calc(var(--tv-overscan-block) * 2)
-      - 220px
-      - var(--md-space-4)
-    )
-  );
+[data-tv="true"] .term-nav[data-placement="tray"] {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: var(--term-tray-height);
+  max-height: none;
+  overflow: visible;
+}
+[data-tv="true"] .term-nav[data-placement="tray"] .term-nav__grid {
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  grid-template-areas:
+    "esc  tab   ctrl  alt mouse home up   end   pgup"
+    "back space space ent ent   left down right pgdn";
+}
+[data-tv="true"] .term-nav[data-placement="tray"] .term-nav__key {
+  width: auto;
+  height: var(--term-tray-key);
+}
+[data-tv="true"] .term-chat__box[data-keys="true"][data-compact="false"] {
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+}
+[data-tv="true"] .term-chat__keys[data-open="true"] {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
 }
 
 /* The dock is viewport-fixed outside .workbench-shell's overscan padding, and a
@@ -110,4 +122,25 @@ html[data-tv="true"] {
   left: calc(var(--roost-main-left) + var(--tv-overscan-inline) + var(--md-space-3));
   right: calc(var(--tv-overscan-inline) + var(--md-space-3));
   --roost-notify-dock-overscan: var(--tv-overscan-block);
+}
+
+/* The ten-foot workbench: the sidebar slides OVER the editor instead of taking
+   a grid column, so a 960-CSS-px-wide TV keeps the terminal at full width.
+   It shares the editor's cells and sits above it; collapsed, it is not drawn. */
+[data-tv="true"] .workbench-shell[data-compact="false"] {
+  grid-template-columns: var(--workbench-activity-width) 0 minmax(0, 1fr);
+}
+[data-tv="true"] .workbench-shell[data-compact="false"] .workbench-sidebar-region {
+  grid-column: 2 / 4;
+  grid-row: 2;
+  justify-self: start;
+  width: min(var(--workbench-sidebar-expanded-width), 80%);
+  z-index: 2;
+  box-shadow: var(--md-elev-4);
+}
+[data-tv="true"] .workbench-shell[data-compact="false"] .workbench-sidebar-region[data-collapsed="true"] {
+  display: none;
+}
+[data-tv="true"] .workbench-sidebar-resizer {
+  display: none;
 }

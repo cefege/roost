@@ -37,6 +37,7 @@ pub struct ShellPadSurfaces {
     pump: Pump,
     overlays: ShortcutOverlays,
     route: Signal<String>,
+    modality: Signal<crate::input_nav::NavModality>,
     compact: bool,
 }
 
@@ -60,13 +61,26 @@ impl ShellPadSurfaces {
         pump: Pump,
         overlays: ShortcutOverlays,
         route: Signal<String>,
+        modality: Signal<crate::input_nav::NavModality>,
         compact: bool,
     ) -> Self {
         Self {
             pump,
             overlays,
             route,
+            modality,
             compact,
+        }
+    }
+
+    /// Whether a sidebar covers the content: the compact drawer, or a TV's
+    /// slide-over (a TV always gets the desktop shell, whose sidebar overlays
+    /// the editor there). A desktop's docked sidebar covers nothing.
+    fn sidebar_covering(&self, store: &roost_client_core::store::Store) -> bool {
+        if self.compact {
+            store.ui.sidebar_open
+        } else {
+            self.modality.peek().tv_mode_active() && !store.ui.sidebar_collapsed
         }
     }
 
@@ -101,7 +115,7 @@ impl PadSurfaces for ShellPadSurfaces {
             controller_map_open: (self.overlays.controller_map)(),
             palette_open: (self.overlays.palette)(),
             help_open: (self.overlays.help)(),
-            sidebar_open: store.ui.sidebar_open,
+            sidebar_open: self.sidebar_covering(store),
             dictation: PadDictation {
                 dictating: facts.dictating,
                 controls_mounted: facts.controls_mounted,
@@ -177,9 +191,15 @@ impl PadSurfaces for ShellPadSurfaces {
                 self.pump
                     .dispatch(ClientEvent::Shell(ShellIntent::CloseNavPad));
             }
+            // Executed only while `sidebar_covering` held, so the toggle is a
+            // close on the TV slide-over.
             PadShellAction::CloseSidebar => {
-                self.pump
-                    .dispatch(ClientEvent::Sidebar(SidebarIntent::CloseDrawer));
+                let intent = if self.compact {
+                    SidebarIntent::CloseDrawer
+                } else {
+                    SidebarIntent::ToggleCollapsed
+                };
+                self.pump.dispatch(ClientEvent::Sidebar(intent));
             }
             PadShellAction::ToggleDictation => shell_controls::toggle(),
             PadShellAction::DiscardDictation => shell_controls::discard(),

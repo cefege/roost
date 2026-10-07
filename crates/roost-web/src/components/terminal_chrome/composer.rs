@@ -21,6 +21,8 @@ use super::composer_dictation::{
     GhostMirror, SharedBinding, VoiceControl, use_dictation, use_dictation_context,
 };
 use super::composer_drafts::{get_composer_draft, save_composer_draft};
+use super::composer_key_tray::{ComposerKeyTray, KeyTray};
+use super::composer_placement::ComposerPlacement;
 use super::dom;
 use super::pane_geometry_dom::PaneDockHandle;
 use crate::components::deck::deck_dom;
@@ -31,35 +33,6 @@ use crate::components::layout::portal::Portal;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::md::{ButtonVariant, IconButton, IconButtonSize};
 use crate::components::terminal::pane_handle::PaneHandle;
-
-/// Where the composer is mounted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ComposerPlacement {
-    /// Portaled to the document, above the status bar, for the compact shell.
-    #[default]
-    Viewport,
-    /// Inside the pane, for a viewport wide enough to have its own status bar.
-    Pane,
-}
-
-impl ComposerPlacement {
-    /// The `data-placement` spelling.
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Viewport => "viewport",
-            Self::Pane => "pane",
-        }
-    }
-
-    /// The dock's own positioning: the pane dock flows with the pane, and the
-    /// viewport dock is pinned so the shell's bottom chrome can reserve for it.
-    const fn position(self) -> &'static str {
-        match self {
-            Self::Viewport => "position: fixed;",
-            Self::Pane => "position: relative;",
-        }
-    }
-}
 
 /// What a submission is doing, for the status line under the field.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -103,6 +76,10 @@ pub fn TerminalComposer(
     /// whose height the shell measures for itself.
     #[props(default)]
     dock_handle: Option<PaneDockHandle>,
+    /// The TV input tray's terminal keys. `Some` puts a keys toggle in the bar
+    /// and, while open, the keys above it.
+    #[props(default)]
+    key_tray: Option<KeyTray>,
 ) -> Element {
     let compact = use_is_compact();
     let mut draft = use_signal(|| get_composer_draft(&session_id));
@@ -306,6 +283,7 @@ pub fn TerminalComposer(
                 class: "term-chat__box",
                 "data-testid": "chat-box",
                 "data-compact": if compact { "true" } else { "false" },
+                "data-keys": key_tray.is_some().then_some("true"),
                 IconButton {
                     icon: "attach_file",
                     label: "Attach files",
@@ -343,6 +321,9 @@ pub fn TerminalComposer(
                     if ghost.has_ghost() {
                         GhostMirror { ghost: ghost.clone() }
                     }
+                }
+                if let Some(tray) = key_tray.clone() {
+                    ComposerKeyTray { tray }
                 }
                 if mic_visible {
                     VoiceControl {

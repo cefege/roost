@@ -119,6 +119,20 @@ impl PadActionRouter {
         }
     }
 
+    /// A TV remote's OK-on-the-terminal or Back key, which mean what the pad's
+    /// A and B mean: the same chain, so one decision serves both inputs. Not
+    /// gated on controller mode and raises no legend — the remote is the TV's
+    /// own input, and the legend names pad buttons a remote does not have.
+    pub fn run_remote_action(
+        &mut self,
+        action: PadAction,
+        dom: &mut dyn PadDom,
+        surfaces: &mut dyn PadSurfaces,
+    ) {
+        self.dispatch(action, dom, surfaces);
+        tracing::info!(target: "input_nav", action = action.as_str(), "remote.action");
+    }
+
     fn dispatch(
         &mut self,
         action: PadAction,

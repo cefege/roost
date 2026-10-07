@@ -7,8 +7,9 @@
 //! rule is target-independent and native-tested; the `*_dom` modules and the
 //! gamepad loop are thin wasm32 adapters.
 //!
-//! Mounted from the App: [`install_spatial_navigation`] and
-//! [`install_gamepad_source`] each return a guard the App drops on unmount.
+//! Mounted from the App: [`install_spatial_navigation`],
+//! [`install_gamepad_source`] and [`install_remote_keys`] each return a guard
+//! the App drops on unmount.
 //! Ports `apps/web/src/browser/gamepadSource.ts` and
 //! `apps/web/src/lib/{padActions,padBindings,padFolders,padMode,spatialNavigation,directionalInput,tvMode}.ts`.
 
@@ -22,6 +23,7 @@ pub mod pad_mapper;
 pub mod pad_router;
 pub mod pad_shell;
 pub mod pad_surfaces;
+pub mod remote_keys;
 pub mod spatial;
 
 #[cfg(target_arch = "wasm32")]
@@ -30,6 +32,8 @@ mod dom_read;
 pub mod modality_dom;
 #[cfg(target_arch = "wasm32")]
 pub mod pad_dom;
+#[cfg(target_arch = "wasm32")]
+pub mod remote_keys_dom;
 #[cfg(target_arch = "wasm32")]
 pub mod spatial_dom;
 
@@ -47,5 +51,7 @@ pub use pad_hints::{PadHintContext, pad_hints};
 pub use pad_mapper::PadHeld;
 pub use pad_router::{PadActionRouter, PadHints};
 pub use pad_surfaces::{PadShellAction, PadSurfaceState, PadSurfaces};
+#[cfg(target_arch = "wasm32")]
+pub use remote_keys_dom::{RemoteKeysGuard, install_remote_keys};
 #[cfg(target_arch = "wasm32")]
 pub use spatial_dom::{SpatialNavigationGuard, install_spatial_navigation};

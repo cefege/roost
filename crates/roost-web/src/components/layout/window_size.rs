@@ -34,9 +34,18 @@ pub fn use_size_class() -> SizeClass {
     (use_context::<WindowSize>().class)()
 }
 
-/// v2 `isCompact()`: whether the short side is under the compact boundary.
+/// v2 `isCompact()`, TV-aware: whether this is the compact (phone) shell
+/// (`shell_metrics::is_compact_shell`).
 pub fn use_is_compact() -> bool {
-    use_size_class() == SizeClass::Compact
+    let tv = use_tv_layout();
+    super::shell_metrics::is_compact_shell(use_size_class(), tv)
+}
+
+/// Whether the ten-foot layout is on: TV mode from the user agent, `?tv=`, or
+/// Settings → Theme. False before the document input installs the modality.
+pub fn use_tv_layout() -> bool {
+    try_use_context::<Signal<crate::input_nav::NavModality>>()
+        .is_some_and(|modality| modality.read().tv_mode_active())
 }
 
 /// Classify the viewport as it is now.

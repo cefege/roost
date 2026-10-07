@@ -1,12 +1,13 @@
 //! Which body-floating surfaces one pane mounts: the compact composer dock and
-//! the touch/controller terminal key sheet.
+//! the touch/controller terminal keys — as the floating sheet, or on a
+//! television as the input tray in the pane composer's bar — plus the display
+//! lift that keeps both clear of the terminal's bottom rows.
 //!
-//! Both live here rather than in `cell_terminal` because they are the same
+//! They live here rather than in `cell_terminal` because they are the same
 //! decision asked twice with different shells, and the pane's own file has no
 //! room left for the reasoning. The composer follows the compact layout alone;
-//! the key sheet also answers to a directional modality, because a television
-//! has no compact layout and no soft keyboard and the sheet is the only way its
-//! D-pad can send Esc, Tab, Ctrl-<key> or PageUp to the PTY.
+//! the keys also answer to a directional modality, because a remote or a pad
+//! has no other way to send Esc, Tab, Ctrl-<key> or PageUp to the PTY.
 //!
 //! Both keep the drawer's and an overlay route's exclusions: a fixed surface
 //! over a hidden terminal is a control the reader cannot act on.
@@ -43,6 +44,42 @@ pub fn mounts_nav_pad(
     in_layout && focused && (compact || directional_input_active) && !drawer_open && surface_visible
 }
 
+/// Where a pane's terminal keys live.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeySurface {
+    /// This pane shows no keys.
+    Hidden,
+    /// The floating sheet and its corner toggle.
+    Sheet,
+    /// The TV input tray inside the pane composer's bar: on a television the
+    /// keys, the text field, the mic and Send are one surface at the bottom of
+    /// the terminal rather than a sheet floating in a corner.
+    Tray,
+}
+
+/// Where the keys go, given `mounts_nav_pad`'s answer and whether the
+/// ten-foot layout is on (which always has the pane composer to host a tray).
+pub fn key_surface(mounts_keys: bool, tv_layout: bool) -> KeySurface {
+    match (mounts_keys, tv_layout) {
+        (false, _) => KeySurface::Hidden,
+        (true, false) => KeySurface::Sheet,
+        (true, true) => KeySurface::Tray,
+    }
+}
+
+/// The display's `transform`. A grown composer and an open tray both cover the
+/// bottom of the display, so it is lifted by both rather than shrunk: a PTY
+/// height change makes an inline TUI repaint. Never empty — Dioxus keeps an
+/// inline property the new style string omits, so a shrink would leave the
+/// display lifted.
+pub fn display_lift(composer_growth_px: u32, tray_open: bool) -> String {
+    match (composer_growth_px, tray_open) {
+        (0, false) => "none".to_owned(),
+        (growth, false) => format!("translateY(-{growth}px)"),
+        (growth, true) => format!("translateY(calc(-{growth}px - var(--term-tray-height)))"),
+    }
+}
+
 /// Whether arming the on-screen Ctrl latch must first take the terminal's
 /// focus.
 ///
@@ -60,7 +97,10 @@ pub fn ctrl_arm_takes_focus(
 
 #[cfg(test)]
 mod tests {
-    use super::{ctrl_arm_takes_focus, mounts_nav_pad, mounts_viewport_composer};
+    use super::{
+        KeySurface, ctrl_arm_takes_focus, display_lift, key_surface, mounts_nav_pad,
+        mounts_viewport_composer,
+    };
 
     #[test]
     fn the_portaled_dock_appears_only_for_the_focused_visible_pane_on_a_compact_shell() {
@@ -100,9 +140,26 @@ mod tests {
     }
 
     #[test]
-    fn a_television_gets_the_sheet_without_a_compact_layout() {
-        // The TV's only raw-key surface; the pane composer does not mount there.
+    fn a_directional_modality_gets_keys_without_a_compact_layout() {
+        // A remote or a pad has no other way to send Esc, Tab or PageUp.
         assert!(mounts_nav_pad(true, true, false, true, false, true));
+    }
+
+    #[test]
+    fn a_television_gets_the_tray_and_every_other_shell_the_sheet() {
+        assert_eq!(key_surface(true, true), KeySurface::Tray);
+        assert_eq!(key_surface(true, false), KeySurface::Sheet);
+        assert_eq!(key_surface(false, true), KeySurface::Hidden);
+    }
+
+    #[test]
+    fn an_open_tray_lifts_the_display_on_top_of_the_composer_growth() {
+        assert_eq!(display_lift(0, false), "none");
+        assert_eq!(display_lift(12, false), "translateY(-12px)");
+        assert_eq!(
+            display_lift(0, true),
+            "translateY(calc(-0px - var(--term-tray-height)))"
+        );
     }
 
     #[test]

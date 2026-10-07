@@ -252,8 +252,8 @@ struct PadShellContext {
     compact: bool,
 }
 
-/// The Gamepad poll and the shell half of the controller router, installed for
-/// the life of the document.
+/// The Gamepad poll, the TV remote's Back/OK keys, and the shell half of the
+/// controller router they share, installed for the life of the document.
 ///
 /// The poll owns the button→intent mapping and the router owns what an intent
 /// means; this only joins them to the store, the overlays, the deck and the
@@ -263,9 +263,14 @@ struct PadShellContext {
 /// `use_hook` initializer, where a hook would re-borrow the list that
 /// initializer already holds.
 #[cfg(target_arch = "wasm32")]
-fn install_gamepad_router(pad_shell: PadShellContext) -> crate::input_nav::GamepadSourceGuard {
-    use crate::input_nav::install_gamepad_source;
+fn install_gamepad_router(
+    pad_shell: PadShellContext,
+) -> (
+    crate::input_nav::GamepadSourceGuard,
+    crate::input_nav::RemoteKeysGuard,
+) {
     use crate::input_nav::pad_shell::ShellPadSurfaces;
+    use crate::input_nav::{install_gamepad_source, install_remote_keys};
 
     let PadShellContext {
         pump,
@@ -277,12 +282,14 @@ fn install_gamepad_router(pad_shell: PadShellContext) -> crate::input_nav::Gamep
         compact,
     } = pad_shell;
     let surfaces = std::rc::Rc::new(std::cell::RefCell::new(ShellPadSurfaces::new(
-        pump, overlays, route, compact,
+        pump, overlays, route, modality, compact,
     )));
-    install_gamepad_source(modality, held, move |actions| {
+    let remote = install_remote_keys(modality, router, std::rc::Rc::clone(&surfaces));
+    let pad = install_gamepad_source(modality, held, move |actions| {
         let mut surfaces = surfaces.borrow_mut();
         crate::input_nav::dispatch_pad_actions(router, modality, &mut *surfaces, actions);
-    })
+    });
+    (pad, remote)
 }
 
 /// The overlay hosts an authorized browser mounts once identity discovery has

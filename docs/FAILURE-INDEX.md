@@ -2500,16 +2500,16 @@ the TV"
 **Wrong** — rely on `env(safe-area-inset-*)` to keep chrome off a bezel-cropped edge. TV browsers report all
 four as `0px`, so the padding that protects an iPhone notch protects nothing here. Equally wrong: add the
 overscan gutter only to `.workbench-shell` — a `position: fixed` surface portaled to `<body>`
-(`TerminalNavPad`, `crates/roost-web/src/components/terminal/terminal_nav_pad.rs`) is not inside that box and keeps its
-own viewport-relative offsets.
+(the notification dock, `.roost-notify-dock`) is not inside that box and keeps its own viewport-relative
+offsets.
 
 **Right** — **explicit overscan tokens, applied to the shell AND to every portaled fixed surface.**
 `--tv-overscan-inline` / `--tv-overscan-block` are declared in `crates/roost-web/assets/styles/theme-vars.css` (~2.5% of a
 1080p frame) and applied under `[data-tv="true"]` in `crates/roost-web/assets/styles/tv.css`. When raising a fixed
-surface's `bottom`, raise any `max-height` that subtracts a literal mirroring that offset — `.term-nav`
-subtracts a `220px` twin of its own `bottom`, so a raised offset without a matching subtraction lets the sheet
-run off the TOP of the frame. Subtract the block overscan twice: once for the raised bottom, once to keep the
-surface's own top edge clear.
+surface's `bottom`, raise any `max-height` that subtracts a literal mirroring that offset, or the surface runs
+off the TOP of the frame; subtract the block overscan twice, once for the raised bottom and once to keep the
+surface's own top edge clear. The TV's terminal keys avoid the problem by construction: they are not a
+portaled sheet there but a tray inside the pane's composer bar.
 
 **Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
 
@@ -3858,3 +3858,21 @@ the first refused connect and retries everything else exactly as `connect` does;
 **Guard** — `crates/roost-worker/tests/keeper_probe_endpoint.rs`:
 `a_published_socket_nothing_listens_on_is_an_empty_endpoint`, and
 `a_published_socket_that_accepts_and_says_nothing_times_out`, which pins that a silent keeper still times out.
+
+### On a TV the app looks like a big phone: top bar, drawer and a docked composer
+
+**Symptom** — "on the TV it just looks like a bigger mobile view"; the `layout` log says `window size class
+changed class=Compact` on a television; `tv.mode` is on.
+
+**Wrong** — size the phone shell up for the TV with more `tv.css` tokens, or raise `COMPACT_MAX_PX`. A TV
+browser commonly reports 960×540 CSS px on a 1080p panel (devicePixelRatio 2), so the short-side boundary
+reads it as a phone and every compact branch — top bar, drawer, viewport composer — follows; moving the
+boundary hands real phones in landscape the desktop rail.
+
+**Right** — the shell choice is the size class AND the modality: `shell_metrics::is_compact_shell(class,
+tv_layout)` is never compact in TV mode, and `window_size::use_is_compact` is its one caller, so every
+compact branch follows. The ten-foot differences that a desktop width would not afford are TV-only CSS
+(`tv.css`: the sidebar slides over the editor) and the input tray (`floating_mount::key_surface`).
+
+**Guard** — `crates/roost-web/tests/shell_metrics.rs`:
+`a_television_reporting_a_phone_sized_viewport_gets_the_desktop_shell`.

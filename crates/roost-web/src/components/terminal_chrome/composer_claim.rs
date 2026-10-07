@@ -28,8 +28,8 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-use super::composer::ComposerPlacement;
 use super::composer_geometry::ComposerSlot;
+use super::composer_placement::ComposerPlacement;
 
 /// The shell's composer slot for this dock, held for as long as it is on screen.
 ///

@@ -32,12 +32,12 @@ use std::rc::Rc;
 
 use dioxus::core::NoOpMutations;
 use dioxus::prelude::*;
-use roost_web::components::terminal_chrome::composer::ComposerPlacement;
 use roost_web::components::terminal_chrome::composer_claim::use_viewport_claim;
 use roost_web::components::terminal_chrome::composer_gate;
 use roost_web::components::terminal_chrome::composer_geometry::{
     ComposerClaim, ComposerSlot, published_geometry,
 };
+use roost_web::components::terminal_chrome::composer_placement::ComposerPlacement;
 
 /// How many render-then-event rounds one change is given, so a queued re-render
 /// has run before the assertion reads the slot.

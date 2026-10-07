@@ -9,25 +9,34 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use dioxus::prelude::*;
+use roost_client_core::ClientEvent;
 use roost_client_core::store::Session;
 use roost_client_core::store::selectors::{newest_open_session_in_folder, session_folder_key};
+use roost_client_core::store::shell_intent::ShellIntent;
+use roost_client_core::store::terminal_nav_pad::terminal_nav_pad_open;
 use roost_web_terminal::terminal_presentation::TerminalPresentationState;
 
-use super::floating_mount::{ctrl_arm_takes_focus, mounts_nav_pad, mounts_viewport_composer};
+use super::floating_mount::{
+    KeySurface, ctrl_arm_takes_focus, display_lift, key_surface, mounts_nav_pad,
+    mounts_viewport_composer,
+};
 use super::pane_handle::{PaneHandle, PaneMountRequest};
 use super::pane_registry::use_pane_registry;
 use super::pane_state::{PaneFlags, PaneUi};
 use super::terminal_drop_target::{TerminalDropOverlay, use_terminal_file_drop};
 use super::terminal_find_bar::TerminalFindBar;
 use super::terminal_jump_to_live::TerminalJumpToLive;
+use super::terminal_nav_keys::{TerminalKeyGrid, use_key_latch_disarm};
 use super::terminal_nav_pad::TerminalNavPad;
 use super::terminal_offline_notice::TerminalOfflineNotice;
 use super::terminal_paste_guard::TerminalPasteGuard;
 use super::terminal_startup_overlay::TerminalStartupOverlay;
 use crate::components::deck::deck_dom;
-use crate::components::layout::window_size::use_is_compact;
+use crate::components::layout::window_size::{use_is_compact, use_tv_layout};
 use crate::components::terminal_chrome::attachment_picker::ChosenFile;
-use crate::components::terminal_chrome::composer::{ComposerPlacement, TerminalComposer};
+use crate::components::terminal_chrome::composer::TerminalComposer;
+use crate::components::terminal_chrome::composer_key_tray::KeyTray;
+use crate::components::terminal_chrome::composer_placement::ComposerPlacement;
 use crate::components::terminal_chrome::pane_geometry_dom::PaneDockHandle;
 use crate::components::terminal_chrome::terminal_upload::upload_into_terminal;
 use crate::input_nav::modality::NavModality;
@@ -50,6 +59,7 @@ struct PaneStoreView {
     title: String,
     offline_sibling: Option<String>,
     drawer_open: bool,
+    nav_pad_open: bool,
 }
 
 /// The pane. Props are v2's `CellTerminalProps`, snake-cased.
@@ -96,9 +106,11 @@ pub fn CellTerminal(
             )
             .map(|sibling| sibling.id.as_str().to_owned()),
             drawer_open: store.ui.sidebar_open,
+            nav_pad_open: terminal_nav_pad_open(store),
         }
     }));
     let view = store_view();
+    use_key_latch_disarm(&pump, ui);
 
     let flags = PaneFlags {
         in_layout: in_layout == Some(true),
@@ -169,21 +181,10 @@ pub fn CellTerminal(
     } else {
         "pan-y"
     };
-    // A dock that grew above its resting row pushes the terminal UP rather
-    // than shrinking it. Every PTY height change makes an inline agent TUI
-    // repaint, and one repainting in place duplicates the rows the shrink
-    // pushed into history — so this is a transform and never a height. Both
-    // branches declare `transform`: Dioxus keeps an inline property the new
-    // style string omits, so a shrink would leave the display lifted.
+    // A dock that grew above its resting row, and an open TV tray, push the
+    // terminal UP rather than shrinking it (`display_lift`).
     let dock = use_hook(PaneDockHandle::new);
     let mut growth_px = use_signal(|| 0_u32);
-    let lift = match growth_px() {
-        0 => "none".to_owned(),
-        growth => format!("translateY(-{growth}px)"),
-    };
-    let display_style = format!(
-        "flex: 1; min-width: 0; min-height: 0; touch-action: {touch_action}; transform: {lift};"
-    );
     let compact = use_is_compact();
     let drawer_open = view.drawer_open;
     let show_viewport_composer = mounts_viewport_composer(
@@ -193,13 +194,21 @@ pub fn CellTerminal(
         drawer_open,
         surface_visible,
     );
-    let show_nav_pad = mounts_nav_pad(
-        in_layout == Some(true),
-        focused == Some(true),
-        compact,
-        directional.is_some_and(|modality| modality.directional_input_active()),
-        drawer_open,
-        surface_visible,
+    let keys = key_surface(
+        mounts_nav_pad(
+            in_layout == Some(true),
+            focused == Some(true),
+            compact,
+            directional.is_some_and(|modality| modality.directional_input_active()),
+            drawer_open,
+            surface_visible,
+        ),
+        use_tv_layout(),
+    );
+    let show_nav_pad = keys == KeySurface::Sheet;
+    let lift = display_lift(growth_px(), keys == KeySurface::Tray && view.nav_pad_open);
+    let display_style = format!(
+        "flex: 1; min-width: 0; min-height: 0; touch-action: {touch_action}; transform: {lift};"
     );
     // The sheet REPORTS a latch change and this pane decides what it means: on
     // a device with no pointer and no directional modality, arming a Ctrl that
@@ -216,8 +225,28 @@ pub fn CellTerminal(
         }
         arm_ctrl.set(armed);
     };
+    let on_ctrl_armed = EventHandler::new(on_ctrl_armed);
     let mut arm_link = ui.link_armed;
-    let on_link_armed = move |armed: bool| arm_link.set(armed);
+    let on_link_armed = EventHandler::new(move |armed: bool| arm_link.set(armed));
+    let key_tray = (keys == KeySurface::Tray).then(|| {
+        let toggle_pump = pump.clone();
+        KeyTray {
+            open: view.nav_pad_open,
+            keys: rsx! {
+                TerminalKeyGrid {
+                    handle: handle.clone(),
+                    ui,
+                    pump: pump.clone(),
+                    on_ctrl_armed,
+                    on_link_armed,
+                    placement: "tray",
+                }
+            },
+            on_toggle: EventHandler::new(move |()| {
+                toggle_pump.dispatch(ClientEvent::Shell(ShellIntent::ToggleNavPad));
+            }),
+        }
+    });
     // The attach button uploads and then types the committed path into this
     // pane's own PTY, which is the one sink a composer has: a file the user
     // picked for THIS terminal belongs in THIS terminal.
@@ -320,6 +349,7 @@ pub fn CellTerminal(
                     read_context: Some(crate::components::terminal::cell_terminal_dictation::dictation_context(panes.clone(), session_id.as_str())),
                     on_measured: move |measured: u32| growth_px.set(measured),
                     dock_handle: dock,
+                    key_tray: key_tray.clone(),
                 }
             }
             if show_nav_pad {
@@ -327,8 +357,8 @@ pub fn CellTerminal(
                     handle: handle.clone(),
                     ui,
                     pump: pump.clone(),
-                    on_ctrl_armed: EventHandler::new(on_ctrl_armed),
-                    on_link_armed: EventHandler::new(on_link_armed),
+                    on_ctrl_armed,
+                    on_link_armed,
                 }
             }
             if let Some(text) = (ui.pending_paste)() {
