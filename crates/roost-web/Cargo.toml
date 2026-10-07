@@ -17,6 +17,9 @@ workspace = true
 # hook has to be installed before the first component renders.
 crate-type = ["cdylib", "rlib"]
 
+[dev-dependencies]
+rqrr = { workspace = true }
+
 [dependencies]
 roost-client-core = { workspace = true }
 roost-platform = { workspace = true }
@@ -32,6 +35,7 @@ futures-util = { workspace = true }
 # the derives and the codec are product code.
 serde = { workspace = true }
 serde_json = { workspace = true }
+qrcode = { workspace = true }
 
 thiserror = { workspace = true }
 tracing = { workspace = true }

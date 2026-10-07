@@ -1,13 +1,14 @@
 //! `roost add-browser` — mint one browser pairing grant and print the URL that
-//! spends it. Called by the crate's dispatcher. Depends on `add_machine` for
-//! where the coordinator's database and installed definition are, on
-//! `quickstart::grant` for the grant, and on `quickstart::pairing_url` for the
-//! URL shape `roost quickstart` opens.
+//! spends it, with a QR code a phone can scan. Called by the crate's
+//! dispatcher. Depends on `add_machine` for where the coordinator's database
+//! and installed definition are, on `quickstart::grant` for the grant, and on
+//! `quickstart::browser_pairing` for the link and its QR.
 //!
 //! It exists for a coordinator no browser has paired with yet and no desktop
 //! can open: a container, a VM, a server reached over SSH. The operator runs it
 //! where the coordinator's database is reachable and opens the printed URL
-//! wherever they have a browser. stdout carries the URL and nothing else.
+//! wherever they have a browser, or scans the QR with a phone. stdout carries
+//! the URL and nothing else; the QR and the notes are stderr.
 
 use std::process::ExitCode;
 
@@ -19,27 +20,31 @@ use crate::command_error::CommandFailure;
 use crate::quickstart::add_machine::{
     coordinator_database, installed_coordinator, missing_database_refusal,
 };
+use crate::quickstart::browser_pairing::{PairingQr, print_pairing_link};
 use crate::quickstart::grant::{GrantKind, mint_host_grant};
-use crate::quickstart::pairing_url;
 use crate::status::service_definition::{InstalledEnvironment, declared_value};
 use crate::wall_clock;
 
 /// The label a grant gets when the operator names none.
 const DEFAULT_BROWSER_GRANT_LABEL: &str = "add-browser";
 
-/// `roost add-browser [--label NAME]`.
+/// `roost add-browser [--label NAME] [--no-qr]`.
 #[derive(Debug, Args)]
 #[command(
     about = "Mint a one-shot browser pairing grant and print the URL that spends it",
-    long_about = "Mints a one-shot browser grant and prints the pairing URL. Run it where the \
+    long_about = "Mints a one-shot browser grant and prints the pairing URL, with a QR code a \
+                  phone camera can open when stderr is a terminal. Run it where the \
                   coordinator's database is reachable — on its host, or inside its container. \
                   The URL's origin is ROOST_WEB_PUBLIC_URL when the coordinator declares one, \
-                  else the coordinator's loopback port."
+                  else the coordinator's loopback port, which a phone cannot reach."
 )]
 pub struct AddBrowserArgs {
     /// The name the grant is recorded under until a browser spends it.
     #[arg(long, value_name = "NAME")]
     pub label: Option<String>,
+    /// Print the URL without the QR code drawn beside it.
+    #[arg(long)]
+    pub no_qr: bool,
 }
 
 pub async fn run(args: &AddBrowserArgs) -> Result<ExitCode, CommandFailure> {
@@ -60,7 +65,8 @@ pub async fn run(args: &AddBrowserArgs) -> Result<ExitCode, CommandFailure> {
     }
     let grant =
         mint_host_grant(&database, GrantKind::Browser, &label, wall_clock::now_ms()).await?;
-    println!("{}", pairing_url(&origin, grant.expose()));
+    let link = roost_platform::browser_pairing_link(&origin, grant.expose());
+    print_pairing_link(&origin, &link, PairingQr::from_no_qr_flag(args.no_qr));
     eprintln!(
         "The grant is one-shot and is accepted for 24 hours. Open the URL in the browser to pair; \
          anyone who opens it first pairs instead."

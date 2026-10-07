@@ -25,12 +25,14 @@
 
 pub mod add_browser;
 pub mod add_machine;
+pub mod browser_pairing;
 pub mod endpoint;
 pub mod enrolled_worker;
 pub mod grant;
 pub mod install;
 pub mod join;
 pub mod join_identity;
+mod pairing_qr;
 pub mod plan;
 pub mod self_link;
 pub mod specs;
@@ -44,6 +46,7 @@ use clap::Args;
 use roost_host::{HostPlatform, ProcessEnv};
 
 use crate::command_error::CommandFailure;
+use crate::quickstart::browser_pairing::{PairingQr, open_paired_browser, print_pairing_link};
 use crate::quickstart::endpoint::QuickstartEndpoint;
 use crate::quickstart::grant::{GrantKind, mint_host_grant};
 use crate::quickstart::install::{
@@ -102,6 +105,9 @@ pub struct QuickstartArgs {
     /// coordinator serving it answers 404 for every URL and reports itself up.
     #[arg(long, value_name = "DIR")]
     pub web_dist: Option<PathBuf>,
+    /// Print a pairing link without the QR code drawn beside it.
+    #[arg(long)]
+    pub no_qr: bool,
 }
 
 pub async fn run(args: &QuickstartArgs) -> Result<ExitCode, CommandFailure> {
@@ -138,7 +144,14 @@ pub async fn run(args: &QuickstartArgs) -> Result<ExitCode, CommandFailure> {
             installed.as_ref(),
         );
     }
-    install_everything(&env, platform, endpoint, args.web_dist.as_deref()).await
+    install_everything(
+        &env,
+        platform,
+        endpoint,
+        args.web_dist.as_deref(),
+        PairingQr::from_no_qr_flag(args.no_qr),
+    )
+    .await
 }
 
 fn dry_run(
@@ -165,6 +178,7 @@ async fn install_everything(
     platform: HostPlatform,
     endpoint: QuickstartEndpoint,
     web_dist: Option<&Path>,
+    pairing_qr: PairingQr,
 ) -> Result<ExitCode, CommandFailure> {
     // Before the first write: a refusal here leaves the machine untouched
     // instead of holding programs for services that would die at logout.
@@ -269,9 +283,13 @@ async fn install_everything(
         wall_clock::now_ms(),
     )
     .await?;
-    match open_paired_browser(platform, &endpoint, browser_grant.expose()) {
-        Ok(()) => {}
-        Err(remedy) => eprintln!("{remedy}"),
+    let link = roost_platform::browser_pairing_link(&endpoint.origin, browser_grant.expose());
+    if let Err(reason) = open_paired_browser(platform, &link) {
+        eprintln!(
+            "  {reason} Open this link on the device to pair, or rerun `roost quickstart` to \
+             pair this browser again:"
+        );
+        print_pairing_link(&endpoint.origin, &link, pairing_qr);
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -304,59 +322,6 @@ async fn wait_for_coordinator(
         }
         tokio::time::sleep(HEALTH_POLL).await;
     }
-}
-/// was given, and a fragment is never sent to the coordinator as a request
-/// path, so the grant stays in the page rather than in a server log.
-fn open_paired_browser(
-    platform: HostPlatform,
-    endpoint: &QuickstartEndpoint,
-    grant: &str,
-) -> Result<(), String> {
-    let opener = match platform {
-        HostPlatform::MacOs => "open",
-        HostPlatform::Linux => "xdg-open",
-        HostPlatform::Windows => {
-            return Err("this platform has no browser opener in Roost v3".to_string());
-        }
-    };
-    let paired = pairing_url(&endpoint.origin, grant);
-    std::process::Command::new(opener)
-        .arg(&paired)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map(|_| ())
-        .map_err(|_| {
-            format!(
-                "  a browser could not be opened at {}. Open {paired} yourself, or rerun \
-                 `roost quickstart` to pair this browser again.",
-                endpoint.origin
-            )
-        })
-}
-
-/// The URL that pairs a browser by spending `grant`. The grant rides in the
-/// fragment, which a browser never sends to the server, so it stays out of
-/// request logs.
-pub fn pairing_url(origin: &str, grant: &str) -> String {
-    format!("{origin}/#pair={}", urlencode(grant))
-}
-
-/// Percent-encode the one value that travels in a URL fragment. Everything else
-/// this command prints is a path an operator copies, and a path with a space in
-/// it is still a path.
-fn urlencode(value: &str) -> String {
-    let mut encoded = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                encoded.push(char::from(byte));
-            }
-            other => encoded.push_str(&format!("%{other:02X}")),
-        }
-    }
-    encoded
 }
 
 /// The block that answers "did that work, and what now".

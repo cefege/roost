@@ -707,7 +707,7 @@ half-written one. The command is **idempotent**: a second run reports
 ## `roost quickstart`
 
 ```
-roost quickstart [--coordinator-url URL] [--web-dist DIR] [--dry-run]
+roost quickstart [--coordinator-url URL] [--web-dist DIR] [--dry-run] [--no-qr]
 ```
 
 Installs this build's `roost` and `roost-keeper` into the release directory,
@@ -739,6 +739,11 @@ state of a machine that was given no bundle: the coordinator writes
 `ROOST_WEB_DIST_PATH=` blank (an absent entry would fall back to the service
 manager's own environment, which is how a cleared value comes back stale) and
 the worker's definition carries no such key at all.
+
+**When no browser can be opened** (no opener on the platform, or the opener
+cannot be started), the pairing URL is printed on stdout with the reason on
+stderr, and the QR code `roost add-browser` draws is drawn above it.
+**`--no-qr`** prints the URL alone.
 
 **Log rotation is installed by the first run, not left to the operator.** One
 `logrotate.d` entry per role and a shared pair of user units that run it, in
@@ -881,7 +886,7 @@ install to enroll, and the refusal says so.
 ## `roost add-browser`
 
 ```
-roost add-browser [--label NAME]
+roost add-browser [--label NAME] [--no-qr]
 ```
 
 Mints a one-shot browser grant against this coordinator's database and prints
@@ -895,9 +900,13 @@ declared `ROOST_WEB_PUBLIC_URL` (installed definition, then environment), else
 fragment, which a browser never sends to a server.
 
 **stdout** is the URL and nothing else; **stderr** notes that the grant is
-one-shot and accepted for 24 hours. **Exit codes.** 0 on a minted grant; 1 for
-no resolvable database, an unusable declared front door, or a `--label`
-carrying a control character.
+one-shot and accepted for 24 hours. When stderr is a terminal and `--no-qr` is
+absent, stderr also carries the URL as a QR code in Unicode half blocks, black
+on bright white whatever the terminal's theme, so a phone camera opens it and
+pairs with no typing. A loopback origin gets a one-line note instead of a code,
+because a phone that scans it reaches its own loopback. **Exit codes.** 0 on a
+minted grant; 1 for no resolvable database, an unusable declared front door, or
+a `--label` carrying a control character.
 
 ---
 

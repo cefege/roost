@@ -23,6 +23,7 @@ use roost_client_core::store::shell_intent::ShellIntent;
 
 use super::format::format_timestamp;
 use crate::components::md::{Button, ButtonVariant, Card, EmptyState, List, ListRow};
+use crate::components::pairing::PhonePairingCard;
 use crate::pump::{Pump, use_store};
 use crate::router_state::use_navigate;
 use crate::routes::Route;
@@ -81,12 +82,13 @@ pub fn DevicesPane() -> Element {
                     }
                 }
             }
+            PhonePairingCard {}
             Card {
-                title: "Pair a device",
-                supporting: "Open Roost on the other device and scan the link it shows. It pairs automatically — no typing.",
+                title: "Approve a browser",
+                supporting: "A browser that requested access waits on the pairing page until you approve it with the code it shows.",
                 Button {
-                    variant: ButtonVariant::Default,
-                    icon: "qr_code_scanner",
+                    variant: ButtonVariant::Secondary,
+                    icon: "devices",
                     "data-testid": "settings-pair-device",
                     onclick: move |_| navigate.call(Route::Pair.to_path()),
                     "Open pairing"

@@ -11,6 +11,7 @@
 pub mod agent_config;
 pub mod attachments;
 pub mod audit;
+pub mod bootstrap;
 pub mod devices;
 pub mod machines;
 pub mod mcp;

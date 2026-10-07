@@ -16,6 +16,7 @@
 //! is `protocol/spec/auth-and-pairing.md`.
 
 use roost_client_core::KeyValueStore as _;
+use roost_platform::PAIR_FRAGMENT_KEY;
 
 use crate::platform::storage::SessionStorageKeyValueStore;
 
@@ -45,14 +46,14 @@ pub enum FragmentCredential {
 /// chat client leaked the token to that client's servers.
 pub fn parse_fragment_credential(hash: &str) -> FragmentCredential {
     let body = hash.strip_prefix('#').unwrap_or(hash);
-    if !body.contains("pair") {
+    if !body.contains(PAIR_FRAGMENT_KEY) {
         return FragmentCredential::None;
     }
     let values: Vec<&str> = body
         .split('&')
         .filter_map(|segment| {
             let (key, value) = segment.split_once('=')?;
-            (key == "pair").then_some(value)
+            (key == PAIR_FRAGMENT_KEY).then_some(value)
         })
         .collect();
     match values.as_slice() {
@@ -91,7 +92,7 @@ fn strip_pair_field(value: &str, prefix: char) -> String {
     let kept: Vec<&str> = segments
         .iter()
         .copied()
-        .filter(|segment| segment_key(segment).as_deref() != Some("pair"))
+        .filter(|segment| segment_key(segment).as_deref() != Some(PAIR_FRAGMENT_KEY))
         .collect();
     if kept.len() == segments.len() {
         return value.to_string();
