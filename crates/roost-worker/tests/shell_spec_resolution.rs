@@ -218,12 +218,25 @@ fn a_shell_is_launched_with_a_bootstrap_that_reports_its_folder() {
 /// The bash bootstrap, run by a real bash: every finished command reports its
 /// status with OSC 133 `D` before the next prompt's `A`, `PS0` marks each
 /// command's output with `C`, and the user's own `PROMPT_COMMAND` (a starship,
-/// say) still sees the command's real `$?`. Skipped on a host without bash.
+/// say) still sees the command's real `$?`. bash older than 4.4 (macOS's
+/// bundled 3.2) has no PS0, so it gets no `C` mark and the assertion expects
+/// none. Skipped on a host without bash.
 #[test]
 fn the_bash_bootstrap_marks_commands_and_keeps_the_users_exit_status() {
     let Ok(bash) = which_bash() else {
         return;
     };
+    let version = std::process::Command::new(&bash)
+        .args(["-c", "echo ${BASH_VERSINFO[0]} ${BASH_VERSINFO[1]}"])
+        .output()
+        .expect("bash reports its version");
+    let mut parts = String::from_utf8_lossy(&version.stdout)
+        .split_whitespace()
+        .map(|part| part.parse::<u32>().unwrap_or(0))
+        .collect::<Vec<_>>()
+        .into_iter();
+    let (major, minor) = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
+    let has_ps0 = major > 4 || (major == 4 && minor >= 4);
     let scratch = Scratch::new("spec-bootstrap-run");
     let home = scratch.path("home");
     std::fs::create_dir_all(&home).expect("the fixture makes a home");
@@ -234,7 +247,7 @@ fn the_bash_bootstrap_marks_commands_and_keeps_the_users_exit_status() {
         ShellFlavour::Bash,
     )
     .expect("the bootstrap is written");
-    let mut child = std::process::Command::new(bash)
+    let mut child = std::process::Command::new(&bash)
         .args(["--noprofile", "--rcfile"])
         .arg(&rcfile)
         .arg("-i")
@@ -273,10 +286,11 @@ fn the_bash_bootstrap_marks_commands_and_keeps_the_users_exit_status() {
         stdout.contains("user-saw-1"),
         "the user's PROMPT_COMMAND lost the real exit status: {stdout:?}"
     );
+    let expected_c = if has_ps0 { 2 } else { 0 };
     assert_eq!(
         stderr.matches("\x1b]133;C\x07").count(),
-        2,
-        "PS0 marks each command's output once: {stderr:?}"
+        expected_c,
+        "PS0 (bash 4.4+) marks each command's output once; bash {major}.{minor}: {stderr:?}"
     );
 }
 
