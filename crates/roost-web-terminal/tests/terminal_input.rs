@@ -271,6 +271,22 @@ fn the_modifier_parameter_is_xterms_shift_alt_ctrl_sum() {
 }
 
 
+#[test]
+fn unmapped_functional_keys_do_not_guess_legacy_bytes() {
+    assert_eq!(
+        KeyKind::from_dom_key("F13"),
+        KeyKind::Named(NamedKey::Function(13))
+    );
+    assert_eq!(named(NamedKey::Function(13)).to_bytes(false), None);
+    assert_eq!(
+        KeyKind::from_dom_key("ContextMenu"),
+        KeyKind::Named(NamedKey::Functional(57363))
+    );
+    assert_eq!(named(NamedKey::Functional(57363)).to_bytes(false), None);
+    assert!(named(NamedKey::Function(12)).to_bytes(false).is_some());
+    assert!(named(NamedKey::Function(12)).to_bytes(true).is_some());
+}
+
 /// Every chord the pane can produce, in both cursor modes.
 fn the_panes_key_space() -> Vec<(KeyChord, bool)> {
     let modifier_sets = [

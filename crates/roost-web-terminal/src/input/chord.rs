@@ -25,22 +25,39 @@ pub enum KeyKind {
 /// The named keys the encoder gives an escape sequence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NamedKey {
+    /// Arrow, Home, and End keys use CSI or SS3 according to cursor-key mode.
     ArrowUp,
+    /// See `ArrowUp`.
     ArrowDown,
+    /// See `ArrowUp`.
     ArrowRight,
+    /// See `ArrowUp`.
     ArrowLeft,
+    /// See `ArrowUp`.
     Home,
+    /// See `ArrowUp`.
     End,
+    /// Insert, Delete, PageUp, and PageDown use `CSI n ~`.
     Insert,
+    /// See `Insert`.
     Delete,
+    /// See `Insert`.
     PageUp,
+    /// See `Insert`.
     PageDown,
+    /// F1–F35. F1/F2/F4 use SS3, F3 uses `CSI 13 ~` to avoid cursor-report
+    /// ambiguity, and F5–F12 use `CSI n ~`. F13–F35 use Kitty PUA codes only
+    /// when protocol flags are enabled; legacy mode emits no guessed bytes.
     Function(u8),
+    /// Enter retains its legacy control byte except in all-key reporting mode.
     Enter,
+    /// Backspace retains its legacy control byte except in all-key reporting mode.
     Backspace,
+    /// Tab retains its legacy control byte except in all-key reporting mode.
     Tab,
+    /// Escape uses its legacy byte unless Kitty disambiguation is enabled.
     Escape,
-    /// A kitty functional key code (57358–57454).
+    /// A Kitty functional key code from the PUA functional-key table.
     Functional(u16),
 }
 
@@ -97,11 +114,14 @@ impl NamedKey {
             Self::Backspace => "Backspace",
             Self::Tab => "Tab",
             Self::Escape => "Escape",
+            // Do not invent a spelling for unsupported function or generic functional codes.
             Self::Function(_) | Self::Functional(_) => "",
         }
     }
 
-    /// The name for `key`, or `None` for an unrecognized key.
+    /// The name for `key`, or `None` for an unrecognized key. F13–F35 map to
+    /// Kitty functional keys; in legacy mode the encoder still emits no guessed
+    /// bytes for them.
     pub fn from_dom_key(key: &str) -> Option<Self> {
         let named = match key {
             "ArrowUp" => Self::ArrowUp,
