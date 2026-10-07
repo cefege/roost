@@ -7,6 +7,7 @@
 //! Depends on `roost_protocol` for the session projection, and on the terminal
 //! and sync modules for their own state. It adds no rules of its own.
 
+pub mod agent_launcher;
 pub mod browse_entries;
 pub mod browse_machine;
 pub mod browse_paths;
@@ -193,6 +194,10 @@ pub struct Store {
     /// Sessions whose close is waiting out its undo window. Mutated only
     /// through `store::pending_close`.
     pub pending_closes: PendingCloses,
+    /// The default-agent launch configuration the coordinator answered with.
+    /// Mutated only through `store::agent_launcher`; `None`-commanded until a
+    /// coordinator has answered, so a pre-answer spawn launches nothing.
+    pub agent_launcher: crate::store::agent_launcher::AgentLauncherState,
     /// The MCP relays the coordinator published. Mutated only through
     /// `store::mutations`.
     pub mcp_relays: BTreeMap<String, McpRelay>,
@@ -302,6 +307,7 @@ impl Store {
             spawns: SpawnLedger::new(),
             pending_closes: PendingCloses::new(),
             mcp_relays: BTreeMap::new(),
+            agent_launcher: crate::store::agent_launcher::AgentLauncherState::default(),
             pair_requests: BTreeMap::new(),
             workspaces: BTreeMap::new(),
             tasks: BTreeMap::new(),

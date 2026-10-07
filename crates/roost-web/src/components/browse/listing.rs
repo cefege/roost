@@ -256,6 +256,9 @@ async fn run_launch_terminal(
         )
     };
     tracing::info!(target: "browse", session_id, path = %path, "browse launch landed");
+    // The launcher configuration types its agent command into every new
+    // terminal, not only the deck's (v2 `workerBrowseActions.ts:55`).
+    crate::components::deck::terminal_deck_spawn::launch_configured_agent(&pump, &session_id);
     pump.dispatch(ClientEvent::Sidebar(
         roost_client_core::store::sidebar::SidebarIntent::RememberVisit {
             session_id: session_id.clone(),

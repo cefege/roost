@@ -1,9 +1,12 @@
 //! The deck's spawn flows: a new tab in a pane and a split beside the focused
 //! pane. Each asks `SessionsSpawn` for a shell in the anchor terminal's folder,
-//! waits briefly for the coordinator's row, and lands it through
-//! `DeckSpawn::landed`; a refusal raises `DeckSpawn::refused`'s card. Called by
-//! `terminal_deck_operations`. Ports the async half of `newTab` and `split` in
-//! `apps/web/src/components/deck/terminal-deck-operations.ts`.
+//! waits briefly for the coordinator's row, lands it through
+//! `DeckSpawn::landed`, and — when the launcher configuration says so — types
+//! the configured agent's command into the fresh PTY once. A refusal raises
+//! `DeckSpawn::refused`'s card. Called by `terminal_deck_operations`. Ports the
+//! async half of `newTab` and `split` in
+//! `apps/web/src/components/deck/terminal-deck-operations.ts`, including its
+//! `maybeAutoLaunchAgent` step.
 
 use roost_client_core::Store;
 use roost_client_core::deck::DeckSpawn;
@@ -121,6 +124,36 @@ mod web {
             return;
         };
         tracing::info!(target: "deck", kind = spawn.kind_name(), session_id, "deck spawn landed");
+        launch_configured_agent(&pump, &session_id);
         pump.dispatch(ClientEvent::Deck(spawn.landed(folder, session_id, compact)));
     }
+
+    pub(super) fn launch_configured_agent(pump: &Pump, session_id: &str) {
+        let Some(command) = pump.core().borrow().store().agent_launcher.launch_command() else {
+            return;
+        };
+        tracing::info!(target: "deck", session_id, %command, "auto-launching configured agent");
+        let mut bytes = command.into_bytes();
+        bytes.extend_from_slice(&roost_protocol::terminal_input::CR_BYTES);
+        pump.dispatch(ClientEvent::TerminalInput {
+            session_id: session_id.to_owned(),
+            view_id: None,
+            bytes,
+        });
+    }
+}
+
+/// Type the launcher's agent command into a freshly spawned PTY, once, when
+/// the launcher configuration says a new terminal auto-launches. v2's
+/// `maybeAutoLaunchAgent`: the command is `resolveAgent().command + "\r"`, and
+/// a dropped batch is logged and NOT retried — a second attempt would
+/// double-type an agent the first attempt may have started. Every spawn
+/// surface routes through this one helper, so the deck's tabs, splits and
+/// swipes and the browse launch all behave alike. A native build has no
+/// coordinator-held configuration, so it never launches.
+pub fn launch_configured_agent(pump: &Pump, session_id: &str) {
+    #[cfg(target_arch = "wasm32")]
+    web::launch_configured_agent(pump, session_id);
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = (pump, session_id);
 }

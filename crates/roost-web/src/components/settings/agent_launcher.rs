@@ -148,6 +148,14 @@ fn load(pump: Pump, draft: Signal<LauncherDraft>) {
         let mut draft = draft;
         match pump.rpc().call(&GetAgentConfig).await {
             Ok(stored) => {
+                pump.write_store(|store| {
+                    roost_client_core::store::agent_launcher::apply_stored_agent_config(
+                        store,
+                        stored.selected.clone(),
+                        stored.custom_command.clone(),
+                        stored.auto_launch,
+                    );
+                });
                 let mut draft = draft.write();
                 draft.selected = stored.selected.clone();
                 draft.custom = stored.custom_command.clone();
@@ -244,6 +252,14 @@ fn commit(
         let stored = draft.peek().stored.clone();
         match pump.rpc().call(&request).await {
             Ok(answered) => {
+                pump.write_store(|store| {
+                    roost_client_core::store::agent_launcher::apply_stored_agent_config(
+                        store,
+                        answered.selected.clone(),
+                        answered.custom_command.clone(),
+                        answered.auto_launch,
+                    );
+                });
                 {
                     let mut draft = draft.write();
                     draft.selected = answered.selected.clone();
@@ -274,4 +290,50 @@ fn commit(
     });
     #[cfg(not(target_arch = "wasm32"))]
     let _ = (pump, draft, wanted, failure_prefix, success);
+}
+
+/// The document-wide reader of the stored launcher configuration: one fetch at
+/// boot, so a new terminal anywhere in the app auto-launches the agent the
+/// coordinator holds, whether or not the Settings pane is open. v2 reads the
+/// same value in `main.tsx`'s `loadAgentConfig()`.
+#[cfg(target_arch = "wasm32")]
+#[component]
+pub fn AgentLauncherLoader() -> Element {
+    let pump = use_store();
+    use_effect(move || {
+        wasm_bindgen_futures::spawn_local({
+            let pump = pump.clone();
+            async move {
+                match pump.rpc().call(&GetAgentConfig).await {
+                    Ok(stored) => {
+                        tracing::info!(
+                            target: "settings",
+                            selected = %stored.selected,
+                            auto_launch = stored.auto_launch,
+                            "agent launcher configuration read"
+                        );
+                        pump.write_store(|store| {
+                            roost_client_core::store::agent_launcher::apply_stored_agent_config(
+                                store,
+                                stored.selected.clone(),
+                                stored.custom_command.clone(),
+                                stored.auto_launch,
+                            );
+                        });
+                    }
+                    Err(error) => {
+                        tracing::warn!(target: "settings", %error, "agent config read refused at boot");
+                    }
+                }
+            }
+        });
+    });
+    rsx! {}
+}
+
+/// A native build has no coordinator to ask, so there is nothing to read.
+#[cfg(not(target_arch = "wasm32"))]
+#[component]
+pub fn AgentLauncherLoader() -> Element {
+    rsx! {}
 }

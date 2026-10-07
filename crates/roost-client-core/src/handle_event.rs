@@ -118,6 +118,10 @@ pub fn handle_event(
             store.account_id = None;
             store.sessions = crate::sessions::SessionPlane::new();
             store.find_results.clear();
+            // The launcher configuration goes with the credential too: an
+            // answer from the previous account would auto-launch ITS agent in
+            // the next account's terminals.
+            crate::store::agent_launcher::discard_agent_launcher_config(store);
             // The recovery cursor goes with the credential. A persisted global
             // cursor would make the next socket's initial history invisible
             // (`apps/web/src/store/sync-frame.ts:55-69`).
