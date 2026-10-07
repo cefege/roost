@@ -71,9 +71,11 @@ live session by machine, so the fleet stays legible in one browser tab.
 browser — macOS, Windows, and Linux desktops, iPhone, Android phones, iPads,
 and Android tablets. Nothing is installed on the device you browse from.
 Roost renders ANSI, colors, and retained scrollback; uploads files into a
-session and downloads files from a worker. Tablets keep the desktop layout,
-panes, and shortcuts. Phones add touch selection, an on-screen key row, and
-gestures. Add it to your home screen for a standalone PWA with its own icon.
+session (with dedup and a route chip), previews any file from a worker with
+syntax highlighting, and opens file paths straight from the terminal. Tablets
+keep the desktop layout, panes, and shortcuts. Phones add touch selection, an
+on-screen key row, and gestures. Add it to your home screen for a standalone
+PWA with its own icon.
 
 ![Desktop-grade on a tablet, the same real terminal and layout as a laptop](docs/media/tablet-desktop.png)
 
@@ -103,11 +105,9 @@ lossless byte log.
 state — working, needs input, or done — on its sidebar row, tab, mobile card,
 and folder rollup (`2 working · 1 needs input`). Plain shells stay unmarked.
 OMP and Pi report their own lifecycle, including "waiting on you"; other agents
-are detected from what their terminal shows. When a background agent stops for
-input or finishes, you get a toast, an unseen count in the tab title, and —
-after you grant permission in Settings → Notifications — a real OS notification
-on your phone or laptop that opens straight to that session. Nothing about
-status is stored: restart anything and it re-derives itself.
+are detected from what their terminal shows. When a background agent stops for input
+or finishes, you get a toast and an unseen count in the tab title. Nothing
+about status is stored: restart anything and it re-derives itself.
 
 **The terminal is the only interactive surface.** Every session owns a PTY.
 The worker feeds its output through an Alacritty-based terminal core
@@ -202,16 +202,13 @@ rerun quickstart, or pair from an already authorized browser; never move an
 enrollment secret through shell history, chat, logs, or screenshots.
 
 To add a phone, first make the promoted HTTPS origin reachable to it, then use
-**Settings → Pair a device**. To add a macOS/Linux worker, use **Settings →
-Machines → Add machine**. A local-only coordinator shows the promotion guidance
-and does not mint a command. After configuring the HTTPS front door, select
-**Check again**, generate the command, and run it manually on the target through
-your normal terminal, SSH session, or cloud console. The target must reach the
-declared origin; Roost does not test that path or log in to configure it.
+**Settings → Pair a device**: a browser that is already paired approves the
+request and shows a 6-digit code to type on the new device, which then signs
+itself in.
 
 The full walkthrough is in [`GETTING_STARTED.md`](GETTING_STARTED.md).
 
-![Pair a phone or tablet by scanning a QR; it signs itself in, nothing to type](docs/media/pair-qr.png)
+![Pairing a phone: an already-paired browser approves the request and shows a 6-digit code](docs/media/pair-qr.png)
 
 ## Roost vs. driving agents from the cloud
 
@@ -230,7 +227,8 @@ Your desktop browser stays perfectly usable for claude.ai. Roost isn't a replace
 
 ## Status
 
-v3 ships as `v3.0.0-rc.N` pre-releases on GitHub:
+v3 releases install from the newest stable `v3.*` tag (pre-releases while no
+stable tag exists; `ROOST_RELEASE_CHANNEL=prerelease` opts into pre-releases):
 
 - **Hosts:** macOS arm64/x64 and Linux arm64/x64. Windows is a browser client
   only.
@@ -245,8 +243,8 @@ v3 ships as `v3.0.0-rc.N` pre-releases on GitHub:
 
 ## Built with
 
-- **Web:** Dioxus 0.7 compiled to wasm (`roost-web`), a `web-sys` canvas
-  cell-grid renderer (`roost-web-terminal`), and the UI-free client state
+- **Web:** Dioxus 0.7 compiled to wasm (`roost-web`), an imperative `web-sys`
+  DOM row renderer with no framework code (`roost-web-terminal`), and the UI-free client state
   machine (`roost-client-core`)
 - **Coordinator:** Rust, axum, Connect-RPC (`connectrpc`) + protobuf, sqlx on
   SQLite or Postgres, transactional event projection, EdDSA-JWT auth

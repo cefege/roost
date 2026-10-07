@@ -42,8 +42,8 @@ const STEP_TWO_TAIL: &str = "on the coordinator machine. This first switches Roo
 trust profile.";
 const STEP_THREE_LEAD: &str = "Configure the front door to forward to the installed loopback bind \
 and overwrite XFF. Tailscale Serve is an optional default-port example:";
-const STEP_THREE_COMMAND: &str = "tailscale serve --bg --https=443 http://127.0.0.1:4103";
-const STEP_THREE_TAIL: &str = "An operator-changed loopback port must replace 4103. Both machines \
+const STEP_THREE_COMMAND: &str = "tailscale serve --bg --https=443 http://127.0.0.1:4113";
+const STEP_THREE_TAIL: &str = "An operator-changed loopback port must replace 4113. Both machines \
 must have the required tailnet route/ACL access; WireGuard alone does not supply HTTPS.";
 const STEP_FOUR_LEAD: &str = "Return to this dialog and choose ";
 const STEP_FOUR_TAIL: &str = ". Generate the join command only after the coordinator advertises a \
