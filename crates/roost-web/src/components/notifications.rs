@@ -8,6 +8,7 @@
 pub mod agent_notifications;
 pub mod clipboard;
 pub mod connection_banner;
+pub mod desktop_push_bridge;
 pub mod notify_target;
 pub mod pad_hint_bar;
 pub mod store_write;
@@ -63,5 +64,6 @@ pub fn NotificationDock() -> Element {
         version_banner::VersionBanner {}
         agent_notifications::AgentNotifications {}
         agent_notifications::AgentAttention {}
+        desktop_push_bridge::DesktopPushBridge {}
     }
 }

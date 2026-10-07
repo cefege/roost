@@ -29,6 +29,11 @@ mod indexed_db;
 use bearer_cache::BearerCache;
 use lifecycle::{KeyVault, LoadedKey};
 
+/// A thrown JS value as one line of text, for every browser API error the web
+/// client reports, not only IndexedDB's.
+#[cfg(target_arch = "wasm32")]
+pub use indexed_db::describe_js;
+
 #[cfg(target_arch = "wasm32")]
 type PlatformVault = browser_vault::BrowserVault;
 #[cfg(not(target_arch = "wasm32"))]

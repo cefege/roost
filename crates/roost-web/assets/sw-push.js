@@ -1,5 +1,16 @@
-// Roost Web Push service worker. Payload:
+// Roost Web Push service worker, registered by crate::web_push at scope "/".
+// Payload (roost-coord push/dispatch.rs AgentPushPayload):
 // { sessionId, kind: "blocked" | "done", title, body }
+
+// An updated worker replaces the one a browser already runs at once, rather
+// than after every Roost window has closed.
+self.addEventListener("install", () => {
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(self.clients.claim());
+});
 
 self.addEventListener("push", (event) => {
   if (!event.data) return;
@@ -28,6 +39,9 @@ self.addEventListener("push", (event) => {
   }));
 });
 
+// A click focuses an open Roost window and asks it to route in place (the app
+// listens for "roost-navigate" and keeps its live state); with no window open
+// it opens the session's URL.
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const value = event.notification.data?.sessionId;
@@ -35,10 +49,12 @@ self.addEventListener("notificationclick", (event) => {
   const target = sessionId ? `/s/${encodeURIComponent(sessionId)}` : "/";
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-    for (const client of windows) {
-      if (!("navigate" in client) || !("focus" in client)) continue;
-      await client.navigate(target);
-      await client.focus();
+    const client = windows.find((candidate) => candidate.focused)
+      ?? windows.find((candidate) => candidate.visibilityState === "visible")
+      ?? windows[0];
+    if (client) {
+      if (sessionId) client.postMessage({ type: "roost-navigate", sessionId });
+      if ("focus" in client) await client.focus();
       return;
     }
     await self.clients.openWindow?.(target);
