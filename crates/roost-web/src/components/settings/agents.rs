@@ -21,12 +21,18 @@ pub struct AgentDef {
 }
 
 /// Every built-in agent, in the picker's order.
-pub const BUILTIN_AGENTS: [AgentDef; 10] = [
+pub const BUILTIN_AGENTS: [AgentDef; 11] = [
     AgentDef {
         id: "codex",
         label: "OpenAI Codex",
         command: "codex",
         glyph: "Cx",
+    },
+    AgentDef {
+        id: "claude",
+        label: "Claude Code",
+        command: "claude",
+        glyph: "C",
     },
     AgentDef {
         id: "gemini",

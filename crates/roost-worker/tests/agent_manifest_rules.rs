@@ -239,9 +239,10 @@ fn copilot_background_agent_wait_outranks_the_generic_cancel_hint() {
 }
 
 #[test]
-fn detects_working_fixtures_for_all_ten_built_ins() {
+fn detects_working_fixtures_for_all_eleven_built_ins() {
     let fixtures = [
         (BuiltinAgentId::Codex, "", "codex ⠋ task", ""),
+        (BuiltinAgentId::Claude, "⏸ esc to interrupt · 12s", "", ""),
         (BuiltinAgentId::Gemini, "esc to cancel", "", ""),
         (BuiltinAgentId::OpenCode, "press esc to interrupt", "", ""),
         (BuiltinAgentId::Cursor, "ctrl+c to stop", "", ""),

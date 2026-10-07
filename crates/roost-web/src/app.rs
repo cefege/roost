@@ -167,6 +167,7 @@ pub fn GatedApp() -> Element {
             // surface, including `/design` and `/pair`, which render no
             // workbench at all.
             crate::ui_bridge::UiBridge {}
+            crate::components::settings::agent_launcher::AgentLauncherLoader {}
             AuthorizedShell { path }
             AuthorizedOverlays {}
         },

@@ -14,6 +14,7 @@ use crate::agents::manifest_engine::{AgentManifest, CompiledManifest, ManifestGa
 use crate::agents::manifest_syntax::{
     all, any, blocked, contains, idle, line_regex, manifest, regex, unknown, working,
 };
+use crate::agents::manifests_claude::CLAUDE;
 
 const BRAILLE_SPINNER: &str = r"(?:^| )[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏](?: |$)";
 
@@ -262,6 +263,7 @@ const OMP: AgentManifest = manifest(BuiltinAgentId::Omp, &[
 pub fn agent_manifest(agent: BuiltinAgentId) -> &'static AgentManifest {
     match agent {
         BuiltinAgentId::Codex => &CODEX,
+        BuiltinAgentId::Claude => &CLAUDE,
         BuiltinAgentId::Gemini => &GEMINI,
         BuiltinAgentId::OpenCode => &OPENCODE,
         BuiltinAgentId::Cursor => &CURSOR,
@@ -301,6 +303,7 @@ impl AgentManifests {
         Ok(Self {
             compiled: [
                 compile(BuiltinAgentId::Codex)?,
+                compile(BuiltinAgentId::Claude)?,
                 compile(BuiltinAgentId::Gemini)?,
                 compile(BuiltinAgentId::OpenCode)?,
                 compile(BuiltinAgentId::Cursor)?,

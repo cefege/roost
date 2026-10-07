@@ -8,6 +8,8 @@
 mod agent_conversation_restore;
 #[path = "agent_conversation_restore_reconcile.rs"]
 mod agent_conversation_restore_reconcile;
+#[path = "agent_manifest_claude_rules.rs"]
+mod agent_manifest_claude_rules;
 #[path = "agent_manifest_rules.rs"]
 mod agent_manifest_rules;
 #[path = "agent_process_identity.rs"]
