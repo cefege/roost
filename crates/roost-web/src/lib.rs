@@ -41,6 +41,7 @@ pub mod terminal_href;
 pub mod theme;
 pub mod ui_bridge;
 pub mod voice;
+pub mod web_push;
 
 use std::cell::RefCell;
 use std::rc::Rc;

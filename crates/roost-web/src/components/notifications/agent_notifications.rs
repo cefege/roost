@@ -1,14 +1,16 @@
 //! The browser-profile half of coding-agent notification: watch every status
 //! the store holds, hand each observed CHANGE to the transition scheduler, and
-//! raise the card a due delivery still earns. Detection itself is
-//! `roost_client_core::client::agents`; the transition rules are `scheduler`.
-//! Ports `apps/web/src/components/notifications/AgentNotificationBridge.tsx`,
-//! minus the surfaces this build has no browser owner for: the service worker's
-//! `roost-navigate` message, the cross-tab delivery claim, and the sound cue.
-//! The title badge and the acknowledgement live beside this in `agent_attention`.
+//! raise the card and play the cue a due delivery still earns. Detection itself
+//! is `roost_client_core::client::agents`; the transition rules are
+//! `scheduler`; the cue is `notification_tone`. Ports
+//! `apps/web/src/components/notifications/AgentNotificationBridge.tsx`, minus
+//! the cross-tab delivery claim. The title badge and the acknowledgement live
+//! beside this in `agent_attention`; the OS notification is the coordinator's
+//! Web Push, which `DesktopPushBridge` keeps subscribed.
 
 pub mod agent_attention;
 pub mod attention_count;
+pub mod notification_tone;
 pub mod scheduler;
 
 pub use agent_attention::AgentAttention;
@@ -19,11 +21,11 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 use roost_client_core::Store;
-use roost_client_core::store::prefs::notify::NotifyPref;
 use roost_client_core::store::selectors::session_by_id;
 use roost_client_core::store::toasts::{ToastId, ToastKind, ToastOptions, ToastSource, add_toast};
 use roost_protocol::wire::{AgentStatus, SessionId};
 
+use self::notification_tone::{DeliverySurfaces, TonePlayer};
 use self::scheduler::{
     AGENT_NOTIFICATION_DELAY_MS, AgentNotificationDelivery, AgentNotificationKind,
     AgentNotificationScheduler, ArmedNotification, matches_agent_notification,
@@ -90,6 +92,7 @@ pub fn AgentNotifications() -> Element {
     // same navigation that moves the page.
     let path = use_location();
     let watch = use_hook(|| Rc::new(RefCell::new(NotificationWatch::default())));
+    let tones = use_hook(|| Rc::new(TonePlayer::default()));
 
     // Reading the revision is what re-runs this on every store write, including
     // the card this component raises; only a status that CHANGED since the last
@@ -101,11 +104,12 @@ pub fn AgentNotifications() -> Element {
         for armed in armed {
             let pump = pump.clone();
             let watch = Rc::clone(&watch);
+            let tones = Rc::clone(&tones);
             spawn(async move {
                 sleep_ms(AGENT_NOTIFICATION_DELAY_MS).await;
                 let due = watch.borrow_mut().scheduler.take_due(&armed);
                 if let Some(delivery) = due {
-                    deliver(&pump, &path.peek(), &delivery);
+                    deliver(&pump, &tones, &path.peek(), &delivery);
                 }
             });
         }
@@ -160,41 +164,60 @@ fn observe_changes(
     armed
 }
 
-/// Raise the card a due delivery earns, when it still earns one.
-fn deliver(pump: &Pump, path: &str, delivery: &AgentNotificationDelivery) {
-    let card = {
+/// Raise the card and play the cue a due delivery earns, when it still earns
+/// them.
+fn deliver(pump: &Pump, tones: &TonePlayer, path: &str, delivery: &AgentNotificationDelivery) {
+    let alert = {
         let core = pump.core();
         let core = core.borrow();
-        card_for(core.store(), path, delivery)
+        alert_for(core.store(), path, delivery)
     };
-    if let Some((title, message)) = card {
-        raise(pump, delivery, &title, message.as_deref());
+    let Some(alert) = alert else {
+        return;
+    };
+    if alert.surfaces.toast {
+        raise(pump, delivery, &alert.title, alert.message.as_deref());
+    }
+    if alert.surfaces.sound {
+        tones.play(delivery.kind);
     }
 }
 
-/// The card's title and details, or `None` when the agent moved on, the reader
-/// is looking at the session, this profile already acknowledged the revision,
-/// or in-app cards are off.
-fn card_for(
+/// What one due delivery shows and plays.
+struct EarnedAlert {
+    title: String,
+    message: Option<String>,
+    surfaces: DeliverySurfaces,
+}
+
+/// The alert a due delivery earns, or `None` when the agent moved on, the
+/// reader is looking at the session, this profile already acknowledged the
+/// revision, or every surface for its kind is off.
+fn alert_for(
     store: &Store,
     path: &str,
     delivery: &AgentNotificationDelivery,
-) -> Option<(String, Option<String>)> {
+) -> Option<EarnedAlert> {
     let status = store.agent_status.status(&delivery.token.session_id);
     if !matches_agent_notification(status, delivery) {
         return None;
     }
     let status = status?;
+    let surfaces = DeliverySurfaces::for_kind(&store.prefs.notify, delivery.kind);
     if viewing_session_id(store, path).as_deref() == Some(delivery.session_id.as_str())
         || store.agent_seen.acknowledged_revision(status) >= delivery.token.revision
-        || !store.prefs.notify.get(NotifyPref::InApp)
+        || !surfaces.any()
     {
         return None;
     }
     let title = session_by_id(store, &delivery.session_id)
         .map(|session| session_title(store, session))
         .unwrap_or_else(|| "Terminal".to_owned());
-    Some((title, status.common.message.clone()))
+    Some(EarnedAlert {
+        title,
+        message: status.common.message.clone(),
+        surfaces,
+    })
 }
 
 /// Raise the card, with the action that reveals the session and the window its
