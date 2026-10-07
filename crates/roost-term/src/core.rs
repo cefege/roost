@@ -77,6 +77,12 @@ impl Default for CellData {
         }
     }
 }
+/// A live command lifecycle marker parsed from shell integration output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandEvent {
+    Started,
+    Finished { exit_code: i32 },
+}
 
 /// A terminal emulator the emitter can read.
 ///
@@ -118,6 +124,8 @@ pub trait TerminalCore {
     /// first, already decoded. Write-only: a program can never read the
     /// operator's clipboard through this core.
     fn take_clipboard_writes(&mut self) -> Vec<String>;
+    /// Take command lifecycle markers parsed from the live PTY stream, oldest first.
+    fn take_command_events(&mut self) -> Vec<CommandEvent>;
 
     /// The CSI sequences this core's dispatcher dropped, as a never-cleared
     /// ring. A partial detector by construction: it sees unrecognised CSI, not

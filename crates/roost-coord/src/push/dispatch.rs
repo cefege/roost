@@ -236,7 +236,7 @@ pub async fn fire_push_for_transition(
 /// subscription that predates the change must not keep receiving. Re-validating
 /// at send time is the whole reason this filter exists
 /// (`push-dispatch.ts:92-108`).
-fn select_targets(
+pub(super) fn select_targets(
     subscriptions: &[StoredSubscription],
     allowed_origins: &[String],
     viewing: &BTreeSet<String>,
@@ -263,7 +263,10 @@ fn select_targets(
 /// The `status = 'open'` predicate is load-bearing: a session closed between the
 /// transition and this query must not produce a notification about work that no
 /// longer exists.
-async fn open_session(pool: &AnyPool, session_id: &str) -> Option<(String, Option<String>)> {
+pub(super) async fn open_session(
+    pool: &AnyPool,
+    session_id: &str,
+) -> Option<(String, Option<String>)> {
     sqlx::query("SELECT cwd, custom_title FROM sessions WHERE id = $1 AND status = 'open'")
         .bind(session_id)
         .fetch_optional(pool)
@@ -285,7 +288,7 @@ async fn open_session(pool: &AnyPool, session_id: &str) -> Option<(String, Optio
 /// Windows-authored path does not show as one long segment
 /// (`push-dispatch.ts:118-119`). An empty cwd falls through to the product name
 /// rather than to an empty notification.
-fn session_title(cwd: &str, custom_title: Option<&str>) -> String {
+pub(super) fn session_title(cwd: &str, custom_title: Option<&str>) -> String {
     if let Some(title) = custom_title.filter(|title| !title.is_empty()) {
         return title.to_owned();
     }

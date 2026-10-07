@@ -193,6 +193,9 @@ pub(super) fn metadata_to_proto(metadata: &TerminalMetadata) -> ProtocolResult<W
         activity_ts_ms: metadata.activity_ts_ms,
         clipboard_changed: metadata.clipboard_changed,
         clipboard: metadata.clipboard.clone(),
+        command_finished: metadata.command_finished,
+        command_exit_code: metadata.command_exit_code,
+        command_duration_ms: metadata.command_duration_ms,
         ..Default::default()
     })
 }
@@ -208,6 +211,9 @@ pub(super) fn metadata_from_proto(
         activity_ts_ms: metadata.activity_ts_ms,
         clipboard_changed: metadata.clipboard_changed,
         clipboard: metadata.clipboard.clone(),
+        command_finished: metadata.command_finished,
+        command_exit_code: metadata.command_exit_code,
+        command_duration_ms: metadata.command_duration_ms,
     })
 }
 

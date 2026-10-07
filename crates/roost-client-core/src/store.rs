@@ -13,6 +13,7 @@ pub mod browse_machine;
 pub mod browse_paths;
 pub mod browse_state;
 pub mod clipboard_requests;
+pub mod command_finished_requests;
 pub mod folder_activity;
 pub mod folder_name_validation;
 pub(crate) mod frames_revision;
@@ -224,6 +225,8 @@ pub struct Store {
     pub last_activity_ms: BTreeMap<String, i64>,
     /// Who is looking at each session, replaced per `viewers` notice.
     pub session_viewers: BTreeMap<String, Vec<SessionViewer>>,
+    /// Pending command-completion events, drained by the browser notification scheduler.
+    pub command_finished_requests: command_finished_requests::CommandFinishedRequests,
     /// Pending terminal clipboard writes, drained by the host.
     pub terminal_clipboard_requests: clipboard_requests::TerminalClipboardRequests,
     /// Opaque presence notices for the panes' presence handlers, oldest first.
@@ -324,6 +327,8 @@ impl Store {
             audit_rows: VecDeque::new(),
             ui_commands: VecDeque::new(),
             terminal_clipboard_requests: clipboard_requests::TerminalClipboardRequests::default(),
+            command_finished_requests: command_finished_requests::CommandFinishedRequests::default(
+            ),
             transport_probes: BTreeMap::new(),
             pending_transport_probes: BTreeMap::new(),
             announced_pairings: VecDeque::new(),

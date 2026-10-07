@@ -47,6 +47,7 @@ pub fn NotificationsPane() -> Element {
     let title_pump = pump.clone();
     let blocked_pump = pump.clone();
     let done_pump = pump.clone();
+    let command_finished_pump = pump.clone();
     let tones = use_hook(|| Rc::new(TonePlayer::default()));
     let blocked_tones = Rc::clone(&tones);
     let desktop = DesktopPushSignals {
@@ -110,6 +111,13 @@ pub fn NotificationsPane() -> Element {
                     "On iPhone and iPad, Safari delivers notifications only to an installed app: tap Share → Add to Home Screen, open Roost from the Home Screen, then turn this on there."
                 }
                 SwitchRow {
+                    test_id: "notify-command-finished-toggle",
+                    headline: "Notify when a long command finishes",
+                    support: "When a shell command that ran for 10 seconds or more finishes in a terminal you are not looking at, show a toast and play the finished sound.",
+                    checked: prefs.command_finished,
+                    on_change: move |value| set_pref(&command_finished_pump, NotifyPref::CommandFinished, value),
+                }
+                SwitchRow {
                     test_id: "notify-title-badge-toggle",
                     headline: "Tab title badge",
                     support: "Prefix the Roost tab title with the number of unseen needs-input and finished states.",
@@ -128,7 +136,7 @@ pub fn NotificationsPane() -> Element {
                 SwitchRow {
                     test_id: "notify-done-sound-toggle",
                     headline: "Sound when finished",
-                    support: "Play a short tone after a background agent completes its work.",
+                    support: "Play a short tone after a background agent or terminal command completes.",
                     checked: prefs.done_sound,
                     on_change: move |value| set_sound_pref(&done_pump, &tones, NotifyPref::DoneSound, value),
                 }

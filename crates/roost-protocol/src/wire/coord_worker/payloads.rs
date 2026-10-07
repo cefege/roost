@@ -105,8 +105,9 @@ pub struct RefreshJwt {
 }
 
 /// Compact semantic terminal metadata: title, activity and clipboard as state
-/// rather than PTY bytes. Clipboard writes are events, so the changed flag
-/// survives coalescing without turning the text into retained state.
+/// rather than PTY bytes. Clipboard writes and command completions are events,
+/// so their changed flags survive coalescing without turning them into
+/// retained state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TerminalMetadata {
     pub channel_id: ChannelId,
@@ -116,6 +117,11 @@ pub struct TerminalMetadata {
     pub activity_ts_ms: u64,
     pub clipboard_changed: bool,
     pub clipboard: String,
+    /// A shell command (OSC 133 `C` … `D`) that ran for at least the worker's
+    /// threshold finished on this record.
+    pub command_finished: bool,
+    pub command_exit_code: Option<i32>,
+    pub command_duration_ms: u64,
 }
 
 /// Journal-backed progress of one update job on the worker host. Replayed

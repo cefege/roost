@@ -1,5 +1,5 @@
-//! Notification preferences: the five switches that decide how loudly a blocked
-//! or finished agent gets to interrupt.
+//! Notification preferences: the six switches that decide how loudly a blocked
+//! or finished agent, or a long shell command finishing, gets to interrupt.
 //!
 //! One JSON object, because that is one preference a user thinks of as one thing,
 //! and because a partial write to it must not be possible. The parse is
@@ -34,6 +34,8 @@ pub enum NotifyPref {
     BlockedSound,
     /// Play a sound when an agent finishes.
     DoneSound,
+    /// Notify when a long shell command finishes (OSC 133).
+    CommandFinished,
 }
 
 impl NotifyPref {
@@ -45,20 +47,22 @@ impl NotifyPref {
             Self::TitleBadge => "titleBadge",
             Self::BlockedSound => "blockedSound",
             Self::DoneSound => "doneSound",
+            Self::CommandFinished => "commandFinished",
         }
     }
 
     /// Every switch, in the order the defaults are written.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::InApp,
         Self::Desktop,
         Self::TitleBadge,
         Self::BlockedSound,
         Self::DoneSound,
+        Self::CommandFinished,
     ];
 }
 
-/// The five values.
+/// The six values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NotifyPrefs {
     /// Show the notification in the app.
@@ -71,6 +75,8 @@ pub struct NotifyPrefs {
     pub blocked_sound: bool,
     /// Play a sound when an agent finishes.
     pub done_sound: bool,
+    /// Notify when a long shell command finishes.
+    pub command_finished: bool,
 }
 
 impl Default for NotifyPrefs {
@@ -81,6 +87,7 @@ impl Default for NotifyPrefs {
             title_badge: true,
             blocked_sound: false,
             done_sound: false,
+            command_finished: true,
         }
     }
 }
@@ -94,6 +101,7 @@ impl NotifyPrefs {
             NotifyPref::TitleBadge => self.title_badge,
             NotifyPref::BlockedSound => self.blocked_sound,
             NotifyPref::DoneSound => self.done_sound,
+            NotifyPref::CommandFinished => self.command_finished,
         }
     }
 
@@ -104,6 +112,7 @@ impl NotifyPrefs {
             NotifyPref::TitleBadge => self.title_badge = value,
             NotifyPref::BlockedSound => self.blocked_sound = value,
             NotifyPref::DoneSound => self.done_sound = value,
+            NotifyPref::CommandFinished => self.command_finished = value,
         }
     }
 

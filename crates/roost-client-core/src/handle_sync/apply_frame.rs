@@ -257,6 +257,17 @@ pub(super) fn apply_frame(
             fold_worker_presence(store, event, out);
             // A heartbeat moves no worker in or out of the pre-warm selection.
             if !matches!(**event, WorkerPresenceEvent::Heartbeat { .. }) {
+        SyncFrame::CommandFinished {
+            session_id,
+            exit_code,
+            duration_ms,
+        } => super::fold_session_meta::fold_command_finished(
+            store,
+            session_id,
+            *exit_code,
+            *duration_ms,
+            delivery_seq,
+        ),
                 crate::handle_terminal::reconcile_prewarm(store, now_ms, out);
             }
         }

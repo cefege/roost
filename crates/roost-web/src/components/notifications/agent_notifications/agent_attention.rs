@@ -106,7 +106,7 @@ pub fn use_page_attention() -> Signal<bool> {
 
 /// Whether the page is foregrounded AND the window owns input focus — the
 /// same gate a card checks before it treats a session as already looked at.
-pub(super) fn attended_now() -> bool {
+pub(in crate::components::notifications) fn attended_now() -> bool {
     page_visible() && window_focused()
 }
 

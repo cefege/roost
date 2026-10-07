@@ -198,6 +198,20 @@ pub struct SessionClipboardWrite {
     pub text: String,
 }
 
+/// A shell command that ran for at least the worker's threshold finished.
+///
+/// Volatile like [`SessionClipboardWrite`]: it feeds the browser notification
+/// and the Web Push for it, and is never retained or seeded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionCommandFinished {
+    /// The session whose shell ran the command.
+    pub session_id: String,
+    /// The status the shell reported with OSC 133 `D`.
+    pub exit_code: Option<i32>,
+    /// How long the command ran, `C` to `D`, as the worker timed it.
+    pub duration_ms: u64,
+}
+
 /// A last-activity timestamp from a semantic worker observation.
 ///
 /// The coordinator throttles the live fan-out; the retained value is what lets

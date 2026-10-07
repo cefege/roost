@@ -127,6 +127,7 @@ pub fn handle_event(
             // (`apps/web/src/store/sync-frame.ts:55-69`).
             store.sync.watermark.reset(storage);
             store.terminal_clipboard_requests.clear();
+            store.command_finished_requests.clear();
             store.note_change();
             // No session is left to keep a peer warm for.
             crate::handle_terminal::reconcile_prewarm(store, host_now_ms, out);

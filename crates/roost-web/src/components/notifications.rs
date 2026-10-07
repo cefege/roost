@@ -7,6 +7,8 @@
 
 pub mod agent_notifications;
 pub mod clipboard;
+pub mod command_finished;
+pub mod command_finished_scheduler;
 pub mod connection_banner;
 pub mod desktop_push_bridge;
 pub mod notify_target;
@@ -66,6 +68,7 @@ pub fn NotificationDock() -> Element {
         agent_notifications::AgentNotifications {}
         agent_notifications::AgentAttention {}
         terminal_clipboard::TerminalClipboard {}
+        command_finished::CommandFinished {}
         desktop_push_bridge::DesktopPushBridge {}
     }
 }

@@ -21,15 +21,16 @@ use roost_proto::__buffa::oneof::workspace_delta_proto::Kind as WorkspaceKind;
 use roost_proto::{
     AgentStatusFrame, AuditRow as PbAuditRow, FirehoseFrame, McpRelayEvent, McpStreamMessageProto,
     PairCompleted, PairRequest, PairRequestDeltaProto, TaskDeltaProto, TerminalClipboardFrame,
-    TerminalTitleFrame, Workspace as PbWorkspace, WorkspaceDeltaProto, WorkspaceSessionsSet,
+    TerminalCommandFinishedFrame, TerminalTitleFrame, Workspace as PbWorkspace,
+    WorkspaceDeltaProto, WorkspaceSessionsSet,
 };
 use roost_protocol::wire::{
     AgentStatusUpdate, McpRelayDelta, McpStreamMessage, WorkspaceDelta, event_to_proto,
 };
 
 use crate::events::bus_messages::{
-    AuditRow, PairRequestDelta, SessionBusMessage, SessionClipboardWrite, SessionTitleUpdate,
-    TaskBusMsg, TaskBusMsgKind,
+    AuditRow, PairRequestDelta, SessionBusMessage, SessionClipboardWrite, SessionCommandFinished,
+    SessionTitleUpdate, TaskBusMsg, TaskBusMsgKind,
 };
 use crate::events::visibility::kind_is_public;
 use crate::sync_ws::feed::{FeedFrame, FeedRefusal, as_f64, as_u32, as_u64};
@@ -269,6 +270,22 @@ pub fn session_clipboard_frame(write: &SessionClipboardWrite) -> FeedFrame {
             text: write.text.clone(),
             ..TerminalClipboardFrame::default()
         }))),
+        ..FirehoseFrame::default()
+    })
+}
+
+/// One long shell command that finished (OSC 133), for the browser's notice.
+pub fn session_command_finished_frame(finished: &SessionCommandFinished) -> FeedFrame {
+    FeedFrame::of(FirehoseFrame {
+        frame: Some(Frame::TerminalCommandFinished(Box::new(
+            TerminalCommandFinishedFrame {
+                session_id: finished.session_id.clone(),
+                has_exit_code: finished.exit_code.is_some(),
+                exit_code: finished.exit_code.unwrap_or_default(),
+                duration_ms: finished.duration_ms,
+                ..TerminalCommandFinishedFrame::default()
+            },
+        ))),
         ..FirehoseFrame::default()
     })
 }

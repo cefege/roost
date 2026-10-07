@@ -208,6 +208,7 @@ fn map_arm(frame: Frame, domain_generation: u64) -> Result<SyncFrame, String> {
             session_id: value.session_id,
             text: value.text,
         }),
+        Frame::TerminalCommandFinished(value) => Ok(terminal::command_finished(*value)),
         Frame::TerminalTitle(value) => Ok(SyncFrame::TerminalTitle {
             session_id: value.session_id,
             title: value.title,

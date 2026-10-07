@@ -23,13 +23,15 @@ mod prompt_marks;
 mod prompt_marks_apply;
 mod replies;
 
+use std::collections::VecDeque;
+
 use alacritty_terminal::Term;
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::term::TermMode;
 use alacritty_terminal::vte::ansi::Processor;
 
-use crate::core::{CursorState, TerminalCore};
+use crate::core::{CommandEvent, CursorState, TerminalCore};
 use crate::unhandled::UnhandledSequenceRing;
 use cell::LinkScope;
 use csi_shadow::CsiShadow;
@@ -67,6 +69,8 @@ pub struct AlacrittyCore {
     prompt_marks: prompt_marks::PromptMarkScanner,
     /// Whether a command ran since the last prompt, and how it ended.
     command_lifecycle: prompt_marks_apply::CommandLifecycle,
+    /// Live shell command lifecycle events not yet taken by the worker.
+    command_events: VecDeque<CommandEvent>,
 }
 
 impl AlacrittyCore {
@@ -98,6 +102,7 @@ impl AlacrittyCore {
             links: LinkScope::new(),
             prompt_marks: prompt_marks::PromptMarkScanner::default(),
             command_lifecycle: prompt_marks_apply::CommandLifecycle::default(),
+            command_events: VecDeque::new(),
             dirty: Vec::new(),
         }
     }
@@ -124,6 +129,7 @@ impl TerminalCore for AlacrittyCore {
         self.parse(bytes);
         self.replies.discard();
         self.clipboard_writes.discard();
+        self.command_events.clear();
     }
 
     fn write_raw(&mut self, bytes: &[u8]) {
@@ -136,6 +142,9 @@ impl TerminalCore for AlacrittyCore {
 
     fn take_clipboard_writes(&mut self) -> Vec<String> {
         self.clipboard_writes.take()
+    }
+    fn take_command_events(&mut self) -> Vec<CommandEvent> {
+        self.command_events.drain(..).collect()
     }
 
     fn unhandled_sequences(&self) -> &UnhandledSequenceRing {

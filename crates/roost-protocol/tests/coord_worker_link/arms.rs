@@ -151,6 +151,9 @@ pub fn upstream_arms() -> Vec<(&'static str, CoordWorkerUpstream)> {
                 activity_ts_ms: 1_700_000_000_001,
                 clipboard_changed: true,
                 clipboard: "copied text".to_owned(),
+                command_finished: true,
+                command_exit_code: Some(2),
+                command_duration_ms: 12_000,
             }),
         ),
         (

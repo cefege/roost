@@ -131,8 +131,10 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
     // transport, which signs with the SAME VAPID store `PushGetConfig` hands
     // the browser, and a device already viewing the terminal is not told
     // (`push-dispatch.ts:92`). Installed once, before any worker can report.
-    let web_push = WebPushTransport::new(services.db.clone(), push.vapid_keys().clone())
-        .context("web push client")?;
+    let web_push: Arc<dyn crate::push::transport::PushNotificationTransport> = Arc::new(
+        WebPushTransport::new(services.db.clone(), push.vapid_keys().clone())
+            .context("web push client")?,
+    );
     services
         .agents
         .status
@@ -140,8 +142,17 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
             services.db.pool().clone(),
             push.allowed_origins().to_vec(),
             Arc::clone(&services.views) as Arc<dyn ActiveTerminalViewers>,
-            Arc::new(web_push),
+            Arc::clone(&web_push),
         )));
+    // A long shell command finishing reaches a phone the same way. Held for
+    // the life of `serve`: dropping the subscription stops these pushes.
+    let _command_finished_push = Arc::new(crate::push::command_finished::CommandFinishedPush::new(
+        services.db.pool().clone(),
+        push.allowed_origins().to_vec(),
+        Arc::clone(&services.views) as Arc<dyn ActiveTerminalViewers>,
+        web_push,
+    ))
+    .subscribe(&services.buses);
 
     let terminal = terminal_seams(&services);
     let core = CoordCore::with_terminal_and_push(Arc::clone(&services), terminal, push);

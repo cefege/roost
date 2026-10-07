@@ -47,6 +47,17 @@ message TerminalClipboardFrame {
   string text = 2;
 }
 
+// A shell command that ran for at least 10 s finished (OSC 133 `D`, timed by
+// the worker from its `C`). Volatile like the clipboard frame: sent to Sync
+// links observing the session, never retained or seeded; it drives the
+// browser's "command finished" notification.
+message TerminalCommandFinishedFrame {
+  string session_id = 1;
+  bool has_exit_code = 2;
+  sint32 exit_code = 3;
+  uint64 duration_ms = 4;
+}
+
 // OSC 0/2 terminal title, parsed centrally by coord (terminal-title-hub) from
 // the same relayed byte stream and fanned out here. Volatile (re-derived from
 // output) — NOT backfilled on reconnect; seeded on Sync connect like status.
@@ -305,6 +316,7 @@ message FirehoseFrame {
     TerminalInputRouteResult input_route_result = 49;
     TerminalTransportProbeResult terminal_transport_probe_result = 50;
     TerminalClipboardFrame terminal_clipboard = 51;
+    TerminalCommandFinishedFrame terminal_command_finished = 52;
   }
 }
 

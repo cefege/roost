@@ -39,7 +39,8 @@ message WRpcError { string request_id = 1; string message = 2; }
 message WBinary { uint32 channel_id = 1; uint32 direction = 2; uint64 seq = 3; bytes data = 4; }
 
 // Compact semantic terminal metadata. Changed flags preserve intentional empty
-// values; clipboard writes are one-shot UTF-8 text, capped at 256 KiB.
+// values; clipboard writes are one-shot UTF-8 text, capped at 256 KiB, and a
+// command completion (OSC 133, at least 10 s) is one-shot too.
 message WTerminalMetadata {
   uint32 channel_id = 1;
   bool title_changed = 2;
@@ -48,6 +49,9 @@ message WTerminalMetadata {
   uint64 activity_ts_ms = 5;
   bool clipboard_changed = 6;
   string clipboard = 7;
+  bool command_finished = 8;
+  optional sint32 command_exit_code = 9;
+  uint64 command_duration_ms = 10;
 }
 
 // T2.2 — in-band JWT rotation. Worker sends this BEFORE the current

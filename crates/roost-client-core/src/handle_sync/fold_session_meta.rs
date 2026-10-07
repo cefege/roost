@@ -66,3 +66,23 @@ pub(super) fn fold_session_presence(
     store.note_change();
     tracing::trace!(target: "sync", session_id, "presence notice queued");
 }
+
+/// Queue one command completion for the browser, retaining a bounded recent set.
+pub(super) fn fold_command_finished(
+    store: &mut Store,
+    session_id: &str,
+    exit_code: Option<i32>,
+    duration_ms: u64,
+    delivery_seq: u64,
+) {
+    store.command_finished_requests.push(
+        crate::store::command_finished_requests::CommandFinishedRequest {
+            session_id: session_id.to_owned(),
+            exit_code,
+            duration_ms,
+            delivery_seq,
+        },
+    );
+    store.note_change();
+    tracing::debug!(target: "sync", session_id, delivery_seq, "command completion queued");
+}

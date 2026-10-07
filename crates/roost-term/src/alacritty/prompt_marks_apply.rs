@@ -19,7 +19,7 @@ use roost_protocol::cell::row_mark;
 
 use super::AlacrittyCore;
 use super::prompt_marks::PromptMark;
-use crate::core::TerminalCore;
+use crate::core::{CommandEvent, TerminalCore};
 
 /// Where the command lifecycle between two prompts stands.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -45,13 +45,18 @@ impl AlacrittyCore {
             }
             PromptMark::Output => {
                 self.mark_cursor_cell(row_mark::OUTPUT);
-                self.command_lifecycle.started = true;
+                if !self.command_lifecycle.started {
+                    self.command_events.push_back(CommandEvent::Started);
+                    self.command_lifecycle.started = true;
+                }
             }
             // A `D` with no `C` before it is an empty Enter or the shell's very
             // first prompt: no command ran, so there is no status to show.
-            PromptMark::Finished(succeeded) => {
+            PromptMark::Finished(exit_code) => {
                 if std::mem::take(&mut self.command_lifecycle.started) {
-                    self.command_lifecycle.pending_exit = Some(if succeeded {
+                    self.command_events
+                        .push_back(CommandEvent::Finished { exit_code });
+                    self.command_lifecycle.pending_exit = Some(if exit_code == 0 {
                         row_mark::EXIT_OK
                     } else {
                         row_mark::EXIT_FAILED
@@ -80,5 +85,31 @@ impl AlacrittyCore {
         if !self.dirty.contains(&row) {
             self.dirty.push(row);
         }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::super::AlacrittyCore;
+    use crate::core::{CommandEvent, TerminalCore};
+
+    #[test]
+    fn live_osc_133_command_lifecycle_is_one_shot_and_carries_exit_code() {
+        let mut core = AlacrittyCore::new(80, 24);
+        core.write_raw(b"\x1b]133;C\x07command output");
+        assert_eq!(core.take_command_events(), vec![CommandEvent::Started]);
+
+        core.write_raw(b"\x1b]133;D;17\x07");
+        assert_eq!(
+            core.take_command_events(),
+            vec![CommandEvent::Finished { exit_code: 17 }]
+        );
+        assert!(core.take_command_events().is_empty());
+    }
+
+    #[test]
+    fn replay_discards_command_events() {
+        let mut core = AlacrittyCore::new(80, 24);
+        core.write(b"\x1b]133;C\x07\x1b]133;D;0\x07");
+        assert!(core.take_command_events().is_empty());
     }
 }

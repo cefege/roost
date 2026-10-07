@@ -270,6 +270,21 @@ impl WorkerFrameDispatcher {
                 "terminal emitted an OSC 52 clipboard write"
             );
         }
+        if metadata.command_finished {
+            services.buses.command_finished_bus.publish(
+                crate::events::bus_messages::SessionCommandFinished {
+                    session_id: session_id.as_str().to_owned(),
+                    exit_code: metadata.command_exit_code,
+                    duration_ms: metadata.command_duration_ms,
+                },
+            );
+            tracing::debug!(
+                worker_fp = %worker,
+                exit_code = ?metadata.command_exit_code,
+                duration_ms = metadata.command_duration_ms,
+                "a long shell command finished"
+            );
+        }
         if metadata.activity_changed
             && let Ok(observed_at_ms) = i64::try_from(metadata.activity_ts_ms)
         {

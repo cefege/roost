@@ -43,6 +43,9 @@ fn metadata(channel: i64, title: &str) -> CoordWorkerUpstream {
         activity_ts_ms: 1_000,
         clipboard_changed: false,
         clipboard: String::new(),
+        command_finished: false,
+        command_exit_code: None,
+        command_duration_ms: 0,
     })
 }
 

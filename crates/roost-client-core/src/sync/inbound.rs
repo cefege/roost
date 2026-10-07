@@ -216,6 +216,15 @@ pub enum SyncFrame {
         /// The requested clipboard contents.
         text: String,
     },
+    /// A terminal reported that a command completed.
+    CommandFinished {
+        /// The session that emitted the event.
+        session_id: String,
+        /// The reported exit status, when available.
+        exit_code: Option<i32>,
+        /// Elapsed command time in milliseconds.
+        duration_ms: u64,
+    },
     /// The coordinator-stamped last-activity time of a session.
     LastActivity {
         /// The session.
@@ -279,6 +288,7 @@ impl SyncFrame {
             | Self::SessionPresence { .. }
             | Self::TerminalTitle { .. }
             | Self::TerminalClipboard { .. }
+            | Self::CommandFinished { .. }
             | Self::LastActivity { .. } => Some(SyncDomain::Terminal),
             Self::WorkerPresence { .. } | Self::WorkerRoutable { .. } => Some(SyncDomain::Workers),
             Self::WorkspaceDelta { .. } => Some(SyncDomain::Workspaces),
@@ -332,6 +342,7 @@ impl SyncFrame {
             Self::WorkerRoutable { .. } => "worker_routable",
             Self::TerminalTitle { .. } => "terminal_title",
             Self::TerminalClipboard { .. } => "terminal_clipboard",
+            Self::CommandFinished { .. } => "terminal_command_finished",
             Self::LastActivity { .. } => "last_activity",
             Self::PairRequestDelta { .. } => "pair_request_delta",
             Self::UiState => "ui_state",
@@ -355,6 +366,7 @@ impl SyncFrame {
             | Self::SessionPresence { session_id, .. }
             | Self::TerminalTitle { session_id, .. }
             | Self::TerminalClipboard { session_id, .. }
+            | Self::CommandFinished { session_id, .. }
             | Self::LastActivity { session_id, .. } => Some(session_id),
             Self::InputRouteResult { result } => Some(result.session_id.as_str()),
             Self::AgentStatus { update, .. } => Some(update.common.session_id.as_str()),

@@ -12,6 +12,7 @@
 //! attacker-supplied and only an exact HTTPS origin the operator declared may
 //! receive a payload.
 
+pub mod command_finished;
 pub mod dispatch;
 pub mod endpoint_policy;
 pub mod rpc;

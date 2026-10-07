@@ -196,3 +196,12 @@ fn whole_number(value: f64) -> Value {
         Value::from(value)
     }
 }
+
+/// A shell command completion, with optional exit status preserved as a result.
+pub(super) fn command_finished(value: roost_proto::TerminalCommandFinishedFrame) -> SyncFrame {
+    SyncFrame::CommandFinished {
+        session_id: value.session_id,
+        exit_code: value.has_exit_code.then_some(value.exit_code),
+        duration_ms: value.duration_ms,
+    }
+}

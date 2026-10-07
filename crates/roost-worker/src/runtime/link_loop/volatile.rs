@@ -162,6 +162,9 @@ pub fn merge_terminal_metadata(
     let held = previous.filter(|held| held.channel_id == update.channel_id);
     let clipboard_changed =
         update.clipboard_changed || held.is_some_and(|held| held.clipboard_changed);
+    let command_finished =
+        update.command_finished || held.is_some_and(|held| held.command_finished);
+    let command_update = update.command_finished;
     TerminalMetadata {
         channel_id: update.channel_id,
         title_changed: update.title_changed || held.is_some_and(|held| held.title_changed),
@@ -181,6 +184,17 @@ pub fn merge_terminal_metadata(
             update.clipboard.clone()
         } else {
             held.map_or_else(String::new, |held| held.clipboard.clone())
+        },
+        command_finished,
+        command_exit_code: if command_update {
+            update.command_exit_code
+        } else {
+            held.and_then(|held| held.command_exit_code)
+        },
+        command_duration_ms: if command_update {
+            update.command_duration_ms
+        } else {
+            held.map_or(0, |held| held.command_duration_ms)
         },
     }
 }

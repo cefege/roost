@@ -10,7 +10,7 @@
 pub(super) enum PromptMark {
     Prompt,
     Output,
-    Finished(bool),
+    Finished(i32),
 }
 
 /// One command's position after its BEL or ST terminator.
@@ -113,24 +113,24 @@ fn parse_body(body: &[u8]) -> Option<PromptMark> {
         b'A' => Some(PromptMark::Prompt),
         b'C' => Some(PromptMark::Output),
         b'D' => {
-            let status = body
+            let exit_code = body
                 .strip_prefix(b"D;")
                 .and_then(|value| value.split(|byte| *byte == b';').next())
                 .filter(|digits| !digits.is_empty())
                 .map(|digits| {
                     digits
                         .iter()
-                        .try_fold(0u32, |value, digit| {
+                        .try_fold(0i32, |value, digit| {
                             digit.is_ascii_digit().then(|| {
                                 value
                                     .saturating_mul(10)
-                                    .saturating_add(u32::from(*digit - b'0'))
+                                    .saturating_add(i32::from(*digit - b'0'))
                             })
                         })
-                        .unwrap_or(u32::MAX)
+                        .unwrap_or(i32::MAX)
                 })
                 .unwrap_or(0);
-            Some(PromptMark::Finished(status == 0))
+            Some(PromptMark::Finished(exit_code))
         }
         _ => None,
     }
@@ -157,7 +157,7 @@ mod tests {
                 },
                 MarkAt {
                     end: 38,
-                    mark: PromptMark::Finished(false)
+                    mark: PromptMark::Finished(7)
                 },
             ]
         );
@@ -172,7 +172,7 @@ mod tests {
             scanner.scan(b"\\after"),
             vec![MarkAt {
                 end: 1,
-                mark: PromptMark::Finished(true)
+                mark: PromptMark::Finished(0)
             }]
         );
     }

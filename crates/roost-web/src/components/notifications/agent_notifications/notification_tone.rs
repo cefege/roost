@@ -74,7 +74,10 @@ pub const fn previewed_kind(pref: NotifyPref) -> Option<AgentNotificationKind> {
     match pref {
         NotifyPref::BlockedSound => Some(AgentNotificationKind::Blocked),
         NotifyPref::DoneSound => Some(AgentNotificationKind::Done),
-        NotifyPref::InApp | NotifyPref::Desktop | NotifyPref::TitleBadge => None,
+        NotifyPref::InApp
+        | NotifyPref::Desktop
+        | NotifyPref::TitleBadge
+        | NotifyPref::CommandFinished => None,
     }
 }
 

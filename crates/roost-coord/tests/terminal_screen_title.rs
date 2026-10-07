@@ -162,6 +162,9 @@ async fn a_negotiated_metadata_frame_feeds_the_title_and_activity_hubs() {
         activity_ts_ms: 123,
         clipboard_changed: false,
         clipboard: String::new(),
+        command_finished: false,
+        command_exit_code: None,
+        command_duration_ms: 0,
     });
     let outcome = dispatcher.handle_now(WORKER_FP, live_frame(71, metadata));
 
@@ -196,6 +199,9 @@ async fn a_clipboard_write_is_published_once_and_retained_nowhere() {
         activity_ts_ms: 0,
         clipboard_changed: true,
         clipboard: "git log --oneline".to_owned(),
+        command_finished: false,
+        command_exit_code: None,
+        command_duration_ms: 0,
     });
     let outcome = dispatcher.handle_now(WORKER_FP, live_frame(72, metadata));
 

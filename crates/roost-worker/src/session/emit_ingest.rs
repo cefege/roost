@@ -45,13 +45,21 @@ impl CellEmitter {
         answer_terminal_queries(record, chunk, &self.query_replies);
         let clipboard_writes = record.terminal_core.take_clipboard_writes();
         let clipboard = clipboard_writes.into_iter().last();
+        let command_events = record.terminal_core.take_command_events();
         self.observe_sync_output(channel_id, chunk);
         let input_echo = self.input_echo_armed(channel_id, now_ms);
         if self.sinks.is_empty() && self.metadata.negotiated() {
             warn!(%channel_id, len = chunk.len(), "PTY output arrived with no cell sink registered");
         }
         let accepted = self.route_chunk_to_cells(record, input_echo, false, now_ms, now);
-        self.observe_upstream(channel_id, end_seq, chunk, clipboard, now_ms);
+        self.observe_upstream(
+            channel_id,
+            end_seq,
+            chunk,
+            clipboard,
+            command_events,
+            now_ms,
+        );
         tracing::trace!(%channel_id, len = chunk.len(), end_seq, accepted, "a PTY chunk was ingested");
         if accepted {
             IngestOutcome::Accepted {
@@ -84,7 +92,7 @@ impl CellEmitter {
         self.observe_sync_output(channel_id, chunk);
         let input_echo = self.input_echo_armed(channel_id, now_ms);
         self.route_chunk_to_cells(record, input_echo, true, now_ms, Instant::now());
-        self.observe_upstream(channel_id, end_seq, chunk, None, now_ms);
+        self.observe_upstream(channel_id, end_seq, chunk, None, Vec::new(), now_ms);
         end_seq
     }
 
@@ -132,11 +140,15 @@ impl CellEmitter {
         end_seq: u64,
         chunk: &[u8],
         clipboard: Option<String>,
+        command_events: Vec<roost_term::core::CommandEvent>,
         now_ms: i64,
     ) {
         let flush_owed = self
             .metadata
-            .observe_live(channel_id, chunk, clipboard, now_ms);
+            .observe_live(channel_id, chunk, clipboard, now_ms)
+            | self
+                .metadata
+                .observe_command_events(channel_id, command_events, now_ms);
         let raw_owed = !self.metadata.negotiated() && self.raw.stage(channel_id, end_seq, chunk);
         if flush_owed || raw_owed {
             self.wake_cadence();

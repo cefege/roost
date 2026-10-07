@@ -247,9 +247,13 @@ fn the_bash_bootstrap_marks_commands_and_keeps_the_users_exit_status() {
     {
         use std::io::Write as _;
         let mut stdin = child.stdin.take().expect("bash has a stdin");
-        stdin.write_all(b"false\ntrue\n").expect("the commands are written");
+        stdin
+            .write_all(b"false\ntrue\n")
+            .expect("the commands are written");
     }
-    let output = child.wait_with_output().expect("bash exits at end of input");
+    let output = child
+        .wait_with_output()
+        .expect("bash exits at end of input");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 

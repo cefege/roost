@@ -297,6 +297,7 @@ pub fn frame_kind(frame: &FirehoseFrame) -> &'static str {
         Some(Frame::CellGridChunk(_)) => "cell_grid_chunk",
         Some(Frame::TerminalTitle(_)) => "terminal_title",
         Some(Frame::TerminalClipboard(_)) => "terminal_clipboard",
+        Some(Frame::TerminalCommandFinished(_)) => "terminal_command_finished",
         Some(Frame::LastActivity(_)) => "last_activity",
         Some(Frame::PairRequestDelta(_)) => "pair_request_delta",
         Some(Frame::UiState(_)) => "ui_state",
