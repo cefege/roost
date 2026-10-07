@@ -1,11 +1,11 @@
 {
   "coordinator": {
-    "name": "k3s-coordinator",
-    "kubeconfig": "/etc/rancher/k3s/k3s.yaml",
+    "name": "ovh1-k3s",
+    "kubeconfig": "/home/mike/.kube/ovh1.yaml",
     "namespace": "roost",
     "release": "roost-coordinator",
     "chart": "deploy/helm/roost-coordinator",
-    "values": "deploy/helm/fleet-desktop-pc.values.yaml",
+    "values": "deploy/helm/fleet-ovh1.values.yaml",
     "image": "ghcr.io/cefege/roost-coordinator"
   },
   "hosts": [

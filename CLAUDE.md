@@ -295,24 +295,31 @@ Coord down → workers redial and browsers lose state and terminal fan-out, but
 keeper subprocesses preserve the PTYs until the coordinator returns. Worker
 down → that machine's PTYs are unavailable; other machines keep working.
 
-**Our fleet's coordinator is not a host service.** It runs on desktop-pc's k3s
-(namespace `roost`, Deployment `roost-coordinator`, StatefulSet
-`roost-coordinator-postgres`), so on every fleet host `roost status` reports the
-coordinator service and listener as absent; that is expected. Check it with:
+**Our fleet's coordinator is not a host service.** It runs on a single-node
+k3s on ovh1, the same host as the public edge (namespace `roost`, Deployment
+`roost-coordinator`, StatefulSet `roost-coordinator-postgres`, a daily
+`pg_dump` CronJob keeping 14 archives), so on every fleet host `roost status`
+reports the coordinator service and listener as absent; that is expected. The
+k3s API answers on ovh1's tailnet address to desktop-pc only; desktop-pc's
+kubeconfig for it is `~/.kube/ovh1.yaml`. Check it with:
 
 ```
-export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+export KUBECONFIG=~/.kube/ovh1.yaml
 kubectl -n roost get pods                         # coordinator, postgres, backups
 curl -s https://mike.roosttt.com/readyz           # 200 = database answers
 kubectl -n roost logs deploy/roost-coordinator --since=1h   # the JSON log
 kubectl -n roost exec deploy/roost-coordinator -- roost doctor --since 24h
 ```
 
-Roll back to ovh1's SQLite coordinator (it stopped at the cutover, its file
-intact): remove `/etc/systemd/system/roost-saas-legacy-bridge.service.d/desktop-pc.conf`
-on ovh1, restart that unit, `systemctl --user start roost3-coord`, and repoint
-ovh1's worker at `http://127.0.0.1:4113`. Rows written on k3s since do not
-carry back.
+ovh1's `roost-saas-legacy-bridge` reaches it through the drop-in
+`/etc/systemd/system/roost-saas-legacy-bridge.service.d/ovh1-k3s.conf`
+(`100.103.95.19:30413`). desktop-pc's k3s still holds the previous release,
+scaled to 0, with its Postgres as of the move. Roll back to it: on desktop-pc
+`kubectl -n roost scale deploy/roost-coordinator --replicas=1`
+(`KUBECONFIG=/etc/rancher/k3s/k3s.yaml`), and on ovh1 point the drop-in at
+`100.66.192.24:30413` and restart the bridge. Rows written on ovh1 since do not
+carry back unless dumped and restored (`pg_dump -Fc` / `pg_restore --no-owner`
+between the two `roost-coordinator-postgres-0` pods).
 
 **v3 runs beside v2, not on top of it.** v3 uses the data directories
 `RoostCoordinatorV3` and `RoostWorkerV3`, binds the coordinator to
@@ -339,7 +346,7 @@ critical failure — the plan IS the answer.
 
 The per-change gates. They run on GitHub (`ci.yml`, on every push and pull
 request to `v3`); push a branch and open a pull request to run them. On
-desktop-pc, which also runs the production k3s workloads, run only scoped
+desktop-pc, which runs the production k3s workloads, run only scoped
 commands (below), never the workspace-wide ones:
 
 ```
@@ -370,8 +377,8 @@ repository is public, so GitHub-hosted runners cost nothing.
 
 ### Build discipline
 
-**desktop-pc is a production host.** Its k3s runs the Roost coordinator,
-Immich, Nextcloud, Forgejo, Home Assistant and monitoring. Release builds,
+**desktop-pc is a production host.** Its k3s runs Immich, Nextcloud, Forgejo,
+Home Assistant and monitoring. Release builds,
 workspace-wide gates, stress runs and load generators do not run there: they
 run on GitHub. An agent on desktop-pc runs only scoped commands
 (`cargo check -p <crate>`, `cargo clippy -p <crate>`,
@@ -418,17 +425,17 @@ cargo xtask fleet install --version <tag> [--host <name>]…
 `target/fleet/<tag>/` (the Linux x64 and macOS arm64 pairs and the web
 bundle), checks each against its `.sha256`, and records the commit the tag
 names; it refuses until `release.yml` has published the release. It then
-upgrades the coordinator, which runs on desktop-pc's k3s against an in-chart
+upgrades the coordinator, which runs on ovh1's k3s against an in-chart
 Postgres (`fleet.json` `coordinator`, values in
-`deploy/helm/fleet-desktop-pc.values.yaml`): it refuses until
+`deploy/helm/fleet-ovh1.values.yaml`): it refuses until
 `.github/workflows/container.yml` has published the tag's image to ghcr, then
 `helm upgrade`s and checks the pod reports the tag and sha. It then copies the
 tag into each host's `versions/<tag>/`, repoints the systemd units or the
 LaunchAgent at it, restarts them, and fails a host whose binary reports
 another commit or whose keeper pid changed. The public door is unchanged:
 `mike.roosttt.com` reaches ovh1's edge Caddy, whose `roost-saas-legacy-bridge`
-forwards over the tailnet to the coordinator's NodePort (30413). Needs `gh`,
-`helm` and `kubectl` on this machine.
+forwards to the coordinator's NodePort (30413) on ovh1's tailnet address.
+Needs `gh`, `helm` and `kubectl` on this machine.
 
 ---
 

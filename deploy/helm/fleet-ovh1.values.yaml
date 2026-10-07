@@ -1,0 +1,59 @@
+# Our fleet's coordinator: a single-node k3s on ovh1 (control plane and
+# workload on one host), Postgres in-chart. ovh1 is also the edge: Cloudflare
+# tunnel -> ovh1's Caddy -> roost-saas-legacy-bridge -> this NodePort on
+# ovh1's tailnet address. The k3s API answers on 100.103.95.19:6443 to
+# desktop-pc's tailnet address only (firewalld rich rule on ovh1).
+#
+# ovh1's k3s (no traefik/servicelb: ovh1's Caddy owns 80/443):
+#   firewall-cmd --permanent --zone=trusted --add-source=10.42.0.0/16
+#   firewall-cmd --permanent --zone=trusted --add-source=10.43.0.0/16
+#   firewall-cmd --permanent --zone=public --add-rich-rule='rule family=ipv4
+#     source address=100.66.192.24/32 port port=6443 protocol=tcp accept'
+#   curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=v1.36.4+k3s1 \
+#     INSTALL_K3S_SKIP_SELINUX_RPM=true sh -s - server --disable traefik \
+#     --disable servicelb --node-ip 100.103.95.19 --advertise-address \
+#     100.103.95.19 --tls-san 100.103.95.19 --tls-san ovh1 --write-kubeconfig-mode 600
+#
+#   KUBECONFIG=~/.kube/ovh1.yaml helm upgrade --install roost-coordinator \
+#     deploy/helm/roost-coordinator -n roost --create-namespace \
+#     -f deploy/helm/fleet-ovh1.values.yaml \
+#     --set image.tag=<release, e.g. 3.0.0-rc.11> \
+#     --set postgres.password="$(KUBECONFIG=~/.kube/ovh1.yaml kubectl -n roost \
+#        get secret roost-coordinator-postgres -o jsonpath='{.data.POSTGRES_PASSWORD}' | base64 -d)"
+#
+# The first install generates the password instead (openssl rand -hex 24).
+
+publicUrl: https://mike.roosttt.com
+
+# The bridge runs on ovh1 itself and dials ovh1's tailnet address, so the
+# caller the coordinator sees is ovh1, either by that address or, once
+# kube-proxy has rewritten a host-originated connection, by the node's pod
+# gateway. Caddy sets X-Forwarded-For to CF-Connecting-IP before the bridge.
+trustProxy: true
+trustedProxyCidrs: ["100.103.95.19/32", "10.42.0.1/32"]
+
+service:
+  type: NodePort
+  nodePort: 30413
+  externalTrafficPolicy: Local
+
+networkPolicy:
+  enabled: true
+  fromCidrs: ["100.103.95.19/32", "10.42.0.1/32"]
+
+nodeSelector:
+  kubernetes.io/hostname: ovh1-8c32g
+
+env:
+  ROOST_COORDINATOR_AUDIT_RETENTION_DAYS: "90"
+  ROOST_COORDINATOR_JWT_MAX_AGE_SECS: "300"
+  ROOST_RELAXED_CSP: "0"
+  ROOST_TERMINAL_PEER_ENABLED: "1"
+  ROOST_TERMINAL_PEER_STUN_URLS: stun:stun.cloudflare.com:3478
+
+postgres:
+  enabled: true
+  storage: 5Gi
+  backup:
+    enabled: true
+    keep: 14
