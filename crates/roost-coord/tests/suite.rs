@@ -52,6 +52,8 @@ mod cf_access_identity;
 mod cf_access_keyring;
 #[path = "client_seq_cursor.rs"]
 mod client_seq_cursor;
+#[path = "clipboard_history.rs"]
+mod clipboard_history;
 #[path = "db_export_snapshots.rs"]
 mod db_export_snapshots;
 #[path = "deploy_catchup.rs"]

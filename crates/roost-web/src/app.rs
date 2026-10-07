@@ -297,6 +297,7 @@ fn AuthorizedOverlays() -> Element {
         crate::components::rename_dialog::RenameDialogHost {}
         crate::components::notifications::NotificationDock {}
         crate::components::palette::CommandPalette {}
+        crate::components::clipboard_sheet::ClipboardSheet {}
         crate::components::agents::queue_task_dialog::QueueTaskDialogHost {}
     }
 }

@@ -253,10 +253,15 @@ pub(super) fn apply_frame(
             );
             store.note_change();
         }
-        SyncFrame::WorkerPresence { event } => {
-            fold_worker_presence(store, event, out);
-            // A heartbeat moves no worker in or out of the pre-warm selection.
-            if !matches!(**event, WorkerPresenceEvent::Heartbeat { .. }) {
+        SyncFrame::ClipboardHistory { change } => {
+            use crate::sync::inbound::ClipboardHistoryDelta;
+            match change {
+                ClipboardHistoryDelta::Added(entry) => store.clipboard_history.add(entry.clone()),
+                ClipboardHistoryDelta::Removed(id) => store.clipboard_history.remove(id),
+                ClipboardHistoryDelta::Cleared => store.clipboard_history.replace(Vec::new()),
+            }
+            store.note_change();
+        }
         SyncFrame::CommandFinished {
             session_id,
             exit_code,

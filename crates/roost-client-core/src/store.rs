@@ -12,6 +12,7 @@ pub mod browse_entries;
 pub mod browse_machine;
 pub mod browse_paths;
 pub mod browse_state;
+pub mod clipboard_history;
 pub mod clipboard_requests;
 pub mod command_finished_requests;
 pub mod folder_activity;
@@ -227,6 +228,8 @@ pub struct Store {
     pub session_viewers: BTreeMap<String, Vec<SessionViewer>>,
     /// Pending command-completion events, drained by the browser notification scheduler.
     pub command_finished_requests: command_finished_requests::CommandFinishedRequests,
+    /// The coordinator's bounded clipboard history and snapshot readiness.
+    pub clipboard_history: clipboard_history::ClipboardHistory,
     /// Pending terminal clipboard writes, drained by the host.
     pub terminal_clipboard_requests: clipboard_requests::TerminalClipboardRequests,
     /// Opaque presence notices for the panes' presence handlers, oldest first.
@@ -327,6 +330,7 @@ impl Store {
             audit_rows: VecDeque::new(),
             ui_commands: VecDeque::new(),
             terminal_clipboard_requests: clipboard_requests::TerminalClipboardRequests::default(),
+            clipboard_history: clipboard_history::ClipboardHistory::default(),
             command_finished_requests: command_finished_requests::CommandFinishedRequests::default(
             ),
             transport_probes: BTreeMap::new(),

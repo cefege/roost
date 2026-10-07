@@ -38,6 +38,9 @@ use crate::auth::rpc_pairing::{
     handle_pair_approval_status, handle_pair_approve, handle_pair_confirm, handle_pair_create,
     handle_pair_deny, handle_pair_list, handle_pair_poll,
 };
+use crate::clipboard::{
+    handle_clipboard_add, handle_clipboard_clear, handle_clipboard_delete, handle_clipboard_list,
+};
 use crate::deploy::keeper_update::handle_workers_prepare_keeper_update;
 use crate::diagnostics::diag_log::handle_diag_debug_log_batch;
 use crate::diagnostics::rpc_audit::handle_audit_list;
@@ -694,6 +697,55 @@ impl CoordinatorService for CoordinatorServiceImpl {
             handle_mcp_publish(&self.core, caller, r.to_owned_message()).await
         }
     }
+    fn clipboard_list<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, ClipboardListRequest>,
+    ) -> impl Future<Output = ServiceResult<impl Encodable<ClipboardListResponse> + Send + use<'a>>> + Send
+    {
+        async move {
+            let caller = caller_of(&ctx, "ClipboardList")?;
+            handle_clipboard_list(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn clipboard_add<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, ClipboardAddRequest>,
+    ) -> impl Future<Output = ServiceResult<impl Encodable<ClipboardAddResponse> + Send + use<'a>>> + Send
+    {
+        async move {
+            let caller = caller_of(&ctx, "ClipboardAdd")?;
+            handle_clipboard_add(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn clipboard_delete<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, ClipboardDeleteRequest>,
+    ) -> impl Future<
+        Output = ServiceResult<impl Encodable<ClipboardDeleteResponse> + Send + use<'a>>,
+    > + Send {
+        async move {
+            let caller = caller_of(&ctx, "ClipboardDelete")?;
+            handle_clipboard_delete(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn clipboard_clear<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, ClipboardClearRequest>,
+    ) -> impl Future<Output = ServiceResult<impl Encodable<ClipboardClearResponse> + Send + use<'a>>>
+    + Send {
+        async move {
+            let caller = caller_of(&ctx, "ClipboardClear")?;
+            handle_clipboard_clear(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
     // ── auth ────────────────────────────────────────────────────────────
 
     fn auth_coord_identity<'a>(

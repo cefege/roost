@@ -221,6 +221,10 @@ pub const BUS_FRAME_ADAPTERS: &[(&str, &str)] = &[
         "sync_ws::feed::frames::session_clipboard_frame",
     ),
     (
+        "clipboard_history_bus",
+        "sync_ws::feed::frames::clipboard_history_frame",
+    ),
+    (
         "command_finished_bus",
         "sync_ws::feed::frames::session_command_finished_frame",
     ),

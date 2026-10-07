@@ -47,6 +47,8 @@ pub enum PaletteOutcome {
         /// The session whose terminal is read.
         session_id: String,
     },
+    /// Open the clipboard history sheet.
+    OpenClipboardHistory,
     /// Nothing: the row names neither a route nor a command.
     Nothing,
 }
@@ -57,7 +59,10 @@ impl PaletteOutcome {
     /// Only a command carries a captured credential, so only a command can
     /// outlive one.
     pub fn is_command(&self) -> bool {
-        !matches!(self, Self::Navigate(_) | Self::Nothing)
+        !matches!(
+            self,
+            Self::Navigate(_) | Self::OpenClipboardHistory | Self::Nothing
+        )
     }
 }
 
@@ -80,12 +85,18 @@ pub fn palette_outcome(item: &PaletteItem) -> PaletteOutcome {
         Some(PaletteAction::CopyLastCommandOutput { session_id }) => {
             PaletteOutcome::CopyLastCommandOutput { session_id }
         }
+        Some(PaletteAction::OpenClipboardHistory) => PaletteOutcome::OpenClipboardHistory,
         None => PaletteOutcome::Nothing,
     }
 }
 
 /// Perform the press, refusing a command whose credential has been retired.
-pub fn perform(pump: &Pump, navigate: &EventHandler<String>, item: &PaletteItem) {
+pub fn perform(
+    pump: &Pump,
+    navigate: &EventHandler<String>,
+    item: &PaletteItem,
+    mut overlays: crate::keyboard_shortcuts::ShortcutOverlays,
+) {
     let outcome = palette_outcome(item);
     if outcome.is_command() && !generation_is_current(pump, item) {
         let message = STALE_CREDENTIAL_MESSAGE;
@@ -110,6 +121,7 @@ pub fn perform(pump: &Pump, navigate: &EventHandler<String>, item: &PaletteItem)
         PaletteOutcome::CopyLastCommandOutput { session_id } => {
             super::copy_command_output::copy_last_command_output(pump.clone(), session_id);
         }
+        PaletteOutcome::OpenClipboardHistory => overlays.clipboard_history.set(true),
         PaletteOutcome::Nothing => {}
     }
 }

@@ -328,7 +328,7 @@ fn on_document_key_down(shared: &PaneShared, event: &Event) {
 fn run_reserved_chord(shared: &PaneShared, chord: ReservedChord) {
     match chord {
         ReservedChord::OpenFind => super::find_io::open(shared),
-        ReservedChord::Copy => copy_selection(),
+        ReservedChord::Copy => super::clipboard::copy_selection(shared),
         ReservedChord::Paste => paste_from_clipboard(shared),
         ReservedChord::PreviousPrompt => {
             super::prompt_jump::jump_prompt(shared, super::prompt_jump::PromptDirection::Previous)
@@ -337,22 +337,6 @@ fn run_reserved_chord(shared: &PaneShared, chord: ReservedChord) {
             super::prompt_jump::jump_prompt(shared, super::prompt_jump::PromptDirection::Next)
         }
     }
-}
-
-pub(super) fn copy_selection() {
-    let Some(window) = web_sys::window() else {
-        return;
-    };
-    let text: String = window
-        .get_selection()
-        .ok()
-        .flatten()
-        .and_then(|selection| selection.to_string().as_string())
-        .unwrap_or_default();
-    if text.is_empty() {
-        return;
-    }
-    let _ = window.navigator().clipboard().write_text(&text);
 }
 
 fn paste_from_clipboard(shared: &PaneShared) {

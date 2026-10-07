@@ -70,7 +70,14 @@ struct MountedPane {
     /// layout" and "is its surface the active one" are DECK facts, and a
     /// computed style is a report about the renderer, not the authority.
     flags: Cell<super::pane_state::PaneFlags>,
+    /// The pane's own paste path, so a surface outside the pane (the clipboard
+    /// history sheet) pastes through the same multiline guard a Mod+Shift+V
+    /// paste does instead of writing raw bytes past it.
+    paste: RefCell<Option<PasteTarget>>,
 }
+
+/// A mounted pane's paste door.
+pub type PasteTarget = Rc<dyn Fn(&str)>;
 
 impl PartialEq for PaneRegistry {
     fn eq(&self, other: &Self) -> bool {
@@ -104,6 +111,7 @@ impl PaneRegistry {
                     mount_id,
                     surface,
                     flags: Cell::new(super::pane_state::PaneFlags::default()),
+                    paste: RefCell::new(None),
                 },
             )
             .is_some();
@@ -145,6 +153,36 @@ impl PaneRegistry {
             tracing::debug!(target: "terminal", session_id, mount_id, "pane unregistered");
         }
         owns
+    }
+
+    /// Install the paste door for `session_id`'s current mount. A door for a
+    /// mount that has since been replaced is ignored.
+    pub fn set_paste_target(&self, session_id: &str, mount_id: u64, target: PasteTarget) {
+        if let Some(pane) = self
+            .inner
+            .borrow()
+            .panes
+            .get(session_id)
+            .filter(|pane| pane.mount_id == mount_id)
+        {
+            *pane.paste.borrow_mut() = Some(target);
+        }
+    }
+
+    /// Paste `text` into `session_id`'s mounted pane through its own paste
+    /// path. `false` when no pane for that session is mounted.
+    pub fn paste_text(&self, session_id: &str, text: &str) -> bool {
+        let target = self
+            .inner
+            .borrow()
+            .panes
+            .get(session_id)
+            .and_then(|pane| pane.paste.borrow().clone());
+        // Called outside the borrow: the paste may re-enter the registry.
+        target.is_some_and(|paste| {
+            paste(text);
+            true
+        })
     }
 
     /// The current mount's id, for a caller detecting a remount.

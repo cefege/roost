@@ -106,7 +106,9 @@ Non-negotiable for every change.
    answering "what stops you splitting this?" — currently only
    `crates/roost-coord/src/rpc/service_impl.rs`, whose single
    `impl CoordinatorService` cannot span blocks (E0119) and whose arms may
-   not be `macro_rules!`-generated. An exempt file is neither counted nor
+   not be `macro_rules!`-generated, and `crates/roost-coord/tests/suite.rs`,
+   the generated one-binary test root, which outgrew the cap at two lines per
+   test file. An exempt file is neither counted nor
    snapshotted. **Adding an entry needs a reason that survives that
    question**; a weak reason is a bug in the list. See
    `docs/phase3-coord-contract.md` §12.11.

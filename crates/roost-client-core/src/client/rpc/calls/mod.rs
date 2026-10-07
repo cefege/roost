@@ -8,6 +8,7 @@
 pub mod attachment_direct;
 pub mod attachments;
 pub mod browse;
+pub mod clipboard;
 pub mod diagnostics;
 pub mod files;
 pub mod find;

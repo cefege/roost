@@ -74,8 +74,9 @@ pub enum PaletteAction {
         /// The session whose retained terminal rows are read.
         session_id: String,
     },
+    /// Open the coordinator-backed clipboard history.
+    OpenClipboardHistory,
 }
-
 /// One row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaletteItem {
@@ -147,9 +148,10 @@ pub struct CommandPaletteContext {
 }
 
 /// The catalog's closed set of core action ids.
-pub const CORE_ACTION_IDS: [&str; 5] = [
+pub const CORE_ACTION_IDS: [&str; 6] = [
     "core.search.all",
     "core.attention.open",
+    "core.clipboard.history",
     "core.task.queue-folder",
     "core.session.new-sibling",
     "core.session.copy-last-command-output",
@@ -235,6 +237,16 @@ pub fn core_action_items(context: &CommandPaletteContext) -> Vec<PaletteItem> {
             search: Some("attention blocked done unseen agents".to_owned()),
             href: Some("/search?scope=attention".to_owned()),
             action: None,
+            captured_auth_generation: None,
+        },
+        PaletteItem {
+            id: "core.clipboard.history".to_owned(),
+            kind: ItemKind::Action,
+            label: "Clipboard history".to_owned(),
+            hint: Some("recent copies".to_owned()),
+            search: Some("clipboard history copy paste".to_owned()),
+            href: None,
+            action: Some(PaletteAction::OpenClipboardHistory),
             captured_auth_generation: None,
         },
     ];

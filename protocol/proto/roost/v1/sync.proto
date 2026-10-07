@@ -66,6 +66,21 @@ message TerminalTitleFrame {
   string title = 2;
 }
 
+message ClipboardHistoryFrame {
+  int32 change = 1;
+  TerminalClipboardEntry entry = 2;
+  string id = 3;
+}
+
+message TerminalClipboardEntry {
+  string id = 1;
+  string text = 2;
+  string source_session_id = 3;
+  string source_worker_fp = 4;
+  string source_kind = 5;
+  int64 created_at_ms = 6;
+}
+
 // Last-activity timestamp (ms) per session, stamped centrally by coord
 // (last-activity-hub) on PTY byte flow and fanned out here (throttled).
 // Drives the sidebar "Last activity" filter aging out idle OPEN sessions.
@@ -317,6 +332,7 @@ message FirehoseFrame {
     TerminalTransportProbeResult terminal_transport_probe_result = 50;
     TerminalClipboardFrame terminal_clipboard = 51;
     TerminalCommandFinishedFrame terminal_command_finished = 52;
+    ClipboardHistoryFrame clipboard_history = 53;
   }
 }
 

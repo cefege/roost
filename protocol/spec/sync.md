@@ -20,6 +20,7 @@ Sync is the authenticated browser metadata, control, terminal-fallback, and auth
 | `InputAccepted`, `InputRejected`, `InputAmbiguous` | `protocol/proto/roost/v1/sync.proto:229-249` | Truthful terminal-write result correlated by session, `input_seq`, and domain generation. |
 | `KeepaliveFrame` | `protocol/proto/roost/v1/sync.proto:324-326` | Timestamp-only liveness frame. |
 | `TerminalClipboardFrame` | `protocol/proto/roost/v1/sync.proto` | One-shot OSC 52 clipboard write for an observed session. Volatile event: not retained or seeded on reconnect; text is at most 256 KiB. |
+| `ClipboardHistoryFrame` | `protocol/proto/roost/v1/sync.proto` | Persisted clipboard history added/removed/cleared event, sent to every install-wide Sync link (an added entry carries its text). Not seeded: the history sheet loads `ClipboardList` when it opens and folds these while open. |
 | `TerminalCommandFinishedFrame` | `protocol/proto/roost/v1/sync.proto` | One-shot long-command completion for an observed session; not retained or seeded, and contains no terminal text. |
 
 ## State machine

@@ -247,7 +247,7 @@ fn copy_on_select(shared: &PaneShared) {
         .anchor_node()
         .is_some_and(|anchor| shared.display.contains(Some(&anchor)))
     {
-        input::copy_selection();
+        super::clipboard::copy_selection(shared);
     }
 }
 

@@ -26,6 +26,14 @@ use crate::sessions::WireEvent;
 use crate::sync::link::SyncDomain;
 use crate::terminal::input::InputOutcome;
 
+/// One persisted clipboard-history event.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ClipboardHistoryDelta {
+    Added(crate::client::rpc::calls::clipboard::ClipboardEntry),
+    Removed(String),
+    Cleared,
+}
+
 /// One decoded frame from the Sync socket.
 /// Only `PartialEq`: the cell messages and the session rows it carries are
 /// protobuf and wire types, neither of which is `Eq`. A test that needs to
@@ -216,6 +224,11 @@ pub enum SyncFrame {
         /// The requested clipboard contents.
         text: String,
     },
+    /// A persisted clipboard-history mutation broadcast to open browser sheets.
+    ClipboardHistory {
+        /// The coordinator's change kind and row or id.
+        change: ClipboardHistoryDelta,
+    },
     /// A terminal reported that a command completed.
     CommandFinished {
         /// The session that emitted the event.
@@ -306,13 +319,14 @@ impl SyncFrame {
             Self::SessionEvent { .. }
             | Self::SessionEventRejected { .. }
             | Self::SessionsSnapshot { .. } => Some(SyncDomain::Terminal),
+            Self::ClipboardHistory { .. } => Some(SyncDomain::Pair),
             Self::Subscribed { .. }
+            | Self::InputRouteResult { .. }
             | Self::ViewState { .. }
             | Self::InputResult { .. }
             | Self::UiState
             | Self::UiCommand { .. }
             | Self::CoordinatorRelocation { .. }
-            | Self::InputRouteResult { .. }
             | Self::TransportProbeResult { .. }
             | Self::Keepalive => None,
         }
@@ -342,6 +356,7 @@ impl SyncFrame {
             Self::WorkerRoutable { .. } => "worker_routable",
             Self::TerminalTitle { .. } => "terminal_title",
             Self::TerminalClipboard { .. } => "terminal_clipboard",
+            Self::ClipboardHistory { .. } => "clipboard_history",
             Self::CommandFinished { .. } => "terminal_command_finished",
             Self::LastActivity { .. } => "last_activity",
             Self::PairRequestDelta { .. } => "pair_request_delta",

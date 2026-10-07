@@ -166,6 +166,18 @@ fn report(pump: &Pump, session_id: &str, outcome: Result<String, String>) {
     let fallback = text.clone();
     crate::components::notifications::clipboard::copy_text_then(&text, move |copied| {
         if copied {
+            let call = roost_client_core::client::rpc::calls::clipboard::ClipboardAdd {
+                text: fallback.clone(),
+                session_id: session_id.clone(),
+                source_kind: "command_output".to_owned(),
+            };
+            let rpc = pump.rpc();
+            let session_id = session_id.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                if let Err(error) = rpc.call(&call).await {
+                    tracing::debug!(target: "clipboard", %session_id, %error, "command output history add failed");
+                }
+            });
             pump.dispatch(ClientEvent::Shell(ShellIntent::ActionSucceeded {
                 message: format!("Copied {lines} lines of command output"),
             }));

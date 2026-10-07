@@ -9,6 +9,7 @@
 mod actions;
 mod backfill_io;
 mod browser;
+mod clipboard;
 mod cursor_report;
 mod echo;
 mod find_io;
@@ -244,6 +245,16 @@ impl PaneMount {
         shared
             .mount_id
             .set(shared.panes.register(&shared.session_id, surface));
+        let paste_into = shared.weak_self();
+        shared.panes.set_paste_target(
+            &shared.session_id,
+            shared.mount_id.get(),
+            Rc::new(move |text: &str| {
+                if let Some(shared) = paste_into.upgrade().filter(|pane| !pane.disposed.get()) {
+                    input::paste_text(&shared, text);
+                }
+            }),
+        );
         browser::attach(&shared);
         input::attach(&shared);
         interactions::attach(&shared);

@@ -144,6 +144,7 @@ fn perform(
         }
         KeydownAction::TogglePalette => toggle(overlays.palette),
         KeydownAction::ToggleHelp => toggle(overlays.help),
+        KeydownAction::ToggleClipboardHistory => toggle(overlays.clipboard_history),
         KeydownAction::StepTermFont(direction) => step_term_font(pump, direction),
         KeydownAction::ResetTermFont => {
             reset_term_font(pump, device_default_term_font_px(modality.tv_mode_active()))

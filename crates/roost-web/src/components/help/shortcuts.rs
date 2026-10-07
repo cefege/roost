@@ -39,7 +39,12 @@ use BindingPart::{Chord, Keys};
 /// Every shortcut the application advertises, grouped by category in source
 /// order — the controller rows name physical caps so a legend row in
 /// `input_nav::pad_hints` is greppable from here.
-pub const SHORTCUTS: [ShortcutEntry; 32] = [
+pub const SHORTCUTS: [ShortcutEntry; 33] = [
+    ShortcutEntry {
+        category: "Navigation",
+        label: "Clipboard history",
+        parts: &[Keys("Mod+Shift+H")],
+    },
     ShortcutEntry {
         category: "Navigation",
         label: "Command palette",

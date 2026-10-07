@@ -160,7 +160,7 @@ fn select_handler(
         let mut palette = overlays.palette;
         palette.set(false);
         query.set(String::new());
-        outcome::perform(&pump, &navigate, &item);
+        outcome::perform(&pump, &navigate, &item, overlays);
     })
 }
 

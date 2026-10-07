@@ -1,4 +1,4 @@
-//! The one table of buses: fifteen domains, fifteen bounds, one owner.
+//! The one table of buses: sixteen domains, sixteen bounds, one owner.
 //!
 //! Ported from the singleton block of `apps/coord/src/events/buses.ts:114-180`.
 //! v2 exports thirteen module-level `const` buses and every publisher,
@@ -29,9 +29,9 @@ use roost_protocol::wire::{
 
 use crate::events::bus::BoundedBus;
 use crate::events::bus_messages::{
-    AuditRow, LastActivityUpdate, PairRequestDelta, SessionBusMessage, SessionClipboardWrite,
-    SessionCommandFinished, SessionPresenceUpdate, SessionTitleUpdate, TaskBusMsg, UiBusMsg,
-    WorkerRoutableSet,
+    AuditRow, ClipboardHistoryChange, LastActivityUpdate, PairRequestDelta, SessionBusMessage,
+    SessionClipboardWrite, SessionCommandFinished, SessionPresenceUpdate, SessionTitleUpdate,
+    TaskBusMsg, UiBusMsg, WorkerRoutableSet,
 };
 
 /// Every in-process broadcast bus the coordinator owns.
@@ -72,6 +72,8 @@ pub struct Buses {
     pub title_bus: BoundedBus<SessionTitleUpdate>,
     /// One-shot OSC 52 writes; volatile and never seeded on reconnect. 256.
     pub clipboard_bus: BoundedBus<SessionClipboardWrite>,
+    /// Persisted clipboard history changes for open browser sheets. 256.
+    pub clipboard_history_bus: BoundedBus<ClipboardHistoryChange>,
     /// One-shot OSC 133 command completions; volatile, never seeded. 256.
     pub command_finished_bus: BoundedBus<SessionCommandFinished>,
     /// Last-activity observations. 256.
@@ -83,7 +85,7 @@ pub struct Buses {
 }
 
 impl Buses {
-    /// The fifteen buses, each at its v2 bound.
+    /// The sixteen buses, each at its v2 bound.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -100,12 +102,13 @@ impl Buses {
             title_bus: BoundedBus::new(256),
             clipboard_bus: BoundedBus::new(256),
             command_finished_bus: BoundedBus::new(256),
+            clipboard_history_bus: BoundedBus::new(256),
             last_activity_bus: BoundedBus::new(256),
             ui_bus: BoundedBus::new(0),
         }
     }
 
-    /// The fifteen buses behind one shared handle.
+    /// The sixteen buses behind one shared handle.
     #[must_use]
     pub fn shared() -> Arc<Self> {
         Arc::new(Self::new())

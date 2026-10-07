@@ -23,6 +23,8 @@ pub struct ShortcutOverlays {
     pub help: Signal<bool>,
     /// The controller button map (opened by a pad's Start, never by a key).
     pub controller_map: Signal<bool>,
+    /// The universal clipboard history sheet.
+    pub clipboard_history: Signal<bool>,
 }
 
 impl ShortcutOverlays {
@@ -32,6 +34,7 @@ impl ShortcutOverlays {
             palette: Signal::new(false),
             help: Signal::new(false),
             controller_map: Signal::new(false),
+            clipboard_history: Signal::new(false),
         })
     }
 }
@@ -89,6 +92,8 @@ pub enum KeydownAction {
     ResetTermFont,
     /// Navigate to the settings shell.
     OpenSettings,
+    /// Open or close the universal clipboard history.
+    ToggleClipboardHistory,
     /// Open the highlighted sidebar row.
     ActivateCursor,
     /// Move the sidebar cursor by this many rows.
@@ -107,6 +112,16 @@ pub fn keydown_action(key: &ShortcutKey, context: &KeydownContext) -> KeydownAct
     use KeydownAction as A;
     if context.default_prevented {
         return A::Ignore;
+    }
+    // A terminal's own input is a text field too, and the terminal is exactly
+    // where an operator wants the history from; other fields keep their keys.
+    if (!context.target_is_text_field || context.target_in_terminal_input)
+        && key.shift
+        && !key.alt
+        && (key.meta || key.ctrl)
+        && key.key.eq_ignore_ascii_case("h")
+    {
+        return A::ToggleClipboardHistory;
     }
     let platform = context.platform;
     let matches = |shortcut| matches_platform_shortcut(key, shortcut, platform);

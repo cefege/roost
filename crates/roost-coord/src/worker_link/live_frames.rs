@@ -269,6 +269,23 @@ impl WorkerFrameDispatcher {
                 clipboard_bytes = metadata.clipboard.len(),
                 "terminal emitted an OSC 52 clipboard write"
             );
+            let core = self.core.clone();
+            let source_session_id = session_id.as_str().to_owned();
+            let source_worker_fp = worker.as_str().to_owned();
+            let text = metadata.clipboard.clone();
+            tokio::spawn(async move {
+                if let Err(error) = crate::clipboard::capture_osc52(
+                    &core,
+                    &source_session_id,
+                    &source_worker_fp,
+                    &text,
+                    crate::serve::now_ms(),
+                )
+                .await
+                {
+                    tracing::error!(error = %error, clipboard_bytes = text.len(), "OSC 52 history persistence failed");
+                }
+            });
         }
         if metadata.command_finished {
             services.buses.command_finished_bus.publish(

@@ -17,6 +17,7 @@ pub mod agents;
 pub mod app_error_boundary;
 pub mod brand_mark;
 pub mod browse;
+pub mod clipboard_sheet;
 pub mod context_menu;
 pub mod deck;
 pub mod design;

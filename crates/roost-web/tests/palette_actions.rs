@@ -38,6 +38,7 @@ const FOLDER: &str = "/tmp";
 struct Built {
     pump: Pump,
     navigate: EventHandler<String>,
+    overlays: roost_web::keyboard_shortcuts::ShortcutOverlays,
     routes: Rc<RefCell<Vec<String>>>,
 }
 
@@ -89,10 +90,12 @@ fn pump_root() -> Element {
     let routes: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
     let sink = Rc::clone(&routes);
     let navigate = EventHandler::new(move |path: String| sink.borrow_mut().push(path));
+    let overlays = roost_web::keyboard_shortcuts::ShortcutOverlays::provide();
     BUILT.with(|built| {
         *built.borrow_mut() = Some(Built {
             pump,
             navigate,
+            overlays,
             routes,
         })
     });
@@ -106,6 +109,7 @@ struct Harness {
     /// Kept alive so the revision signal keeps the scope that owns it.
     pump: Pump,
     navigate: EventHandler<String>,
+    overlays: roost_web::keyboard_shortcuts::ShortcutOverlays,
     routes: Rc<RefCell<Vec<String>>>,
 }
 
@@ -122,6 +126,7 @@ impl Harness {
             dom,
             pump: built.pump,
             navigate: built.navigate,
+            overlays: built.overlays,
             routes: built.routes,
         }
     }
@@ -130,7 +135,9 @@ impl Harness {
     fn press(&mut self, item: &PaletteItem) {
         let pump = self.pump.clone();
         let navigate = self.navigate;
-        self.dom.in_runtime(|| perform(&pump, &navigate, item));
+        let overlays = self.overlays;
+        self.dom
+            .in_runtime(|| perform(&pump, &navigate, item, overlays));
     }
 
     /// The paths the router was handed.

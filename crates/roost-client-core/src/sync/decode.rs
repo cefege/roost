@@ -29,7 +29,7 @@ use roost_proto::buffa::Message;
 pub use self::arms::{ArmLane, FIREHOSE_ARMS, FirehoseArm, arm_of};
 pub(crate) use self::control_arms::{input_route_result_of, transport_probe_result_of};
 use crate::event::ClientEvent;
-use crate::sync::inbound::SyncFrame;
+use crate::sync::inbound::{ClipboardHistoryDelta, SyncFrame};
 use crate::sync::link::SyncDomain;
 
 /// What the host knows about the bytes besides the bytes.
@@ -208,6 +208,7 @@ fn map_arm(frame: Frame, domain_generation: u64) -> Result<SyncFrame, String> {
             session_id: value.session_id,
             text: value.text,
         }),
+        Frame::ClipboardHistory(value) => clipboard_history(*value),
         Frame::TerminalCommandFinished(value) => Ok(terminal::command_finished(*value)),
         Frame::TerminalTitle(value) => Ok(SyncFrame::TerminalTitle {
             session_id: value.session_id,
@@ -223,4 +224,27 @@ fn map_arm(frame: Frame, domain_generation: u64) -> Result<SyncFrame, String> {
         Frame::WorkerRoutable(value) => registry::worker_routable(*value),
         Frame::PairRequestDelta(value) => registry::pair_request_delta(*value),
     }
+}
+
+fn clipboard_history(value: roost_proto::ClipboardHistoryFrame) -> Result<SyncFrame, String> {
+    let change = match value.change {
+        1 => {
+            let entry = value
+                .entry
+                .as_option()
+                .ok_or_else(|| "clipboard history add carried no entry".to_owned())?;
+            ClipboardHistoryDelta::Added(crate::client::rpc::calls::clipboard::ClipboardEntry {
+                id: entry.id.clone(),
+                text: entry.text.clone(),
+                source_session_id: entry.source_session_id.clone(),
+                source_worker_fp: entry.source_worker_fp.clone(),
+                source_kind: entry.source_kind.clone(),
+                created_at_ms: entry.created_at_ms,
+            })
+        }
+        2 if !value.id.is_empty() => ClipboardHistoryDelta::Removed(value.id),
+        3 => ClipboardHistoryDelta::Cleared,
+        _ => return Err("clipboard history frame carried an invalid change".to_owned()),
+    };
+    Ok(SyncFrame::ClipboardHistory { change })
 }

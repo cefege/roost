@@ -79,9 +79,10 @@ const TERMINAL_CLIPBOARD: FirehoseArm = application(51, "terminal_clipboard", Sy
 
 const COMMAND_FINISHED: FirehoseArm =
     application(52, "terminal_command_finished", SyncDomain::Terminal);
+const CLIPBOARD_HISTORY: FirehoseArm = application(53, "clipboard_history", SyncDomain::Pair);
 /// Every arm, in field order. All of them are mapped: `decode::map_arm` has no
 /// wildcard, so an arm with no row here cannot have a mapping either.
-pub const FIREHOSE_ARMS: [FirehoseArm; 29] = [
+pub const FIREHOSE_ARMS: [FirehoseArm; 30] = [
     SESSIONS,
     SESSION_PRESENCE,
     AUDIT_ROW,
@@ -110,6 +111,7 @@ pub const FIREHOSE_ARMS: [FirehoseArm; 29] = [
     INPUT_ROUTE_RESULT,
     TERMINAL_TRANSPORT_PROBE_RESULT,
     TERMINAL_CLIPBOARD,
+    CLIPBOARD_HISTORY,
     COMMAND_FINISHED,
 ];
 
@@ -144,6 +146,7 @@ pub const fn arm_of(frame: &Frame) -> FirehoseArm {
         Frame::InputRouteResult(_) => INPUT_ROUTE_RESULT,
         Frame::TerminalTransportProbeResult(_) => TERMINAL_TRANSPORT_PROBE_RESULT,
         Frame::TerminalClipboard(_) => TERMINAL_CLIPBOARD,
+        Frame::ClipboardHistory(_) => CLIPBOARD_HISTORY,
         Frame::TerminalCommandFinished(_) => COMMAND_FINISHED,
     }
 }

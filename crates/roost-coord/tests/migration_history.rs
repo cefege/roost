@@ -191,8 +191,8 @@ async fn the_history_this_build_wrote_is_admitted_and_keeps_booting() {
             .await
             .expect("the history");
     assert_eq!(
-        versions,
-        embedded_versions().into_iter().collect::<Vec<i64>>(),
+        versions.into_iter().collect::<HashSet<i64>>(),
+        embedded_versions(),
         "a file this build migrated records exactly the versions it embeds"
     );
 }

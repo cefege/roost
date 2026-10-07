@@ -1,11 +1,11 @@
-//! The bus-coverage audit: every one of the coordinator's fifteen buses has an
+//! The bus-coverage audit: every one of the sixteen coordinator buses has an
 //! adapter, and every frame that adapter produces names a domain the socket
 //! table has and a lane the weighted round robin actually visits.
 //!
-//! This is the test fifteen buses with no caller do not have. A bus nobody
+//! This is the test sixteen buses with no caller do not have. A bus nobody
 //! reads is a message published into the void, and from the coordinator's side
 //! that is indistinguishable from a browser fleet of zero -- which is why the
-//! coverage is asserted per bus rather than in aggregate. Fifteen buses that
+//! coverage is asserted per bus rather than in aggregate. Sixteen buses that
 //! all landed on one lane would satisfy a count and deliver nothing, so the
 //! domains each bus reaches are asserted too.
 //!
@@ -18,14 +18,14 @@ mod sync_feed_support;
 use std::collections::BTreeSet;
 
 use roost_coord::events::bus_messages::{
-    AuditRow, LastActivityUpdate, PairRequestDelta, SessionClipboardWrite, SessionCommandFinished,
-    SessionPresenceUpdate, SessionTitleUpdate, TaskBusMsg, TaskBusMsgKind, UiBusMsg,
-    WorkerRoutableSet,
+    AuditRow, ClipboardHistoryChange, ClipboardHistoryChangeKind, LastActivityUpdate,
+    PairRequestDelta, SessionClipboardWrite, SessionCommandFinished, SessionPresenceUpdate,
+    SessionTitleUpdate, TaskBusMsg, TaskBusMsgKind, UiBusMsg, WorkerRoutableSet,
 };
 use roost_coord::sync_ws::feed::frames::{
-    agent_status_frame, audit_frame, mcp_frame, pair_frame, session_clipboard_frame,
-    session_command_finished_frame, session_message_frame, session_title_frame, task_frame,
-    workspace_frame,
+    agent_status_frame, audit_frame, clipboard_history_frame, mcp_frame, pair_frame,
+    session_clipboard_frame, session_command_finished_frame, session_message_frame,
+    session_title_frame, task_frame, workspace_frame,
 };
 use roost_coord::sync_ws::feed::last_activity::last_activity_frame;
 use roost_coord::sync_ws::feed::presence::session_presence_frame;
@@ -49,8 +49,8 @@ use sync_feed_support::{
 fn every_bus_in_the_coordinator_has_a_producer() {
     assert_eq!(
         BUS_FRAME_ADAPTERS.len(),
-        15,
-        "the coordinator's bus table is fifteen domains; a bus added without \
+        16,
+        "the coordinator's bus table is sixteen domains; a bus added without \
          an adapter is a message published into the void"
     );
 
@@ -119,6 +119,22 @@ fn every_bus_in_the_coordinator_has_a_producer() {
         session_clipboard_frame(&SessionClipboardWrite {
             session_id: SESSION_A.to_owned(),
             text: "copied text".to_owned(),
+        }),
+    );
+    record(
+        "clipboard_history_bus",
+        clipboard_history_frame(&ClipboardHistoryChange {
+            kind: ClipboardHistoryChangeKind::Added,
+            entry: Some(roost_proto::TerminalClipboardEntry {
+                id: "entry".to_owned(),
+                text: "copied text".to_owned(),
+                source_session_id: SESSION_A.to_owned(),
+                source_worker_fp: "worker-fp".to_owned(),
+                source_kind: "selection".to_owned(),
+                created_at_ms: 1_700_000_000_000,
+                ..Default::default()
+            }),
+            id: "entry".to_owned(),
         }),
     );
     record(

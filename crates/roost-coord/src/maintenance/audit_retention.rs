@@ -185,6 +185,11 @@ pub fn spawn_audit_retention(database: CoordDb, retention_days: u64) {
                 }
                 Err(error) => tracing::error!(error = %error, "audit_log prune failed"),
             }
+            match crate::clipboard::prune_clipboard_history(&database, now_ms()).await {
+                Ok(0) => {}
+                Ok(deleted) => tracing::info!(deleted, "clipboard history entries pruned"),
+                Err(error) => tracing::error!(error = %error, "clipboard history prune failed"),
+            }
             tokio::time::sleep(Duration::from_millis(DAY_MS as u64)).await;
         }
     });

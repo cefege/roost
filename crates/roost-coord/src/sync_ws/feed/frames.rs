@@ -19,10 +19,10 @@ use roost_proto::__buffa::oneof::pair_request_delta_proto::Kind as PairKind;
 use roost_proto::__buffa::oneof::task_delta_proto::Kind as TaskKind;
 use roost_proto::__buffa::oneof::workspace_delta_proto::Kind as WorkspaceKind;
 use roost_proto::{
-    AgentStatusFrame, AuditRow as PbAuditRow, FirehoseFrame, McpRelayEvent, McpStreamMessageProto,
-    PairCompleted, PairRequest, PairRequestDeltaProto, TaskDeltaProto, TerminalClipboardFrame,
-    TerminalCommandFinishedFrame, TerminalTitleFrame, Workspace as PbWorkspace,
-    WorkspaceDeltaProto, WorkspaceSessionsSet,
+    AgentStatusFrame, AuditRow as PbAuditRow, ClipboardHistoryFrame, FirehoseFrame, McpRelayEvent,
+    McpStreamMessageProto, PairCompleted, PairRequest, PairRequestDeltaProto, TaskDeltaProto,
+    TerminalClipboardEntry, TerminalClipboardFrame, TerminalCommandFinishedFrame,
+    TerminalTitleFrame, Workspace as PbWorkspace, WorkspaceDeltaProto, WorkspaceSessionsSet,
 };
 use roost_protocol::wire::{
     AgentStatusUpdate, McpRelayDelta, McpStreamMessage, WorkspaceDelta, event_to_proto,
@@ -269,6 +269,42 @@ pub fn session_clipboard_frame(write: &SessionClipboardWrite) -> FeedFrame {
             session_id: write.session_id.clone(),
             text: write.text.clone(),
             ..TerminalClipboardFrame::default()
+        }))),
+        ..FirehoseFrame::default()
+    })
+}
+
+pub fn clipboard_history_frame(
+    change: &crate::events::bus_messages::ClipboardHistoryChange,
+) -> FeedFrame {
+    let (change_kind, entry, id) = match change.kind {
+        crate::events::bus_messages::ClipboardHistoryChangeKind::Added => {
+            (1, change.entry.clone(), String::new())
+        }
+        crate::events::bus_messages::ClipboardHistoryChangeKind::Removed => {
+            (2, None, change.id.clone())
+        }
+        crate::events::bus_messages::ClipboardHistoryChangeKind::Cleared => {
+            (3, None, String::new())
+        }
+    };
+    let entry = entry.map_or_else(roost_proto::buffa::MessageField::none, |entry| {
+        roost_proto::buffa::MessageField::some(TerminalClipboardEntry {
+            id: entry.id,
+            text: entry.text,
+            source_session_id: entry.source_session_id,
+            source_worker_fp: entry.source_worker_fp,
+            source_kind: entry.source_kind,
+            created_at_ms: entry.created_at_ms,
+            ..Default::default()
+        })
+    });
+    FeedFrame::of(FirehoseFrame {
+        frame: Some(Frame::ClipboardHistory(Box::new(ClipboardHistoryFrame {
+            change: change_kind,
+            entry,
+            id,
+            ..Default::default()
         }))),
         ..FirehoseFrame::default()
     })

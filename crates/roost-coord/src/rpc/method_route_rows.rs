@@ -172,6 +172,15 @@ pub const ROWS_ATTACHMENTS: &[MethodRoute] = &[
 ///   direction and a recovery path in the other. Neither exists: the gate
 ///   admits a browser and nothing else, today.
 #[rustfmt::skip]
+///   Coordinator-backed clipboard history for paired browsers.
+pub const ROWS_CLIPBOARD: &[MethodRoute] = &[
+    route("ClipboardList", "clipboard", AuthRequirement::Device, PortStatus::Implemented),
+    route("ClipboardAdd", "clipboard", AuthRequirement::Device, PortStatus::Implemented),
+    route("ClipboardDelete", "clipboard", AuthRequirement::Device, PortStatus::Implemented),
+    route("ClipboardClear", "clipboard", AuthRequirement::Device, PortStatus::Implemented),
+];
+
+#[rustfmt::skip]
 pub const ROWS_AUTH: &[MethodRoute] = &[
     route("AuthCoordIdentity", "auth", AuthRequirement::Public, PortStatus::Implemented),
     route("AuthDashboardAccess", "auth", AuthRequirement::Unwired, PortStatus::UnwiredInV2),
@@ -282,6 +291,7 @@ pub const ALL_TABLES: &[&[MethodRoute]] = &[
     ROWS_AGENTS,
     ROWS_SEARCH,
     ROWS_ATTACHMENTS,
+    ROWS_CLIPBOARD,
     ROWS_AUTH,
     ROWS_RPC,
     ROWS_UI_STATE,

@@ -316,3 +316,36 @@ impl std::fmt::Debug for UiBusMsg {
         }
     }
 }
+
+/// A clipboard history mutation, delivered to every install-wide Sync link.
+#[derive(Clone, PartialEq)]
+pub struct ClipboardHistoryChange {
+    /// Whether a row was added, removed, or all rows were cleared.
+    pub kind: ClipboardHistoryChangeKind,
+    /// The row for an add; text is deliberately absent from Debug output.
+    pub entry: Option<roost_proto::TerminalClipboardEntry>,
+    /// The removed row id, when `kind` is `Removed`.
+    pub id: String,
+}
+
+impl std::fmt::Debug for ClipboardHistoryChange {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ClipboardHistoryChange")
+            .field("kind", &self.kind)
+            .field("entry_id", &self.entry.as_ref().map(|entry| &entry.id))
+            .field(
+                "text_bytes",
+                &self.entry.as_ref().map(|entry| entry.text.len()),
+            )
+            .field("id", &self.id)
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClipboardHistoryChangeKind {
+    Added,
+    Removed,
+    Cleared,
+}

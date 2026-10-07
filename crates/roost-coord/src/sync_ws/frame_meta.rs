@@ -151,6 +151,7 @@ pub fn frame_meta_for(frame: &Frame) -> SyncFrameMeta {
         Frame::TaskDelta(_) => domain_meta(SyncDomain::Tasks),
         Frame::McpMsg(_) => domain_meta(SyncDomain::Mcp),
         Frame::PairRequestDelta(_) => domain_meta(SyncDomain::Pair),
+        Frame::ClipboardHistory(_) => domain_meta(SyncDomain::Pair),
         Frame::AuditRow(_) => domain_meta(SyncDomain::Audit),
         // Everything else is a v2 control, plus the frozen proto residue: the
         // oneof tag survives in the schema but nothing in this coordinator

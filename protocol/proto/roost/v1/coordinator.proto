@@ -514,6 +514,28 @@ message McpDeleteResponse { bool ok = 1; }
 message McpPublishRequest { string id = 1; string payload_json = 2; }
 message McpPublishResponse { bool ok = 1; }
 
+
+message ClipboardEntry {
+  string id = 1;
+  string text = 2;
+  string source_session_id = 3;
+  string source_worker_fp = 4;
+  string source_kind = 5;
+  int64 created_at_ms = 6;
+}
+message ClipboardListRequest {}
+message ClipboardListResponse { repeated ClipboardEntry entries = 1; }
+message ClipboardAddRequest {
+  string text = 1;
+  string session_id = 2;
+  string source_kind = 3;
+}
+message ClipboardAddResponse { ClipboardEntry entry = 1; }
+message ClipboardDeleteRequest { string id = 1; }
+message ClipboardDeleteResponse { bool ok = 1; }
+message ClipboardClearRequest {}
+message ClipboardClearResponse { bool ok = 1; }
+
 // ─── auth ─────────────────────────────────────────────────────────────────
 
 message AuthCoordIdentityRequest {}
@@ -992,6 +1014,12 @@ service CoordinatorService {
   rpc McpCreate(McpCreateRequest) returns (McpCreateResponse);
   rpc McpDelete(McpDeleteRequest) returns (McpDeleteResponse);
   rpc McpPublish(McpPublishRequest) returns (McpPublishResponse);
+
+  // clipboard
+  rpc ClipboardList(ClipboardListRequest) returns (ClipboardListResponse);
+  rpc ClipboardAdd(ClipboardAddRequest) returns (ClipboardAddResponse);
+  rpc ClipboardDelete(ClipboardDeleteRequest) returns (ClipboardDeleteResponse);
+  rpc ClipboardClear(ClipboardClearRequest) returns (ClipboardClearResponse);
 
   // auth
   rpc AuthCoordIdentity(AuthCoordIdentityRequest) returns (AuthCoordIdentityResponse);

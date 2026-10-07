@@ -411,3 +411,18 @@
   gap: var(--md-space-3);
   color: var(--text-hi);
 }
+
+/* Clipboard history sheet (components/clipboard_sheet.rs). */
+.roost-clipboard-history__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-block-end: var(--md-space-2);
+}
+
+.roost-clipboard-history__preview {
+  margin: 0;
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-hi);
+}
