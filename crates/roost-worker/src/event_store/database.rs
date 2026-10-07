@@ -142,6 +142,13 @@ impl Journal {
                 reason: error.to_string(),
             })?;
         schema::establish(&pool).await?;
+        let discarded = schema::discard_retired_events(&pool).await?;
+        if discarded > 0 {
+            tracing::warn!(
+                discarded,
+                "the durable outbox discarded pending events of a retired kind"
+            );
+        }
         // Every open reclaims the claims past the lease and leaves the ones
         // inside it. A sweep, not a per-reserve check, so a long-lived worker
         // cannot quietly eat its own live claims one lease at a time.

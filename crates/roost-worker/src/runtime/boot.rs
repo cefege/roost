@@ -28,7 +28,7 @@ use roost_host::{
     BuildIdentity, DEFAULT_COORDINATOR_BIND, DEV_BUILD_STAMP, EnvSource, HostPlatform,
     build_identity, worker_data_dir, worker_log_dir,
 };
-use roost_platform::{AGENT_CONVERSATION_RESTORE_ENV, KEEPER_FORCE_LIVE_RETIRE_ENV};
+use roost_platform::KEEPER_FORCE_LIVE_RETIRE_ENV;
 use roost_protocol::wire::WorkerFp;
 
 use crate::host::jwt::load_worker_key;
@@ -83,10 +83,6 @@ pub enum BootConfigError {
     WorkerKey { path: PathBuf, reason: String },
     #[error("the keeper force-live-retire authorization must be exactly 0 or 1, not {value:?}")]
     BadForceLiveRetire { value: String },
-    #[error("ROOST_AGENT_CONVERSATION_RESTORE must be exactly 0 or 1")]
-    BadConversationRestore,
-    #[error("ROOST_AGENT_CONVERSATION_RESTORE=1 is unsupported on Windows")]
-    ConversationRestoreOnWindows,
     #[error("{0}")]
     TerminalPeer(&'static str),
 }
@@ -154,10 +150,6 @@ pub struct WorkerBoot {
     /// adopted or proved empty. It ends every PTY that keeper hosts, which is
     /// why it defaults off and why spending it is the activation's job.
     pub force_live_retire: bool,
-    /// v2 `agentConversationRestore`: whether a respawned session's agent
-    /// conversation is resumed at boot. Off unless an operator opts in; read
-    /// by the boot reconcile's restore.
-    pub agent_conversation_restore: bool,
     /// Where the agent report endpoint lives and any override of its address,
     /// read from the boot environment so a test boot never reaches the
     /// operator's own endpoint.
@@ -208,7 +200,6 @@ impl WorkerBoot {
             worker_version: reported_version(&build_identity(env)),
             process_epoch: new_process_epoch(),
             force_live_retire: resolve_force_live_retire(env)?,
-            agent_conversation_restore: resolve_agent_conversation_restore(env, platform)?,
             terminal_peer: crate::peer::PeerTransportConfig::resolve(env, platform)
                 .map_err(|error| BootConfigError::TerminalPeer(error.0))?,
         })
@@ -323,22 +314,6 @@ fn resolve_force_live_retire(env: &dyn EnvSource) -> Result<bool, BootConfigErro
         Some(value) if value == "0" => Ok(false),
         Some(value) if value == "1" => Ok(true),
         Some(value) => Err(BootConfigError::BadForceLiveRetire { value }),
-    }
-}
-
-/// v2 `host/config.ts`: exactly `0` or `1`, absent means off, and Windows may
-/// only say `0` because the resume plan is a POSIX shell command.
-fn resolve_agent_conversation_restore(
-    env: &dyn EnvSource,
-    platform: HostPlatform,
-) -> Result<bool, BootConfigError> {
-    match env.get(AGENT_CONVERSATION_RESTORE_ENV).as_deref() {
-        None | Some("0") => Ok(false),
-        Some("1") if platform == HostPlatform::Windows => {
-            Err(BootConfigError::ConversationRestoreOnWindows)
-        }
-        Some("1") => Ok(true),
-        Some(_) => Err(BootConfigError::BadConversationRestore),
     }
 }
 

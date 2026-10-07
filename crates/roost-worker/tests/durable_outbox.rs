@@ -166,3 +166,36 @@ async fn the_replay_head_is_one_row_and_always_the_oldest() {
         "an empty outbox still offered a row"
     );
 }
+
+/// A pending row of a kind an earlier build wrote and this build cannot decode
+/// (an OMP conversation reference) is discarded at open; the rows around it
+/// stay and the outbox opens rather than refusing to start the worker.
+#[tokio::test]
+async fn a_pending_row_of_a_retired_kind_is_discarded_at_open() {
+    let scratch = Scratch::new("retired-kind");
+    {
+        let journal = journal_in(&scratch).await;
+        journal.append(&opened(SESSION)).await.expect("appended");
+        journal.append(&closed(SESSION)).await.expect("appended");
+    }
+    let reference =
+        format!(r#"{{"kind":"agent_reference","session_id":"{SESSION}","reference":null,"ts":5}}"#);
+    let pool = sqlx::sqlite::SqlitePool::connect(&format!("sqlite://{}", scratch.file().display()))
+        .await
+        .expect("the file opens");
+    sqlx::query(
+        "UPDATE session_events SET kind = 'agent_reference', event_json = $1, payload_bytes = $2 \
+         WHERE client_seq = 2",
+    )
+    .bind(&reference)
+    .bind(i64::try_from(reference.len()).unwrap())
+    .execute(&pool)
+    .await
+    .expect("the row is rewritten");
+    pool.close().await;
+
+    let journal = journal_in(&scratch).await;
+    let pending = journal.pending().await.expect("read");
+    assert_eq!(pending.len(), 1, "only the decodable row is left");
+    assert_eq!(pending[0].client_seq, 1);
+}

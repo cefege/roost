@@ -27,7 +27,6 @@ pub mod core_reprove;
 pub mod cwd_events;
 pub mod diagnostics;
 pub mod durable_delivery;
-pub mod durable_sink;
 pub mod emit;
 pub mod emit_frame;
 pub mod emit_ingest;

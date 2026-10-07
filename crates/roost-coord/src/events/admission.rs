@@ -19,8 +19,6 @@
 //! worker cannot use the coordinator as a session-existence oracle by watching
 //! which check fires.
 
-use crate::events::visibility::PRIVATE_SESSION_EVENT_KIND;
-
 /// What the caller claims to be, and what the database says.
 ///
 /// Every field is one read the I/O layer already performs, named so the rule it
@@ -56,8 +54,6 @@ pub struct AdmissionFacts {
     pub snapshot_workspace_ids: Vec<String>,
     /// How many of those workspaces exist.
     pub existing_snapshot_workspace_count: usize,
-    /// Whether the coordinator holds a prior durable `opened` for `session_id`.
-    pub worker_has_prior_opened: bool,
 }
 
 /// What admission decided, and the two facts the transaction needs next.
@@ -138,12 +134,8 @@ pub enum AdmissionRefusal {
 /// 7. every workspace a snapshot names exists.
 /// 8. an event with no session id passes -- that is a `snapshot`.
 /// 9. session ownership.
-/// 10. an `agent_reference` for a row that is gone, where the worker holds a
-///     prior durable `opened`, **passes**: "A reference queued before an offline
-///     force-close must still be consumed or it permanently blocks the worker's
-///     ordered durable replay."
-/// 11. an unknown session for any kind but `opened` is refused.
-/// 12. `opened` for a genuinely new session passes.
+/// 10. `opened` for a genuinely new session passes.
+/// 11. an unknown session for any other kind is refused.
 #[must_use]
 pub fn admit(facts: &AdmissionFacts) -> Admission {
     let session_id = facts.session_id.clone();
@@ -207,14 +199,8 @@ pub fn admit(facts: &AdmissionFacts) -> Admission {
         };
     }
 
-    // Rule 12, checked before rule 10 because `opened` is unconditional and the
-    // reference rule is a narrow exception carved out of rule 11.
-    if facts.event_kind == "opened" {
-        return Admission::admit(Some(session_id), false);
-    }
-
     // Rule 10.
-    if facts.event_kind == PRIVATE_SESSION_EVENT_KIND && facts.worker_has_prior_opened {
+    if facts.event_kind == "opened" {
         return Admission::admit(Some(session_id), false);
     }
 

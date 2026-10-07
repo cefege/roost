@@ -1,13 +1,10 @@
 //! The one-request local protocol an installed integration speaks: volatile
-//! `agent.report` and durable `agent.reference`, both authenticated by a
-//! per-session capability. Ports `apps/worker/src/agents/report-protocol.ts`
-//! with zod's first-issue wording, because a refusal's `detail` is the
-//! integration author's only feedback channel. Called by
-//! `agents::report_server` once per request line; depends on `roost_protocol`.
+//! `agent.report`, authenticated by a per-session capability. Ports
+//! `apps/worker/src/agents/report-protocol.ts` with zod's first-issue wording,
+//! because a refusal's `detail` is the integration author's only feedback
+//! channel. Called by `agents::report_server` once per request line; depends
+//! on `roost_protocol`.
 
-use roost_protocol::agent_conversation_reference::{
-    AGENT_CONVERSATION_AGENT_ID, AgentConversationReferenceKind, AgentConversationReferenceV1,
-};
 use roost_protocol::fingerprint::is_fingerprint_hex;
 use roost_protocol::wire::agent_status::{AGENT_STATUS_MESSAGE_MAX_LENGTH, AgentRuntimeState};
 use roost_protocol::wire::brand::SessionId;
@@ -27,7 +24,6 @@ pub const REPORTED_STATE_UNKNOWN_REASON: &str =
     "state \"unknown\" is not reported; send active: false to withdraw the status";
 
 const METHOD_REPORT: &str = "agent.report";
-const METHOD_REFERENCE: &str = "agent.reference";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AgentStatusReportRequest {
@@ -36,36 +32,6 @@ pub struct AgentStatusReportRequest {
     pub state: AgentRuntimeState,
     pub message: Option<String>,
     pub active: bool,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct AgentReferenceReportRequest {
-    pub capability: String,
-    pub session_id: SessionId,
-    /// `None` clears the session's reference.
-    pub reference: Option<AgentConversationReferenceV1>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum AgentIntegrationRequest {
-    Report(AgentStatusReportRequest),
-    Reference(AgentReferenceReportRequest),
-}
-
-impl AgentIntegrationRequest {
-    pub fn session_id(&self) -> &SessionId {
-        match self {
-            Self::Report(request) => &request.session_id,
-            Self::Reference(request) => &request.session_id,
-        }
-    }
-
-    pub fn capability(&self) -> &str {
-        match self {
-            Self::Report(request) => &request.capability,
-            Self::Reference(request) => &request.capability,
-        }
-    }
 }
 
 /// Why a line is not a request. The server answers `invalid_json` or
@@ -81,25 +47,20 @@ type Issue = String;
 /// Parse one request line.
 pub fn parse_agent_integration_request(
     line: &str,
-) -> Result<AgentIntegrationRequest, RequestRefusal> {
+) -> Result<AgentStatusReportRequest, RequestRefusal> {
     let value: Value = serde_json::from_str(line).map_err(|_| RequestRefusal::InvalidJson)?;
     validate_request(&value).map_err(|detail| RequestRefusal::InvalidRequest { detail })
 }
 
-fn validate_request(value: &Value) -> Result<AgentIntegrationRequest, Issue> {
+fn validate_request(value: &Value) -> Result<AgentStatusReportRequest, Issue> {
     let Value::Object(fields) = value else {
         return Err(type_issue("object", Some(value)));
     };
-    let method = fields.get("method").and_then(Value::as_str);
-    let is_report = match method {
-        Some(METHOD_REPORT) => true,
-        Some(METHOD_REFERENCE) => false,
-        _ => {
-            return Err(format!(
-                "Invalid discriminator value. Expected '{METHOD_REPORT}' | '{METHOD_REFERENCE}'"
-            ));
-        }
-    };
+    if fields.get("method").and_then(Value::as_str) != Some(METHOD_REPORT) {
+        return Err(format!(
+            "Invalid discriminator value. Expected '{METHOD_REPORT}'"
+        ));
+    }
     if fields.get("version").and_then(Value::as_f64) != Some(1.0) {
         return Err("Invalid literal value, expected 1".to_owned());
     }
@@ -108,11 +69,7 @@ fn validate_request(value: &Value) -> Result<AgentIntegrationRequest, Issue> {
         return Err("Invalid".to_owned());
     }
     let params = expect_object(fields.get("params"))?;
-    let request = if is_report {
-        AgentIntegrationRequest::Report(report_params(capability, params)?)
-    } else {
-        AgentIntegrationRequest::Reference(reference_params(capability, params)?)
-    };
+    let request = report_params(capability, params)?;
     refuse_unknown_keys(fields, &["version", "method", "capability", "params"])?;
     Ok(request)
 }
@@ -147,51 +104,6 @@ fn report_params(
         message,
         active,
     })
-}
-
-fn reference_params(
-    capability: &str,
-    params: &Map<String, Value>,
-) -> Result<AgentReferenceReportRequest, Issue> {
-    let session_id = session_id(params.get("session_id"))?;
-    let reference = match params.get("reference") {
-        Some(Value::Null) => None,
-        other => Some(reference_value(expect_object(other)?)?),
-    };
-    refuse_unknown_keys(params, &["session_id", "reference"])?;
-    Ok(AgentReferenceReportRequest {
-        capability: capability.to_owned(),
-        session_id,
-        reference,
-    })
-}
-
-/// The reported `{kind, value}` pair, completed into the stored reference
-/// shape. Only OMP's conversations are resumable, so the agent is fixed here.
-fn reference_value(fields: &Map<String, Value>) -> Result<AgentConversationReferenceV1, Issue> {
-    const KINDS: &str = "'id' | 'path'";
-    let kind = match fields.get("kind") {
-        Some(Value::String(kind)) if kind == "id" => AgentConversationReferenceKind::Id,
-        Some(Value::String(kind)) if kind == "path" => AgentConversationReferenceKind::Path,
-        Some(Value::String(kind)) => {
-            return Err(format!(
-                "Invalid enum value. Expected {KINDS}, received '{kind}'"
-            ));
-        }
-        other => return Err(type_issue(KINDS, other)),
-    };
-    let value = expect_string(fields.get("value"))?;
-    refuse_unknown_keys(fields, &["kind", "value"])?;
-    let reference = AgentConversationReferenceV1 {
-        schema_version: 1,
-        agent_id: AGENT_CONVERSATION_AGENT_ID.to_owned(),
-        kind,
-        value: value.to_owned(),
-    };
-    reference
-        .check()
-        .map_err(|_| "invalid agent conversation reference".to_owned())?;
-    Ok(reference)
 }
 
 fn session_id(value: Option<&Value>) -> Result<SessionId, Issue> {

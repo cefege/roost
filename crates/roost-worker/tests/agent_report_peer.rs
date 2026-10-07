@@ -63,7 +63,6 @@ async fn rejects_a_different_peer_process_reporting_for_the_live_agent() {
         &environment,
         Arc::clone(&detector),
         Arc::clone(&reports),
-        Arc::default(),
         None,
     );
 

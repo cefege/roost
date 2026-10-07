@@ -64,10 +64,7 @@ fn installs_the_complete_typed_assets_byte_for_byte_and_is_idempotent() {
     let home = Scratch::new("integrations-idempotent");
     let materialized = load_agent_integration_assets().unwrap();
     let report = install_agent_integrations(&MapEnv::new(), home.root(), LINUX).unwrap();
-    assert_eq!(
-        installed_ids(&report),
-        ["omp-status", "omp-reference", "pi-status"]
-    );
+    assert_eq!(installed_ids(&report), ["omp-status", "pi-status"]);
     assert!(report.failed.is_empty());
     for asset in &materialized {
         let installed = fs::read_to_string(installed_path(&report, asset.spec.id)).unwrap();
@@ -86,10 +83,7 @@ fn installs_the_complete_typed_assets_byte_for_byte_and_is_idempotent() {
     );
     assert_eq!(fs::metadata(&omp_status).unwrap().ino(), inode);
     // No stage directory or temporary file is left in a loader directory.
-    assert_eq!(
-        entries(&omp_dir(&home)),
-        ["roost-omp-agent-reference.ts", "roost-omp-agent-state.ts"]
-    );
+    assert_eq!(entries(&omp_dir(&home)), ["roost-omp-agent-state.ts"]);
     assert_eq!(entries(&pi_dir(&home)), ["roost-pi-agent-state.ts"]);
 }
 
@@ -109,20 +103,26 @@ fn every_asset_installs_as_a_standalone_module_with_the_transport_spliced_in() {
 }
 
 #[test]
-fn removes_an_owned_retired_omp_asset_only_after_successful_preflight() {
+fn removes_owned_retired_omp_assets_only_after_successful_preflight() {
     let home = Scratch::new("integrations-retired-owned");
     let retired = omp_dir(&home).join("roost-omp-session-api.ts");
+    let retired_reference = omp_dir(&home).join("roost-omp-agent-reference.ts");
     fs::create_dir_all(omp_dir(&home)).unwrap();
     fs::write(&retired, "// ROOST_INTEGRATION_ID=omp\n").unwrap();
+    fs::write(
+        &retired_reference,
+        "// ROOST_INTEGRATION_ID=omp-reference\n",
+    )
+    .unwrap();
 
     let report = install_agent_integrations(&MapEnv::new(), home.root(), LINUX).unwrap();
 
     assert!(is_absent(&retired));
-    let reference = installed_path(&report, AgentIntegrationAssetId::OmpReference);
+    assert!(is_absent(&retired_reference));
+    let status = installed_path(&report, AgentIntegrationAssetId::OmpStatus);
     assert!(
-        fs::read_to_string(reference)
-            .unwrap()
-            .contains("ROOST_INTEGRATION_ID=omp-reference")
+        !is_absent(&status),
+        "the live status asset is still installed"
     );
 }
 
@@ -184,7 +184,7 @@ fn refuses_a_user_owned_destination_and_installs_the_other_runtime() {
         fs::read_to_string(&pi_target).unwrap(),
         "// user extension\n"
     );
-    assert_eq!(installed_ids(&report), ["omp-status", "omp-reference"]);
+    assert_eq!(installed_ids(&report), ["omp-status"]);
     assert_single_failure(
         &report,
         AgentIntegrationRuntime::Pi,
@@ -211,18 +211,12 @@ fn refuses_an_owned_filename_symlink_and_installs_the_remaining_assets() {
     let report = install_agent_integrations(&MapEnv::new(), home.root(), LINUX).unwrap();
 
     assert_eq!(fs::read_to_string(&outside).unwrap(), "// user extension\n");
-    assert_eq!(installed_ids(&report), ["omp-reference", "pi-status"]);
+    assert_eq!(installed_ids(&report), ["pi-status"]);
     assert_single_failure(
         &report,
         AgentIntegrationRuntime::Omp,
         &status_target,
         "refusing symlink agent integration target",
-    );
-    let reference = omp_dir(&home).join("roost-omp-agent-reference.ts");
-    assert!(
-        fs::read_to_string(reference)
-            .unwrap()
-            .contains("ROOST_INTEGRATION_ID=omp-reference")
     );
 }
 
@@ -248,10 +242,7 @@ fn rejects_absent_case_only_runtime_aliases_on_darwin_and_windows_only() {
         return;
     }
     let report = install_agent_integrations(&env, home.root(), LINUX).unwrap();
-    assert_eq!(
-        installed_ids(&report),
-        ["omp-status", "omp-reference", "pi-status"]
-    );
+    assert_eq!(installed_ids(&report), ["omp-status", "pi-status"]);
 }
 
 /// Whether `directory`'s filesystem tells `probe` from `PROBE`.

@@ -1,19 +1,17 @@
-<!-- Agent metadata contract: private durable OMP recovery references and volatile PID-free status observations. -->
+<!-- Agent metadata contract: volatile PID-free status observations and the identity-fenced prompt. -->
 <!-- Neither surface creates or controls a structured agent session; both describe the ordinary shell PTY. -->
-<!-- Canonical limits live in @roost/protocol/agent-conversation-reference, wire, and terminal-input. -->
+<!-- Canonical limits live in @roost/protocol wire and terminal-input. -->
 
 # Agent metadata
 
 ## Purpose
 
-Roost carries two deliberately separate agent-adjacent contracts. `agent_reference` is private durable equality/continuation metadata used only for one fenced OMP recovery input. Agent status is volatile worker observation (`idle|working|blocked`) used for dashboard state, waits, notifications, and one identity-fenced PTY input. Neither is an agent execution API.
+Agent status is volatile worker observation (`idle|working|blocked`) used for dashboard state, waits, notifications, and one identity-fenced PTY input. It is not an agent execution API.
 
 ## Messages
 
 | Message | File | Meaning |
 | --- | --- | --- |
-| `AgentConversationReferenceV1`, `AgentReferenceEvt` | `protocol/proto/roost/v1/wire.proto`; `protocol/proto/roost/v1/events.proto:107-112` | Private versioned opaque `omp` id/path and durable set/clear event. |
-| `SessionRecoveryMetadata`, `SessionsListResponse.recovery_metadata` | `protocol/proto/roost/v1/coordinator.proto:125-137` | Worker-only private recovery row. Never returned to browsers. |
 | `WAgentStatus` | `protocol/proto/roost/v1/worker_transport.proto:66-79` | Worker-originated volatile observation. |
 | `AgentStatusFrame` | `protocol/proto/roost/v1/sync.proto:83-96` | Same observation fanned to browser Sync. |
 | `AgentStatusView`, `AgentStatusGet/List/Wait` messages | `protocol/proto/roost/v1/coordinator.proto:412-440` | PID-free RPC projection plus coordinator-derived `promptable`. |
@@ -21,15 +19,6 @@ Roost carries two deliberately separate agent-adjacent contracts. `agent_referen
 
 ## State machine
 
-**Private conversation reference**
-
-1. An official integration reports an opaque value through a separate acknowledged worker-local method. Worker revalidation covers session capability, kernel-attested peer PID, and fresh agent-process ancestry; integration data cannot select provider/executable/template.
-2. An official absolute `session_file` is stored as `kind=path`; otherwise the official `session_id` from the same call is stored as `kind=id`. Accepted set/replacement/clear appends durable `SessionEvent(agent_reference)` ordered by worker `client_seq`.
-3. Coordinator folds only strictly newer same-session sequences into private recovery metadata. The value is absent from public `Session`, Sync, browser/CLI lists, search, logs, audit, and diagnostics. Session close deletes it.
-4. Worker-authored agent exit emits exactly one durable clear while the session remains live. On involuntary loss, keeper adoption runs first; successful adoption sends zero resume input. Only after adoption failure, replacement-shell creation, and admitted `respawned` may the fixed OMP descriptor issue one `omp --resume=<opaque>` input batch.
-5. A claimed reference cannot resume twice in one reconciliation. Rejection proven before any keeper byte releases the claim. Accepted/rejected/ambiguous outcomes are terminal for that boot attempt; a nonaccepted result reporting written bytes is followed by one `0x03` discard byte, never a second resume.
-
-**Volatile status and prompt**
 
 1. Worker process scanning, integration reports, and screen/title observation produce one effective row per session. `status_epoch` identifies registry lifetime; `occupant_id` identifies a verified process incarnation; `source` is `integration|screen`; revisions are monotonic within that identity.
 2. An integration observation beats screen. A silent integration lease expires and the worker falls back automatically. Only an identified integration row is `promptable`; screen and identityless legacy rows remain readable.
@@ -41,9 +30,6 @@ Roost carries two deliberately separate agent-adjacent contracts. `agent_referen
 
 | Constant | Value | TypeScript source |
 | --- | ---: | --- |
-| `AGENT_CONVERSATION_SESSION_ID_MAX_UTF8_BYTES` | `512` | `packages/protocol/src/agent-conversation-reference.ts:11` |
-| `AGENT_CONVERSATION_SESSION_PATH_MAX_UTF8_BYTES` | `4,096` | `packages/protocol/src/agent-conversation-reference.ts:12` |
-| `AGENT_CONVERSATION_REFERENCE_EVENT_MAX_UTF8_BYTES` | `8,192` | `packages/protocol/src/agent-conversation-reference.ts:16` |
 | `AGENT_ID_MAX_LENGTH` | `32` | `packages/protocol/src/wire/agent-status.ts:8` |
 | `AGENT_STATUS_MESSAGE_MAX_LENGTH` | `512` | `packages/protocol/src/wire/agent-status.ts:9` |
 | `INTEGRATION_LEASE_MS` | `30,000 ms` | `apps/worker/src/agents/stable-detection.ts` |

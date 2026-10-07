@@ -28,4 +28,4 @@ pub use native_path::{
     same_worker_folder,
 };
 pub use shell_quote::posix_shell_quote;
-pub use worker_service_env::{AGENT_CONVERSATION_RESTORE_ENV, KEEPER_FORCE_LIVE_RETIRE_ENV};
+pub use worker_service_env::KEEPER_FORCE_LIVE_RETIRE_ENV;

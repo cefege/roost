@@ -34,7 +34,6 @@ use super::boot::WorkerBoot;
 use super::keeper_boot::{self, KeeperBootDecision, KeeperBootOutcome};
 use super::keeper_handle::KeeperHandle;
 use super::keeper_prepare::KeeperProcess;
-use crate::agents::conversation_recovery::{RecoveryReferences, assert_exact_recovery_metadata};
 use crate::keeper_pool::KeeperPool;
 use crate::runtime::credential::CredentialSource;
 use crate::uplink::OwnerFuture;
@@ -68,12 +67,8 @@ where
     T: ClientTransport,
     <T::ResponseBody as http_body::Body>::Error: std::fmt::Display,
 {
-    // THE CREDENTIAL IS A PARAMETER, not an ambient thing the client already
-    // carries. The boot builds one Connect client for every call it makes and
-    // that client attaches nothing, so this read — the one that decides keeper
-    // admission — was refused by a coordinator whose `SessionsList` row is
-    // `DeviceOrOwnWorkerRecovery`. The same key the link dials with is the one
-    // that answers here.
+    // The worker credential is explicit because boot builds this client
+    // separately from the coordinator link.
     let options =
         crate::runtime::bootstrap_redeem::boot_call::authenticated_call_options(credential)
             .context("no worker credential could be presented for the open-session read")?;
@@ -101,13 +96,6 @@ where
         .await
         .context("the coordinator did not report its open-session set")?
         .into_owned();
-    let session_ids: Vec<String> = response
-        .sessions
-        .iter()
-        .map(|session| session.id.clone())
-        .collect();
-    let references = assert_exact_recovery_metadata(&session_ids, &response.recovery_metadata)
-        .context("the coordinator's recovery metadata does not pair with its open sessions")?;
     let sessions = response.sessions;
     tracing::info!(
         %worker_fp,
@@ -115,20 +103,13 @@ where
         "the coordinator's open-session rows are in hand, so the keeper survivor \
          decision may proceed on a read fact and an adoption may name the session it adopts"
     );
-    Ok(OpenSessionSet {
-        rows: sessions,
-        references,
-    })
+    Ok(OpenSessionSet { rows: sessions })
 }
 
-/// The coordinator's open rows beside each one's recovery reference, admitted
-/// against each other (v2 `_assertExactRecoveryMetadata`): a set whose
-/// metadata does not pair up is refused rather than restoring the wrong
-/// conversation. Read by `runtime::session_reconcile`.
+/// The coordinator's open rows read by `runtime::session_reconcile`.
 #[derive(Debug, Default)]
 pub struct OpenSessionSet {
     pub rows: Vec<OpenSession>,
-    pub references: RecoveryReferences,
 }
 
 /// Where a reconcile pass reads the coordinator's open-session rows from.

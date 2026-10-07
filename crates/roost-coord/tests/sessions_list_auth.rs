@@ -126,7 +126,7 @@ impl ListFixture {
 
 // v2: "worker JWT lists only its own open sessions through coord.fetch".
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_worker_lists_only_its_own_open_sessions_with_their_recovery_rows() {
+async fn a_worker_lists_only_its_own_open_sessions() {
     let fixture = ListFixture::start("list-worker").await;
     let (status, raw) = fixture
         .list(
@@ -145,27 +145,10 @@ async fn a_worker_lists_only_its_own_open_sessions_with_their_recovery_rows() {
     ids.sort_unstable();
     assert_eq!(ids, [SESSION_ID, NEVER_SET_SESSION_ID]);
     assert!(body.get("syncSnapshotToken").is_none());
-    let recovery = body["recoveryMetadata"].as_array().unwrap();
-    assert_eq!(recovery.len(), 2);
-    let set = recovery
-        .iter()
-        .find(|row| row["sessionId"] == SESSION_ID)
-        .unwrap();
-    assert_eq!(
-        set,
-        &json!({
-            "sessionId": SESSION_ID,
-            "agentReference": {
-                "schemaVersion": 1, "agentId": "omp", "kind": "path", "value": PRIVATE_REFERENCE_VALUE,
-            },
-            "agentReferenceClientSeq": "17",
-        })
+    assert!(
+        !raw.contains(PRIVATE_REFERENCE_VALUE),
+        "a stored conversation reference is never read back out"
     );
-    let never = recovery
-        .iter()
-        .find(|row| row["sessionId"] == NEVER_SET_SESSION_ID)
-        .unwrap();
-    assert_eq!(never, &json!({ "sessionId": NEVER_SET_SESSION_ID }));
     assert!(!body["sessions"].to_string().contains("private worker"));
 }
 

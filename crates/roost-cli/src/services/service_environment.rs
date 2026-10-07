@@ -11,7 +11,7 @@
 use std::path::Path;
 
 use roost_observability::diag::{DIAG_ENABLED_ENV, DIAG_ENABLED_VALUE};
-use roost_platform::{AGENT_CONVERSATION_RESTORE_ENV, KEEPER_FORCE_LIVE_RETIRE_ENV};
+use roost_platform::KEEPER_FORCE_LIVE_RETIRE_ENV;
 use roost_protocol::local_ui_door::WORKER_LOCAL_UI_BIND_ENV;
 use roost_worker::runtime::boot::ENV_COORDINATOR_URL;
 
@@ -46,15 +46,11 @@ pub const ENV_BOOTSTRAP_TOKEN: &str = "ROOST_BOOTSTRAP_TOKEN";
 /// restart, so a deploy strips them rather than reinstalling them.
 pub const ONE_SHOT_AUTHORIZATIONS: [&str; 2] = [ENV_BOOTSTRAP_TOKEN, KEEPER_FORCE_LIVE_RETIRE_ENV];
 
-/// The worker's settings an operator chose and a redeploy must preserve. The
-/// conversation-restore opt-in is here rather than in the grant list precisely
-/// because it is the opposite: the operator's answer outlives the deploy that
-/// carried it.
-pub const WORKER_CHOSEN_ENTRIES: [&str; 6] = [
+/// The worker's settings an operator chose and a redeploy must preserve.
+pub const WORKER_CHOSEN_ENTRIES: [&str; 5] = [
     ENV_COORDINATOR_URL,
     WORKER_LOCAL_UI_BIND_ENV,
     ENV_WORKER_LOCAL_UI_ALLOWED_ORIGINS,
-    AGENT_CONVERSATION_RESTORE_ENV,
     ENV_REACHABLE_ADDR,
     ENV_WORKER_LABEL,
 ];

@@ -9,19 +9,9 @@
 // reach a test.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use roost_proto::{
-    AgentConversationReferenceV1 as PbReference, KeeperContractV1 as PbKeeperContractV1,
-    TerminalCoreCapacityReport as PbReport,
-};
-use roost_protocol::agent_conversation_reference::{
-    AgentConversationRecoveryMetadata, AgentConversationReferenceKind, AgentConversationReferenceV1,
-};
+use roost_proto::{KeeperContractV1 as PbKeeperContractV1, TerminalCoreCapacityReport as PbReport};
 use roost_protocol::keeper_update::KEEPER_RUNTIME_ABI;
 use roost_protocol::keeper_update::{KeeperContractV1, KeeperRuntimeObservationV1};
-use roost_protocol::proto_adapters::agent_conversation_reference_proto::{
-    agent_conversation_reference_from_proto, agent_conversation_reference_to_proto,
-    session_recovery_metadata_from_proto, session_recovery_metadata_to_proto,
-};
 use roost_protocol::proto_adapters::host_identity_proto::{
     host_identity_from_proto, host_identity_to_proto,
 };
@@ -32,10 +22,8 @@ use roost_protocol::proto_adapters::keeper_runtime_proto::{
 use roost_protocol::proto_adapters::terminal_core_capacity_proto::{
     terminal_core_capacity_report_from_proto, terminal_core_capacity_report_to_proto,
 };
-use roost_protocol::wire::brand::SessionId;
 use roost_protocol::wire::worker::{HostIdentity, TerminalCoreCapacityReport};
 
-const SESSION_ID: &str = "00000000-0000-4000-8000-000000000abc";
 const DIGEST: &str = "74eb8cfffb89f155db2201d8c1b13202c29d91be6cc3d4fec6b465c9a9ede627";
 
 const KEEPER_EPOCH: &str = "6f1a0b1e-6c1f-4a3a-9f0e-2b7d5c8e4a11";
@@ -268,133 +256,4 @@ fn an_identity_of_nothing_and_an_absent_one_describe_no_machine() {
     assert_eq!(host_identity_from_proto(Some(&proto)), None);
     assert_eq!(host_identity_from_proto(None), None);
     assert_eq!(host_identity_to_proto(None).hardware_model, None);
-}
-
-#[test]
-fn an_agent_conversation_reference_survives_the_boundary() {
-    let reference = AgentConversationReferenceV1 {
-        schema_version: 1,
-        agent_id: "omp".to_owned(),
-        kind: AgentConversationReferenceKind::Path,
-        value: "/tmp/a path/'$opaque.json".to_owned(),
-    };
-    let proto = agent_conversation_reference_to_proto(&reference).expect("the reference encodes");
-    assert_eq!(proto.kind, "path");
-    assert_eq!(
-        agent_conversation_reference_from_proto(Some(&proto)).expect("the reference decodes"),
-        Some(reference)
-    );
-    assert_eq!(
-        agent_conversation_reference_from_proto(None).expect("an absent reference is not an error"),
-        None
-    );
-}
-
-#[test]
-fn a_reference_outside_its_own_bounds_is_refused_in_both_directions() {
-    let relative = AgentConversationReferenceV1 {
-        schema_version: 1,
-        agent_id: "omp".to_owned(),
-        kind: AgentConversationReferenceKind::Path,
-        value: "relative/path".to_owned(),
-    };
-    assert_eq!(
-        agent_conversation_reference_to_proto(&relative)
-            .expect_err("a relative session path is refused")
-            .field,
-        "value"
-    );
-    let foreign = AgentConversationReferenceV1 {
-        agent_id: "claude".to_owned(),
-        ..relative.clone()
-    };
-    assert_eq!(
-        agent_conversation_reference_to_proto(&foreign)
-            .expect_err("only one agent's conversation is resumable")
-            .field,
-        "agent_id"
-    );
-    let mut unknown_kind = relative;
-    unknown_kind.kind = AgentConversationReferenceKind::Id;
-    let mut proto =
-        agent_conversation_reference_to_proto(&unknown_kind).expect("the reference encodes");
-    proto.kind = "transcript".to_owned();
-    assert_eq!(
-        agent_conversation_reference_from_proto(Some(&proto))
-            .expect_err("a kind this build does not know is refused")
-            .field,
-        "kind"
-    );
-    // An empty value is refused on ingress rather than becoming a reference
-    // that cannot resume anything.
-    let empty = PbReference {
-        schema_version: 1,
-        agent_id: "omp".to_owned(),
-        kind: "id".to_owned(),
-        ..Default::default()
-    };
-    assert_eq!(
-        agent_conversation_reference_from_proto(Some(&empty))
-            .expect_err("an empty reference is refused")
-            .field,
-        "value"
-    );
-}
-
-#[test]
-fn a_recovery_row_survives_the_boundary() {
-    let metadata = AgentConversationRecoveryMetadata {
-        session_id: SessionId::try_from(SESSION_ID).expect("fixture session id"),
-        agent_reference: Some(AgentConversationReferenceV1 {
-            schema_version: 1,
-            agent_id: "omp".to_owned(),
-            kind: AgentConversationReferenceKind::Id,
-            value: "conversation-1".to_owned(),
-        }),
-        agent_reference_client_seq: 4,
-    };
-    let proto = session_recovery_metadata_to_proto(&metadata).expect("the row encodes");
-    assert_eq!(proto.agent_reference_client_seq, 4);
-    assert!(proto.agent_reference.is_set());
-    assert_eq!(
-        session_recovery_metadata_from_proto(&proto).expect("the row decodes"),
-        metadata
-    );
-}
-
-#[test]
-fn a_cleared_recovery_row_carries_sequence_zero_and_no_reference() {
-    let cleared = AgentConversationRecoveryMetadata {
-        session_id: SessionId::try_from(SESSION_ID).expect("fixture session id"),
-        agent_reference: None,
-        agent_reference_client_seq: 0,
-    };
-    let proto = session_recovery_metadata_to_proto(&cleared).expect("the row encodes");
-    assert!(proto.agent_reference.is_unset());
-    assert_eq!(
-        session_recovery_metadata_from_proto(&proto).expect("the row decodes"),
-        cleared
-    );
-    // The rule is about a row that CARRIES a reference: sequence zero is the
-    // worker-list sentinel for "this session has no reference event", so a
-    // reference stamped with it proves nothing about ordering. A cleared row at
-    // sequence zero is the legitimate shape, and it decodes above.
-    let referenced = AgentConversationRecoveryMetadata {
-        session_id: SessionId::try_from(SESSION_ID).expect("fixture session id"),
-        agent_reference: Some(AgentConversationReferenceV1 {
-            schema_version: 1,
-            agent_id: "omp".to_owned(),
-            kind: AgentConversationReferenceKind::Id,
-            value: "conversation-1".to_owned(),
-        }),
-        agent_reference_client_seq: 4,
-    };
-    let mut stale = session_recovery_metadata_to_proto(&referenced).expect("the row encodes");
-    stale.agent_reference_client_seq = 0;
-    assert_eq!(
-        session_recovery_metadata_from_proto(&stale)
-            .expect_err("a reference at sequence zero proves nothing")
-            .field,
-        "agent_conversation_recovery_metadata.agent_reference_client_seq"
-    );
 }

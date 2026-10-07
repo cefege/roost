@@ -59,7 +59,6 @@ impl<T> ByRuntime<T> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AgentIntegrationAssetId {
     OmpStatus,
-    OmpReference,
     PiStatus,
 }
 
@@ -67,7 +66,6 @@ impl AgentIntegrationAssetId {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::OmpStatus => "omp-status",
-            Self::OmpReference => "omp-reference",
             Self::PiStatus => "pi-status",
         }
     }
@@ -94,20 +92,13 @@ pub struct RetiredAgentIntegrationSpec {
 }
 
 /// The complete asset set, in v2's catalog order.
-pub const AGENT_INTEGRATION_ASSET_SPECS: [AgentIntegrationAssetSpec; 3] = [
+pub const AGENT_INTEGRATION_ASSET_SPECS: [AgentIntegrationAssetSpec; 2] = [
     AgentIntegrationAssetSpec {
         id: AgentIntegrationAssetId::OmpStatus,
         runtime: AgentIntegrationRuntime::Omp,
         install_filename: "roost-omp-agent-state.ts",
         ownership_marker: "ROOST_INTEGRATION_ID=omp",
         source: include_str!("../../assets/integrations/omp/roost-agent-state.ts"),
-    },
-    AgentIntegrationAssetSpec {
-        id: AgentIntegrationAssetId::OmpReference,
-        runtime: AgentIntegrationRuntime::Omp,
-        install_filename: "roost-omp-agent-reference.ts",
-        ownership_marker: "ROOST_INTEGRATION_ID=omp-reference",
-        source: include_str!("../../assets/integrations/omp/roost-agent-reference.ts"),
     },
     AgentIntegrationAssetSpec {
         id: AgentIntegrationAssetId::PiStatus,
@@ -118,12 +109,18 @@ pub const AGENT_INTEGRATION_ASSET_SPECS: [AgentIntegrationAssetSpec; 3] = [
     },
 ];
 
-pub const RETIRED_AGENT_INTEGRATION_SPECS: [RetiredAgentIntegrationSpec; 1] =
-    [RetiredAgentIntegrationSpec {
+pub const RETIRED_AGENT_INTEGRATION_SPECS: [RetiredAgentIntegrationSpec; 2] = [
+    RetiredAgentIntegrationSpec {
         runtime: AgentIntegrationRuntime::Omp,
         install_filename: "roost-omp-session-api.ts",
         ownership_marker: "ROOST_INTEGRATION_ID=omp",
-    }];
+    },
+    RetiredAgentIntegrationSpec {
+        runtime: AgentIntegrationRuntime::Omp,
+        install_filename: "roost-omp-agent-reference.ts",
+        ownership_marker: "ROOST_INTEGRATION_ID=omp-reference",
+    },
+];
 
 /// An asset with its deployable, self-contained content.
 #[derive(Debug, Clone, PartialEq, Eq)]

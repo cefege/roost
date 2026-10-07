@@ -28,7 +28,6 @@ use roost_protocol::local_ui_door::WORKER_LOCAL_UI_BIND_ENV;
 
 use crate::command_error::CommandFailure;
 use crate::deploy::codes;
-use roost_platform::AGENT_CONVERSATION_RESTORE_ENV;
 
 use crate::services::service_environment::{
     ENV_BOOTSTRAP_TOKEN, ENV_REACHABLE_ADDR, ENV_WORKER_LABEL, ENV_WORKER_LOCAL_UI_ALLOWED_ORIGINS,
@@ -188,22 +187,18 @@ pub fn worker_install_environment(
             values.insert(key.clone(), value.clone());
         }
     }
-    for key in [
-        AGENT_CONVERSATION_RESTORE_ENV,
-        DEPLOY_HOST_LOCAL_ENV_KEYS[0],
-    ] {
-        let resolved = installed
-            .get(key)
-            .cloned()
-            .or_else(|| overrides.get(key).cloned())
-            .or_else(|| ambient.get(key).cloned());
-        match resolved {
-            Some(value) => {
-                values.insert(key.to_string(), value);
-            }
-            None => {
-                values.remove(key);
-            }
+    let key = DEPLOY_HOST_LOCAL_ENV_KEYS[0];
+    let resolved = installed
+        .get(key)
+        .cloned()
+        .or_else(|| overrides.get(key).cloned())
+        .or_else(|| ambient.get(key).cloned());
+    match resolved {
+        Some(value) => {
+            values.insert(key.to_string(), value);
+        }
+        None => {
+            values.remove(key);
         }
     }
     values.insert("GIT_SHA".to_string(), git_sha.to_string());

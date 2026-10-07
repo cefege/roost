@@ -27,7 +27,6 @@ use sqlx::Row;
 use crate::db::SqlBuilder;
 use crate::events::admission::{Admission, admit};
 use crate::events::admission_facts::load_admission_facts;
-use crate::events::agent_conversation_recovery::project_agent_conversation_reference;
 use crate::events::append::{AppendError, AppendOptions, Caller};
 use crate::events::append_input::{as_client_seq, as_event_id};
 use crate::events::append_publication::CommittedEventPublication;
@@ -251,29 +250,6 @@ async fn project(
         SessionEvent::Snapshot { sessions, .. } => {
             project_snapshot_sessions(connection, sessions, &caller.dashboard_id).await?;
             state.publishable = true;
-            return Ok(());
-        }
-        SessionEvent::AgentReference {
-            session_id,
-            reference,
-            ..
-        } => {
-            let (Some(worker_fp), Some(client_seq)) =
-                (caller.worker_fp.as_ref(), caller.client_seq)
-            else {
-                return Err(AppendError::AgentReferenceNeedsWorkerDelivery);
-            };
-            project_agent_conversation_reference(
-                connection,
-                session_id,
-                reference.as_ref(),
-                client_seq,
-                worker_fp,
-            )
-            .await?;
-            // The durable row and the private recovery projection commit, but this
-            // event deliberately has no channel-index or browser publication
-            // effect.
             return Ok(());
         }
         SessionEvent::Opened { session_id, .. } => {

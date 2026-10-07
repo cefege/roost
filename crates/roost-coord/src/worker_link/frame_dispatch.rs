@@ -115,7 +115,6 @@ impl WorkerFrameDispatcher {
                 SessionEvent::Opened { .. }
                     | SessionEvent::Closed { .. }
                     | SessionEvent::Respawned { .. }
-                    | SessionEvent::AgentReference { .. }
                     | SessionEvent::Snapshot { .. }
             )
     }

@@ -48,17 +48,6 @@ pub fn respawned(channel: i64) -> SessionEvent {
     }
 }
 
-/// Private recovery metadata, which is durable, ordered, and never projected.
-#[must_use]
-pub fn agent_reference() -> SessionEvent {
-    SessionEvent::AgentReference {
-        session_id: session_id(),
-        reference: None,
-        ts: 1_300,
-        trace_id: None,
-    }
-}
-
 /// A viewer attaching. **Not** on the pre-barrier allow list, which is what makes
 /// it the fixture's refused-by-the-transport-gate case.
 #[must_use]

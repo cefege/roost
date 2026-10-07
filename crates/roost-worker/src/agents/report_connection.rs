@@ -17,7 +17,7 @@ use crate::agents::environment::AgentReportEnvironment;
 use crate::agents::peer_process_id::LocalPeerProcessIdReader;
 use crate::agents::report_admission::{AdmissionRefusal, ReportAdmission};
 use crate::agents::report_protocol::{
-    AGENT_REPORT_MAX_LINE_BYTES, AgentIntegrationRequest, RequestRefusal,
+    AGENT_REPORT_MAX_LINE_BYTES, AgentStatusReportRequest, RequestRefusal,
     parse_agent_integration_request,
 };
 use crate::host::local_endpoint::{
@@ -46,7 +46,7 @@ enum Answer {
 
 enum Screened {
     Answer(Answer),
-    Admit(AgentIntegrationRequest),
+    Admit(AgentStatusReportRequest),
 }
 
 type AdmissionFuture = Pin<Box<dyn Future<Output = Answer> + Send>>;
@@ -205,11 +205,11 @@ impl ReportConnection {
                 return Screened::Answer(refusal("invalid_request", Some(&detail)));
             }
         };
-        let session_id = request.session_id().as_str();
+        let session_id = request.session_id.as_str();
         if !self
             .context
             .environment
-            .verify_capability(session_id, request.capability())
+            .verify_capability(session_id, &request.capability)
         {
             tracing::debug!(%session_id, reporter_pid = self.reporter_pid, "an agent report failed capability authentication");
             return Screened::Answer(refusal("authentication_failed", None));
@@ -218,35 +218,15 @@ impl ReportConnection {
         Screened::Admit(request)
     }
 
-    fn admission_for(&self, request: AgentIntegrationRequest) -> AdmissionFuture {
+    fn admission_for(&self, request: AgentStatusReportRequest) -> AdmissionFuture {
         let context = Arc::clone(&self.context);
         let reporter_pid = self.reporter_pid;
         Box::pin(async move {
-            match request {
-                AgentIntegrationRequest::Report(request) => {
-                    match context.admission.admit_report(request, reporter_pid).await {
-                        Ok(refused) => admission_answer(refused),
-                        Err(fault) => {
-                            tracing::warn!(%fault, outcome = "internal_error", "an agent status report could not be admitted");
-                            refusal("internal_error", None)
-                        }
-                    }
-                }
-                AgentIntegrationRequest::Reference(request) => {
-                    let session_id = request.session_id.clone();
-                    match context
-                        .admission
-                        .admit_reference(request, reporter_pid)
-                        .await
-                    {
-                        Ok(refused) => admission_answer(refused),
-                        Err(fault) => {
-                            // Silence, never an answer: the append may have
-                            // landed, and the reporter must not retry it.
-                            tracing::warn!(%session_id, %fault, outcome = "ambiguous", "an agent reference report failed");
-                            Answer::Silence
-                        }
-                    }
+            match context.admission.admit_report(request, reporter_pid).await {
+                Ok(refused) => admission_answer(refused),
+                Err(fault) => {
+                    tracing::warn!(%fault, outcome = "internal_error", "an agent status report could not be admitted");
+                    refusal("internal_error", None)
                 }
             }
         })

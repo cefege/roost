@@ -268,12 +268,6 @@ The recurring failure modes of this plane and their fixes are indexed in
   arbitrates and publishes. Shape: `crates/roost-protocol/src/wire/agent_status.rs`.
 - **Fenced prompts** — `SessionsPrompt` writes one bounded text input to the
   same ordinary PTY only while the exact occupant/revision/state still match.
-- **Conversation references** — official OMP references are durable,
-  worker-private recovery metadata folded by worker `client_seq`
-  (`crates/roost-protocol/src/agent_conversation_reference.rs`); automatic
-  restore after failed keeper adoption is gated by
-  `ROOST_AGENT_CONVERSATION_RESTORE` and off by default
-  (`crates/roost-worker/src/agents/conversation_restore.rs`).
 
 Normative: `protocol/spec/agent-metadata.md`.
 

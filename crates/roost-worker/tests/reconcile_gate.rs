@@ -12,7 +12,6 @@ use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use roost_observability::clock::EventClock;
-use roost_worker::agents::reference_admission::AgentReferenceAdmissionGate;
 use roost_worker::keeper_pool::KeeperUpdateBoundary;
 use roost_worker::runtime::heartbeat::KeeperReconciliation;
 use roost_worker::runtime::reconcile_gate::{
@@ -97,10 +96,7 @@ fn rig() -> Rig {
     // A link with nothing left to replay: these passes never wait on it.
     let durable_replay = Arc::new(DurableDelivery::new());
     durable_replay.mark_drained();
-    let admission = PassAdmission {
-        reference_admission: AgentReferenceAdmissionGate::new(),
-        durable_replay,
-    };
+    let admission = PassAdmission { durable_replay };
     let gate = ReconcileGate::new(
         Arc::clone(&pass) as Arc<dyn ReconcilePass>,
         admission,

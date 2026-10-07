@@ -32,7 +32,6 @@ use crate::events::bus_messages::{
     AuditRow, PairRequestDelta, SessionBell, SessionBusMessage, SessionClipboardWrite,
     SessionCommandFinished, SessionTitleUpdate, TaskBusMsg, TaskBusMsgKind,
 };
-use crate::events::visibility::kind_is_public;
 use crate::sync_ws::feed::{FeedFrame, FeedRefusal, as_f64, as_u32, as_u64};
 
 /// One durable session event as the frame a browser folds.
@@ -42,10 +41,6 @@ use crate::sync_ws::feed::{FeedFrame, FeedRefusal, as_f64, as_u32, as_u64};
 /// batch of events must be able to drop this one and keep the rest
 /// (`sync-feed-frames.ts:170-180`).
 pub fn session_message_frame(message: &SessionBusMessage) -> Result<FeedFrame, FeedRefusal> {
-    let kind = message.event.kind_name();
-    if !kind_is_public(kind) {
-        return Err(FeedRefusal::PrivateSessionEvent { kind });
-    }
     let event = event_to_proto(&message.event, message.event_id.unwrap_or(0))?;
     Ok(FeedFrame::of(FirehoseFrame {
         frame: Some(Frame::SessionEvent(Box::new(event))),

@@ -20,9 +20,7 @@ use roost_worker::agents::BuiltinAgentId;
 use roost_worker::agents::detector::sessions::{
     AgentSessionSource, AgentSessionView, ScreenEvidence,
 };
-use roost_worker::agents::detector::{
-    AgentReferenceClearDeps, AgentScreenDetector, AgentScreenDetectorDeps,
-};
+use roost_worker::agents::detector::{AgentScreenDetector, AgentScreenDetectorDeps};
 use roost_worker::agents::environment::AgentReportEnvironment;
 use roost_worker::agents::manifests::AgentManifests;
 use roost_worker::agents::process_scan::{
@@ -293,7 +291,7 @@ pub struct DetectorHarness {
 
 /// v2 `makeDetector`/`makeHarness`: a detector over the scripted scanner and
 /// sessions, the real manifests, and a registry with the default lease.
-pub fn detector_harness(reference_clear: Option<AgentReferenceClearDeps>) -> DetectorHarness {
+pub fn detector_harness() -> DetectorHarness {
     let RegistryHarness {
         clock,
         published,
@@ -308,7 +306,6 @@ pub fn detector_harness(reference_clear: Option<AgentReferenceClearDeps>) -> Det
         registry: Arc::clone(&registry),
         clock: Arc::clone(&clock),
         environment: Arc::clone(&environment),
-        reference_clear,
     });
     DetectorHarness {
         clock,
@@ -328,7 +325,6 @@ pub struct DetectorParts {
     pub registry: Arc<AgentStatusRegistry>,
     pub clock: Arc<TestClock>,
     pub environment: Arc<AgentReportEnvironment>,
-    pub reference_clear: Option<AgentReferenceClearDeps>,
 }
 
 pub fn detector_over(parts: DetectorParts) -> AgentScreenDetector {
@@ -339,7 +335,6 @@ pub fn detector_over(parts: DetectorParts) -> AgentScreenDetector {
         manifests: Arc::new(AgentManifests::pinned().unwrap()),
         environment: parts.environment,
         clock: parts.clock as Arc<dyn EventClock>,
-        reference_clear: parts.reference_clear,
         runtime: tokio::runtime::Handle::current(),
     })
 }

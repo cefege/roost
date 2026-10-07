@@ -10,14 +10,10 @@
 
 use roost_proto::__buffa::oneof::session_event_proto::Kind;
 use roost_proto::{
-    AgentReferenceEvt, ClosedEvt, OpenedEvt, PrEvt, Session as PbSession, SessionEventProto,
-    SnapshotEvt, WorkspaceAssignedEvt,
+    ClosedEvt, OpenedEvt, PrEvt, Session as PbSession, SessionEventProto, SnapshotEvt,
+    WorkspaceAssignedEvt,
 };
-use roost_protocol::agent_conversation_reference::{
-    AgentConversationReferenceKind, AgentConversationReferenceV1,
-};
-use roost_protocol::proto_adapters::agent_conversation_reference_proto::agent_conversation_reference_to_proto;
-use roost_protocol::wire::brand::{SessionId, TraceId};
+use roost_protocol::wire::brand::SessionId;
 use roost_protocol::wire::event::SessionEvent;
 use roost_protocol::wire::event_proto::{event_to_proto, proto_to_event};
 
@@ -53,15 +49,6 @@ fn field_of(proto: &SessionEventProto) -> String {
     proto_to_event(proto)
         .expect_err("a malformed known variant is an error, not a dropped frame")
         .field
-}
-
-fn reference() -> AgentConversationReferenceV1 {
-    AgentConversationReferenceV1 {
-        schema_version: 1,
-        agent_id: "omp".to_owned(),
-        kind: AgentConversationReferenceKind::Id,
-        value: "conversation-1".to_owned(),
-    }
 }
 
 #[test]
@@ -183,45 +170,6 @@ fn a_malformed_session_inside_a_snapshot_names_its_index() {
         ..Default::default()
     })));
     assert_eq!(field_of(&proto), "session_event.sessions[1].session_id");
-}
-
-#[test]
-fn a_reference_event_past_its_envelope_bound_is_refused_in_both_directions() {
-    let oversized = "a".repeat(8_192);
-    let event = SessionEvent::AgentReference {
-        session_id: session_id(),
-        reference: Some(reference()),
-        ts: 1,
-        trace_id: Some(TraceId::try_from(oversized.clone()).expect("the value is hex")),
-    };
-    let error =
-        event_to_proto(&event, 1).expect_err("an over-bound envelope must not reach the log");
-    assert_eq!(error.field, "session_event.reference");
-
-    let proto = frame(Kind::AgentReference(Box::new(AgentReferenceEvt {
-        session_id: SESSION_ID.to_owned(),
-        reference: agent_conversation_reference_to_proto(&reference())
-            .expect("the fixture reference is valid")
-            .into(),
-        ts: 1,
-        trace_id: Some(oversized),
-        ..Default::default()
-    })));
-    assert_eq!(field_of(&proto), "session_event.reference");
-}
-
-#[test]
-fn a_short_trace_id_is_refused_rather_than_kept_as_a_string() {
-    let proto = frame(Kind::AgentReference(Box::new(AgentReferenceEvt {
-        session_id: SESSION_ID.to_owned(),
-        reference: agent_conversation_reference_to_proto(&reference())
-            .expect("the fixture reference is valid")
-            .into(),
-        ts: 1,
-        trace_id: Some("abc".to_owned()),
-        ..Default::default()
-    })));
-    assert_eq!(field_of(&proto), "session_event.agent_reference.trace_id");
 }
 
 #[test]

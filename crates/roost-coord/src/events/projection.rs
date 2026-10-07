@@ -5,13 +5,9 @@
 //! statements live in `projection_writes`; this file is the shape they all share,
 //! so a column cannot be added to one and forgotten by the other.
 //!
-//! THE AGENT COLUMNS ARE NOT IN THE ROW SHAPE, ON PURPOSE. v2's `sessionToRow`
-//! return type omits `agent_json`, `agent_reference_json` and
-//! `agent_reference_client_seq` (`event-projection.ts:29-33`), so no ordinary
-//! session write can overwrite them -- the same predicate that keeps
-//! `agent_reference` off every browser lane keeps it out of the projection's
-//! write set. `agent_conversation_recovery` owns those three columns and is
-//! their only writer.
+//! ONLY THE SESSION PROJECTION'S COLUMNS ARE IN THIS ROW SHAPE. Independent
+//! persistence concerns use their own statements, so ordinary session writes
+//! cannot overwrite data they do not own.
 //!
 //! STORED ENUMS ARE PARSED, NOT CAST. v2 cast `kind`, `status`, `pr_state` and
 //! `pr_checks` with `as` and never checked them
@@ -38,8 +34,8 @@ use sqlx::{Executor, FromRow};
 /// The exact session projection column list, shared with every reader that wants
 /// the same row-to-proto adapters (`event-projection.ts:13-17`).
 ///
-/// `agent_json`, `agent_reference_json` and `agent_reference_client_seq` are
-/// absent by design; see the module header.
+/// The projection row contains only session fields; independent persistence
+/// concerns use separate statements.
 pub const SESSION_COLUMNS: [&str; 18] = [
     "id",
     "worker_fp",

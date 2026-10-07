@@ -1,12 +1,10 @@
 //! The one door every reconcile pass goes through: callers join the pass in
-//! flight, every pass holds the agent-reference admission gate and waits for
-//! the durable session-event replay before it reads the coordinator, a
-//! keeper-update preparation blocks new passes and waits out the current one, a
-//! keeper death drives a pass, and a degraded keeper is restarted within a
-//! grace window and a bounded budget. Ports
-//! `apps/worker/src/boot/boot-reconcile.ts` (`setupReconcile`). Built in
-//! `runtime::owners`; boot, the pool's death hook, the session layer's degraded
-//! hook and `keeper_pool::update_prepare` call it.
+//! flight, each pass waits for durable session-event replay before reading the
+//! coordinator, keeper-update preparation waits out the current pass, keeper
+//! death drives a pass, and a degraded keeper is restarted within a grace
+//! window and bounded budget. Built in `runtime::owners`; boot, the pool's
+//! death hook, the session layer's degraded hook and
+//! `keeper_pool::update_prepare` call it.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -20,11 +18,9 @@ use super::heart_owners::HeartOwners;
 use super::heartbeat::KeeperReconciliation;
 use super::keeper_prepare::{KeeperPreparer, KeeperProcess, WorkerKeeperRemediation};
 use super::reconcile::OpenSessionSource;
-use super::reconcile_restore::WorkerConversationRestorer;
 use super::session_reconcile::{ReconcileFailure, ReconcileSummary, SessionReconciler};
 use super::session_stack::SessionStack;
 use super::stop::{StopReason, StopRequests};
-use crate::agents::reference_admission::AgentReferenceAdmissionGate;
 use crate::keeper_pool::KeeperPool;
 use crate::keeper_pool::{BoundaryRelease, KeeperUpdateBoundary};
 use crate::session::durable_delivery::DurableDelivery;
@@ -47,13 +43,9 @@ pub trait ReconcilePass: Send + Sync {
     fn run(self: Arc<Self>, reason: &'static str) -> OwnerFuture<ReconcileOutcome>;
 }
 
-/// What a pass waits for before it reads the coordinator's recovery state
-/// (v2 `referenceAdmission` and `beforeRecoveryRead`): no agent reference is
-/// admitted while a pass runs, and the rows the coordinator derives recovery
-/// metadata from have all reached it.
+/// What a pass waits for before reading the coordinator's open-session set.
 #[derive(Debug, Clone)]
 pub struct PassAdmission {
-    pub reference_admission: AgentReferenceAdmissionGate,
     pub durable_replay: Arc<DurableDelivery>,
 }
 
@@ -72,8 +64,6 @@ pub struct ReconcileInputs {
     pub process: KeeperProcess,
     pub sessions: Arc<dyn OpenSessionSource>,
     pub stop: StopRequests,
-    /// The host the restore materialises its resume command for.
-    pub platform: roost_host::HostPlatform,
 }
 
 impl std::fmt::Debug for ReconcileInputs {
@@ -150,21 +140,15 @@ impl ReconcileGate {
 
     /// The production gate (v2 `setupReconcile`): the pass over `stack`'s
     /// manager and `pool`, the heart's stray sweeper and reconciliation stamp,
-    /// the stack's durable replay and the one reference admission gate, and
-    /// the pool's death and the manager's degraded hooks pointed here. Called
-    /// once by `runtime::owners`, inside the worker's runtime.
+    /// the stack's durable replay, and the pool's death and the manager's
+    /// degraded hooks pointed here. Called once by `runtime::owners`, inside
+    /// the worker's runtime.
     pub fn start(
         stack: &SessionStack,
         pool: &Arc<KeeperPool>,
         heart: &HeartOwners,
         inputs: ReconcileInputs,
-        reference_admission: AgentReferenceAdmissionGate,
     ) -> Self {
-        let restorer = WorkerConversationRestorer::new(
-            inputs.boot.agent_conversation_restore,
-            Arc::clone(&stack.manager),
-            inputs.platform,
-        );
         let preparer = KeeperPreparer::new(inputs.boot, inputs.process);
         let pass = SessionReconciler::new(
             Arc::clone(&stack.manager),
@@ -172,10 +156,8 @@ impl ReconcileGate {
             inputs.sessions,
             preparer.clone(),
             Arc::clone(&heart.strays),
-            Arc::new(restorer),
         );
         let admission = PassAdmission {
-            reference_admission,
             durable_replay: Arc::clone(&stack.durable_delivery),
         };
         let gate = Self::new(
@@ -229,27 +211,26 @@ impl ReconcileGate {
         Box::pin(shared)
     }
 
-    /// v2 `runReconcile`: the pass holds the reference admission gate and
-    /// reads the coordinator only once the durable replay has drained, so the
-    /// recovery metadata it reads reflects every reference this worker wrote.
+    /// v2 `runReconcile`: the pass reads the coordinator only once the durable
+    /// replay has drained, so the open-session set it reads reflects every
+    /// session event this worker wrote.
     async fn run(&self, reason: &'static str) -> ReconcileOutcome {
         self.inner.lock().reconcile_admitted = false;
         self.inner.reconciliation.started();
         tracing::info!(reason, "worker: reconcile started");
         let pass = Arc::clone(&self.inner.pass);
         let replay = Arc::clone(&self.inner.admission.durable_replay);
-        let outcome = self
-            .inner
-            .admission
-            .reference_admission
-            .run_exclusive(|| async move {
-                if let Err(disposed) = replay.wait_for_replay().await {
-                    return Err(ReconcileFailure::recoverable(disposed.to_string()));
-                }
-                tracing::info!(reason, "worker: the durable session-event replay drained; the pass reads the coordinator");
-                pass.run(reason).await
-            })
-            .await;
+        let outcome = async move {
+            if let Err(disposed) = replay.wait_for_replay().await {
+                return Err(ReconcileFailure::recoverable(disposed.to_string()));
+            }
+            tracing::info!(
+                reason,
+                "worker: the durable session-event replay drained; the pass reads the coordinator"
+            );
+            pass.run(reason).await
+        }
+        .await;
         match &outcome {
             Ok(_) => {
                 let now_ms = self.inner.clock.now_epoch_ms();

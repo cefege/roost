@@ -1,5 +1,4 @@
-//! The three durable reads over the single global event stream, and the private
-//! kind they all exclude.
+//! The three durable reads over the single global event stream.
 //!
 //! Ported from `apps/coord/src/events/event-query.ts`. Sync recovery reaches
 //! these three functions and nothing else, and the windows they use are recovery
@@ -18,11 +17,7 @@
 //! closed interval below it. An off-by-one in either comparison is a duplicated
 //! or a missing event, and a duplicated `closed` is a terminal that vanishes.
 //!
-//! ALL THREE FILTER THE PRIVATE KIND. `agent_reference` is durable and its owning
-//! worker recovers it, but no browser sees it through either lane. The filter is
-//! the shared predicate's decision spelled as SQL
-//! (`apps/coord/src/events/session-event-visibility.ts:7`), and the constant is
-//! the same one the publisher and the row mapper read.
+//! Each read covers the full durable event stream.
 //!
 //! THERE IS NO RETENTION ON THIS TABLE, and that is a deliberate gap in v2 rather
 //! than an oversight (`docs/phase3-coord-contract.md` §3.8). This port does not
@@ -30,8 +25,6 @@
 
 use roost_protocol::wire::SessionEvent;
 use sqlx::{Executor, Row};
-
-use crate::events::visibility::PRIVATE_SESSION_EVENT_KIND;
 
 /// The most events one backfill page returns.
 pub const GET_EVENTS_SINCE_LIMIT: usize = 1_000;
@@ -94,10 +87,9 @@ where
 {
     let query = sqlx::query(
         "SELECT id, payload_json FROM events \
-          WHERE id > $1 AND kind != $2 ORDER BY id ASC LIMIT $3",
+          WHERE id > $1 ORDER BY id ASC LIMIT $2",
     )
     .bind(cursor(since_id)?)
-    .bind(PRIVATE_SESSION_EVENT_KIND)
     .bind(page_limit(limit, GET_EVENTS_SINCE_LIMIT));
     read_page(query, executor).await
 }
@@ -111,8 +103,7 @@ pub async fn get_event_max_id<'executor, E>(executor: E) -> Result<u64, EventQue
 where
     E: Executor<'executor, Database = sqlx::Any>,
 {
-    let row = sqlx::query("SELECT MAX(id) FROM events WHERE kind != $1")
-        .bind(PRIVATE_SESSION_EVENT_KIND)
+    let row = sqlx::query("SELECT MAX(id) FROM events")
         .fetch_one(executor)
         .await?;
     match row.get::<Option<i64>, _>(0) {
@@ -133,11 +124,10 @@ where
 {
     let query = sqlx::query(
         "SELECT id, payload_json FROM events \
-          WHERE id > $1 AND id <= $2 AND kind != $3 ORDER BY id ASC LIMIT $4",
+          WHERE id > $1 AND id <= $2 ORDER BY id ASC LIMIT $3",
     )
     .bind(cursor(cursor_id)?)
     .bind(cursor(cutoff)?)
-    .bind(PRIVATE_SESSION_EVENT_KIND)
     .bind(page_limit(limit, GET_EVENTS_THROUGH_LIMIT));
     read_page(query, executor).await
 }

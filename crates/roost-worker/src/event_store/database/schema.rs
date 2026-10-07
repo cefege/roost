@@ -74,6 +74,28 @@ pub async fn establish(pool: &SqlitePool) -> Result<(), JournalError> {
     enforce_page_budget(pool).await
 }
 
+/// Event kinds an earlier build wrote that this build neither sends nor can
+/// decode: OMP conversation references, which nothing in this build reads.
+/// Removed only at open, before the first read.
+const RETIRED_EVENT_KINDS: [&str; 1] = ["agent_reference"];
+
+/// Discard pending rows of a retired kind. The one exception to the refusal
+/// rule above, and a narrow one: such a row would fail decoding at every open
+/// and every replay, so keeping it stops this worker for good, while the
+/// coordinator no longer stores what it says. Returns how many were dropped.
+pub async fn discard_retired_events(pool: &SqlitePool) -> Result<u64, JournalError> {
+    let mut discarded = 0;
+    for kind in RETIRED_EVENT_KINDS {
+        discarded += sqlx::query("DELETE FROM session_events WHERE kind = $1")
+            .bind(kind)
+            .execute(pool)
+            .await
+            .map_err(query("retired event discard"))?
+            .rows_affected();
+    }
+    Ok(discarded)
+}
+
 /// The highest sequence already on disk.
 ///
 /// A restart has to resume above this: handing out a number a previous process

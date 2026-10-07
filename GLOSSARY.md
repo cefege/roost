@@ -50,7 +50,7 @@ wins.
 
 - **SessionEvent** — the unit of event sourcing: `opened`, `closed`, `attached`,
   `detached`, `cwd`, `workspace_assigned`, `snapshot`, `respawned`, `renamed`,
-  `git`, `pr`, `ports`, and `agent_reference`. Workers emit them; the coordinator appends +
+  `git`, `pr`, and `ports`. Workers emit them; the coordinator appends +
   projects them; the browser folds them.
   Source: `protocol/proto/roost/v1/events.proto`, `crates/roost-protocol/src/wire/event.rs`.
 

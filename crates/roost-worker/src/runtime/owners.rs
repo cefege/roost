@@ -72,11 +72,11 @@ pub struct WorkerOwners {
     pub heart: HeartOwners,
     /// v2 `setupReconcile`: the one door for boot, keeper-death and degraded passes.
     pub reconcile: ReconcileGate,
-    /// v2 `agentRegistry` + `agentDetector`, with the manifests and the ONE
-    /// reference admission gate the report server and prompt owner share.
+    /// v2 `agentRegistry` + `agentDetector`, with the manifests the report
+    /// server and prompt owner share.
     pub agents: AgentStatusStack,
-    /// v2 `agentReportServer`: integrations report status and references over
-    /// it; `None` when it could not start. Closed by `close_agent_report`.
+    /// v2 `agentReportServer`: integrations report status over it; `None`
+    /// when it could not start. Closed by `close_agent_report`.
     agent_report: Option<AgentReportServer>,
     /// v2 `main.ts:196-199` + `boot-local-terminal.ts`: the attachment
     /// operation owner, grant store, direct carriers and their sweeps.
@@ -196,17 +196,10 @@ impl WorkerOwners {
         direct.register_carrier(Arc::new(attachments.direct.clone()));
         let heart = HeartOwners::build(&stack, Arc::clone(&pool), platform);
         // v2 `main.ts:220-237`: agent-status detection, hooked to terminal
-        // output and to session close ahead of the routes and view. Built
-        // before the reconcile gate, which shares its reference admission gate.
+        // output and to session close ahead of the routes and view.
         let agents = start_agent_status(&stack, uplink)?;
         let keeper_endpoint = crate::runtime::keeper_boot::keeper_endpoint(&reconcile.boot)?;
-        let reconcile = ReconcileGate::start(
-            &stack,
-            &pool,
-            &heart,
-            reconcile,
-            agents.reference_admission.clone(),
-        );
+        let reconcile = ReconcileGate::start(&stack, &pool, &heart, reconcile);
         // v2 `onKeeperUpdatePrepare` joins the same reconcile boundary boot
         // and keeper-death reconciliation serialize on.
         let keeper_update = KeeperUpdatePreparer::over_pool(
@@ -225,11 +218,7 @@ impl WorkerOwners {
             keeper,
         );
 
-        let agent_report = AgentReportServer::start_for_worker(
-            &stack.agent_environment,
-            &agents,
-            stack.manager.durable_event_sink(),
-        );
+        let agent_report = AgentReportServer::start_for_worker(&stack.agent_environment, &agents);
         register_session_closed(&stack, &routes, &view);
 
         let downstream = DownstreamOwners {

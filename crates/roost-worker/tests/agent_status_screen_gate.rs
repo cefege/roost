@@ -15,7 +15,7 @@ use roost_worker::agents::BuiltinAgentId as Agent;
 
 #[tokio::test]
 async fn back_to_back_scans_inside_the_window_read_the_visible_grid_once() {
-    let harness = detector_harness(None);
+    let harness = detector_harness();
     harness.scanner.set(SESSION_ID, Agent::Omp, 4_321);
     harness.sessions.add("");
     let reads = || harness.sessions.reads.load(Ordering::SeqCst);
@@ -36,7 +36,7 @@ async fn back_to_back_scans_inside_the_window_read_the_visible_grid_once() {
 
 #[tokio::test]
 async fn same_kind_process_replacement_reaches_the_registry_with_the_verified_pid() {
-    let harness = detector_harness(None);
+    let harness = detector_harness();
     harness.scanner.set(SESSION_ID, Agent::Omp, 4_321);
     harness.sessions.add("");
     // Two scans per identity: the acquisition grace window withholds the first
@@ -63,7 +63,7 @@ async fn same_kind_process_replacement_reaches_the_registry_with_the_verified_pi
 
 #[tokio::test]
 async fn a_vanished_sessions_gate_entry_is_pruned_so_its_return_re_reads_immediately() {
-    let harness = detector_harness(None);
+    let harness = detector_harness();
     harness.scanner.set(SESSION_ID, Agent::Omp, 4_321);
     harness.sessions.add("");
     harness.detector.scan_now().await;
@@ -79,7 +79,7 @@ async fn a_vanished_sessions_gate_entry_is_pruned_so_its_return_re_reads_immedia
 
 #[tokio::test]
 async fn close_session_drops_the_gate_entry_so_a_reused_session_id_re_reads() {
-    let harness = detector_harness(None);
+    let harness = detector_harness();
     harness.scanner.set(SESSION_ID, Agent::Omp, 4_321);
     harness.sessions.add("");
     harness.detector.scan_now().await;
@@ -93,7 +93,7 @@ async fn close_session_drops_the_gate_entry_so_a_reused_session_id_re_reads() {
 
 #[tokio::test]
 async fn a_coalesce_timer_armed_for_a_closing_session_is_cancelled_not_fired() {
-    let harness = detector_harness(None);
+    let harness = detector_harness();
     harness.scanner.set(SESSION_ID, Agent::Omp, 4_321);
     harness.sessions.add("");
     harness.detector.scan_now().await;
@@ -111,7 +111,7 @@ async fn a_coalesce_timer_armed_for_a_closing_session_is_cancelled_not_fired() {
 
 #[tokio::test]
 async fn close_session_evicts_the_sessions_cached_report_capability() {
-    let harness = detector_harness(None);
+    let harness = detector_harness();
     harness.environment.session_overlay(SESSION_ID).unwrap();
     harness
         .environment

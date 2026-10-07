@@ -3836,9 +3836,9 @@ name, the shell's `HOSTNAME`), and a value that is empty once trimmed counts as 
 ### A test's `tracing` capture is empty only when the suite runs in parallel
 
 **Symptom** — a test asserting on the `tracing` lines it captured fails with `left: 0` / `right: 1`, or sees
-three events instead of four, under CI or a full `cargo test`, and passes run alone: e.g.
-`agent_conversation_restore.rs:314` in `a_partly_delivered_resume_command_is_discarded_from_the_prompt` on
-`ubuntu-latest`. `taskset -c 0,1` on the test binary reproduces it in roughly two runs of five.
+three events instead of four, under CI or a full `cargo test`, and passes run alone (first seen on a
+worker test asserting a `warn!` line, on `ubuntu-latest`). `taskset -c 0,1` on the test binary reproduces it
+in roughly two runs of five.
 
 **Wrong** — a per-test `tracing::subscriber::set_default` / `with_default` capture in a binary where a test
 WITHOUT a capture reaches the same callsite. `tracing` caches each callsite's interest for the whole process
@@ -3853,10 +3853,9 @@ unconditionally true, and the per-thread decision is made in `event`), or every 
 captured callsites is itself captured or serialized against the capture (`roost-observability`'s
 `log::facade_callsites_exclusive`).
 
-**Guard** — `crates/roost-worker/tests/agent_conversation_restore.rs`:
-`a_partly_delivered_resume_command_is_discarded_from_the_prompt`, run beside
-`a_proven_rejection_releases_the_reference_claim_and_an_ambiguous_one_keeps_it`, which reaches the same
-`warn!` uncaptured.
+**Guard** — `crates/roost-worker/tests/agent_prompt_control.rs`:
+`the_prompt_uses_the_final_bracketed_paste_mode_raw_input_stays_byte_exact_and_logs_omit_the_text`, whose
+capture goes through the process-global router while the rest of the suite runs uncaptured beside it.
 
 ### A restarted worker is linked and heartbeating but every pane on it reads "Machine offline"
 

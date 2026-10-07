@@ -1,15 +1,14 @@
 //! One reconcile pass over the coordinator's complete open-session set: every
 //! durable outcome is reserved before the keeper or the session table is
 //! touched, then each session is adopted from its surviving keeper channel or
-//! respawned onto a fresh one (whose agent conversation is then restored), and
-//! finally strays are reaped. Ports `apps/worker/src/boot/boot-session-reconcile.ts`
-//! (`reconcileCoordinatorSessions`). `runtime::reconcile_gate` serializes the
-//! passes; boot, keeper death and keeper degradation all run through it.
+//! respawned onto a fresh one, and finally strays are reaped. Ports
+//! `apps/worker/src/boot/boot-session-reconcile.ts` (`reconcileCoordinatorSessions`).
+//! `runtime::reconcile_gate` serializes the passes; boot, keeper death and
+//! keeper degradation all run through it.
 
 use super::keeper_prepare::KeeperPreparer;
 use super::reconcile::{OpenSessionSet, OpenSessionSource};
 use super::reconcile_gate::{ReconcileOutcome, ReconcilePass};
-use super::reconcile_restore::{ConversationRestorer, PassReferenceClaims};
 use super::session_reconcile_admission::Admission;
 use crate::keeper_pool::KeeperPool;
 use crate::session::lifecycle::SessionManager;
@@ -61,7 +60,6 @@ pub struct SessionReconciler {
     pub(crate) sessions: Arc<dyn OpenSessionSource>,
     pub(crate) keeper: KeeperPreparer,
     pub(crate) sweeper: Arc<StraySweeper>,
-    pub(crate) restorer: Arc<dyn ConversationRestorer>,
     /// The keeper boot admitted before this reconciler existed: its survivors
     /// are capacity-checked by the first pass that reaches the check.
     pub(crate) boot_survivors_unchecked: AtomicBool,
@@ -83,7 +81,6 @@ impl SessionReconciler {
         sessions: Arc<dyn OpenSessionSource>,
         keeper: KeeperPreparer,
         sweeper: Arc<StraySweeper>,
-        restorer: Arc<dyn ConversationRestorer>,
     ) -> Self {
         Self {
             manager,
@@ -91,16 +88,15 @@ impl SessionReconciler {
             sessions,
             keeper,
             sweeper,
-            restorer,
             boot_survivors_unchecked: AtomicBool::new(true),
         }
     }
 
-    /// One pass. The rows and their recovery metadata are read here, after the
-    /// gate saw the durable replay drain (v2 reads inside every pass).
+    /// One pass. The rows are read here, after the gate saw the durable replay
+    /// drain (v2 reads inside every pass).
     pub async fn pass(&self, reason: &'static str) -> Result<ReconcileSummary, ReconcileFailure> {
-        let OpenSessionSet { rows, references } = self.read_rows().await?;
-        let admissions = self.admit_all(&rows, &references).await?;
+        let OpenSessionSet { rows } = self.read_rows().await?;
+        let admissions = self.admit_all(&rows).await?;
         // Survivor retirement, keeper creation and the survivor-set capacity
         // check all come after the complete reservation batch (v2 `:172-176`).
         let prepared = match self.keeper.prepare(&self.pool, rows.len()).await {
@@ -123,14 +119,9 @@ impl SessionReconciler {
         };
         let mut respawn_failed = 0usize;
         let open_sessions = rows.len();
-        // v2 `resumedReferenceKeys`: one claim set shared by every session of the pass.
-        let mut claims = PassReferenceClaims::default();
         let mut pending = admissions.into_iter();
         while let Some(admission) = pending.next() {
-            match self
-                .resume_or_respawn(admission, open_sessions, &mut claims)
-                .await
-            {
+            match self.resume_or_respawn(admission, open_sessions).await {
                 Ok(Outcome::Resumed) => summary.resumed += 1,
                 Ok(Outcome::Respawned) => summary.respawned += 1,
                 Ok(Outcome::Unresolved) => respawn_failed += 1,
@@ -192,20 +183,17 @@ impl SessionReconciler {
             })
     }
 
-    /// v2 `:178-308`: adopt, or respawn with bounded transient retries; an
-    /// adopted session claims its reference, a respawned one restores it once.
+    /// v2 `:178-308`: adopt, or respawn with bounded transient retries.
     async fn resume_or_respawn(
         &self,
         admission: Admission,
         open_sessions: usize,
-        claims: &mut PassReferenceClaims,
     ) -> Result<Outcome, ReconcileFailure> {
         let Admission {
             session_id,
             channel_id,
             cwd,
             shell_spec,
-            agent_reference,
             resume_close,
             respawn_event,
             future_close,
@@ -219,9 +207,6 @@ impl SessionReconciler {
         };
         match self.manager.adopt_survivor(&request).await {
             Ok(_) => {
-                // The adopted PTY still runs an agent on this reference, so no
-                // other session may resume the same conversation.
-                claims.claim_adopted(agent_reference.as_ref());
                 respawn_event.release().await;
                 future_close.release().await;
                 return Ok(Outcome::Resumed);
@@ -259,13 +244,6 @@ impl SessionReconciler {
                 Ok(_) => {
                     respawn_event.disarm();
                     future_close.disarm();
-                    claims
-                        .restore_after_respawn(
-                            &*self.restorer,
-                            &session_id,
-                            agent_reference.as_ref(),
-                        )
-                        .await;
                     return Ok(Outcome::Respawned);
                 }
                 Err(RespawnError::Durability(reason)) => {

@@ -55,7 +55,6 @@ pub mod reconcile;
 mod reconcile_claim;
 pub mod reconcile_gate;
 pub(crate) mod reconcile_gate_keeper_lifecycle;
-pub mod reconcile_restore;
 pub mod reconnect;
 pub mod session_reconcile;
 pub(crate) mod session_reconcile_admission;

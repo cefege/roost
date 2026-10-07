@@ -15,9 +15,6 @@ use serde_json::{Value, json};
 
 use roost_proto::SessionEventProto;
 use roost_proto::buffa::{DecodeOptions, Message, Rope};
-use roost_protocol::agent_conversation_reference::{
-    AgentConversationReferenceKind, AgentConversationReferenceV1,
-};
 use roost_protocol::terminal_search::{
     GLOBAL_TERMINAL_SEARCH_PAGE_DEADLINE_MS, GLOBAL_TERMINAL_SEARCH_ROWS_PER_SESSION,
     TERMINAL_SEARCH_MAX_MATCHES, TERMINAL_SEARCH_MAX_ROWS,
@@ -243,15 +240,6 @@ pub fn worker_fp() -> WorkerFp {
 
 pub fn trace_id() -> TraceId {
     TraceId::try_from(TRACE_ID).expect("fixture trace id")
-}
-
-pub fn reference() -> AgentConversationReferenceV1 {
-    AgentConversationReferenceV1 {
-        schema_version: 1,
-        agent_id: "omp".to_owned(),
-        kind: AgentConversationReferenceKind::Path,
-        value: "/tmp/a path/'$opaque.json".to_owned(),
-    }
 }
 
 /// Cross the generated message's own serialization, which pins the field

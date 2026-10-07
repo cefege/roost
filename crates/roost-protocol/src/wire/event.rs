@@ -27,11 +27,7 @@ pub type SessionMap = BTreeMap<SessionId, Session>;
 /// hand back the same contents.
 pub fn fold_event(prev: &SessionMap, event: &SessionEvent) -> SessionMap {
     match event {
-        // Private and viewer-local variants are explicit no-ops: they are
-        // durable and ordered, but they are not public session state.
-        SessionEvent::Attached { .. }
-        | SessionEvent::Detached { .. }
-        | SessionEvent::AgentReference { .. } => prev.clone(),
+        SessionEvent::Attached { .. } | SessionEvent::Detached { .. } => prev.clone(),
 
         // The only arm that ignores the previous state. It captures the spawn
         // folder once, and leaves the resolved git, pull-request, and port

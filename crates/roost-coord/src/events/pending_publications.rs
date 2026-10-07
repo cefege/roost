@@ -30,8 +30,6 @@ use std::collections::HashMap;
 
 use roost_protocol::wire::WorkspaceId;
 
-use crate::events::visibility::kind_is_public;
-
 /// Committed publications a process may hold.
 pub const MAX_ENTRIES: usize = 256;
 
@@ -63,9 +61,6 @@ pub struct PublicationSlot {
 /// A committed event awaiting publication.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RetainedPublication {
-    /// The event's kind discriminator, kept so a private event is never
-    /// published even if a bug routed one here.
-    pub event_kind: String,
     /// The durable `events.id`, stamped onto the bus message as the replay
     /// order. It is internal only and never a wire field.
     pub event_id: i64,
@@ -84,18 +79,6 @@ pub struct RetainedPublication {
     pub cascade_orphan_ids: Vec<WorkspaceId>,
     /// Sessions a snapshot found force-closed, reaped when the claim publishes.
     pub snapshot_reap_ids: Vec<String>,
-}
-
-impl RetainedPublication {
-    /// Whether this event may reach a browser.
-    ///
-    /// The same predicate the publisher and the durable readers use
-    /// (`docs/phase3-coord-contract.md` §3.7); a private event is durable and
-    /// recoverable by its worker and invisible to every dashboard.
-    #[must_use]
-    pub fn is_publishable(&self) -> bool {
-        kind_is_public(&self.event_kind)
-    }
 }
 
 /// What a claim attempt found.

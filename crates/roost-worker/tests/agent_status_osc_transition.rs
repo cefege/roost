@@ -15,7 +15,7 @@ use roost_worker::agents::BuiltinAgentId as Agent;
 const BLOCKED_TITLE: &str = "Action Required — review the patch";
 
 fn harness(agent_id: Agent, osc_title: &str) -> DetectorHarness {
-    let harness = detector_harness(None);
+    let harness = detector_harness();
     harness.scanner.set(SESSION_ID, agent_id, 4_321);
     harness.sessions.add(osc_title);
     harness

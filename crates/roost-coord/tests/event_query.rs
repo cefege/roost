@@ -6,9 +6,6 @@
 //! An off-by-one in either comparison is a duplicated or a missing event, and a
 //! duplicated `closed` is a terminal that vanishes -- so the boundaries are
 //! asserted directly rather than inferred from a passing backfill.
-//!
-//! The private kind is exercised here too: `agent_reference` is durable and its
-//! owning worker recovers it, and all three reads must leave it out.
 
 // Every unwrap here is an assertion over a value the test just built: the panic
 // IS the failure, which is why `unwrap_used` is denied in product code.
@@ -246,70 +243,6 @@ async fn a_reconnect_reads_every_event_exactly_once_across_the_seam() {
         vec![2, 3, 4, 5, 6],
         "every event after the client's cursor arrives exactly once, across the seam"
     );
-    fixture.close();
-}
-
-#[tokio::test]
-async fn the_private_kind_is_invisible_to_every_read() {
-    let fixture = EventFixture::new("query-private").await;
-    let effects = NoEffects;
-    let worker = fingerprint('d');
-    let session = session_id('a');
-    let log = event_log(&fixture);
-
-    append_event(
-        &fixture.writer,
-        opened_event(&session, &worker, 11),
-        &worker_caller(&worker, 1),
-        &mut fixture.options(&effects),
-    )
-    .await
-    .expect("the opened append commits");
-
-    // A private recovery reference: durable, owned by its worker, and invisible to
-    // every browser through either lane.
-    let mut reference = opened_event(&session, &worker, 12);
-    if let SessionEvent::Opened { session_id, .. } = &mut reference {
-        *session_id = session.clone();
-    }
-    let private = SessionEvent::AgentReference {
-        session_id: session.clone(),
-        reference: None,
-        ts: 7,
-        trace_id: None,
-    };
-    append_event(
-        &fixture.writer,
-        private,
-        &worker_caller(&worker, 2),
-        &mut fixture.options(&effects),
-    )
-    .await
-    .expect("the private append commits");
-
-    // It is durable: the worker's own replay can still find it.
-    assert_eq!(
-        fixture.event_ids().await.len(),
-        2,
-        "the private event is stored"
-    );
-    // And invisible: the cutoff, the backfill and the interval all skip it.
-    assert_eq!(
-        log.get_event_max_id().await.expect("it runs"),
-        1,
-        "the cutoff names the last PUBLIC event"
-    );
-    let backfill = log.get_events_since(0, None).await.expect("it runs");
-    assert_eq!(
-        backfill
-            .iter()
-            .map(|stored| stored.event.kind_name())
-            .collect::<Vec<_>>(),
-        vec!["opened"],
-        "no browser lane sees the private kind"
-    );
-    let interval = log.get_events_through(0, 2, None).await.expect("it runs");
-    assert_eq!(interval.len(), 1);
     fixture.close();
 }
 

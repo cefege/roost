@@ -243,7 +243,6 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
                 Arc::new(WorkerKeyCredential::new(boot.worker_key_path.clone())),
             )),
             stop: stop.clone(),
-            platform,
         },
     )?;
     let door = door.serve(&DoorConfig::for_boot(&boot), owners.loopback_routes())?;

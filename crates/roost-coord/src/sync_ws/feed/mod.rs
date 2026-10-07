@@ -180,15 +180,6 @@ impl FeedFrame {
 /// Why a bus message could not become a frame.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum FeedRefusal {
-    /// The event is durable and recoverable by the worker that owns it, and
-    /// must never enter a browser lane. v2 threw at frame construction; here it
-    /// is a value, so a fan-out over a batch of events drops the private one and
-    /// keeps the rest.
-    #[error("private session event {kind} cannot enter a browser frame")]
-    PrivateSessionEvent {
-        /// The durable discriminator that was refused.
-        kind: &'static str,
-    },
     /// The value did not survive the wire boundary.
     #[error("feed frame: {0}")]
     Unencodable(#[from] ProtocolError),

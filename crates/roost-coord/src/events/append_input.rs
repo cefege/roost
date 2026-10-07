@@ -6,9 +6,8 @@
 //! the steps whose position relative to the commit is the contract, so they are
 //! not buried inside the transaction body that sits between them.
 //!
-//! **Before:** re-validate an `agent_reference` against the event schema, refuse a
-//! snapshot over 1,024 sessions, normalize the six worker-controlled strings, and
-//! reserve the publication slot.
+//! **Before:** refuse a snapshot over 1,024 sessions, normalize the six
+//! worker-controlled strings, and reserve the publication slot.
 //!
 //! **After a throw:** release the reservation, so a failed append leaves no slot
 //! behind for the worker's retry to trip over.
@@ -24,7 +23,6 @@ use crate::events::persistence_input::{
 
 /// Validate and normalize an event before anything durable happens.
 pub(crate) fn prepare_event(event: SessionEvent) -> Result<SessionEvent, AppendError> {
-    let event = revalidate_agent_reference(event)?;
     refuse_oversized_snapshot(&event)?;
     // One normalized value feeds the durable JSON, the projection fold, the
     // channel-index publication and the live Sync publication. Normalizing a row
@@ -58,19 +56,6 @@ pub(crate) fn as_client_seq(value: u64) -> Result<i64, AppendError> {
 /// A durable id the `events.id` INTEGER column can hold.
 pub(crate) fn as_event_id(value: u64) -> Result<i64, AppendError> {
     i64::try_from(value).map_err(|_| AppendError::EventIdOutOfRange { id: i64::MAX })
-}
-
-/// Re-validate an `agent_reference` against the event schema, at the boundary.
-///
-/// The decoded value is already typed, so the checks that matter are the ones a
-/// decode does not perform: the serialized envelope's byte bound, and the
-/// reference's own rules (`roost_protocol::wire::SessionEvent::parse`).
-fn revalidate_agent_reference(event: SessionEvent) -> Result<SessionEvent, AppendError> {
-    if !matches!(event, SessionEvent::AgentReference { .. }) {
-        return Ok(event);
-    }
-    let value = serde_json::to_value(&event)?;
-    SessionEvent::parse(value).map_err(|_| AppendError::InvalidAgentReference)
 }
 
 /// Claim the publication slot for this caller's sequence, before the commit.

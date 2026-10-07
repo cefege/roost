@@ -4,8 +4,6 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::duplicate_mod)]
 
-#[path = "agent_conversation_reference.rs"]
-mod agent_conversation_reference;
 #[path = "agent_status_retirement_proto.rs"]
 mod agent_status_retirement_proto;
 #[path = "attachment_transfer_packets.rs"]

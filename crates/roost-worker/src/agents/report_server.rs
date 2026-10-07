@@ -1,9 +1,9 @@
 //! The local socket installed omp/pi integrations report into. Session
 //! capabilities authorize claims; the kernel peer PID plus a fresh process
-//! scan own identity; a durable reference is acknowledged only after its
-//! append. Ports the listener lifecycle of `apps/worker/src/agents/report-server.ts`
-//! (connections: `report_connection`; admission: `report_admission`). Started
-//! once at boot by `runtime::owners`, closed when the worker stops.
+//! scan own identity. Ports the listener lifecycle of
+//! `apps/worker/src/agents/report-server.ts` (connections: `report_connection`;
+//! admission: `report_admission`). Started once at boot by `runtime::owners`,
+//! closed when the worker stops.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -16,7 +16,6 @@ use tokio::task::{JoinHandle, JoinSet};
 
 use crate::agents::environment::AgentReportEnvironment;
 use crate::agents::peer_process_id::LocalPeerProcessIdReader;
-use crate::agents::reference_admission::AgentReferenceAdmissionGate;
 use crate::agents::report_admission::ReportAdmission;
 pub use crate::agents::report_admission::{IntegrationReportSink, ReportingAgentLookup};
 use crate::agents::report_connection::{ConnectionContext, serve_report_connection};
@@ -25,7 +24,6 @@ use crate::host::local_endpoint::{
     LocalEndpoint, LocalEndpointError, cleanup_local_endpoint, prepare_local_endpoint,
     secure_local_endpoint,
 };
-use crate::session::sinks::SessionEventSink;
 
 /// How long the accept loop rests after the kernel refuses an accept (a
 /// descriptor limit, typically), so the refusal is not retried in a hot loop.
@@ -36,8 +34,6 @@ pub struct AgentReportServerOptions {
     pub environment: Arc<AgentReportEnvironment>,
     pub detector: Arc<dyn ReportingAgentLookup>,
     pub registry: Arc<dyn IntegrationReportSink>,
-    pub event_sink: Arc<dyn SessionEventSink>,
-    pub reference_admission: AgentReferenceAdmissionGate,
     /// `None` reads the kernel's peer credentials; the server then owns the
     /// reader and closes it with itself.
     pub peer_process_id_reader: Option<LocalPeerProcessIdReader>,
@@ -119,12 +115,7 @@ impl AgentReportServer {
         };
         let context = Arc::new(ConnectionContext {
             environment: options.environment,
-            admission: ReportAdmission::new(
-                options.detector,
-                options.registry,
-                options.event_sink,
-                options.reference_admission,
-            ),
+            admission: ReportAdmission::new(options.detector, options.registry),
             peer_reader: Arc::clone(&peer_reader),
             unauthenticated: Arc::new(AtomicUsize::new(0)),
         });
@@ -143,20 +134,17 @@ impl AgentReportServer {
     }
 
     /// v2 `main.ts:251-261`: the worker's one report server over the
-    /// agent-status stack's detector, registry and reference gate. A server
-    /// that cannot start is logged, not fatal: integrations cannot report, and
-    /// the screen detector still runs.
+    /// agent-status stack's detector and registry. A server that cannot start
+    /// is logged, not fatal: integrations cannot report, and the screen
+    /// detector still runs.
     pub fn start_for_worker(
         environment: &Arc<AgentReportEnvironment>,
         agents: &AgentStatusStack,
-        event_sink: Arc<dyn SessionEventSink>,
     ) -> Option<Self> {
         let started = Self::start(AgentReportServerOptions {
             environment: Arc::clone(environment),
             detector: Arc::clone(&agents.detector) as Arc<dyn ReportingAgentLookup>,
             registry: Arc::clone(&agents.registry) as Arc<dyn IntegrationReportSink>,
-            event_sink,
-            reference_admission: agents.reference_admission.clone(),
             peer_process_id_reader: None,
             socket_path: None,
         });

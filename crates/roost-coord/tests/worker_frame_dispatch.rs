@@ -18,9 +18,7 @@ mod workers_support;
 
 use std::sync::Arc;
 
-use frame_dispatch_support::events::{
-    agent_reference, attached, closed, opened, respawned, snapshot,
-};
+use frame_dispatch_support::events::{attached, closed, opened, respawned, snapshot};
 use frame_dispatch_support::{
     LinkFixture, OTHER_FP, WORKER_FP, event_frame, live_session, session_id, worker,
 };
@@ -79,24 +77,6 @@ async fn a_respawned_event_is_appended_and_acknowledged() {
 
     let outcome = dispatcher
         .handle_durable(WORKER_FP, event_frame(respawned(2), 2))
-        .await;
-
-    assert_eq!(outcome, DispatchOutcome::Handled);
-    assert_eq!(fixture.rows_for(2).await, 1);
-    assert_eq!(fixture.acks(), vec![1, 2]);
-}
-
-#[tokio::test]
-async fn an_agent_reference_is_appended_and_acknowledged() {
-    // Rule 10 of §3.3: a reference for a row the coordinator force-closed
-    // offline is still ADMITTED, because refusing it would wedge the worker's
-    // ordered durable replay forever.
-    let fixture = LinkFixture::new("durable-reference").await;
-    let mut dispatcher = fixture.dispatcher();
-    open_session(&mut dispatcher).await;
-
-    let outcome = dispatcher
-        .handle_durable(WORKER_FP, event_frame(agent_reference(), 2))
         .await;
 
     assert_eq!(outcome, DispatchOutcome::Handled);

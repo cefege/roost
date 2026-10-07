@@ -11,14 +11,9 @@
 /// every later restart.
 pub const KEEPER_FORCE_LIVE_RETIRE_ENV: &str = "ROOST_KEEPER_FORCE_LIVE_RETIRE";
 
-/// Opt-in for restoring an agent conversation on respawn. Unlike the force
-/// authorization, an installed value here is deliberately preserved: the
-/// operator's choice outlives the deploy that carried it.
-pub const AGENT_CONVERSATION_RESTORE_ENV: &str = "ROOST_AGENT_CONVERSATION_RESTORE";
-
 #[cfg(test)]
 mod tests {
-    use super::{AGENT_CONVERSATION_RESTORE_ENV, KEEPER_FORCE_LIVE_RETIRE_ENV};
+    use super::KEEPER_FORCE_LIVE_RETIRE_ENV;
 
     #[test]
     fn the_installed_definition_carries_exactly_these_keys() {
@@ -29,10 +24,5 @@ mod tests {
             KEEPER_FORCE_LIVE_RETIRE_ENV,
             "ROOST_KEEPER_FORCE_LIVE_RETIRE"
         );
-        assert_eq!(
-            AGENT_CONVERSATION_RESTORE_ENV,
-            "ROOST_AGENT_CONVERSATION_RESTORE"
-        );
-        assert_ne!(KEEPER_FORCE_LIVE_RETIRE_ENV, AGENT_CONVERSATION_RESTORE_ENV);
     }
 }

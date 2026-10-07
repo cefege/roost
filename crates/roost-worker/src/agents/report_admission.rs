@@ -1,24 +1,19 @@
 //! What the report server does with an authenticated request: prove the
 //! reporter is the agent the worker itself sees in that session (kernel peer
-//! PID plus a fresh process scan), then order a status into the registry or
-//! append a conversation reference durably. Ports the admission half of
-//! `apps/worker/src/agents/report-server.ts`; called by
-//! `agents::report_connection` for the one request a connection carries.
+//! PID plus a fresh process scan), then order a status into the registry.
+//! Ports the admission half of `apps/worker/src/agents/report-server.ts`;
+//! called by `agents::report_connection` for the one request a connection
+//! carries.
 
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use roost_protocol::wire::brand::SessionId;
 
-use crate::agents::BuiltinAgentId;
 use crate::agents::detector::AgentScreenDetector;
 use crate::agents::process_scan::AgentProcessIdentity;
-use crate::agents::reference_admission::{
-    AgentReferenceAdmissionGate, emit_durable_agent_reference,
-};
 use crate::agents::registry::{AgentStatusRegistry, IntegrationStatusReport};
-use crate::agents::report_protocol::{AgentReferenceReportRequest, AgentStatusReportRequest};
-use crate::session::sinks::{SessionEventError, SessionEventSink};
+use crate::agents::report_protocol::AgentStatusReportRequest;
 use crate::uplink::OwnerFuture;
 
 /// The largest sequence a JavaScript peer can hold without losing precision;
@@ -43,15 +38,12 @@ pub trait IntegrationReportSink: Send + Sync {
     fn report_integration(&self, report: IntegrationStatusReport) -> bool;
 }
 
-/// Why an admission could not complete. The two request kinds answer it
-/// differently: a status gets `internal_error`, while a reference that may or
-/// may not have been appended gets no answer at all.
+/// Why an admission could not complete; the reporter is answered
+/// `internal_error`.
 #[derive(Debug, thiserror::Error)]
 pub(super) enum AdmissionFault {
     #[error("agent report sequence exhausted")]
     SequenceExhausted,
-    #[error("the durable agent reference could not be appended: {0}")]
-    ReferenceAppend(#[from] SessionEventError),
 }
 
 /// A refusal the reporter reads as `error`.
@@ -60,8 +52,6 @@ pub(super) type AdmissionRefusal = &'static str;
 pub(super) struct ReportAdmission {
     detector: Arc<dyn ReportingAgentLookup>,
     registry: Arc<dyn IntegrationReportSink>,
-    event_sink: Arc<dyn SessionEventSink>,
-    reference_admission: AgentReferenceAdmissionGate,
     /// The last sequence handed to the registry. Held across the identity scan
     /// so status admissions complete strictly in arrival order.
     integration_seq: tokio::sync::Mutex<u64>,
@@ -71,14 +61,10 @@ impl ReportAdmission {
     pub(super) fn new(
         detector: Arc<dyn ReportingAgentLookup>,
         registry: Arc<dyn IntegrationReportSink>,
-        event_sink: Arc<dyn SessionEventSink>,
-        reference_admission: AgentReferenceAdmissionGate,
     ) -> Self {
         Self {
             detector,
             registry,
-            event_sink,
-            reference_admission,
             integration_seq: tokio::sync::Mutex::new(wall_clock_micros()),
         }
     }
@@ -114,43 +100,6 @@ impl ReportAdmission {
             active: request.active,
         });
         Ok((!accepted).then_some("stale_report"))
-    }
-
-    /// Admit one durable reference set or clear, serialized with boot
-    /// reconciliation so a reporter is re-proven only after adoption settles.
-    /// The acknowledgement follows the append, never mere receipt.
-    pub(super) async fn admit_reference(
-        &self,
-        request: AgentReferenceReportRequest,
-        reporter_pid: u32,
-    ) -> Result<Option<AdmissionRefusal>, AdmissionFault> {
-        self.reference_admission
-            .run_exclusive(|| async {
-                let identity = self
-                    .detector
-                    .reporting_agent_for_session(&request.session_id, reporter_pid)
-                    .await;
-                let Some(identity) = identity else {
-                    return Ok(Some("reporter_identity_mismatch"));
-                };
-                if identity.agent_id != BuiltinAgentId::Omp {
-                    return Ok(Some("unsupported_agent"));
-                }
-                emit_durable_agent_reference(
-                    self.event_sink.as_ref(),
-                    &request.session_id,
-                    request.reference.as_ref(),
-                )
-                .await?;
-                tracing::info!(
-                    session_id = %request.session_id,
-                    agent_id = identity.agent_id.as_str(),
-                    action = if request.reference.is_none() { "clear" } else { "set" },
-                    "an agent conversation reference report was committed durably"
-                );
-                Ok::<_, AdmissionFault>(None)
-            })
-            .await
     }
 }
 

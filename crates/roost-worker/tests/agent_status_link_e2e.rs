@@ -65,7 +65,6 @@ async fn a_detected_agent_process_reaches_the_coordinator_link() {
         registry: Arc::clone(&registry),
         clock: Arc::clone(&clock),
         environment: test_environment(),
-        reference_clear: None,
     });
     // The acquisition grace withholds the first evaluation; the second agrees.
     detector.scan_now().await;

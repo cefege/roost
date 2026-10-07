@@ -7,12 +7,11 @@
 //! the contract: `docs/phase3-coord-contract.md` §3.1 pins the order inside the
 //! transaction and §3.2 pins why "after" is structural rather than conventional.
 //!
-//! **BEFORE THE TRANSACTION.** Re-validate an `agent_reference` against the event
-//! schema; refuse a snapshot over 1,024 sessions; **normalize** the six
-//! worker-controlled strings; and reserve the publication slot. Normalization is
-//! before any durable write so replay and projection stay byte-identical, and the
-//! reservation is before the commit so two concurrent deliveries of one
-//! `client_seq` serialize instead of double-publishing.
+//! **BEFORE THE TRANSACTION.** Refuse a snapshot over 1,024 sessions;
+//! **normalize** the six worker-controlled strings; and reserve the publication
+//! slot. Normalization is before any durable write so replay and projection stay
+//! byte-identical, and the reservation is before the commit so two concurrent
+//! deliveries of one `client_seq` serialize instead of double-publishing.
 //!
 //! **INSIDE ONE TRANSACTION.** Admission first -- a refusal is a data outcome
 //! that writes nothing, which is why a foreign worker's `extra_work` can never
@@ -49,7 +48,6 @@ use roost_protocol::wire::{SessionEvent, WorkerFp};
 use sqlx::AnyConnection;
 
 use crate::db::CoordDb;
-use crate::events::agent_conversation_recovery::AgentConversationRecoveryError;
 use crate::events::append_input::{prepare_event, release_reservation, reserve_publication_slot};
 use crate::events::append_publication::{
     LivePublication, PublicationResolution, resolve_publication,
@@ -149,15 +147,9 @@ pub enum AppendError {
     /// A projection read or write failed.
     #[error("projection: {0}")]
     Projection(#[from] ProjectionError),
-    /// A recovery reference was refused.
-    #[error("agent conversation recovery: {0}")]
-    AgentRecovery(#[from] AgentConversationRecoveryError),
     /// The event could not be encoded or re-decoded.
     #[error("event encoding: {0}")]
     Encode(#[from] serde_json::Error),
-    /// An `agent_reference` broke the event schema at the transaction boundary.
-    #[error("invalid agent conversation reference event")]
-    InvalidAgentReference,
     /// A snapshot announced more sessions than the cap allows.
     #[error("worker snapshot exceeds {limit} sessions, got {sessions}")]
     SnapshotTooLarge {
@@ -170,10 +162,6 @@ pub enum AppendError {
     /// than refused, because the workspace is missing and a retry cannot help.
     #[error("workspace is unavailable")]
     WorkspaceUnavailable,
-    /// An `agent_reference` arrived from a producer with no worker identity, so the
-    /// monotonic guard it needs cannot be written.
-    #[error("agent conversation reference requires worker delivery")]
-    AgentReferenceNeedsWorkerDelivery,
     /// The bounded publication store is full. Refused before the transaction
     /// opened, so a full store costs the caller nothing but the retry.
     #[error("pending event publication capacity exceeded")]

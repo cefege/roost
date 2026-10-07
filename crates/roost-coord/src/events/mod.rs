@@ -1,10 +1,8 @@
 //! The durable session-event path: what may be appended, what may be published,
 //! and the two are not the same question.
 //!
-//! Owned by the coordinator. `admission` decides whether an event may be written
-//! and is pure over facts the I/O layer supplies; `pending_publications` recovers
-//! a publication that was lost after the write committed; `visibility` is the one
-//! public/private predicate every consumer shares.
+//! Owned by the coordinator. `admission` decides whether an event may be written;
+//! `pending_publications` recovers a publication lost after the write commits.
 //!
 //! The commit itself -- insert with `ON CONFLICT (worker_fp, client_seq) DO
 //! NOTHING`, then the `sessions` projection, then the publish strictly after
@@ -28,7 +26,6 @@ mod append_publication;
 mod append_transaction;
 
 pub mod admission;
-pub mod agent_conversation_recovery;
 pub mod append;
 pub mod bus;
 pub mod bus_domains;
@@ -39,4 +36,3 @@ pub mod pending_publications;
 pub mod persistence_input;
 pub mod projection;
 pub mod projection_writes;
-pub mod visibility;

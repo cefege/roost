@@ -54,7 +54,6 @@ impl AgentScreenDetector {
                         .remove(session_id);
                     lock(&self.inner.stable).release(session_id);
                     deps.registry.clear_screen(session_id);
-                    self.clear_reference_on_agent_exit(session_id);
                 }
                 Some(identity) => self.observe_screen(session_id, identity),
             }

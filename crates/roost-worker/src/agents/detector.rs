@@ -26,11 +26,8 @@ use super::stable_detection::StableScreenDetector;
 use crate::uplink::OwnerFuture;
 use sessions::AgentSessionSource;
 
-mod reference;
 mod scan;
 pub mod sessions;
-
-pub use reference::AgentReferenceClearDeps;
 
 /// v2 `PROCESS_SCAN_INTERVAL_MS`.
 pub const PROCESS_SCAN_INTERVAL: Duration = Duration::from_millis(250);
@@ -51,7 +48,6 @@ pub struct AgentScreenDetectorDeps {
     pub environment: Arc<AgentReportEnvironment>,
     /// Monotonic time gates grid reads; wall time stamps screen stability.
     pub clock: Arc<dyn EventClock>,
-    pub reference_clear: Option<AgentReferenceClearDeps>,
     pub runtime: tokio::runtime::Handle,
 }
 

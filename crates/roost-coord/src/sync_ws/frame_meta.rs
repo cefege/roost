@@ -224,7 +224,6 @@ fn kind_session_id(kind: &Kind) -> Option<String> {
         Kind::Git(event) => Some(event.session_id.clone()),
         Kind::Pr(event) => Some(event.session_id.clone()),
         Kind::Ports(event) => Some(event.session_id.clone()),
-        Kind::AgentReference(event) => Some(event.session_id.clone()),
         Kind::Opened(_) | Kind::Closed(_) | Kind::Snapshot(_) => None,
     }
 }

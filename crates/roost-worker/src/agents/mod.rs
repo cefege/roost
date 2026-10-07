@@ -13,8 +13,6 @@
 //! to look for the same title.
 //! Ports v2 `apps/worker/src/agents/process-scan.ts`, `apps/worker/src/agents/report-protocol.ts`.
 
-pub mod conversation_recovery;
-pub mod conversation_restore;
 pub mod detector;
 pub mod environment;
 pub mod install_integrations;
@@ -37,7 +35,6 @@ pub mod prompt_control;
 pub mod prompt_fence;
 pub mod prompt_port;
 pub mod prompt_submit;
-pub mod reference_admission;
 pub mod registry;
 mod registry_recompute;
 pub mod report_admission;

@@ -1,10 +1,7 @@
 //! Boot admission while the link already dials: the boot reconcile reads the
-//! coordinator only once the durable session-event replay has drained, the
-//! snapshot is activated only after that pass settled, and an agent reference
-//! reporter queued during a pass enters only after it. Ports v2
-//! `apps/worker/src/boot/worker-boot-admission.ts`, `boot-reconcile.ts:69-80`
-//! (`beforeRecoveryRead` inside `referenceAdmission.runExclusive`) and
-//! `apps/worker/tests/agents/agent-reference-reconcile-gate.test.ts`.
+//! coordinator only once the durable session-event replay has drained, and the
+//! snapshot is activated only after that pass settled. Ports v2
+//! `apps/worker/src/boot/worker-boot-admission.ts` and `boot-reconcile.ts:69-80`.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::sync::Arc;
@@ -12,7 +9,6 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use roost_observability::clock::EventClock;
-use roost_worker::agents::reference_admission::AgentReferenceAdmissionGate;
 use roost_worker::runtime::boot_admission::complete_worker_boot_admission;
 use roost_worker::runtime::boot_order::{BootSequence, StepId};
 use roost_worker::runtime::heartbeat::KeeperReconciliation;
@@ -82,7 +78,6 @@ struct Rig {
     gate: ReconcileGate,
     pass: Arc<RecordingPass>,
     replay: Arc<DurableDelivery>,
-    references: AgentReferenceAdmissionGate,
     snapshot: SnapshotActivation,
     _stop: StopRequests,
 }
@@ -90,12 +85,10 @@ struct Rig {
 fn rig() -> Rig {
     let pass = Arc::new(RecordingPass::default());
     let replay = Arc::new(DurableDelivery::new());
-    let references = AgentReferenceAdmissionGate::new();
     let (stop, _signal) = StopRequests::channel();
     let gate = ReconcileGate::new(
         Arc::clone(&pass) as Arc<dyn ReconcilePass>,
         PassAdmission {
-            reference_admission: references.clone(),
             durable_replay: Arc::clone(&replay),
         },
         Arc::new(NoRemediation),
@@ -108,7 +101,6 @@ fn rig() -> Rig {
         gate,
         pass,
         replay,
-        references,
         snapshot: SnapshotActivation::held(Arc::new(Notify::new())),
         _stop: stop,
     }
@@ -187,45 +179,6 @@ async fn a_refused_boot_pass_leaves_the_snapshot_held() {
         .unwrap();
     assert!(refused.unwrap_err().contains("sessionsList timed out"));
     assert!(!rig.snapshot.is_active());
-}
-
-/// v2 agent-reference-reconcile-gate: a reporter queued while the pass runs
-/// enters only once adoption, respawn and restore have settled.
-#[tokio::test]
-async fn a_reference_reporter_queued_during_a_pass_enters_only_after_it() {
-    let rig = rig();
-    rig.pass.hold.store(true, Ordering::SeqCst);
-    rig.replay.mark_drained();
-    let reconciliation = rig.gate.reconcile_open_sessions("boot");
-    let driven = tokio::spawn(reconciliation);
-    until_read(&rig.pass).await;
-
-    let entered = Arc::new(AtomicBool::new(false));
-    let reporter = tokio::spawn({
-        let (references, entered) = (rig.references.clone(), Arc::clone(&entered));
-        async move {
-            references
-                .run_exclusive(|| async move { entered.store(true, Ordering::SeqCst) })
-                .await;
-        }
-    });
-    tokio::time::sleep(SETTLE).await;
-    assert!(
-        !entered.load(Ordering::SeqCst),
-        "a reporter entered mid-pass"
-    );
-
-    rig.pass.release.notify_one();
-    let outcome = tokio::time::timeout(PATIENCE, driven)
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(outcome.is_ok());
-    tokio::time::timeout(PATIENCE, reporter)
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(entered.load(Ordering::SeqCst));
 }
 
 /// v2 `dispose` rejects the waiter: a link that stopped for good refuses the

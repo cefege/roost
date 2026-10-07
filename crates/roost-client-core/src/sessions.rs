@@ -14,8 +14,8 @@ use roost_protocol::wire::{Session, SessionEvent, SessionMap, fold_all, fold_eve
 /// The durable public session event, as the host decoded it.
 ///
 /// A newtype over `roost_protocol::wire::SessionEvent` rather than a
-/// hand-written mirror of it. Private and viewer-local variants (`attached`,
-/// `detached`, `agent_reference`) do not appear as members here: they are
+/// hand-written mirror of it. Viewer-local variants (`attached`, `detached`) do
+/// not appear as members here: they are
 /// durable and ordered but not public session state, and the shared fold already
 /// treats them as explicit no-ops.
 #[derive(Debug, Clone, PartialEq)]

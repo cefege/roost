@@ -1,7 +1,6 @@
 //! Local agent-report socket authentication and admission. The caller supplies
 //! only session-authorized state; a fresh detector identity and the server's
-//! serialized monotonic sequence are the registry input, and a durable
-//! reference is acknowledged only after its append. Mirrors v2
+//! serialized monotonic sequence are the registry input. Mirrors v2
 //! `apps/worker/tests/agents/agent-status-report-server.test.ts`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -16,12 +15,11 @@ use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
 
 use agent_report_support::{
-    Detector, Ledger, PeerPid, Reports, SESSION, capability, environment, fixed_peer,
-    reference_line, report_line, request, start,
+    Detector, PeerPid, Reports, SESSION, capability, environment, fixed_peer, report_line, request,
+    start,
 };
 use roost_observability::clock::SystemClock;
 use roost_protocol::wire::agent_status::{AgentRuntimeState, AgentStatusSource, AgentStatusUpdate};
-use roost_protocol::wire::event::SessionEvent;
 use roost_worker::agents::BuiltinAgentId;
 use roost_worker::agents::registry::{
     AgentStatusPublisher, AgentStatusRegistry, AgentStatusRegistryOptions,
@@ -66,7 +64,6 @@ async fn accepts_state_with_fresh_worker_derived_identity_and_ordering() {
         &environment,
         Arc::clone(&detector),
         Arc::clone(&reports),
-        Arc::default(),
         Some(fixed_peer(&peer)),
     );
 
@@ -127,7 +124,6 @@ async fn rejects_unavailable_identity_caller_selected_identity_and_malformed_sta
         &environment,
         Arc::clone(&detector),
         Arc::clone(&reports),
-        Arc::default(),
         Some(fixed_peer(&peer)),
     );
     let path = server.path().to_path_buf();
@@ -192,7 +188,6 @@ async fn refuses_a_capability_minted_for_another_session() {
         &environment,
         detector,
         Arc::clone(&reports),
-        Arc::default(),
         Some(fixed_peer(&peer)),
     );
 
@@ -219,7 +214,6 @@ async fn caps_oversized_local_input() {
         &environment,
         detector,
         Arc::default(),
-        Arc::default(),
         Some(fixed_peer(&peer)),
     );
     let answer = request(server.path(), &format!("{}\n", "x".repeat(33_000))).await;
@@ -241,7 +235,6 @@ async fn a_second_request_line_is_refused_while_the_first_still_lands() {
         &environment,
         detector,
         Arc::clone(&reports),
-        Arc::default(),
         Some(fixed_peer(&peer)),
     );
     let line = report_line(&environment, json!({}));
@@ -251,93 +244,30 @@ async fn a_second_request_line_is_refused_while_the_first_still_lands() {
     assert_eq!(reports.received.lock().unwrap().len(), 1);
 }
 
+/// An `agent.reference` line from an OMP extension installed by an older
+/// worker is an unknown method: refused, never admitted.
 #[tokio::test]
-async fn durably_acknowledges_omp_set_replace_and_clear_after_fresh_pid_proof() {
+async fn an_agent_reference_line_is_refused_as_an_unknown_method() {
     let scratch = Scratch::new("agent-report-reference");
     let environment = environment(&scratch);
     let peer = Arc::new(PeerPid::default());
     peer.set(42);
-    let ledger = Arc::new(Ledger::default());
     let detector = Detector::knowing(BuiltinAgentId::Omp, 42);
+    let reports = Arc::new(Reports::default());
     let server = start(
         &environment,
-        Arc::clone(&detector),
-        Arc::default(),
-        Arc::clone(&ledger),
+        detector,
+        Arc::clone(&reports),
         Some(fixed_peer(&peer)),
     );
-    let path = server.path().to_path_buf();
-    let ok = json!({ "ok": true });
-
-    let first = reference_line(
-        &environment,
-        json!({ "kind": "path", "value": "/tmp/first.jsonl" }),
-    );
-    assert_eq!(request(&path, &first).await, ok);
-    let second = reference_line(&environment, json!({ "kind": "id", "value": "second" }));
-    assert_eq!(request(&path, &second).await, ok);
-    assert_eq!(
-        request(&path, &reference_line(&environment, Value::Null)).await,
-        ok
-    );
-    let stored: Vec<Option<(String, String)>> = ledger
-        .events
-        .lock()
-        .unwrap()
-        .iter()
-        .map(|event| match event {
-            SessionEvent::AgentReference {
-                session_id,
-                reference,
-                ..
-            } => {
-                assert_eq!(session_id.as_str(), SESSION);
-                reference.as_ref().map(|reference| {
-                    assert_eq!(
-                        (reference.schema_version, reference.agent_id.as_str()),
-                        (1, "omp")
-                    );
-                    (reference.kind.as_str().to_owned(), reference.value.clone())
-                })
-            }
-            other => panic!("only references are appended: {other:?}"),
-        })
-        .collect();
-    let set = |kind: &str, value: &str| Some((kind.to_owned(), value.to_owned()));
-    assert_eq!(
-        stored,
-        [set("path", "/tmp/first.jsonl"), set("id", "second"), None]
-    );
-
-    detector.set(Some((BuiltinAgentId::Pi, 42)));
-    let unsupported = reference_line(
-        &environment,
-        json!({ "kind": "id", "value": "unsupported" }),
-    );
-    assert_eq!(
-        error_of(&request(&path, &unsupported).await),
-        Some("unsupported_agent")
-    );
-    detector.set(Some((BuiltinAgentId::Omp, 84)));
-    let mismatch = request(&path, &reference_line(&environment, Value::Null)).await;
-    assert_eq!(error_of(&mismatch), Some("reporter_identity_mismatch"));
-    detector.set(Some((BuiltinAgentId::Omp, 42)));
-    let too_long = reference_line(
-        &environment,
-        json!({ "kind": "id", "value": "x".repeat(4_097) }),
-    );
-    assert_eq!(
-        error_of(&request(&path, &too_long).await),
-        Some("invalid_request")
-    );
-    let control = reference_line(
-        &environment,
-        json!({ "kind": "id", "value": "bad\u{0}reference" }),
-    );
-    assert_eq!(
-        error_of(&request(&path, &control).await),
-        Some("invalid_request")
-    );
-    assert_eq!(ledger.events.lock().unwrap().len(), 3);
+    let line = json!({
+        "version": 1,
+        "capability": capability(&environment, SESSION),
+        "method": "agent.reference",
+        "params": { "session_id": SESSION, "reference": { "kind": "id", "value": "x" } },
+    });
+    let answer = request(server.path(), &format!("{line}\n")).await;
+    assert_eq!(error_of(&answer), Some("invalid_request"));
     server.close().await;
+    assert!(reports.received.lock().unwrap().is_empty());
 }

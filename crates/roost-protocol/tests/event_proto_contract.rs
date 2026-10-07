@@ -2,9 +2,9 @@
 //! survives it with its fields intact, and `git.remote` keeps the one
 //! distinction the fold depends on.
 //!
-//! What the codecs lose on the way across — the 64-bit integers, the trace id
-//! only one variant carries, and an omitted field against a written default —
-//! is the other half, in `event_proto_precision.rs`.
+//! What the codecs lose on the way across — the 64-bit integers and an
+//! omitted field against a written default — is covered by
+//! `event_proto_precision.rs`.
 // A behaviour test unwraps the value it is asserting about: a failure
 // there is the assertion failing, which is exactly what a test wants. The
 // workspace denies `unwrap`/`expect` because a panic on a bad wire value in
@@ -21,9 +21,7 @@ use roost_protocol::wire::session::{
 };
 use roost_protocol::wire::session_proto::{session_from_proto, session_to_proto};
 
-use support::{
-    fixture_session_id, git_event, opened_event, reference, round_trip, trace_id, worker_fp,
-};
+use support::{fixture_session_id, git_event, opened_event, round_trip, worker_fp};
 
 const WORKSPACE_ID: &str = "00000000-0000-4000-8000-0000000000ab";
 
@@ -180,18 +178,6 @@ fn every_variant_survives_the_boundary() {
             session_id: fixture_session_id(),
             ports: Vec::new(),
             ts: 31,
-            trace_id: None,
-        },
-        SessionEvent::AgentReference {
-            session_id: fixture_session_id(),
-            reference: Some(reference()),
-            ts: 40,
-            trace_id: Some(trace_id()),
-        },
-        SessionEvent::AgentReference {
-            session_id: fixture_session_id(),
-            reference: None,
-            ts: 41,
             trace_id: None,
         },
     ];

@@ -27,7 +27,6 @@ use sqlx::Row;
 
 use crate::db::SqlBuilder;
 use crate::events::admission::AdmissionFacts;
-use crate::events::visibility::PRIVATE_SESSION_EVENT_KIND;
 
 /// Read every fact the admission rules need for this event and caller.
 ///
@@ -105,13 +104,6 @@ pub async fn load_admission_facts(
         return Ok(facts);
     }
 
-    // Rule 10, and only for the private kind: a reference queued before an
-    // offline force-close must still be consumed, or it permanently blocks the
-    // worker's ordered durable replay.
-    if event.kind_name() == PRIVATE_SESSION_EVENT_KIND {
-        facts.worker_has_prior_opened =
-            worker_has_durable_opened(connection, caller.as_str(), session_id.as_str()).await?;
-    }
     Ok(facts)
 }
 
@@ -220,21 +212,6 @@ async fn existing_workspace_count(
     }
     let rows = query.build().fetch_all(&mut *connection).await?;
     Ok(rows.len())
-}
-
-async fn worker_has_durable_opened(
-    connection: &mut AnyConnection,
-    worker_fp: &str,
-    session_id: &str,
-) -> Result<bool, sqlx::Error> {
-    let row = sqlx::query(
-        "SELECT 1 FROM events WHERE session_id = $1 AND worker_fp = $2 AND kind = 'opened'",
-    )
-    .bind(session_id)
-    .bind(worker_fp)
-    .fetch_optional(&mut *connection)
-    .await?;
-    Ok(row.is_some())
 }
 
 /// The announced session ids, deduplicated, in first-seen order.

@@ -4,8 +4,7 @@
 //! composition in v2 `apps/worker/src/main.ts:220-237` and the registry resend
 //! in `transport/coord-link-deps.ts` `onSnapshotReady`. Started by
 //! `runtime::agent_owners` for `runtime::owners`; the report server and the
-//! prompt owner take the registry, detector, manifests and the ONE reference
-//! admission gate from it.
+//! prompt owner take the registry, detector and manifests from it.
 
 use std::sync::Arc;
 
@@ -14,19 +13,17 @@ use roost_protocol::wire::agent_status::{AgentStatus, AgentStatusUpdate};
 use roost_protocol::wire::coord_worker::{AgentStatusFrame, CoordWorkerUpstream};
 
 use super::detector::sessions::TableAgentSessions;
-use super::detector::{AgentReferenceClearDeps, AgentScreenDetector, AgentScreenDetectorDeps};
+use super::detector::{AgentScreenDetector, AgentScreenDetectorDeps};
 use super::environment::AgentReportEnvironment;
 use super::manifests::AgentManifests;
 use super::process_scan::{AgentProcessScanner, SCAN_THROTTLE};
 use super::process_snapshot::PsSnapshotReader;
-use super::reference_admission::AgentReferenceAdmissionGate;
 use super::registry::{
     AgentStatusPublisher, AgentStatusRegistry, AgentStatusRegistryOptions, INTEGRATION_LEASE_MS,
 };
 use crate::link_ports::LinkLifecyclePort;
 use crate::session::ids::MintError;
 use crate::session::lifecycle::SessionManager;
-use crate::session::sinks::SessionEventSink;
 use crate::session::table::SessionTable;
 use crate::session::terminal_changed::TerminalChangedHooks;
 use crate::uplink::Uplink;
@@ -68,11 +65,6 @@ pub struct AgentStatusStackDeps<'a> {
     pub clock: Arc<dyn EventClock>,
     pub manifests: Arc<AgentManifests>,
     pub environment: Arc<AgentReportEnvironment>,
-    /// Where the detector appends its agent-exit reference clear.
-    pub reference_sink: Arc<dyn SessionEventSink>,
-    /// v2 `referenceAdmission`: the ONE gate the report server, the
-    /// detector's clear and the boot reconcile share.
-    pub reference_admission: AgentReferenceAdmissionGate,
     pub runtime: tokio::runtime::Handle,
 }
 
@@ -84,14 +76,12 @@ impl std::fmt::Debug for AgentStatusStackDeps<'_> {
     }
 }
 
-/// The registry, detector, manifests and reference gate every agent-status
-/// consumer shares.
+/// The registry, detector and manifests every agent-status consumer shares.
 #[derive(Debug, Clone)]
 pub struct AgentStatusStack {
     pub registry: Arc<AgentStatusRegistry>,
     pub detector: Arc<AgentScreenDetector>,
     pub manifests: Arc<AgentManifests>,
-    pub reference_admission: AgentReferenceAdmissionGate,
 }
 
 impl AgentStatusStack {
@@ -117,10 +107,6 @@ impl AgentStatusStack {
             manifests: Arc::clone(&deps.manifests),
             environment: deps.environment,
             clock: deps.clock,
-            reference_clear: Some(AgentReferenceClearDeps {
-                event_sink: deps.reference_sink,
-                reference_admission: deps.reference_admission.clone(),
-            }),
             runtime: deps.runtime,
         }));
         let scheduled = Arc::downgrade(&detector);
@@ -141,7 +127,6 @@ impl AgentStatusStack {
             registry,
             detector,
             manifests: deps.manifests,
-            reference_admission: deps.reference_admission,
         })
     }
 

@@ -17,7 +17,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_coord::events::admission::{AdmissionFacts, AdmissionRefusal, admit};
-use roost_coord::events::visibility::{PRIVATE_SESSION_EVENT_KIND, kind_is_public};
 
 /// A live worker caller, a new `opened` session: the shape almost every rule is
 /// written against.
@@ -152,24 +151,6 @@ fn rule_nine_a_session_another_worker_owns_is_refused() {
 }
 
 #[test]
-fn rule_ten_a_private_reference_for_a_force_closed_session_is_admitted() {
-    // NOT a hole, and the comment is the whole reason: "A reference queued before
-    // an offline force-close must still be consumed or it permanently blocks the
-    // worker's ordered durable replay"
-    // (`apps/coord/src/events/event-admission.ts:108-120`).
-    let mut facts = live_worker();
-    facts.event_kind = PRIVATE_SESSION_EVENT_KIND.to_string();
-    facts.session_id = Some("s-gone".to_string());
-    facts.session_exists = false;
-    facts.worker_has_prior_opened = true;
-    assert!(admitted(&facts));
-
-    // Without the prior durable `opened`, the same event is rule 11.
-    facts.worker_has_prior_opened = false;
-    assert_eq!(refused(&facts), AdmissionRefusal::UnknownSession);
-}
-
-#[test]
 fn rule_eleven_an_unknown_session_for_anything_but_opened_is_refused() {
     for kind in [
         "cwd",
@@ -184,7 +165,6 @@ fn rule_eleven_an_unknown_session_for_anything_but_opened_is_refused() {
         facts.event_kind = kind.to_string();
         facts.session_id = Some("s-gone".to_string());
         facts.session_exists = false;
-        facts.worker_has_prior_opened = true;
         assert_eq!(
             refused(&facts),
             AdmissionRefusal::UnknownSession,
@@ -194,7 +174,7 @@ fn rule_eleven_an_unknown_session_for_anything_but_opened_is_refused() {
 }
 
 #[test]
-fn rule_twelve_an_opened_for_a_genuinely_new_session_passes() {
+fn rule_ten_an_opened_for_a_genuinely_new_session_passes() {
     let mut facts = live_worker();
     facts.session_id = Some("s-new".to_string());
     facts.session_exists = false;
@@ -235,30 +215,4 @@ fn the_worker_producer_and_the_non_worker_producer_never_see_the_same_verdict() 
     internal.caller_worker_fp = None;
     assert!(!admitted(&worker));
     assert!(admitted(&internal));
-}
-
-#[test]
-fn exactly_one_event_kind_is_private_and_it_is_the_agent_reference() {
-    // The single predicate every consumer shares
-    // (`apps/coord/src/events/session-event-visibility.ts:7-18`). A second
-    // private kind added here without updating the durable readers and the
-    // publisher would leak it to every dashboard.
-    assert_eq!(PRIVATE_SESSION_EVENT_KIND, "agent_reference");
-    assert!(!kind_is_public(PRIVATE_SESSION_EVENT_KIND));
-    for kind in [
-        "opened",
-        "closed",
-        "attached",
-        "detached",
-        "cwd",
-        "workspace_assigned",
-        "snapshot",
-        "respawned",
-        "renamed",
-        "git",
-        "pr",
-        "ports",
-    ] {
-        assert!(kind_is_public(kind), "{kind} should be public");
-    }
 }

@@ -56,13 +56,7 @@ async fn the_open_session_read_presents_this_machines_credential() {
     );
     assert_eq!(
         open.rows[0].id, SESSION_UNDER_TEST,
-        "the fixture's row arrived, so the reference beside it is the reference for \
-         THIS row rather than for an unrelated one"
-    );
-    assert!(
-        open.references.contains_key(SESSION_UNDER_TEST),
-        "the coordinator's recovery metadata paired with the open session it belongs \
-         to; a set that does not pair is refused by the read rather than adopted"
+        "the fixture's row arrived, not an unrelated one"
     );
     assert_eq!(
         fixture.seen_bearer(),

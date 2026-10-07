@@ -34,7 +34,7 @@ use crate::write_gate::SharedLease;
 /// The longest custom title a rename keeps, in UTF-16 code units as v2 counts.
 const CUSTOM_TITLE_MAX_UTF16: usize = 200;
 
-/// List sessions: a browser's public rows, or a worker's own recovery rows.
+/// List public session rows, restricted to each principal's authorized scope.
 pub async fn handle_sessions_list(
     core: &CoordCore,
     caller: &Caller,
@@ -55,7 +55,12 @@ pub async fn handle_sessions_list(
                 "worker session listing is restricted to its own open sessions",
             ));
         }
-        (SessionListScope::OwnWorkerRecovery { worker_fp }, None)
+        (
+            SessionListScope::Public {
+                worker_fp: Some(worker_fp),
+            },
+            None,
+        )
     } else {
         let browser_fp = require_account_device(caller)?;
         let worker_fp = req.worker_fp.as_deref().filter(|fp| !fp.is_empty());
@@ -75,13 +80,11 @@ pub async fn handle_sessions_list(
     tracing::debug!(
         caller = caller.fingerprint(),
         listed = projection.session_ids.len(),
-        recovery = !projection.recovery_metadata.is_empty(),
         "sessions: listed"
     );
     Response::ok(SessionsListResponse {
         sessions: projection.sessions,
         sync_snapshot_token,
-        recovery_metadata: projection.recovery_metadata,
         ..Default::default()
     })
 }

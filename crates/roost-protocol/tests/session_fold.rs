@@ -102,18 +102,6 @@ fn attached_and_detached_leave_the_projection_alone() {
 }
 
 #[test]
-fn an_agent_reference_is_never_projected_into_public_session_state() {
-    let opened = with_one_session();
-    let noop = event(json!({
-        "kind": "agent_reference",
-        "session_id": SESSION,
-        "reference": { "schema_version": 1, "agent_id": "omp", "kind": "id", "value": "agent-1" },
-        "ts": 2,
-    }));
-    assert_eq!(fold_event(&opened, &noop), opened);
-}
-
-#[test]
 fn a_cwd_event_drifts_the_live_folder_and_leaves_the_spawn_folder_alone() {
     let map = fold_all(&[
         opened_for(SESSION, FINGERPRINT, 1),

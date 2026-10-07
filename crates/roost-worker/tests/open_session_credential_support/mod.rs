@@ -18,8 +18,7 @@ use std::sync::{Arc, Mutex};
 
 use connectrpc::{ConnectError, RequestContext, Response, Router, Server, handler::handler_fn};
 use roost_proto::{
-    COORDINATOR_SERVICE_SERVICE_NAME, Session, SessionRecoveryMetadata, SessionsListRequest,
-    SessionsListResponse,
+    COORDINATOR_SERVICE_SERVICE_NAME, Session, SessionsListRequest, SessionsListResponse,
 };
 
 use roost_worker::runtime::credential::{CredentialError, CredentialSource};
@@ -51,17 +50,9 @@ impl Coordinator {
             ));
         };
         *self.seen.lock().expect("held") = Some(bearer);
-        // One open row AND the recovery row that pairs with it. The read
-        // refuses a set that does not pair (`assert_exact_recovery_metadata`),
-        // so a fixture answering with a bare session fails admission for a
-        // reason no assertion here is about.
         Ok(SessionsListResponse {
             sessions: vec![Session {
                 id: SESSION_UNDER_TEST.to_owned(),
-                ..Default::default()
-            }],
-            recovery_metadata: vec![SessionRecoveryMetadata {
-                session_id: SESSION_UNDER_TEST.to_owned(),
                 ..Default::default()
             }],
             ..Default::default()

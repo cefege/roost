@@ -2,26 +2,20 @@
 //! oneof. The worker link, the coordinator's projector and every browser store
 //! cross it, so the two things it must never confuse are told apart here: an
 //! event kind this build does not know is not an event at all, and a known
-//! kind arriving malformed is a decode error naming the offending field. Only
-//! `agent_reference` has a `trace_id` field, and `event_id`/`ts` stay integers.
-
-use roost_proto::__buffa::oneof::session_event_proto::Kind;
-use roost_proto::{
-    AgentReferenceEvt, AttachedEvt, ClosedEvt, CwdEvt, DetachedEvt, GitEvt, OpenedEvt, PortsEvt,
-    PrEvt, RenamedEvt, RespawnedEvt, SessionEventProto, SnapshotEvt, WorkspaceAssignedEvt,
-};
-
-use crate::proto_adapters::agent_conversation_reference_proto::{
-    agent_conversation_reference_from_proto, agent_conversation_reference_to_proto,
-};
+//! kind arriving malformed is a decode error naming the offending field.
 use crate::validate::integer_in_range;
-use crate::wire::brand::{ChannelId, SessionId, TraceId, WorkerFp, WorkspaceId};
+use crate::wire::brand::{ChannelId, SessionId, WorkerFp, WorkspaceId};
 use crate::wire::event::SessionEvent;
 use crate::wire::session_proto::{
     pull_request_checks_from_str, pull_request_state_from_str, session_from_proto,
     session_kind_from_str, session_to_proto,
 };
 use crate::{ProtocolError, ProtocolResult};
+use roost_proto::__buffa::oneof::session_event_proto::Kind;
+use roost_proto::{
+    AttachedEvt, ClosedEvt, CwdEvt, DetachedEvt, GitEvt, OpenedEvt, PortsEvt, PrEvt, RenamedEvt,
+    RespawnedEvt, SessionEventProto, SnapshotEvt, WorkspaceAssignedEvt,
+};
 
 /// A decoded event plus the transport sequence number it arrived under. The
 /// number is link metadata rather than part of the durable value, so it travels
@@ -44,10 +38,6 @@ fn channel(field: &str, value: u32) -> ProtocolResult<ChannelId> {
     ChannelId::try_from(i64::from(value)).map_err(|error| error.within(field))
 }
 
-fn trace_id(field: &str, value: &str) -> ProtocolResult<TraceId> {
-    TraceId::try_from(value).map_err(|error| error.within(field))
-}
-
 /// A `uint64` timestamp that does not fit the union's `i64`, or that is not a
 /// whole second at or after the epoch, is a decode error rather than a wrap.
 fn event_ts(field: &str, value: u64) -> ProtocolResult<i64> {
@@ -68,20 +58,8 @@ fn int32_field(field: &str, value: i64) -> ProtocolResult<i32> {
         .map_err(|_| ProtocolError::new(field, format!("must fit in 32 bits, got {value}")))
 }
 
-/// Re-run the union's own contract on a value about to be emitted or just built,
-/// so both directions answer the durable-envelope bound the same way.
-fn recheck_event(event: &SessionEvent) -> ProtocolResult<()> {
-    let durable = serde_json::to_value(event)
-        .map_err(|error| ProtocolError::new("session_event", error.to_string()))?;
-    SessionEvent::parse(durable)?;
-    Ok(())
-}
-
 /// Encode an event as its oneof, exhaustively: a partial match drops events.
 pub fn event_to_proto(event: &SessionEvent, event_id: u64) -> ProtocolResult<SessionEventProto> {
-    if matches!(event, SessionEvent::AgentReference { .. }) {
-        recheck_event(event)?;
-    }
     let kind = match event {
         SessionEvent::Opened {
             session_id,
@@ -239,23 +217,6 @@ pub fn event_to_proto(event: &SessionEvent, event_id: u64) -> ProtocolResult<Ses
                 ..Default::default()
             }))
         }
-        SessionEvent::AgentReference {
-            session_id,
-            reference,
-            ts,
-            trace_id,
-        } => Kind::AgentReference(Box::new(AgentReferenceEvt {
-            session_id: session_id.as_str().to_owned(),
-            // A message field, so this is presence and not an optional scalar: absent clears it.
-            reference: reference
-                .as_ref()
-                .map(agent_conversation_reference_to_proto)
-                .transpose()?
-                .into(),
-            ts: wire_ts("session_event.agent_reference.ts", *ts)?,
-            trace_id: trace_id.as_ref().map(|value| value.as_str().to_owned()),
-            ..Default::default()
-        })),
     };
     Ok(SessionEventProto {
         event_id,
@@ -377,21 +338,7 @@ pub fn proto_to_event(proto: &SessionEventProto) -> ProtocolResult<Option<Decode
             ts: event_ts("session_event.ports.ts", value.ts)?,
             trace_id: None,
         },
-        Kind::AgentReference(value) => SessionEvent::AgentReference {
-            session_id: session_id("session_event.agent_reference", &value.session_id)?,
-            reference: agent_conversation_reference_from_proto(value.reference.as_option())
-                .map_err(|error| error.within("session_event.agent_reference"))?,
-            ts: event_ts("session_event.agent_reference.ts", value.ts)?,
-            trace_id: value
-                .trace_id
-                .as_deref()
-                .map(|value| trace_id("session_event.agent_reference", value))
-                .transpose()?,
-        },
     };
-    if matches!(event, SessionEvent::AgentReference { .. }) {
-        recheck_event(&event)?;
-    }
     Ok(Some(DecodedEvent {
         event_id: proto.event_id,
         event,

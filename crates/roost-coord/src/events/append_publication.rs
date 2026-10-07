@@ -23,9 +23,6 @@
 //! channel is a frame nobody can place; the symptom is a terminal that never
 //! paints rather than an ordering error.
 //!
-//! A PRIVATE EVENT PUBLISHES NOTHING AND INDEXES NOTHING, and the early return is
-//! the first statement of the publisher rather than a check repeated at each call
-//! site.
 
 use roost_protocol::wire::{SessionEvent, WorkerFp, WorkspaceDelta, WorkspaceId};
 
@@ -35,7 +32,6 @@ use crate::events::bus_messages::SessionBusMessage;
 use crate::events::pending_publications::{
     ClaimOutcome, PendingPublicationStore, RetainedPublication,
 };
-use crate::events::visibility::kind_is_public;
 
 /// A committed event and everything its publication needs.
 #[derive(Debug, Clone, PartialEq)]
@@ -65,7 +61,6 @@ impl CommittedEventPublication {
     /// The form the bounded store holds while a publication is lost.
     fn retained(&self, dashboard_id: &str) -> Result<RetainedPublication, AppendError> {
         Ok(RetainedPublication {
-            event_kind: self.event.kind_name().to_owned(),
             event_id: i64::try_from(self.event_id).map_err(|_| AppendError::EventIdOutOfRange {
                 id: i64::try_from(self.event_id).unwrap_or(i64::MAX),
             })?,
@@ -242,9 +237,6 @@ fn publish_committed_event(
     buses: &Buses,
     live_effects: &dyn LiveEffects,
 ) -> Result<(), AppendError> {
-    if !kind_is_public(effect.event.kind_name()) {
-        return Ok(());
-    }
     live_effects.index_durable_channel(&effect.event, effect.authenticated_worker_fp.as_ref());
     buses.session_bus.publish(SessionBusMessage::committed(
         effect.event.clone(),

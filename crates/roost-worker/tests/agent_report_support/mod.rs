@@ -1,7 +1,7 @@
 //! The collaborators an agent report server test drives: a scratch endpoint, a
 //! peer-PID query that answers what the test says, a detector whose identity
-//! the test moves, a registry that records what reached it, and a durable sink
-//! that records what was appended. Included by `agent_report_server.rs`.
+//! the test moves, and a registry that records what reached it. Included by
+//! `agent_report_server.rs`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, dead_code)]
 
@@ -9,19 +9,15 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use roost_protocol::wire::brand::SessionId;
-use roost_protocol::wire::event::SessionEvent;
 use roost_worker::agents::BuiltinAgentId;
 use roost_worker::agents::environment::{
     AGENT_CAPABILITY_ENV, AgentReportEnvironment, AgentReportSite,
 };
 use roost_worker::agents::peer_process_id::{LocalPeerProcessIdReader, NativePeerProcessIdQuery};
 use roost_worker::agents::process_scan::AgentProcessIdentity;
-use roost_worker::agents::reference_admission::AgentReferenceAdmissionGate;
 use roost_worker::agents::registry::IntegrationStatusReport;
 use roost_worker::agents::report_admission::{IntegrationReportSink, ReportingAgentLookup};
 use roost_worker::agents::report_server::{AgentReportServer, AgentReportServerOptions};
-use roost_worker::event_store::{DurableEventKind, Reservation, Store};
-use roost_worker::session::sinks::{EventFuture, SessionEventError, SessionEventSink};
 use roost_worker::uplink::OwnerFuture;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -66,17 +62,6 @@ pub fn report_line(environment: &AgentReportEnvironment, patch: Value) -> String
         "capability": capability(environment, &claimed),
         "method": "agent.report",
         "params": params,
-    });
-    format!("{request}\n")
-}
-
-/// One `agent.reference` line for [`SESSION`].
-pub fn reference_line(environment: &AgentReportEnvironment, reference: Value) -> String {
-    let request = json!({
-        "version": 1,
-        "capability": capability(environment, SESSION),
-        "method": "agent.reference",
-        "params": { "session_id": SESSION, "reference": reference },
     });
     format!("{request}\n")
 }
@@ -171,71 +156,17 @@ impl IntegrationReportSink for Reports {
     }
 }
 
-/// A durable sink over a real claim store, recording what was appended.
-#[derive(Default)]
-pub struct Ledger {
-    store: Mutex<Store>,
-    pub events: Mutex<Vec<SessionEvent>>,
-}
-
-impl SessionEventSink for Ledger {
-    fn reserve(
-        &self,
-        kind: DurableEventKind,
-    ) -> EventFuture<'_, Result<Reservation, SessionEventError>> {
-        let reserved = self
-            .store
-            .lock()
-            .unwrap()
-            .reserve_default(kind)
-            .map_err(SessionEventError::Reserve);
-        Box::pin(std::future::ready(reserved))
-    }
-
-    fn hold(&self, reservation: Reservation) -> EventFuture<'_, ()> {
-        let _ = self.store.lock().unwrap().hold(reservation);
-        Box::pin(std::future::ready(()))
-    }
-
-    fn release(&self, reservation: Reservation) -> EventFuture<'_, ()> {
-        let _ = self.store.lock().unwrap().release(reservation);
-        Box::pin(std::future::ready(()))
-    }
-
-    fn emit<'a>(
-        &'a self,
-        event: &'a SessionEvent,
-        reservation: Option<Reservation>,
-    ) -> EventFuture<'a, Result<(), SessionEventError>> {
-        if let Some(reservation) = reservation {
-            let bytes = serde_json::to_vec(event)
-                .expect("an event serialises")
-                .len();
-            self.store
-                .lock()
-                .unwrap()
-                .append(reservation, DurableEventKind::AgentReference, bytes)
-                .expect("the claim is live");
-        }
-        self.events.lock().unwrap().push(event.clone());
-        Box::pin(std::future::ready(Ok(())))
-    }
-}
-
 /// A server over `environment` with the given collaborators.
 pub fn start(
     environment: &Arc<AgentReportEnvironment>,
     detector: Arc<Detector>,
     reports: Arc<Reports>,
-    ledger: Arc<Ledger>,
     peer: Option<LocalPeerProcessIdReader>,
 ) -> AgentReportServer {
     AgentReportServer::start(AgentReportServerOptions {
         environment: Arc::clone(environment),
         detector,
         registry: reports,
-        event_sink: ledger,
-        reference_admission: AgentReferenceAdmissionGate::new(),
         peer_process_id_reader: peer,
         socket_path: None,
     })

@@ -4,7 +4,6 @@
 //! runs the pass and gives unspent claims back; v2's
 //! `apps/worker/src/boot/boot-session-reconcile.ts` `:111-165` is the authority.
 
-use roost_protocol::agent_conversation_reference::AgentConversationReferenceV1;
 use roost_protocol::wire::brand::{ChannelId, SessionId};
 
 use super::reconcile::{OpenSession, OpenSessionSet};
@@ -12,7 +11,6 @@ use super::reconcile_claim::DurableClaim;
 use super::session_reconcile::{
     BOOT_SESSION_ADMISSION_TIMEOUT, ReconcileFailure, SessionReconciler, release_admissions,
 };
-use crate::agents::conversation_recovery::RecoveryReferences;
 use crate::event_store::DurableEventKind;
 use crate::session::sinks::SessionEventError;
 use crate::shell_spec::ShellSpec;
@@ -25,7 +23,6 @@ pub(crate) struct Admission {
     pub(crate) channel_id: ChannelId,
     pub(crate) cwd: String,
     pub(crate) shell_spec: ShellSpec,
-    pub(crate) agent_reference: Option<AgentConversationReferenceV1>,
     pub(crate) resume_close: DurableClaim,
     pub(crate) respawn_event: DurableClaim,
     pub(crate) future_close: DurableClaim,
@@ -45,19 +42,15 @@ impl SessionReconciler {
         }
     }
 
-    /// v2 `:111-165`: capacity for every durable path of the complete set, or
-    /// nothing is touched and every claim taken so far is given back.
+    /// Reserve capacity for every durable path of the complete set, or touch
+    /// nothing and release every claim taken so far.
     pub(crate) async fn admit_all(
         &self,
         rows: &[OpenSession],
-        references: &RecoveryReferences,
     ) -> Result<Vec<Admission>, ReconcileFailure> {
         let mut admissions: Vec<Admission> = Vec::with_capacity(rows.len());
         for row in rows {
-            match self
-                .admit(row, references.get(&row.id).cloned().flatten())
-                .await
-            {
+            match self.admit(row).await {
                 Ok(Some(admission)) => admissions.push(admission),
                 Ok(None) => {}
                 Err(refusal) => {
@@ -69,11 +62,7 @@ impl SessionReconciler {
         Ok(admissions)
     }
 
-    async fn admit(
-        &self,
-        row: &OpenSession,
-        agent_reference: Option<AgentConversationReferenceV1>,
-    ) -> Result<Option<Admission>, ReconcileFailure> {
+    async fn admit(&self, row: &OpenSession) -> Result<Option<Admission>, ReconcileFailure> {
         let (Ok(session_id), Ok(channel_id)) = (
             SessionId::try_from(row.id.clone()),
             ChannelId::try_from(i64::from(row.channel)),
@@ -106,7 +95,6 @@ impl SessionReconciler {
             channel_id,
             cwd: row.cwd.clone(),
             shell_spec,
-            agent_reference,
             resume_close,
             respawn_event,
             future_close,

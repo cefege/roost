@@ -4,10 +4,6 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::duplicate_mod)]
 
-#[path = "agent_conversation_restore.rs"]
-mod agent_conversation_restore;
-#[path = "agent_conversation_restore_reconcile.rs"]
-mod agent_conversation_restore_reconcile;
 #[path = "agent_manifest_claude_rules.rs"]
 mod agent_manifest_claude_rules;
 #[path = "agent_manifest_rules.rs"]
@@ -20,8 +16,6 @@ mod agent_prompt_control;
 mod agent_prompt_fences;
 #[path = "agent_prompt_foreground.rs"]
 mod agent_prompt_foreground;
-#[path = "agent_reference_admission.rs"]
-mod agent_reference_admission;
 #[path = "agent_report_environment.rs"]
 mod agent_report_environment;
 #[path = "agent_report_peer.rs"]
@@ -44,8 +38,6 @@ mod agent_status_link_e2e;
 mod agent_status_osc_transition;
 #[path = "agent_status_peer_process_id.rs"]
 mod agent_status_peer_process_id;
-#[path = "agent_status_reference_clear.rs"]
-mod agent_status_reference_clear;
 #[path = "agent_status_registry_identity.rs"]
 mod agent_status_registry_identity;
 #[path = "agent_status_screen_gate.rs"]

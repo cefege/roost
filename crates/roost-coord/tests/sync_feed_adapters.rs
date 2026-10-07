@@ -22,7 +22,7 @@ mod sync_feed_support;
 
 use std::collections::BTreeSet;
 
-use roost_coord::events::bus_messages::{SessionBusMessage, WorkerRoutableSet};
+use roost_coord::events::bus_messages::WorkerRoutableSet;
 use roost_coord::sync_ws::egress::FlushStep;
 use roost_coord::sync_ws::feed::frames::{mcp_frame, session_message_frame};
 use roost_coord::sync_ws::feed::worker_frames::{worker_presence_frame, worker_routable_frame};
@@ -32,14 +32,12 @@ use roost_proto::__buffa::oneof::firehose_frame::Frame;
 use roost_proto::__buffa::oneof::mcp_stream_message_proto::Kind as McpKind;
 use roost_proto::__buffa::oneof::worker_presence_proto::Kind as PresenceKind;
 use roost_proto::{McpStreamMessageProto, WorkerPresenceProto};
-use roost_protocol::wire::{
-    McpRelayEvent, McpRelayId, McpStreamMessage, SessionEvent, WorkerPresenceEvent,
-};
+use roost_protocol::wire::{McpRelayEvent, McpRelayId, McpStreamMessage, WorkerPresenceEvent};
 use serde_json::json;
 
 use sync_feed_support::{
     RELAY_A, SESSION_A, WORKER_A, WORKER_B, acknowledge, cell_frame, closed_message,
-    hydrated_terminal, oneof_of, opened_message, session, worker, worker_registration,
+    hydrated_terminal, oneof_of, opened_message, worker, worker_registration,
 };
 
 #[test]
@@ -86,24 +84,6 @@ fn a_frame_queued_and_then_drained_still_carries_its_meta() {
         "a cell for a session whose opened event was delivered AND acknowledged \
          is free to go: the announcement it was fenced behind left the queue \
          with the metadata that named the session"
-    );
-}
-
-#[test]
-fn a_private_session_event_never_becomes_a_browser_frame() {
-    let message = SessionBusMessage::committed(
-        SessionEvent::AgentReference {
-            session_id: session(SESSION_A),
-            reference: None,
-            ts: 1_700_000_000_000,
-            trace_id: None,
-        },
-        9,
-    );
-    let refused = session_message_frame(&message).expect_err("a private kind must be refused");
-    assert!(
-        refused.to_string().contains("agent_reference"),
-        "the refusal must name the kind it refused, got: {refused}"
     );
 }
 

@@ -130,7 +130,6 @@ fn event_kind(event: &SessionEvent) -> DurableEventKind {
     match event {
         SessionEvent::Opened { .. } => DurableEventKind::Opened,
         SessionEvent::Closed { .. } => DurableEventKind::Closed,
-        SessionEvent::AgentReference { .. } => DurableEventKind::AgentReference,
         _ => DurableEventKind::State,
     }
 }

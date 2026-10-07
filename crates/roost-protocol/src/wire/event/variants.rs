@@ -8,10 +8,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::agent_conversation_reference::{
-    AGENT_CONVERSATION_REFERENCE_EVENT_MAX_UTF8_BYTES, AgentConversationReferenceV1,
-    is_agent_conversation_reference_event_envelope_bounded,
-};
 use crate::validate::integer_in_range;
 use crate::wire::brand::{ChannelId, SessionId, TraceId, WorkerFp, WorkspaceId};
 use crate::wire::session::{PullRequestChecks, PullRequestState, Session, SessionKind};
@@ -125,16 +121,6 @@ pub enum SessionEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         trace_id: Option<TraceId>,
     },
-    /// Private recovery metadata. It is durable and ordered by the worker
-    /// envelope's `client_seq`, and it is never projected into public session
-    /// state — see `agent_conversation_reference`.
-    AgentReference {
-        session_id: SessionId,
-        reference: Option<AgentConversationReferenceV1>,
-        ts: i64,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        trace_id: Option<TraceId>,
-    },
 }
 
 impl SessionEvent {
@@ -153,8 +139,7 @@ impl SessionEvent {
             | Self::Renamed { ts, .. }
             | Self::Git { ts, .. }
             | Self::Pr { ts, .. }
-            | Self::Ports { ts, .. }
-            | Self::AgentReference { ts, .. } => *ts,
+            | Self::Ports { ts, .. } => *ts,
         }
     }
     /// The session this event names, or `None` for a `snapshot`.
@@ -178,8 +163,7 @@ impl SessionEvent {
             | Self::Renamed { session_id, .. }
             | Self::Git { session_id, .. }
             | Self::Pr { session_id, .. }
-            | Self::Ports { session_id, .. }
-            | Self::AgentReference { session_id, .. } => Some(session_id),
+            | Self::Ports { session_id, .. } => Some(session_id),
         }
     }
 
@@ -206,7 +190,6 @@ impl SessionEvent {
             Self::Git { .. } => "git",
             Self::Pr { .. } => "pr",
             Self::Ports { .. } => "ports",
-            Self::AgentReference { .. } => "agent_reference",
         }
     }
 
@@ -220,35 +203,6 @@ impl SessionEvent {
                 session
                     .check()
                     .map_err(|error| error.within(&format!("session_event.sessions[{index}]")))?;
-            }
-        }
-        if let Self::AgentReference { reference, .. } = &event
-            && let Some(reference) = reference
-        {
-            // The reference's own rules — the `omp` literal, the per-kind byte
-            // bound, the control-character class, a path that must be absolute
-            // — are checked here as well as in the reference's own `check`. A
-            // serde decode builds the struct without running either, and the
-            // event boundary is the one place a value from a peer enters.
-            reference
-                .check()
-                .map_err(|error| error.within("session_event.reference"))?;
-        }
-        if let Self::AgentReference { .. } = &event {
-            // The bound is on the serialized envelope, which is what the log
-            // stores, so it is measured on the parsed event rather than on the
-            // caller's input: an unknown key must not push a stored record past
-            // its limit, and must not be stored either.
-            let envelope = serde_json::to_value(&event)
-                .map_err(|error| ProtocolError::new("session_event", error.to_string()))?;
-            if !is_agent_conversation_reference_event_envelope_bounded(&envelope) {
-                return Err(ProtocolError::new(
-                    "session_event.reference",
-                    format!(
-                        "agent conversation reference event must not exceed \
-                         {AGENT_CONVERSATION_REFERENCE_EVENT_MAX_UTF8_BYTES} UTF-8 bytes"
-                    ),
-                ));
             }
         }
         Ok(event)
@@ -342,12 +296,6 @@ mod tests {
             SessionEvent::Ports {
                 session_id: session_id.clone(),
                 ports: Vec::new(),
-                ts: 1,
-                trace_id: None,
-            },
-            SessionEvent::AgentReference {
-                session_id,
-                reference: None,
                 ts: 1,
                 trace_id: None,
             },

@@ -1,7 +1,6 @@
 //! Starts the agent-status owners over the session stack: the pinned
-//! manifests, the ONE reference admission gate, and
-//! [`AgentStatusStack::start`] with the stack's table, hooks, clock, report
-//! environment and durable sink. Ports the composition in v2
+//! manifests and [`AgentStatusStack::start`] with the stack's table, hooks,
+//! clock and report environment. Ports the composition in v2
 //! `apps/worker/src/main.ts:220-237`. Called by `runtime::owners` only, before
 //! the link's own session-closed hook so the detector forgets a session first.
 
@@ -11,7 +10,6 @@ use anyhow::Context;
 
 use super::session_stack::SessionStack;
 use crate::agents::manifests::AgentManifests;
-use crate::agents::reference_admission::AgentReferenceAdmissionGate;
 use crate::agents::status_stack::{AgentStatusStack, AgentStatusStackDeps};
 use crate::uplink::Uplink;
 
@@ -31,8 +29,6 @@ pub fn start_agent_status(
         clock: stack.clock.clone(),
         manifests: Arc::new(manifests),
         environment: Arc::clone(&stack.agent_environment),
-        reference_sink: stack.manager.durable_event_sink(),
-        reference_admission: AgentReferenceAdmissionGate::new(),
         runtime: tokio::runtime::Handle::current(),
     })
     .context("the agent-status registry could not open an epoch")

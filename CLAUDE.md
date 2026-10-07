@@ -237,14 +237,19 @@ going on in 30 seconds?"** If no, refactor before commit.
 ## Dropped paths
 
 **Name every dropped path in the commit body.** Only paths unreachable in an
-all-v3 fleet are dropped. The list so far: the Windows update broker, the
-legacy unimplemented `Sync` server-streaming RPC, the legacy
-`/w/:workspaceId[/t/:channelId]` routes, `client-seq.txt`, the keeper "Bun
-ABI" identity field, the Bun-specific zlib workaround, capability fallbacks
-for peers lacking a capability every v3 peer advertises, the whole v2
-TypeScript product tree (`apps/`, `packages/`, the product `scripts/`), and
-the v2 Homebrew formula (`Formula/`), which a tap reads from the default
-branch, not from `v3`; v3 installs through `install.sh`.
+all-v3 fleet are dropped, plus features the operator retired. The list so
+far: the Windows update broker, the legacy unimplemented `Sync`
+server-streaming RPC, the legacy `/w/:workspaceId[/t/:channelId]` routes,
+`client-seq.txt`, the keeper "Bun ABI" identity field, the Bun-specific zlib
+workaround, capability fallbacks for peers lacking a capability every v3 peer
+advertises, the whole v2 TypeScript product tree (`apps/`, `packages/`, the
+product `scripts/`), the v2 Homebrew formula (`Formula/`), which a tap reads
+from the default branch, not from `v3`; v3 installs through `install.sh`
+— and automatic OMP conversation restoration with the private
+conversation-reference pipeline that only it read (the `agent.reference`
+report method, the installed `roost-omp-agent-reference.ts` extension, the
+`agent_reference` session event, `SessionsListResponse.recovery_metadata`,
+`ROOST_AGENT_CONVERSATION_RESTORE`); OMP's own `omp --resume` covers it.
 
 ---
 
