@@ -28,6 +28,10 @@ pub fn TransferRow(transfer: Transfer) -> Element {
     let meta_color = meta_color(&transfer, outcome);
     let outcome_name = outcome.map(TransferOutcome::as_str);
     let route = transfer.route.map(|route| route.label());
+    let route_verb = match transfer.direction {
+        TransferDirection::Up => "Sent",
+        TransferDirection::Down => "Received",
+    };
 
     let dismiss = move |_event: MouseEvent| {
         write_store(&pump, |store| {
@@ -57,7 +61,7 @@ pub fn TransferRow(transfer: Transfer) -> Element {
                 Chip {
                     label: route.to_owned(),
                     small: true,
-                    title: format!("Sent {}", route.to_lowercase()),
+                    title: format!("{route_verb} {}", route.to_lowercase()),
                     test_id: "transfer-route".to_owned(),
                 }
             }

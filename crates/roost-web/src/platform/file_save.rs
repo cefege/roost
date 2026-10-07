@@ -14,6 +14,19 @@ const BLOB_URL_RELEASE_MS: i32 = 1_000;
 /// Save `contents` as `file_name`, answering whether the browser took it.
 #[cfg(target_arch = "wasm32")]
 pub fn save_text_file(file_name: &str, mime_type: &str, contents: &str) -> bool {
+    save_bytes_impl(file_name, mime_type, contents.as_bytes())
+}
+
+/// Save raw bytes as `file_name`, answering whether the browser took it. The
+/// worker-file download's ending: the whole file in one buffer, one Blob, one
+/// detached anchor click.
+#[cfg(target_arch = "wasm32")]
+pub fn save_file_bytes(file_name: &str, mime_type: &str, contents: &[u8]) -> bool {
+    save_bytes_impl(file_name, mime_type, contents)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn save_bytes_impl(file_name: &str, mime_type: &str, contents: &[u8]) -> bool {
     let saved = start_save(file_name, mime_type, contents);
     match &saved {
         Ok(()) => tracing::info!(target: "download", file_name, "a generated file was saved"),
@@ -28,14 +41,14 @@ pub fn save_text_file(file_name: &str, mime_type: &str, contents: &str) -> bool 
 fn start_save(
     file_name: &str,
     mime_type: &str,
-    contents: &str,
+    contents: &[u8],
 ) -> Result<(), wasm_bindgen::JsValue> {
     let window = web_sys::window().ok_or("no window")?;
     let document = window.document().ok_or("no document")?;
     let options = web_sys::BlobPropertyBag::new();
     options.set_type(mime_type);
-    let parts = js_sys::Array::of1(&wasm_bindgen::JsValue::from_str(contents));
-    let blob = web_sys::Blob::new_with_str_sequence_and_options(&parts, &options)?;
+    let parts = js_sys::Array::of1(&js_sys::Uint8Array::from(contents).into());
+    let blob = web_sys::Blob::new_with_u8_array_sequence_and_options(&parts, &options)?;
     let url = web_sys::Url::create_object_url_with_blob(&blob)?;
     let anchor: web_sys::HtmlAnchorElement = document.create_element("a")?.dyn_into()?;
     anchor.set_href(&url);
@@ -56,5 +69,11 @@ fn start_save(
 /// A native build has no download path.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn save_text_file(_file_name: &str, _mime_type: &str, _contents: &str) -> bool {
+    false
+}
+
+/// No download path outside a browser.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn save_file_bytes(_file_name: &str, _mime_type: &str, _contents: &[u8]) -> bool {
     false
 }

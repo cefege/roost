@@ -15,8 +15,9 @@ use roost_client_core::store::browse_entries::{BrowseEntry, relative_entry_time}
 
 use crate::components::browse::BrowseStatus;
 use crate::components::browse::dom::RESULTS_ID;
+use crate::components::download::DownloadButton;
 use crate::components::md::{
-    Button, ButtonVariant, Chip, EmptyState, List, ListLayout, ListRow, Skeleton,
+    Button, ButtonVariant, Chip, EmptyState, IconButtonSize, List, ListLayout, ListRow, Skeleton,
 };
 use crate::platform::worker_paths::palette::child_path;
 use crate::terminal_href::child_file_href;
@@ -105,14 +106,23 @@ pub fn BrowseEntryList(
             // href beats a link to a route the viewer cannot read.
             let href = child_file_href(worker_os.as_deref(), &server_fp, &cwd, &name);
             let support = relative_entry_time(entry.mtime_ms, now_ms);
+            let file_path = child_path(worker_os.as_deref(), &cwd, &name)
+                .unwrap_or_else(|| format!("{cwd}/{name}"));
+            // The Download button sits beside the row's anchor, not inside it:
+            // a button nested in a link is not a separate control.
             rows.push(rsx! {
-                ListRow {
-                    dense: true,
-                    leading_icon: Some("description".to_owned()),
-                    headline: rsx! { span { title: name.clone(), {name.clone()} } },
-                    support: Some(rsx! { {support} }),
-                    href,
-                    test_id: Some("browse-file-row".to_owned()),
+                div { style: "display: flex; align-items: center; gap: var(--md-space-1); min-width: 0;",
+                    div { style: "flex: 1 1 auto; min-width: 0;",
+                        ListRow {
+                            dense: true,
+                            leading_icon: Some("description".to_owned()),
+                            headline: rsx! { span { title: name.clone(), {name.clone()} } },
+                            support: Some(rsx! { {support} }),
+                            href,
+                            test_id: Some("browse-file-row".to_owned()),
+                        }
+                    }
+                    DownloadButton { worker_fp: server_fp.clone(), path: file_path, size: IconButtonSize::IconSm }
                 }
             });
         }

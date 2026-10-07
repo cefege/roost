@@ -29,8 +29,9 @@ use roost_client_core::client::rpc::calls::browse::ReadFile;
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::store::root::captured_generation_is_current;
 
+use crate::components::download::DownloadButton;
 use crate::components::layout::shell_style::is_terminal_path;
-use crate::components::md::{AutoFocusRequest, Sheet, SheetSide};
+use crate::components::md::{AutoFocusRequest, IconButtonSize, Sheet, SheetSide};
 use crate::components::notifications::clipboard;
 use crate::platform::location::current_location;
 use crate::pump::{Pump, use_store};
@@ -156,7 +157,7 @@ pub fn FileViewer(route: Route) -> Element {
                 "data-testid": "file-viewer-sheet",
                 class: "roost-file-viewer-sheet",
                 style: "gap: var(--md-space-3);",
-                {header_row(&file_path, &worker_fp, scoped, current.byte_size())}
+                {header_row(&file_path, &worker_fp, scoped && current.is_downloadable(), current.byte_size())}
                 if scope_pending || (scoped && current.is_loading()) {
                     states::LoadingCaption {}
                 }
@@ -199,7 +200,7 @@ pub fn FileViewer(route: Route) -> Element {
 }
 
 /// The path, the machine it lives on, and how big the file turned out to be.
-fn header_row(file_path: &str, worker_fp: &str, scoped: bool, byte_size: u64) -> Element {
+fn header_row(file_path: &str, worker_fp: &str, downloadable: bool, byte_size: u64) -> Element {
     let fingerprint: String = worker_fp.chars().take(FP_HEADER_CHARS).collect();
     rsx! {
         div { style: "display: flex; align-items: center; gap: var(--md-space-2); flex: 0 0 auto;",
@@ -213,12 +214,15 @@ fn header_row(file_path: &str, worker_fp: &str, scoped: bool, byte_size: u64) ->
                 style: "color: var(--text-lo); font-size: var(--md-label-s-size); font-family: var(--font-mono); white-space: nowrap; flex: 0 0 auto;",
                 {fingerprint}
             }
-            if scoped && byte_size > 0 {
+            if downloadable && byte_size > 0 {
                 span {
                     "data-testid": "file-viewer-sheet-size",
                     style: "color: var(--text-lo); font-size: var(--md-label-s-size); font-family: var(--font-mono); white-space: nowrap; flex: 0 0 auto;",
                     {format!("{byte_size} B")}
                 }
+            }
+            if downloadable {
+                DownloadButton { worker_fp: worker_fp.to_owned(), path: file_path.to_owned(), size: IconButtonSize::IconSm }
             }
         }
     }

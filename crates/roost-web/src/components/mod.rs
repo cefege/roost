@@ -20,6 +20,7 @@ pub mod browse;
 pub mod context_menu;
 pub mod deck;
 pub mod design;
+pub mod download;
 pub mod file_viewer;
 pub mod global_search;
 pub mod help;

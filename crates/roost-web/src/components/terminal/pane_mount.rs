@@ -16,6 +16,7 @@ mod input;
 mod interactions;
 mod link_targets;
 mod paint;
+mod paste_files;
 mod scroll;
 
 use std::cell::{Cell, RefCell};
