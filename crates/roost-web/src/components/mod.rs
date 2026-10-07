@@ -26,6 +26,7 @@ pub mod file_viewer;
 pub mod global_search;
 pub mod help;
 pub mod home;
+pub mod tv_home_board;
 pub mod layout;
 pub mod machines;
 pub mod main_pane;

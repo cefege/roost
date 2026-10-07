@@ -1,12 +1,8 @@
-//! The home landing: what `/` shows when no session is being viewed. Ported
-//! from `apps/web/src/components/HomeLanding.tsx`.
-//!
-//! It is a landing, not a list. The session and folder lists live in the
-//! sidebar; a second copy here would be a second place to look and a second set
-//! of rows to keep in step. What this page owes the reader is the brand, the
-//! keyboard shortcuts worth knowing, and an honest empty state. On a compact
-//! layout `AppShell` opens the drawer over it, and once that drawer is closed
-//! the brand row carries the focusable control that reopens it.
+//! The desktop home landing: brand, shortcut references, and an honest empty
+//! state. TV mode replaces `/` with the live session board; desktop and compact
+//! layouts keep this landing instead of duplicating the sidebar's session and
+//! folder lists. On compact layouts `AppShell` opens the drawer over it, and
+//! once that drawer is closed the brand row carries the control to reopen it.
 //!
 //! The shortcut labels come from `PlatformShortcut`, the one shortcut map, so a
 //! Windows reader is shown the Ctrl+Shift chord they actually press and a Mac
@@ -18,8 +14,9 @@ use roost_client_core::store::sidebar::SidebarIntent;
 
 use crate::components::brand_mark::{BrandMark, HOME_MARK_SIZE};
 use crate::components::layout::title_bar::PRODUCT;
-use crate::components::layout::window_size::use_is_compact;
+use crate::components::layout::window_size::{use_is_compact, use_tv_layout};
 use crate::components::md::{Icon, IconButton};
+use crate::components::tv_home_board::TvHomeBoard;
 use crate::pump::use_store;
 
 /// A shortcut the landing advertises. The Windows binding comes from
@@ -90,6 +87,10 @@ pub const SHORTCUTS: [Shortcut; 3] = [
 pub fn HomeLanding(reader_platform: BrowserPlatform) -> Element {
     let pump = use_store();
     let compact = use_is_compact();
+    let tv = use_tv_layout();
+    if tv {
+        return rsx! { TvHomeBoard {} };
+    }
     // Only while the drawer is shut: an open drawer already shows the list, and
     // a second "Open sidebar" under it would be a D-pad stop the reader cannot see.
     let drawer_open = pump.core().borrow().store().ui.sidebar_open;

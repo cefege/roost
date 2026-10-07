@@ -10,6 +10,7 @@ mod actions;
 mod backfill_io;
 mod browser;
 mod clipboard;
+mod clipboard_actions;
 mod cursor_report;
 mod echo;
 mod find_io;
@@ -364,6 +365,7 @@ impl PaneMount {
     pub fn jump_to_live(&self) {
         scroll::jump_to_live(&self.shared);
     }
+
 }
 
 impl Drop for PaneMount {

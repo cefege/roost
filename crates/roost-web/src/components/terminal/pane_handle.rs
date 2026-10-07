@@ -194,6 +194,16 @@ impl PaneHandle {
     pub fn jump_to_live(&self) {
         self.with_mount(|mount| mount.jump_to_live());
     }
+
+    /// Copy the current terminal selection and record it in clipboard history.
+    pub fn copy_selection(&self) {
+        self.with_mount(|mount| mount.copy_selection());
+    }
+
+    /// Read the browser clipboard through the multiline paste guard.
+    pub fn paste_from_clipboard(&self) {
+        self.with_mount(|mount| mount.paste_from_clipboard());
+    }
 }
 
 /// Natively there is no document, so no pane is ever mounted: the type is
@@ -256,6 +266,12 @@ impl PaneMount {
         match *self {}
     }
     fn jump_to_live(&self) {
+        match *self {}
+    }
+    fn copy_selection(&self) {
+        match *self {}
+    }
+    fn paste_from_clipboard(&self) {
         match *self {}
     }
 }

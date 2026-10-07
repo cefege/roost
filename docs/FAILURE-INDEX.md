@@ -2547,7 +2547,7 @@ off the TOP of the frame; subtract the block overscan twice, once for the raised
 surface's own top edge clear. The TV's terminal keys avoid the problem by construction: they are not a
 portaled sheet there but a tray inside the pane's composer bar.
 
-**Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
+**Guard** — `xtask/src/tv_fixed_edges.rs` tests `parser_keeps_fixed_rule_declarations_and_selector`, `parser_reads_rules_inside_media_queries`, `zero_edges_need_no_override_but_nonzero_edges_do`, `missing_or_unscoped_override_is_reported`, and `excludes_tokens_tv_stylesheet_and_nested_files`; the lint scans shared top-level `assets/styles/*.css` (excluding token and TV files) and rejects uncovered nonzero fixed-edge offsets.
 
 ### A `Closure` handed to the DOM as a raw function reference is freed while it can still be called
 

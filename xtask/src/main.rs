@@ -4,6 +4,7 @@
 
 mod crate_dag;
 mod design_raw;
+mod tv_fixed_edges;
 mod file_size;
 mod fleet;
 mod fmt;
@@ -30,8 +31,8 @@ struct Xtask {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Run every gate: the file-size cap, the crate dependency DAG, the
-    /// stdout rule, the one-test-binary rule, and the design raw-value ratchet.
+    /// Run every gate: file size, crate dependencies, stdout, test suites,
+    /// fixed-position TV overscan, and the design raw-value ratchet.
     Lint(LintArgs),
     /// The formatting gate. Separate from `lint` because it shells out to
     /// cargo, and separate because `cargo fmt --all` would reformat the
@@ -102,6 +103,9 @@ fn lint(arguments: &LintArgs) -> ExitCode {
         checked += outcome.checked;
         violations.extend(outcome.violations);
     }
+    let fixed_edge_outcome = tv_fixed_edges::run();
+    checked += fixed_edge_outcome.checked;
+    violations.extend(fixed_edge_outcome.violations);
     match design_raw::run(arguments.update_design_baseline) {
         RatchetOutcome::Regressions(found) => {
             checked += found.checked;

@@ -340,7 +340,7 @@ fn run_reserved_chord(shared: &PaneShared, chord: ReservedChord) {
     }
 }
 
-fn paste_from_clipboard(shared: &PaneShared) {
+pub(super) fn paste_from_clipboard(shared: &PaneShared) {
     let Some(window) = web_sys::window() else {
         return;
     };

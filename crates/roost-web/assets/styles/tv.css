@@ -124,6 +124,23 @@ html[data-tv="true"] {
   --roost-notify-dock-overscan: var(--tv-overscan-block);
 }
 
+/* These surfaces are viewport-fixed and bypass the shell's overscan padding. */
+[data-tv="true"] .voice-input {
+  right: calc(var(--tv-overscan-inline) + 16px);
+  bottom: calc(var(--tv-overscan-block) + 16px);
+}
+
+[data-tv="true"] .term-chat__dock {
+  left: calc(var(--roost-main-left, 0px) + var(--tv-overscan-inline) + var(--md-space-2));
+  right: calc(var(--tv-overscan-inline) + var(--md-space-2));
+  bottom: calc(var(--term-chat-dock-offset) + var(--tv-overscan-block));
+}
+
+[data-tv="true"] .term-nav-toggle {
+  right: calc(var(--tv-overscan-inline) + var(--md-space-4));
+  bottom: calc(var(--tv-overscan-block) + 152px);
+}
+
 /* The ten-foot workbench: the sidebar slides OVER the editor instead of taking
    a grid column, so a 960-CSS-px-wide TV keeps the terminal at full width.
    It shares the editor's cells and sits above it; collapsed, it is not drawn. */
@@ -143,4 +160,44 @@ html[data-tv="true"] {
 }
 [data-tv="true"] .workbench-sidebar-resizer {
   display: none;
+}
+
+
+[data-tv="true"] .tv-home-board {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--md-space-5);
+}
+
+
+[data-tv="true"] .tv-home-board__link {
+  display: block;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+[data-tv="true"] .tv-home-board__card {
+  min-height: 10rem;
+  justify-content: center;
+  padding: var(--md-space-5);
+}
+
+[data-tv="true"] .tv-home-board__card--unseen {
+  border-inline-start: var(--md-space-2) solid var(--md-sys-color-primary);
+}
+
+[data-tv="true"] .tv-home-board__status {
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-3);
+  margin-block-start: var(--md-space-3);
+}
+
+[data-tv="true"] .tv-home-board__attention {
+  color: var(--md-sys-color-primary);
+  font-weight: var(--md-label-l-weight);
 }

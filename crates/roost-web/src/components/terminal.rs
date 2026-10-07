@@ -33,4 +33,5 @@ pub mod terminal_offline_notice;
 pub mod terminal_paste_guard;
 pub mod terminal_startup_overlay;
 pub mod terminal_transport_indicator;
+pub mod terminal_context_menu;
 pub mod viewport_publication;

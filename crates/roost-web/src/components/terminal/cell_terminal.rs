@@ -31,8 +31,9 @@ use super::terminal_nav_pad::TerminalNavPad;
 use super::terminal_offline_notice::TerminalOfflineNotice;
 use super::terminal_paste_guard::TerminalPasteGuard;
 use super::terminal_startup_overlay::TerminalStartupOverlay;
-use crate::components::deck::deck_dom;
 use crate::components::layout::window_size::{use_is_compact, use_tv_layout};
+use crate::components::terminal::terminal_context_menu::TerminalContextMenu;
+use crate::components::deck::deck_dom;
 use crate::components::terminal_chrome::attachment_picker::ChosenFile;
 use crate::components::terminal_chrome::composer::TerminalComposer;
 use crate::components::terminal_chrome::composer_key_tray::KeyTray;
@@ -61,6 +62,7 @@ struct PaneStoreView {
     drawer_open: bool,
     nav_pad_open: bool,
 }
+
 
 /// The pane. Props are v2's `CellTerminalProps`, snake-cased.
 #[component]
@@ -166,11 +168,11 @@ pub fn CellTerminal(
         navigate,
         staged_files,
     };
-    let on_display_mounted = move |event: MountedEvent| {
+    let on_display_mounted = EventHandler::new(move |event: MountedEvent| {
         let mut request = mount_request.clone();
         request.flags = latest_flags.get();
         mount_handle.mount(&event.data(), request);
-    };
+    });
 
     let indicator = match (ui.presentation)() {
         TerminalPresentationState::Receiving => Some(("receiving", "Receiving terminal frames")),
@@ -311,13 +313,14 @@ pub fn CellTerminal(
                     },
                 }
             }
-            div {
-                "data-testid": "terminal-display",
-                tabindex: directional
-                    .is_some_and(|modality| modality.directional_input_active())
-                    .then_some("0"),
-                style: "{display_style}",
-                onmounted: on_display_mounted,
+            TerminalContextMenu {
+                session_id: session_id.clone(),
+                display_style: display_style.clone(),
+                focusable: directional.is_some_and(|modality| modality.directional_input_active()),
+                mouse_forwarded: (ui.gestures_forwarded)(),
+                compact,
+                handle: handle.clone(),
+                on_display_mounted,
             }
             TerminalJumpToLive { visible: (ui.scrolled_back)(), handle: handle.clone(), lift: lift.clone() }
             if show_viewport_composer {
