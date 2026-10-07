@@ -41,7 +41,11 @@ pub fn fetch_release(tag: &str) -> Result<(), String> {
     println!("xtask fleet: downloading the {tag} release from GitHub");
     let mut patterns = vec![WEB_ASSET.to_owned()];
     for platform in [Platform::Linux, Platform::Macos] {
-        patterns.extend(assets(platform).iter().map(|(asset, _)| (*asset).to_owned()));
+        patterns.extend(
+            assets(platform)
+                .iter()
+                .map(|(asset, _)| (*asset).to_owned()),
+        );
     }
     let mut gh = Command::new("gh");
     gh.args(["release", "download", tag, "-R", REPOSITORY, "-D"])
