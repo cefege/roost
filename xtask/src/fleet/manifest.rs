@@ -130,10 +130,12 @@ impl FleetHost {
         }
         let unpack = if self.platform == Platform::Windows {
             // Windows' OpenSSH hands the command to cmd.exe, and Windows ships
-            // bsdtar as `tar`.
+            // bsdtar as `tar`. The `if` is parenthesised: unbracketed, cmd
+            // reads every `&`-joined command after it as the `if`'s body, so
+            // a first install (no directory yet) would unpack nothing.
             let directory = format!("%USERPROFILE%\\{}", remote_dir.replace('/', "\\"));
             format!(
-                "if exist \"{directory}\" rmdir /s /q \"{directory}\" & mkdir \"{directory}\" && \
+                "(if exist \"{directory}\" rmdir /s /q \"{directory}\") & mkdir \"{directory}\" && \
                  tar -xf - -C \"{directory}\""
             )
         } else {
