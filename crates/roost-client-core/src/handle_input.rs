@@ -80,11 +80,7 @@ pub fn handle_terminal_input(
     // takes the active direct route if there is one and otherwise the current
     // Sync v2 terminal state, which is the socket's, and resolves the worker's
     // epoch from the sessions projection beside it. Same two answers, same order.
-    let Some(token) = store
-        .terminal(session_id)
-        .and_then(|replica| replica.generation().cloned())
-        .or_else(|| store.sync_terminal_token())
-    else {
+    let Some(token) = input_destination(store, session_id) else {
         settle_as_unsent(
             store,
             session_id,
@@ -93,7 +89,43 @@ pub fn handle_terminal_input(
         );
         return;
     };
-    dispatch_batch(store, &admitted, &token, now_ms, out);
+    dispatch_startable(store, session_id, &token, now_ms, out);
+    let queued = store
+        .input
+        .outstanding(session_id)
+        .iter()
+        .any(|pending| pending.input_seq == admitted.input_seq && !pending.started);
+    if queued {
+        tracing::debug!(
+            target: "terminal",
+            session_id,
+            input_seq = admitted.input_seq,
+            "terminal input queued behind the in-flight window"
+        );
+    }
+}
+
+/// Where a session's input goes now: its elected route's generation, else the
+/// Sync socket this tab is dialled on.
+pub(crate) fn input_destination(store: &Store, session_id: &str) -> Option<TerminalToken> {
+    store
+        .terminal(session_id)
+        .and_then(|replica| replica.generation().cloned())
+        .or_else(|| store.sync_terminal_token())
+}
+
+/// Hand `token`'s transport every unsent batch the session's in-flight window
+/// has room for, oldest first, so keystrokes reach the PTY in the order typed.
+pub(crate) fn dispatch_startable(
+    store: &mut Store,
+    session_id: &str,
+    token: &TerminalToken,
+    now_ms: u64,
+    out: &mut Vec<Effect>,
+) {
+    for pending in store.input.startable(session_id) {
+        dispatch_batch(store, &pending, token, now_ms, out);
+    }
 }
 
 /// A lane BLOCKED because its input route was lost claims Sync back on the
@@ -137,7 +169,7 @@ fn reclaim_lost_route(store: &mut Store, session_id: &str, now_ms: u64) -> bool 
 /// Hand one admitted batch to `token`'s transport, stamped with the route epoch
 /// acknowledged over that connection. Used for a fresh batch and for one a
 /// claim held, so both go out the same way.
-pub(crate) fn dispatch_batch(
+fn dispatch_batch(
     store: &mut Store,
     admitted: &PendingInput,
     token: &TerminalToken,
@@ -239,6 +271,12 @@ pub fn handle_input_result(
         status = outcome.status_name(),
         "terminal input settled"
     );
+    // The settled batch freed a slot in the in-flight window.
+    if !store.input.is_holding(session_id)
+        && let Some(token) = input_destination(store, session_id)
+    {
+        dispatch_startable(store, session_id, &token, now_ms, out);
+    }
     // A promotion waits for the old route's batches to settle before it claims;
     // this may have been the last of them, and the sweep is up to a tick away.
     let drain_pending = store

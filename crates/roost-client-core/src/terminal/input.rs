@@ -38,6 +38,12 @@ pub const MAX_PENDING_INPUTS_PER_SESSION: usize = 200;
 /// paste-sized input: a 200-batch cap does not bound a paste.
 pub const MAX_PENDING_INPUT_BYTES_PER_SESSION: usize = 256 * 1024;
 
+/// Most batches one session may have handed to a transport and not yet seen
+/// settled. The worker refuses a direct port's 33rd unacknowledged batch
+/// (`TERMINAL_DIRECT_INPUT_WORK_MAX_REQUESTS`), and a refused keystroke is lost;
+/// past this window a batch waits unsent, in order, and goes out as earlier ones settle.
+pub const MAX_STARTED_INPUTS_PER_SESSION: usize = 8;
+
 /// How long a held batch waits for a route before it is refused.
 ///
 /// It settles `rejected`, not `ambiguous`, and that is the safety of the whole

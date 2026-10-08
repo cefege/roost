@@ -16,7 +16,7 @@ pub(crate) use self::deadlines::{
 };
 
 use crate::effect::{DirectCommand, Effect, SyncCommand};
-use crate::handle_input::dispatch_batch;
+use crate::handle_input::dispatch_startable;
 use crate::store::Store;
 use crate::sync::inbound::InputRouteResult;
 use crate::terminal::input::router::{ClaimSettlement, INPUT_HANDOFF_DRAIN_MS, RouteClaim};
@@ -315,9 +315,7 @@ fn release_held_onto(
         transport = route.transport.as_str(),
         "held terminal input released onto the claimed route"
     );
-    for pending in held {
-        dispatch_batch(store, &pending, route, now_ms, out);
-    }
+    dispatch_startable(store, session_id, route, now_ms, out);
 }
 
 /// A fallback attempt failed: try again shortly, or block once they are spent.

@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use crate::terminal::input::{
     InputLane, InputOutcome, InputPhase, InputRefusal, MAX_INPUT_BYTES,
     MAX_PENDING_INPUT_BYTES_PER_SESSION, MAX_PENDING_INPUTS_PER_SESSION,
-    MAX_TERMINAL_INPUT_ROUTE_REVISION, PendingInput,
+    MAX_STARTED_INPUTS_PER_SESSION, MAX_TERMINAL_INPUT_ROUTE_REVISION, PendingInput,
 };
 use crate::terminal::token::TerminalToken;
 
@@ -289,6 +289,43 @@ impl InputRouter {
             .get(session_id)
             .map(|lane| lane.pending.iter().collect())
             .unwrap_or_default()
+    }
+
+    /// The unstarted batches a sending lane may hand to a transport now, oldest
+    /// first: as many as fit in the window `MAX_STARTED_INPUTS_PER_SESSION`
+    /// leaves beside the batches already in flight. Empty for a lane that holds
+    /// or refuses input.
+    pub fn startable(&self, session_id: &str) -> Vec<PendingInput> {
+        let Some(lane) = self
+            .lanes
+            .get(session_id)
+            .filter(|lane| lane.phase == InputPhase::Sending)
+        else {
+            return Vec::new();
+        };
+        let started = lane
+            .pending
+            .iter()
+            .filter(|pending| pending.started)
+            .count();
+        lane.pending
+            .iter()
+            .filter(|pending| !pending.started)
+            .take(MAX_STARTED_INPUTS_PER_SESSION.saturating_sub(started))
+            .cloned()
+            .collect()
+    }
+
+    /// Sending lanes with a batch waiting unsent behind the in-flight window.
+    pub fn queued_sessions(&self) -> Vec<String> {
+        self.lanes
+            .values()
+            .filter(|lane| {
+                lane.phase == InputPhase::Sending
+                    && lane.pending.iter().any(|pending| !pending.started)
+            })
+            .map(|lane| lane.session_id.clone())
+            .collect()
     }
 
     /// Whether a session has a batch whose fate the client cannot report.
