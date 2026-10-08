@@ -38,7 +38,32 @@ pub const fn should_open_terminal_context_menu(
     !mouse_forwarded || shift_held || button != 2 || !trusted
 }
 
-/// The cursor-anchored menu at viewport (`x`, `y`).
+/// The smallest gap kept between the menu and a viewport edge.
+const VIEWPORT_EDGE_GAP_PX: f64 = 6.0;
+
+/// Where a `width` × `height` menu opened at viewport (`x`, `y`) sits so it
+/// stays on screen: flipped to the cursor's left or above it when it would
+/// cross the right or bottom edge, and never past the top-left gap. An unknown
+/// viewport (zero) leaves the cursor point as it is.
+#[must_use]
+pub fn fit_menu_origin(
+    (x, y): (f64, f64),
+    (width, height): (f64, f64),
+    (viewport_width, viewport_height): (f64, f64),
+) -> (f64, f64) {
+    let fit = |at: f64, size: f64, viewport: f64| {
+        if viewport <= 0.0 || at + size + VIEWPORT_EDGE_GAP_PX <= viewport {
+            return at;
+        }
+        (at - size).max(VIEWPORT_EDGE_GAP_PX)
+    };
+    (
+        fit(x, width, viewport_width),
+        fit(y, height, viewport_height),
+    )
+}
+
+/// The cursor-anchored menu at viewport (`x`, `y`), moved on mount so it fits.
 #[component]
 pub fn TerminalFloatingMenu(
     x: f64,
@@ -56,8 +81,10 @@ pub fn TerminalFloatingMenu(
         let id = menu_id.clone();
         use_hook(move || focus_menu_edge(&id, MenuFocusEdge::First));
     }
+    let mut origin = use_signal(|| (x, y));
     let copy_selection = selection.clone();
     let key_menu_id = menu_id.clone();
+    let (left, top) = origin();
     rsx! {
         div {
             id: menu_id,
@@ -66,7 +93,21 @@ pub fn TerminalFloatingMenu(
             "data-testid": "terminal-context-menu",
             "data-variant": "floating",
             class: "df-menu-enter",
-            style: ctx_menu_surface_style(x, y, crate::components::context_menu::DEFAULT_MENU_Z_INDEX),
+            style: ctx_menu_surface_style(
+                left,
+                top,
+                crate::components::context_menu::DEFAULT_MENU_Z_INDEX,
+            ),
+            onmounted: move |event: MountedEvent| async move {
+                let Ok(rect) = event.data().get_client_rect().await else {
+                    return;
+                };
+                let viewport = (
+                    crate::components::deck::deck_dom::viewport_width(),
+                    crate::components::md::dom::viewport_height().unwrap_or(0.0),
+                );
+                origin.set(fit_menu_origin((x, y), (rect.width(), rect.height()), viewport));
+            },
             onclick: move |event: MouseEvent| event.stop_propagation(),
             oncontextmenu: move |event: MouseEvent| event.prevent_default(),
             onkeydown: move |event: KeyboardEvent| run_terminal_menu_key(
@@ -130,12 +171,20 @@ pub fn TerminalActionSheet(
                 move || on_cancel.call(()),
             ),
             if has_selection {
-                SheetItem { testid: "ctx-copy-selection", on_activate: move |_| on_copy.call(copy_selection.clone()), "Copy" }
+                SheetItem {
+                    testid: "ctx-copy-selection",
+                    on_activate: move |_| on_copy.call(copy_selection.clone()),
+                    "Copy"
+                }
             }
 
             SheetItem { testid: "ctx-paste", on_activate: move |_| on_paste.call(()), "Paste" }
             SheetItem { testid: "ctx-find", on_activate: move |_| on_find.call(()), "Find" }
-            SheetItem { testid: "ctx-cancel", on_activate: move |_| on_cancel.call(()), "Cancel" }
+            SheetItem {
+                testid: "ctx-cancel",
+                on_activate: move |_| on_cancel.call(()),
+                "Cancel"
+            }
         }
     }
 }
@@ -173,7 +222,7 @@ fn SheetItem(testid: String, on_activate: EventHandler<MouseEvent>, children: El
 
 #[cfg(test)]
 mod tests {
-    use super::should_open_terminal_context_menu;
+    use super::{fit_menu_origin, should_open_terminal_context_menu};
 
     #[test]
     fn context_menu_respects_mouse_reporting_and_controller_synthetic_events() {
@@ -182,5 +231,37 @@ mod tests {
         assert!(should_open_terminal_context_menu(true, false, 0, true));
         assert!(should_open_terminal_context_menu(true, false, 2, false));
         assert!(should_open_terminal_context_menu(false, false, 2, true));
+    }
+
+    #[test]
+    fn a_menu_that_fits_opens_at_the_cursor() {
+        assert_eq!(
+            fit_menu_origin((100.0, 200.0), (180.0, 60.0), (1400.0, 900.0)),
+            (100.0, 200.0)
+        );
+    }
+
+    #[test]
+    fn a_menu_past_the_right_or_bottom_edge_flips_to_the_cursors_other_side() {
+        assert_eq!(
+            fit_menu_origin((1300.0, 880.0), (180.0, 60.0), (1400.0, 900.0)),
+            (1120.0, 820.0)
+        );
+    }
+
+    #[test]
+    fn a_menu_too_large_to_flip_stays_inside_the_top_left_gap() {
+        assert_eq!(
+            fit_menu_origin((50.0, 40.0), (180.0, 60.0), (200.0, 80.0)),
+            (6.0, 6.0)
+        );
+    }
+
+    #[test]
+    fn an_unknown_viewport_leaves_the_cursor_point() {
+        assert_eq!(
+            fit_menu_origin((1300.0, 880.0), (180.0, 60.0), (0.0, 0.0)),
+            (1300.0, 880.0)
+        );
     }
 }

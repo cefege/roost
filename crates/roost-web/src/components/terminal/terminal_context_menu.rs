@@ -8,6 +8,7 @@ use super::pane_handle::PaneHandle;
 use crate::components::context_menu::terminal_menu::{
     TerminalActionSheet, TerminalFloatingMenu, should_open_terminal_context_menu, uses_action_sheet,
 };
+use crate::components::layout::portal::Portal;
 
 #[derive(Debug, Clone)]
 struct MenuTarget {
@@ -48,68 +49,73 @@ pub fn TerminalContextMenu(
             onmounted: move |event| on_display_mounted.call(event),
             oncontextmenu: on_context_menu,
         }
+        // Portaled: the deck's transform makes it the containing block of a
+        // `position: fixed` menu, which then lands offset by the deck's origin.
         if let Some(menu) = target() {
-            if uses_action_sheet(compact) {
-                TerminalActionSheet {
-                    menu_id: format!("terminal-context-menu-{session_id}"),
-                    selection: menu.selection,
-                    on_copy: {
-                        let handle = handle.clone();
-                        let mut target = target;
-                        move |_| {
-                            handle.copy_selection();
-                            target.set(None);
-                        }
-                    },
-                    on_paste: {
-                        let handle = handle.clone();
-                        let mut target = target;
-                        move |_| {
-                            handle.paste_from_clipboard();
-                            target.set(None);
-                        }
-                    },
-                    on_find: {
-                        let handle = handle.clone();
-                        let mut target = target;
-                        move |_| {
-                            handle.open_find();
-                            target.set(None);
-                        }
-                    },
-                    on_cancel: move |_| target.set(None),
-                }
-            } else {
-                TerminalFloatingMenu {
-                    x: menu.client_x,
-                    y: menu.client_y,
-                    menu_id: format!("terminal-context-menu-{session_id}"),
-                    selection: menu.selection,
-                    on_copy: {
-                        let handle = handle.clone();
-                        let mut target = target;
-                        move |_| {
-                            handle.copy_selection();
-                            target.set(None);
-                        }
-                    },
-                    on_paste: {
-                        let handle = handle.clone();
-                        let mut target = target;
-                        move |_| {
-                            handle.paste_from_clipboard();
-                            target.set(None);
-                        }
-                    },
-                    on_find: {
-                        let handle = handle.clone();
-                        let mut target = target;
-                        move |_| {
-                            handle.open_find();
-                            target.set(None);
-                        }
-                    },
-                    on_close: move |_| target.set(None),
+            Portal {
+                if uses_action_sheet(compact) {
+                    TerminalActionSheet {
+                        menu_id: format!("terminal-context-menu-{session_id}"),
+                        selection: menu.selection,
+                        on_copy: {
+                            let handle = handle.clone();
+                            let mut target = target;
+                            move |_| {
+                                handle.copy_selection();
+                                target.set(None);
+                            }
+                        },
+                        on_paste: {
+                            let handle = handle.clone();
+                            let mut target = target;
+                            move |_| {
+                                handle.paste_from_clipboard();
+                                target.set(None);
+                            }
+                        },
+                        on_find: {
+                            let handle = handle.clone();
+                            let mut target = target;
+                            move |_| {
+                                handle.open_find();
+                                target.set(None);
+                            }
+                        },
+                        on_cancel: move |_| target.set(None),
+                    }
+                } else {
+                    TerminalFloatingMenu {
+                        key: "{menu.client_x}-{menu.client_y}",
+                        x: menu.client_x,
+                        y: menu.client_y,
+                        menu_id: format!("terminal-context-menu-{session_id}"),
+                        selection: menu.selection,
+                        on_copy: {
+                            let handle = handle.clone();
+                            let mut target = target;
+                            move |_| {
+                                handle.copy_selection();
+                                target.set(None);
+                            }
+                        },
+                        on_paste: {
+                            let handle = handle.clone();
+                            let mut target = target;
+                            move |_| {
+                                handle.paste_from_clipboard();
+                                target.set(None);
+                            }
+                        },
+                        on_find: {
+                            let handle = handle.clone();
+                            let mut target = target;
+                            move |_| {
+                                handle.open_find();
+                                target.set(None);
+                            }
+                        },
+                        on_close: move |_| target.set(None),
+                    }
                 }
             }
         }
