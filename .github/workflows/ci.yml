@@ -113,9 +113,9 @@ jobs:
           add-job-id-key: false
       - uses: ilammy/setup-nasm@v1
       - name: clippy
-        run: cargo clippy -p roost-platform -p roost-host --all-targets -- -D warnings
+        run: cargo clippy -p roost-platform -p roost-host -p roost-keeper --all-targets -- -D warnings
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
       - name: test
-        run: cargo nextest run -p roost-platform -p roost-host
+        run: cargo nextest run -p roost-platform -p roost-host -p roost-keeper

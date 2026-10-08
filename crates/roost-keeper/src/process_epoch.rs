@@ -4,9 +4,6 @@
 //! `processEpoch = randomUUID()` of v2 `apps/worker/src/keeper/multiplexed-main.ts`.
 //! Called by `keeper::Keeper::new`; read by `keeper_ops::Keeper::hello_response`.
 
-use std::fs::File;
-use std::io::Read;
-
 const UUID_BYTES: usize = 16;
 
 /// A fresh v4 uuid, or `None` when the host's entropy source is unreadable.
@@ -16,8 +13,7 @@ const UUID_BYTES: usize = 16;
 /// incarnation answered.
 pub(crate) fn mint_process_epoch() -> Option<String> {
     let mut bytes = [0_u8; UUID_BYTES];
-    let read = File::open("/dev/urandom").and_then(|mut source| source.read_exact(&mut bytes));
-    if let Err(error) = read {
+    if let Err(error) = getrandom::fill(&mut bytes) {
         tracing::error!(%error, "keeper: no process epoch, the entropy source is unreadable");
         return None;
     }

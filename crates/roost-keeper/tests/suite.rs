@@ -58,6 +58,8 @@ mod keeper_socket_auth;
 mod keeper_socket_protocol;
 #[path = "keeper_update_proof.rs"]
 mod keeper_update_proof;
+#[path = "keeper_windows_round_trip.rs"]
+mod keeper_windows_round_trip;
 #[path = "output_echo_latency.rs"]
 mod output_echo_latency;
 #[path = "output_survives_control_round_trip.rs"]

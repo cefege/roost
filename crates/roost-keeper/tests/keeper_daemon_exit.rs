@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! What stops the keeper without a worker asking: SIGTERM, whether the keeper
 //! is waiting for a worker or serving one, and its socket file being deleted.
 //! Ports the `SIGTERM` handler and the 30 s socket check of v2

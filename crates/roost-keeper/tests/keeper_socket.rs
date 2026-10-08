@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The keeper's socket server over a real Unix socket. The endpoint's security
 //! properties are the reason these exist: a keeper socket is a remote shell to
 //! every PTY the machine has open, and a window on it is a window onto a shell.

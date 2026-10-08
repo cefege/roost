@@ -5,9 +5,9 @@
 //! `pty_channel::PtyChannel`; `keeper_ops` enqueues and `server` attaches the
 //! connection results go to. Ports `apps/worker/src/keeper/keeper-input-queue.ts`.
 
+use crate::transport::UnixStream;
 use std::collections::VecDeque;
 use std::io::Write;
-use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 

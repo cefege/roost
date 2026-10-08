@@ -18,7 +18,8 @@ const MEMORY: &str = "Cargo.toml — [workspace.lints]";
 /// Members permitted to hold a copy, and why cargo permits no alternative.
 const COPY_EXEMPT: &[(&str, &str)] = &[(
     "roost-keeper",
-    "needs `unsafe_code = \"allow\"` for a signal handler, and cargo REJECTS a manifest that \
+    "needs `unsafe_code = \"allow\"` for a signal handler and the Win32 console handler, Job \
+     Object and named-pipe FFI, and cargo REJECTS a manifest that \
      both inherits `workspace = true` and overrides a value, so copy-and-override is the only \
      form that parses. The cost is that a new workspace lint does not reach this crate until \
      someone adds it here, which is what this list is for.",

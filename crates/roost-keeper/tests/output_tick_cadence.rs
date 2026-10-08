@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! PROOF for the drain cadence: output a program writes while the worker sends
 //! nothing must reach the worker within the keeper's backstop tick of being
 //! written, and never at the pace of a blocking read plus a sleep.

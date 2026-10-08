@@ -149,6 +149,12 @@ tokio-util = { version = "0.7.19", default-features = false }
 # Windows host: memory, CPU, disk, network and process facts that Linux reads
 # from /proc and macOS from sysctl/ps.
 sysinfo = { version = "0.37", default-features = false, features = ["system", "disk", "network"] }
+# The keeper's AF_UNIX transport on Windows (std's is unix-only), and the Win32
+# FFI the keeper alone may call: console control, Job Objects, named pipes.
+uds_windows = "1.2.1"
+windows-sys = "0.61"
+# OS entropy on every platform: /dev/urandom does not exist on Windows.
+getrandom = "0.4"
 
 # xtask only.
 cargo_metadata = "0.23.1"

@@ -4,9 +4,9 @@
 //! Owned by the keeper. The worker never touches a PTY, so this is the only
 //! place a channel exists.
 //!
-//! `portable-pty` does the forkpty and the controlling-TTY handshake, so this
-//! module needs no raw descriptors of its own; the whole-tree reap on kill is
-//! `process_reap`'s.
+//! `portable-pty` does the forkpty (ConPTY on Windows) and the controlling-TTY
+//! handshake, so this module needs no raw descriptors of its own; the
+//! whole-tree kill is `pty_channel_reap`'s.
 
 use std::sync::Arc;
 
@@ -54,11 +54,17 @@ pub enum WriteOutcome {
 /// A live PTY and the state the keeper tracks for it.
 pub struct PtyChannel {
     channel_id: u16,
-    master: Box<dyn MasterPty + Send>,
+    /// `None` only once a Windows pseudoconsole was closed after its child
+    /// exited (see [`PtyChannel::exited`]).
+    pub(crate) master: Option<Box<dyn MasterPty + Send>>,
     output: OutputRing,
     /// The channel's input FIFO; its thread owns the PTY's write half.
     input: InputLane,
-    child: Box<dyn Child + Send + Sync>,
+    pub(crate) child: Box<dyn Child + Send + Sync>,
+    /// The kill-on-close job holding the child's tree; `None` when the job
+    /// could not be created, and the kill then ends the child alone.
+    #[cfg(windows)]
+    pub(crate) job: Option<crate::channel_job::ChannelJob>,
     /// The last resize sequence the keeper actually applied. Zero means none,
     /// so the first applied sequence is 1 and a client can tell "no resize yet"
     /// from "resize to the default size".
@@ -160,6 +166,14 @@ impl PtyChannel {
         // program see EOF never arrive, because the master still holds a
         // reference on the other side of the pty.
         drop(pair.slave);
+        #[cfg(windows)]
+        let job = child.as_raw_handle().and_then(|raw| {
+            crate::channel_job::ChannelJob::holding(raw)
+                .inspect_err(|error| {
+                    tracing::warn!(%error, channel_id, "keeper: no job object for the channel");
+                })
+                .ok()
+        });
 
         let reader = pair
             .master
@@ -176,10 +190,12 @@ impl PtyChannel {
 
         Ok(Self {
             channel_id,
-            master: pair.master,
+            master: Some(pair.master),
             output,
             input,
             child,
+            #[cfg(windows)]
+            job,
             applied_seq: 0,
             cols,
             rows,
@@ -225,7 +241,7 @@ impl PtyChannel {
                 max: u16::MAX,
             });
         }
-        self.master
+        self.open_master()?
             .resize(PtySize {
                 rows,
                 cols,
@@ -242,9 +258,15 @@ impl PtyChannel {
     /// struct recorded. A resize that failed to reach the tty leaves the two
     /// disagreeing, and that disagreement is the only way to find out.
     pub fn master_size(&self) -> Result<PtySize, SpawnError> {
-        self.master
+        self.open_master()?
             .get_size()
             .map_err(|err| SpawnError::Pty(err.to_string()))
+    }
+
+    fn open_master(&self) -> Result<&(dyn MasterPty + Send), SpawnError> {
+        self.master
+            .as_deref()
+            .ok_or_else(|| SpawnError::Pty("the pseudoconsole is closed".to_owned()))
     }
 
     /// The authoritative geometry, for a worker that lost a `ResizeAck` and
@@ -306,30 +328,15 @@ impl PtyChannel {
         let status = self.child.try_wait().ok().flatten();
         if status.is_some() {
             self.input.mark_exited();
+            // ConPTY keeps the output pipe open after its client exits, until
+            // the pseudoconsole itself is closed; closing it is what lets the
+            // reader reach EOF, so the exit can be reported at all.
+            #[cfg(windows)]
+            {
+                self.master = None;
+            }
         }
         status
-    }
-
-    /// Terminate the child and every process it spawned (v2 `reapChannelTree`).
-    /// Used by `KillChild` and by a respawn over a live channel.
-    pub fn kill(&mut self) {
-        if let Some(target) = self.reap_target() {
-            crate::process_reap::reap_channel_tree(target);
-        }
-    }
-
-    /// Where a reap starts, or `None` once the child has exited: a reaped
-    /// leader's pid may already belong to someone else (v2's `ch.exited` guard,
-    /// and v2 dropped an exited channel from its map before any shutdown reap).
-    pub fn reap_target(&mut self) -> Option<crate::process_reap::ReapTarget> {
-        if self.exited().is_some() {
-            return None;
-        }
-        let leader = i32::try_from(self.child.process_id()?).ok()?;
-        Some(crate::process_reap::ReapTarget {
-            leader,
-            foreground_group: self.master.process_group_leader(),
-        })
     }
 }
 

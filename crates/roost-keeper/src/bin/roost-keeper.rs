@@ -17,14 +17,21 @@ use roost_keeper::server::{
     Accepted, ConnectionEnd, Endpoint, ExitCause, ExitWatch, SOCKET_CHECK_INTERVAL, Server,
 };
 
-/// Set by the signal handler, which may only touch async-signal-safe state.
-/// The server's exit watch reads it on every connection turn and at least every
-/// quarter second while waiting for a worker, so a signal is never parked
-/// behind a blocked `accept`.
+/// Set by the signal (Unix) or console-control (Windows) handler, which may
+/// only touch async-signal-safe state. The server's exit watch reads it on
+/// every connection turn and at least every quarter second while waiting for a
+/// worker, so a stop request is never parked behind a blocked `accept`.
 static STOP_REQUESTED: AtomicBool = AtomicBool::new(false);
 
+#[cfg(unix)]
 extern "C" fn on_terminate(_signal: std::ffi::c_int) {
     STOP_REQUESTED.store(true, Ordering::SeqCst);
+}
+
+#[cfg(windows)]
+unsafe extern "system" fn on_console_event(_kind: u32) -> windows_sys::core::BOOL {
+    STOP_REQUESTED.store(true, Ordering::SeqCst);
+    1
 }
 
 const USAGE: &str = "\
@@ -34,10 +41,10 @@ USAGE:
     roost-keeper [OPTIONS]
 
 OPTIONS:
-    --socket <PATH>          The Unix socket to listen on. Required.
+    --socket <PATH>          The AF_UNIX socket to listen on. Required.
     --capability-file <PATH> The file holding the 64-hex capability a worker
                              must present. Required.
-    --pid-file <PATH>        Where to write this process's pid, mode 0600.
+    --pid-file <PATH>        Where to write this process's pid, owner-only.
                              Optional.
     -h, --help               Print this message.
     -V, --version            Print the version.
@@ -103,13 +110,7 @@ fn parse_args(argv: &[String]) -> Result<Option<Args>, String> {
 /// so the mode is set at creation rather than tightened afterwards.
 fn write_pid_file(path: &std::path::Path) -> std::io::Result<()> {
     use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(path)?;
+    let mut file = roost_keeper::owner_only::create_truncate_private_file(path)?;
     writeln!(file, "{}", std::process::id())
 }
 
@@ -184,16 +185,7 @@ fn main() -> std::process::ExitCode {
         }
     };
 
-    // SAFETY: the handler only stores into a `static AtomicBool`, which is
-    // async-signal-safe. It touches no allocation, no lock and no I/O.
-    unsafe {
-        // A function item cannot be cast to an integer, so the handler is
-        // taken by pointer first; the cast then goes through a usize, which
-        // is the only form this lint accepts.
-        let handler = on_terminate as extern "C" fn(std::ffi::c_int) as usize;
-        libc::signal(libc::SIGTERM, handler as libc::sighandler_t);
-        libc::signal(libc::SIGINT, handler as libc::sighandler_t);
-    }
+    install_stop_handlers();
 
     // Read before anything is published: a keeper listening without the
     // capability could authenticate no worker, and one that minted its own
@@ -265,4 +257,31 @@ fn main() -> std::process::ExitCode {
     // Every channel's tree was reaped above; dropping the channels here only
     // closes the master ends.
     std::process::ExitCode::SUCCESS
+}
+
+#[cfg(unix)]
+fn install_stop_handlers() {
+    // SAFETY: the handler only stores into a `static AtomicBool`, which is
+    // async-signal-safe. It touches no allocation, no lock and no I/O.
+    unsafe {
+        // A function item cannot be cast to an integer, so the handler is
+        // taken by pointer first; the cast then goes through a usize, which
+        // is the only form this lint accepts.
+        let handler = on_terminate as extern "C" fn(std::ffi::c_int) as usize;
+        libc::signal(libc::SIGTERM, handler as libc::sighandler_t);
+        libc::signal(libc::SIGINT, handler as libc::sighandler_t);
+    }
+}
+
+#[cfg(windows)]
+fn install_stop_handlers() {
+    // SAFETY: the handler is a `'static` function that only stores into a
+    // `static AtomicBool`; Windows runs it on a thread of its own, so it holds
+    // no lock and allocates nothing another thread could observe half-done.
+    let installed = unsafe {
+        windows_sys::Win32::System::Console::SetConsoleCtrlHandler(Some(on_console_event), 1)
+    };
+    if installed == 0 {
+        tracing::warn!(error = %std::io::Error::last_os_error(), "keeper: no console-control handler");
+    }
 }

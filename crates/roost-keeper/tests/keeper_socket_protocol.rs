@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! How the keeper behaves over a real socket when the conversation is about
 //! the PROTOCOL rather than about a terminal: a tag it predates, a shutdown, an
 //! exit. Split from the byte-carrying cases because a failure here is a framing

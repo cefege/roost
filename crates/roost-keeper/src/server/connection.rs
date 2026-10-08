@@ -9,8 +9,8 @@
 //! their own so a caller keeps one way to serve a connection; a child module
 //! can `impl` its parent because a private field is visible to its descendants.
 
+use crate::transport::UnixStream;
 use std::io::Read;
-use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender};

@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The keeper dispatcher's two input frames, `PtyIn` and `PtyInRequest`, driven
 //! with no listener and no socket. An acknowledged batch is answered by its
 //! channel's input lane (read here through `support::tap_results`); a request the

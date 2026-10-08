@@ -8,9 +8,9 @@
 //! is therefore bounded and every failure is reported, because a silent hang
 //! costs an operator an afternoon and a logged timeout costs them a line.
 
+use crate::transport::UnixStream;
 use std::collections::VecDeque;
 use std::io::Write;
-use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex, MutexGuard};

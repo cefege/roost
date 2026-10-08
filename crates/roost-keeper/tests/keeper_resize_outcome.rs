@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! F6: a resize answers with what the keeper DID, and every reason the keeper
 //! can refuse with survives the trip.
 //!

@@ -1,8 +1,10 @@
 //! Process-tree reaping for a keeper channel: closing a pane must end EVERY
 //! process it spawned. Ports the POSIX half of v2
 //! `apps/worker/src/keeper/keeper-process-reap.ts`. Called by
-//! `pty_channel::PtyChannel::kill` (a `KillChild`, a respawn over a live
-//! channel) and by `keeper::Keeper::reap_all_channels` before the daemon exits.
+//! `PtyChannel::kill` (a `KillChild`, a respawn over a live channel) and by
+//! `Keeper::reap_all_channels` before the daemon exits. On Windows a channel's
+//! tree is its Job Object (`channel_job`), so only [`terminate_process`] is
+//! built there.
 //!
 //! A single signal to the leader leaks, two ways: an interactive shell sets
 //! SIGTERM to SIG_IGN, and its foreground and background jobs live in
@@ -12,20 +14,27 @@
 //! group gets SIGTERM, and every survivor of the snapshot gets SIGKILL after a
 //! grace interval.
 
+#[cfg(unix)]
 use std::collections::{HashMap, HashSet};
+#[cfg(unix)]
 use std::io::Read;
+#[cfg(unix)]
 use std::process::{Command, Stdio};
+#[cfg(unix)]
 use std::time::{Duration, Instant};
 
 /// Grace between the graceful reap signals (hangup + group SIGTERM) and the
 /// SIGKILL sweep of survivors.
+#[cfg(unix)]
 pub const REAP_GRACE: Duration = Duration::from_millis(2000);
 
 /// How long the process listing may take. A `ps` that hangs must not hang the
 /// keeper's one serving thread.
+#[cfg(unix)]
 const PS_TIMEOUT: Duration = Duration::from_millis(2000);
 
 /// The processes one channel's reap starts from.
+#[cfg(unix)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReapTarget {
     /// The child the PTY was opened for: a session leader, whose pid is also
@@ -37,6 +46,7 @@ pub struct ReapTarget {
 
 /// One snapshot member and its birth, so the deferred SIGKILL can prove it is
 /// killing the process it saw rather than a recycled pid.
+#[cfg(unix)]
 #[derive(Debug, Clone, Copy)]
 struct Member {
     pid: i32,
@@ -45,6 +55,7 @@ struct Member {
 
 /// Graceful reap of one channel's whole tree, then the SIGKILL escalation on a
 /// thread of its own after [`REAP_GRACE`].
+#[cfg(unix)]
 pub fn reap_channel_tree(target: ReapTarget) {
     let tree = collect_process_tree(target.leader);
     hang_up(target);
@@ -76,6 +87,7 @@ pub fn reap_channel_tree(target: ReapTarget) {
 
 /// Reap every channel before the keeper exits: hang each terminal up and
 /// SIGKILL every live member of every tree at once (v2 `reapAllChannels`).
+#[cfg(unix)]
 pub fn reap_all_channels(targets: &[ReapTarget]) {
     let mut victims = Vec::new();
     for &target in targets {
@@ -98,6 +110,7 @@ pub fn reap_all_channels(targets: &[ReapTarget]) {
 /// SIGTERM one process, by pid: the worker's graceful stop of a keeper it
 /// started. True when the signal was delivered. A pid `kill` would read as a
 /// group or a broadcast (0, 1, anything past `i32::MAX`) is refused.
+#[cfg(unix)]
 pub fn terminate_process(pid: u32) -> bool {
     let Ok(pid) = i32::try_from(pid) else {
         return false;
@@ -111,6 +124,7 @@ pub fn terminate_process(pid: u32) -> bool {
 /// sent SIGHUP; this keeper's reader and input threads hold duplicates of the
 /// master, so dropping one descriptor hangs nothing up, and the same signals go
 /// to the same processes instead: the session leader and the foreground group.
+#[cfg(unix)]
 fn hang_up(target: ReapTarget) {
     if let Some(group) = target.foreground_group
         && group != target.leader
@@ -126,6 +140,7 @@ fn hang_up(target: ReapTarget) {
 /// SIGKILL every snapshot member still alive, skipping only a pid /proc PROVES
 /// is not the one snapshotted. An unreadable snapshot birth keeps the kill: an
 /// unverifiable member must not weaken the every-survivor-dies guarantee.
+#[cfg(unix)]
 fn sweep_survivors(members: &[Member]) {
     let mut killed = 0_usize;
     for member in members {
@@ -148,6 +163,7 @@ fn sweep_survivors(members: &[Member]) {
 }
 
 /// One process listing → every descendant of `root`, root included.
+#[cfg(unix)]
 fn collect_process_tree(root: i32) -> Vec<i32> {
     let mut children: HashMap<i32, Vec<i32>> = HashMap::new();
     for line in process_listing().lines() {
@@ -177,6 +193,7 @@ fn collect_process_tree(root: i32) -> Vec<i32> {
 
 /// `ps -A -o pid=,ppid=`, bounded by [`PS_TIMEOUT`]. Empty when `ps` is missing
 /// or fails, which leaves the tree as the leader alone, as v2 did.
+#[cfg(unix)]
 fn process_listing() -> String {
     let spawned = Command::new("ps")
         .args(["-A", "-o", "pid=,ppid="])
@@ -219,11 +236,13 @@ fn process_listing() -> String {
 }
 
 /// Whether the deferred sweep can prove a pid's identity (Linux /proc).
+#[cfg(unix)]
 const VERIFIES_BIRTHS: bool = cfg!(target_os = "linux");
 
 /// /proc/<pid>/stat field 22: the start time in clock ticks since boot, stable
 /// for a process's whole life and different after the pid is recycled. `None`
 /// when unreadable (vanished, or not Linux).
+#[cfg(unix)]
 fn start_time_ticks(pid: i32) -> Option<u64> {
     if !VERIFIES_BIRTHS {
         return None;
@@ -236,6 +255,7 @@ fn start_time_ticks(pid: i32) -> Option<u64> {
 }
 
 /// kill(pid, 0) liveness; self and pid <= 1 are never alive to this module.
+#[cfg(unix)]
 fn is_process_alive(pid: i32) -> bool {
     if pid <= 1 || u32::try_from(pid).ok() == Some(std::process::id()) {
         return false;
@@ -246,6 +266,7 @@ fn is_process_alive(pid: i32) -> bool {
 }
 
 /// Signal one process. True when it was delivered.
+#[cfg(unix)]
 fn send(pid: i32, signal: libc::c_int) -> bool {
     if pid <= 1 || u32::try_from(pid).ok() == Some(std::process::id()) {
         return false;
@@ -257,6 +278,7 @@ fn send(pid: i32, signal: libc::c_int) -> bool {
 
 /// Signal a whole process group. Refused for group ids that `kill` would read
 /// as "my group" or "everyone".
+#[cfg(unix)]
 fn signal_group(group: i32, signal: libc::c_int) -> bool {
     if group <= 1 {
         return false;
@@ -264,4 +286,31 @@ fn signal_group(group: i32, signal: libc::c_int) -> bool {
     // SAFETY: a negative operand names exactly the group `group`; the guard
     // above keeps it off kill(0) (our own group) and kill(-1) (broadcast).
     unsafe { libc::kill(-group, signal) == 0 }
+}
+
+/// End one process, by pid: the worker's stop of a keeper it started. True
+/// when the process was terminated. Pid 0 (the idle process) and this process
+/// itself are refused.
+#[cfg(windows)]
+pub fn terminate_process(pid: u32) -> bool {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
+    if pid == 0 || pid == std::process::id() {
+        return false;
+    }
+    // SAFETY: OpenProcess takes plain values; a null return is checked before
+    // the handle is used, and the handle is closed exactly once below, after
+    // its single use.
+    let terminated = unsafe {
+        let handle = OpenProcess(PROCESS_TERMINATE, 0, pid);
+        if handle.is_null() {
+            false
+        } else {
+            let terminated = TerminateProcess(handle, 1) != 0;
+            CloseHandle(handle);
+            terminated
+        }
+    };
+    tracing::info!(pid, terminated, "a process was asked to terminate");
+    terminated
 }

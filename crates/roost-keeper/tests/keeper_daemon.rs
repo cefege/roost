@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The keeper binary, run as a real process against a real socket. Everything
 //! here is about the things a library test cannot show: that the daemon binds,
 //! that it keeps running when a worker goes away, and that it stops when it is

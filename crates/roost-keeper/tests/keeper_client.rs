@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The keeper client against a REAL keeper daemon. The client and the daemon
 //! are two ends of a socket protocol, so testing one against a stub of the
 //! other would prove only that the stub agrees with the client — and the

@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The keeper capability file: what the worker mints, what the keeper accepts,
 //! and how a presented value is checked. The file is the whole of the trust
 //! between the two processes, so a wrong mode, a rewritten secret or a lenient

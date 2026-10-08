@@ -345,22 +345,6 @@ impl Keeper {
         self.channels.is_empty()
     }
 
-    /// Reap every live channel's whole process tree before the daemon exits
-    /// (v2 `reapAllChannels`): a keeper that stops must not leave a PTY's
-    /// children running with nothing to reach them.
-    pub fn reap_all_channels(&mut self) {
-        let targets: Vec<crate::process_reap::ReapTarget> = self
-            .channels
-            .values_mut()
-            .filter_map(|channel| channel.pty.reap_target())
-            .collect();
-        tracing::info!(
-            channels = targets.len(),
-            "keeper: reaping every channel before exit"
-        );
-        crate::process_reap::reap_all_channels(&targets);
-    }
-
     /// The contract this build reports, for `roost doctor` to compare against a
     /// worker's.
     pub fn contract(&self) -> &KeeperContractV1 {

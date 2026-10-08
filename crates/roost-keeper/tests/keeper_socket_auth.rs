@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The keeper serves nothing to a connection that has not proved the
 //! capability: the first frame must be a verifying `Hello`, sent within the
 //! byte cap and the timeout, and until then no frame is answered and no PTY

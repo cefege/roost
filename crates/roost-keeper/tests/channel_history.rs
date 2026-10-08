@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The keeper's retained history, which is what a fresh worker replays to
 //! rebuild a channel it did not spawn: v2 `keeper/keeper-history.ts` semantics
 //! (head counts every byte, resize markers split the window, an evicted marker
