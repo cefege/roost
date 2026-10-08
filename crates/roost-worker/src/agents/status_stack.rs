@@ -17,7 +17,10 @@ use super::detector::{AgentScreenDetector, AgentScreenDetectorDeps};
 use super::environment::AgentReportEnvironment;
 use super::manifests::AgentManifests;
 use super::process_scan::{AgentProcessScanner, SCAN_THROTTLE};
+#[cfg(unix)]
 use super::process_snapshot::PsSnapshotReader;
+#[cfg(windows)]
+use super::process_snapshot_windows::WindowsSnapshotReader;
 use super::registry::{
     AgentStatusPublisher, AgentStatusRegistry, AgentStatusRegistryOptions, INTEGRATION_LEASE_MS,
 };
@@ -96,7 +99,10 @@ impl AgentStatusStack {
         })?;
         registry.spawn_lease_sweep(&deps.runtime);
         let scanner = AgentProcessScanner::new(
+            #[cfg(unix)]
             Arc::new(PsSnapshotReader::default()),
+            #[cfg(windows)]
+            Arc::new(WindowsSnapshotReader),
             SCAN_THROTTLE,
             deps.runtime.clone(),
         );

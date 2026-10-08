@@ -43,17 +43,16 @@ pub const TOOL_TIMEOUT: Duration = Duration::from_secs(10);
 /// tool installed into a directory only this account has on `PATH` stays
 /// reachable, and the prefix only decides what is reachable that was not.
 pub fn tool_path(inherited: Option<&str>, platform: roost_host::HostPlatform) -> String {
+    let inherited = inherited.map(str::trim).filter(|value| !value.is_empty());
     let prefix = match platform {
         roost_host::HostPlatform::MacOs | roost_host::HostPlatform::Linux => {
             "/opt/homebrew/bin:/usr/local/bin:/usr/sbin:/usr/bin:/bin"
         }
-        // v3 ships Linux and macOS only. The spelling is kept so a caller that
-        // is handed a Windows platform by a stored value gets a refusal from
-        // the platform check rather than a PATH built for a host that is not
-        // supported.
-        roost_host::HostPlatform::Windows => "/usr/bin:/bin",
+        // Windows tools (`netstat`, `git`, `gh`) live where the user's own
+        // `Path` already points, and its separator is `;`: no prefix.
+        roost_host::HostPlatform::Windows => return inherited.unwrap_or_default().to_string(),
     };
-    match inherited.map(str::trim).filter(|value| !value.is_empty()) {
+    match inherited {
         Some(rest) => format!("{prefix}:{rest}"),
         None => prefix.to_string(),
     }
