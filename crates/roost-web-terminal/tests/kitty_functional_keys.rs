@@ -42,9 +42,15 @@ fn functional_key_table_uses_legacy_forms_and_declared_pua_codes() {
             "F{number}",
         );
     }
-    for code in (57358..=57363).chain(57376..=57454) {
+    // Lock and modifier keys are absent here: they are reported only under
+    // "report all keys" (`kitty_keyboard::a_bare_modifier_key_sends_nothing_…`).
+    for code in (57361..=57363).chain(57376..=57440) {
         let encoded = terminal_key_sequence(&named(NamedKey::Functional(code)), false, 1);
         assert_eq!(encoded.as_deref(), Some(format!("\x1b[{code}u").as_str()));
+    }
+    for code in (57358..=57360).chain(57441..=57454) {
+        let encoded = terminal_key_sequence(&named(NamedKey::Functional(code)), false, 8);
+        assert_eq!(encoded.as_deref(), Some(format!("\x1b[{code};1u").as_str()));
     }
     for (dom_key, code) in [
         ("CapsLock", 57358),

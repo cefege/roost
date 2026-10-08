@@ -256,3 +256,41 @@ fn kitty_modifiers_cover_all_eight_specified_bits() {
         Some("\x1b[97;256u"),
     );
 }
+
+/// A bare modifier or lock key is reported only with "report all keys as
+/// escape codes"; under any other flags it sends nothing. Pressing Shift under
+/// flags 1|4 used to send `CSI 57441:83;2u`, which an application read as an
+/// `S` because the browser's `Shift` key name lent its first letter.
+#[test]
+fn a_bare_modifier_key_sends_nothing_unless_all_keys_are_reported() {
+    let shift = KeyChord::named(NamedKey::Functional(57441), Modifiers::SHIFT);
+    let caps_lock = named(NamedKey::Functional(57358));
+    for flags in [0, 1, 2, 1 | 2, 1 | 4, 1 | 2 | 4 | 16] {
+        for chord in [&shift, &caps_lock] {
+            assert_eq!(
+                terminal_key_sequence_for_event(
+                    chord,
+                    false,
+                    flags,
+                    KeyEventType::Press,
+                    None,
+                    AlternateKeys::default(),
+                ),
+                None,
+                "flags {flags}"
+            );
+        }
+    }
+    assert_eq!(
+        terminal_key_sequence_for_event(
+            &shift,
+            false,
+            8,
+            KeyEventType::Press,
+            None,
+            AlternateKeys::default(),
+        )
+        .as_deref(),
+        Some("\x1b[57441;2u"),
+    );
+}

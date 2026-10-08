@@ -98,10 +98,17 @@ pub(super) fn keyboard_event<'a>(
         num_lock: event.get_modifier_state("NumLock"),
     };
     let code = event.code();
+    // Alternate keys describe a key that types one character; a named key
+    // (`Shift`, `ArrowUp`) has none, and its name's first letter is not one.
+    let single_character = key.chars().count() == 1;
     let alternate_keys = AlternateKeys {
-        shifted: modifiers.shift.then(|| key.chars().next()).flatten(),
+        shifted: (modifiers.shift && single_character)
+            .then(|| key.chars().next())
+            .flatten(),
         base_layout: base_layout_key(&code),
-        unshifted: unshifted_key(&event.key(), &code),
+        unshifted: single_character
+            .then(|| unshifted_key(key, &code))
+            .flatten(),
     };
     let associated_text = (event_type != KeyEventType::Release
         && key.chars().count() == 1

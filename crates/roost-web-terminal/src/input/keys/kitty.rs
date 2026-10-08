@@ -26,6 +26,11 @@ pub fn terminal_key_sequence_for_event(
     if chord.is_composing || matches!(chord.kind, KeyKind::BrowserOwned) {
         return None;
     }
+    // The spec reports a bare modifier or lock key only under "report all
+    // keys as escape codes"; any other flags send nothing for it.
+    if !all_keys && is_modifier_or_lock_key(chord.kind) {
+        return None;
+    }
     if event_type == KeyEventType::Release
         && event_reporting
         && !all_keys
@@ -154,6 +159,15 @@ fn disambiguate_key(chord: &KeyChord) -> bool {
         }
         _ => false,
     }
+}
+
+/// Caps/Scroll/Num Lock (57358–57360) and the left/right/ISO modifier keys
+/// (57441–57454) in kitty's functional-key table.
+fn is_modifier_or_lock_key(kind: KeyKind) -> bool {
+    matches!(
+        kind,
+        KeyKind::Named(NamedKey::Functional(57358..=57360 | 57441..=57454))
+    )
 }
 
 fn kitty_modifier_parameter(modifiers: Modifiers) -> u32 {

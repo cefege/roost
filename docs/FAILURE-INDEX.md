@@ -3991,3 +3991,19 @@ its kill fails, beside the `Close failed:` card.
 **Guard** — `crates/roost-client-core/tests/store_close_kill.rs` —
 `a_killed_session_stays_hidden_until_it_leaves_the_session_plane`,
 `a_session_whose_kill_failed_comes_back`.
+
+### Pressing Shift alone types an `S`
+
+**Symptom** — in a terminal running an app that enabled the kitty keyboard protocol (an agent TUI), tapping
+Shift on its own inserts `S`; other modifier keys can insert stray characters or escape garbage too.
+
+**Wrong** — filter it per app or per platform. The browser sent a key event the app was entitled to read:
+under any kitty flags the encoder reported the bare Shift key (`CSI 57441;2u`), and with flag 4 it attached
+`S` as the shifted alternate key, because the alternate keys were read from the DOM key NAME (`"Shift"`).
+
+**Right** — as kitty's own `is_modifier_key` does, a bare modifier or lock key (57441–57454, 57358–57360) is
+encoded only under "report all keys as escape codes" (flag 8); otherwise it sends nothing. Shifted/unshifted
+alternate keys come only from a key whose DOM value is one character.
+
+**Guard** — `crates/roost-web-terminal/tests/kitty_keyboard.rs` —
+`a_bare_modifier_key_sends_nothing_unless_all_keys_are_reported`.
