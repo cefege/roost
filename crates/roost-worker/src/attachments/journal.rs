@@ -245,7 +245,10 @@ pub fn persist_attachment_operation(
     let bytes = serde_json::to_vec(journal).map_err(io::Error::other)?;
     write_private_file(&pending, &bytes)?;
     if sync {
-        fs::File::open(&pending)?.sync_all()?;
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&pending)?
+            .sync_all()?;
     }
     fs::rename(&pending, &paths.journal_path)?;
     if sync {

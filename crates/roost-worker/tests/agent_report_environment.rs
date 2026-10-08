@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The environment a spawned PTY carries so its agent integration can report:
 //! the documented variable names, a per-session capability that survives a
 //! worker restart, and the override rules for the endpoint address. Mirrors v2

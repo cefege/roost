@@ -6,13 +6,11 @@
 //! `roost_protocol::fingerprint`); the key file's format is
 //! `host::openssh_key`, so an installed key stays one file either way.
 //!
-//! POSIX ONLY, and deliberately: the key's mode is read with `std::os::unix`
-//! and a key any other user can read is refused rather than signed with. v2's
-//! `win32` arm applied a service DACL instead, and v3 ships no Windows worker.
+//! On Unix the key's mode is read with `std::os::unix` and a key any other user
+//! can read is refused rather than signed with. On Windows the key's protection
+//! is the per-user `%LOCALAPPDATA%` ACL it lives under.
 //! Ports v2 `apps/worker/src/host/jwt.ts`.
-use std::fs::Permissions;
-use std::io::{self, Read as _, Write as _};
-use std::os::unix::fs::PermissionsExt as _;
+use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -47,14 +45,8 @@ pub const JOSE_ALGORITHM: &str = "EdDSA";
 pub const CREDENTIAL_LIFETIME: Duration = Duration::from_secs(300);
 
 /// The only mode a private key is written at, and the only one read under.
+#[cfg(unix)]
 const PRIVATE_KEY_MODE: u32 = 0o600;
-
-/// The kernel's CSPRNG.
-///
-/// `ed25519-dalek`'s `generate` needs the `rand_core` feature this workspace
-/// does not enable, and one keypair per install is not worth a new dependency to
-/// reach an RNG the operating system already exposes here.
-const ENTROPY_SOURCE: &str = "/dev/urandom";
 
 /// Why no credential could be produced from the key at a path.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -70,7 +62,7 @@ pub enum WorkerKeyError {
     PermissionsTooOpen { path: PathBuf, mode: u32 },
     #[error("the worker key at {path} could not be written: {reason}")]
     Unwritable { path: PathBuf, reason: String },
-    #[error("no signing entropy was available from {ENTROPY_SOURCE}: {0}")]
+    #[error("no signing entropy was available from the OS random source: {0}")]
     Entropy(String),
     #[error("the worker key at {path} does not derive the identity it names: {reason}")]
     Identity { path: PathBuf, reason: String },
@@ -255,15 +247,21 @@ fn write_private_key(
         .map_err(|error| unwritable(reason_of(&error)))?;
     file.sync_all()
         .map_err(|error| unwritable(reason_of(&error)))?;
-    std::fs::set_permissions(&staged, Permissions::from_mode(PRIVATE_KEY_MODE))
-        .map_err(|error| unwritable(reason_of(&error)))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(PRIVATE_KEY_MODE))
+            .map_err(|error| unwritable(reason_of(&error)))?;
+    }
     std::fs::rename(&staged, path).map_err(|error| unwritable(reason_of(&error)))
 }
 
 /// Refuse a key any user but the owner can read. OpenSSH refuses one too, and a
 /// worker that signs with a key another account can read has already lost what
 /// the mode protected.
+#[cfg(unix)]
 fn refuse_shared_key(path: &Path) -> Result<(), WorkerKeyError> {
+    use std::os::unix::fs::PermissionsExt as _;
     let metadata = std::fs::metadata(path).map_err(|error| WorkerKeyError::Unreadable {
         path: path.to_path_buf(),
         reason: reason_of(&error),
@@ -278,18 +276,20 @@ fn refuse_shared_key(path: &Path) -> Result<(), WorkerKeyError> {
     Ok(())
 }
 
-/// Thirty-two bytes of kernel entropy, or a refusal.
+/// The key's directory ACL is the restriction on Windows; no mode to read.
+#[cfg(windows)]
+fn refuse_shared_key(_path: &Path) -> Result<(), WorkerKeyError> {
+    Ok(())
+}
+
+/// Thirty-two bytes of OS entropy, or a refusal.
 ///
-/// `/dev/urandom` rather than a crate: the product is POSIX-only, the kernel
-/// generator is the one every Rust RNG ends up calling here anyway, and the key
-/// is written once per install.
+/// `getrandom` rather than `ed25519-dalek`'s `generate`, which needs the
+/// `rand_core` feature this workspace does not enable; the key is written once
+/// per install.
 fn random_seed() -> Result<[u8; 32], WorkerKeyError> {
     let mut seed = [0u8; 32];
-    let mut source = std::fs::File::open(ENTROPY_SOURCE)
-        .map_err(|error| WorkerKeyError::Entropy(reason_of(&error)))?;
-    source
-        .read_exact(&mut seed)
-        .map_err(|error| WorkerKeyError::Entropy(reason_of(&error)))?;
+    getrandom::fill(&mut seed).map_err(|error| WorkerKeyError::Entropy(error.to_string()))?;
     Ok(seed)
 }
 

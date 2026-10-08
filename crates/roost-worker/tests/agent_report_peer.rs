@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The kernel, not the caller, names the reporter: a different process that
 //! holds a valid session capability is still refused, because its attested
 //! peer PID is not the agent the detector sees. The reporter is this test

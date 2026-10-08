@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Pins v2 `apps/worker/src/session/session-git-ports.ts` as the session side
 //! of the folder watcher applies it: a reading that changes what the session
 //! shows is written to the record and published once (`git`, `pr`, `ports`), an

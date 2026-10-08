@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! An OSC 7 report of a NEW folder publishes one `cwd` session event naming the
 //! session, the folder and the chunk's time, through the manager's event sink;
 //! the same folder again, or a chunk with no report, publishes nothing. Both

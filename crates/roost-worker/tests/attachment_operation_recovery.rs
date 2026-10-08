@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The durable half of an attachment operation: a crashed commit's final name
 //! recovered without corrupting the manifest, a status that never reads the
 //! bytes it describes, a failed flush that withholds the receipt, and a

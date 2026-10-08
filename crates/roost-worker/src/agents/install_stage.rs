@@ -5,24 +5,27 @@
 //! durable write of `@roost/host/durability`); called by
 //! [`super::install_transaction`] and [`super::install_mutation`].
 
-use std::fs::{self, DirBuilder, File, OpenOptions};
+use std::fs::{self, DirBuilder};
 use std::io::{self, Write as _};
-use std::os::unix::fs::{DirBuilderExt as _, MetadataExt as _, OpenOptionsExt as _};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use roost_platform::HostPlatform;
 
+use super::file_identity::path_identity;
 use super::install_proof::{
     IntegrationDirectoryPlan, IntegrationDirectorySnapshot, assert_integration_directory_snapshot,
     inspect_integration_directory, integration_lstat_if_present, integration_path_comparison_key,
     refusal, same_integration_identity,
 };
 use super::integration_assets::ByRuntime;
+use roost_keeper::owner_only::{
+    create_new_private_file, create_private_dir_all, restrict_to_owner,
+};
 
 const STAGE_PREFIX: &str = ".roost-integration-stage-";
+#[cfg(unix)]
 const LOADER_DIRECTORY_MODE: u32 = 0o700;
-const ASSET_FILE_MODE: u32 = 0o600;
 
 /// A loader directory proven stable, with the private stage inside it.
 #[derive(Debug)]
@@ -60,10 +63,7 @@ pub(super) fn prepare_directory(
             if integration_lstat_if_present(&plan.path)?.is_some() {
                 return Err(before_installation());
             }
-            DirBuilder::new()
-                .recursive(true)
-                .mode(LOADER_DIRECTORY_MODE)
-                .create(&plan.path)?;
+            create_private_dir_all(&plan.path)?;
             tracing::info!(path = %plan.path.display(), "agent integration loader directory created");
             true
         }
@@ -80,14 +80,14 @@ pub(super) fn prepare_directory(
         return Err(before_installation());
     }
     let stage_path = create_stage_directory(&snapshot.canonical_path)?;
-    let stage = fs::symlink_metadata(&stage_path)?;
+    let (stage_device, stage_inode) = path_identity(&stage_path, false)?;
     Ok(PreparedDirectory {
         plan: plan.clone(),
         snapshot,
         created,
         stage_path,
-        stage_device: stage.dev(),
-        stage_inode: stage.ino(),
+        stage_device,
+        stage_inode,
     })
 }
 
@@ -121,24 +121,18 @@ pub(super) fn stage_file(
     content: &str,
 ) -> io::Result<StagedFile> {
     let path = directory.stage_path.join(name);
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(ASSET_FILE_MODE)
-        .open(&path)?;
+    let mut file = create_new_private_file(&path)?;
     file.write_all(content.as_bytes())?;
     // The creation mode is filtered by the umask; the installed file is
     // owner-only whatever the umask is.
-    file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(
-        ASSET_FILE_MODE,
-    ))?;
+    restrict_to_owner(&path)?;
     file.sync_all()?;
     sync_directory(&directory.stage_path)?;
-    let metadata = fs::symlink_metadata(&path)?;
+    let (device, inode) = path_identity(&path, false)?;
     Ok(StagedFile {
         path,
-        device: metadata.dev(),
-        inode: metadata.ino(),
+        device,
+        inode,
     })
 }
 
@@ -159,18 +153,23 @@ pub(super) fn durable_remove(path: &Path) -> io::Result<()> {
 /// inodes this install created: a changed directory is never followed.
 pub(super) fn cleanup_stages(prepared: &[&PreparedDirectory]) {
     for directory in prepared {
-        let (Ok(parent), Ok(stage)) = (
-            fs::symlink_metadata(&directory.snapshot.canonical_path),
+        let (Ok(parent), Ok(stage), Ok(stage_identity)) = (
+            path_identity(&directory.snapshot.canonical_path, false),
             fs::symlink_metadata(&directory.stage_path),
+            path_identity(&directory.stage_path, false),
         ) else {
             continue;
         };
         if same_integration_identity(
-            &parent,
+            parent,
             directory.snapshot.directory_device,
             directory.snapshot.directory_inode,
         ) && stage.is_dir()
-            && same_integration_identity(&stage, directory.stage_device, directory.stage_inode)
+            && same_integration_identity(
+                stage_identity,
+                directory.stage_device,
+                directory.stage_inode,
+            )
             && let Err(error) = fs::remove_dir_all(&directory.stage_path)
         {
             tracing::warn!(stage = %directory.stage_path.display(), %error, "agent integration stage left behind");
@@ -201,7 +200,7 @@ fn create_stage_directory(parent: &Path) -> io::Result<PathBuf> {
     loop {
         let suffix = format!("{:x}{:x}", std::process::id(), seed.wrapping_add(attempt));
         let path = parent.join(format!("{STAGE_PREFIX}{suffix}"));
-        match DirBuilder::new().mode(LOADER_DIRECTORY_MODE).create(&path) {
+        match private_dir_builder().create(&path) {
             Ok(()) => return Ok(path),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists && attempt < 64 => {
                 attempt += 1;
@@ -211,6 +210,30 @@ fn create_stage_directory(parent: &Path) -> io::Result<PathBuf> {
     }
 }
 
+/// A non-recursive directory builder, owner-only on Unix.
+#[cfg(unix)]
+fn private_dir_builder() -> DirBuilder {
+    use std::os::unix::fs::DirBuilderExt as _;
+    let mut builder = DirBuilder::new();
+    builder.mode(LOADER_DIRECTORY_MODE);
+    builder
+}
+
+/// A non-recursive directory builder; the `%LOCALAPPDATA%` ACL is the
+/// restriction on Windows.
+#[cfg(windows)]
+fn private_dir_builder() -> DirBuilder {
+    DirBuilder::new()
+}
+
+#[cfg(unix)]
 fn sync_directory(path: &Path) -> io::Result<()> {
-    File::open(path)?.sync_all()
+    fs::File::open(path)?.sync_all()
+}
+
+/// NTFS journals directory entries itself; a directory handle cannot be
+/// flushed on Windows.
+#[cfg(windows)]
+fn sync_directory(_path: &Path) -> io::Result<()> {
+    Ok(())
 }

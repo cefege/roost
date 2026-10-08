@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The attachment reaper's policy: files past the TTL go, the base stays under
 //! 1 GiB by evicting the oldest survivors, the dedup manifest is never swept,
 //! and emptied directories are removed. v2 has no reaper test; these pin the

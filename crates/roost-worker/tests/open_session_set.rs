@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! What a coordinator that did not answer is, and what a boot then does about a
 //! keeper that is holding somebody's terminal.
 //!

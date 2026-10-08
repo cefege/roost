@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Uploads land in the session's project folder: `<folder>/.roost/media`,
 //! git-ignored, fixed for the whole operation even if the shell moves, swept
 //! by the reaper after the TTL, and never written through a symlinked

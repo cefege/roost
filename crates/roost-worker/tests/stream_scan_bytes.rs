@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The pure byte-stream scanners, exercised on the buffers that break them: a
 //! sequence cut in half at a chunk boundary, a payload that never terminates, a
 //! percent escape that is not one, and two toggles in one buffer.

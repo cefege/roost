@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Process recognition and the shared, throttled process scan behind agent
 //! status: which row is an agent, how an identity survives a missed snapshot,
 //! and how a forced reporter proof is fenced and aborted. Ports v2

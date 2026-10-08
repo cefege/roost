@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Terminal-core admission over deterministic memory seams: steady-cap math,
 //! the heartbeat report, refusal, replacement serialization, the survivor-set
 //! gate, the operator cap parse, the cgroup ceiling, and a spawn's lease.

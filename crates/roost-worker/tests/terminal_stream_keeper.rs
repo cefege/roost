@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! A coordinator stream state that changes geometry reaches a REAL keeper: the
 //! keeper applies the transaction's sequence and reports the new geometry, and
 //! the worker's own core moves with it. Covers `session::terminal_txn` →

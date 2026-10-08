@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Adoption and respawn against a REAL keeper, the way a restarted worker meets
 //! them: v2 `session-resume.ts` rebuilds a record around a surviving PTY from
 //! the keeper's ordered history (head + base geometry), and v2

@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The diagnostic snapshot's per-session entries are a WIRE CONTRACT, not a
 //! report nicety. `diag.snapshot` fans out through the coordinator to every
 //! layered terminal probe, and those readers resolve `sessions[sessionId]` to

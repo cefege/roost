@@ -44,6 +44,7 @@ pub mod keeper_handle;
 pub mod keeper_prepare;
 pub mod keeper_probe;
 pub mod keeper_retire;
+mod keeper_spawn;
 pub mod link_downstream;
 pub mod link_drain;
 pub mod link_loop;

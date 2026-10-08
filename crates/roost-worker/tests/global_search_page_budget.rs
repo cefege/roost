@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! What a global content search page is allowed to report, over the production
 //! scanner and a real grid.
 //!

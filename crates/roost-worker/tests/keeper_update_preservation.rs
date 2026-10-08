@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Keeper preservation across an update admission, against a real keeper on a
 //! real socket: a journaled preserve built from the keeper's own runtime
 //! observation — the admission a deploy records when the keeper digest is

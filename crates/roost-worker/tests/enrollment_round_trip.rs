@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Spending a bootstrap token and registering, end to end, against a real
 //! coordinator on a real socket.
 //!

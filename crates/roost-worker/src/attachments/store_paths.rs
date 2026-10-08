@@ -163,7 +163,8 @@ fn normalize(path: &Path) -> PathBuf {
     folded
 }
 
-#[cfg(test)]
+// The paths asserted are POSIX ones.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 

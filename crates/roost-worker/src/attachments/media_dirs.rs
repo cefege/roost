@@ -151,7 +151,10 @@ impl MediaDirRegistry {
         pending.push(".next");
         let pending = PathBuf::from(pending);
         write_private_file(&pending, &bytes)?;
-        fs::File::open(&pending)?.sync_all()?;
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&pending)?
+            .sync_all()?;
         fs::rename(&pending, &self.path)
     }
 }
@@ -170,7 +173,8 @@ fn load_registry(path: &Path) -> BTreeSet<PathBuf> {
         .collect()
 }
 
-#[cfg(test)]
+// The paths asserted are POSIX ones.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 

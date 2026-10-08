@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The attachment operation's lifecycle: the carrier fence, the committed
 //! receipt that answers a lost direct acknowledgement after a restart, the idle
 //! sweep, and a resumed upload's bytes. Ports v2

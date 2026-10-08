@@ -7,7 +7,6 @@
 
 use std::fs::{File, OpenOptions};
 use std::io;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
 use sha2::{Digest, Sha256};
@@ -148,12 +147,7 @@ pub(super) fn restore(active: &mut ActiveTable, operation: ActiveOperation) {
 }
 
 fn open_new_temp(path: &Path) -> io::Result<File> {
-    OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(path)
+    roost_keeper::owner_only::create_truncate_private_file(path)
 }
 
 /// Reopen a parked temp positioned after the bytes it holds. v2 reopened it

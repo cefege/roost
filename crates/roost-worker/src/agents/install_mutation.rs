@@ -6,8 +6,9 @@
 
 use std::fs;
 use std::io;
-use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
+
+use super::file_identity::path_identity;
 
 use roost_platform::HostPlatform;
 
@@ -104,8 +105,8 @@ pub(super) fn apply_asset_mutation(
         return Err(error);
     }
     mutation.installed = true;
-    let installed = fs::symlink_metadata(&mutation.target)?;
-    if !same_integration_identity(&installed, staged.device, staged.inode) {
+    let installed = path_identity(&mutation.target, false)?;
+    if !same_integration_identity(installed, staged.device, staged.inode) {
         return Err(changed());
     }
     tracing::info!(target = %mutation.target.display(), "agent integration asset installed");
@@ -162,9 +163,13 @@ fn rollback_one(mutation: &InstallMutation<'_>, platform: HostPlatform) -> io::R
     let mut complete = true;
     if mutation.installed
         && let Some(staged) = &mutation.staged
-        && let Some(installed) = integration_lstat_if_present(&mutation.target)?
+        && integration_lstat_if_present(&mutation.target)?.is_some()
     {
-        if same_integration_identity(&installed, staged.device, staged.inode) {
+        if same_integration_identity(
+            path_identity(&mutation.target, false)?,
+            staged.device,
+            staged.inode,
+        ) {
             durable_remove(&mutation.target)?;
         } else {
             complete = false;
@@ -176,10 +181,13 @@ fn rollback_one(mutation: &InstallMutation<'_>, platform: HostPlatform) -> io::R
         };
         match integration_lstat_if_present(&mutation.target)? {
             None => fs::hard_link(backup, &mutation.target)?,
-            Some(target) => {
-                let backup_metadata = fs::symlink_metadata(backup)?;
-                if !same_integration_identity(&target, backup_metadata.dev(), backup_metadata.ino())
-                {
+            Some(_) => {
+                let (device, inode) = path_identity(backup, false)?;
+                if !same_integration_identity(
+                    path_identity(&mutation.target, false)?,
+                    device,
+                    inode,
+                ) {
                     complete = false;
                 }
             }

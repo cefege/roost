@@ -26,7 +26,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use roost_host::{
     BuildIdentity, DEFAULT_COORDINATOR_BIND, DEV_BUILD_STAMP, EnvSource, HostPlatform,
-    build_identity, worker_data_dir, worker_log_dir,
+    KEEPER_PROGRAM_FILE, build_identity, worker_data_dir, worker_log_dir,
 };
 use roost_platform::KEEPER_FORCE_LIVE_RETIRE_ENV;
 use roost_protocol::wire::WorkerFp;
@@ -66,9 +66,6 @@ pub const KEEPER_CAPABILITY_NAME: &str = "mux-keeper.cap";
 
 /// The worker key filename inside the worker data directory.
 pub const WORKER_KEY_NAME: &str = "coordinator_ed25519.key";
-
-/// The executable name the keeper ships under.
-pub const KEEPER_EXECUTABLE_NAME: &str = "roost-keeper";
 
 /// Why a configuration was refused.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -332,10 +329,10 @@ fn resolve_keeper_executable(env: &dyn EnvSource) -> Result<PathBuf, BootConfigE
         return Ok(PathBuf::from(value));
     }
     let Ok(executable) = std::env::current_exe() else {
-        return Ok(PathBuf::from(KEEPER_EXECUTABLE_NAME));
+        return Ok(PathBuf::from(KEEPER_PROGRAM_FILE));
     };
     Ok(executable.parent().map_or_else(
-        || PathBuf::from(KEEPER_EXECUTABLE_NAME),
-        |directory| directory.join(KEEPER_EXECUTABLE_NAME),
+        || PathBuf::from(KEEPER_PROGRAM_FILE),
+        |directory| directory.join(KEEPER_PROGRAM_FILE),
     ))
 }

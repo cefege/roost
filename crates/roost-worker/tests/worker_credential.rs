@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The credential the link dials with: what it says, what refuses it, and
 //! where it comes from.
 //!

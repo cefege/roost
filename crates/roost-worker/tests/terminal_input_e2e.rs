@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! A coordinator `input-request` through the production input owner, the real
 //! session layer and a real keeper, to a real PTY whose echo proves the bytes
 //! arrived. Also ports the keeper-key half of

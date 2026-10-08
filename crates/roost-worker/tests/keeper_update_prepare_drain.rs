@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Keeper-update preparation against a keeper spawn already in flight: the
 //! preparer waits the admitted creation out before it touches the reconcile
 //! boundary or the update action. Ports tests 1 and 2 of v2

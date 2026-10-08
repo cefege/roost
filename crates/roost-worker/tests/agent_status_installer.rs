@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The typed OMP/Pi integration asset set and its install planning, as v2
 //! `apps/worker/tests/agents/agent-status-installer.test.ts` pins them: every
 //! asset installs byte-for-byte and idempotently, case and path aliases fail

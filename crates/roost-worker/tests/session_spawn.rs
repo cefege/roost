@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The spawn: the two durable claims, the PTY, and the record. Every variant
 //! here is about a resource that leaks — a claim the store can never give back,
 //! a PTY nobody can reach, or an `opened` event a browser learns about twice.

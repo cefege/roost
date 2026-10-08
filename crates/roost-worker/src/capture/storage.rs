@@ -175,6 +175,9 @@ impl CaptureStorage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DirMode {
     AlreadyOwnerOnly,
+    // Only Unix has a mode to tighten; elsewhere the check always finds the
+    // directory owner-only.
+    #[cfg_attr(not(unix), allow(dead_code))]
     Tightened(u32),
 }
 
@@ -247,6 +250,7 @@ fn create_dir_owner_only(dir: &Path) -> std::io::Result<()> {
 
 #[cfg(not(unix))]
 fn create_dir_owner_only(dir: &Path) -> std::io::Result<()> {
+    let _ = CAPTURE_DIR_MODE;
     fs::create_dir_all(dir)
 }
 
