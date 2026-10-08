@@ -140,17 +140,39 @@ fn flash_session_panes(session_id: &str) {
     }
 }
 
-/// Whether `session_id` is on screen: a pane showing it is laid out and this
-/// tab is the one the operator is looking at.
+/// Whether a measured pane is visible, rather than parked off screen.
+///
+/// Parked slots preserve their layout box so terminal dimensions stay stable;
+/// a client rect alone would therefore clear an unseen ring too early.
+#[cfg(any(target_arch = "wasm32", test))]
+fn pane_is_on_screen(document_visible: bool, has_layout_box: bool, css_visibility: &str) -> bool {
+    document_visible && has_layout_box && css_visibility == "visible"
+}
+
+/// Whether `session_id` is on screen: a visible pane in a visible browser tab.
 #[cfg(target_arch = "wasm32")]
 fn session_on_screen(session_id: &str) -> bool {
-    let visible = web_sys::window()
-        .and_then(|window| window.document())
-        .is_some_and(|document| document.visibility_state() == web_sys::VisibilityState::Visible);
-    visible
-        && session_panes(session_id)
-            .iter()
-            .any(|pane| pane.get_client_rects().length() > 0)
+    let Some(window) = web_sys::window() else {
+        return false;
+    };
+    let Some(document) = window.document() else {
+        return false;
+    };
+    let document_visible = document.visibility_state() == web_sys::VisibilityState::Visible;
+    document_visible
+        && session_panes(session_id).iter().any(|pane| {
+            let css_visibility = window
+                .get_computed_style(pane)
+                .ok()
+                .flatten()
+                .and_then(|style| style.get_property_value("visibility").ok())
+                .unwrap_or_default();
+            pane_is_on_screen(
+                document_visible,
+                pane.get_client_rects().length() > 0,
+                &css_visibility,
+            )
+        })
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -163,7 +185,12 @@ fn session_on_screen(_session_id: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{BellSurfaces, TerminalBell};
+    use super::{BellSurfaces, TerminalBell, pane_is_on_screen};
+
+    #[test]
+    fn a_parked_pane_with_a_layout_box_is_not_on_screen() {
+        assert!(!pane_is_on_screen(true, true, "hidden"));
+    }
 
     #[test]
     fn each_choice_turns_on_exactly_its_surfaces() {

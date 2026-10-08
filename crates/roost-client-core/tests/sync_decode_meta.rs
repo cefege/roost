@@ -20,7 +20,7 @@ use roost_client_core::sync::decode::{
 use roost_client_core::{SyncDomain, SyncFrame};
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
 use roost_proto::buffa::Message;
-use roost_proto::{FirehoseFrame, KeepaliveFrame, TerminalTitleFrame};
+use roost_proto::{FirehoseFrame, KeepaliveFrame, TerminalBellFrame, TerminalTitleFrame};
 
 use sync_decode_support::{
     SESSION, acked, application, closes, control, decoded, deliver, ready_core, refused, stamped,
@@ -196,6 +196,28 @@ fn an_applied_application_frame_is_acknowledged_by_its_sequence() {
             .map(String::as_str),
         Some("htop")
     );
+}
+
+#[test]
+fn a_coordinator_shaped_bell_frame_reaches_the_presenter_queue() {
+    let (mut core, generation) = ready_core();
+    let revision = core.store().revision();
+    let effects = deliver(
+        &mut core,
+        generation,
+        &application(
+            SyncDomain::Terminal,
+            12,
+            Frame::TerminalBell(Box::new(TerminalBellFrame {
+                session_id: SESSION.to_owned(),
+                ..TerminalBellFrame::default()
+            })),
+        ),
+    );
+    assert_eq!(acked(&effects), vec![12]);
+    assert!(core.store().terminal_bells.is_unseen(SESSION));
+    assert_eq!(core.store_mut().terminal_bells.take_rings(), [SESSION]);
+    assert!(core.store().revision() > revision);
 }
 
 /// Every `FirehoseFrame` oneof arm `sync.proto` declares, by name and field.
