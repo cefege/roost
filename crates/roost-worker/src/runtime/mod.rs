@@ -105,6 +105,10 @@ pub fn serve(boot: WorkerBoot) -> anyhow::Result<()> {
 pub async fn serve_until(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<()> {
     boot.check()?;
     install_observability();
+    #[cfg(windows)]
+    if let Err(error) = roost_keeper::win32_ffi::disinherit_standard_handles() {
+        tracing::warn!(%error, "the worker's standard handles stay inheritable: a keeper it starts holds the launcher's log files open");
+    }
     boot_sequence::run(boot, stop).await
 }
 

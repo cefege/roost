@@ -40,8 +40,11 @@ pub(super) fn spawn_detached_keeper(
     command.creation_flags(KEEPER_CREATION_FLAGS);
     match command.spawn() {
         Err(error) if error.raw_os_error() == Some(ACCESS_DENIED) => {
-            tracing::warn!(
-                "keeper started inside the service job; ending the task will end the keeper"
+            // Task Scheduler's job refuses breakaway but does not kill on
+            // close, and stopping the task ends only its conhost, so the
+            // keeper still outlives a worker restart.
+            tracing::info!(
+                "the service job refuses breakaway: the keeper starts inside the task's job"
             );
             command.creation_flags(KEEPER_CREATION_FLAGS & !KEEPER_BREAKAWAY_FLAG);
             command.spawn()
