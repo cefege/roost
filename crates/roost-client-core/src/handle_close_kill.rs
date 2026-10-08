@@ -50,6 +50,11 @@ pub(crate) fn settle_kill(
         }
         RpcResult::Failed { call_id, error } => {
             tracing::warn!(target: "close", session_id = %session_id, %error, "close failed");
+            // The session is still running, so it comes back on screen beside
+            // the card that says why.
+            if store.pending_closes.release_closing(&session_id) {
+                store.note_change();
+            }
             add_toast(
                 store,
                 ToastId::new(ToastSource::Rpc { call_id: *call_id }, session_id),
@@ -58,6 +63,16 @@ pub(crate) fn settle_kill(
                 ToastOptions::plain(),
                 now_ms,
             );
+        }
+        RpcResult::SessionKillAnswered {
+            accepted: false,
+            force: true,
+            ..
+        } => {
+            tracing::warn!(target: "close", session_id = %session_id, "forced kill refused");
+            if store.pending_closes.release_closing(&session_id) {
+                store.note_change();
+            }
         }
         _ => {}
     }

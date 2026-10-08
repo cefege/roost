@@ -17,7 +17,9 @@
 //!
 //! Ported from `apps/web/src/lib/pendingClose.ts`, which no other slice owns.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+
+use roost_protocol::wire::SessionStatus;
 
 use crate::store::Store;
 
@@ -57,6 +59,10 @@ pub struct PendingCloses {
     /// Kills issued and not yet answered: call id → session id. A failed
     /// answer carries only its call id, and this is how it finds its session.
     kills_in_flight: BTreeMap<u64, String>,
+    /// Sessions whose window ran out and whose kill was issued, still hidden
+    /// until the Sync socket removes them. Without this the row and its tab
+    /// came back for the round trip between the kill and the removal.
+    closing: BTreeSet<String>,
 }
 
 impl PendingCloses {
@@ -90,9 +96,15 @@ impl PendingCloses {
         self.entries.values()
     }
 
-    /// Whether `session_id` is waiting out a close.
+    /// Whether `session_id` is waiting out a close, or was closed and has not
+    /// left the session plane yet.
     pub fn contains(&self, session_id: &str) -> bool {
-        self.entries.contains_key(session_id)
+        self.entries.contains_key(session_id) || self.closing.contains(session_id)
+    }
+
+    /// Show a closed session again: its kill failed, so it is still running.
+    pub fn release_closing(&mut self, session_id: &str) -> bool {
+        self.closing.remove(session_id)
     }
 
     /// Drop every entry, at a credential boundary.
@@ -101,6 +113,7 @@ impl PendingCloses {
     /// and its undo restores a layout captured under the old one.
     pub fn clear(&mut self) {
         self.entries.clear();
+        self.closing.clear();
     }
 }
 
@@ -174,6 +187,16 @@ pub fn undo_all(store: &mut Store) -> Vec<CloseLabels> {
 /// leave a PTY the user believes they closed. The sweep issues one
 /// `SessionsKill` per id, in the order returned.
 pub fn sweep_pending_closes(store: &mut Store, now_ms: u64) -> Vec<String> {
+    let gone: Vec<String> = store
+        .pending_closes
+        .closing
+        .iter()
+        .filter(|id| !session_is_open(store, id))
+        .cloned()
+        .collect();
+    for session_id in &gone {
+        store.pending_closes.closing.remove(session_id);
+    }
     let due: Vec<String> = store
         .pending_closes
         .entries
@@ -186,15 +209,22 @@ pub fn sweep_pending_closes(store: &mut Store, now_ms: u64) -> Vec<String> {
     }
     for session_id in &due {
         store.pending_closes.entries.remove(session_id);
+        store.pending_closes.closing.insert(session_id.clone());
     }
     store.note_change();
     tracing::info!(target: "store", count = due.len(), "close windows expired");
     due
 }
 
+/// Whether the session plane still holds `session_id` as an open session.
+fn session_is_open(store: &Store, session_id: &str) -> bool {
+    crate::store::selectors::session_by_id(store, session_id)
+        .is_some_and(|session| session.status == SessionStatus::Open)
+}
+
 /// Drop every pending close, at a credential boundary.
 pub fn clear_pending_closes(store: &mut Store) {
-    if store.pending_closes.entries.is_empty() {
+    if store.pending_closes.entries.is_empty() && store.pending_closes.closing.is_empty() {
         return;
     }
     store.pending_closes.clear();

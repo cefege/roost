@@ -11,9 +11,12 @@
 use roost_client_core::client::rpc::unary::CallError;
 use roost_client_core::event::ClientEvent;
 use roost_client_core::store::pending_close::{
-    CloseLabels, UNDO_WINDOW_MS, schedule_close, undo_one,
+    CloseLabels, UNDO_WINDOW_MS, is_pending_close, schedule_close, undo_one,
 };
 use roost_client_core::store::toasts::ToastKind;
+use roost_client_core::store::{
+    ChannelId, Session, SessionId, SessionKind, SessionMap, SessionStatus, WorkerFp,
+};
 use roost_client_core::{ClientCore, Effect, RpcCall, RpcResult};
 
 const SESSION: &str = "00000000-0000-4000-8000-00000000000a";
@@ -107,4 +110,71 @@ fn a_failed_kill_raises_a_close_failed_card() {
     assert_eq!(cards.len(), 1);
     assert_eq!(cards[0].kind, ToastKind::Err);
     assert_eq!(cards[0].msg, "Close failed: network: offline");
+}
+
+/// `SESSION` as an open row in the session plane, or an empty plane.
+fn plane(open: bool) -> SessionMap {
+    let mut map = SessionMap::new();
+    if open {
+        let row = Session {
+            id: SessionId::try_from(SESSION.to_owned()).expect("a uuid"),
+            worker_fp: WorkerFp::try_from("ff".repeat(32)).expect("a fingerprint"),
+            channel: ChannelId::try_from(7_i64).expect("a channel"),
+            kind: SessionKind::Shell,
+            cwd: "/home/dev/api".to_owned(),
+            spawn_cwd: Some("/home/dev/api".to_owned()),
+            workspace_id: None,
+            status: SessionStatus::Open,
+            created_at: 100,
+            closed_at: None,
+            custom_title: None,
+            git_branch: None,
+            git_remote: None,
+            pr_number: None,
+            pr_state: None,
+            pr_checks: None,
+            pr_url: None,
+            ports: None,
+        };
+        map.insert(row.id.clone(), row);
+    }
+    map
+}
+
+/// A client holding `SESSION` open, closed at t=1000 and swept to its deadline.
+fn open_closed_and_swept() -> (ClientCore, u64) {
+    let mut core = ClientCore::in_memory("tab-close");
+    core.store_mut().sessions.apply_snapshot(plane(true));
+    schedule_close(core.store_mut(), SESSION, CloseLabels::default(), 1_000);
+    let issued = sweep(&mut core, 1_000 + UNDO_WINDOW_MS);
+    assert_eq!(issued.len(), 1);
+    (core, issued[0].0)
+}
+
+#[test]
+fn a_killed_session_stays_hidden_until_it_leaves_the_session_plane() {
+    let (mut core, call_id) = open_closed_and_swept();
+    assert!(
+        is_pending_close(core.store(), SESSION),
+        "the row must not come back while its kill is in flight"
+    );
+    answer(&mut core, call_id, false, true);
+    sweep(&mut core, 1_000 + 2 * UNDO_WINDOW_MS);
+    assert!(
+        is_pending_close(core.store(), SESSION),
+        "an accepted kill keeps the row hidden until Sync removes the session"
+    );
+    core.store_mut().sessions.apply_snapshot(plane(false));
+    sweep(&mut core, 1_000 + 3 * UNDO_WINDOW_MS);
+    assert!(!is_pending_close(core.store(), SESSION));
+}
+
+#[test]
+fn a_session_whose_kill_failed_comes_back() {
+    let (mut core, call_id) = open_closed_and_swept();
+    core.handle(ClientEvent::RpcResultReceived(RpcResult::Failed {
+        call_id,
+        error: CallError::Network("offline".to_owned()),
+    }));
+    assert!(!is_pending_close(core.store(), SESSION));
 }

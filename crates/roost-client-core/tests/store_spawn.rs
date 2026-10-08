@@ -239,7 +239,15 @@ fn a_pending_close_is_hidden_from_the_live_list_and_an_undo_restores_it() {
         vec![SESSION_ONE.to_owned()],
         "the sweep owes the host its kill"
     );
-    assert!(!is_pending_close(core.store(), SESSION_ONE));
+    assert!(
+        is_pending_close(core.store(), SESSION_ONE),
+        "a session whose kill is owed stays hidden until it leaves the plane"
+    );
+    sweep_pending_closes(core.store_mut(), 1_000 + 2 * UNDO_WINDOW_MS);
+    assert!(
+        !is_pending_close(core.store(), SESSION_ONE),
+        "a session the plane does not hold is released at the next sweep"
+    );
 
     let other = CloseLabels {
         terminal_name: "tail".to_owned(),
