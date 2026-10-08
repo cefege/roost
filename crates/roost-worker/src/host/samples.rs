@@ -1,14 +1,13 @@
 //! The raw counters a heartbeat ships — CPU, memory, disk and interface bytes —
 //! read from this host, and the cgroup-v2 throttle probe. Ports v2
 //! `apps/worker/src/host/host-sample-linux.ts`; the macOS half is
-//! [`super::samples_darwin`] (v2 `host-sample-darwin.ts`). Called by
-//! `runtime::heartbeat_metrics`, which owns the rate, the sixty-second cache
-//! and the wire shape. Depends on `roost_host::HostPlatform` and `std`.
+//! [`super::samples_darwin`] (v2 `host-sample-darwin.ts`) and the Windows half
+//! `samples_windows`. Called by `runtime::heartbeat_metrics`, which owns the
+//! rate, the sixty-second cache and the wire shape.
 //!
 //! NEVER FAILS. A sampler that returned an error would mean a heartbeat is not
 //! sent, so a machine that cannot answer `/proc` or `vm_stat` would vanish from
-//! the fleet view rather than report zeros. Every failure here is a zero, and a
-//! platform with no sampler (Windows is paused) is all zeros too.
+//! the fleet view rather than report zeros. Every failure here is a zero.
 
 use std::time::Duration;
 
@@ -44,16 +43,20 @@ pub struct HostSampler {
     previous_cpu: Option<CpuReading>,
     primary_interface: Option<String>,
     darwin: DarwinSampler,
+    #[cfg(windows)]
+    windows: super::samples_windows::WindowsSampler,
 }
 
 impl HostSampler {
     #[must_use]
-    pub const fn new(platform: HostPlatform) -> Self {
+    pub fn new(platform: HostPlatform) -> Self {
         Self {
             platform,
             previous_cpu: None,
             primary_interface: None,
             darwin: DarwinSampler::new(),
+            #[cfg(windows)]
+            windows: super::samples_windows::WindowsSampler::new(),
         }
     }
 
@@ -62,6 +65,9 @@ impl HostSampler {
         match self.platform {
             HostPlatform::Linux => self.sample_linux(),
             HostPlatform::MacOs => self.darwin.sample(),
+            #[cfg(windows)]
+            HostPlatform::Windows => self.windows.sample(),
+            #[cfg(unix)]
             HostPlatform::Windows => HostSample::default(),
         }
     }

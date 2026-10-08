@@ -1,8 +1,9 @@
 //! The TCP ports a session's process tree is LISTENing on, so the sidebar can
 //! chip a dev server and open it. Only this worker can see the host's sockets.
 //! Ports v2 `apps/worker/src/host/listening-ports.ts`; `host::sampling` calls
-//! it on v2's 90 s ports poll. `ps`, `ss` and `lsof` run with the tool `PATH`
-//! (v2 `TOOL_PATH`), because a service manager's `PATH` has none of them.
+//! it on v2's 90 s ports poll. `ps`, `ss`, `lsof` and Windows' `netstat` run
+//! with the tool `PATH` (v2 `TOOL_PATH`), because a service manager's `PATH`
+//! has none of them.
 //!
 //! ONLY REACHABLE BINDS. A port is reported only when it is bound on something
 //! other than loopback, because the chip opens `http://<worker's address>:<port>`
@@ -22,20 +23,41 @@ use super::tool_path::{process_tool_path, run_on_path};
 
 /// Every descendant pid of `root`, itself included, from one `ps` snapshot run
 /// on `tool_path`.
+#[cfg(unix)]
 #[must_use]
 pub fn descendant_pids(root: u32, tool_path: &str) -> Vec<u32> {
     let Some(snapshot) = run_on_path(tool_path, "ps", &["-Ao", "pid,ppid"], None) else {
         return vec![root];
     };
-    let mut children: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+    let mut edges = Vec::new();
     for line in snapshot.lines().skip(1) {
         let mut fields = line.split_whitespace();
         let (Some(pid), Some(parent)) = (fields.next(), fields.next()) else {
             continue;
         };
         if let (Ok(pid), Ok(parent)) = (pid.parse::<u32>(), parent.parse::<u32>()) {
-            children.entry(parent).or_default().push(pid);
+            edges.push((pid, parent));
         }
+    }
+    descendants_of(root, edges)
+}
+
+/// Every descendant pid of `root`, itself included, from one process-table
+/// snapshot.
+#[cfg(windows)]
+#[must_use]
+pub fn descendant_pids(root: u32, _tool_path: &str) -> Vec<u32> {
+    let edges = crate::agents::process_snapshot_windows::windows_process_records()
+        .into_iter()
+        .map(|record| (record.pid, record.ppid));
+    descendants_of(root, edges)
+}
+
+/// `root` and everything reachable from it along `(pid, parent)` edges.
+fn descendants_of(root: u32, edges: impl IntoIterator<Item = (u32, u32)>) -> Vec<u32> {
+    let mut children: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+    for (pid, parent) in edges {
+        children.entry(parent).or_default().push(pid);
     }
     let mut seen = BTreeSet::from([root]);
     let mut pending = vec![root];
@@ -47,6 +69,39 @@ pub fn descendant_pids(root: u32, tool_path: &str) -> Vec<u32> {
         }
     }
     seen.into_iter().collect()
+}
+
+/// The reachable LISTEN ports in `netstat -ano -p TCP` (or `TCPv6`) rows held
+/// by `pids`.
+///
+/// The state column is localized, so a listening row is told by its foreign
+/// address instead: `0.0.0.0:0` or `[::]:0`, which only an unconnected socket
+/// has. Ascending and distinct.
+#[must_use]
+pub fn parse_netstat_listen_ports(output: &str, pids: &BTreeSet<u32>) -> Vec<u16> {
+    let mut ports = BTreeSet::new();
+    for line in output.lines() {
+        let tokens: Vec<&str> = line.split_whitespace().collect();
+        let [protocol, local, foreign, _state, pid] = tokens[..] else {
+            continue;
+        };
+        if protocol != "TCP" || !matches!(foreign, "0.0.0.0:0" | "[::]:0") {
+            continue;
+        }
+        if !pid.parse::<u32>().is_ok_and(|pid| pids.contains(&pid)) {
+            continue;
+        }
+        let Some(colon) = local.rfind(':') else {
+            continue;
+        };
+        if is_loopback(&local[..colon]) {
+            continue;
+        }
+        if let Ok(port) = local[colon + 1..].parse::<u16>() {
+            ports.insert(port);
+        }
+    }
+    ports.into_iter().collect()
 }
 
 /// The reachable LISTEN ports in `lsof -nP -iTCP -sTCP:LISTEN` output.
@@ -170,7 +225,15 @@ pub fn read_listening_ports(root_pid: Option<u32>, platform: HostPlatform) -> Ve
             .map(|out| parse_reachable_listen_ports(&out))
             .unwrap_or_default()
         }
-        HostPlatform::Windows => Vec::new(),
+        HostPlatform::Windows => ["TCP", "TCPv6"]
+            .iter()
+            .filter_map(|protocol| {
+                run_on_path(&tool_path, "netstat", &["-ano", "-p", protocol], None)
+            })
+            .flat_map(|out| parse_netstat_listen_ports(&out, &pids))
+            .collect::<BTreeSet<u16>>()
+            .into_iter()
+            .collect(),
     };
     if ports.is_empty() {
         return ports;
@@ -188,4 +251,25 @@ pub fn read_listening_ports(root_pid: Option<u32>, platform: HostPlatform) -> Ve
 #[must_use]
 pub fn ports_eq(left: &[u16], right: &[u16]) -> bool {
     left == right
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use super::parse_netstat_listen_ports;
+
+    #[test]
+    fn a_netstat_listener_counts_only_when_reachable_and_in_the_tree() {
+        let output = "\
+  TCP    0.0.0.0:3000    0.0.0.0:0    LISTENING    42
+  TCP    127.0.0.1:5000  0.0.0.0:0    LISTENING    42
+  TCP    [::]:8080       [::]:0       LISTENING    7
+  TCP    10.0.0.5:3000   10.0.0.9:51000  ESTABLISHED  42
+";
+        assert_eq!(
+            parse_netstat_listen_ports(output, &BTreeSet::from([42])),
+            [3000]
+        );
+    }
 }
