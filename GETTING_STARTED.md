@@ -2,6 +2,7 @@
 # Getting started with Roost
 
 Roost's coordinator and workers run on macOS arm64/x64 and Linux arm64/x64.
+A Windows 11 x64 PC runs as a worker that joins an existing coordinator.
 
 **Only coordinator and worker machines need a supported host OS.** Everything
 you browse *from* — a Mac, a Windows PC, a Linux desktop, an iPhone, an Android
@@ -50,10 +51,6 @@ Coordinator startup creates and thereafter validates the single local tenant
 automatically: the internal `local@roost.invalid` account, its `personal`
 organization, and the `default` dashboard. There is no separate organization
 bootstrap command to run before quickstart or after an upgrade.
-
-> **Windows host releases are paused.** Roost publishes no Windows
-> coordinator, worker, installer, or update path. Windows remains supported as
-> a browser client.
 
 ## Start locally, then add a front door when you need one
 
@@ -516,7 +513,9 @@ play a short tone on the same alerts that raise a toast.
 
 ## Add another machine
 
-Roost enrolls macOS or Linux workers. **Settings → Machines → Add machine**
+Roost enrolls macOS and Linux workers from **Settings → Machines → Add machine**,
+and Windows workers from `roost add-machine --platform windows` ([below](#a-windows-11-pc)).
+The pane
 first checks whether the coordinator advertises an HTTPS enrollment address. A
 local-only Roost does not mint a command: choose an
 operator-managed HTTPS address, run
@@ -555,6 +554,57 @@ worker link should use a distinct HTTPS door.
 The machine appears in **Settings → Machines** within a few seconds. macOS
 uses launchd and Linux uses `systemd --user`. The server-side bootstrap token
 is one-shot and expires after 24 hours.
+
+### A Windows 11 PC
+
+A Windows PC joins as a worker only; it never runs the coordinator, and
+`roost quickstart` refuses there. On the coordinator host, mint its line:
+
+```sh
+roost add-machine --platform windows --label "Build PC"
+```
+
+Paste the printed line into a **non-elevated** PowerShell on the PC. It sets
+`ROOST_COORDINATOR_URL` and `ROOST_BOOTSTRAP_TOKEN` in that session and runs
+`install.ps1`:
+
+```powershell
+$env:ROOST_COORDINATOR_URL='https://roost.example.com'; $env:ROOST_BOOTSTRAP_TOKEN='roost_bt_…'; $env:ROOST_WORKER_LABEL='Build PC'; irm https://raw.githubusercontent.com/cefege/roost/v3/install.ps1 | iex
+```
+
+`install.ps1` picks the release the same way `install.sh` does (set
+`$env:ROOST_RELEASE_CHANNEL='prerelease'` first to take a pre-release),
+checks `roost-windows-x64.exe` and `roost-keeper-windows-x64.exe` against the
+digests published beside them, and runs `roost join`. The join installs the
+release under `%LOCALAPPDATA%\RoostWorkerV3\versions\<tag>`, writes the
+launcher `%LOCALAPPDATA%\RoostWorkerV3\service\roost3-worker.cmd`, and
+registers and starts the Scheduled Task `\Roost\roost3-worker`, which runs at
+every logon of this user. Logs are
+`%LOCALAPPDATA%\RoostWorkerV3\logs\main.out.log` and `main.err.log`; the
+keeper's is `keeper.log` beside them. A `roost.cmd` shim in
+`%LOCALAPPDATA%\RoostWorkerV3\bin` is added to the user `Path`.
+
+Sessions open PowerShell 7 (`pwsh.exe`) when it is installed, else Windows
+PowerShell, else `cmd.exe`; set a user environment variable `SHELL` to choose
+another, and restart the worker. The task runs under this user's interactive
+logon, so the worker is up only while the user is signed in; an unattended PC
+needs Windows auto-logon. The same line also works from an OpenSSH session
+into the PC.
+
+Stopping the task ends only its console host: the `roost.exe worker` below
+it keeps running. Restart the worker by ending that process too; the keeper
+keeps the PTYs, as it does across any worker restart:
+
+```powershell
+Stop-ScheduledTask -TaskPath '\Roost\' -TaskName roost3-worker
+Get-CimInstance Win32_Process -Filter "Name='roost.exe'" | Where-Object { $_.CommandLine -match '\sworker(\s|$)' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+Start-ScheduledTask -TaskPath '\Roost\' -TaskName roost3-worker
+```
+
+Windows sessions need Windows 11 (or Windows 10 1803+) for AF_UNIX sockets
+and ConPTY. `roost update` does not replace binaries on Windows: upgrade by
+running the same `install.ps1` line with a fresh grant, or with
+`cargo xtask fleet install` for a fleet host.
 
 
 ## Update
