@@ -306,6 +306,8 @@ mod session_vocabulary;
 mod shell_spec_overlay;
 #[path = "shell_spec_resolution.rs"]
 mod shell_spec_resolution;
+#[path = "shell_spec_windows.rs"]
+mod shell_spec_windows;
 #[path = "stray_reap.rs"]
 mod stray_reap;
 #[path = "strays.rs"]

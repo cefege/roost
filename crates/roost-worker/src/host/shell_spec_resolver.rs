@@ -26,6 +26,7 @@ use std::sync::{Arc, Mutex};
 use roost_host::HostPlatform;
 
 use crate::host::shell_bootstrap::{self, ShellFlavour};
+use crate::host::shell_locate::{environment_variable, locate_shell, shell_candidates};
 pub use crate::host::tool_path::PTY_PATH_PREFIX;
 use crate::session::spawn::{SessionEnvironmentOverlay, ShellSpecResolver};
 use crate::shell_spec::{
@@ -42,23 +43,18 @@ pub const PTY_COLORTERM: &str = "truecolor";
 pub const DEFAULT_DARWIN_LOCALE: &str = "en_US.UTF-8";
 pub const DEFAULT_LINUX_LOCALE: &str = "C.UTF-8";
 
-/// The shells tried, in order, when the environment names no `SHELL`.
-///
-/// bash first because it is the POSIX default and is present on every supported
-/// host; `sh` last because it is the only one guaranteed by POSIX itself, and
-/// it is the fallback that keeps a minimal container from refusing to spawn.
-const FALLBACK_SHELLS: [&str; 2] = ["/bin/bash", "/bin/sh"];
-
 /// The temporary root the bootstrap rcfile is written under.
 ///
 /// From the environment rather than `std::env::temp_dir()` so a test resolves
 /// into its own scratch and a service whose `TMPDIR` is a private directory
-/// keeps the file out of a world-writable one.
+/// keeps the file out of a world-writable one. Windows names it `TEMP`/`TMP`.
 const TMPDIR_ENV: &str = "TMPDIR";
 const DEFAULT_TMPDIR: &str = "/tmp";
+const WINDOWS_TEMP_ENVS: [&str; 2] = ["TEMP", "TMP"];
 const HOME_ENV: &str = "HOME";
-const SHELL_ENV: &str = "SHELL";
+const USERPROFILE_ENV: &str = "USERPROFILE";
 const PATH_ENV: &str = "PATH";
+const PATHEXT_ENV: &str = "PATHEXT";
 
 /// This host's environment, snapshotted, and the platform a session was asked
 /// for.
@@ -150,17 +146,27 @@ impl HostShellSpecResolver {
         let executable = self.resolve_executable()?;
         let flavour = ShellFlavour::of(&executable);
         let bootstrap = match flavour {
-            ShellFlavour::Other => None,
-            other => Some(self.ensure_bootstrap(other)?),
+            ShellFlavour::Bash | ShellFlavour::Zsh => Some(self.ensure_bootstrap(flavour)?),
+            ShellFlavour::PowerShell | ShellFlavour::Cmd | ShellFlavour::Other => None,
         };
 
         let mut env = self.base_environment();
         for (key, value) in self.common_environment(platform) {
             env.insert(key, value);
         }
-        env.insert(PATH_ENV.into(), self.pty_path());
-        if let Some(home) = self.environment.get(HOME_ENV) {
-            env.extend(shell_bootstrap::history_env(&cwd, Path::new(home)));
+        // Windows keeps the inherited `Path` as it is: there is no package
+        // manager prefix to add, and a second spelling of the key would leave
+        // the child two values to choose between.
+        if platform != HostPlatform::Windows {
+            env.insert(PATH_ENV.into(), self.pty_path());
+        }
+        let home = self.variable(HOME_ENV).or_else(|| {
+            (platform == HostPlatform::Windows)
+                .then(|| self.variable(USERPROFILE_ENV))
+                .flatten()
+        });
+        if let Some(home) = home {
+            env.extend(shell_bootstrap::history_env(&cwd, Path::new(&home)));
         }
         // A shell that is told where its real rcfile is, and told to load it.
         let argv = match (&bootstrap, flavour) {
@@ -174,6 +180,14 @@ impl HostShellSpecResolver {
                 );
                 Vec::new()
             }
+            (_, ShellFlavour::PowerShell) => vec![
+                "-NoLogo".to_string(),
+                "-NoExit".to_string(),
+                "-EncodedCommand".to_string(),
+                shell_bootstrap::encode_powershell_command(
+                    shell_bootstrap::powershell_bootstrap_script(),
+                ),
+            ],
             _ => Vec::new(),
         };
         let overlay = match &self.overlay {
@@ -225,13 +239,11 @@ impl HostShellSpecResolver {
                 self.platform.as_str()
             ));
         }
-        if self.platform == HostPlatform::Windows {
-            return Err(
-                "Roost v3 opens no Windows terminal; this worker runs on macOS and Linux only"
-                    .to_string(),
-            );
-        }
         Ok(self.platform)
+    }
+
+    fn variable(&self, key: &str) -> Option<String> {
+        environment_variable(&self.environment, self.platform, key)
     }
 
     /// The inherited environment minus the whole `ROOST_` namespace: the
@@ -262,19 +274,26 @@ impl HostShellSpecResolver {
         //
         // The default is per-platform, not per-machine, so it does not vary
         // with whoever happened to launch the daemon.
+        let mut common = vec![
+            ("TERM".to_string(), PTY_TERM.to_string()),
+            ("COLORTERM".to_string(), PTY_COLORTERM.to_string()),
+        ];
+        // Windows has no locale variables a console program reads; its code
+        // page is the PowerShell bootstrap's to set.
+        if platform == HostPlatform::Windows {
+            return common;
+        }
         let locale = match platform {
             HostPlatform::MacOs => DEFAULT_DARWIN_LOCALE.to_string(),
             _ => DEFAULT_LINUX_LOCALE.to_string(),
         };
-        let mut common = vec![
-            ("TERM".to_string(), PTY_TERM.to_string()),
-            ("COLORTERM".to_string(), PTY_COLORTERM.to_string()),
+        common.extend([
             ("LANG".to_string(), locale.clone()),
             ("LC_ALL".to_string(), locale),
             // A marker the shell prints at end-of-line when PROMPT_SP is on;
             // the SPA's grid treats it as junk.
             ("PROMPT_EOL_MARK".to_string(), String::new()),
-        ];
+        ]);
         if platform == HostPlatform::MacOs {
             common.push(("TERM_PROGRAM".to_string(), "Apple_Terminal".to_string()));
         }
@@ -289,12 +308,14 @@ impl HostShellSpecResolver {
     /// cannot run `gh` at all, and the PR badge on a folder row silently never
     /// resolves — no error, no log, just a missing badge.
     fn pty_path(&self) -> String {
-        match self
-            .environment
-            .get(PATH_ENV)
-            .map(|value| value.trim())
-            .filter(|value| !value.is_empty())
-        {
+        let inherited = self
+            .variable(PATH_ENV)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        if self.platform == HostPlatform::Windows {
+            return inherited.unwrap_or_default();
+        }
+        match inherited {
             Some(inherited) => format!("{PTY_PATH_PREFIX}:{inherited}"),
             None => PTY_PATH_PREFIX.to_string(),
         }
@@ -303,21 +324,15 @@ impl HostShellSpecResolver {
     /// The absolute path of the shell this session runs, or the reason there is
     /// none. Refusing here is what turns a keeper-side ENOENT into a reason.
     fn resolve_executable(&self) -> Result<String, String> {
-        let configured = self
-            .environment
-            .get(SHELL_ENV)
-            .map(|value| value.trim())
-            .filter(|value| !value.is_empty())
-            .map(str::to_string);
-        let candidates: Vec<String> = match configured {
-            Some(configured) => vec![configured],
-            None => FALLBACK_SHELLS
-                .iter()
-                .map(|name| (*name).to_string())
-                .collect(),
-        };
+        let candidates = shell_candidates(self.platform, &|key| self.variable(key));
+        let search_path = self.pty_path();
         for candidate in &candidates {
-            if let Some(path) = self.locate(candidate) {
+            if let Some(path) = locate_shell(
+                self.platform,
+                &search_path,
+                self.variable(PATHEXT_ENV),
+                candidate,
+            ) {
                 return Ok(path);
             }
         }
@@ -325,22 +340,6 @@ impl HostShellSpecResolver {
             "no shell was found to launch: {} resolved to no executable file on this host",
             candidates.join(", ")
         ))
-    }
-
-    /// One candidate resolved against `PATH`, or `None`.
-    ///
-    /// An exec bit is required, not just a file: a `SHELL` pointing at a data
-    /// file resolves on every other check and fails at the exec.
-    fn locate(&self, candidate: &str) -> Option<String> {
-        if candidate.contains('/') {
-            return is_executable_file(Path::new(candidate)).then(|| candidate.to_string());
-        }
-        self.pty_path()
-            .split(':')
-            .filter(|entry| !entry.is_empty())
-            .map(|directory| Path::new(directory).join(candidate))
-            .find(|path| is_executable_file(path))
-            .map(|path| path.display().to_string())
     }
 
     /// The rcfile for this shell, written once per resolver.
@@ -352,18 +351,33 @@ impl HostShellSpecResolver {
         if let Some(path) = written.get(&flavour) {
             return Ok(path.clone());
         }
-        let root = self
-            .environment
-            .get(TMPDIR_ENV)
-            .map(|value| value.trim())
-            .filter(|value| !value.is_empty())
-            .unwrap_or(DEFAULT_TMPDIR);
-        let path =
-            shell_bootstrap::ensure_bootstrap(Path::new(root), flavour).map_err(|error| {
-                format!("the shell bootstrap could not be written under {root}: {error}")
-            })?;
+        let root = self.bootstrap_root();
+        let path = shell_bootstrap::ensure_bootstrap(&root, flavour).map_err(|error| {
+            format!(
+                "the shell bootstrap could not be written under {}: {error}",
+                root.display()
+            )
+        })?;
         written.insert(flavour, path.clone());
         Ok(path)
+    }
+
+    /// Where a bootstrap rcfile is written: `TMPDIR` (`/tmp` when unset) on
+    /// Unix, `TEMP` then `TMP` (the process temp directory when neither is
+    /// set) on Windows.
+    fn bootstrap_root(&self) -> PathBuf {
+        let named = |key: &str| {
+            self.variable(key)
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        };
+        if self.platform == HostPlatform::Windows {
+            return WINDOWS_TEMP_ENVS
+                .iter()
+                .find_map(|key| named(key))
+                .map_or_else(std::env::temp_dir, PathBuf::from);
+        }
+        PathBuf::from(named(TMPDIR_ENV).unwrap_or_else(|| DEFAULT_TMPDIR.to_string()))
     }
 }
 
@@ -382,16 +396,4 @@ impl ShellSpecResolver for HostShellSpecResolver {
     fn resolve_shell_spec(&self, cwd: &str, session_id: &str) -> Result<ShellSpec, String> {
         self.resolve(cwd, session_id)
     }
-}
-
-/// Whether a path is a file this process may execute.
-fn is_executable_file(path: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt as _;
-    let Ok(metadata) = std::fs::metadata(path) else {
-        return false;
-    };
-    if !metadata.is_file() {
-        return false;
-    }
-    metadata.permissions().mode() & 0o111 != 0
 }

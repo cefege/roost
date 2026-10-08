@@ -217,7 +217,7 @@ fn take_text(value: &str, max: usize) -> String {
 ///
 /// A component that is not valid percent-encoding is returned as it arrived
 /// rather than half-decoded, because a partially decoded path names a folder
-/// that does not exist.
+/// that does not exist. On Windows a `file:///C:/…` URL becomes `C:\…`.
 pub fn parse_osc7_worker_path(raw: &str) -> Option<String> {
     let rest = raw.strip_prefix("file://")?;
     let slash = rest.find('/')?;
@@ -226,7 +226,23 @@ pub fn parse_osc7_worker_path(raw: &str) -> Option<String> {
     if host.contains('\0') || path.contains('\0') {
         return None;
     }
+    #[cfg(windows)]
+    let path = windows_drive_path(&path).unwrap_or(path);
     Some(path)
+}
+
+/// `/C:/Users/x` → `C:\Users\x`: the drive-letter form a `file:` URL carries
+/// a Windows path in, after percent-decoding. `None` for anything else.
+// Called only by the Windows build; its tests run everywhere.
+#[cfg_attr(unix, allow(dead_code))]
+fn windows_drive_path(path: &str) -> Option<String> {
+    let bytes = path.as_bytes();
+    let drive_absolute = bytes.len() >= 4
+        && bytes[0] == b'/'
+        && bytes[1].is_ascii_alphabetic()
+        && bytes[2] == b':'
+        && bytes[3] == b'/';
+    drive_absolute.then(|| path[1..].replace('/', "\\"))
 }
 
 /// Percent-decode one URL component, whole or not at all.
@@ -313,4 +329,19 @@ fn find(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
         .windows(needle.len())
         .position(|window| window == needle)
         .map(|at| at + from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::windows_drive_path;
+
+    #[test]
+    fn a_drive_letter_url_path_becomes_a_windows_path() {
+        assert_eq!(
+            windows_drive_path("/C:/Users/op").as_deref(),
+            Some("C:\\Users\\op")
+        );
+        assert_eq!(windows_drive_path("/home/op"), None);
+        assert_eq!(windows_drive_path("/C:"), None);
+    }
 }
