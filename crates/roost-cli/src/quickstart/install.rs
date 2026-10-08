@@ -81,7 +81,7 @@ impl LocalPrograms {
         })?;
         let keeper = roost
             .parent()
-            .map(|directory| directory.join(crate::deploy::apply_release::KEEPER_PROGRAM))
+            .map(|directory| directory.join(roost_host::KEEPER_PROGRAM_FILE))
             .filter(|candidate| candidate.is_file());
         let identity = roost_host::build_identity(env);
         require_keeper_for_release(keeper.as_deref(), &roost, &identity.artifact_version)?;
@@ -117,7 +117,7 @@ pub fn require_keeper_for_release(
         "no {} beside {}, and this is a {artifact_version} build. A joined machine needs \
          both programs: the worker cannot run a session without its keeper. The release \
          publishes it in the same directory as this binary.",
-        crate::deploy::apply_release::KEEPER_PROGRAM,
+        roost_host::KEEPER_PROGRAM_FILE,
         directory.display()
     )))
 }

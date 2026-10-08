@@ -1,7 +1,8 @@
-//! Canonical POSIX shell quoting, for deploy commands and anything else that
-//! builds a command line for a remote shell. One quoter for the whole
-//! product so local and remote command construction cannot diverge, and
-//! byte-stable because recovery tooling compares generated commands exactly.
+//! Canonical shell quoting, for deploy commands and anything else that builds
+//! a command line for a shell: POSIX `sh` and PowerShell. One quoter per shell
+//! for the whole product so local and remote command construction cannot
+//! diverge, and byte-stable because recovery tooling compares generated
+//! commands exactly.
 
 /// Wrap `value` in single quotes, escaping an embedded single quote with the
 /// classic close-escape-open idiom.
@@ -19,9 +20,15 @@ pub fn posix_shell_quote(value: &str) -> String {
     quoted
 }
 
+/// A PowerShell single-quoted literal: nothing inside is expanded, and an
+/// embedded `'` is written twice.
+pub fn powershell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::posix_shell_quote;
+    use super::{posix_shell_quote, powershell_single_quote};
 
     #[test]
     fn a_quote_becomes_close_escape_open() {
@@ -58,5 +65,12 @@ mod tests {
     #[test]
     fn every_quote_in_the_value_is_escaped_not_just_the_first() {
         assert_eq!(posix_shell_quote("'a'"), "''\"'\"'a'\"'\"''");
+    }
+
+    #[test]
+    fn a_powershell_literal_doubles_its_quotes_and_expands_nothing() {
+        assert_eq!(powershell_single_quote("it's"), "'it''s'");
+        assert_eq!(powershell_single_quote("$env:HOME"), "'$env:HOME'");
+        assert_eq!(powershell_single_quote(""), "''");
     }
 }

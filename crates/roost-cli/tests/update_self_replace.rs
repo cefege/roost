@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! `roost update` and everything it leaves BESIDE the target, plus what it
 //! refuses to install at all.
 //!

@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! A self-update a previous run left in flight, resolved from its journal before
 //! anything else happens, and a journal this build cannot read refused rather
 //! than ignored.

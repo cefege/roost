@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The parts of a deploy that are pure functions: the ssh boundary's shape, the
 //! manifest and report pair, the per-key deploy environment rule, the release
 //! retirement decision, and the exit-code table.

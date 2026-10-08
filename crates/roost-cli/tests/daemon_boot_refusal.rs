@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! `roost coord`'s argument handling: that a flag reaches the loader, and that
 //! the loader's refusals happen BEFORE anything binds a socket.
 //!

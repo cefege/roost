@@ -12,11 +12,11 @@
 
 use std::path::{Path, PathBuf};
 
-use roost_host::HostPlatform;
+use roost_host::{HostPlatform, KEEPER_PROGRAM_FILE, ROOST_PROGRAM_FILE};
 use tracing::info;
 
 use crate::command_error::CommandFailure;
-use crate::deploy::apply_release::{RELEASE_BIN_DIR, ROOST_PROGRAM};
+use crate::deploy::apply_release::RELEASE_BIN_DIR;
 use crate::deploy::codes;
 use crate::deploy::ssh::RemoteOutcome;
 use crate::services::deploy_journal::sha256_hex;
@@ -25,7 +25,7 @@ use crate::services::deploy_journal::sha256_hex;
 /// the keeper is a separate binary precisely so a coordinator deploy never
 /// disturbs a live PTY, and a `roost` beside no `roost-keeper` describes a
 /// keeper this build does not have.
-pub const RELEASE_PROGRAMS: [&str; 2] = ["roost", "roost-keeper"];
+pub const RELEASE_PROGRAMS: [&str; 2] = [ROOST_PROGRAM_FILE, KEEPER_PROGRAM_FILE];
 
 /// The cargo packages those two programs are built from, which are NOT the
 /// names of the programs. The CLI's package is `roost-cli` and its binary is
@@ -199,7 +199,7 @@ pub async fn build_release(
         ));
     }
     let bin_dir = assemble_release_tree(&profile_dir, web_dist)?;
-    let keeper_contract = read_keeper_contract(&bin_dir.join(ROOST_PROGRAM))?;
+    let keeper_contract = read_keeper_contract(&bin_dir.join(ROOST_PROGRAM_FILE))?;
     let web = web_dist.map(|_| {
         bin_dir.parent().map_or_else(
             || bin_dir.join(crate::services::web_bundle::WEB_DIR_NAME),
@@ -300,7 +300,7 @@ async fn run_cargo(argv: &[String], source_root: &Path) -> Result<RemoteOutcome,
 /// this CLI was built from, and an admission decided against those bytes is a
 /// decision about the wrong program.
 pub fn read_keeper_contract(program: &Path) -> Result<String, CommandFailure> {
-    let keeper = program.with_file_name("roost-keeper");
+    let keeper = program.with_file_name(KEEPER_PROGRAM_FILE);
     if !keeper.is_file() {
         return Err(codes::refuse(
             codes::BUILD_FAILED,

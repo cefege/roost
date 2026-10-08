@@ -48,19 +48,19 @@ pub fn launchd_program_argument(definition: &str) -> Option<String> {
     Some(unescape_xml(&rest[..close]))
 }
 
-/// The release directory an installed definition runs from, for either platform.
+/// The release directory an installed definition runs from, for every platform.
 ///
-/// The two directives are not the same fact: systemd states a working directory
-/// and a program, launchd states only the program. Both resolve to the release
-/// root, which is the directory retirement is confined to.
+/// The directives are not the same fact: systemd states a working directory
+/// and a program, launchd and a Windows launcher state only the program. All
+/// resolve to the release root, which is the directory retirement is confined
+/// to.
 pub fn installed_release_dir(definition: &str, platform: HostPlatform) -> Option<PathBuf> {
     match platform {
         HostPlatform::Linux => systemd_working_directory(definition).map(PathBuf::from),
         HostPlatform::MacOs => launchd_program_argument(definition)
             .and_then(|program| Path::new(&program).parent().map(Path::to_path_buf)),
-        // v3 ships Linux and macOS only, and a deploy refuses a Windows target
-        // before it reads a definition, so there is no third format to read.
-        HostPlatform::Windows => None,
+        HostPlatform::Windows => crate::services::scheduled_task::launcher_program(definition)
+            .and_then(|program| program.parent().map(Path::to_path_buf)),
     }
 }
 

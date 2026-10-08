@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! `roost quickstart --dry-run` resolves and renders the whole plan on a
 //! machine with nothing installed, and leaves the machine byte-for-byte as it
 //! was.

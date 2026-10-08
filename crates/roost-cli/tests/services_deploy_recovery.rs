@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! A deploy that a previous run left in flight is resolved from its journal
 //! before the next one starts, and a journal whose shape this build does not
 //! know is refused rather than ignored.

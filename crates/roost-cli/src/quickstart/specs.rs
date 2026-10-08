@@ -36,7 +36,7 @@ pub fn coordinator_spec(
         decided.insert(ENV_WEB_DIST_PATH.to_string(), web_dir.display().to_string());
     }
     let install_env = crate::deploy::apply_release::install_environment(env, &decided);
-    let program = bin_dir.join(crate::deploy::apply_release::ROOST_PROGRAM);
+    let program = bin_dir.join(roost_host::ROOST_PROGRAM_FILE);
     ServiceSpec::resolve(ServiceRole::Coordinator, &install_env, platform, &program)
         .map_err(Into::into)
 }
@@ -59,7 +59,7 @@ pub fn local_worker_spec(
         decided.insert(ENV_BOOTSTRAP_TOKEN.to_string(), grant.expose().to_string());
     }
     let install_env = crate::deploy::apply_release::install_environment(env, &decided);
-    let program = bin_dir.join(crate::deploy::apply_release::ROOST_PROGRAM);
+    let program = bin_dir.join(roost_host::ROOST_PROGRAM_FILE);
     let mut resolved = ServiceSpec::resolve(ServiceRole::Worker, &install_env, platform, &program)?;
     // The worker reads its dist path from the ambient environment like any
     // other setting, and it is deliberately NOT in the chosen-entries list:

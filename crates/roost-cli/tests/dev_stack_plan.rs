@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! What `roost dev` starts: the coordinator the loader resolved, the worker
 //! pointed at exactly that one, and the Dioxus CLI serving the workspace
 //! member.

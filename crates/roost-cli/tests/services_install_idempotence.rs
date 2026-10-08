@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Installing twice is a no-op, and a definition that cannot be read is never
 //! overwritten.
 //!

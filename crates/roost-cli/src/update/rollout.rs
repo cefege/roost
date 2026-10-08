@@ -18,11 +18,14 @@
 //! over a running executable is safe on both: this process finishes running the
 //! bytes it started with and the next invocation gets the new ones. That is why
 //! the operation is a rename, and it is also why a failed rename is the safe
-//! outcome — the original file is byte for byte where it was.
+//! outcome — the original file is byte for byte where it was. Windows refuses
+//! to replace a running image but lets it be renamed, so there the running file
+//! moves aside to `.exe.old` first.
 
-use std::fs::{self, File};
-use std::os::unix::fs::PermissionsExt;
+use std::fs;
 use std::path::{Path, PathBuf};
+
+use crate::services::file_mode::{mode_of, set_path_mode, sync_directory};
 
 use tracing::{info, warn};
 
@@ -122,14 +125,12 @@ pub fn read_installed(executable: &Path) -> Result<InstalledBinary, ReplaceError
             });
         }
     };
-    let mode = fs::metadata(executable)
-        .map_err(|error| ReplaceError::Unreadable {
+    let mode = mode_of(
+        &fs::metadata(executable).map_err(|error| ReplaceError::Unreadable {
             path: executable.to_path_buf(),
             cause: error.to_string(),
-        })?
-        .permissions()
-        .mode()
-        & 0o7777;
+        })?,
+    );
     Ok(InstalledBinary {
         sha256: sha256_hex(&bytes),
         mode,
@@ -274,10 +275,14 @@ fn retain_previous(journal: &SelfUpdateJournal) -> Result<(), ReplaceError> {
 /// target's name in one step, then flush the directory so the rename itself
 /// survives a power cut.
 fn swap_candidate_into_place(candidate_path: &Path, executable: &Path) -> Result<(), ReplaceError> {
-    let candidate = File::open(candidate_path).map_err(|error| ReplaceError::SwapFailed {
-        path: candidate_path.to_path_buf(),
-        cause: error.to_string(),
-    })?;
+    // Write access: Windows' FlushFileBuffers refuses a read-only handle.
+    let candidate = fs::OpenOptions::new()
+        .write(true)
+        .open(candidate_path)
+        .map_err(|error| ReplaceError::SwapFailed {
+            path: candidate_path.to_path_buf(),
+            cause: error.to_string(),
+        })?;
     candidate
         .sync_all()
         .map_err(|error| ReplaceError::SwapFailed {
@@ -285,23 +290,44 @@ fn swap_candidate_into_place(candidate_path: &Path, executable: &Path) -> Result
             cause: error.to_string(),
         })?;
     drop(candidate);
-    fs::set_permissions(candidate_path, fs::Permissions::from_mode(EXECUTABLE_MODE)).map_err(
-        |error| ReplaceError::SwapFailed {
-            path: candidate_path.to_path_buf(),
-            cause: error.to_string(),
-        },
-    )?;
-    fs::rename(candidate_path, executable).map_err(|error| ReplaceError::SwapFailed {
-        path: executable.to_path_buf(),
+    set_path_mode(candidate_path, EXECUTABLE_MODE).map_err(|error| ReplaceError::SwapFailed {
+        path: candidate_path.to_path_buf(),
         cause: error.to_string(),
     })?;
+    rename_onto_executable(candidate_path, executable).map_err(|error| {
+        ReplaceError::SwapFailed {
+            path: executable.to_path_buf(),
+            cause: error.to_string(),
+        }
+    })?;
     if let Some(parent) = executable.parent() {
-        File::open(parent)
-            .and_then(|directory| directory.sync_all())
-            .map_err(|error| ReplaceError::SwapFailed {
-                path: executable.to_path_buf(),
-                cause: error.to_string(),
-            })?;
+        sync_directory(parent).map_err(|error| ReplaceError::SwapFailed {
+            path: executable.to_path_buf(),
+            cause: error.to_string(),
+        })?;
+    }
+    Ok(())
+}
+
+/// One rename onto the executable's name.
+#[cfg(unix)]
+fn rename_onto_executable(candidate_path: &Path, executable: &Path) -> std::io::Result<()> {
+    fs::rename(candidate_path, executable)
+}
+
+/// Move the running executable aside to `.exe.old`, then the candidate onto its
+/// name; a failed second rename puts the original back.
+#[cfg(windows)]
+fn rename_onto_executable(candidate_path: &Path, executable: &Path) -> std::io::Result<()> {
+    let aside = executable.with_extension("exe.old");
+    match fs::remove_file(&aside) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
+        _ => {}
+    }
+    fs::rename(executable, &aside)?;
+    if let Err(error) = fs::rename(candidate_path, executable) {
+        let _ = fs::rename(&aside, executable);
+        return Err(error);
     }
     Ok(())
 }

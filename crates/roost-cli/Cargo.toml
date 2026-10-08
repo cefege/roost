@@ -17,6 +17,7 @@ name = "roost"
 path = "src/main.rs"
 
 [dependencies]
+getrandom.workspace = true
 roost-coord.workspace = true
 roost-host.workspace = true
 roost-keeper.workspace = true

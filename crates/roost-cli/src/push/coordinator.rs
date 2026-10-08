@@ -18,7 +18,7 @@ use roost_host::{EnvSource, HostPlatform, roost_service_dir, roost_versions_dir}
 use tracing::{info, warn};
 
 use crate::command_error::CommandFailure;
-use crate::deploy::apply_release::{RELEASE_BIN_DIR, ROOST_PROGRAM};
+use crate::deploy::apply_release::RELEASE_BIN_DIR;
 use crate::deploy::release;
 use crate::deploy::retire;
 use crate::services::deploy_transaction::{self, DeployError};
@@ -27,6 +27,7 @@ use crate::services::service_argv::ServiceAction;
 use crate::services::service_control::{PlatformServiceManager, ServiceManager};
 use crate::services::service_spec::{ServiceRole, ServiceSpec, ServiceTarget};
 use crate::status::service_definition::{InstalledEnvironment, parse_installed_environment};
+use roost_host::ROOST_PROGRAM_FILE;
 
 /// Everything the coordinator leg needs to know about this machine, resolved
 /// once so a decision cannot be made against one path and acted on another.
@@ -107,7 +108,7 @@ pub fn release_bin_dir(location: &CoordinatorLocation, git_sha: &str) -> PathBuf
 
 /// The program a service definition runs for a commit on this machine.
 pub fn release_program(location: &CoordinatorLocation, git_sha: &str) -> PathBuf {
-    release_bin_dir(location, git_sha).join(ROOST_PROGRAM)
+    release_bin_dir(location, git_sha).join(ROOST_PROGRAM_FILE)
 }
 
 /// Install a built release into this machine's release root under `git_sha`, and
@@ -122,7 +123,7 @@ pub fn install_staged_release(
     git_sha: &str,
 ) -> Result<PathBuf, CommandFailure> {
     let bin_dir = release_bin_dir(location, git_sha);
-    let roost_source = staged.local_dir.join(ROOST_PROGRAM);
+    let roost_source = staged.local_dir.join(ROOST_PROGRAM_FILE);
     let keeper_source = staged.local_dir.join(release::RELEASE_PROGRAMS[1]);
     install::install_release_programs(&roost_source, Some(&keeper_source), &bin_dir)
         .map_err(|error| CommandFailure::generic(error.to_string()))?;

@@ -163,8 +163,13 @@ impl ServiceSpec {
             ServiceRole::Worker => ResourceLimits::worker(host_total_bytes),
         };
         let mut environment = BTreeMap::new();
-        environment.insert(ENV_HOME.to_string(), home.display().to_string());
-        environment.insert(ENV_PATH.to_string(), default_service_path(&home));
+        // Task Scheduler starts a Windows service with the logon user's own
+        // environment, profile and `Path` included; restating them would pin
+        // values the user can change.
+        if platform != HostPlatform::Windows {
+            environment.insert(ENV_HOME.to_string(), home.display().to_string());
+            environment.insert(ENV_PATH.to_string(), default_service_path(&home));
+        }
         // The firehose is a documented trap left on, and the observability
         // crate owns the one value that turns it on. An install therefore
         // writes the operator's own choice or writes nothing at all — it never

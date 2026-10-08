@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The fan-out, against real child processes. `roost dev` starts a
 //! coordinator, a worker and a web dev server and has to leave none of them
 //! behind; the children here are shells rather than those three servers, so the

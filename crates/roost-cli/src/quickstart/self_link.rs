@@ -1,5 +1,7 @@
 //! `roost self-link` — putting this install's `roost` on the operator's `PATH`
-//! as `~/.local/bin/roost`, and repairing that link when it is wrong. Called by
+//! as `~/.local/bin/roost` (on Windows a `roost.cmd` shim in
+//! `%LOCALAPPDATA%\RoostWorkerV3\bin`, because a Windows symlink needs an
+//! elevated token), and repairing that link when it is wrong. Called by
 //! the crate's dispatcher and by the Phase 7 cutover, which runs it unattended
 //! on a machine whose link may be absent, stale, or still pointing at an older
 //! generation's install. Depends on `roost-host` for the release layout and on
@@ -28,22 +30,29 @@ use roost_host::{EnvSource, HostPlatform, ProcessEnv};
 use tracing::info;
 
 use crate::command_error::CommandFailure;
-use crate::deploy::apply_release::ROOST_PROGRAM;
 use crate::deploy::installed::installed_release_dir;
 use crate::services::install::default_program_path;
 use crate::services::service_environment::ENV_PATH;
 use crate::services::service_spec::ServiceRole;
+use roost_host::ROOST_PROGRAM_FILE;
 
 /// The directory, under the account's home, a shell looks in for a command the
 /// operator installed themselves. The same directory the service definitions
 /// put first on a service's own `PATH`, so `roost` resolves identically in a
 /// login shell and inside a keeper.
+#[cfg(unix)]
 const LOCAL_BIN: [&str; 2] = [".local", "bin"];
 
 /// The program name under [`LOCAL_BIN`]. It is the same name the release ships
 /// and `install-binary.sh` writes, so an operator who already installed by
 /// hand and an operator who ran quickstart end up with the same command.
+#[cfg(unix)]
 const LINK_NAME: &str = "roost";
+
+/// The shim `install.ps1` puts on the user `Path`; cmd and PowerShell both run
+/// a `.cmd` by its bare name.
+#[cfg(windows)]
+const LINK_NAME: &str = "roost.cmd";
 
 /// What the command did, as a word an operator reads.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,7 +94,7 @@ pub fn run() -> Result<std::process::ExitCode, CommandFailure> {
         )
     })?;
     let target = release_program(&env, platform)?;
-    let bin_dir = home.join(Path::new(LOCAL_BIN[0]).join(LOCAL_BIN[1]));
+    let bin_dir = link_directory(&env, platform, &home)?;
     let link = bin_dir.join(LINK_NAME);
 
     let outcome = write_link(&link, &target)?;
@@ -124,7 +133,7 @@ pub fn release_program(
         // `installed_release_dir` answers the directory the program sits in,
         // which both renderers agree on: systemd states it as the unit's
         // `WorkingDirectory=` and launchd as the program's parent.
-        return Ok(release.join(ROOST_PROGRAM));
+        return Ok(release.join(ROOST_PROGRAM_FILE));
     }
     default_program_path(env, platform).map_err(Into::into)
 }
@@ -134,6 +143,7 @@ pub fn release_program(
 /// Public so the repair can be proved against a throwaway home rather than the
 /// operator's own `~/.local/bin`, which is the only way to assert that a
 /// regular file is refused instead of being tested by an operator once.
+#[cfg(unix)]
 pub fn write_link(link: &Path, target: &Path) -> Result<LinkOutcome, CommandFailure> {
     // Refused here rather than in the command body so the rule is enforced
     // where the link is made, and so a caller reaching this function by another
@@ -208,6 +218,70 @@ pub fn write_link(link: &Path, target: &Path) -> Result<LinkOutcome, CommandFail
         )));
     }
     Ok(LinkOutcome::Repaired { previous })
+}
+
+/// Write (or rewrite) the `roost.cmd` shim that runs `target` with every
+/// argument passed through, and report which of the three it was.
+#[cfg(windows)]
+pub fn write_link(link: &Path, target: &Path) -> Result<LinkOutcome, CommandFailure> {
+    if !target.is_file() {
+        return Err(CommandFailure::generic(format!(
+            "{} is not there, so there is no release for a shim to run. Check the versions \
+             directory the installed service definition names.",
+            target.display()
+        )));
+    }
+    let shim = format!("@\"{}\" %*\r\n", target.display());
+    let previous = match std::fs::read_to_string(link) {
+        Ok(text) if text == shim => return Ok(LinkOutcome::AlreadyCorrect),
+        Ok(text) => Some(
+            text.trim_start_matches('@')
+                .split('"')
+                .nth(1)
+                .map(PathBuf::from)
+                .filter(|path| path.exists()),
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => {
+            return Err(CommandFailure::generic(format!(
+                "{} could not be inspected: {error}",
+                link.display()
+            )));
+        }
+    };
+    crate::services::install::install_bytes(
+        link,
+        shim.as_bytes(),
+        crate::services::install::PROGRAM_MODE,
+    )
+    .map_err(|error| {
+        CommandFailure::generic(format!("{} could not be written: {error}", link.display()))
+    })?;
+    Ok(match previous {
+        None => LinkOutcome::Created,
+        Some(previous) => LinkOutcome::Repaired { previous },
+    })
+}
+
+/// Where the link lives: `~/.local/bin`.
+#[cfg(unix)]
+fn link_directory(
+    _env: &dyn EnvSource,
+    _platform: HostPlatform,
+    home: &Path,
+) -> Result<PathBuf, CommandFailure> {
+    Ok(home.join(Path::new(LOCAL_BIN[0]).join(LOCAL_BIN[1])))
+}
+
+/// Where the shim lives: the worker data directory's `bin`, which
+/// `install.ps1` adds to the user `Path`.
+#[cfg(windows)]
+fn link_directory(
+    env: &dyn EnvSource,
+    platform: HostPlatform,
+    _home: &Path,
+) -> Result<PathBuf, CommandFailure> {
+    Ok(roost_host::worker_data_dir(env, platform)?.join("bin"))
 }
 
 /// Whether a directory is on this shell's `PATH`, so the command can say the

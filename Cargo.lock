@@ -4799,6 +4799,7 @@ dependencies = [
  "axum",
  "clap",
  "connectrpc",
+ "getrandom 0.4.3",
  "hex",
  "qrcode",
  "reqwest 0.13.5",

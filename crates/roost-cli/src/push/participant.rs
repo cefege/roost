@@ -21,7 +21,7 @@ use tracing::info;
 
 use crate::command_error::CommandFailure;
 use crate::deploy::DeployArgs;
-use crate::deploy::apply_release::{RELEASE_BIN_DIR, ROOST_PROGRAM, staging_dir};
+use crate::deploy::apply_release::{RELEASE_BIN_DIR, staging_dir};
 use crate::deploy::codes;
 use crate::deploy::facts::{self, RemoteFacts};
 use crate::deploy::identity_env::{
@@ -35,6 +35,7 @@ use crate::deploy::release;
 use crate::deploy::release_stage;
 use crate::deploy::ssh;
 use crate::deploy::txn_session::{self, RemoteTransaction};
+use roost_host::ROOST_PROGRAM_FILE;
 
 /// What one machine did, for the progress line an operator watches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,7 +75,7 @@ pub async fn deploy_participant(
     release_stage::stage_over_ssh(&args.host, &staged, &staged_text).await?;
     let staged_program = staged_dir
         .join(RELEASE_BIN_DIR)
-        .join(ROOST_PROGRAM)
+        .join(ROOST_PROGRAM_FILE)
         .display()
         .to_string();
 

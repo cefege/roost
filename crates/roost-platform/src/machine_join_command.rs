@@ -9,12 +9,16 @@
 //! else: no coordinator, no database, no environment and no async, so the
 //! quoting can be proved without anything to talk to.
 
-use crate::shell_quote::posix_shell_quote;
+use crate::shell_quote::{posix_shell_quote, powershell_single_quote};
 
 /// The script a new machine runs, in the order its own usage text shows it. The
 /// same URL `install.sh` documents, so the command printed here and the command
 /// the script describes cannot drift apart silently.
 pub const INSTALL_SCRIPT_URL: &str = "https://raw.githubusercontent.com/cefege/roost/v3/install.sh";
+
+/// The Windows installer a new Windows machine runs from PowerShell.
+pub const INSTALL_POWERSHELL_URL: &str =
+    "https://raw.githubusercontent.com/cefege/roost/v3/install.ps1";
 
 /// The door the new machine's worker dials.
 pub const COORDINATOR_URL_ENV: &str = "ROOST_COORDINATOR_URL";
@@ -54,9 +58,85 @@ pub fn machine_join_command(
     format!("curl -fsSL {INSTALL_SCRIPT_URL} | {url_setting} {grant_setting}{label_setting} bash")
 }
 
+/// The PowerShell command a new Windows machine runs: the same three values as
+/// [`machine_join_command`], each a single-quoted literal, set in the process
+/// environment `install.ps1` reads.
+pub fn machine_join_command_powershell(
+    coordinator_url: &str,
+    bootstrap_token: &str,
+    worker_label: &str,
+) -> String {
+    let label_setting = if worker_label.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " $env:{WORKER_LABEL_ENV}={};",
+            powershell_single_quote(worker_label)
+        )
+    };
+    format!(
+        "$env:{COORDINATOR_URL_ENV}={}; $env:{BOOTSTRAP_TOKEN_ENV}={};{label_setting} irm {INSTALL_POWERSHELL_URL} | iex",
+        powershell_single_quote(coordinator_url),
+        powershell_single_quote(bootstrap_token),
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{BOOTSTRAP_TOKEN_ENV, COORDINATOR_URL_ENV, WORKER_LABEL_ENV, machine_join_command};
+    use super::{
+        BOOTSTRAP_TOKEN_ENV, COORDINATOR_URL_ENV, WORKER_LABEL_ENV, machine_join_command,
+        machine_join_command_powershell,
+    };
+
+    /// The literal assigned to `$env:<name>`, read back the way PowerShell
+    /// reads a single-quoted string, and what follows it.
+    fn powershell_assignment<'a>(command: &'a str, name: &str) -> (String, &'a str) {
+        let opening = format!("$env:{name}='");
+        let start = command
+            .find(&opening)
+            .unwrap_or_else(|| panic!("{name} is assigned: {command}"))
+            + opening.len();
+        let mut value = String::new();
+        let mut rest = &command[start..];
+        loop {
+            let quote = rest
+                .find('\'')
+                .unwrap_or_else(|| panic!("the literal closes: {command}"));
+            value.push_str(&rest[..quote]);
+            if rest[quote + 1..].starts_with('\'') {
+                value.push('\'');
+                rest = &rest[quote + 2..];
+            } else {
+                return (value, &rest[quote + 1..]);
+            }
+        }
+    }
+
+    #[test]
+    fn a_hostile_label_stays_inside_one_powershell_literal() {
+        let label = "box'; rm -r C:\\ ; '$(whoami)";
+        let command =
+            machine_join_command_powershell("https://roost.example.com", "roost_bt_x", label);
+        let (value, rest) = powershell_assignment(&command, WORKER_LABEL_ENV);
+        assert_eq!(value, label);
+        assert!(rest.starts_with("; irm "), "{command}");
+        assert!(command.ends_with(" | iex"), "{command}");
+    }
+
+    #[test]
+    fn an_unnamed_windows_machine_sets_no_label() {
+        let command =
+            machine_join_command_powershell("https://roost.example.com", "roost_bt_x", "");
+        assert!(!command.contains(WORKER_LABEL_ENV), "{command}");
+        assert_eq!(
+            powershell_assignment(&command, BOOTSTRAP_TOKEN_ENV).0,
+            "roost_bt_x"
+        );
+        assert_eq!(
+            powershell_assignment(&command, COORDINATOR_URL_ENV).0,
+            "https://roost.example.com"
+        );
+    }
 
     #[test]
     fn an_unnamed_machine_gets_a_command_with_no_label_to_guess_at() {

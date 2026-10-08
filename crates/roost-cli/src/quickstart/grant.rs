@@ -29,7 +29,6 @@
 //! `ensure_self_hosted_tenant` is called, not reimplemented.
 
 use std::fmt;
-use std::io::Read;
 
 use roost_host::DatabaseLocation;
 
@@ -211,23 +210,16 @@ pub(crate) fn describe_database(database: &DatabaseLocation) -> String {
     }
 }
 
-/// Bytes from the kernel CSPRNG, hex-encoded.
-///
-/// `/dev/urandom` is the same source `roost-coord`'s VAPID key generator draws
-/// from, for the same reason and with the same note: v3 installs on Linux and
-/// macOS only and both ship that device, so there is no platform branch to get
-/// wrong. The `getrandom` crate would be the tidier spelling; it is not in this
-/// crate's declared dependencies, and a hand-rolled PRNG standing in for a
+/// Bytes from the operating system's CSPRNG, hex-encoded, through `getrandom`
+/// so every platform has one spelling. A hand-rolled PRNG standing in for a
 /// CSPRNG is the one substitution that must never be made for tidiness.
 fn random_hex() -> Result<String, CommandFailure> {
     let mut bytes = [0_u8; BEARER_ENTROPY_BYTES];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut source| source.read_exact(&mut bytes))
-        .map_err(|error| {
-            CommandFailure::generic(format!(
-                "this machine's entropy source could not be read: {error}"
-            ))
-        })?;
+    getrandom::fill(&mut bytes).map_err(|error| {
+        CommandFailure::generic(format!(
+            "this machine's entropy source could not be read: {error}"
+        ))
+    })?;
     Ok(hex::encode(bytes))
 }
 

@@ -1,8 +1,9 @@
 //! Is this host's coordinator/worker service actually loaded by its platform's
-//! service manager? Called by status/collect.rs, and by nothing else — every
-//! other service question the CLI asks goes through the deploy group's own
-//! service-control vocabulary, because a second spelling of `systemctl --user
-//! is-active roost3-coord.service` is a second thing to keep in sync.
+//! service manager (systemd, launchd, or Task Scheduler)? Called by
+//! status/collect.rs, and by nothing else — every other service question the
+//! CLI asks goes through the deploy group's own service-control vocabulary,
+//! because a second spelling of `systemctl --user is-active roost3-coord.service`
+//! is a second thing to keep in sync.
 //!
 //! The probe is a subprocess with a deadline, never a library call, because
 //! `systemctl --user` talks to a user manager over a socket and `launchctl
@@ -15,6 +16,8 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use roost_host::HostPlatform;
+
+use crate::services::scheduled_task::{powershell_argv, running_probe_script, state_report_script};
 
 /// A wedged service manager must not hold the readout open. Five seconds is
 /// the deadline the TypeScript probe used; below it a loaded-but-busy manager
@@ -46,9 +49,7 @@ fn probe_command(label: &str, platform: HostPlatform) -> Vec<String> {
             "print".to_string(),
             format!("gui/{}/{}", current_uid(), label),
         ],
-        // v3 ships Linux and macOS only and refuses a Windows host before any
-        // command runs, so there is no Windows service manager to ask.
-        HostPlatform::Windows => Vec::new(),
+        HostPlatform::Windows => powershell_argv(&running_probe_script(label)),
     }
 }
 
@@ -75,7 +76,7 @@ pub fn service_state_command(label: &str, platform: HostPlatform) -> Vec<String>
             "print".to_string(),
             format!("gui/{}/{}", current_uid(), label),
         ],
-        HostPlatform::Windows => Vec::new(),
+        HostPlatform::Windows => powershell_argv(&state_report_script(label)),
     }
 }
 
@@ -125,16 +126,17 @@ pub fn service_is_running(report: &str, platform: HostPlatform) -> bool {
                     !pid.is_empty() && pid != "0" && pid.bytes().all(|byte| byte.is_ascii_digit())
                 })
         }
-        HostPlatform::Windows => false,
+        HostPlatform::Windows => {
+            line("State").as_deref() == Some("Running")
+                && line("MainPID").is_some_and(|pid| pid.parse::<u32>().is_ok_and(|pid| pid != 0))
+        }
     }
 }
 
 /// The uid a launchd per-user domain is addressed by, shared with the install
 /// paths in `crate::services::service_argv` so a job is bootstrapped into the
-/// same domain it is probed in. `libc::getuid` is an `unsafe` call and this
-/// crate forbids `unsafe`, so the uid is read from a file the account owns
-/// instead. Every account has a home directory, and its owner is the account
-/// running this command.
+/// same domain it is probed in.
+#[cfg(unix)]
 pub fn current_uid() -> u32 {
     use std::os::unix::fs::MetadataExt;
     // `libc::getuid` is an `unsafe` call and this crate forbids `unsafe`, so
@@ -145,6 +147,12 @@ pub fn current_uid() -> u32 {
         .and_then(|home| std::fs::metadata(home).ok())
         .map(|metadata| metadata.uid())
         .unwrap_or(0)
+}
+
+/// Windows has no uid; launchd domains are never built there.
+#[cfg(windows)]
+pub const fn current_uid() -> u32 {
+    0
 }
 
 /// The child's exit code, or `None` when it could not be run or did not finish
@@ -178,6 +186,7 @@ fn probe_exit_code(argv: &[String]) -> Option<i32> {
     }
 }
 
+#[cfg(unix)]
 fn kill(pid: u32) {
     // `Child::kill` needs the handle the waiting thread owns, so the pid is the
     // handle. A pid that has already exited makes this a no-op the kernel
@@ -185,6 +194,17 @@ fn kill(pid: u32) {
     let _ = Command::new("kill")
         .arg("-KILL")
         .arg(pid.to_string())
+        .status();
+}
+
+#[cfg(windows)]
+fn kill(pid: u32) {
+    // The probe's whole tree: a PowerShell probe may have started children.
+    let _ = Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status();
 }
 
@@ -202,6 +222,7 @@ mod tests {
         assert_eq!(probe_exit_code(&["roost-no-such-probe".to_string()]), None);
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_program_that_exits_zero_reports_its_code() {
         assert_eq!(

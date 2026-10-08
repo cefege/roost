@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! `install.sh`: the three things that decide whether a machine with no v3
 //! install can get one at all. Which job a run does is `install_script_modes`.
 //!

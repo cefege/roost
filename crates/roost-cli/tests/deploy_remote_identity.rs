@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Which machine each `ROOST_*` value in an installed definition describes, and
 //! what a deploy is allowed to carry forward from one. The companion to
 //! `deploy_installed_release.rs`, which reads a decided value back out of the

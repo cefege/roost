@@ -212,8 +212,10 @@ pub fn rotation_plan(
     platform: HostPlatform,
     role: ServiceRole,
 ) -> ProtocolResult<RotationPlan> {
-    if platform != HostPlatform::Linux {
-        return Ok(RotationPlan::Skipped(SKIP_MACOS));
+    match platform {
+        HostPlatform::Linux => {}
+        HostPlatform::MacOs => return Ok(RotationPlan::Skipped(SKIP_MACOS)),
+        HostPlatform::Windows => return Ok(RotationPlan::Skipped(SKIP_WINDOWS)),
     }
     let Some(rotate_binary) = resolve_rotate_binary(env) else {
         return Ok(RotationPlan::Skipped(SKIP_NO_BINARY));
@@ -260,6 +262,10 @@ pub fn install_rotation(
 /// Why a macOS account gets no rotation files.
 pub const SKIP_MACOS: &str =
     "macOS rotates these logs with newsyslog, so no logrotate files are installed";
+
+/// Why a Windows account gets no rotation files.
+pub const SKIP_WINDOWS: &str =
+    "Windows has no logrotate; the launcher appends to main.out.log and main.err.log";
 
 /// Why a Linux box with no `logrotate` gets none.
 pub const SKIP_NO_BINARY: &str =

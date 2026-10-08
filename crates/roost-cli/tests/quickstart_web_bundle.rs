@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! `roost quickstart --web-dist`: what a run given a bundle would install, what
 //! it would put in each definition, and what a run given none says instead.
 //!

@@ -97,7 +97,7 @@ pub fn resolve_plan(
     installed_worker: bool,
 ) -> Result<QuickstartPlan, crate::command_error::CommandFailure> {
     let bin_dir = release_bin_dir(env, platform)?;
-    let program = bin_dir.join(crate::deploy::apply_release::ROOST_PROGRAM);
+    let program = bin_dir.join(roost_host::ROOST_PROGRAM_FILE);
     // The directory a real run would install the bundle into, decided here so
     // the printed definitions name the same path the install writes. A
     // `--web-dist` wins; otherwise a release build downloads its own tag's
@@ -156,7 +156,7 @@ pub fn resolve_plan(
         path_link: (
             home.join(".local")
                 .join("bin")
-                .join(crate::deploy::apply_release::ROOST_PROGRAM),
+                .join(roost_host::ROOST_PROGRAM_FILE),
             link_program,
         ),
         rotation,

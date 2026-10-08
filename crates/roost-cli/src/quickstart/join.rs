@@ -21,7 +21,7 @@ use roost_worker::runtime::boot::ENV_COORDINATOR_URL;
 use tracing::info;
 
 use crate::command_error::CommandFailure;
-use crate::deploy::apply_release::{ROOST_PROGRAM, install_environment};
+use crate::deploy::apply_release::install_environment;
 use crate::quickstart::install::{
     LocalPrograms, deploy_local_definition, install_programs, prepare_service_directories,
     report_change, report_rotation, require_local_linger, service_dir,
@@ -31,6 +31,7 @@ use crate::quickstart::web_source::install_web_bundle;
 use crate::services::install::release_bin_dir;
 use crate::services::service_environment::{ENV_BOOTSTRAP_TOKEN, ENV_WORKER_LABEL};
 use crate::services::service_spec::{ServiceRole, ServiceSpec};
+use roost_host::ROOST_PROGRAM_FILE;
 
 /// What the coordinator this machine is joining is told, in the terms the
 /// worker's own boot reads.
@@ -122,7 +123,7 @@ pub fn worker_spec(
 ) -> Result<ServiceSpec, CommandFailure> {
     let decided = credentials.decided_settings();
     let install_env = install_environment(env, &decided);
-    let program = bin_dir.join(ROOST_PROGRAM);
+    let program = bin_dir.join(ROOST_PROGRAM_FILE);
     let mut resolved = ServiceSpec::resolve(ServiceRole::Worker, &install_env, platform, &program)?;
     if let Some(web_dir) = web_dir {
         resolved = resolved.with_setting(ENV_WEB_DIST_PATH, web_dir.display().to_string());

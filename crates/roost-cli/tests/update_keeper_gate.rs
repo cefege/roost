@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The keeper gate `roost update` passes before it is allowed to replace itself.
 //!
 //! The candidate is interrogated by RUNNING it, so the evidence here is real: a

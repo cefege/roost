@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The log rotation an install lays down beside a service definition: the files
 //! a role owns, where they land, and what they say.
 //!

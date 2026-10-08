@@ -18,8 +18,8 @@ pub mod worker_service_env;
 pub use browser_pairing_link::{PAIR_FRAGMENT_KEY, browser_pairing_link};
 pub use host_platform::{HostPlatform, PlatformError};
 pub use machine_join_command::{
-    BOOTSTRAP_TOKEN_ENV, COORDINATOR_URL_ENV, INSTALL_SCRIPT_URL, WORKER_LABEL_ENV,
-    machine_join_command,
+    BOOTSTRAP_TOKEN_ENV, COORDINATOR_URL_ENV, INSTALL_POWERSHELL_URL, INSTALL_SCRIPT_URL,
+    WORKER_LABEL_ENV, machine_join_command, machine_join_command_powershell,
 };
 pub use native_path::{
     DARWIN_PRIVATE_ROOTS, NativePathCrumb, NativePathError, decode_native_path_route,
@@ -27,5 +27,5 @@ pub use native_path::{
     native_path_identity_key, native_path_join, native_path_to_fs_path, normalize_native_path,
     same_worker_folder,
 };
-pub use shell_quote::posix_shell_quote;
+pub use shell_quote::{posix_shell_quote, powershell_single_quote};
 pub use worker_service_env::KEEPER_FORCE_LIVE_RETIRE_ENV;

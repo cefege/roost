@@ -67,7 +67,7 @@ pub async fn run(_args: &UpdateArgs) -> Result<ExitCode, CommandFailure> {
     let platform = roost_host::supported_host_platform()?;
     if platform == HostPlatform::Windows {
         return Err(CommandFailure::generic(
-            "self-update is not shipped for Windows; v3 hosts run on macOS and Linux",
+            "roost update does not replace binaries on Windows; upgrade with install.ps1 or cargo xtask fleet install",
         ));
     }
     let service_dir = self_update_service_dir(&env, platform)?;

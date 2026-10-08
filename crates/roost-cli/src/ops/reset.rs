@@ -18,6 +18,8 @@ use roost_host::{
 };
 
 use crate::command_error::CommandFailure;
+use crate::services::scheduled_task::{powershell_argv, stop_script};
+use crate::status::service_probe::current_uid;
 
 #[derive(Debug, Args)]
 #[command(about = "Stop the local services and delete the coordinator database")]
@@ -113,19 +115,9 @@ pub fn stop_commands(platform: HostPlatform, coord: &str, worker: &str) -> Vec<V
                 ]
             })
             .collect(),
-        // v3 ships Linux and macOS only; a Windows host is refused at startup.
-        HostPlatform::Windows => Vec::new(),
+        HostPlatform::Windows => [coord, worker]
+            .iter()
+            .map(|label| powershell_argv(&stop_script(label)))
+            .collect(),
     }
-}
-
-/// The uid in the launchd per-user domain. `libc::getuid` is an `unsafe` call
-/// and this crate forbids `unsafe`, so it is read from the home directory the
-/// account owns — which is the same uid `launchctl` will be asked about.
-fn current_uid() -> u32 {
-    use std::os::unix::fs::MetadataExt;
-    std::env::var("HOME")
-        .ok()
-        .and_then(|home| std::fs::metadata(home).ok())
-        .map(|metadata| metadata.uid())
-        .unwrap_or(0)
 }

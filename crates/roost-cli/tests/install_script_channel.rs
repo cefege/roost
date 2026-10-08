@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! `install.sh`: which release a first install takes. The highest stable v3
 //! release by version; while none exists, the highest pre-release; with
 //! `ROOST_RELEASE_CHANNEL=prerelease`, the highest of either. Runs the real
