@@ -9,7 +9,7 @@
 use std::sync::mpsc;
 
 use roost_host::DatabaseLocation;
-use sqlx::{AnyConnection, ConnectOptions as _, Connection as _};
+use sqlx::{AnyConnection, Connection as _};
 
 /// A second connection to the same database, reachable from a synchronous callback.
 pub struct SyncReader {
@@ -34,10 +34,7 @@ impl SyncReader {
     /// Open the second connection on its own thread and runtime.
     pub fn open(location: &DatabaseLocation) -> Self {
         let url = match location {
-            DatabaseLocation::SqliteFile(path) => sqlx::sqlite::SqliteConnectOptions::new()
-                .filename(path)
-                .to_url_lossy()
-                .to_string(),
+            DatabaseLocation::SqliteFile(path) => roost_coord::db::sqlite_url(path),
             DatabaseLocation::Postgres(url) => url.clone(),
         };
         let (questions, inbox) = mpsc::channel::<Question>();

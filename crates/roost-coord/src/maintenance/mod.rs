@@ -32,13 +32,28 @@ pub(crate) async fn remove_file_if_present(path: &Path) -> std::io::Result<()> {
 ///
 /// Set explicitly rather than inherited: a database archive must not be
 /// readable by another user for even the length of one write.
+#[cfg(unix)]
 pub(crate) async fn set_owner_only_file(path: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     tokio::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).await
 }
 
+/// On Windows the coordinator's data lives under `%LOCALAPPDATA%`, whose
+/// inherited ACL is the owner-only restriction; nothing to change.
+#[cfg(windows)]
+pub(crate) async fn set_owner_only_file(_path: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
 /// Set a directory's mode to `0o700`, whatever the process umask allowed.
+#[cfg(unix)]
 pub(crate) async fn set_owner_only_dir(path: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     tokio::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).await
+}
+
+/// See [`set_owner_only_file`]: the `%LOCALAPPDATA%` ACL already restricts it.
+#[cfg(windows)]
+pub(crate) async fn set_owner_only_dir(_path: &Path) -> std::io::Result<()> {
+    Ok(())
 }

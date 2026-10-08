@@ -8,9 +8,9 @@
 //!
 //! WHY THESE ARE ONE CONCEPT AND NOT THREE UTILITIES. `sessions::mcp` opened
 //! `/dev/urandom` and forced the version nibbles itself, and
-//! `push::vapid` opened the same device for its scalar. Two copies of
-//! "/dev/urandom on Linux and macOS" is a fork the moment one of them needs a
-//! different source, and the nibble-forcing is the part a reader has to verify
+//! `push::vapid` opened the same device for its scalar. Two copies of the
+//! entropy source are a fork the moment one of them needs a different one, and
+//! the nibble-forcing is the part a reader has to verify
 //! by hand: get it wrong and the id is a valid-looking uuid that nothing
 //! generated, which no test notices because it still parses.
 //!
@@ -21,21 +21,18 @@
 //! the whole point. Two sources, one module, and the comment on each says which
 //! rule it is obeying.
 
-use std::io::Read as _;
+use std::io::Error as IoError;
 
 use sha2::{Digest, Sha256};
 
-/// Draw `N` bytes from the kernel CSPRNG.
+/// Draw `N` bytes from the operating system's CSPRNG.
 ///
-/// `/dev/urandom` rather than the `getrandom` crate because the crate is not
-/// reachable from this crate's declared dependencies today, and because v3
-/// supports Linux and macOS only (`CLAUDE.md`, "Fixed decisions") — both ship
-/// the device, so there is no platform branch here to get wrong. That reasoning
-/// was written once, in `push::vapid`, and it is the reason this is a
-/// function rather than a `use` at each site.
+/// Through `getrandom`, so every platform reads its own OS generator with one
+/// call and there is no platform branch here to get wrong; a function rather
+/// than a `use` at each site so the source is named once.
 pub fn draw<const N: usize>() -> std::io::Result<[u8; N]> {
     let mut bytes = [0_u8; N];
-    std::fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
+    getrandom::fill(&mut bytes).map_err(IoError::other)?;
     Ok(bytes)
 }
 

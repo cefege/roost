@@ -46,13 +46,11 @@ pub async fn gzip_file_to_path(
 async fn compress_file(source: &Path, destination: &Path) -> Result<GzipFileResult, IoError> {
     let mut input =
         BufReader::with_capacity(GZIP_FILE_CHUNK_BYTES, tokio::fs::File::open(source).await?);
-    let destination_file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(destination)
-        .await?;
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let destination_file = options.open(destination).await?;
     let mut output = BufWriter::with_capacity(GZIP_FILE_CHUNK_BYTES, destination_file);
 
     // A single task drives both ends, so backpressure IS the bound: the next

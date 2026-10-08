@@ -93,12 +93,8 @@ pub trait VapidKeyGenerator: Send + Sync {
 /// so the bound below is a backstop against a broken entropy source rather than
 /// a budget.
 ///
-/// The entropy source is the kernel CSPRNG at `/dev/urandom`. v3 supports Linux
-/// and macOS only (`CLAUDE.md` "Fixed decisions": Windows is paused), and both
-/// ship that device, so there is no platform branch to get wrong. The
-/// `getrandom` crate would be the tidier spelling; it is not reachable from
-/// this crate's declared dependencies today, and this is the one place a
-/// hand-rolled spelling was accepted rather than left unimplemented.
+/// The entropy source is the operating system's CSPRNG, drawn through
+/// `coord_core::ids::draw`, the one entropy source in this crate.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct P256KeypairGenerator;
 

@@ -8,7 +8,6 @@
 use std::path::Path;
 
 use sqlx::AnyPool;
-use sqlx::ConnectOptions as _;
 use sqlx::any::AnyPoolOptions;
 
 use super::{BUSY_TIMEOUT, CoordDb, DbBackend, DbError};
@@ -55,10 +54,7 @@ const SQLITE_PRAGMAS: &[&str] = &[
 
 /// A pool of one over the SQLite file at `path`, created if missing.
 pub(super) async fn connect_sqlite(path: &Path) -> Result<AnyPool, DbError> {
-    let url = sqlx::sqlite::SqliteConnectOptions::new()
-        .filename(path)
-        .create_if_missing(true)
-        .to_url_lossy();
+    let url = sqlite_url(path);
     Ok(AnyPoolOptions::new()
         // One connection, for the reason in the `db` module header.
         .max_connections(1)
@@ -73,6 +69,36 @@ pub(super) async fn connect_sqlite(path: &Path) -> Result<AnyPool, DbError> {
         })
         .connect(url.as_str())
         .await?)
+}
+
+/// The `sqlite:` URL the `Any` driver opens `path` from, created if missing.
+/// Public so a test's second connection opens the file the coordinator does.
+#[cfg(unix)]
+pub fn sqlite_url(path: &Path) -> String {
+    use sqlx::ConnectOptions as _;
+    sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(path)
+        .create_if_missing(true)
+        .to_url_lossy()
+        .to_string()
+}
+
+/// The `sqlite:` URL the `Any` driver opens `path` from, created if missing.
+///
+/// Written as an opaque `sqlite:C:/…` URL rather than through `to_url_lossy`,
+/// whose `sqlite://C:\…` form reads the drive as a host and reopens a
+/// different path. SQLite accepts `/` as a Windows separator; `%`, `?` and `#`
+/// are escaped because the driver percent-decodes the path and splits off the
+/// query at `?`.
+#[cfg(windows)]
+pub fn sqlite_url(path: &Path) -> String {
+    let path = path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .replace('%', "%25")
+        .replace('?', "%3F")
+        .replace('#', "%23");
+    format!("sqlite:{path}?mode=rwc")
 }
 
 /// A pool over the Postgres server at `url`.

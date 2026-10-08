@@ -83,6 +83,7 @@ impl ShutdownDrain {
 /// send the first and a terminal sends the second, and a coordinator that only
 /// handled one of them would need a `SIGKILL` to stop -- which is the one path
 /// that does not run the shutdown sequence.
+#[cfg(unix)]
 pub async fn shutdown_signal() {
     let interrupt = async {
         if let Ok(mut signal) =
@@ -101,6 +102,37 @@ pub async fn shutdown_signal() {
     tokio::select! {
         () = interrupt => {},
         () = terminate => {},
+    }
+    tracing::info!("coordinator shutdown");
+}
+
+/// The platform's termination request: Ctrl+C, the console closing, or the
+/// system shutting down. Each is the Windows counterpart of a signal above.
+#[cfg(windows)]
+pub async fn shutdown_signal() {
+    let interrupt = async {
+        if tokio::signal::ctrl_c().await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    };
+    let close = async {
+        if let Ok(mut signal) = tokio::signal::windows::ctrl_close() {
+            signal.recv().await;
+        } else {
+            std::future::pending::<()>().await;
+        }
+    };
+    let system_shutdown = async {
+        if let Ok(mut signal) = tokio::signal::windows::ctrl_shutdown() {
+            signal.recv().await;
+        } else {
+            std::future::pending::<()>().await;
+        }
+    };
+    tokio::select! {
+        () = interrupt => {},
+        () = close => {},
+        () = system_shutdown => {},
     }
     tracing::info!("coordinator shutdown");
 }

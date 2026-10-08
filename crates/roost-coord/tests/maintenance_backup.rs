@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The nightly backup's promises: a verified archive published by rename, a
 //! fixed keep count, and permissions that keep another user out.
 //!
