@@ -3973,3 +3973,21 @@ background, cursor, dim variants) become the default.
 
 **Guard** — `crates/roost-term/tests/cell_model.rs` —
 `the_sixteen_ansi_colours_reach_the_wire_as_palette_indices`.
+
+### A closed tab reappears for a second when its undo window runs out
+
+**Symptom** — closing a terminal tab hides it and shows the undo card; five seconds later the tab (and its
+sidebar row) flashes back for about a second, then disappears for good.
+
+**Wrong** — delay the kill, or shorten the window. The flash is the gap between the window expiring and the
+Sync socket removing the session: the sweep took the session out of the pending set when it issued the
+kill, so every `is_pending_close` filter (deck membership, sidebar, live lists) showed it again until the
+removal arrived.
+
+**Right** — an expired close moves to `PendingCloses::closing` instead of leaving the set; it stays hidden
+until the session plane no longer holds it as open (pruned on the next sweep), and is released only when
+its kill fails, beside the `Close failed:` card.
+
+**Guard** — `crates/roost-client-core/tests/store_close_kill.rs` —
+`a_killed_session_stays_hidden_until_it_leaves_the_session_plane`,
+`a_session_whose_kill_failed_comes_back`.

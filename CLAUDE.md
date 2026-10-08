@@ -308,7 +308,8 @@ down → that machine's PTYs are unavailable; other machines keep working.
 k3s on ovh1, the same host as the public edge (namespace `roost`, Deployment
 `roost-coordinator`, StatefulSet `roost-coordinator-postgres`, a daily
 `pg_dump` CronJob keeping 14 archives), so on every fleet host `roost status`
-reports the coordinator service and listener as absent; that is expected. The
+reports the coordinator service and listener as absent and the worker roster as
+"not on this host"; that is expected. The
 k3s API answers on ovh1's tailnet address to desktop-pc only; desktop-pc's
 kubeconfig for it is `~/.kube/ovh1.yaml`. Check it with:
 
@@ -318,7 +319,17 @@ kubectl -n roost get pods                         # coordinator, postgres, backu
 curl -s https://mike.roosttt.com/readyz           # 200 = database answers
 kubectl -n roost logs deploy/roost-coordinator --since=1h   # the JSON log
 kubectl -n roost exec deploy/roost-coordinator -- roost doctor --since 24h
+kubectl -n roost exec roost-coordinator-postgres-0 -- sh -c \
+  'psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-roost}" -Atc
+   "select label, git_sha, to_timestamp(last_seen_ms/1000) from workers
+    where deleted_at_ms is null order by label"'   # the worker roster
 ```
+
+`mike.roosttt.com` is proxied by Cloudflare, whose zone setting **Browser Cache
+TTL must stay "Respect Existing Headers"**. The page's stylesheets keep fixed
+names (`/styles/*.css`) and the coordinator serves them `no-cache`; any fixed
+TTL there overrides that and ships each release's CSS hours late, beside the
+new wasm.
 
 ovh1's `roost-saas-legacy-bridge` reaches it through the drop-in
 `/etc/systemd/system/roost-saas-legacy-bridge.service.d/ovh1-k3s.conf`
@@ -450,7 +461,7 @@ Needs `gh`, `helm` and `kubectl` on this machine.
 
 ## Failure index
 
-[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md) is the symptom→fix index: 148
+[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md) is the symptom→fix index: 150
 entries, one `###` heading each, with `**Symptom**` (the grep string),
 `**Wrong**`, `**Right**`, and `**Guard**` (the test or lint check
 that pins it). It is the only actively maintained institutional memory in this repo and
