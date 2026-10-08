@@ -5,7 +5,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_worker::session::ids::mint_uuid;
-use roost_worker::session::spawn::canonical_session_cwd;
+use roost_worker::session::session_cwd::canonical_session_cwd;
 
 /// The cwd a record reports is the physical one. A symlinked request otherwise
 /// disagrees with the path the shell itself emits over OSC 7 a moment later,

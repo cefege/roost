@@ -26,6 +26,7 @@ use crate::channel_fsm::ChannelEvent;
 use crate::event_store::{DurableEventKind, Reservation};
 use crate::session::ids::{MintError, mint_trace_id, mint_uuid};
 use crate::session::ring::ScrollbackRing;
+use crate::session::session_cwd::canonical_session_cwd;
 use crate::session::sinks::{ChannelBinding, SessionEventError, SessionEventSink};
 use crate::session::types::{SessionIdentity, SessionRecord};
 use crate::shell_spec::ShellSpec;
@@ -354,36 +355,4 @@ fn spawn_event(
 async fn release_both(events: &dyn SessionEventSink, opened: Reservation, close: Reservation) {
     events.release(opened).await;
     events.release(close).await;
-}
-
-/// The spawn/resume cwd as the session record will report it.
-///
-/// realpath, not just tilde expansion: a symlinked request (`/tmp` on macOS is
-/// `/private/tmp`) otherwise disagrees with the physical path the shell emits
-/// over OSC 7 a moment later, and the SPA keys folders off that cwd — one
-/// directory then splits into two folder groups. A missing directory keeps the
-/// expanded value; the spawn fails later with the real error instead of having
-/// it masked here.
-pub fn canonical_session_cwd(value: &str, home: Option<&str>) -> String {
-    let expanded = expand_home(value, home);
-    match std::fs::canonicalize(&expanded) {
-        Ok(resolved) => resolved.to_string_lossy().into_owned(),
-        Err(_) => expanded,
-    }
-}
-
-fn expand_home(value: &str, home: Option<&str>) -> String {
-    if value != "~" && !value.starts_with("~/") {
-        return value.to_owned();
-    }
-    let Some(home) = home
-        .map(str::to_owned)
-        .or_else(|| std::env::var("HOME").ok())
-    else {
-        return value.to_owned();
-    };
-    if value == "~" {
-        return home;
-    }
-    format!("{home}/{}", &value[2..])
 }

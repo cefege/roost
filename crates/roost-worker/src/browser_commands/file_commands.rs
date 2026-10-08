@@ -162,7 +162,10 @@ impl Shell {
         let expanded = self.expand_home(raw).unwrap_or_else(|| raw.to_owned());
         let normalized = normalize_native_path(self.platform, &expanded)
             .map_err(|error| Refusal::failed(KIND, error.to_string()))?;
-        if !normalized.starts_with('/') {
+        // Normalization already refuses a relative path on every platform, so
+        // what is left to refuse is a `~` no home resolved. A Windows path is
+        // absolute as `C:/…` and never starts with `/`.
+        if normalized == "~" || normalized.starts_with("~/") {
             return Err(Refusal::failed(
                 KIND,
                 format!("a browser path must be absolute, got `{normalized}`"),
