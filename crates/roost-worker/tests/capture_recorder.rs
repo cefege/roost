@@ -80,7 +80,9 @@ async fn a_new_grid_epoch_does_not_bypass_the_session_wide_automatic_floor() {
     harness
         .recorder
         ._with_terminal_recorder(SESSION, |recorder| {
-            recorder.unwrap().last_sample_mono = None
+            let recorder = recorder.unwrap();
+            recorder.last_sample_mono = None;
+            recorder.sample_suppressed_until_mono = None;
         });
     harness.with_record(|record| record.cell_emit.grid_epoch_revision += 1);
     tap_mismatch(&harness, 2);

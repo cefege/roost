@@ -95,7 +95,9 @@ async fn a_recording_armed_at_the_first_byte_replays_to_one_overwritten_footer()
     harness
         .recorder
         ._with_terminal_recorder(SESSION, |recorder| {
-            recorder.unwrap().last_sample_mono = None
+            let recorder = recorder.unwrap();
+            recorder.last_sample_mono = None;
+            recorder.sample_suppressed_until_mono = None;
         });
     harness.deliver(format!("\r{NEW_FOOTER}").as_bytes());
     emit(&harness, false);

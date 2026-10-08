@@ -54,11 +54,14 @@ async fn the_live_emitter_records_accepted_frames_and_stays_silent_when_healthy(
 
     emit(&harness, true);
     // Force the second emission to be sampled too, so "silent" is not just
-    // "unsampled".
+    // "unsampled" — and lift the budget suppression a slow debug build earns
+    // on its first scan, which would otherwise skip the second.
     harness
         .recorder
         ._with_terminal_recorder(SESSION, |recorder| {
-            recorder.unwrap().last_sample_mono = None
+            let recorder = recorder.unwrap();
+            recorder.last_sample_mono = None;
+            recorder.sample_suppressed_until_mono = None;
         });
     harness.with_record(|record| record.terminal_core.write(b"\x1b[2;1HFOOTER-14s"));
     emit(&harness, false);
