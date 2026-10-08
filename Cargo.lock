@@ -4844,6 +4844,7 @@ dependencies = [
  "connectrpc",
  "ed25519-dalek",
  "futures-util",
+ "getrandom 0.4.3",
  "hex",
  "ipnet",
  "openssl",

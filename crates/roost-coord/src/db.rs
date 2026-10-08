@@ -53,7 +53,7 @@ use std::time::Duration;
 
 use roost_host::DatabaseLocation;
 
-pub use backend::POSTGRES_POOL_SIZE;
+pub use backend::{POSTGRES_POOL_SIZE, sqlite_url};
 pub use in_list::{IN_LIST_CHUNK, push_in_list};
 pub use sql_builder::{Separated, SqlBuilder};
 

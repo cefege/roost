@@ -93,14 +93,14 @@ impl Default for CoordinatorRecorder {
     }
 }
 
-/// Minted once per recorder, never derived from a request. Without the kernel
+/// Minted once per recorder, never derived from a request. Without the OS
 /// CSPRNG the id falls back to one derived from this process and instant,
 /// which still distinguishes a restart, and says so.
 fn coordinator_process_id() -> String {
     match draw::<16>() {
         Ok(bytes) => render_v4(bytes),
         Err(error) => {
-            tracing::warn!(%error, "terminal capture: /dev/urandom unavailable; deriving the process id");
+            tracing::warn!(%error, "terminal capture: the OS random source is unavailable; deriving the process id");
             let nanos = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |elapsed| elapsed.as_nanos());

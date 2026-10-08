@@ -19,8 +19,6 @@
 //! read-then-write would depend on the caller's transaction being serializable,
 //! and SQLite's is not: both readers would see `used_at_ms IS NULL`.
 
-use std::io::Read as _;
-
 use base64::Engine as _;
 use base64::engine::general_purpose;
 use roost_protocol::{ProtocolError, ProtocolResult};
@@ -174,18 +172,13 @@ fn ssh_wire_key(raw: &[u8]) -> Option<[u8; PUBLIC_KEY_BYTES]> {
     <[u8; PUBLIC_KEY_BYTES]>::try_from(&raw[type_end + 4..type_end + 4 + PUBLIC_KEY_BYTES]).ok()
 }
 
-/// A fresh bearer, from the operating system's CSPRNG.
-///
-/// `/dev/urandom` rather than a `rand` dependency: it is the generator
-/// `crypto.getRandomValues` reads and it is present on both platforms this
-/// project ships. A read failure is an error, never a fallback -- a token whose
-/// entropy came from anything weaker is a permanent credential for whoever
-/// guessed it.
+/// A fresh bearer, from the operating system's CSPRNG through the one entropy
+/// source in `coord_core::ids`. A read failure is an error, never a fallback --
+/// a token whose entropy came from anything weaker is a permanent credential
+/// for whoever guessed it.
 fn random_bootstrap_bearer() -> ProtocolResult<String> {
-    let mut random = [0_u8; BOOTSTRAP_TOKEN_RANDOM_BYTES];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut source| source.read_exact(&mut random))
-        .map_err(|error| {
+    let random =
+        crate::coord_core::ids::draw::<BOOTSTRAP_TOKEN_RANDOM_BYTES>().map_err(|error| {
             ProtocolError::new(
                 "auth.bootstrap_tokens",
                 format!("no secure randomness for a bootstrap bearer: {error}"),
