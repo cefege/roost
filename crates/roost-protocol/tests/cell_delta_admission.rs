@@ -94,6 +94,23 @@ fn an_empty_full_duplicate_or_gapped_chain_folds_to_nothing() {
 }
 
 #[test]
+fn an_empty_delta_updates_kitty_keyboard_mode_flags() {
+    let mut canonical = full_frame(&["a", "b"]);
+    canonical.kitty_keyboard_flags = 1;
+    let mut mode_change = next_delta(&canonical, Vec::new(), Vec::new());
+    mode_change.kitty_keyboard_flags = 5;
+    mode_change.bracketed_paste = true;
+    mode_change.cursor_keys_app = true;
+
+    assert!(mode_change.viewport_rows.is_empty());
+    assert!(apply_delta(&mut canonical, &mode_change).is_some());
+    assert_eq!(canonical.kitty_keyboard_flags, 5);
+    assert!(canonical.bracketed_paste);
+    assert!(canonical.cursor_keys_app);
+    assert_eq!(row_text(&canonical.viewport_rows), vec!["a", "b"]);
+}
+
+#[test]
 fn a_delta_outside_its_epoch_is_refused_without_touching_the_replica() {
     let mut base = full_frame(&["a", "b"]);
     base.seq = 5;

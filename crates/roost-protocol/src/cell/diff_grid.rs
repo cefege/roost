@@ -160,6 +160,7 @@ pub fn apply_delta(base: &mut CellGridFrame, delta: &CellGridFrame) -> Option<()
     base.mouse_tracking = delta.mouse_tracking;
     base.mouse_sgr = delta.mouse_sgr;
     base.focus_events = delta.focus_events;
+    base.kitty_keyboard_flags = delta.kitty_keyboard_flags;
     base.full = true;
     base.scrollback_total = delta.scrollback_total;
     base.base_seq = 0;
