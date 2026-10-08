@@ -162,19 +162,13 @@ pub fn collect_host_identity(
                 linux_distribution: distribution,
             }
         }
-        // A refusal, not a default: v3 has no Windows sampler, so there is no
-        // honest answer to give for a host v3 does not run on. The wire carries
-        // this field as an `Option` (`host_identity_to_proto`), so `None` is
-        // the refusal the record can actually hold; the log is what makes it
-        // say WHICH platform had no answer, rather than reading as a badge
-        // that happens to be missing.
-        HostPlatform::Windows => {
-            tracing::warn!(
-                platform = platform.as_str(),
-                "no host identity was collected: v3 ships no worker for this platform"
-            );
-            return None;
-        }
+        // No model, chip or distribution is read on Windows; the normalizer
+        // turns the empty record into the `None` the wire carries.
+        HostPlatform::Windows => HostIdentity {
+            hardware_model: None,
+            chip: None,
+            linux_distribution: None,
+        },
     };
     normalize_host_identity(&serde_json::to_value(identity).ok()?)
 }

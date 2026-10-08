@@ -5,11 +5,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_worker::session::ids::mint_uuid;
-use roost_worker::session::spawn::canonical_session_cwd;
+use roost_worker::session::session_cwd::canonical_session_cwd;
 
 /// The cwd a record reports is the physical one. A symlinked request otherwise
 /// disagrees with the path the shell itself emits over OSC 7 a moment later,
 /// and one directory then splits into two folder groups in the SPA.
+#[cfg(unix)]
 #[test]
 fn the_recorded_cwd_is_the_physical_path_not_the_request() {
     let requested = std::env::temp_dir();
@@ -21,6 +22,23 @@ fn the_recorded_cwd_is_the_physical_path_not_the_request() {
     // fails with the real error instead of having it masked here.
     let missing = canonical_session_cwd("/nope/roost/does/not/exist", None);
     assert_eq!(missing, "/nope/roost/does/not/exist");
+}
+
+/// On Windows the physical path is the drive form the shell reports over
+/// OSC 7, not `canonicalize`'s `\\?\C:\…`, which cmd.exe refuses as a cwd.
+#[cfg(windows)]
+#[test]
+fn a_windows_cwd_is_the_drive_path_without_the_verbatim_prefix() {
+    let requested = std::env::temp_dir();
+    let physical = std::fs::canonicalize(&requested).expect("the temp dir exists");
+    let resolved = canonical_session_cwd(requested.to_str().expect("utf-8 temp dir"), None);
+    let physical = physical.to_string_lossy();
+    assert_eq!(
+        Some(resolved.as_str()),
+        physical.strip_prefix(r"\\?\"),
+        "{physical}"
+    );
+    assert_eq!(resolved.as_bytes().get(1), Some(&b':'), "{resolved}");
 }
 
 /// A minted session identity is a uuid the coordinator can key a row on, so a

@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The per-session unhandled-sequence log against a real core: a sequence the
 //! core dropped is reported once per core, distinct parameters are distinct
 //! sequences, the log stops at its cap and says so, and entries the core's

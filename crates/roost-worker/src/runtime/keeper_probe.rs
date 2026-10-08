@@ -136,12 +136,7 @@ fn probe_once(
 
 /// Whether something has published the keeper socket.
 pub async fn endpoint_is_published(socket: &Path) -> bool {
-    use std::os::unix::fs::FileTypeExt;
-
-    match tokio::fs::symlink_metadata(socket).await {
-        Ok(metadata) => metadata.file_type().is_socket(),
-        Err(_absent) => false,
-    }
+    roost_keeper::transport::is_socket_file(socket)
 }
 
 /// The digest the worker expects a keeper it would start to report.

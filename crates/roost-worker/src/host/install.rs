@@ -1,20 +1,14 @@
 //! Erasure of a one-shot environment entry from this worker's installed
 //! service definition: the LaunchAgent plist on macOS, the systemd --user unit
-//! on Linux. Called by the activation that SPENDS a one-shot authorization —
-//! the redeemed bootstrap token, the keeper force-live retire — and by nothing
-//! else. Depends on `roost_host::worker_service_path` and nothing that boots,
-//! so erasing a key never drags the service up with it.
-//!
-//! WINDOWS IS NOT PORTED. v2 returned early on `win32` and did the equivalent
-//! through a service DACL instead (`apps/worker/src/host/service-definition-env.ts:26`),
-//! so there is nothing here to stub: a Windows worker does not exist in v3, and
-//! a platform that keeps no definition carries no entry to erase — the same
-//! `false` v2 answers, and not a failure, because nothing failed.
+//! on Linux, the Scheduled Task's launcher script on Windows. Called by the
+//! activation that SPENDS a one-shot authorization — the redeemed bootstrap
+//! token, the keeper force-live retire — and by nothing else. Depends on
+//! `roost_host::worker_service_path` and nothing that boots, so erasing a key
+//! never drags the service up with it.
 //!
 //! The definition itself is written by `roost-cli`'s service installer, the one
 //! owner of what a definition contains. This erases one entry from it.
 
-use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 
 use roost_host::{EnvSource, HostPlatform, supported_host_platform, worker_service_path};
@@ -27,6 +21,7 @@ pub const BOOTSTRAP_TOKEN_ENV: &str = "ROOST_BOOTSTRAP_TOKEN";
 /// The mode an edited definition is left at: it is a file an operator may have
 /// to read during an incident, and it is also a file a secret was just removed
 /// from.
+#[cfg(unix)]
 const DEFINITION_MODE: u32 = 0o600;
 
 /// Which kind of service definition an erasure is against.
@@ -36,19 +31,18 @@ pub enum ServiceDefinition {
     LaunchAgent,
     /// A Linux systemd --user unit.
     SystemdUserUnit,
+    /// A Windows launcher script (`.cmd`) a Scheduled Task runs.
+    WindowsLauncher,
 }
 
 impl ServiceDefinition {
-    /// The definition kind a platform's worker runs under, or `None` on a
-    /// platform that keeps no service definition. `None` is not a failure:
-    /// there is no file that could have carried the key, so erasing nothing is
-    /// the whole of what there was to do.
+    /// The definition kind a platform's worker runs under.
     #[must_use]
     pub const fn for_platform(platform: HostPlatform) -> Option<Self> {
         match platform {
             HostPlatform::MacOs => Some(Self::LaunchAgent),
             HostPlatform::Linux => Some(Self::SystemdUserUnit),
-            HostPlatform::Windows => None,
+            HostPlatform::Windows => Some(Self::WindowsLauncher),
         }
     }
 
@@ -112,6 +106,7 @@ pub async fn scrub_service_definition_env(
     let next = match definition {
         ServiceDefinition::LaunchAgent => erase_plist_entry(&raw, key),
         ServiceDefinition::SystemdUserUnit => erase_unit_entry(&raw, key),
+        ServiceDefinition::WindowsLauncher => erase_launcher_entry(&raw, key),
     };
     if next == raw {
         return Ok(false);
@@ -246,6 +241,15 @@ fn erase_unit_entry(raw: &str, key: &str) -> String {
     erased
 }
 
+/// A launcher script's `set "K=V"` lines, with `key`'s removed. The installer
+/// writes one variable per line, so the line is the entry.
+fn erase_launcher_entry(raw: &str, key: &str) -> String {
+    let entry = format!("set \"{key}=");
+    raw.split_inclusive('\n')
+        .filter(|line| !line.trim_start().starts_with(&entry))
+        .collect()
+}
+
 /// One `NAME=VALUE` pair on an `Environment=` line, and where it sits in the
 /// line's own bytes. The span is what makes the erase surgical: the survivors
 /// are copied across untouched rather than decoded and written back.
@@ -340,8 +344,12 @@ fn replace_definition(path: &Path, next: &str) -> Result<(), InstallError> {
     staged.push(".env-scrub");
     let staged = PathBuf::from(staged);
     std::fs::write(&staged, next).map_err(|error| unwritable(error.to_string()))?;
-    std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(DEFINITION_MODE))
-        .map_err(|error| unwritable(error.to_string()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(DEFINITION_MODE))
+            .map_err(|error| unwritable(error.to_string()))?;
+    }
     std::fs::rename(&staged, path).map_err(|error| unwritable(error.to_string()))
 }
 

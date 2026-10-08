@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! A real agent process, found by the real `ps` scan, judged by the pinned
 //! manifests, reaches the coordinator link as one identified agent-status
 //! frame — the production path of v2 `main.ts:220-237` (registry publish →

@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! What a spawn through the keeper pool guarantees, asserted on a real keeper:
 //! a real socket, a real PTY, and a real child whose own output is the evidence.
 //! The channel table's own guarantees live in `keeper_pool_channels.rs`.

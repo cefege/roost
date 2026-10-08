@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The kernel peer-process reader behind the agent report socket: injected
 //! queries pin the fail-closed validation, and a real child connection proves
 //! the platform query end to end. Ports v2

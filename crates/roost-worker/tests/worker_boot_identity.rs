@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Where a worker's identity comes from, and the one thing that is gone.
 //!
 //! `ROOST_WORKER_FINGERPRINT` and `--fingerprint` used to be the worker's

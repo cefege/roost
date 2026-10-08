@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! What a resolved launch contract guarantees, and what it must never carry.
 //!
 //! `is_keeper_control_key` is already tested as a predicate. What matters is

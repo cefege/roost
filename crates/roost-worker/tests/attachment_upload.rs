@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The coordinator relay upload: multi-chunk byte fidelity, v2's final naming
 //! and duplicate suffixes, an empty file, the short-path link, the refusals
 //! that leave no file behind, and the content-dedup manifest. Ports v2

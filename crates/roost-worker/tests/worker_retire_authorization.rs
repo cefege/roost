@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The keeper force-live retire authorization is SPENT, once, after admission.
 //!
 //! Why this needs its own test: the value authorises ending every PTY a keeper

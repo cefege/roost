@@ -54,9 +54,10 @@ impl LabelSources for HostLabelSources {
                 .ok()
                 .filter(|out| out.status.success())
                 .and_then(|out| String::from_utf8(out.stdout).ok()),
-            // A refusal rather than a default: v3 ships no worker for this
-            // platform, so there is no honest name to report for it.
-            HostPlatform::Windows => None,
+            // Windows exports the NetBIOS computer name to every process.
+            HostPlatform::Windows => std::env::var("COMPUTERNAME")
+                .ok()
+                .filter(|name| !name.trim().is_empty()),
         }
     }
 }
@@ -192,11 +193,16 @@ mod tests {
     }
 
     #[test]
-    fn this_host_can_name_itself_and_windows_cannot() {
+    fn this_host_can_name_itself_and_windows_reads_its_computer_name() {
         let platform = roost_host::supported_host_platform().expect("a supported host");
         let name = HostLabelSources.host_name(platform).expect("a host name");
         assert!(!name.trim().is_empty(), "an empty host name is no name");
-        assert!(HostLabelSources.host_name(HostPlatform::Windows).is_none());
+        assert_eq!(
+            HostLabelSources.host_name(HostPlatform::Windows),
+            std::env::var("COMPUTERNAME")
+                .ok()
+                .filter(|name| !name.trim().is_empty())
+        );
     }
 
     #[test]

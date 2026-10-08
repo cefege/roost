@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! What a directory listing says about a directory, under the exact keys it
 //! says it.
 //!

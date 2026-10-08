@@ -15,6 +15,7 @@
 
 pub mod detector;
 pub mod environment;
+mod file_identity;
 pub mod install_integrations;
 mod install_mutation;
 pub mod install_proof;
@@ -30,6 +31,8 @@ pub mod peer_process_id;
 pub mod process_identity;
 pub mod process_scan;
 pub mod process_snapshot;
+#[cfg(windows)]
+pub mod process_snapshot_windows;
 pub mod process_tree;
 pub mod prompt_control;
 pub mod prompt_fence;

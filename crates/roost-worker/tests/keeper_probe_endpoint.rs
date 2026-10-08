@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The three states a keeper probe tells apart on the endpoint's socket path:
 //! never published, published by a keeper that has since died, and published
 //! by a keeper that accepted and is saying nothing. The first two mean "start a

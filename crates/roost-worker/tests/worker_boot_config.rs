@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The worker's boot CONFIGURATION: what `WorkerBoot::resolve` refuses before
 //! anything is started, the installer-layout defaults, the command-line overlay
 //! and its re-check, and the per-activation process epoch. The step ORDER those

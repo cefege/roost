@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! What the pool's channel table guarantees once the keeper is answering: a
 //! channel that ended stops being announced, and a keeper that is gone tells
 //! every channel exactly once. Driven through real PTYs on a real keeper,

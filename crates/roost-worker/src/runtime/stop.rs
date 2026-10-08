@@ -143,6 +143,7 @@ impl StopSignal {
 /// `SIGTERM` is what `systemctl --user stop` and `launchctl kickstart -k` send;
 /// `SIGINT` is what an operator pressing Ctrl-C in a terminal sends. Both mean
 /// the same thing here, and neither means "drop the terminals".
+#[cfg(unix)]
 pub fn stop_requests_from_signals() -> anyhow::Result<StopRequests> {
     use tokio::signal::unix::{SignalKind, signal};
 
@@ -158,6 +159,46 @@ pub fn stop_requests_from_signals() -> anyhow::Result<StopRequests> {
             let name = tokio::select! {
                 _ = terminate.recv() => Some("SIGTERM"),
                 _ = interrupt.recv() => Some("SIGINT"),
+            };
+            match name {
+                Some(name) => {
+                    if signalled.request(StopReason::Signal(name)) {
+                        tracing::info!(signal = name, "a stop was requested");
+                        return;
+                    }
+                    tracing::warn!(
+                        signal = name,
+                        "a second stop signal arrived while the worker was already stopping"
+                    );
+                }
+                None => return,
+            }
+        }
+    });
+    Ok(requests)
+}
+
+/// Install console-control handlers that request a graceful stop, and return
+/// the requester they feed: Ctrl-C and Ctrl-Break from an operator's console,
+/// close and shutdown from the session ending. Each means what `SIGTERM` and
+/// `SIGINT` mean on Unix, and none means "drop the terminals".
+#[cfg(windows)]
+pub fn stop_requests_from_signals() -> anyhow::Result<StopRequests> {
+    use tokio::signal::windows::{ctrl_break, ctrl_c, ctrl_close, ctrl_shutdown};
+
+    let (requests, _watcher) = StopRequests::channel();
+    let mut interrupt = ctrl_c()?;
+    let mut console_break = ctrl_break()?;
+    let mut console_close = ctrl_close()?;
+    let mut system_shutdown = ctrl_shutdown()?;
+    let signalled = requests.clone();
+    tokio::spawn(async move {
+        loop {
+            let name = tokio::select! {
+                received = interrupt.recv() => received.map(|()| "CTRL_C"),
+                received = console_break.recv() => received.map(|()| "CTRL_BREAK"),
+                received = console_close.recv() => received.map(|()| "CTRL_CLOSE"),
+                received = system_shutdown.recv() => received.map(|()| "CTRL_SHUTDOWN"),
             };
             match name {
                 Some(name) => {

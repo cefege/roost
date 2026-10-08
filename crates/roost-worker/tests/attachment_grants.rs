@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The direct attachment grant store and hello admission: what an install
 //! must carry, what a hello must prove, how expiry, replacement and device
 //! revocation are announced, and the peer tuple a WebRTC hello must repeat.

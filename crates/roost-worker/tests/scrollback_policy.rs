@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Append and replay: the policy that decides which
 //! bytes a session keeps and what a chunk tells the worker about the stream. The
 //! arithmetic being guarded here is the one whose breakage is invisible — a

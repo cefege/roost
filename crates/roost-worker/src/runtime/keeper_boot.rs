@@ -278,7 +278,7 @@ async fn start_fresh_keeper(
     use std::process::Stdio;
 
     let log_path = log_dir.join("keeper.log");
-    let log = keeper_log_file(&log_path)
+    let log = super::keeper_spawn::keeper_log_file(&log_path)
         .with_context(|| format!("could not open the keeper log at {}", log_path.display()))?;
     let mut command = tokio::process::Command::new(&boot.keeper_executable);
     command
@@ -290,13 +290,8 @@ async fn start_fresh_keeper(
         .arg(&boot.keeper_capability_file)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::from(log))
-        // Its own process group: launchd ends a job by signalling the job's
-        // whole process group, so a keeper left in the worker's group dies with
-        // every worker restart and takes each PTY with it.
-        .process_group(0);
-    let mut child = command
-        .spawn()
+        .stderr(Stdio::from(log));
+    let mut child = super::keeper_spawn::spawn_detached_keeper(&mut command)
         .with_context(|| format!("could not start {}", boot.keeper_executable.display()))?;
     // The keeper must outlive this process: that is the reason it exists. So
     // the child handle goes to a task that only ever WAITS on it, which reaps
@@ -330,24 +325,6 @@ async fn start_fresh_keeper(
     Ok(KeeperBootOutcome::StartedFresh {
         keeper: KeeperHandle::new(client),
     })
-}
-
-/// The keeper's own log, owner-readable only.
-///
-/// A keeper log carries the output of every shell on the machine, so the mode is
-/// set at creation rather than tightened afterwards.
-fn keeper_log_file(path: &Path) -> std::io::Result<std::fs::File> {
-    use std::fs::OpenOptions;
-    use std::os::unix::fs::OpenOptionsExt as _;
-
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .open(path)
 }
 
 /// Wait for the keeper socket to appear.

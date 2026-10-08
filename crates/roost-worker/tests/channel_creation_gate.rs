@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Ports v2 `apps/worker/tests/session/session-channel-creation-gate.test.ts`:
 //! keeper-update preparation drains a spawn (and a respawn) that already held
 //! its lease, refuses a new creation at once, stays closed after a successful

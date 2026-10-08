@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The session record's own arithmetic: the monotonic byte offset, the history
 //! floor eviction moves, and the state a record is born in. Every W-1 slice
 //! reads these numbers, so they are pinned here rather than inside whichever

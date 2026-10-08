@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Ports v2 `apps/worker/tests/keeper-stray-reap.test.ts` and the stray-timer
 //! pins of `tests/boot/boot-reconcile-admission.test.ts`: the reverse-reap kills
 //! a keeper channel the worker does not track on its second consecutive

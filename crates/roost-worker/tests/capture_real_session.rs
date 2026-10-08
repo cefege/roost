@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The acceptance case for terminal capture: a REAL shell on a REAL keeper,
 //! through the production session layer (`session_stack::build`, which builds
 //! the one recorder and attaches its tap to the one emitter), writes output

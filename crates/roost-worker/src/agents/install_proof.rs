@@ -6,8 +6,9 @@
 
 use std::fs::{self, Metadata};
 use std::io;
-use std::os::unix::fs::MetadataExt as _;
 use std::path::{Component, Path, PathBuf};
+
+use super::file_identity::path_identity;
 
 use roost_platform::HostPlatform;
 use unicode_normalization::UnicodeNormalization as _;
@@ -120,11 +121,13 @@ pub fn inspect_integration_target(
             path.display()
         )));
     }
+    let before_identity = path_identity(path, false)?;
     // v2 reads with `utf8`, which replaces an invalid sequence rather than
     // refusing the file; the marker test runs on that same decoded text.
     let content = String::from_utf8_lossy(&fs::read(path)?).into_owned();
     let after = fs::symlink_metadata(path)?;
-    if !after.is_file() || !same_integration_identity(&before, after.dev(), after.ino()) {
+    let (device, inode) = path_identity(path, false)?;
+    if !after.is_file() || !same_integration_identity(before_identity, device, inode) {
         return Err(refusal(format!(
             "{description} changed while being inspected: {}",
             path.display()
@@ -132,8 +135,8 @@ pub fn inspect_integration_target(
     }
     Ok(Some(IntegrationFileSnapshot {
         content,
-        device: after.dev(),
-        inode: after.ino(),
+        device,
+        inode,
     }))
 }
 
@@ -168,6 +171,7 @@ pub fn assert_integration_target_unchanged(plan: IntegrationTargetPlan<'_>) -> i
 /// The loader entry and the directory it resolves to.
 pub fn inspect_integration_directory(path: &Path) -> io::Result<IntegrationDirectorySnapshot> {
     let entry = fs::symlink_metadata(path)?;
+    let (entry_device, entry_inode) = path_identity(path, false)?;
     let canonical_path = fs::canonicalize(path).map_err(|_| {
         refusal(format!(
             "refusing dangling agent integration loader: {}",
@@ -181,13 +185,14 @@ pub fn inspect_integration_directory(path: &Path) -> io::Result<IntegrationDirec
             path.display()
         )));
     }
+    let (directory_device, directory_inode) = path_identity(&canonical_path, false)?;
     Ok(IntegrationDirectorySnapshot {
         canonical_path,
         entry_is_symlink: entry.file_type().is_symlink(),
-        entry_device: entry.dev(),
-        entry_inode: entry.ino(),
-        directory_device: directory.dev(),
-        directory_inode: directory.ino(),
+        entry_device,
+        entry_inode,
+        directory_device,
+        directory_inode,
     })
 }
 
@@ -237,8 +242,9 @@ pub fn same_integration_file_snapshot(
     }
 }
 
-pub fn same_integration_identity(metadata: &Metadata, device: u64, inode: u64) -> bool {
-    metadata.dev() == device && metadata.ino() == inode
+/// Whether a `(device, inode)` identity is the one recorded.
+pub fn same_integration_identity(identity: (u64, u64), device: u64, inode: u64) -> bool {
+    identity == (device, inode)
 }
 
 /// Node's `path.join`/`resolve` collapse `.` and `..` by text; the planned

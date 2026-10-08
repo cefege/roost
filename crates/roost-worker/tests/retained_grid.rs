@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The production retained grid, read the way a browser command reads it: the
 //! epoch fence, the two bounds and the slice walk. Each of those is a place
 //! where a second, almost-right answer produces a scrollback that looks right

@@ -4,14 +4,8 @@
 //! through here, so there is ONE entropy read and ONE uuid rendering in the
 //! worker session layer — two would be two places to fix a collision.
 //!
-//! The entropy source is the kernel CSPRNG at `/dev/urandom`. v3 supports Linux
-//! and macOS only, and both ship that device, so there is no platform branch to
-//! get wrong. `getrandom` would be the tidier spelling; it is not a declared
-//! dependency, and the same hand-rolled read is already the precedent in
-//! `roost-coord/src/push/vapid.rs`.
-
-use std::fs::File;
-use std::io::Read;
+//! The entropy source is the operating system's CSPRNG, read through
+//! `getrandom` so every platform has one spelling and no branch to get wrong.
 
 use roost_observability::trace::{TRACE_ID_BYTES, trace_id_from_bytes};
 
@@ -45,11 +39,7 @@ pub fn mint_trace_id() -> Result<String, MintError> {
 }
 
 fn draw(bytes: &mut [u8]) -> Result<(), MintError> {
-    let mut source =
-        File::open("/dev/urandom").map_err(|error| MintError::Entropy(error.to_string()))?;
-    source
-        .read_exact(bytes)
-        .map_err(|error| MintError::Entropy(error.to_string()))
+    getrandom::fill(bytes).map_err(|error| MintError::Entropy(error.to_string()))
 }
 
 fn render(bytes: &[u8; UUID_BYTES]) -> String {

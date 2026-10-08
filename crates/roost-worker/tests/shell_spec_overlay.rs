@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! What a resolved launch contract takes from the worker's environment and
 //! from the session overlay: the overlay is a caller, not a trusted source, and
 //! the worker's own `ROOST_` namespace is never a shell's.

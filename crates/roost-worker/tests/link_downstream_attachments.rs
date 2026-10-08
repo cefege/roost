@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The coordinator link's attachment arms against the real attachment owner:
 //! relayed chunks land one file under v2's name and manifest and are answered
 //! `rpc-ok { abs_path }` only once complete, a refusal is v2's `rpc-error`

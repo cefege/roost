@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! What a restart against a surviving keeper can and cannot recover.
 //!
 //! The keeper outlives the worker on purpose — that is the whole architecture —

@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The always-on byte window and the capture file owner: the window caps at
 //! 256 KiB and reports absolute bounds, its tail survives into a written
 //! bundle, captures are 0600 in a 0700 directory (tightening one that existed

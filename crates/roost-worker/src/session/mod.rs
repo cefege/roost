@@ -55,6 +55,7 @@ mod resume_core;
 pub mod retained_grid;
 pub mod ring;
 pub mod scrollback;
+pub mod session_cwd;
 pub mod sinks;
 pub mod snapshot_cursor;
 pub mod snapshot_cursor_drain;

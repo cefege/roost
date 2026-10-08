@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Local agent-report socket authentication and admission. The caller supplies
 //! only session-authorized state; a fresh detector identity and the server's
 //! serialized monotonic sequence are the registry input. Mirrors v2

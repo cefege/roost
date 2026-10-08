@@ -5,8 +5,7 @@
 //! libjuice did inside node-datachannel for v2
 //! `apps/worker/src/terminal/peer/terminal-peer-native.ts`.
 
-use std::fs::File;
-use std::io::{self, Read};
+use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 const BINDING_REQUEST: u16 = 0x0001;
@@ -17,14 +16,12 @@ const XOR_MAPPED_ADDRESS: u16 = 0x0020;
 const HEADER_BYTES: usize = 20;
 const FAMILY_IPV4: u8 = 0x01;
 const FAMILY_IPV6: u8 = 0x02;
-/// The kernel generator, as `host::jwt` reads it: the product is POSIX-only.
-const ENTROPY_SOURCE: &str = "/dev/urandom";
 
 pub(super) type TransactionId = [u8; 12];
 
 pub(super) fn new_transaction_id() -> io::Result<TransactionId> {
     let mut id = [0u8; 12];
-    File::open(ENTROPY_SOURCE)?.read_exact(&mut id)?;
+    getrandom::fill(&mut id).map_err(io::Error::other)?;
     Ok(id)
 }
 

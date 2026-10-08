@@ -69,10 +69,29 @@ pub async fn wait_for_keeper_exit(socket: &Path) -> bool {
 }
 
 /// Whether anything accepts a connection on the keeper socket within `timeout`.
+#[cfg(unix)]
 pub async fn endpoint_reachable(socket: &Path, timeout: Duration) -> bool {
     matches!(
         tokio::time::timeout(timeout, tokio::net::UnixStream::connect(socket)).await,
         Ok(Ok(_))
+    )
+}
+
+/// Whether anything accepts a connection on the keeper socket within `timeout`.
+/// tokio has no AF_UNIX stream on Windows, so the blocking connect runs on the
+/// blocking pool.
+#[cfg(windows)]
+pub async fn endpoint_reachable(socket: &Path, timeout: Duration) -> bool {
+    let path = socket.to_path_buf();
+    matches!(
+        tokio::time::timeout(
+            timeout,
+            tokio::task::spawn_blocking(move || roost_keeper::transport::UnixStream::connect(
+                &path
+            ))
+        )
+        .await,
+        Ok(Ok(Ok(_)))
     )
 }
 

@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! What this worker reads off this host: its folder, its listeners, and the
 //! tools it shells out to.
 //!

@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Input over a loopback terminal socket reaches a real PTY: the local door is
 //! built as `runtime::owners` builds it (shared view owner, input routes and
 //! work budget) over a real session layer and a real keeper, a

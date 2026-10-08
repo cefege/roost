@@ -5,9 +5,8 @@
 //! `attachment-probe` command, which reads the manifest without owning uploads.
 
 use std::collections::HashSet;
-use std::fs::{self, DirBuilder, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -94,24 +93,48 @@ pub fn commit_attachment_destination(
     sha256: &str,
 ) -> io::Result<CommittedAttachmentDestination> {
     let placed = place_attachment_destination(dir, temp_path, file_name, sha256)?;
-    File::open(&placed.file_path)?.sync_all()?;
+    // Write access: Windows' FlushFileBuffers refuses a read-only handle.
+    OpenOptions::new()
+        .write(true)
+        .open(&placed.file_path)?
+        .sync_all()?;
     sync_attachment_directory(dir)?;
     record_attachment_hash(dir, sha256, file_name);
     Ok(placed)
 }
 
 pub async fn sync_attachment_file_async(path: &Path) -> io::Result<()> {
-    tokio::fs::File::open(path).await?.sync_all().await
+    tokio::fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .await?
+        .sync_all()
+        .await
 }
 
 /// Flush a rename's directory entry. Failures propagate, so no receipt can
 /// outrun the disk.
+#[cfg(unix)]
 pub fn sync_attachment_directory(dir: &Path) -> io::Result<()> {
-    File::open(dir)?.sync_all()
+    fs::File::open(dir)?.sync_all()
 }
 
+/// NTFS journals a rename's directory entry itself; a directory handle cannot
+/// be flushed on Windows.
+#[cfg(windows)]
+pub fn sync_attachment_directory(_dir: &Path) -> io::Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
 pub async fn sync_attachment_directory_async(dir: &Path) -> io::Result<()> {
     tokio::fs::File::open(dir).await?.sync_all().await
+}
+
+/// See [`sync_attachment_directory`]: nothing to flush on Windows.
+#[cfg(windows)]
+pub async fn sync_attachment_directory_async(_dir: &Path) -> io::Result<()> {
+    Ok(())
 }
 
 /// The path a receipt names: a `.shortcuts/pN` link when the client asked for
@@ -168,18 +191,12 @@ pub fn probe_attachment(
 /// `fs.writeFileSync(path, bytes, { mode: 0o600 })`: created owner-only,
 /// truncated if it exists.
 pub fn write_private_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(path)?
-        .write_all(bytes)
+    roost_keeper::owner_only::create_truncate_private_file(path)?.write_all(bytes)
 }
 
 /// `fs.mkdirSync(dir, { recursive: true, mode: 0o700 })`.
 pub fn create_private_dir(dir: &Path) -> io::Result<()> {
-    DirBuilder::new().recursive(true).mode(0o700).create(dir)
+    roost_keeper::owner_only::create_private_dir_all(dir)
 }
 
 fn unique_name(dir: &Path, sanitized: &str) -> String {
@@ -228,8 +245,20 @@ fn link_shortcut(dir: &Path, file_path: &Path) -> io::Result<PathBuf> {
         index += 1;
     }
     let shortcut = shortcuts.join(format!("p{index}"));
-    std::os::unix::fs::symlink(file_path, &shortcut)?;
+    create_shortcut_link(file_path, &shortcut)?;
     Ok(shortcut)
+}
+
+#[cfg(unix)]
+fn create_shortcut_link(file_path: &Path, shortcut: &Path) -> io::Result<()> {
+    std::os::unix::fs::symlink(file_path, shortcut)
+}
+
+/// A Windows symlink needs Developer Mode or an elevated token, so no link is
+/// made and the caller answers with the full path.
+#[cfg(windows)]
+fn create_shortcut_link(_file_path: &Path, _shortcut: &Path) -> io::Result<()> {
+    Err(io::Error::from(io::ErrorKind::Unsupported))
 }
 
 /// v2's `/^p\d+$/`.

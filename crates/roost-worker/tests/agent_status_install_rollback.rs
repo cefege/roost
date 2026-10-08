@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Commit-time races and rollback of the agent-integration install
 //! transaction, as v2 `apps/worker/tests/agents/agent-status-installer.test.ts`
 //! pins them: a target or loader that changes after staging aborts the whole
