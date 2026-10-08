@@ -130,8 +130,10 @@ function Select-RoostTag {
         $ranked.Add([pscustomobject] @{ Key = "$key-" + ($ids -join '.'); Stable = $false; Tag = $tag })
     }
     if ($ranked.Count -eq 0) { return $null }
-    $ordered = [object[]] $ranked.ToArray()
-    [Array]::Sort([string[]] ($ordered | ForEach-Object { $_.Key }), $ordered, [StringComparer]::Ordinal)
+    # Sorted through the list's own method: `[Array]::Sort(keys, items)` binds
+    # the items to a converted copy in Windows PowerShell, leaving them unsorted.
+    $ranked.Sort([System.Comparison[object]] { param($left, $right) [string]::CompareOrdinal($left.Key, $right.Key) })
+    $ordered = $ranked.ToArray()
     if ($Channel -eq 'prerelease') {
         return $ordered[-1].Tag
     }
