@@ -11,9 +11,11 @@
 //! **Colour.** Alacritty's `Color` is `Named`, `Spec(rgb)` or `Indexed(u8)`.
 //! Roost's wire carries a palette index for the first 256 entries and a
 //! separate 24-bit field otherwise, and `DEFAULT_COLOR` (256) is the terminal
-//! default. A `Named` colour has no palette index of its own — it is resolved
-//! through the terminal's palette — so it becomes a true-colour value, and a
-//! colour the terminal has no override for stays the default.
+//! default. A `Named` colour the terminal has an OSC 4 override for becomes
+//! that true-colour value. Otherwise the sixteen ANSI names (what SGR 30–37,
+//! 40–47, 90–97 and 100–107 produce) are palette indices 0–15, so the viewer's
+//! scheme paints them, and every other name (foreground, background, cursor,
+//! the dim variants) stays the default.
 //!
 //! **Link identity.** Alacritty mints an OSC 8 id that has no `id=` in the byte
 //! stream from a process-global counter, so two terminals in one process share
@@ -120,9 +122,10 @@ pub(crate) fn cell_data(
 
 /// A colour as the wire carries it: a palette index, or a true-colour value.
 ///
-/// `Named` has no index — it names a role the terminal's theme resolves — so
-/// it becomes true colour when the terminal has an override and the default
-/// otherwise. `Spec` is already true colour. `Indexed` is a palette entry.
+/// `Named` resolves through the terminal's overrides first; without one, an
+/// ANSI name is its own palette index, and a role name is the default. Folding
+/// the ANSI names into the default is what painted every `ls` directory and
+/// every `tput setaf` in the foreground colour.
 fn palette(
     term: &Term<impl alacritty_terminal::event::EventListener>,
     color: Color,
@@ -132,10 +135,17 @@ fn palette(
         Color::Spec(rgb) => (DEFAULT_COLOR, Some(packed(rgb))),
         Color::Named(named) => match term.colors()[named] {
             Some(rgb) => (DEFAULT_COLOR, Some(packed(rgb))),
-            None => (DEFAULT_COLOR, None),
+            None => match u16::try_from(named as usize) {
+                Ok(index) if index < ANSI_NAMED_COLORS => (index, None),
+                _ => (DEFAULT_COLOR, None),
+            },
         },
     }
 }
+
+/// How many `NamedColor`s are plain ANSI palette entries: `Black` (0) through
+/// `BrightWhite` (15).
+const ANSI_NAMED_COLORS: u16 = 16;
 
 fn packed(rgb: alacritty_terminal::vte::ansi::Rgb) -> u32 {
     (u32::from(rgb.r) << 16) | (u32::from(rgb.g) << 8) | u32::from(rgb.b)

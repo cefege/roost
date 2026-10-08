@@ -107,6 +107,28 @@ fn underline_reaches_the_wire_flag() {
 }
 
 #[test]
+fn the_sixteen_ansi_colours_reach_the_wire_as_palette_indices() {
+    let mut core = AlacrittyCore::new(40, 5);
+    // SGR 31 / 44 / 92 / 107 are alacritty `Named` colours, not `Indexed` ones.
+    core.write(b"\x1b[31;44mab\x1b[0m\x1b[92;107mcd\x1b[0m\x1b[39mef");
+    let frame = grid_to_cell_frame(&core, 1, "g:0", "s", Some(0), 0);
+    let spans = &frame.viewport_rows[0].spans;
+    let colours: Vec<(&str, u16, u16, Option<u32>)> = spans
+        .iter()
+        .map(|span| (span.text.as_str(), span.fg, span.bg, span.fg_rgb))
+        .collect();
+    assert_eq!(
+        colours,
+        [
+            ("ab", 1, 4, None),
+            ("cd", 10, 15, None),
+            ("ef", DEFAULT_COLOR, DEFAULT_COLOR, None),
+        ],
+        "an ANSI colour must stay a palette index the viewer's scheme paints"
+    );
+}
+
+#[test]
 fn trailing_blanks_are_trimmed_and_an_empty_row_has_no_spans() {
     let mut core = AlacrittyCore::new(20, 5);
     core.write(b"hi\x1b[2J");
