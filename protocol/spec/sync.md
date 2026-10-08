@@ -44,7 +44,7 @@ Sync is the authenticated browser metadata, control, terminal-fallback, and auth
 | `SYNC_QUERY_V2` | `2` | `packages/protocol/src/wire/sync-ws.ts:11` |
 | `APPLICATION_MAX_UNACKED_FRAMES` | `512` | `apps/coord/src/sync/sync-ws-v1-delivery.ts:23` |
 | `APPLICATION_MAX_UNACKED_BYTES` | `4 MiB` | `apps/coord/src/sync/sync-ws-v1-delivery.ts:24` |
-| `APPLICATION_ACK_TIMEOUT_MS` | `3,000 ms` | `apps/coord/src/sync/sync-ws-v1-delivery.ts:25` |
+| `APPLICATION_ACK_TIMEOUT_MS` | `10,000 ms` (v2: `3,000 ms`) | `crates/roost-coord/src/sync_ws/ack_window.rs` (`ACK_TIMEOUT_MS`); v2 `apps/coord/src/sync/sync-ws-v1-delivery.ts:25` |
 
 ## Errors
 

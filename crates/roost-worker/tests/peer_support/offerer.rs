@@ -104,6 +104,21 @@ impl BrowserOfferer {
         self.shared.wake.notify_one();
     }
 
+    /// Close one channel as a browser's `RTCDataChannel.close()` does: an SCTP
+    /// stream reset, the transport left up.
+    pub fn close_channel(&self, channel: usize) {
+        let id = self.shared.channels[channel];
+        self.shared.rtc().direct_api().close_data_channel(id);
+        self.shared.wake.notify_one();
+    }
+
+    /// Close the connection as a browser's `RTCPeerConnection.close()` does:
+    /// SCTP shutdown and DTLS `close_notify`, sent without waiting for replies.
+    pub fn close(&self) {
+        self.shared.rtc().close().unwrap();
+        self.shared.wake.notify_one();
+    }
+
     pub async fn next_event(&mut self) -> NativePeerEvent {
         tokio::time::timeout(EVENT_DEADLINE, self.events.recv())
             .await

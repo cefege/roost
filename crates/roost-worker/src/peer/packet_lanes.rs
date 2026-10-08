@@ -19,6 +19,10 @@ use super::native::NativePeerEvent;
 use super::packet_port::{PortCore, TerminalPeerPacketPort};
 use crate::local_terminal::PacketSendResult;
 
+/// The port's fatal reason when the browser closed one of the fixed channels;
+/// `peer::connection_failure` reads it to name the close cause.
+pub(super) const DATA_CHANNEL_CLOSED: &str = "data_channel_closed";
+
 impl TerminalPeerPacketPort {
     /// One native channel event for lane `channel` (connection-level events
     /// are the connection's). v2 `installChannelCallbacks`.
@@ -42,9 +46,7 @@ impl TerminalPeerPacketPort {
                 data,
             } => self.receive(&mut core, channel, binary, data),
             NativePeerEvent::ChannelError(_) => self.fail_in_turn(&mut core, "data_channel_error"),
-            NativePeerEvent::ChannelClosed(_) => {
-                self.fail_in_turn(&mut core, "data_channel_closed")
-            }
+            NativePeerEvent::ChannelClosed(_) => self.fail_in_turn(&mut core, DATA_CHANNEL_CLOSED),
             NativePeerEvent::Connected
             | NativePeerEvent::Failed
             | NativePeerEvent::Closed

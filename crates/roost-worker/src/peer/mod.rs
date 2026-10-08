@@ -7,6 +7,7 @@
 
 mod config;
 mod connection;
+mod connection_failure;
 mod coordinator_generation;
 mod direct;
 mod faults;
@@ -27,9 +28,10 @@ pub use config::{
     TERMINAL_PEER_ENABLED_ENV, TERMINAL_PEER_PORT_RANGE_ENV,
 };
 pub use connection::{
-    ConnectionFailure, OpenTerminalPeerPort, TerminalPeerConnection, TerminalPeerConnectionConfig,
+    OpenTerminalPeerPort, TerminalPeerConnection, TerminalPeerConnectionConfig,
     TerminalPeerConnectionDeps,
 };
+pub use connection_failure::ConnectionFailure;
 pub use coordinator_generation::CoordinatorGeneration;
 pub use direct::{
     DirectCarrier, DirectLinkLifecycle, DirectPeerSupport, DirectTerminal, DirectTerminalDeps,

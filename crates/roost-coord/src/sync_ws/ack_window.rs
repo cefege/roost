@@ -12,9 +12,16 @@
 //! the client has not confirmed processing**. Without it a browser that stops
 //! dispatching -- a backgrounded tab, a laptop resuming, a client that threw in
 //! its own dispatch handler -- accumulates an unbounded coordinator-side queue
-//! while the coordinator keeps writing it. 512 frames / 4 MiB / 3 s is a
-//! `flow=1` client's own acknowledgement cadence, so exceeding any of them means
-//! the client is not merely slow, it is not answering.
+//! while the coordinator keeps writing it. 512 frames / 4 MiB is a `flow=1`
+//! client's own acknowledgement cadence, so exceeding either means the client
+//! is not merely slow, it is not answering.
+//!
+//! WHY 10 S AND NOT v2's 3 S. The age bound measures a full round trip through
+//! the client's network, not the client's dispatch alone. A Wi-Fi link that
+//! holds packets for several seconds and then delivers them closed healthy
+//! sockets every few minutes at 3 s, and each close costs a redial and a
+//! terminal re-hydration. Ten seconds still catches a tab that stopped
+//! answering; the frame and byte bounds keep the queue small meanwhile.
 //!
 //! WHY EVERY BOUND FAILS CLOSED WITH 1013. `1013` is "try again later", and a
 //! slow client is exactly that: the socket is closed, the client reconnects,
@@ -36,7 +43,7 @@ pub const MAX_UNACKED_FRAMES: usize = 512;
 pub const MAX_UNACKED_BYTES: u64 = 4 * 1024 * 1024;
 
 /// How long the oldest unacknowledged frame may wait.
-pub const ACK_TIMEOUT_MS: u64 = 3_000;
+pub const ACK_TIMEOUT_MS: u64 = 10_000;
 
 /// The close code every backpressure path uses.
 pub const BACKPRESSURE_CLOSE_CODE: u16 = 1013;

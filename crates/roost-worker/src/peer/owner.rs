@@ -216,7 +216,7 @@ impl TerminalPeerOwner {
         };
         close_all(
             connection,
-            super::connection::ConnectionFailure::ConnectionSuperseded,
+            super::connection_failure::ConnectionFailure::ConnectionSuperseded,
         );
     }
 
@@ -250,7 +250,7 @@ impl TerminalPeerOwner {
         };
         close_all(
             connections,
-            super::connection::ConnectionFailure::ConnectionSuperseded,
+            super::connection_failure::ConnectionFailure::ConnectionSuperseded,
         );
     }
 
@@ -274,7 +274,7 @@ impl TerminalPeerOwner {
         };
         close_all(
             connections,
-            super::connection::ConnectionFailure::ConnectionSuperseded,
+            super::connection_failure::ConnectionFailure::ConnectionSuperseded,
         );
     }
 
@@ -296,7 +296,7 @@ impl TerminalPeerOwner {
         self.cancel_pending_for_coordinator();
         close_all(
             active,
-            super::connection::ConnectionFailure::ConnectionSuperseded,
+            super::connection_failure::ConnectionFailure::ConnectionSuperseded,
         );
         self.deps.packet_budget.dispose();
         if let Some(native) = native {
@@ -337,7 +337,7 @@ impl TerminalPeerOwner {
 /// Closes outside the owner's lock: a closing connection reports back into it.
 fn close_all(
     connections: impl IntoIterator<Item = Arc<TerminalPeerConnection>>,
-    reason: super::connection::ConnectionFailure,
+    reason: super::connection_failure::ConnectionFailure,
 ) {
     for connection in connections {
         connection.close(reason);

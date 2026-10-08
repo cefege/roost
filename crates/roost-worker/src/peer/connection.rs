@@ -17,6 +17,7 @@ use roost_protocol::terminal_peer::sdp::inspect_terminal_peer_sdp;
 use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 
+use super::connection_failure::ConnectionFailure;
 use super::faults::PeerTestFaults;
 use super::native::{
     NativeChannelSpec, NativePeer, NativePeerConfig, NativePeerEvent, NativePeerEvents,
@@ -26,22 +27,6 @@ use super::packet_budget::{TerminalPeerPacketBudget, lock};
 use super::packet_port::{PacketPortDeps, TerminalPeerPacketIngress, TerminalPeerPacketPort};
 use super::peer_budget::TerminalPeerPacketPeerBudget;
 use crate::local_terminal::{ExpectedPeer, TerminalPacketPort};
-
-/// v2 `TerminalPeerConnectionFailureReason`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConnectionFailure {
-    IceFailed,
-    ConnectionSuperseded,
-}
-
-impl ConnectionFailure {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::IceFailed => "ice_failed",
-            Self::ConnectionSuperseded => "connection_superseded",
-        }
-    }
-}
 
 /// v2 `TerminalPeerConnectionConfig`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -167,9 +152,9 @@ impl TerminalPeerConnection {
                             connection.close(ConnectionFailure::ConnectionSuperseded);
                         }
                     })),
-                    on_fatal: Some(Arc::new(move |_reason: &str| {
+                    on_fatal: Some(Arc::new(move |reason: &str| {
                         if let Some(connection) = fatal.upgrade() {
-                            connection.close(ConnectionFailure::IceFailed);
+                            connection.close(ConnectionFailure::from_port_failure(reason));
                         }
                     })),
                     test_faults: deps.test_faults,
@@ -322,10 +307,10 @@ impl TerminalPeerConnection {
                 self.note_milestone(PeerMilestone::Connected);
                 self.verify_remote_fingerprint();
             }
-            NativePeerEvent::Failed
-            | NativePeerEvent::Closed
-            | NativePeerEvent::UnsolicitedChannel => {
-                self.close(ConnectionFailure::IceFailed);
+            NativePeerEvent::Failed => self.close(ConnectionFailure::IceFailed),
+            NativePeerEvent::Closed => self.close(ConnectionFailure::PeerClosed),
+            NativePeerEvent::UnsolicitedChannel => {
+                self.close(ConnectionFailure::UnsolicitedChannel);
             }
             NativePeerEvent::ChannelOpen(_) => {
                 self.note_milestone(PeerMilestone::FirstChannelOpen);
@@ -350,7 +335,7 @@ impl TerminalPeerConnection {
             tracing::debug!(socket = %self.port.socket_id(), "a terminal peer's DTLS fingerprint matched its offer");
         } else {
             tracing::warn!(socket = %self.port.socket_id(), "a terminal peer's DTLS fingerprint did not match its offer");
-            self.close(ConnectionFailure::IceFailed);
+            self.close(ConnectionFailure::FingerprintMismatch);
         }
     }
 

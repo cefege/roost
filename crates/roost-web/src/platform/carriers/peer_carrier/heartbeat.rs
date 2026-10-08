@@ -6,10 +6,13 @@
 //! driven by `pump::peer_lane`'s tick. Target-independent: every decision is a
 //! comparison against the clock the tick passes. Ports v2 `TerminalPeerOwner`'s
 //! `heartbeat` (`store/transport/terminal-peer.ts`): one probe at a time, the
-//! next one interval after the last settled, and the peer closed on its second
-//! consecutive miss. A browser's `getStats` cannot stand in for it: a selected
-//! candidate pair outlives the worker process behind it by the ICE consent
-//! window, so a restarted worker's peer kept reading as live.
+//! next one interval after the last settled. Unlike v2, the peer closes on its
+//! THIRD consecutive miss, and an answer that arrives after its probe lapsed
+//! still forgives the misses: a Wi-Fi link that holds packets for seconds and
+//! then delivers them is slow, not dead, and tearing the peer down there costs
+//! a re-negotiation and a re-baseline. A browser's `getStats` cannot stand in
+//! for it: a selected candidate pair outlives the worker process behind it by
+//! the ICE consent window, so a restarted worker's peer kept reading as live.
 
 use roost_client_core::client::carriers::{CandidateType, ProbeReading, TransportProbeState};
 use roost_client_core::sync::inbound::TransportProbeResult;
@@ -17,9 +20,10 @@ use roost_protocol::terminal_peer::peer::{
     TERMINAL_PEER_HEARTBEAT_INTERVAL_MS, TERMINAL_PEER_PROBE_DEADLINE_MS,
 };
 
-/// Consecutive missed heartbeats that close the peer. One is tolerated: a
-/// single lost probe on a congested lane is not a dead worker.
-pub const HEARTBEAT_MISS_LIMIT: u32 = 2;
+/// Consecutive missed heartbeats that close the peer. Two are tolerated: with
+/// the probe deadline and interval that is roughly nineteen seconds in which
+/// the worker answered nothing at all, not even late.
+pub const HEARTBEAT_MISS_LIMIT: u32 = 3;
 
 /// What one lapsed heartbeat probe means for the peer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,6 +41,9 @@ pub struct PeerHeartbeat {
     running: bool,
     next_due_ms: Option<u64>,
     in_flight: Option<String>,
+    /// Heartbeat probes that lapsed since the last answer; a late answer to
+    /// one of them still proves the worker is there.
+    lapsed_unanswered: Vec<String>,
     misses: u32,
     candidate_type: CandidateType,
     stats_started_ms: Option<u64>,
@@ -52,6 +59,7 @@ impl PeerHeartbeat {
             running: false,
             next_due_ms: None,
             in_flight: None,
+            lapsed_unanswered: Vec::new(),
             misses: 0,
             candidate_type: CandidateType::None,
             stats_started_ms: None,
@@ -68,6 +76,7 @@ impl PeerHeartbeat {
         if running && !self.running {
             self.probes.require_fresh();
             self.in_flight = None;
+            self.lapsed_unanswered.clear();
             self.next_due_ms = Some(now_ms);
         }
         if !running {
@@ -103,13 +112,18 @@ impl PeerHeartbeat {
     }
 
     /// Settle one probe answer. `false` when it answers nothing this peer sent.
+    ///
+    /// An answer to a probe that already lapsed earns no liveness — the
+    /// qualification still needs an answer inside the deadline — but it does
+    /// forgive the misses, because the worker behind the peer is answering.
     pub fn answered(&mut self, result: &TransportProbeResult, now_ms: u64) -> bool {
         if !self.probes.resolve(result, now_ms) {
-            return false;
+            return self.forgive_late_answer(result);
         }
         if self.in_flight.as_deref() == Some(result.request_id.as_str()) {
             self.in_flight = None;
             self.misses = 0;
+            self.lapsed_unanswered.clear();
             self.schedule_next(now_ms);
         }
         true
@@ -122,7 +136,9 @@ impl PeerHeartbeat {
         if !lapsed.contains(in_flight) {
             return None;
         }
-        self.in_flight = None;
+        if let Some(request_id) = self.in_flight.take() {
+            self.lapsed_unanswered.push(request_id);
+        }
         Some(self.missed(now_ms))
     }
 
@@ -182,6 +198,19 @@ impl PeerHeartbeat {
         }
     }
 
+    /// Forgiving clears every lapsed id, so the list never holds more than the
+    /// misses one episode can count.
+    fn forgive_late_answer(&mut self, result: &TransportProbeResult) -> bool {
+        if !self.probes.answers_this_worker(result)
+            || !self.lapsed_unanswered.contains(&result.request_id)
+        {
+            return false;
+        }
+        self.lapsed_unanswered.clear();
+        self.misses = 0;
+        true
+    }
+
     fn schedule_next(&mut self, now_ms: u64) {
         if self.running {
             self.next_due_ms = Some(now_ms.saturating_add(TERMINAL_PEER_HEARTBEAT_INTERVAL_MS));
@@ -219,7 +248,7 @@ mod tests {
     }
 
     #[test]
-    fn the_second_consecutive_miss_closes_the_peer_and_an_answer_forgives() {
+    fn the_third_consecutive_miss_closes_the_peer_and_an_answer_forgives() {
         let mut heartbeat = PeerHeartbeat::new("worker-a", "epoch-1");
         heartbeat.set_running(true, 0);
         assert!(heartbeat.probe_sent("probe-1", 0));
@@ -234,24 +263,68 @@ mod tests {
         assert!(heartbeat.probe_sent("probe-2", second_at));
         assert!(heartbeat.answered(&answer("probe-2"), second_at + 5));
 
-        let third_at = second_at + 5 + TERMINAL_PEER_HEARTBEAT_INTERVAL_MS;
+        let mut probe_at = second_at + 5 + TERMINAL_PEER_HEARTBEAT_INTERVAL_MS;
+        for (index, expected) in [
+            HeartbeatMiss::Tolerated,
+            HeartbeatMiss::Tolerated,
+            HeartbeatMiss::Exhausted,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert!(heartbeat.probe_sent(&format!("probe-{}", index + 3), probe_at));
+            assert_eq!(
+                heartbeat.lapsed(probe_at + TERMINAL_PEER_PROBE_DEADLINE_MS),
+                Some(expected),
+                "miss {} after the answer that reset the count",
+                index + 1
+            );
+            probe_at += TERMINAL_PEER_PROBE_DEADLINE_MS + TERMINAL_PEER_HEARTBEAT_INTERVAL_MS;
+        }
+        assert!(!heartbeat.reading(probe_at).liveness_qualified);
+    }
+
+    #[test]
+    fn a_late_answer_forgives_the_misses_but_earns_no_liveness() {
+        let mut heartbeat = PeerHeartbeat::new("worker-a", "epoch-1");
+        heartbeat.set_running(true, 0);
+        assert!(heartbeat.probe_sent("probe-1", 0));
+        let first_deadline = TERMINAL_PEER_PROBE_DEADLINE_MS;
+        assert_eq!(
+            heartbeat.lapsed(first_deadline),
+            Some(HeartbeatMiss::Tolerated)
+        );
+        let second_at = first_deadline + TERMINAL_PEER_HEARTBEAT_INTERVAL_MS;
+        assert!(heartbeat.probe_sent("probe-2", second_at));
+        let second_deadline = second_at + TERMINAL_PEER_PROBE_DEADLINE_MS;
+        assert_eq!(
+            heartbeat.lapsed(second_deadline),
+            Some(HeartbeatMiss::Tolerated)
+        );
+
+        let late_at = second_deadline + 1_000;
+        let mut stranger = answer("probe-1");
+        stranger.worker_epoch = "epoch-2".to_owned();
+        assert!(
+            !heartbeat.answered(&stranger, late_at),
+            "a restarted worker's answer forgives nothing"
+        );
+        assert!(heartbeat.answered(&answer("probe-1"), late_at));
+        assert!(
+            !heartbeat.reading(late_at).liveness_qualified,
+            "an answer past its deadline is not proof of a live route"
+        );
+        assert!(
+            !heartbeat.answered(&answer("probe-1"), late_at),
+            "one late answer forgives once"
+        );
+
+        let third_at = second_deadline + TERMINAL_PEER_HEARTBEAT_INTERVAL_MS;
         assert!(heartbeat.probe_sent("probe-3", third_at));
         assert_eq!(
             heartbeat.lapsed(third_at + TERMINAL_PEER_PROBE_DEADLINE_MS),
             Some(HeartbeatMiss::Tolerated),
-            "the answer in between reset the count"
-        );
-        let fourth_at =
-            third_at + TERMINAL_PEER_PROBE_DEADLINE_MS + TERMINAL_PEER_HEARTBEAT_INTERVAL_MS;
-        assert!(heartbeat.probe_sent("probe-4", fourth_at));
-        assert_eq!(
-            heartbeat.lapsed(fourth_at + TERMINAL_PEER_PROBE_DEADLINE_MS),
-            Some(HeartbeatMiss::Exhausted)
-        );
-        assert!(
-            !heartbeat
-                .reading(fourth_at + TERMINAL_PEER_PROBE_DEADLINE_MS)
-                .liveness_qualified
+            "the late answer reset the count, so this is the first miss again"
         );
     }
 }

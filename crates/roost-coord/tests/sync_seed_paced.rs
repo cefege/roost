@@ -5,7 +5,8 @@
 //!
 //! Ports `apps/coord/tests/sync/sync-ws-keepalive-flow-control.test.ts` "ACK-paced
 //! retained seed crosses 512 frames and a stalled seed exits at 3 seconds" at
-//! the socket boundary. v2 filled the seed with 520 UI states by reaching into
+//! the socket boundary; v3's ACK deadline is `ACK_TIMEOUT_MS`, not v2's 3 s.
+//! v2 filled the seed with 520 UI states by reaching into
 //! the owner's map; the owner here caps retained tabs at 256, so the seed is
 //! 520 retained last-activity observations instead -- the same frames-per-seed
 //! property through the owner's public API.
@@ -20,6 +21,7 @@ mod ws_credential_support;
 use std::time::{Duration, Instant};
 
 use roost_coord::events::bus_messages::SessionTitleUpdate;
+use roost_coord::sync_ws::ack_window::ACK_TIMEOUT_MS;
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
 use roost_proto::FirehoseFrame;
 
@@ -156,12 +158,13 @@ async fn an_unacknowledged_seed_closes_at_the_ack_deadline() {
     let first = next_firehose(&mut socket, EXPECT).await.expect("seed");
     let sent_at = Instant::now();
     assert_eq!(first.delivery_seq, 1);
+    let deadline = Duration::from_millis(ACK_TIMEOUT_MS);
     assert_eq!(
-        close_code(&mut socket, Duration::from_secs(6)).await,
+        close_code(&mut socket, deadline + Duration::from_secs(3)).await,
         Some(Some(1013))
     );
     assert!(
-        sent_at.elapsed() >= Duration::from_millis(2_500),
-        "the close waited out the 3 s deadline, not a shorter one"
+        sent_at.elapsed() >= deadline - Duration::from_millis(500),
+        "the close waited out the ACK deadline, not a shorter one"
     );
 }

@@ -1598,7 +1598,7 @@ Every application frame on a negotiated socket carries a positive, monotonic
 | --- | ---: | --- | --- |
 | `APPLICATION_MAX_UNACKED_FRAMES` | 512 | a `flow=1` client's own ack cadence | `sync-ws-v1-delivery.ts:23` |
 | `APPLICATION_MAX_UNACKED_BYTES` | 4 MiB | same | `:24` |
-| `APPLICATION_ACK_TIMEOUT_MS` | 3,000 ms | same | `:25` |
+| `APPLICATION_ACK_TIMEOUT_MS` | 3,000 ms (v3: 10,000 ms, `ack_window.rs`) | same; v3 raised it so a few-second Wi-Fi stall is not a close | `:25` |
 
 Both limits are checked **before** the send, and both are inclusive: the 513th
 unacknowledged frame closes, and so does the frame that would take the bytes past

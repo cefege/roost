@@ -18,9 +18,9 @@ use roost_protocol::terminal_peer::peer::{
 use roost_protocol::terminal_peer::sdp::inspect_terminal_peer_sdp;
 
 use super::connection::{
-    ConnectionFailure, TerminalPeerConnection, TerminalPeerConnectionConfig,
-    TerminalPeerConnectionDeps,
+    TerminalPeerConnection, TerminalPeerConnectionConfig, TerminalPeerConnectionDeps,
 };
+use super::connection_failure::ConnectionFailure;
 use super::faults::OfferFault;
 use super::owner::{
     ActivePeer, PeerBootstrapState, PendingPeer, TerminalPeerOfferFailure, TerminalPeerOwner,
@@ -28,15 +28,6 @@ use super::owner::{
 use super::request_validation::valid_terminal_peer_offer_identity;
 use crate::local_terminal::{ExpectedPeer, PeerGrantAuthorization};
 use crate::uplink::{LinkFence, OwnerFuture, RequestBudget};
-
-impl From<ConnectionFailure> for TerminalPeerOfferFailure {
-    fn from(failure: ConnectionFailure) -> Self {
-        match failure {
-            ConnectionFailure::IceFailed => Self::IceFailed,
-            ConnectionFailure::ConnectionSuperseded => Self::ConnectionSuperseded,
-        }
-    }
-}
 
 /// An admitted offer, keyed back to its pending entry by `token`.
 struct Admitted {

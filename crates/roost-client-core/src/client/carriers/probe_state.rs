@@ -69,10 +69,16 @@ impl TransportProbeState {
         }
     }
 
+    /// Whether `result` comes from this carrier's worker process — the
+    /// fingerprint and epoch it proved — whatever probe it names.
+    pub fn answers_this_worker(&self, result: &TransportProbeResult) -> bool {
+        result.worker_fp == self.worker_fp && result.worker_epoch == self.worker_epoch
+    }
+
     /// Settle one answer. `false` when it answers no probe of this carrier's —
     /// another worker, another process epoch, or an id nothing is waiting on.
     pub fn resolve(&mut self, result: &TransportProbeResult, now_ms: u64) -> bool {
-        if result.worker_fp != self.worker_fp || result.worker_epoch != self.worker_epoch {
+        if !self.answers_this_worker(result) {
             return false;
         }
         let Some(started_ms) = self.pending.remove(&result.request_id) else {

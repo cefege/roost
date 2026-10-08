@@ -5,7 +5,7 @@
 //! Owned by `pump::peer_lane`, driven by the tick. The heartbeat runs while the
 //! page is visible and the worker's authenticated peer either serves a view
 //! from an ACTIVE attempt — v2's `TerminalPeerOwner.heartbeat` guard — or is
-//! held ready by pre-warm, and its second consecutive miss is reported to the
+//! held ready by pre-warm, and the miss that exhausts `HEARTBEAT_MISS_LIMIT` is reported to the
 //! core as `ProbeMissed`, whose fault closes the attempt. Every
 //! published value was measured: the round trip is a probe's, the candidate kind
 //! is the browser's report, and nothing here defaults a zero a reader could not
@@ -209,7 +209,7 @@ where
             target: "carriers",
             attempt_id,
             worker_fp,
-            "a peer heartbeat probe went unanswered; one miss is tolerated"
+            "a peer heartbeat probe went unanswered; the miss is tolerated"
         ),
         HeartbeatMiss::Exhausted => {
             tracing::warn!(

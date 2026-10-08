@@ -19,12 +19,15 @@ use roost_protocol::terminal_peer::packets::{
     parse_terminal_peer_packet,
 };
 use roost_protocol::terminal_peer::peer::TERMINAL_PEER_DATA_CHANNELS;
+use roost_protocol::terminal_peer::sdp::inspect_terminal_peer_sdp;
 use roost_worker::local_terminal::PeerGrantAuthorization;
 use roost_worker::local_terminal::{ExpectedPeer, PacketSendResult, TerminalPacketPort};
 use roost_worker::peer::native::{NativeChannelSpec, NativePeerEvent, str0m_loader};
 use roost_worker::peer::{
-    PeerBootstrapState, PeerTransportConfig, TerminalPeerOwner, TerminalPeerOwnerDeps,
-    TerminalPeerPacketBudget, TerminalPeerPacketIngress, TerminalPeerPacketPort,
+    ConnectionFailure, PeerBootstrapState, PeerTransportConfig, TerminalPeerConnection,
+    TerminalPeerConnectionConfig, TerminalPeerConnectionDeps, TerminalPeerOwner,
+    TerminalPeerOwnerDeps, TerminalPeerPacketBudget, TerminalPeerPacketIngress,
+    TerminalPeerPacketPort,
 };
 use roost_worker::uplink::{RequestBudget, Uplink};
 use tokio::sync::mpsc;
@@ -158,4 +161,95 @@ async fn an_in_process_str0m_pair_carries_a_terminal_frame_both_ways() {
     assert_eq!(owner.established_count(), 1);
     owner.dispose();
     assert!(!port.is_open());
+}
+
+/// How the browser ends the peer in [`close_reason_for`].
+#[derive(Clone, Copy)]
+enum BrowserClose {
+    /// `RTCDataChannel.close()` on the control lane, the transport left up.
+    ControlChannel,
+    /// `RTCPeerConnection.close()`.
+    Connection,
+}
+
+/// Bring a real worker connection up against a str0m browser, end it the way
+/// `how` says, and return the cause the worker's `terminal peer closed` names.
+async fn close_reason_for(how: BrowserClose) -> ConnectionFailure {
+    let factory = str0m_loader()().await.expect("the str0m transport loads");
+    let (browser_in, mut ports) = mpsc::unbounded_channel();
+    let (closed_in, mut closed) = mpsc::unbounded_channel();
+    let (mut browser, offer_sdp) = BrowserOfferer::start(&terminal_channels()).await;
+    let budget = TerminalPeerPacketBudget::new();
+    let connection = TerminalPeerConnection::new(TerminalPeerConnectionDeps {
+        native: factory,
+        peer_id: "00000000-0000-4000-8000-000000000002".into(),
+        expected_tuple: ExpectedPeer {
+            peer_id: "00000000-0000-4000-8000-000000000002".into(),
+            grant_id: "grant-1".into(),
+            device_fingerprint: "device".into(),
+            tab_id: "tab".into(),
+            worker_epoch: WORKER_EPOCH.into(),
+        },
+        expected_remote_fingerprint: inspect_terminal_peer_sdp(&offer_sdp)
+            .unwrap()
+            .fingerprint_sha256,
+        config: TerminalPeerConnectionConfig {
+            stun_urls: Vec::new(),
+            bind_address: Some("127.0.0.1".parse().unwrap()),
+            port_range: None,
+        },
+        peer_budget: budget.create_peer_budget().unwrap(),
+        packet_budget: budget,
+        open_peer_port: Arc::new(
+            move |port: Arc<TerminalPeerPacketPort>, _expected: ExpectedPeer| {
+                let _ = browser_in.send(port);
+                let (ingress, _) = mpsc::unbounded_channel();
+                Some(Arc::new(ForwardingIngress(ingress)) as Arc<dyn TerminalPeerPacketIngress>)
+            },
+        ),
+        on_closed: Arc::new(move |reason: ConnectionFailure| {
+            let _ = closed_in.send(reason);
+        }),
+        socket_id: "socket-close-reason".into(),
+        test_faults: None,
+        runtime: tokio::runtime::Handle::current(),
+    })
+    .unwrap();
+    let answer_sdp = connection
+        .answer(offer_sdp, Duration::from_secs(3))
+        .await
+        .expect("the worker answers the offer");
+    browser.accept_answer(&answer_sdp);
+    for _ in 0..TERMINAL_PEER_DATA_CHANNELS.len() {
+        browser
+            .next_matching(|event| matches!(event, NativePeerEvent::ChannelOpen(_)))
+            .await;
+    }
+    let port = ports.recv().await.unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !port.is_open() {
+        assert!(Instant::now() < deadline, "the worker's channels opened");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    match how {
+        BrowserClose::ControlChannel => browser.close_channel(Lane::Control as usize),
+        BrowserClose::Connection => browser.close(),
+    }
+    tokio::time::timeout(Duration::from_secs(10), closed.recv())
+        .await
+        .expect("the worker retired the connection in time")
+        .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_worker_names_why_a_browser_ended_the_peer_instead_of_blaming_ice() {
+    assert_eq!(
+        close_reason_for(BrowserClose::ControlChannel).await,
+        ConnectionFailure::ChannelClosed
+    );
+    assert_eq!(
+        close_reason_for(BrowserClose::Connection).await,
+        ConnectionFailure::PeerClosed
+    );
 }

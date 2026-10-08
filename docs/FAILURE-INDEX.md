@@ -2236,7 +2236,7 @@ disconnected and redials.
 
 **Wrong** — applying the pre-hydration queue without acknowledging it. `handle_sync_frame` retains application
 frames until the terminal snapshot publishes and acknowledges nothing it retained; `hydrate` applied them
-silently, so the coordinator's 3 s ACK window kept aging them until the next live frame's cumulative ack, and
+silently, so the coordinator's ACK window (`ACK_TIMEOUT_MS`) kept aging them until the next live frame's cumulative ack, and
 a link that went quiet was closed.
 
 **Right** — `hydrate` sends one cumulative `Ack` for the highest retained `delivery_seq` of the generation that
@@ -2244,6 +2244,34 @@ is still accepting, as v2's `dispatchSyncFrameCausally` acknowledged a replayed 
 
 **Guard** — `crates/roost-client-core/tests/sync_domain_reset.rs`:
 `frames_held_while_a_reset_terminal_domain_rehydrates_are_acknowledged_when_it_publishes`.
+
+### The terminal lags and its carrier flips between WebRTC and Coordinator on a Wi-Fi laptop
+
+**Symptom** — "it seems to lag and the connection fluctuates between webrtc/coord": the pane indicator
+alternates `WebRTC` → `Coordinator` → `WebRTC` every few minutes; the coordinator logs `sync socket closing`
+`reason=age_limit` `code=1013` for the same browser, and within ~20 s the worker logs `terminal peer closed`.
+A LAN ping to the laptop shows multi-second round trips that arrive late rather than lost.
+
+**Wrong** — reading it as a WebRTC defect or an ICE failure. The worker labelled every close `ice_failed`,
+but the peer that died was retired by the browser (its heartbeat closed the data channels), and the Sync socket
+died in the same seconds over an entirely different path. The shared cause is the client's link: a 3 s Sync
+ACK bound and a peer closed on its second missed 3 s probe turned every few-second Wi-Fi stall into a
+teardown, a redial, a re-negotiation and a terminal re-baseline.
+
+**Right** — tolerate a stall the link recovers from. `ACK_TIMEOUT_MS` is 10 s
+(`crates/roost-coord/src/sync_ws/ack_window.rs`) and the socket loop reads arrived ACKs before it judges the
+deadline (`biased` select in `sync_ws/socket.rs`). The browser closes a peer on its THIRD consecutive miss, and
+an answer to an already-lapsed probe from the same worker epoch forgives the misses without earning liveness
+(`crates/roost-web/src/platform/carriers/peer_carrier/heartbeat.rs`). The worker's `terminal peer closed`
+names the real cause (`ConnectionFailure` in `crates/roost-worker/src/peer/connection_failure.rs`: `channel_closed`,
+`peer_closed`, `port_failed`, `fingerprint_mismatch`, `unsolicited_channel`, `ice_failed`), while the wire
+reason stays `ice_failed` (`peer::owner_offer`).
+
+**Guard** — `crates/roost-web/src/platform/carriers/peer_carrier/heartbeat.rs`:
+`the_third_consecutive_miss_closes_the_peer_and_an_answer_forgives`,
+`a_late_answer_forgives_the_misses_but_earns_no_liveness`; `crates/roost-worker/tests/terminal_peer_str0m.rs`:
+`the_worker_names_why_a_browser_ended_the_peer_instead_of_blaming_ice`; `crates/roost-coord/tests/transport_windows_ack.rs`
+pins the age bound through `ACK_TIMEOUT_MS`.
 
 ---
 

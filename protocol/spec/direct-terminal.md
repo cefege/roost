@@ -43,6 +43,7 @@ Direct terminal is an optional carrier for the same authoritative cell protocol 
 | `TERMINAL_PEER_PACKET_STALL_MS` | `10,000 ms` | `packages/protocol/src/terminal-peer.ts:18` |
 | `TERMINAL_PEER_HELLO_DEADLINE_MS` | `3,000 ms` | `packages/protocol/src/terminal-peer.ts:19` |
 | `TERMINAL_PEER_HEARTBEAT_INTERVAL_MS` / probe deadline | `5,000 / 3,000 ms` | `packages/protocol/src/terminal-peer.ts:20-22` |
+| Browser heartbeat miss limit | `3` consecutive misses (v2: `2`); a late answer from the same worker epoch forgives them | `crates/roost-web/src/platform/carriers/peer_carrier/heartbeat.rs` (`HEARTBEAT_MISS_LIMIT`) |
 | `TERMINAL_PEER_SDP_MAX_UTF8_BYTES` / lines / line bytes | `65,536 / 512 / 4,096` | `packages/protocol/src/terminal-peer.ts:25-27` |
 | `TERMINAL_PEER_SDP_MAX_CANDIDATES` | `64` | `packages/protocol/src/terminal-peer.ts:28` |
 | `TERMINAL_PEER_MAX_MESSAGE_SIZE` | `16,384 bytes` | `packages/protocol/src/terminal-peer.ts:33` |

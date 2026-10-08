@@ -127,6 +127,12 @@ async fn serve_until_closed(
             }
         };
         tokio::select! {
+            // Polled in this order: the reauth deadline first, so a client that
+            // never stops sending cannot outrun it; then whatever the client sent,
+            // so ACKs that arrived together with the age deadline release the
+            // window before the deadline is judged.
+            biased;
+            () = &mut reauth => link.lock().decide_close(REAUTH, "reauth", "deadline", now_ms()),
             incoming = socket.recv() => match incoming {
                 Some(Ok(Message::Binary(bytes))) => {
                     let effect = accept_client_frame(&link, &services.feed, &bytes, now_ms());
@@ -136,10 +142,9 @@ async fn serve_until_closed(
                 Some(Ok(Message::Ping(_) | Message::Pong(_))) => {}
                 Some(Ok(Message::Close(_)) | Err(_)) | None => return None,
             },
+            () = ack_deadline => link.lock().enforce_ack_deadline(now_ms()),
             () = link.woken() => {}
             _ = keepalive.tick() => link.lock().send_keepalive(now_ms()),
-            () = &mut reauth => link.lock().decide_close(REAUTH, "reauth", "deadline", now_ms()),
-            () = ack_deadline => link.lock().enforce_ack_deadline(now_ms()),
         }
     }
 }
