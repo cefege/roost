@@ -28,25 +28,30 @@ pub fn StagedAttachments(
             }
         });
     };
+    // The composer dock is `pointer-events: none` so the terminal behind its
+    // empty area stays clickable; everything it shows must opt back in, or the
+    // staged rows' remove buttons and Cancel/Send never receive a click.
     rsx! {
-        AttachmentPreview {
-            files: staged.clone(),
-            on_remove: remove,
-        }
-        div {
-            style: "display: flex; justify-content: flex-end; gap: var(--md-space-2);",
-            Button {
-                variant: ButtonVariant::Outline,
-                size: ButtonSize::Sm,
-                onclick: move |_| clear_staged_files(staged_files),
-                "Cancel"
+        div { style: "display: contents; pointer-events: auto;",
+            AttachmentPreview {
+                files: staged.clone(),
+                on_remove: remove,
             }
-            Button {
-                variant: ButtonVariant::Default,
-                size: ButtonSize::Sm,
-                icon: "send",
-                onclick: move |_| send_staged_files(staged_files, on_send_uploads),
-                "Send {staged.len()} files"
+            div {
+                style: "display: flex; justify-content: flex-end; gap: var(--md-space-2);",
+                Button {
+                    variant: ButtonVariant::Outline,
+                    size: ButtonSize::Sm,
+                    onclick: move |_| clear_staged_files(staged_files),
+                    "Cancel"
+                }
+                Button {
+                    variant: ButtonVariant::Default,
+                    size: ButtonSize::Sm,
+                    icon: "send",
+                    onclick: move |_| send_staged_files(staged_files, on_send_uploads),
+                    if staged.len() == 1 { "Send 1 file" } else { "Send {staged.len()} files" }
+                }
             }
         }
     }
