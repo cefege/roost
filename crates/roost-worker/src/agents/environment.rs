@@ -15,8 +15,7 @@ use roost_protocol::wire::brand::SessionId;
 use sha2::{Digest, Sha256};
 
 use crate::host::local_endpoint::{
-    LOCAL_ENDPOINT_KIND_UDS, LocalEndpoint, resolve_local_endpoint,
-    verify_local_endpoint_capability,
+    LocalEndpoint, local_endpoint_kind, resolve_local_endpoint, verify_local_endpoint_capability,
 };
 use crate::session::spawn::SessionEnvironmentOverlay;
 use crate::shell_spec::SESSION_ID_ENV;
@@ -131,7 +130,7 @@ impl AgentReportEnvironment {
             .iter()
             .map(|&key| {
                 let value = match key {
-                    AGENT_ENDPOINT_KIND_ENV => LOCAL_ENDPOINT_KIND_UDS.to_owned(),
+                    AGENT_ENDPOINT_KIND_ENV => local_endpoint_kind().to_owned(),
                     AGENT_CAPABILITY_ENV => self.capability_for_session(endpoint, session_id),
                     SESSION_ID_ENV => session_id.to_owned(),
                     _ => address.clone(),

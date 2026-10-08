@@ -8,9 +8,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use crate::agents::peer_process_id::ReportStream;
 use serde::Serialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::UnixStream;
 use tokio::time::Instant;
 
 use crate::agents::environment::AgentReportEnvironment;
@@ -73,7 +73,7 @@ impl Drop for UnauthenticatedSlot {
 }
 
 /// Serve one accepted connection to completion.
-pub(super) async fn serve_report_connection(stream: UnixStream, context: Arc<ConnectionContext>) {
+pub(super) async fn serve_report_connection(stream: ReportStream, context: Arc<ConnectionContext>) {
     let Some(reporter_pid) = context.peer_reader.read(&stream) else {
         tracing::warn!(
             "an agent report connection's peer process could not be attested; it was dropped"
@@ -103,7 +103,7 @@ pub(super) async fn serve_report_connection(stream: UnixStream, context: Arc<Con
 }
 
 struct ReportConnection {
-    stream: UnixStream,
+    stream: ReportStream,
     context: Arc<ConnectionContext>,
     reporter_pid: u32,
     /// Held until the connection authenticates; its presence arms the deadline.

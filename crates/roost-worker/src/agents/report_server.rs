@@ -1,6 +1,6 @@
-//! The local socket installed omp/pi integrations report into. Session
-//! capabilities authorize claims; the kernel peer PID plus a fresh process
-//! scan own identity. Ports the listener lifecycle of
+//! The local socket (a named pipe on Windows) installed omp/pi integrations
+//! report into. Session capabilities authorize claims; the kernel peer PID plus
+//! a fresh process scan own identity. Ports the listener lifecycle of
 //! `apps/worker/src/agents/report-server.ts` (connections: `report_connection`;
 //! admission: `report_admission`). Started once at boot by `runtime::owners`,
 //! closed when the worker stops.
@@ -10,7 +10,8 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::time::Duration;
 
-use tokio::net::UnixListener;
+#[cfg(unix)]
+use tokio::net::UnixListener as ReportListener;
 use tokio::sync::oneshot;
 use tokio::task::{JoinHandle, JoinSet};
 
@@ -196,9 +197,10 @@ impl Drop for AgentReportServer {
     }
 }
 
-fn bind_and_secure(endpoint: &LocalEndpoint) -> Result<UnixListener, AgentReportServerError> {
+#[cfg(unix)]
+fn bind_and_secure(endpoint: &LocalEndpoint) -> Result<ReportListener, AgentReportServerError> {
     let listener =
-        UnixListener::bind(&endpoint.address).map_err(|source| AgentReportServerError::Bind {
+        ReportListener::bind(&endpoint.address).map_err(|source| AgentReportServerError::Bind {
             path: endpoint.address.clone(),
             source,
         })?;
@@ -206,8 +208,9 @@ fn bind_and_secure(endpoint: &LocalEndpoint) -> Result<UnixListener, AgentReport
     Ok(listener)
 }
 
+#[cfg(unix)]
 async fn accept_report_connections(
-    listener: UnixListener,
+    listener: ReportListener,
     context: Arc<ConnectionContext>,
     mut stopped: oneshot::Receiver<()>,
 ) {
@@ -228,6 +231,86 @@ async fn accept_report_connections(
         }
     }
     drop(listener);
+    // Closing completes only once every open connection has ended, so an
+    // admission under way is never cut off mid-append.
+    while connections.join_next().await.is_some() {}
+}
+
+/// The named pipe's waiting instance and the name every next instance takes.
+#[cfg(windows)]
+struct ReportListener {
+    waiting: tokio::net::windows::named_pipe::NamedPipeServer,
+    address: PathBuf,
+}
+
+/// A further instance of the pipe, for the next client. Remote clients are
+/// refused by the pipe itself.
+#[cfg(windows)]
+fn next_pipe_instance(
+    address: &Path,
+    first: bool,
+) -> std::io::Result<tokio::net::windows::named_pipe::NamedPipeServer> {
+    tokio::net::windows::named_pipe::ServerOptions::new()
+        .first_pipe_instance(first)
+        .reject_remote_clients(true)
+        .create(address)
+}
+
+/// Create the pipe's first instance. `first_pipe_instance` makes a pipe some
+/// other process already serves a bind error, as an occupied socket is on Unix.
+#[cfg(windows)]
+fn bind_and_secure(endpoint: &LocalEndpoint) -> Result<ReportListener, AgentReportServerError> {
+    let waiting = next_pipe_instance(&endpoint.address, true).map_err(|source| {
+        AgentReportServerError::Bind {
+            path: endpoint.address.clone(),
+            source,
+        }
+    })?;
+    secure_local_endpoint(endpoint)?;
+    Ok(ReportListener {
+        waiting,
+        address: endpoint.address.clone(),
+    })
+}
+
+/// A named pipe accepts by connecting its waiting instance; the connected
+/// instance is served and a fresh one waits for the next client.
+#[cfg(windows)]
+async fn accept_report_connections(
+    listener: ReportListener,
+    context: Arc<ConnectionContext>,
+    mut stopped: oneshot::Receiver<()>,
+) {
+    let ReportListener {
+        mut waiting,
+        address,
+    } = listener;
+    let mut connections = JoinSet::new();
+    loop {
+        tokio::select! {
+            _ = &mut stopped => break,
+            connected = waiting.connect() => match connected {
+                Ok(()) => match next_pipe_instance(&address, false) {
+                    Ok(next) => {
+                        let stream = std::mem::replace(&mut waiting, next);
+                        connections.spawn(serve_report_connection(stream, Arc::clone(&context)));
+                    }
+                    // The connected client waits in `waiting` until an instance
+                    // can be made; connecting it again returns at once.
+                    Err(error) => {
+                        tracing::warn!(%error, "the agent report server could not open its next pipe instance");
+                        tokio::time::sleep(ACCEPT_RETRY_PAUSE).await;
+                    }
+                },
+                Err(error) => {
+                    tracing::warn!(%error, "the agent report server could not accept a connection");
+                    tokio::time::sleep(ACCEPT_RETRY_PAUSE).await;
+                }
+            },
+            Some(_) = connections.join_next(), if !connections.is_empty() => {}
+        }
+    }
+    drop(waiting);
     // Closing completes only once every open connection has ended, so an
     // admission under way is never cut off mid-append.
     while connections.join_next().await.is_some() {}

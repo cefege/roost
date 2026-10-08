@@ -1,13 +1,15 @@
 //! A capability-guarded local endpoint a worker serves to its own children: a
-//! Unix socket beside a 64-hex capability file that is created once and stays
-//! stable across restarts. Ports the POSIX half of v2
-//! `packages/host/src/local-endpoint.ts` (named pipes are Windows-only).
+//! Unix socket (a named pipe on Windows) beside a 64-hex capability file that
+//! is created once and stays stable across restarts. Ports v2
+//! `packages/host/src/local-endpoint.ts`.
 //! Called by `agents::environment`, which resolves the agent-report endpoint,
 //! and by `agents::report_server`, which prepares, binds and secures it.
 
-use std::fs::{DirBuilder, File, OpenOptions};
-use std::io::{ErrorKind, Read, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+use std::io::{ErrorKind, Write};
+
+use roost_keeper::owner_only::{
+    create_new_private_file, create_private_dir_all, restrict_to_owner,
+};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -20,10 +22,23 @@ pub const LOCAL_ENDPOINT_UNAUTHENTICATED_MAX_BYTES: usize = 64 * 1024;
 pub const LOCAL_ENDPOINT_UNAUTHENTICATED_TIMEOUT: Duration = Duration::from_millis(2_000);
 /// How many unauthenticated connections an endpoint holds at once.
 pub const LOCAL_ENDPOINT_MAX_UNAUTHENTICATED_CONNECTIONS: usize = 16;
-/// The endpoint kind a POSIX host serves, exported to children verbatim.
+/// The endpoint kind a Unix host serves, exported to children verbatim.
 pub const LOCAL_ENDPOINT_KIND_UDS: &str = "uds";
+/// The endpoint kind a Windows host serves, exported to children verbatim.
+pub const LOCAL_ENDPOINT_KIND_NAMED_PIPE: &str = "named-pipe";
 
-const RANDOM_SOURCE: &str = "/dev/urandom";
+/// The endpoint kind this build serves.
+#[cfg(unix)]
+pub const fn local_endpoint_kind() -> &'static str {
+    LOCAL_ENDPOINT_KIND_UDS
+}
+
+/// The endpoint kind this build serves.
+#[cfg(windows)]
+pub const fn local_endpoint_kind() -> &'static str {
+    LOCAL_ENDPOINT_KIND_NAMED_PIPE
+}
+
 const CAPABILITY_BYTES: usize = 32;
 const ENDPOINT_NAME_MAX_BYTES: usize = 64;
 
@@ -83,14 +98,30 @@ pub fn resolve_local_endpoint(
     let capability_path = data_dir.join(format!("{name}.cap"));
     let capability = load_or_create_capability(&capability_path)?;
     Ok(LocalEndpoint {
-        address: data_dir.join(format!("{name}.sock")),
+        address: endpoint_address(name, data_dir),
         capability,
         capability_path,
     })
 }
 
+/// The socket file beside the capability.
+#[cfg(unix)]
+fn endpoint_address(name: &str, data_dir: &Path) -> PathBuf {
+    data_dir.join(format!("{name}.sock"))
+}
+
+/// A named pipe unique to this data directory, so two workers on one machine
+/// never contend for one pipe name.
+#[cfg(windows)]
+fn endpoint_address(name: &str, data_dir: &Path) -> PathBuf {
+    let digest: [u8; 32] = Sha256::digest(data_dir.to_string_lossy().as_bytes()).into();
+    let digest = fingerprint_hex(&digest);
+    PathBuf::from(format!(r"\\.\pipe\roost-{name}-{}", &digest[..16]))
+}
+
 /// Make the socket's directory and clear a stale socket file, so a bind after
 /// an unclean exit does not fail on the inode the dead process left behind.
+#[cfg(unix)]
 pub fn prepare_local_endpoint(endpoint: &LocalEndpoint) -> Result<(), LocalEndpointError> {
     if let Some(parent) = endpoint.address.parent() {
         private_directory(parent)?;
@@ -98,16 +129,40 @@ pub fn prepare_local_endpoint(endpoint: &LocalEndpoint) -> Result<(), LocalEndpo
     remove_if_present(&endpoint.address)
 }
 
+/// Make the capability's directory. A named pipe leaves no file behind when
+/// its server exits, so there is nothing stale to clear.
+#[cfg(windows)]
+pub fn prepare_local_endpoint(endpoint: &LocalEndpoint) -> Result<(), LocalEndpointError> {
+    if let Some(parent) = endpoint.capability_path.parent() {
+        private_directory(parent)?;
+    }
+    Ok(())
+}
+
 /// Restrict a bound socket to this user. Mode, not a check at accept: another
 /// local user who cannot connect never gets to present a guessed capability.
+#[cfg(unix)]
 pub fn secure_local_endpoint(endpoint: &LocalEndpoint) -> Result<(), LocalEndpointError> {
-    std::fs::set_permissions(&endpoint.address, std::fs::Permissions::from_mode(0o600))
-        .map_err(io_fault("secure", &endpoint.address))
+    restrict_to_owner(&endpoint.address).map_err(io_fault("secure", &endpoint.address))
+}
+
+/// A named pipe is refused to remote clients at creation; the capability is
+/// the local proof.
+#[cfg(windows)]
+pub fn secure_local_endpoint(_endpoint: &LocalEndpoint) -> Result<(), LocalEndpointError> {
+    Ok(())
 }
 
 /// Remove the socket file an endpoint served.
+#[cfg(unix)]
 pub fn cleanup_local_endpoint(endpoint: &LocalEndpoint) -> Result<(), LocalEndpointError> {
     remove_if_present(&endpoint.address)
+}
+
+/// A named pipe disappears with its last handle; nothing to remove.
+#[cfg(windows)]
+pub fn cleanup_local_endpoint(_endpoint: &LocalEndpoint) -> Result<(), LocalEndpointError> {
+    Ok(())
 }
 
 /// Whether `received` is `expected`, compared over SHA-256 digests in constant
@@ -138,13 +193,10 @@ fn validate_endpoint_name(name: &str) -> Result<(), LocalEndpointError> {
 }
 
 fn private_directory(path: &Path) -> Result<(), LocalEndpointError> {
-    DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(path)
-        .map_err(io_fault("mkdir", path))
+    create_private_dir_all(path).map_err(io_fault("mkdir", path))
 }
 
+#[cfg(unix)]
 fn remove_if_present(path: &Path) -> Result<(), LocalEndpointError> {
     match std::fs::remove_file(path) {
         Err(error) if error.kind() != ErrorKind::NotFound => Err(io_fault("remove", path)(error)),
@@ -174,13 +226,8 @@ fn load_or_create_capability(path: &Path) -> Result<String, LocalEndpointError> 
         Err(LocalEndpointError::Io { source, .. }) if source.kind() == ErrorKind::NotFound => {}
         resolved => return resolved,
     }
-    let capability = random_capability().map_err(io_fault("read", Path::new(RANDOM_SOURCE)))?;
-    let mut file = match OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)
-    {
+    let capability = random_capability()?;
+    let mut file = match create_new_private_file(path) {
         Ok(file) => file,
         Err(error) if error.kind() == ErrorKind::AlreadyExists => return read_capability(path),
         Err(error) => return Err(io_fault("create", path)(error)),
@@ -188,8 +235,7 @@ fn load_or_create_capability(path: &Path) -> Result<String, LocalEndpointError> 
     file.write_all(format!("{capability}\n").as_bytes())
         .map_err(io_fault("write", path))?;
     drop(file);
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
-        .map_err(io_fault("secure", path))?;
+    restrict_to_owner(path).map_err(io_fault("secure", path))?;
     tracing::info!(
         path = %path.display(),
         "a local endpoint capability was minted; it stays stable across restarts"
@@ -197,9 +243,13 @@ fn load_or_create_capability(path: &Path) -> Result<String, LocalEndpointError> 
     Ok(capability)
 }
 
-fn random_capability() -> std::io::Result<String> {
+fn random_capability() -> Result<String, LocalEndpointError> {
     let mut bytes = [0u8; CAPABILITY_BYTES];
-    File::open(RANDOM_SOURCE)?.read_exact(&mut bytes)?;
+    getrandom::fill(&mut bytes).map_err(|error| LocalEndpointError::Io {
+        action: "read",
+        path: PathBuf::from("the OS random source"),
+        source: std::io::Error::other(error),
+    })?;
     Ok(fingerprint_hex(&bytes))
 }
 

@@ -18,6 +18,8 @@ mod agent_prompt_fences;
 mod agent_prompt_foreground;
 #[path = "agent_report_environment.rs"]
 mod agent_report_environment;
+#[path = "agent_report_named_pipe.rs"]
+mod agent_report_named_pipe;
 #[path = "agent_report_peer.rs"]
 mod agent_report_peer;
 #[path = "agent_report_server.rs"]
