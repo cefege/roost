@@ -23,6 +23,7 @@ pub mod deploy;
 pub mod dev;
 pub mod doctor;
 pub mod import_v2;
+pub mod log_file;
 pub mod ops;
 pub mod overlay_env;
 pub mod push;

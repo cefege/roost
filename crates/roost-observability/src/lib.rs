@@ -25,7 +25,10 @@ pub mod trace;
 pub use clock::{EventClock, SystemClock};
 pub use diag::DIAG_ENABLED_ENV;
 pub use fields::{LogFields, RecordSink};
-pub use init::{DEFAULT_LOG_LEVEL, InitOptions, LOG_LEVEL_ENV, OutputStream, init, init_with};
+pub use init::{
+    DEFAULT_LOG_LEVEL, ErrorLogCopy, InitOptions, LOG_LEVEL_ENV, OutputStream, init, init_with,
+    options_from_env,
+};
 pub use level::LogLevel;
 pub use runtime::{set_diag_sink, set_signal_sink};
 pub use signal_kind::SignalKind;

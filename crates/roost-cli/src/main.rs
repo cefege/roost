@@ -12,8 +12,11 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use clap::Parser;
+use roost_cli::log_file::{ERROR_LOG_ROTATE_BYTES, LOG_FILE_DIR_ENV, RotatingLogFile};
 use roost_cli::{Cli, Command, command_error::CommandFailure, dispatch};
-use roost_observability::{InitOptions, LogLevel, SystemClock, init, init_with};
+use roost_observability::{
+    ErrorLogCopy, InitOptions, LogLevel, SystemClock, init, init_with, options_from_env,
+};
 
 fn main() -> ExitCode {
     // `parse_from` writes the usage error to stderr and exits with clap's own
@@ -58,15 +61,48 @@ fn normalised_argv() -> Vec<OsString> {
 /// `roost doctor` reads the second. An operator command's stdout is its
 /// product, so it gets warnings only: an `info` line on stdout would land in
 /// the middle of a readout some script is parsing.
+///
+/// A coordinator in a container has no service manager keeping its stderr, so
+/// `ROOST_LOG_FILE_DIR` asks it to copy its warn/error lines to `main.err.log`
+/// there itself.
 fn install_logging(cli: &Cli) {
     let installed = match cli.command {
-        Command::Coord(_) | Command::Worker(_) | Command::Keeper(_) => init(),
+        Command::Coord(_) => match coordinator_error_copy() {
+            Ok(Some(copy)) => init_with(options_from_env().with_error_copy(copy)),
+            Ok(None) => init(),
+            Err((dir, error)) => {
+                let installed = init();
+                tracing::warn!(
+                    target: "logging",
+                    dir,
+                    error = %error,
+                    "the log file could not be opened; warn/error lines go to stderr only"
+                );
+                installed
+            }
+        },
+        Command::Worker(_) | Command::Keeper(_) => init(),
         _ => init_with(InitOptions::new(Arc::new(SystemClock)).with_min_level(LogLevel::Warn)),
     };
     // A second install can only happen if something else in this process put a
     // subscriber there first, and there is nothing else in a CLI. Either way
     // the command still runs: a missing subscriber costs a log line, not a run.
     let _ = installed;
+}
+
+/// The coordinator's `main.err.log` in `ROOST_LOG_FILE_DIR`, when that is set;
+/// the error carries the directory so the failure can be logged once a
+/// subscriber exists.
+fn coordinator_error_copy() -> Result<Option<ErrorLogCopy>, (String, std::io::Error)> {
+    let Some(dir) = std::env::var(LOG_FILE_DIR_ENV)
+        .ok()
+        .filter(|dir| !dir.is_empty())
+    else {
+        return Ok(None);
+    };
+    RotatingLogFile::open(std::path::Path::new(&dir), ERROR_LOG_ROTATE_BYTES)
+        .map(|file| Some(ErrorLogCopy::new(file)))
+        .map_err(|error| (dir, error))
 }
 
 /// The one machine-readable line a failure produces, on stderr. It is a single
