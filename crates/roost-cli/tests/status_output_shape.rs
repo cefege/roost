@@ -46,6 +46,7 @@ fn healthy_install() -> StatusReport {
             git_sha: None,
         },
         workers: Vec::new(),
+        roster_here: true,
         endpoint: EndpointStatus {
             public_url: Some(FRONT_DOOR.to_string()),
             answers: true,
@@ -187,6 +188,18 @@ roost status
   ✗ workers: none registered
   open: https://dash.example.test";
     assert_eq!(render(&healthy_install()), expected);
+}
+
+#[test]
+fn a_host_without_the_coordinator_database_does_not_claim_an_empty_fleet() {
+    let report = StatusReport {
+        roster_here: false,
+        ..healthy_install()
+    };
+    assert_eq!(
+        line_containing(&report, "workers"),
+        "  - workers: not on this host (the roster is in the coordinator's database)"
+    );
 }
 
 #[test]

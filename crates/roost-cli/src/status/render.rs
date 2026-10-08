@@ -196,7 +196,12 @@ pub fn render_status_report(
         }
     }
 
-    if report.workers.is_empty() {
+    if report.workers.is_empty() && !report.roster_here {
+        push(
+            "  - workers: not on this host (the roster is in the coordinator's database)"
+                .to_string(),
+        );
+    } else if report.workers.is_empty() {
         push("  ✗ workers: none registered".to_string());
     } else {
         push(format!("  workers ({}):", report.workers.len()));

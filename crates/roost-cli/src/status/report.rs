@@ -104,6 +104,10 @@ pub struct StatusReport {
     pub linger: Option<LingerStatus>,
     pub coord: CoordStatus,
     pub workers: Vec<WorkerStatus>,
+    /// Whether this host holds the coordinator database the roster is read
+    /// from. A worker-only host does not, and an empty roster there is not a
+    /// fleet with no workers.
+    pub roster_here: bool,
     pub endpoint: EndpointStatus,
     pub spa: SpaStatus,
 }

@@ -162,6 +162,7 @@ pub async fn collect(context: &StatusContext<'_>) -> Result<CollectedStatus, Col
                 detail: error.to_string(),
             },
         });
+    let (workers, roster_here) = read_workers(context, &installed).await;
 
     Ok(CollectedStatus {
         report: StatusReport {
@@ -172,7 +173,8 @@ pub async fn collect(context: &StatusContext<'_>) -> Result<CollectedStatus, Col
                 reachable: identity.reachable,
                 git_sha: identity.git_sha,
             },
-            workers: read_workers(context, &installed).await,
+            workers,
+            roster_here,
             endpoint: EndpointStatus {
                 public_url: endpoint.public_url,
                 answers,
@@ -212,10 +214,11 @@ fn holds_index_html(dist_path: &Path) -> bool {
     dist_path.join(WEB_INDEX).is_file()
 }
 
+/// The roster, and whether this host holds the database it is read from.
 async fn read_workers(
     context: &StatusContext<'_>,
     installed: &InstalledEnvironment,
-) -> Vec<WorkerStatus> {
+) -> (Vec<WorkerStatus>, bool) {
     let database_path = match coordinator_database_path(context.env, context.platform, installed) {
         Ok(path) => path,
         Err(error) => {
@@ -224,20 +227,20 @@ async fn read_workers(
                 msg = "coordinator_db_path_unresolved",
                 fields = error.to_string(),
             );
-            return Vec::new();
+            return (Vec::new(), false);
         }
     };
-    match inventory::worker_inventory(&database_path, context.now_ms).await {
+    let workers = match inventory::worker_inventory(&database_path, context.now_ms).await {
         Ok(workers) => workers,
         Err(InventoryError::Missing(path)) => {
-            // No database at all is a coordinator that has never run on this
-            // host, which is a legitimate empty roster rather than a failure.
+            // No database here: the coordinator runs elsewhere (a k3s pod, or
+            // another machine), so its roster is not this host's to print.
             tracing::info!(
                 target: "status",
                 msg = "coordinator_db_absent",
                 fields = path.display().to_string(),
             );
-            Vec::new()
+            return (Vec::new(), false);
         }
         Err(InventoryError::ColumnDecode { column, cause }) => {
             // The database answered; what it holds is something this build
@@ -262,7 +265,8 @@ async fn read_workers(
             );
             Vec::new()
         }
-    }
+    };
+    (workers, true)
 }
 
 /// Where the roster comes from: the installed unit's own declaration first,

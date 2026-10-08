@@ -171,6 +171,7 @@ Variants an operator will meet:
 | Dist present, nothing served | `  ✗ spa: MISSING (ROOST_WEB_DIST_PATH=<p> exists but the coordinator serves no page)` |
 | No dist ever declared | `  ✗ spa: MISSING (no ROOST_WEB_DIST_PATH and no embedded build)` |
 | No workers registered | `  ✗ workers: none registered` |
+| No coordinator database on this host | `  - workers: not on this host (the roster is in the coordinator's database)` |
 | Worker with no keeper observation | `      keeper: update admission unproven` |
 | Worker with no capacity report | `      terminal cores: capacity unavailable` |
 | Neither service loaded | `      → roost quickstart` / `      → roost deploy localhost` |
