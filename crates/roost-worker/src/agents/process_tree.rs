@@ -2,8 +2,8 @@
 //! child pid, and which process group owns the pane tty's foreground job. Ports
 //! v2 `apps/worker/src/agents/process-tree.ts`. `agents::process_scan` supplies
 //! the rows and attaches the foreground job to a proved agent identity;
-//! `agents::prompt_control` fences a prompt on it. The Windows branch of
-//! `agentOwnsTerminalForeground` is not ported (Windows is paused).
+//! `agents::prompt_control` fences a prompt on it. A Windows ConPTY pane has no
+//! tty foreground group, so there the fence cannot be proved and is not held.
 
 use std::collections::HashMap;
 
@@ -83,6 +83,14 @@ pub fn agent_foreground_job(
 /// interactive child that took the foreground — pager, `$EDITOR`, `sudo`,
 /// nested shell — would otherwise receive the prompt text and its CR instead
 /// of the agent. An identity with no live snapshot proof is unproved.
+#[cfg(unix)]
 pub fn agent_owns_terminal_foreground(job: Option<&AgentForegroundJob>) -> bool {
     job.is_some_and(|job| job.group_id > 0 && job.agent_member_pid > 0)
+}
+
+/// A ConPTY pane has no foreground process group to prove ownership against,
+/// so the fence answers yes rather than refusing every prompt on Windows.
+#[cfg(windows)]
+pub fn agent_owns_terminal_foreground(_job: Option<&AgentForegroundJob>) -> bool {
+    true
 }
