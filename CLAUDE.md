@@ -238,7 +238,9 @@ going on in 30 seconds?"** If no, refactor before commit.
 
 **Name every dropped path in the commit body.** Only paths unreachable in an
 all-v3 fleet are dropped, plus features the operator retired. The list so
-far: the Windows update broker, the legacy unimplemented `Sync`
+far: the v2 Windows update broker (Windows workers are supported through the
+Scheduled Task service path and upgrade through `install.ps1` or
+`cargo xtask fleet install`, never a broker), the legacy unimplemented `Sync`
 server-streaming RPC, the legacy `/w/:workspaceId[/t/:channelId]` routes,
 `client-seq.txt`, the keeper "Bun ABI" identity field, the Bun-specific zlib
 workaround, capability fallbacks for peers lacking a capability every v3 peer
@@ -389,9 +391,11 @@ not a workspace member, because `cargo fmt` walks local path dependencies
 regardless of `exclude`) and the wasm32 build of the browser crates.
 
 CI (`.github/workflows/ci.yml`) runs the `rust` job on ubuntu-latest AND
-macos-latest. `.github/workflows/release.yml` publishes a `v3.*` tag: it
-re-runs the `rust` job's commands and builds four triples and the web bundle,
-whose assets `install.sh` and `cargo xtask fleet install` fetch. No gate
+macos-latest, and a `windows` job that runs the workspace's clippy and
+nextest on windows-latest. `.github/workflows/release.yml` publishes a `v3.*`
+tag: it re-runs the `rust` job's commands and builds five triples and the web
+bundle, whose assets `install.sh`, `install.ps1` and `cargo xtask fleet install`
+fetch. No gate
 needs a deployed coordinator, a tailnet, or a human driving a browser. The
 repository is public, so GitHub-hosted runners cost nothing.
 

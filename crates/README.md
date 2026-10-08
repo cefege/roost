@@ -60,8 +60,11 @@ and a mobile host. A future native app depends only on `roost-client-core` and
 ## Rules that apply to every crate
 
 - `#![forbid(unsafe_code)]` in the crate root. The two exceptions are
-  `roost-keeper` (it owns raw file descriptors and the controlling-TTY
-  handshake) and anything under `third_party/`.
+  `roost-keeper` (it owns raw file descriptors, the controlling-TTY
+  handshake, and the Win32 console, Job Object and named-pipe calls) and
+  anything under `third_party/`. `roost_keeper::win32_ffi` is the single home
+  of Win32 FFI other crates need (named-pipe client pid, file identity); a
+  crate that needs another Win32 call adds a safe wrapper there.
 - A `//!` file header of 3–6 lines: what this file owns, what calls it, what
   it depends on.
 - ≤400 lines per file, enforced by `cargo xtask lint` against
