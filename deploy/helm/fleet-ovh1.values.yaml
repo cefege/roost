@@ -57,3 +57,7 @@ postgres:
   backup:
     enabled: true
     keep: 14
+
+logs:
+  persistence:
+    enabled: true

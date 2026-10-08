@@ -90,3 +90,10 @@ postgres:
     schedule: "17 3 * * *"
     keep: 14
     storage: 5Gi
+
+# Keep the coordinator's warn/error log (main.err.log, rotated at 32 MiB with
+# one previous file) on a PVC, so `roost doctor` in the pod sees across rollouts.
+logs:
+  persistence:
+    enabled: false
+    storage: 1Gi

@@ -77,6 +77,14 @@ spec:
             - name: ROOST_CORS_ALLOWED_ORIGINS
               value: {{ . | quote }}
             {{- end }}
+            {{- if .Values.logs.persistence.enabled }}
+            # The coordinator copies its warn/error lines to main.err.log here,
+            # and `roost doctor` in the pod reads the same directory.
+            - name: ROOST_LOG_FILE_DIR
+              value: /var/log/roost
+            - name: ROOST_COORD_LOG_DIR
+              value: /var/log/roost
+            {{- end }}
             {{- range $name, $value := .Values.env }}
             - name: {{ $name }}
               value: {{ $value | quote }}
@@ -117,9 +125,18 @@ spec:
               mountPath: /tmp
             - name: data
               mountPath: /var/lib/roost
+            {{- if .Values.logs.persistence.enabled }}
+            - name: logs
+              mountPath: /var/log/roost
+            {{- end }}
       volumes:
         # Scratch only: with a Postgres URL nothing durable is written here.
         - name: tmp
           emptyDir: {}
         - name: data
           emptyDir: {}
+        {{- if .Values.logs.persistence.enabled }}
+        - name: logs
+          persistentVolumeClaim:
+            claimName: {{ include "roost.fullname" . }}-logs
+        {{- end }}

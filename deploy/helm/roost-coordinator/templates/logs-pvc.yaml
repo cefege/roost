@@ -1,0 +1,17 @@
+{{- if .Values.logs.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "roost.fullname" . }}-logs
+  labels:
+    {{- include "roost.labels" . | nindent 4 }}
+  annotations:
+    # The log outlives an uninstall; deleting it is a separate decision.
+    helm.sh/resource-policy: keep
+spec:
+  # One writer: the Deployment is Recreate with at most one replica.
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.logs.persistence.storage }}
+{{- end }}

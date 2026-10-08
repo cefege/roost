@@ -171,6 +171,11 @@ pin the coordinator, Postgres and its backups to one node with `nodeSelector`.
 refuses any count but 0 or 1. The pod is probed on `/readyz` (the database
 answers and the process is not draining) and `/healthz`; on `SIGTERM` it
 withdraws readiness and gives open connections 20 s before exiting.
+`--set logs.persistence.enabled=true` keeps the coordinator's warn/error log
+(`main.err.log`, rotated at 32 MiB with one previous file) on its own PVC
+through `ROOST_LOG_FILE_DIR`, so `kubectl -n roost exec deploy/roost-coordinator
+-- roost doctor --since 24h` reads across rollouts; doctor reads the audit log
+from the Postgres the pod's `ROOST_COORDINATOR_DATABASE_URL` names.
 
 When the front door is a TCP proxy on another machine rather than an ingress
 (for example a Caddy host forwarding over a tailnet), expose the coordinator
