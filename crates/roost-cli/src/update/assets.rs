@@ -8,7 +8,7 @@
 //! present in one table and absent from the other is a 404 on one architecture
 //! and not another — the shape of bug that ships. The web bundle is the one
 //! asset whose name is not per-platform, and that is the shape the asset
-//! actually has: one build of the page, four sets of binaries to serve it.
+//! actually has: one build of the page, five sets of binaries to serve it.
 
 use roost_host::HostPlatform;
 
@@ -29,6 +29,7 @@ pub fn release_asset_name(
         (HostPlatform::MacOs, "x64") => Ok("roost-darwin-x64"),
         (HostPlatform::Linux, "x64") => Ok("roost-linux-x64"),
         (HostPlatform::Linux, "arm64") => Ok("roost-linux-arm64"),
+        (HostPlatform::Windows, "x64") => Ok("roost-windows-x64.exe"),
         (unsupported, _) => Err(CommandFailure::generic(format!(
             "no published roost binary for {}",
             unsupported.display_name()
@@ -45,7 +46,7 @@ pub fn release_asset_name(
 ///
 /// **A counted replacement, so only the prefix is rewritten.** Each published
 /// name contains `roost` exactly once, so the count changes nothing for the
-/// four names above; it is set because a name that contained the program twice —
+/// five names above; it is set because a name that contained the program twice —
 /// `roost-fallback-roost` — would otherwise have its suffix rewritten as well,
 /// becoming `roost-keeper-fallback-roost-keeper`. A keeper's name is a prefixed
 /// roost name and never a second table: a name present in one and absent from
@@ -65,10 +66,10 @@ pub fn keeper_release_asset_name(
 /// The web bundle a release publishes, and the only asset whose name is not
 /// per-platform.
 ///
-/// One bundle serves all four targets: the page is the same build, differing
+/// One bundle serves all five targets: the page is the same build, differing
 /// only in which binaries serve it. So one name is not a simplification here,
 /// it is the shape the asset actually has, and a per-platform table would be
-/// four chances to invent a name the pipeline does not emit.
+/// five chances to invent a name the pipeline does not emit.
 pub const WEB_ASSET_NAME: &str = "roost-web.tar.gz";
 
 /// The `roost` executable's own file name, and the prefix the keeper's name is

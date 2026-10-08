@@ -1,8 +1,8 @@
 //! The names a release publishes, and the commands the gate runs, are stated in
 //! more than one file because more than one process needs them. This test is the
 //! only thing that notices when one of those files stops agreeing with the
-//! others; it reads `assets.rs`'s table, `install.sh`, and both workflows, and
-//! fails when any pair diverges.
+//! others; it reads `assets.rs`'s table, `install.sh`, `install.ps1`, and both
+//! workflows, and fails when any pair diverges.
 //!
 //! The failure it prevents is silent and platform-shaped: a name that exists in
 //! one table and not another is a 404 on exactly one architecture, so four
@@ -21,15 +21,16 @@ use std::path::{Path, PathBuf};
 use roost_cli::update::assets::{WEB_ASSET_NAME, keeper_release_asset_name, release_asset_name};
 use roost_host::HostPlatform;
 
-/// The four (platform, arch) pairs a release publishes, in the order
-/// `assets.rs` matches them. This list is the SET being compared, not a fourth
-/// naming: it names no asset, so adding a fifth target means editing
-/// `assets.rs` and `install.sh`, and this test follows.
-const PUBLISHED: [(HostPlatform, &str); 4] = [
+/// The five (platform, arch) pairs a release publishes, in the order
+/// `assets.rs` matches them. This list is the SET being compared, not another
+/// naming: it names no asset, so adding a target means editing `assets.rs` and
+/// the installer for its platform, and this test follows.
+const PUBLISHED: [(HostPlatform, &str); 5] = [
     (HostPlatform::Linux, "x64"),
     (HostPlatform::Linux, "arm64"),
     (HostPlatform::MacOs, "x64"),
     (HostPlatform::MacOs, "arm64"),
+    (HostPlatform::Windows, "x64"),
 ];
 
 fn repo_root() -> PathBuf {
@@ -117,27 +118,29 @@ fn the_release_matrix_publishes_exactly_the_names_assets_rs_resolves() {
     );
 }
 
-/// The four names, pinned as literals.
+/// The five names, pinned as literals.
 ///
 /// `keeper_release_asset_name` derives a keeper name by substituting into a roost
 /// name, and each published name contains `roost` exactly once — so the
 /// substitution's count is not exercised by any name here. These assertions
-/// exist so the four names are checked as VALUES rather than trusted through
+/// exist so the five names are checked as VALUES rather than trusted through
 /// prose: a change to the substitution has to edit them, and a name that stopped
-/// matching `install.sh` fails here rather than as a 404 on one architecture.
+/// matching an installer fails here rather than as a 404 on one architecture.
 #[test]
-fn the_four_published_names_are_the_ones_install_sh_fetches() {
+fn the_five_published_names_are_the_ones_the_installers_fetch() {
     let expected_roost = [
         (HostPlatform::Linux, "x64", "roost-linux-x64"),
         (HostPlatform::Linux, "arm64", "roost-linux-arm64"),
         (HostPlatform::MacOs, "x64", "roost-darwin-x64"),
         (HostPlatform::MacOs, "arm64", "roost"),
+        (HostPlatform::Windows, "x64", "roost-windows-x64.exe"),
     ];
     let expected_keeper = [
         (HostPlatform::Linux, "x64", "roost-keeper-linux-x64"),
         (HostPlatform::Linux, "arm64", "roost-keeper-linux-arm64"),
         (HostPlatform::MacOs, "x64", "roost-keeper-darwin-x64"),
         (HostPlatform::MacOs, "arm64", "roost-keeper"),
+        (HostPlatform::Windows, "x64", "roost-keeper-windows-x64.exe"),
     ];
 
     for (platform, arch, want) in expected_roost {
@@ -161,17 +164,30 @@ fn the_four_published_names_are_the_ones_install_sh_fetches() {
 }
 
 #[test]
-fn install_sh_resolves_the_same_four_names() {
-    let script = read_repo("install.sh");
+fn the_installers_resolve_every_published_name() {
     for (platform, arch) in PUBLISHED {
-        let name = release_asset_name(platform, arch).unwrap();
-        let quoted = format!("'{name}'");
-        assert!(
-            script.contains(&quoted) || script.contains(&format!("\"{name}\"")),
-            "install.sh never mentions {name}, so a machine that installs by script \
-             would not find the asset assets.rs says exists for {}",
-            platform.display_name()
-        );
+        let (installer, names) = match platform {
+            HostPlatform::Windows => (
+                "install.ps1",
+                vec![
+                    release_asset_name(platform, arch).unwrap().to_string(),
+                    keeper_release_asset_name(platform, arch).unwrap(),
+                ],
+            ),
+            HostPlatform::Linux | HostPlatform::MacOs => (
+                "install.sh",
+                vec![release_asset_name(platform, arch).unwrap().to_string()],
+            ),
+        };
+        let script = read_repo(installer);
+        for name in names {
+            assert!(
+                script.contains(&format!("'{name}'")) || script.contains(&format!("\"{name}\"")),
+                "{installer} never mentions {name}, so a machine that installs by script \
+                 would not find the asset assets.rs says exists for {}",
+                platform.display_name()
+            );
+        }
     }
 }
 

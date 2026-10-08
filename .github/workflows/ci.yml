@@ -112,8 +112,15 @@ jobs:
           shared-key: rust-gates
           add-job-id-key: false
       - uses: ilammy/setup-nasm@v1
+      # A machine runs install.ps1 straight from `irm | iex`, so a syntax
+      # error is an enrollment that fails on every Windows machine at once.
+      - name: install.ps1 parses
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD\install.ps1", [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { $errors | Out-String | Write-Error; exit 1 }
       - name: clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --keep-going -- -D warnings
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
