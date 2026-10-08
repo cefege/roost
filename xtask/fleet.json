@@ -48,6 +48,14 @@
       "services": [
         "com.roost.worker-v3"
       ]
+    },
+    {
+      "name": "roost-win",
+      "ssh": "roost-win",
+      "platform": "windows",
+      "services": [
+        "roost3-worker"
+      ]
     }
   ]
 }
