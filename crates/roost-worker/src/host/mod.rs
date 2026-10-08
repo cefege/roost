@@ -22,8 +22,11 @@ pub mod ports;
 pub mod pr_status;
 pub mod samples;
 pub mod samples_darwin;
+#[cfg(windows)]
+mod samples_windows;
 pub mod sampling;
 pub mod shell_bootstrap;
+mod shell_locate;
 pub mod shell_spec_resolver;
 pub mod tailnet;
 pub mod tool_path;

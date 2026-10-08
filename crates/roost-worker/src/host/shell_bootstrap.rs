@@ -1,8 +1,9 @@
-//! The two files a resolved POSIX launch contract points at: bootstrap rcfiles
-//! that emit OSC 7 and OSC 133 shell marks, and a per-cwd history file. Written
-//! by the resolver during resolution, read by bash/zsh and by nothing here.
-//! `sha2` for the history slug and on `roost_protocol`'s own home layout — and
-//! on no other module here.
+//! The files and scripts a resolved launch contract points at: bootstrap
+//! rcfiles that emit OSC 7 and OSC 133 shell marks (an encoded command for
+//! PowerShell), and a per-cwd history file. Written by the resolver during
+//! resolution, read by bash/zsh/PowerShell and by nothing here.
+//! Depends on `base64` for the encoded command, `sha2` for the history slug and
+//! on `roost_protocol`'s own home layout — and on no other module here.
 //!
 //! WHY A BOOTSTRAP RCFILE AT ALL. The SPA learns a session's folder from the
 //! OSC 7 escape the shell prints after every prompt. An rcfile the user never
@@ -19,6 +20,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
+use base64::Engine as _;
 use sha2::{Digest, Sha256};
 
 /// The shell whose rcfile the resolver can install the OSC 7 hook into.
@@ -26,17 +28,28 @@ use sha2::{Digest, Sha256};
 pub enum ShellFlavour {
     Bash,
     Zsh,
+    /// `pwsh` or Windows `powershell`: the bootstrap rides in `-EncodedCommand`.
+    PowerShell,
+    /// `cmd.exe`, launched bare: it has no prompt hook to emit marks from.
+    Cmd,
     /// A shell with no bootstrap of its own. It is launched bare.
     Other,
 }
 
 impl ShellFlavour {
-    /// The flavour of a resolved executable, from its file name alone.
+    /// The flavour of a resolved executable, from its file name alone, with a
+    /// Windows `.exe` suffix ignored.
     #[must_use]
     pub fn of(executable: &str) -> Self {
-        match file_name_of(executable).as_deref() {
+        let name = file_name_of(executable);
+        match name
+            .as_deref()
+            .map(|name| name.strip_suffix(".exe").unwrap_or(name))
+        {
             Some("bash") => Self::Bash,
             Some("zsh") => Self::Zsh,
+            Some("pwsh" | "powershell") => Self::PowerShell,
+            Some("cmd") => Self::Cmd,
             _ => Self::Other,
         }
     }
@@ -59,7 +72,7 @@ pub fn bootstrap_dir(root: &Path, flavour: ShellFlavour) -> PathBuf {
     match flavour {
         ShellFlavour::Bash => root.join("roost-bash-osc7"),
         ShellFlavour::Zsh => root.join("roost-zsh-noPROMPT_SP"),
-        ShellFlavour::Other => root.to_path_buf(),
+        ShellFlavour::PowerShell | ShellFlavour::Cmd | ShellFlavour::Other => root.to_path_buf(),
     }
 }
 
@@ -72,14 +85,26 @@ pub fn ensure_bootstrap(root: &Path, flavour: ShellFlavour) -> io::Result<PathBu
     let directory = bootstrap_dir(root, flavour);
     std::fs::create_dir_all(&directory)?;
     let set_mode = |path: &Path, mode: u32| -> io::Result<()> {
-        use std::os::unix::fs::PermissionsExt as _;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+        }
+        // The bootstrap root is the user's own temp directory, whose ACL is the
+        // restriction on Windows.
+        #[cfg(windows)]
+        {
+            let _ = (path, mode);
+            Ok(())
+        }
     };
     set_mode(&directory, 0o700)?;
     let (name, body) = match flavour {
         ShellFlavour::Bash => ("roost.bashrc", BASH_BOOTSTRAP),
         ShellFlavour::Zsh => (".zshrc", ZSH_BOOTSTRAP),
-        ShellFlavour::Other => return Ok(directory),
+        ShellFlavour::PowerShell | ShellFlavour::Cmd | ShellFlavour::Other => {
+            return Ok(directory);
+        }
     };
     let path = directory.join(name);
     std::fs::write(&path, body)?;
@@ -122,6 +147,58 @@ if autoload -Uz add-zsh-hook 2>/dev/null; then
     add-zsh-hook chpwd roost_emit_osc7
 fi
 roost_emit_osc7
+"#;
+
+/// The PowerShell bootstrap: UTF-8 console I/O, history in the session's
+/// `HISTFILE`, OSC 133 C on Enter, and OSC 133 D/A plus OSC 7 around every
+/// prompt, wrapping the user's own prompt function. Runs on PowerShell 5.1
+/// and 7; `$global:__roostEsc` stands in for the 7-only `` `e `` escape.
+#[must_use]
+pub fn powershell_bootstrap_script() -> &'static str {
+    POWERSHELL_BOOTSTRAP
+}
+
+/// `-EncodedCommand`'s argument: base64 of the script's UTF-16LE code units.
+#[must_use]
+pub fn encode_powershell_command(script: &str) -> String {
+    let bytes: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+const POWERSHELL_BOOTSTRAP: &str = r#"$roostUtf8 = [System.Text.UTF8Encoding]::new($false)
+try { [Console]::InputEncoding = $roostUtf8 } catch {}
+try { [Console]::OutputEncoding = $roostUtf8 } catch {}
+$global:OutputEncoding = $roostUtf8
+$global:__roostEsc = [char]27
+$global:__roostBel = [char]7
+if ($env:HISTFILE -and (Get-Command Set-PSReadLineOption -ErrorAction SilentlyContinue)) {
+  Set-PSReadLineOption -HistorySavePath $env:HISTFILE -MaximumHistoryCount 10000 -ErrorAction SilentlyContinue
+  Set-PSReadLineKeyHandler -Chord Enter -ScriptBlock {
+    [Console]::Write("$($global:__roostEsc)]133;C$($global:__roostBel)")
+    [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
+  }
+}
+function global:__RoostEmitOsc7 {
+  try {
+    $p = (Get-Location).ProviderPath
+    if ($p) { [Console]::Write("$($global:__roostEsc)]7;$(([System.Uri]$p).AbsoluteUri)$($global:__roostBel)") }
+  } catch {}
+}
+if (-not (Test-Path variable:global:__RoostOriginalPrompt)) {
+  $global:__RoostOriginalPrompt = ${function:prompt}
+  function global:prompt {
+    $ok = $?
+    $code = $global:LASTEXITCODE
+    $status = if ($ok) { 0 } elseif ($code) { $code } else { 1 }
+    [Console]::Write("$($global:__roostEsc)]133;D;$status$($global:__roostBel)")
+    __RoostEmitOsc7
+    [Console]::Write("$($global:__roostEsc)]133;A$($global:__roostBel)")
+    $text = & $global:__RoostOriginalPrompt
+    $global:LASTEXITCODE = $code
+    $text
+  }
+}
+__RoostEmitOsc7
 "#;
 
 /// The `HISTFILE`/`HISTSIZE`/`SAVEHIST` block a shell session is launched with.
@@ -170,4 +247,31 @@ fn slug_of(identity: &str) -> String {
         .take(6)
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ShellFlavour, encode_powershell_command};
+
+    #[test]
+    fn an_encoded_command_is_base64_of_utf16le() {
+        assert_eq!(encode_powershell_command("dir"), "ZABpAHIA");
+    }
+
+    #[test]
+    fn a_windows_shell_is_named_by_its_file_name_without_exe() {
+        assert_eq!(
+            ShellFlavour::of(r"C:\Program Files\PowerShell\7\pwsh.exe"),
+            ShellFlavour::PowerShell
+        );
+        assert_eq!(
+            ShellFlavour::of(r"C:\Windows\System32\WindowsPowerShell\v1.0\PowerShell.EXE"),
+            ShellFlavour::PowerShell
+        );
+        assert_eq!(
+            ShellFlavour::of(r"C:\Windows\System32\cmd.exe"),
+            ShellFlavour::Cmd
+        );
+        assert_eq!(ShellFlavour::of("/bin/bash"), ShellFlavour::Bash);
+    }
 }
