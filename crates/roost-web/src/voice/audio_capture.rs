@@ -51,9 +51,11 @@ pub const OPEN_TIMEOUT_MS: i32 = 6_000;
 /// How long the worklet module may take to load.
 pub const MODULE_TIMEOUT_MS: i32 = 3_000;
 
-/// How long the graph is kept after a recording ends. A minute on a desktop,
-/// where the next recording may be minutes away.
-pub const IDLE_RELEASE_MS: i32 = 60_000;
+/// How long the graph is kept after a recording ends on a desktop: not at all.
+/// A desktop reopens its device in milliseconds without a fresh gesture, and
+/// a graph kept warm keeps the browser's recording indicator lit while nothing
+/// is recording.
+pub const IDLE_RELEASE_MS: i32 = 0;
 
 /// The idle release a touch device uses: the next tap comes from the same hand,
 /// seconds later.

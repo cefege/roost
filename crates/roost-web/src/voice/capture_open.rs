@@ -29,7 +29,20 @@ pub(super) async fn open_pipeline(generation: u64) -> Result<(), MicOpenFailure>
     // session exists, and answers this rejection itself; the second resume
     // below is the one that has to work.
     let _ = context.resume();
-    let stream = open_device().await?;
+    let stream = match open_device().await {
+        Ok(stream) => stream,
+        Err(failure) => {
+            let _ = context.close();
+            return Err(failure);
+        }
+    };
+    // Every later failure owns a live device: a track nothing stops keeps the
+    // browser's recording indicator lit for the rest of the page's life.
+    let dispose = |failure: MicOpenFailure| {
+        stop_stream(&stream);
+        let _ = context.close();
+        failure
+    };
     if context.state() != web_sys::AudioContextState::Running {
         // The resume answers with the promise it starts; a rejection here is the
         // browser refusing a session it will not grant, which the check below
@@ -39,14 +52,17 @@ pub(super) async fn open_pipeline(generation: u64) -> Result<(), MicOpenFailure>
             .map(|promise| promise.catch(&Closure::once(|_error: JsValue| {})));
     }
     if context.state() != web_sys::AudioContextState::Running {
-        return Err(message_failure(&audio_session_stalled(state_name(
-            context.state(),
+        return Err(dispose(message_failure(&audio_session_stalled(
+            state_name(context.state()),
         ))));
     }
     let rate = context.sample_rate() as u32;
-    let source = context
-        .create_media_stream_source(&stream)
-        .map_err(|_| mic_open_failure("NotReadableError", "the audio source could not open"))?;
+    let source = context.create_media_stream_source(&stream).map_err(|_| {
+        dispose(mic_open_failure(
+            "NotReadableError",
+            "the audio source could not open",
+        ))
+    })?;
     let attached = if with_mic(|mic| mic.worklet_broken.get()) {
         attach_script_processor(&context, &source, generation);
         false
@@ -65,8 +81,9 @@ pub(super) async fn open_pipeline(generation: u64) -> Result<(), MicOpenFailure>
         // Torn down while opening: the graph this open built is not the one the
         // page wants, and a caller still waiting on it is owed a verdict rather
         // than a device that no longer exists.
-        stop_stream(&stream);
-        return Err(message_failure("the microphone was released while opening"));
+        return Err(dispose(message_failure(
+            "the microphone was released while opening",
+        )));
     }
     let path = if attached {
         CapturePath::Worklet

@@ -279,7 +279,10 @@ impl ComposerContext {
             self.machine.borrow_mut().set(VoiceMachine::default());
             return;
         }
-        self.warm_mic();
+        // A stopping tap must not reopen a released device and keep it lit.
+        if self.machine().state() == VoiceState::Idle {
+            self.warm_mic();
+        }
         self.apply(VoiceEvent::Toggle {
             active,
             claimed,
