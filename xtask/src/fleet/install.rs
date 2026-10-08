@@ -189,8 +189,9 @@ Copy-Item -Recurse (Join-Path $STAGE 'web') (Join-Path $REL 'web')
 }
 
 /// Repoint the Scheduled Task's launcher at the tag, drop a spent bootstrap
-/// token, restart the task, and require one worker pid for
-/// [`STABLE_SECONDS`].
+/// token, restart the task, and require one new worker pid for
+/// [`STABLE_SECONDS`]. Stopping the task ends only its conhost, so the old
+/// worker is ended by pid before the task starts again.
 fn windows_restart_script(tag: &str, services: &[String]) -> Result<String, String> {
     let [task] = services else {
         return Err("a Windows host runs exactly one Scheduled Task".to_owned());
@@ -203,21 +204,29 @@ Copy-Item -Force $L "$L.bak-{tag}"
 $text = [IO.File]::ReadAllText($L) -replace '\\versions\\[^\\]+\\', '\versions\{tag}\'
 $text = ($text -split "`r`n" | Where-Object {{ $_ -notmatch '^set "ROOST_BOOTSTRAP_TOKEN=' }}) -join "`r`n"
 [IO.File]::WriteAllText($L, $text, [Text.UTF8Encoding]::new($false))
-Stop-ScheduledTask -TaskPath '\Roost\' -TaskName '{task}' -ErrorAction SilentlyContinue
-Start-ScheduledTask -TaskPath '\Roost\' -TaskName '{task}'
-foreach ($attempt in 1..30) {{
-  if ((Get-ScheduledTask -TaskPath '\Roost\' -TaskName '{task}').State -eq 'Running') {{ break }}
-  Start-Sleep -Seconds 1
-}}
 function Get-RoostWorkerPid {{
   $p = Get-CimInstance Win32_Process -Filter "Name='roost.exe'" | Where-Object {{ $_.CommandLine -match '\sworker(\s|$)' }} | Select-Object -First 1
   if ($p) {{ $p.ProcessId }} else {{ 0 }}
 }}
+$old = Get-RoostWorkerPid
+Stop-ScheduledTask -TaskPath '\Roost\' -TaskName '{task}' -ErrorAction SilentlyContinue
+if ($old) {{
+  Stop-Process -Id $old -Force -ErrorAction SilentlyContinue
+  foreach ($attempt in 1..50) {{
+    if (-not (Get-Process -Id $old -ErrorAction SilentlyContinue)) {{ break }}
+    Start-Sleep -Milliseconds 200
+  }}
+}}
+Start-ScheduledTask -TaskPath '\Roost\' -TaskName '{task}'
+foreach ($attempt in 1..30) {{
+  if ((Get-ScheduledTask -TaskPath '\Roost\' -TaskName '{task}').State -eq 'Running' -and (Get-RoostWorkerPid)) {{ break }}
+  Start-Sleep -Seconds 1
+}}
 $first = Get-RoostWorkerPid
 Start-Sleep -Seconds {STABLE_SECONDS}
 $last = Get-RoostWorkerPid
-if (-not $first -or $first -ne $last) {{
-  [Console]::Error.WriteLine("{task} did not stay up: pid $first -> $last")
+if (-not $first -or $first -ne $last -or $first -eq $old) {{
+  [Console]::Error.WriteLine("{task} did not restart and stay up: pid $old -> $first -> $last")
   exit 1
 }}
 "#
