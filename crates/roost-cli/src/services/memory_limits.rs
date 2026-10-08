@@ -108,41 +108,6 @@ fn format_memory(bytes: u64) -> String {
     }
 }
 
-/// The host's total memory in bytes, or zero when it cannot be read. Linux is
-/// asked its own `/proc/meminfo` and macOS its own `sysctl`, because a host
-/// that answers neither is a host this install will warn about rather than
-/// refuse.
-pub fn host_total_memory_bytes() -> u64 {
-    read_linux_meminfo().unwrap_or_else(read_macos_memsize)
-}
-
-fn read_linux_meminfo() -> Option<u64> {
-    let meminfo = std::fs::read_to_string("/proc/meminfo").ok()?;
-    let kib = meminfo
-        .lines()
-        .find_map(|line| line.strip_prefix("MemTotal:"))
-        .and_then(|rest| rest.split_whitespace().next())
-        .and_then(|digits| digits.parse::<u64>().ok())?;
-    kib.checked_mul(1024)
-}
-
-fn read_macos_memsize() -> u64 {
-    let output = std::process::Command::new("sysctl")
-        .args(["-n", "hw.memsize"])
-        .output();
-    match output {
-        Ok(output) if output.status.success() => parse_decimal(&output.stdout),
-        _ => 0,
-    }
-}
-
-fn parse_decimal(stdout: &[u8]) -> u64 {
-    std::str::from_utf8(stdout)
-        .ok()
-        .and_then(|text| text.trim().parse::<u64>().ok())
-        .unwrap_or(0)
-}
-
 #[cfg(test)]
 mod tests {
     use super::{ResourceLimits, derive, format_memory};

@@ -16,6 +16,9 @@ roost-observability.workspace = true
 roost-platform.workspace = true
 roost-protocol.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+sysinfo.workspace = true
+
 [lints]
 workspace = true
 

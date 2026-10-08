@@ -14,6 +14,12 @@ use roost_protocol::{ProtocolError, ProtocolResult};
 /// The home-directory variable every default path hangs off.
 pub const HOME_ENV: &str = "HOME";
 
+/// The Windows profile directory, the home fallback when `HOME` is unset.
+pub const USERPROFILE_ENV: &str = "USERPROFILE";
+
+/// The Windows per-user, per-machine data root.
+pub const LOCAL_APP_DATA_ENV: &str = "LOCALAPPDATA";
+
 /// The Linux data root, per the XDG base-directory specification.
 pub const XDG_DATA_HOME_ENV: &str = "XDG_DATA_HOME";
 
@@ -30,7 +36,8 @@ pub trait EnvSource: Sync {
     /// The value of `key`, or `None` when it is not set at all.
     fn get(&self, key: &str) -> Option<String>;
 
-    /// The user's home directory, or `None` when it cannot be resolved.
+    /// The user's home directory (`HOME`, else `USERPROFILE`), or `None` when
+    /// neither is set.
     fn home_dir(&self) -> Option<PathBuf>;
 }
 
@@ -50,7 +57,9 @@ impl EnvSource for ProcessEnv {
     }
 
     fn home_dir(&self) -> Option<PathBuf> {
-        self.get(HOME_ENV).map(PathBuf::from)
+        self.get(HOME_ENV)
+            .or_else(|| self.get(USERPROFILE_ENV))
+            .map(PathBuf::from)
     }
 }
 
@@ -83,7 +92,9 @@ impl EnvSource for MapEnv {
     }
 
     fn home_dir(&self) -> Option<PathBuf> {
-        self.get(HOME_ENV).map(PathBuf::from)
+        self.get(HOME_ENV)
+            .or_else(|| self.get(USERPROFILE_ENV))
+            .map(PathBuf::from)
     }
 }
 
@@ -92,41 +103,25 @@ impl EnvSource for MapEnv {
 /// The platform is the build target's ([`HostPlatform::current`]), never a parse
 /// of `std::env::consts::OS`: Rust names macOS `macos` where the wire name
 /// [`HostPlatform::parse`] reads is `darwin`, and that parse refused every Mac
-/// at boot. Windows is a target the product names and still refuses: v3 ships
-/// Linux and macOS only, so a Windows host must fail at boot with a clear
-/// reason instead of writing into a layout no v3 release installs.
+/// at boot. A target the product does not name is refused.
 pub fn supported_host_platform() -> ProtocolResult<HostPlatform> {
-    let platform = HostPlatform::current().ok_or_else(|| {
+    HostPlatform::current().ok_or_else(|| {
         ProtocolError::new(
             "host.platform",
             format!("unsupported host platform: {}", std::env::consts::OS),
         )
-    })?;
-    if platform == HostPlatform::Windows {
-        return Err(ProtocolError::new(
-            "host.platform",
-            "Roost v3 does not support Windows; v3 installs on macOS and Linux only",
-        ));
-    }
-    Ok(platform)
+    })
 }
 
-/// The same refusal, resolved from a name a caller already holds — a test, a
-/// deploy manifest, or a column in the worker registry.
+/// The same resolution from a name a caller already holds — a test, a deploy
+/// manifest, or a column in the worker registry.
 pub fn host_platform_from_os(os: &str) -> ProtocolResult<HostPlatform> {
-    let platform = HostPlatform::parse(os).map_err(|error| {
+    HostPlatform::parse(os).map_err(|error| {
         ProtocolError::new(
             "host.platform",
             format!("unsupported host platform: {error}"),
         )
-    })?;
-    if platform == HostPlatform::Windows {
-        return Err(ProtocolError::new(
-            "host.platform",
-            "Roost v3 does not support Windows; v3 installs on macOS and Linux only",
-        ));
-    }
-    Ok(platform)
+    })
 }
 
 #[cfg(test)]
@@ -145,10 +140,12 @@ mod tests {
         let env = MapEnv::new().with("HOME", "/home/operator");
         assert_eq!(env.home_dir(), Some("/home/operator".into()));
         assert_eq!(MapEnv::new().home_dir(), None);
+        let windows = MapEnv::new().with("USERPROFILE", r"C:\Users\op");
+        assert_eq!(windows.home_dir(), Some(r"C:\Users\op".into()));
     }
 
     #[test]
-    fn an_unknown_or_unsupported_host_is_refused() {
+    fn every_named_host_resolves_and_an_unknown_one_is_refused() {
         assert_eq!(
             host_platform_from_os("darwin").map(|platform| platform.display_name().to_string()),
             Ok("macOS".to_string())
@@ -157,7 +154,10 @@ mod tests {
             host_platform_from_os("linux").map(|platform| platform.display_name().to_string()),
             Ok("Linux".to_string())
         );
-        assert!(host_platform_from_os("win32").is_err());
+        assert_eq!(
+            host_platform_from_os("win32").map(|platform| platform.display_name().to_string()),
+            Ok("Windows".to_string())
+        );
         assert!(host_platform_from_os("").is_err());
     }
 }

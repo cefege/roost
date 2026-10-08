@@ -53,19 +53,20 @@ pub use coord_config_origin::{
 };
 pub use database_location::DatabaseLocation;
 pub use env::{
-    EnvSource, HOME_ENV, MapEnv, ProcessEnv, XDG_DATA_HOME_ENV, XDG_STATE_HOME_ENV,
-    host_platform_from_os, supported_host_platform,
+    EnvSource, HOME_ENV, LOCAL_APP_DATA_ENV, MapEnv, ProcessEnv, USERPROFILE_ENV,
+    XDG_DATA_HOME_ENV, XDG_STATE_HOME_ENV, host_platform_from_os, supported_host_platform,
 };
 pub use jwt_base::{b64url_decode, b64url_decode_to_utf8, b64url_encode};
 pub use paths::{
     COORD_DATA_DIR_ENV, COORD_DATA_DIR_NAME, COORD_LABEL_DARWIN, COORD_LABEL_ENV,
-    COORD_LABEL_LINUX, COORD_LOG_DIR_ENV, COORD_LOG_DIR_NAME, COORD_PLIST_ENV, COORD_UNIT_ENV,
+    COORD_LABEL_LINUX, COORD_LABEL_WINDOWS, COORD_LAUNCHER_ENV, COORD_LOG_DIR_ENV,
+    COORD_LOG_DIR_NAME, COORD_PLIST_ENV, COORD_UNIT_ENV, KEEPER_PROGRAM_FILE, ROOST_PROGRAM_FILE,
     SERVICE_DIR_ENV, SERVICE_DIR_SUBDIR, VERSIONS_DIR_ENV, VERSIONS_DIR_SUBDIR,
     WORKER_DATA_DIR_ENV, WORKER_DATA_DIR_NAME, WORKER_LABEL_DARWIN, WORKER_LABEL_ENV,
-    WORKER_LABEL_LINUX, WORKER_LOG_DIR_ENV, WORKER_LOG_DIR_NAME, WORKER_PLIST_ENV, WORKER_UNIT_ENV,
-    config_root, coord_data_dir, coord_log_dir, coord_service_label, coord_service_path,
-    roost_service_dir, roost_versions_dir, state_root, worker_data_dir, worker_log_dir,
-    worker_service_label, worker_service_path,
+    WORKER_LABEL_LINUX, WORKER_LABEL_WINDOWS, WORKER_LAUNCHER_ENV, WORKER_LOG_DIR_ENV,
+    WORKER_LOG_DIR_NAME, WORKER_PLIST_ENV, WORKER_UNIT_ENV, config_root, coord_data_dir,
+    coord_log_dir, coord_service_label, coord_service_path, roost_service_dir, roost_versions_dir,
+    state_root, worker_data_dir, worker_log_dir, worker_service_label, worker_service_path,
 };
 
 // The worker's loopback door belongs to `roost-protocol` so a browser bundle can

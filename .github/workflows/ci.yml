@@ -93,3 +93,29 @@ jobs:
         env:
           ROOST_TEST_DATABASE_URL: postgres://roost:roost@localhost:5432/postgres
         run: cargo nextest run -p roost-coord
+
+  # The worker host built for x86_64-pc-windows-msvc. A job of its own, not a
+  # `rust` matrix row: `release.yml`'s verify job must run exactly the `rust`
+  # job's commands, and `cargo xtask lint` runs on Linux and macOS only. No
+  # `shell:` key, so steps run in pwsh: under Git Bash, MSYS perl breaks the
+  # vendored OpenSSL build.
+  windows:
+    name: windows worker host
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: keep LF line endings (generated suite.rs is byte-compared)
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-gates
+          add-job-id-key: false
+      - uses: ilammy/setup-nasm@v1
+      - name: clippy
+        run: cargo clippy -p roost-platform -p roost-host --all-targets -- -D warnings
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - name: test
+        run: cargo nextest run -p roost-platform -p roost-host

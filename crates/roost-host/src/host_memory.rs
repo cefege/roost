@@ -3,7 +3,8 @@
 //! total host memory, plus this process's own resident set. Ports the
 //! TypeScript `packages/host/src/host-memory.ts` and the Node `totalmem()` /
 //! `memoryUsage().rss` reads of `apps/worker/src/terminal/terminal-core-capacity.ts`.
-//! Called by the worker's `terminal_core_capacity`; depends on std and roost-platform.
+//! Called by the worker's `terminal_core_capacity`; depends on std and
+//! roost-platform, and on `sysinfo` for the Windows reads.
 
 use std::process::Command;
 
@@ -73,7 +74,7 @@ pub fn host_total_memory_bytes(platform: HostPlatform) -> u64 {
             .and_then(|meminfo| status_kib(&meminfo, "MemTotal:"))
             .unwrap_or(0),
         HostPlatform::MacOs => command_decimal("sysctl", &["-n", "hw.memsize"]).unwrap_or(0),
-        HostPlatform::Windows => 0,
+        HostPlatform::Windows => windows_total_memory_bytes(),
     }
 }
 
@@ -90,8 +91,38 @@ pub fn process_rss_bytes(platform: HostPlatform) -> u64 {
                 .and_then(|kib| kib.checked_mul(1024))
                 .unwrap_or(0)
         }
-        HostPlatform::Windows => 0,
+        HostPlatform::Windows => windows_process_rss_bytes(std::process::id()),
     }
+}
+
+#[cfg(windows)]
+fn windows_total_memory_bytes() -> u64 {
+    let mut system = sysinfo::System::new();
+    system.refresh_memory();
+    system.total_memory()
+}
+
+#[cfg(unix)]
+const fn windows_total_memory_bytes() -> u64 {
+    0
+}
+
+#[cfg(windows)]
+fn windows_process_rss_bytes(pid: u32) -> u64 {
+    use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
+    let pid = Pid::from_u32(pid);
+    let mut system = System::new();
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[pid]),
+        true,
+        ProcessRefreshKind::nothing().with_memory(),
+    );
+    system.process(pid).map_or(0, sysinfo::Process::memory)
+}
+
+#[cfg(unix)]
+const fn windows_process_rss_bytes(_pid: u32) -> u64 {
+    0
 }
 
 /// The production reader: the file's text, or `None` when it cannot be read.

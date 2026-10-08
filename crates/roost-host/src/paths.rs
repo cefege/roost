@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use roost_platform::HostPlatform;
 use roost_protocol::{ProtocolError, ProtocolResult};
 
-use crate::env::{EnvSource, HOME_ENV, XDG_DATA_HOME_ENV, XDG_STATE_HOME_ENV};
+use crate::env::{EnvSource, HOME_ENV, LOCAL_APP_DATA_ENV, XDG_DATA_HOME_ENV, XDG_STATE_HOME_ENV};
 
 /// The launchd label the coordinator installs under on macOS.
 pub const COORD_LABEL_DARWIN: &str = "com.roost.coordinator-v3";
@@ -28,10 +28,26 @@ pub const WORKER_LABEL_DARWIN: &str = "com.roost.worker-v3";
 /// The systemd user unit the worker installs under on Linux.
 pub const WORKER_LABEL_LINUX: &str = "roost3-worker";
 
-/// The worker data directory name under the macOS and Linux data roots.
+/// The Scheduled Task the worker installs under on Windows.
+pub const WORKER_LABEL_WINDOWS: &str = "roost3-worker";
+
+/// The Scheduled Task the coordinator installs under on Windows.
+pub const COORD_LABEL_WINDOWS: &str = "roost3-coord";
+
+/// The installed `roost` executable's file name on this build's OS.
+pub const ROOST_PROGRAM_FILE: &str = if cfg!(windows) { "roost.exe" } else { "roost" };
+
+/// The installed keeper executable's file name on this build's OS.
+pub const KEEPER_PROGRAM_FILE: &str = if cfg!(windows) {
+    "roost-keeper.exe"
+} else {
+    "roost-keeper"
+};
+
+/// The worker data directory name under every platform's data root.
 pub const WORKER_DATA_DIR_NAME: &str = "RoostWorkerV3";
 
-/// The coordinator data directory name under the macOS and Linux data roots.
+/// The coordinator data directory name under every platform's data root.
 pub const COORD_DATA_DIR_NAME: &str = "RoostCoordinatorV3";
 
 /// The worker log directory name under the macOS and Linux state roots.
@@ -80,6 +96,12 @@ pub const WORKER_PLIST_ENV: &str = "ROOST_WORKER_PLIST";
 
 /// Names the worker's Linux systemd unit definition outright.
 pub const WORKER_UNIT_ENV: &str = "ROOST_WORKER_UNIT";
+
+/// Names the coordinator's Windows launcher script outright.
+pub const COORD_LAUNCHER_ENV: &str = "ROOST_COORD_LAUNCHER";
+
+/// Names the worker's Windows launcher script outright.
+pub const WORKER_LAUNCHER_ENV: &str = "ROOST_WORKER_LAUNCHER";
 
 /// The subdirectory of the service directory holding installed definitions.
 pub const SERVICE_DIR_SUBDIR: &str = "service";
@@ -136,7 +158,7 @@ pub fn worker_data_dir(env: &dyn EnvSource, platform: HostPlatform) -> ProtocolR
         HostPlatform::Linux => {
             Ok(xdg_root(env, XDG_DATA_HOME_ENV, XDG_DATA_DEFAULT_LEAF)?.join(WORKER_DATA_DIR_NAME))
         }
-        unsupported => Err(unsupported_platform(unsupported)),
+        HostPlatform::Windows => Ok(local_app_data(env)?.join(WORKER_DATA_DIR_NAME)),
     }
 }
 
@@ -153,7 +175,7 @@ pub fn worker_log_dir(env: &dyn EnvSource, platform: HostPlatform) -> ProtocolRe
         HostPlatform::Linux => Ok(
             xdg_root(env, XDG_STATE_HOME_ENV, XDG_STATE_DEFAULT_LEAF)?.join(WORKER_LOG_DIR_NAME)
         ),
-        unsupported => Err(unsupported_platform(unsupported)),
+        HostPlatform::Windows => Ok(worker_data_dir(env, platform)?.join("logs")),
     }
 }
 
@@ -170,7 +192,7 @@ pub fn coord_data_dir(env: &dyn EnvSource, platform: HostPlatform) -> ProtocolRe
         HostPlatform::Linux => {
             Ok(xdg_root(env, XDG_DATA_HOME_ENV, XDG_DATA_DEFAULT_LEAF)?.join(COORD_DATA_DIR_NAME))
         }
-        unsupported => Err(unsupported_platform(unsupported)),
+        HostPlatform::Windows => Ok(local_app_data(env)?.join(COORD_DATA_DIR_NAME)),
     }
 }
 
@@ -187,13 +209,13 @@ pub fn coord_log_dir(env: &dyn EnvSource, platform: HostPlatform) -> ProtocolRes
         HostPlatform::Linux => {
             Ok(xdg_root(env, XDG_STATE_HOME_ENV, XDG_STATE_DEFAULT_LEAF)?.join(COORD_LOG_DIR_NAME))
         }
-        unsupported => Err(unsupported_platform(unsupported)),
+        HostPlatform::Windows => Ok(coord_data_dir(env, platform)?.join("logs")),
     }
 }
 
 /// Where installed service definitions and released versions live.
 ///
-/// Hangs off the **worker's** data directory on both POSIX platforms. That
+/// Hangs off the **worker's** data directory on every platform. That
 /// asymmetry is load-bearing: the installer runs on the machine that enrolls a
 /// worker, so the deploy journal, the stage directory, and the version tree
 /// have to sit where a worker can reach them without a second configured root.
@@ -201,12 +223,7 @@ pub fn roost_service_dir(env: &dyn EnvSource, platform: HostPlatform) -> Protoco
     if let Some(override_path) = non_empty(env, SERVICE_DIR_ENV) {
         return Ok(PathBuf::from(override_path));
     }
-    match platform {
-        posix @ (HostPlatform::MacOs | HostPlatform::Linux) => {
-            Ok(worker_data_dir(env, posix)?.join(SERVICE_DIR_SUBDIR))
-        }
-        unsupported => Err(unsupported_platform(unsupported)),
-    }
+    Ok(worker_data_dir(env, platform)?.join(SERVICE_DIR_SUBDIR))
 }
 
 /// Where released versions are unpacked, beside [`roost_service_dir`].
@@ -214,12 +231,7 @@ pub fn roost_versions_dir(env: &dyn EnvSource, platform: HostPlatform) -> Protoc
     if let Some(override_path) = non_empty(env, VERSIONS_DIR_ENV) {
         return Ok(PathBuf::from(override_path));
     }
-    match platform {
-        posix @ (HostPlatform::MacOs | HostPlatform::Linux) => {
-            Ok(worker_data_dir(env, posix)?.join(VERSIONS_DIR_SUBDIR))
-        }
-        unsupported => Err(unsupported_platform(unsupported)),
-    }
+    Ok(worker_data_dir(env, platform)?.join(VERSIONS_DIR_SUBDIR))
 }
 
 /// The service identity the coordinator installs and reports as loaded.
@@ -230,7 +242,7 @@ pub fn coord_service_label(env: &dyn EnvSource, platform: HostPlatform) -> Proto
     match platform {
         HostPlatform::MacOs => Ok(COORD_LABEL_DARWIN.to_string()),
         HostPlatform::Linux => Ok(COORD_LABEL_LINUX.to_string()),
-        unsupported => Err(unsupported_platform(unsupported)),
+        HostPlatform::Windows => Ok(COORD_LABEL_WINDOWS.to_string()),
     }
 }
 
@@ -242,7 +254,7 @@ pub fn worker_service_label(env: &dyn EnvSource, platform: HostPlatform) -> Prot
     match platform {
         HostPlatform::MacOs => Ok(WORKER_LABEL_DARWIN.to_string()),
         HostPlatform::Linux => Ok(WORKER_LABEL_LINUX.to_string()),
-        unsupported => Err(unsupported_platform(unsupported)),
+        HostPlatform::Windows => Ok(WORKER_LABEL_WINDOWS.to_string()),
     }
 }
 
@@ -263,7 +275,11 @@ pub fn coord_service_path(env: &dyn EnvSource, platform: HostPlatform) -> Protoc
                 &format!("{}.service", coord_service_label(env, platform)?),
             )?),
         },
-        unsupported => Err(unsupported_platform(unsupported)),
+        HostPlatform::Windows => match non_empty(env, COORD_LAUNCHER_ENV) {
+            Some(path) => Ok(PathBuf::from(path)),
+            None => Ok(roost_service_dir(env, platform)?
+                .join(format!("{}.cmd", coord_service_label(env, platform)?))),
+        },
     }
 }
 
@@ -284,7 +300,11 @@ pub fn worker_service_path(env: &dyn EnvSource, platform: HostPlatform) -> Proto
                 &format!("{}.service", worker_service_label(env, platform)?),
             )?),
         },
-        unsupported => Err(unsupported_platform(unsupported)),
+        HostPlatform::Windows => match non_empty(env, WORKER_LAUNCHER_ENV) {
+            Some(path) => Ok(PathBuf::from(path)),
+            None => Ok(roost_service_dir(env, platform)?
+                .join(format!("{}.cmd", worker_service_label(env, platform)?))),
+        },
     }
 }
 
@@ -326,12 +346,10 @@ fn xdg_root(env: &dyn EnvSource, key: &str, default_leaf: &str) -> ProtocolResul
     })
 }
 
-fn unsupported_platform(platform: HostPlatform) -> ProtocolError {
-    ProtocolError::new(
-        "host.platform",
-        format!(
-            "Roost v3 does not support {}; v3 installs on macOS and Linux only",
-            platform.display_name()
-        ),
-    )
+/// `%LOCALAPPDATA%`, or `<home>\AppData\Local` when it is unset.
+fn local_app_data(env: &dyn EnvSource) -> ProtocolResult<PathBuf> {
+    match non_empty(env, LOCAL_APP_DATA_ENV) {
+        Some(root) => Ok(PathBuf::from(root)),
+        None => Ok(home_dir(env)?.join("AppData").join("Local")),
+    }
 }

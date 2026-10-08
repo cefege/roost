@@ -218,28 +218,52 @@ fn a_missing_home_directory_is_refused_rather_than_guessed() {
 }
 
 #[test]
-fn a_windows_host_is_refused_by_every_path_function() {
-    // v3 ships macOS and Linux. A Windows host must fail at boot with a reason
-    // rather than resolve to a layout no v3 release installs.
-    let env = linux_env();
-    for result in [
-        worker_data_dir(&env, HostPlatform::Windows),
-        worker_log_dir(&env, HostPlatform::Windows),
-        coord_data_dir(&env, HostPlatform::Windows),
-        coord_log_dir(&env, HostPlatform::Windows),
-        roost_service_dir(&env, HostPlatform::Windows),
-        roost_versions_dir(&env, HostPlatform::Windows),
-        coord_service_path(&env, HostPlatform::Windows),
-        worker_service_path(&env, HostPlatform::Windows),
-    ] {
-        let field = result.expect_err("a Windows path was resolved").field;
-        assert_eq!(field, "host.platform");
-    }
-    for result in [
-        coord_service_label(&env, HostPlatform::Windows),
-        worker_service_label(&env, HostPlatform::Windows),
-    ] {
-        let field = result.expect_err("a Windows label was resolved").field;
-        assert_eq!(field, "host.platform");
-    }
+fn the_windows_service_labels_are_scheduled_task_names() {
+    let env = MapEnv::new().with("USERPROFILE", r"C:\Users\op");
+    assert_eq!(
+        label(worker_service_label(&env, HostPlatform::Windows)),
+        "roost3-worker"
+    );
+    assert_eq!(
+        label(coord_service_label(&env, HostPlatform::Windows)),
+        "roost3-coord"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn the_windows_layout_lives_under_local_app_data() {
+    let env = MapEnv::new()
+        .with("USERPROFILE", r"C:\Users\op")
+        .with("LOCALAPPDATA", r"C:\Users\op\AppData\Local");
+    let root = Path::new(r"C:\Users\op\AppData\Local\RoostWorkerV3");
+    assert_eq!(resolved(worker_data_dir(&env, HostPlatform::Windows)), root);
+    assert_eq!(
+        resolved(worker_log_dir(&env, HostPlatform::Windows)),
+        root.join("logs")
+    );
+    assert_eq!(
+        resolved(worker_service_path(&env, HostPlatform::Windows)),
+        Path::new(r"C:\Users\op\AppData\Local\RoostWorkerV3\service\roost3-worker.cmd")
+    );
+    assert_eq!(
+        resolved(roost_versions_dir(&env, HostPlatform::Windows)),
+        root.join("versions")
+    );
+    assert_eq!(
+        resolved(coord_data_dir(&env, HostPlatform::Windows)),
+        Path::new(r"C:\Users\op\AppData\Local\RoostCoordinatorV3")
+    );
+    assert_eq!(
+        resolved(coord_log_dir(&env, HostPlatform::Windows)),
+        Path::new(r"C:\Users\op\AppData\Local\RoostCoordinatorV3\logs")
+    );
+    assert_eq!(
+        resolved(coord_service_path(&env, HostPlatform::Windows)),
+        root.join("service").join("roost3-coord.cmd")
+    );
+    assert_eq!(
+        resolved(roost_service_dir(&env, HostPlatform::Windows)),
+        root.join("service")
+    );
 }

@@ -20,7 +20,7 @@ use roost_host::{
     worker_service_path,
 };
 
-use crate::services::memory_limits::{ResourceLimits, host_total_memory_bytes};
+use crate::services::memory_limits::ResourceLimits;
 use crate::services::service_environment::{
     DIAGNOSTIC_ENV, ENV_HOME, ENV_PATH, ONE_SHOT_AUTHORIZATIONS, default_service_path,
 };
@@ -134,7 +134,13 @@ impl ServiceSpec {
         platform: HostPlatform,
         program: &Path,
     ) -> ProtocolResult<Self> {
-        Self::resolve_with_host_memory(role, env, platform, program, host_total_memory_bytes())
+        Self::resolve_with_host_memory(
+            role,
+            env,
+            platform,
+            program,
+            roost_host::host_memory::host_total_memory_bytes(platform),
+        )
     }
 
     /// The same resolution against a caller-supplied host total, so the clamp

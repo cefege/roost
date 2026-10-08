@@ -94,14 +94,20 @@ pub enum SpaTarget {
 /// content-hashed `assets/` name is immutable by construction, the four woff2
 /// faces are stable-named and large enough that `no-cache` revalidates all of
 /// them on every cold load, and every other stable name — icons, the
-/// manifest, wasm — must revalidate so swapping it lands.
+/// manifest, wasm — must revalidate so swapping it lands. The directory is read
+/// as a path component, so a Windows `assets\app.js` is the same name.
 #[must_use]
 pub fn cache_control_for(rel: &str) -> &'static str {
+    let mut parts = Path::new(rel).components();
+    let top = match (parts.next(), parts.next()) {
+        (Some(std::path::Component::Normal(top)), Some(_)) => top.to_str(),
+        _ => None,
+    };
     if rel == INDEX_NAME {
         "no-cache"
-    } else if rel.starts_with("assets/") {
+    } else if top == Some("assets") {
         "public, max-age=31536000, immutable"
-    } else if rel.starts_with("fonts/") {
+    } else if top == Some("fonts") {
         "public, max-age=604800"
     } else {
         "no-cache"

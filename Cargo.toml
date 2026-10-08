@@ -146,6 +146,10 @@ futures = "0.3.34"
 futures-util = "0.3.34"
 tokio-util = { version = "0.7.19", default-features = false }
 
+# Windows host: memory, CPU, disk, network and process facts that Linux reads
+# from /proc and macOS from sysctl/ps.
+sysinfo = { version = "0.37", default-features = false, features = ["system", "disk", "network"] }
+
 # xtask only.
 cargo_metadata = "0.23.1"
 
