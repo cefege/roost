@@ -116,6 +116,11 @@ jobs:
             roost_asset: roost-windows-x64.exe
             keeper_asset: roost-keeper-windows-x64.exe
     steps:
+      # include_str! bakes the agent integration sources into the binary, and
+      # their import-marker regex expects LF lines, as the Unix builds see them.
+      - name: keep LF line endings
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref_name }}
