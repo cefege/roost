@@ -76,9 +76,7 @@ pub fn service_state_command(label: &str, platform: HostPlatform) -> Vec<String>
             "print".to_string(),
             format!("gui/{}/{}", current_uid(), label),
         ],
-        HostPlatform::Windows => {
-            powershell_argv(&state_report_script(label, windows_subcommand(label)))
-        }
+        HostPlatform::Windows => powershell_argv(&state_report_script(label)),
     }
 }
 
@@ -132,15 +130,6 @@ pub fn service_is_running(report: &str, platform: HostPlatform) -> bool {
             line("State").as_deref() == Some("Running")
                 && line("MainPID").is_some_and(|pid| pid.parse::<u32>().is_ok_and(|pid| pid != 0))
         }
-    }
-}
-
-/// The `roost` subcommand a Windows task's process runs, read from its label.
-fn windows_subcommand(label: &str) -> &'static str {
-    if label.contains("coord") {
-        "coord"
-    } else {
-        "worker"
     }
 }
 

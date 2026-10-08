@@ -99,11 +99,23 @@ pub fn register_and_start_script(label: &str, launcher: &Path) -> String {
     )
 }
 
-/// Stop the task's running instance, if there is one.
+/// Stop the task's running instance and the `roost.exe` it started.
+///
+/// `Stop-ScheduledTask` ends only the task's own process (the headless
+/// conhost); the `roost.exe` below it survives as an orphan with no console to
+/// receive a close event, so it is ended by pid. The keeper it started is not
+/// in its tree's kill path and keeps the PTYs, as a worker crash leaves them.
 pub fn stop_script(label: &str) -> String {
     format!(
-        "Stop-ScheduledTask {} -ErrorAction SilentlyContinue",
-        task_selector(label)
+        "Stop-ScheduledTask {} -ErrorAction SilentlyContinue\n\
+         {}\n\
+         foreach ($p in $procs) {{ Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }}\n\
+         foreach ($attempt in 1..50) {{\n\
+           if (-not ($procs | Where-Object {{ Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue }})) {{ break }}\n\
+           Start-Sleep -Milliseconds 200\n\
+         }}\n",
+        task_selector(label),
+        service_processes(label)
     )
 }
 
@@ -118,18 +130,17 @@ pub fn running_probe_script(label: &str) -> String {
 }
 
 /// Print `State=<task state or Missing>` and `MainPID=<pid or 0>`, the pid
-/// being the first `roost.exe` whose command line runs `subcommand`. The
-/// subcommand is the line's last word once cmd has taken the redirections off.
-pub fn state_report_script(label: &str, subcommand: &str) -> String {
-    let pattern = powershell_single_quote(&format!("\\s{subcommand}(\\s|$)"));
+/// being the first `roost.exe` running the label's subcommand.
+pub fn state_report_script(label: &str) -> String {
     format!(
         "$t = Get-ScheduledTask {} -ErrorAction SilentlyContinue\n\
          $state = if ($t) {{ $t.State }} else {{ 'Missing' }}\n\
-         $p = Get-CimInstance Win32_Process -Filter \"Name='roost.exe'\" | Where-Object {{ $_.CommandLine -match {pattern} }} | Select-Object -First 1\n\
-         $procId = if ($p) {{ $p.ProcessId }} else {{ 0 }}\n\
+         {}\n\
+         $procId = if ($procs.Count -gt 0) {{ $procs[0].ProcessId }} else {{ 0 }}\n\
          \"State=$state\"\n\
          \"MainPID=$procId\"\n",
-        task_selector(label)
+        task_selector(label),
+        service_processes(label)
     )
 }
 
@@ -154,6 +165,21 @@ fn task_selector(label: &str) -> String {
         "-TaskPath {} -TaskName {}",
         powershell_single_quote(TASK_PATH),
         powershell_single_quote(label)
+    )
+}
+
+/// A PowerShell line setting `$procs` to every `roost.exe` running the
+/// label's subcommand: the command line's last word once cmd has taken the
+/// redirections off.
+fn service_processes(label: &str) -> String {
+    let subcommand = if label.contains("coord") {
+        "coord"
+    } else {
+        "worker"
+    };
+    let pattern = powershell_single_quote(&format!("\\s{subcommand}(\\s|$)"));
+    format!(
+        "$procs = @(Get-CimInstance Win32_Process -Filter \"Name='roost.exe'\" | Where-Object {{ $_.CommandLine -match {pattern} }})"
     )
 }
 
