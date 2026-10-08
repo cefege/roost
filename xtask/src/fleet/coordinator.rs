@@ -72,6 +72,10 @@ fn image_tag(release_tag: &str) -> &str {
     release_tag.strip_prefix('v').unwrap_or(release_tag)
 }
 
+/// `--reset-then-reuse-values`, not `--reuse-values`: the release keeps the
+/// values it was installed with (the generated Postgres password among them),
+/// and a key the chart added since still gets the chart's default instead of
+/// rendering as empty.
 fn upgrade_script(coordinator: &KubeCoordinator, tag: &str, sha: &str) -> Result<String, String> {
     let repository = coordinator
         .image
@@ -98,7 +102,7 @@ fn upgrade_script(coordinator: &KubeCoordinator, tag: &str, sha: &str) -> Result
            echo \"{image}:{image_tag} is not published; push {tag} ({sha}) and wait for the container workflow\" >&2\n\
            exit 1\n\
          fi\n\
-         helm upgrade --install \"{release}\" \"{chart}\" -n \"{namespace}\" --reuse-values \
+         helm upgrade --install \"{release}\" \"{chart}\" -n \"{namespace}\" --reset-then-reuse-values \
            -f \"{values}\" --set image.tag=\"{image_tag}\" --set replicas=1 --wait --timeout 10m >&2\n\
          kubectl -n \"{namespace}\" rollout status \"deploy/{release}\" --timeout=300s >&2\n\
          kubectl -n \"{namespace}\" exec \"deploy/{release}\" -- roost --version\n\
