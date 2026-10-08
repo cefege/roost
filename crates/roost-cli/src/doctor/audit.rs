@@ -13,8 +13,9 @@
 
 use std::path::{Path, PathBuf};
 
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteRow};
-use sqlx::{Row, SqlitePool};
+use sqlx::postgres::PgPoolOptions;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use sqlx::{PgPool, Row, SqlitePool};
 
 use crate::utc_clock::format_utc_minute;
 
@@ -80,6 +81,51 @@ pub async fn read_audit_failures(
     summary
 }
 
+/// [`read_audit_failures`] against a Postgres coordinator database, as the
+/// coordinator in a container has. Reads only: it never migrates, so it cannot
+/// change a schema the running coordinator owns.
+pub async fn read_audit_failures_postgres(
+    url: &str,
+    cutoff_ms: i64,
+) -> Result<AuditSummary, AuditError> {
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(url)
+        .await
+        .map_err(unreadable)?;
+    let summary = read_failures_postgres(&pool, cutoff_ms).await;
+    pool.close().await;
+    summary
+}
+
+async fn read_failures_postgres(pool: &PgPool, cutoff_ms: i64) -> Result<AuditSummary, AuditError> {
+    let present = sqlx::query(
+        "SELECT 1 FROM information_schema.tables WHERE table_name = 'audit_log' LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await
+    .map_err(unreadable)?;
+    if present.is_none() {
+        return Ok(AuditSummary::default());
+    }
+    let rows = sqlx::query(
+        "SELECT method, path, status, ts FROM audit_log \
+         WHERE ts >= $1 AND status >= 400 ORDER BY ts",
+    )
+    .bind(cutoff_ms)
+    .fetch_all(pool)
+    .await
+    .map_err(unreadable)?;
+    Ok(fold(rows.iter().map(|row| {
+        (
+            row.try_get("status").unwrap_or(0),
+            row.try_get("method").unwrap_or_default(),
+            row.try_get("path").unwrap_or_default(),
+            row.try_get("ts").unwrap_or(0),
+        )
+    })))
+}
+
 async fn read_failures(pool: &SqlitePool, cutoff_ms: i64) -> Result<AuditSummary, AuditError> {
     if !table_exists(pool).await {
         return Ok(AuditSummary::default());
@@ -92,7 +138,14 @@ async fn read_failures(pool: &SqlitePool, cutoff_ms: i64) -> Result<AuditSummary
     .fetch_all(pool)
     .await
     .map_err(unreadable)?;
-    Ok(fold(rows))
+    Ok(fold(rows.iter().map(|row| {
+        (
+            row.try_get("status").unwrap_or(0),
+            row.try_get("method").unwrap_or_default(),
+            row.try_get("path").unwrap_or_default(),
+            row.try_get("ts").unwrap_or(0),
+        )
+    })))
 }
 
 async fn table_exists(pool: &SqlitePool) -> bool {
@@ -107,14 +160,11 @@ async fn table_exists(pool: &SqlitePool) -> bool {
     .is_some()
 }
 
-fn fold(rows: Vec<SqliteRow>) -> AuditSummary {
+/// Group `(status, method, path, ts)` rows into the summary.
+fn fold(rows: impl IntoIterator<Item = (i64, String, String, i64)>) -> AuditSummary {
     let mut groups: Vec<AuditFailureGroup> = Vec::new();
     let mut server_error_count = 0;
-    for row in rows {
-        let status: i64 = row.try_get("status").unwrap_or(0);
-        let method: String = row.try_get("method").unwrap_or_default();
-        let path: String = row.try_get("path").unwrap_or_default();
-        let ts: i64 = row.try_get("ts").unwrap_or(0);
+    for (status, method, path, ts) in rows {
         if status >= SERVER_ERROR_STATUS {
             server_error_count += 1;
         }

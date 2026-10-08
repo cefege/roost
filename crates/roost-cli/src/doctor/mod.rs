@@ -29,13 +29,16 @@ use roost_host::{EnvSource, ProcessEnv};
 use serde_json::Value;
 
 use crate::command_error::CommandFailure;
-use crate::doctor::audit::{AuditSummary, read_audit_failures};
+use crate::doctor::audit::{
+    AuditError, AuditSummary, read_audit_failures, read_audit_failures_postgres,
+};
 use crate::doctor::digest::{Digest, classify};
 use crate::doctor::digest_render::render_digest;
 use crate::doctor::log_sources::{LogSource, for_each_log_line, log_files_for, sources};
 use crate::doctor::window::{DEFAULT_WINDOW_LABEL, parse_window};
 use crate::status::collect::coordinator_database_path;
 use crate::status::collect::installed_coordinator_environment;
+use crate::status::service_definition::declared_value;
 use crate::wall_clock;
 
 #[derive(Debug, Args)]
@@ -109,33 +112,55 @@ fn accumulate(log_sources: &[LogSource], cutoff_ms: i64) -> (Digest, Vec<String>
 }
 
 /// The audit half. A coordinator that has never run has no audit log and
-/// nothing to review, so every failure here degrades to an empty section; the
-/// reason goes to the log rather than to the digest, whose job is to report
-/// what the services recorded, not what this process could not read.
+/// nothing to review, so every failure here degrades to an empty section. A
+/// database that is absent (a worker-only host) is logged quietly; one that is
+/// there and unreadable is a warning, which a CLI run prints, so an empty
+/// section that should not be empty says why.
 async fn read_audit(
     env: &impl EnvSource,
     platform: roost_host::HostPlatform,
     cutoff_ms: i64,
 ) -> AuditSummary {
-    let database_path = audit_database_path(env, platform);
-    let Some(path) = database_path else {
-        return AuditSummary::default();
+    let read = match audit_source(env, platform) {
+        None => return AuditSummary::default(),
+        Some(AuditSource::Sqlite(path)) => read_audit_failures(&path, cutoff_ms).await,
+        Some(AuditSource::Postgres(url)) => read_audit_failures_postgres(&url, cutoff_ms).await,
     };
-    match read_audit_failures(&path, cutoff_ms).await {
+    match read {
         Ok(summary) => summary,
+        Err(error @ AuditError::Missing(_)) => {
+            tracing::info!(target: "doctor", msg = "audit_absent", fields = error.to_string());
+            AuditSummary::default()
+        }
         Err(error) => {
-            tracing::info!(target: "doctor", msg = "audit_unreadable", fields = error.to_string());
+            tracing::warn!(target: "doctor", msg = "audit_unreadable", fields = error.to_string());
             AuditSummary::default()
         }
     }
 }
 
-fn audit_database_path(
-    env: &impl EnvSource,
-    platform: roost_host::HostPlatform,
-) -> Option<PathBuf> {
+/// Where the coordinator's audit log lives.
+#[derive(Debug, PartialEq, Eq)]
+enum AuditSource {
+    Sqlite(PathBuf),
+    Postgres(String),
+}
+
+/// The coordinator's database: a Postgres URL the installed unit or this
+/// process's environment declares (the coordinator in a container has one),
+/// else the SQLite file `roost status` resolves.
+fn audit_source(env: &impl EnvSource, platform: roost_host::HostPlatform) -> Option<AuditSource> {
     let installed = installed_coordinator_environment(env, platform);
-    coordinator_database_path(env, platform, &installed).ok()
+    let url = declared_value(&installed, roost_host::ENV_COORDINATOR_DATABASE_URL)
+        .map(str::to_owned)
+        .or_else(|| env.get(roost_host::ENV_COORDINATOR_DATABASE_URL))
+        .filter(|url| !url.is_empty() && roost_host::DatabaseLocation::is_postgres_url(url));
+    if let Some(url) = url {
+        return Some(AuditSource::Postgres(url));
+    }
+    coordinator_database_path(env, platform, &installed)
+        .ok()
+        .map(AuditSource::Sqlite)
 }
 
 /// `HOST` when the environment declares one, else `local` — the same fallback
@@ -144,4 +169,34 @@ fn host_name(env: &impl EnvSource) -> String {
     env.get("HOST")
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| "local".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use roost_host::{HOME_ENV, HostPlatform, MapEnv};
+
+    use super::{AuditSource, audit_source};
+
+    #[test]
+    fn a_declared_postgres_url_is_the_audit_source() {
+        let env = MapEnv::new()
+            .with(HOME_ENV, "/nonexistent-roost-home")
+            .with(
+                roost_host::ENV_COORDINATOR_DATABASE_URL,
+                "postgres://u@h/db",
+            );
+        assert_eq!(
+            audit_source(&env, HostPlatform::Linux),
+            Some(AuditSource::Postgres("postgres://u@h/db".to_owned()))
+        );
+    }
+
+    #[test]
+    fn without_a_url_the_audit_source_is_the_sqlite_file() {
+        let env = MapEnv::new().with(HOME_ENV, "/nonexistent-roost-home");
+        assert!(matches!(
+            audit_source(&env, HostPlatform::Linux),
+            Some(AuditSource::Sqlite(_))
+        ));
+    }
 }

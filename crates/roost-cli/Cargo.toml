@@ -45,7 +45,7 @@ anyhow.workspace = true
 reqwest = { workspace = true, features = ["json", "rustls"] }
 serde.workspace = true
 serde_json.workspace = true
-sqlx = { workspace = true, features = ["runtime-tokio", "sqlite", "any"] }
+sqlx = { workspace = true, features = ["runtime-tokio", "sqlite", "postgres", "any"] }
 qrcode.workspace = true
 hex.workspace = true
 sha2.workspace = true
