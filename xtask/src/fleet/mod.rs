@@ -62,7 +62,13 @@ fn install_command(arguments: &InstallArgs) -> Result<(), String> {
     }) {
         return Err(format!("{unknown} is not a host in xtask/fleet.json"));
     }
-    fetch::fetch_release(&arguments.version)?;
+    // Only the platforms some host runs: a tag published before a platform
+    // existed has no assets for it, and asking `gh` for them fails the fetch.
+    let platforms: Vec<manifest::Platform> = manifest::Platform::ALL
+        .into_iter()
+        .filter(|platform| fleet.hosts.iter().any(|host| host.platform == *platform))
+        .collect();
+    fetch::fetch_release(&arguments.version, &platforms)?;
     let release = install::BuiltRelease::load(&arguments.version)?;
     let started = Instant::now();
     if let Some(coordinator) = fleet

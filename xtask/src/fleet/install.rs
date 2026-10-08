@@ -1,7 +1,8 @@
 //! `fleet install`: put one built tag on a host and restart its services. The
 //! release lands in its own `versions/<tag>/` directory beside the running one,
 //! the service definitions are repointed at it, and the restart must leave the
-//! keeper process — which owns every PTY — exactly where it was.
+//! keeper process — which owns every PTY — exactly where it was. Unix hosts
+//! run bash; a Windows host runs PowerShell against its Scheduled Task.
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -18,6 +19,10 @@ const STABLE_SECONDS: u32 = 12;
 const KEEPER_PID_LINE: &str = "PID=$(cat \"$ROOT/mux-keeper.pid\" 2>/dev/null || echo none)\n\
 if [ \"$PID\" != none ] && kill -0 \"$PID\" 2>/dev/null; then echo \"$PID\"; else echo \"dead:$PID\"; fi\n";
 const COORDINATOR_URL: &str = "https://mike.roosttt.com";
+/// The Windows twin of [`KEEPER_PID_LINE`]. Expects `$ROOT`.
+const WINDOWS_KEEPER_PID_LINE: &str = r#"$p = Get-Content (Join-Path $ROOT 'mux-keeper.pid') -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($p -and (Get-Process -Id $p -ErrorAction SilentlyContinue)) { "$p" } else { "dead:$(if ($p) { $p } else { 'none' })" }
+"#;
 
 /// A tag `fleet::fetch` downloaded: its directory and the commit it names.
 pub struct BuiltRelease {
@@ -68,7 +73,10 @@ impl BuiltRelease {
 pub fn install_on(host: &FleetHost, release: &BuiltRelease) -> Result<(), String> {
     let started = Instant::now();
     let tag = &release.tag;
-    let stage = format!("{STAGE_DIR}/{tag}");
+    let stage = match host.platform {
+        Platform::Windows => format!("{STAGE_DIR}\\{tag}"),
+        Platform::Linux | Platform::Macos => format!("{STAGE_DIR}/{tag}"),
+    };
     host.unpack_into_home(
         &release.dir.join(host.platform.artifact_dir()),
         &format!("{stage}/bin"),
@@ -91,6 +99,7 @@ pub fn install_on(host: &FleetHost, release: &BuiltRelease) -> Result<(), String
     let restart = match host.platform {
         Platform::Linux => linux_restart_script(tag, &host.services),
         Platform::Macos => macos_restart_script(tag, &host.services)?,
+        Platform::Windows => windows_restart_script(tag, &host.services)?,
     };
     host.run_script("restart the services", &restart)?;
 
@@ -119,10 +128,13 @@ pub fn install_on(host: &FleetHost, release: &BuiltRelease) -> Result<(), String
 /// Each binary is renamed into place, so re-running an install never writes
 /// into a running executable.
 fn place_script(platform: Platform, tag: &str) -> String {
+    if platform == Platform::Windows {
+        return windows_place_script(tag);
+    }
     let root = platform.data_root();
     let quarantine = match platform {
         Platform::Macos => "xattr -dr com.apple.quarantine \"$REL\" 2>/dev/null || true\n",
-        Platform::Linux => "",
+        Platform::Linux | Platform::Windows => "",
     };
     format!(
         "set -euo pipefail\n\
@@ -145,7 +157,71 @@ fn place_script(platform: Platform, tag: &str) -> String {
 }
 
 fn pid_script(platform: Platform) -> String {
-    format!("ROOT=\"{}\"\n{KEEPER_PID_LINE}", platform.data_root())
+    match platform {
+        Platform::Windows => format!(
+            "$ROOT = \"{}\"\n{WINDOWS_KEEPER_PID_LINE}",
+            platform.data_root()
+        ),
+        Platform::Linux | Platform::Macos => {
+            format!("ROOT=\"{}\"\n{KEEPER_PID_LINE}", platform.data_root())
+        }
+    }
+}
+
+/// [`place_script`] for a Windows host, in PowerShell.
+fn windows_place_script(tag: &str) -> String {
+    let root = Platform::Windows.data_root();
+    format!(
+        r#"$STAGE = Join-Path $HOME '{STAGE_DIR}\{tag}'
+$ROOT = "{root}"
+$REL = Join-Path $ROOT 'versions\{tag}'
+New-Item -ItemType Directory -Force (Join-Path $REL 'bin') | Out-Null
+foreach ($b in 'roost.exe', 'roost-keeper.exe') {{
+  Copy-Item -Force (Join-Path $STAGE "bin\$b") (Join-Path $REL "bin\.$b.new")
+  Move-Item -Force (Join-Path $REL "bin\.$b.new") (Join-Path $REL "bin\$b")
+}}
+Remove-Item -Recurse -Force (Join-Path $REL 'web') -ErrorAction SilentlyContinue
+Copy-Item -Recurse (Join-Path $STAGE 'web') (Join-Path $REL 'web')
+& (Join-Path $REL 'bin\roost.exe') --version
+& (Join-Path $REL 'bin\roost.exe') version --build
+{WINDOWS_KEEPER_PID_LINE}"#
+    )
+}
+
+/// Repoint the Scheduled Task's launcher at the tag, drop a spent bootstrap
+/// token, restart the task, and require one worker pid for
+/// [`STABLE_SECONDS`].
+fn windows_restart_script(tag: &str, services: &[String]) -> Result<String, String> {
+    let [task] = services else {
+        return Err("a Windows host runs exactly one Scheduled Task".to_owned());
+    };
+    let root = Platform::Windows.data_root();
+    Ok(format!(
+        r#"$ROOT = "{root}"
+$L = Join-Path $ROOT 'service\{task}.cmd'
+Copy-Item -Force $L "$L.bak-{tag}"
+$text = [IO.File]::ReadAllText($L) -replace '\\versions\\[^\\]+\\', '\versions\{tag}\'
+$text = ($text -split "`r`n" | Where-Object {{ $_ -notmatch '^set "ROOST_BOOTSTRAP_TOKEN=' }}) -join "`r`n"
+[IO.File]::WriteAllText($L, $text, [Text.UTF8Encoding]::new($false))
+Stop-ScheduledTask -TaskPath '\Roost\' -TaskName '{task}' -ErrorAction SilentlyContinue
+Start-ScheduledTask -TaskPath '\Roost\' -TaskName '{task}'
+foreach ($attempt in 1..30) {{
+  if ((Get-ScheduledTask -TaskPath '\Roost\' -TaskName '{task}').State -eq 'Running') {{ break }}
+  Start-Sleep -Seconds 1
+}}
+function Get-RoostWorkerPid {{
+  $p = Get-CimInstance Win32_Process -Filter "Name='roost.exe'" | Where-Object {{ $_.CommandLine -match '\sworker(\s|$)' }} | Select-Object -First 1
+  if ($p) {{ $p.ProcessId }} else {{ 0 }}
+}}
+$first = Get-RoostWorkerPid
+Start-Sleep -Seconds {STABLE_SECONDS}
+$last = Get-RoostWorkerPid
+if (-not $first -or $first -ne $last) {{
+  [Console]::Error.WriteLine("{task} did not stay up: pid $first -> $last")
+  exit 1
+}}
+"#
+    ))
 }
 
 /// Repoint each unit at the tag, drop a spent bootstrap token, and restart the

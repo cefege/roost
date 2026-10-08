@@ -14,7 +14,8 @@ const REPOSITORY: &str = "cefege/roost";
 const WEB_ASSET: &str = "roost-web.tar.gz";
 
 /// The release asset names one platform's pair is published under. They are
-/// `update::assets` in roost-cli; the fleet's Macs are arm64, its Linux hosts x64.
+/// `update::assets` in roost-cli; the fleet's Macs are arm64, its Linux and
+/// Windows hosts x64.
 const fn assets(platform: Platform) -> [(&'static str, &'static str); 2] {
     match platform {
         Platform::Linux => [
@@ -22,14 +23,22 @@ const fn assets(platform: Platform) -> [(&'static str, &'static str); 2] {
             ("roost-keeper-linux-x64", "roost-keeper"),
         ],
         Platform::Macos => [("roost", "roost"), ("roost-keeper", "roost-keeper")],
+        Platform::Windows => [
+            ("roost-windows-x64.exe", "roost.exe"),
+            ("roost-keeper-windows-x64.exe", "roost-keeper.exe"),
+        ],
     }
 }
 
-/// Download `tag`'s release into `target/fleet/<tag>/` unless a complete copy
-/// is already there, and record the commit the tag names.
-pub fn fetch_release(tag: &str) -> Result<(), String> {
+/// Download `tag`'s release for `platforms` into `target/fleet/<tag>/` unless
+/// a complete copy is already there, and record the commit the tag names.
+pub fn fetch_release(tag: &str, platforms: &[Platform]) -> Result<(), String> {
     let out = super::release_dir(tag);
-    if out.join("manifest.json").is_file() {
+    if out.join("manifest.json").is_file()
+        && platforms
+            .iter()
+            .all(|platform| out.join(platform.artifact_dir()).is_dir())
+    {
         return Ok(());
     }
     let sha = tag_commit(tag)?;
@@ -40,7 +49,7 @@ pub fn fetch_release(tag: &str) -> Result<(), String> {
     }
     println!("xtask fleet: downloading the {tag} release from GitHub");
     let mut patterns = vec![WEB_ASSET.to_owned()];
-    for platform in [Platform::Linux, Platform::Macos] {
+    for &platform in platforms {
         patterns.extend(
             assets(platform)
                 .iter()
@@ -67,7 +76,7 @@ pub fn fetch_release(tag: &str) -> Result<(), String> {
     run_with_stdin(&mut check, "")
         .map_err(|error| format!("the {tag} assets do not match their digests: {error}"))?;
 
-    for platform in [Platform::Linux, Platform::Macos] {
+    for &platform in platforms {
         let dir = out.join(platform.artifact_dir());
         std::fs::create_dir_all(&dir).map_err(|error| format!("{}: {error}", dir.display()))?;
         for (asset, binary) in assets(platform) {
