@@ -6,9 +6,10 @@ name: release
 # `WEB_ASSET_NAME` for the page. They are NOT derived from the target triple:
 # macOS arm64 publishes an unsuffixed `roost`, so a workflow that named assets
 # after triples would publish `roost-aarch64-apple-darwin` and 404 on the one
-# platform with the most machines. `install.sh`'s `asset_name` resolves the same
-# four names, and a machine that installs by script and a machine that later runs
-# `roost update` must end up on the same release.
+# platform with the most machines. `install.sh`'s `asset_name` resolves the
+# four macOS and Linux names and `install.ps1` the Windows pair, and a machine
+# that installs by script and a machine that later runs `roost update` must end
+# up on the same release. Five triples are built.
 #
 # `crates/roost-cli/tests/release_asset_names.rs` fails if the names here stop
 # matching that table, or if this file's verify job stops running ci.yml's
@@ -106,6 +107,14 @@ jobs:
             target: x86_64-apple-darwin
             roost_asset: roost-darwin-x64
             keeper_asset: roost-keeper-darwin-x64
+          # The C runtime is linked statically, so the binaries need nothing
+          # beyond the system DLLs every Windows 11 machine ships.
+          - runner: windows-2025
+            target: x86_64-pc-windows-msvc
+            exe: '.exe'
+            rustflags: '-C target-feature=+crt-static'
+            roost_asset: roost-windows-x64.exe
+            keeper_asset: roost-keeper-windows-x64.exe
     steps:
       - uses: actions/checkout@v4
         with:
@@ -120,8 +129,16 @@ jobs:
         if: matrix.glibc
         with:
           tool: cargo-zigbuild@0.23.4
+      # aws-lc-sys assembles with NASM on Windows; llvm-readobj lists imports.
+      - uses: ilammy/setup-nasm@v1
+        if: runner.os == 'Windows'
+      - name: llvm tools
+        if: runner.os == 'Windows'
+        run: rustup component add llvm-tools
       - name: build
         if: ${{ !matrix.glibc }}
+        env:
+          RUSTFLAGS: ${{ matrix.rustflags }}
         run: cargo build --release -p roost-cli -p roost-keeper --target ${{ matrix.target }}
       - name: build against the row's glibc
         if: matrix.glibc
@@ -131,7 +148,7 @@ jobs:
         run: |
           set -euo pipefail
           out="target/${{ matrix.target }}/release"
-          for bin in roost roost-keeper; do
+          for bin in roost${{ matrix.exe }} roost-keeper${{ matrix.exe }}; do
             if [ "${{ runner.os }}" = Linux ]; then
               # glibc's own libraries and the gcc runtime ship on every
               # distribution. Any other NEEDED entry is the runner's copy of a
@@ -144,6 +161,13 @@ jobs:
                 echo "::error::$bin needs $newest, newer than the $floor it was linked for"
                 exit 1
               fi
+            elif [ "${{ runner.os }}" = Windows ]; then
+              # The system DLLs and API sets every Windows 11 machine ships.
+              # Anything else, such as a VC++ runtime, is one a machine may lack.
+              readobj="$(rustc --print sysroot)/lib/rustlib/x86_64-pc-windows-msvc/bin/llvm-readobj.exe"
+              [ -x "$readobj" ] || readobj="$(find "$(rustc --print sysroot)" -name 'llvm-readobj*' | head -1)"
+              extra="$("$readobj" --coff-imports "$out/$bin" | sed -n 's/^ *Name: *//p' | tr -d '\r' \
+                | grep -viE '^(kernel32|advapi32|ws2_32|userenv|ntdll|bcrypt|bcryptprimitives|crypt32|ole32|oleaut32|shell32|user32|secur32|ncrypt|iphlpapi|psapi|powrprof|pdh|netapi32|dbghelp|api-ms-win-.*)\.dll$' || true)"
             else
               # /usr/lib and /System ship with macOS. Anything else is the
               # runner's, such as Homebrew's OpenSSL, and a Mac without it
@@ -165,11 +189,11 @@ jobs:
           # target/release/<triple>. The latter is the path a build without
           # --target produces, and it is empty here.
           out="target/${{ matrix.target }}/release"
-          test -x "$out/roost"       || { echo "::error::$out/roost missing"; exit 1; }
-          test -x "$out/roost-keeper" || { echo "::error::$out/roost-keeper missing"; exit 1; }
+          test -x "$out/roost${{ matrix.exe }}"        || { echo "::error::$out/roost${{ matrix.exe }} missing"; exit 1; }
+          test -x "$out/roost-keeper${{ matrix.exe }}" || { echo "::error::$out/roost-keeper${{ matrix.exe }} missing"; exit 1; }
           mkdir -p dist
-          cp "$out/roost"        "dist/${{ matrix.roost_asset }}"
-          cp "$out/roost-keeper" "dist/${{ matrix.keeper_asset }}"
+          cp "$out/roost${{ matrix.exe }}"        "dist/${{ matrix.roost_asset }}"
+          cp "$out/roost-keeper${{ matrix.exe }}" "dist/${{ matrix.keeper_asset }}"
           chmod +x "dist/${{ matrix.roost_asset }}" "dist/${{ matrix.keeper_asset }}"
           # macOS runners ship `shasum`, not `sha256sum`; install.sh's `sha256_of`
           # falls back for the same reason. The sidecar FORMAT is the standard
@@ -187,8 +211,8 @@ jobs:
           name: release-bin-${{ matrix.target }}
           path: dist/
 
-  # ONE page serves all four targets: it is the same build, differing only in
-  # which binaries serve it. A per-platform bundle would be four chances to
+  # ONE page serves all five targets: it is the same build, differing only in
+  # which binaries serve it. A per-platform bundle would be five chances to
   # invent a name the installer does not fetch.
   web:
     name: web bundle
@@ -257,7 +281,8 @@ jobs:
           missing=0
           for a in roost roost-linux-x64 roost-linux-arm64 roost-darwin-x64 \
                    roost-keeper roost-keeper-linux-x64 roost-keeper-linux-arm64 \
-                   roost-keeper-darwin-x64 roost-web.tar.gz; do
+                   roost-keeper-darwin-x64 roost-windows-x64.exe \
+                   roost-keeper-windows-x64.exe roost-web.tar.gz; do
             if [ ! -f "dist/$a" ]; then
               echo "::error::dist/$a was never published"
               missing=1
@@ -274,7 +299,7 @@ jobs:
             echo "ok  $a  $(cut -d' ' -f1 "dist/$a.sha256")"
           done
           test "$missing" -eq 0
-          echo "all nine assets present with digests"
+          echo "all eleven assets present with digests"
       - name: create the release
         env:
           GH_TOKEN: ${{ github.token }}
