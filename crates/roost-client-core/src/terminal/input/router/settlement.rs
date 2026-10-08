@@ -6,7 +6,7 @@
 //! put those bytes back on a wire.
 
 use crate::terminal::input::{
-    HELD_INPUT_ADMISSION_TIMEOUT_MS, INPUT_RESULT_TIMEOUT_MS, InputLane, InputOutcome,
+    HELD_INPUT_ADMISSION_TIMEOUT_MS, INPUT_RESULT_TIMEOUT_MS, InputLane, InputOutcome, InputPhase,
 };
 use crate::terminal::token::{TerminalToken, TerminalTransport};
 
@@ -76,10 +76,18 @@ impl InputRouter {
     /// Settle every held batch whose admission timeout has expired.
     ///
     /// `rejected`, never `ambiguous`: nothing was sent, so nothing is in doubt.
+    /// A batch queued behind a sending lane's in-flight window is not held: it
+    /// goes out as the batches ahead of it settle, and each of those settles
+    /// within `INPUT_RESULT_TIMEOUT_MS`, so expiring it would drop a keystroke
+    /// typed faster than results came back.
     pub fn sweep_held(&mut self, now_ms: u64) -> Vec<InputOutcome> {
         let expired: Vec<u64> = self
             .lanes
             .values()
+            .filter(|lane| {
+                lane.phase != InputPhase::Sending
+                    || !lane.pending.iter().any(|pending| pending.started)
+            })
             .flat_map(|lane| lane.pending.iter())
             .filter(|pending| {
                 !pending.started

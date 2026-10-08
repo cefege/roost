@@ -12,7 +12,9 @@ mod route_claim_support;
 
 use direct_carrier_support::*;
 use roost_client_core::InputOutcome;
-use roost_client_core::terminal::input::MAX_STARTED_INPUTS_PER_SESSION;
+use roost_client_core::terminal::input::{
+    HELD_INPUT_ADMISSION_TIMEOUT_MS, MAX_STARTED_INPUTS_PER_SESSION,
+};
 use route_claim_support::*;
 
 #[test]
@@ -59,5 +61,69 @@ fn keystrokes_past_the_window_wait_and_go_out_in_order_as_results_settle() {
         sent,
         typed_bytes[..MAX_STARTED_INPUTS_PER_SESSION + 1].to_vec(),
         "the wire carries the keystrokes in the order typed"
+    );
+}
+
+/// A keystroke queued behind a live window is not a held batch: the admission
+/// timeout must not refuse it while the batches ahead of it are still in flight.
+#[test]
+fn a_keystroke_queued_behind_the_window_outlives_the_admission_timeout() {
+    let mut core = core_with_a_pane();
+    let typed_bytes: Vec<u8> = (b'a'..=b'j').collect();
+    for byte in &typed_bytes {
+        let _ = typed(&mut core, &[*byte]);
+    }
+    let admitted_at_ms = core
+        .store()
+        .input
+        .outstanding(SESSION)
+        .last()
+        .expect("a queued batch")
+        .admitted_at_ms;
+    let swept = core.handle(ClientEvent::Sweep {
+        now_ms: admitted_at_ms + HELD_INPUT_ADMISSION_TIMEOUT_MS,
+    });
+    let sent: Vec<u8> = sync_inputs(&swept)
+        .into_iter()
+        .flat_map(|(bytes, _)| bytes)
+        .collect();
+    assert_eq!(
+        sent,
+        typed_bytes[MAX_STARTED_INPUTS_PER_SESSION..].to_vec(),
+        "the window's results timed out, so the queued keystrokes go out instead of being refused"
+    );
+}
+
+/// A result on the direct carrier that wrote the batch frees its slot exactly
+/// as a Sync result does: the next queued keystroke goes out on that carrier.
+#[test]
+fn a_direct_result_sends_the_next_queued_keystroke() {
+    let (mut core, effects) = promotable_peer();
+    let (request_id, revision, _) = peer_claims(&effects)[0].clone();
+    let _ = core.handle(on_peer(answer(&request_id, revision, true, "")));
+    let typed_bytes: Vec<u8> = (b'a'..=b'j').collect();
+    let mut wire = Vec::new();
+    for byte in &typed_bytes {
+        wire.extend(peer_inputs(&typed(&mut core, &[*byte])));
+    }
+    assert_eq!(wire.len(), MAX_STARTED_INPUTS_PER_SESSION);
+
+    let oldest = core.store().input.outstanding(SESSION)[0].input_seq;
+    let released = core.handle(on_peer(SyncFrame::InputResult {
+        session_id: SESSION.to_owned(),
+        input_seq: oldest,
+        generation: peer_token().socket_generation,
+        outcome: InputOutcome::Accepted {
+            input_seq: oldest,
+            written_bytes: 1,
+        },
+    }));
+    assert_eq!(
+        peer_inputs(&released),
+        vec![(
+            vec![typed_bytes[MAX_STARTED_INPUTS_PER_SESSION]],
+            ROUTE_EPOCH.to_owned()
+        )],
+        "the freed slot carries the next keystroke on the peer; got {released:?}"
     );
 }

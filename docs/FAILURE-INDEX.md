@@ -4007,3 +4007,23 @@ alternate keys come only from a key whose DOM value is one character.
 
 **Guard** — `crates/roost-web-terminal/tests/kitty_keyboard.rs` —
 `a_bare_modifier_key_sends_nothing_unless_all_keys_are_reported`.
+
+### Fast typing drops keystrokes: `terminal input work refused: the budget is full`
+
+**Symptom** — a burst of typing (or an agent TUI flood) loses characters; the worker logs
+`terminal input work refused: the budget is full`, or a typed line arrives cut short with no notice.
+
+**Wrong** — raise the worker's per-port budget (`TERMINAL_DIRECT_INPUT_WORK_MAX_REQUESTS`), or retry a
+refused batch. The client sent one batch per keystroke with nothing bounding what it had in flight, and a
+refusal is final by design. A window that only drains from SOME settle paths is the same bug again: a
+direct carrier's result is settled by `handle_sync::handle_direct_frame`, not `handle_input_result`, and
+a queued batch that waited out the 10 s admission timeout behind a live window was refused unsent.
+
+**Right** — a session hands at most `MAX_STARTED_INPUTS_PER_SESSION` batches to a transport; the rest
+wait unsent, in order. Every settle path calls `handle_input::send_queued_input`, the sweep drains queued
+lanes each tick, and `sweep_held` does not expire a batch queued behind a sending lane's in-flight window.
+
+**Guard** — `crates/roost-client-core/tests/terminal_input_window.rs` —
+`keystrokes_past_the_window_wait_and_go_out_in_order_as_results_settle`,
+`a_direct_result_sends_the_next_queued_keystroke`,
+`a_keystroke_queued_behind_the_window_outlives_the_admission_timeout`.

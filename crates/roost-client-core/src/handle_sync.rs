@@ -211,6 +211,7 @@ pub fn handle_direct_frame(
                     status = outcome.status_name(),
                     "terminal input settled on the carrier that wrote it"
                 );
+                crate::handle_input::send_queued_input(store, session_id, now_ms, out);
             }
         }
         SyncFrame::InputRouteResult { result } => {

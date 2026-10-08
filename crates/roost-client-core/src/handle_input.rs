@@ -271,12 +271,7 @@ pub fn handle_input_result(
         status = outcome.status_name(),
         "terminal input settled"
     );
-    // The settled batch freed a slot in the in-flight window.
-    if !store.input.is_holding(session_id)
-        && let Some(token) = input_destination(store, session_id)
-    {
-        dispatch_startable(store, session_id, &token, now_ms, out);
-    }
+    send_queued_input(store, session_id, now_ms, out);
     // A promotion waits for the old route's batches to settle before it claims;
     // this may have been the last of them, and the sweep is up to a tick away.
     let drain_pending = store
@@ -286,6 +281,21 @@ pub fn handle_input_result(
         .is_some_and(|promotion| !promotion.claim_sent);
     if drain_pending {
         crate::handle_sync::resume_held_promotion(store, session_id, now_ms, out);
+    }
+}
+
+/// A settled batch freed a slot in the session's in-flight window: send what
+/// waits behind it. Every path that settles a started batch calls this.
+pub(crate) fn send_queued_input(
+    store: &mut Store,
+    session_id: &str,
+    now_ms: u64,
+    out: &mut Vec<Effect>,
+) {
+    if !store.input.is_holding(session_id)
+        && let Some(token) = input_destination(store, session_id)
+    {
+        dispatch_startable(store, session_id, &token, now_ms, out);
     }
 }
 

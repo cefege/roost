@@ -127,12 +127,11 @@ pub fn handle_sweep(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
 
     if settled_any {
         store.note_change();
-        // A timed-out batch freed its slot in the session's in-flight window.
-        for session_id in store.input.queued_sessions() {
-            if let Some(token) = crate::handle_input::input_destination(store, &session_id) {
-                crate::handle_input::dispatch_startable(store, &session_id, &token, now_ms, out);
-            }
-        }
+    }
+    // A slot freed by a timeout above, or by any settle path that sent nothing
+    // after it, goes to the next queued batch within a tick.
+    for session_id in store.input.queued_sessions() {
+        crate::handle_input::send_queued_input(store, &session_id, now_ms, out);
     }
 
     // The direct carriers' own deadlines last, so a grant that expires on this
