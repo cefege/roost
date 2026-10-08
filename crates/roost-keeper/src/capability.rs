@@ -5,10 +5,10 @@
 //! `packages/host/src/local-endpoint.ts`.
 
 use std::fmt::{self, Write as _};
-use std::fs::{DirBuilder, File, OpenOptions};
-use std::io::{ErrorKind, Read, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
+
+use crate::owner_only::{create_new_private_file, create_private_dir_all, restrict_to_owner};
 
 use sha2::{Digest, Sha256};
 
@@ -70,32 +70,21 @@ impl KeeperCapability {
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
         {
-            DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(parent)
-                .map_err(|error| io_error(parent, &error))?;
+            create_private_dir_all(parent).map_err(|error| io_error(parent, &error))?;
         }
         match Self::load(path) {
             Err(CapabilityError::Missing(_)) => {}
             loaded => return loaded,
         }
         let minted = Self::mint()?;
-        let mut file = match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(path)
-        {
+        let mut file = match create_new_private_file(path) {
             Ok(file) => file,
             Err(error) if error.kind() == ErrorKind::AlreadyExists => return Self::load(path),
             Err(error) => return Err(io_error(path, &error)),
         };
         file.write_all(format!("{}\n", minted.0).as_bytes())
             .map_err(|error| io_error(path, &error))?;
-        // The mode at creation is filtered by the umask; this states it exactly.
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
-            .map_err(|error| io_error(path, &error))?;
+        restrict_to_owner(path).map_err(|error| io_error(path, &error))?;
         tracing::info!(path = %path.display(), "minted the keeper capability");
         Ok(minted)
     }
@@ -122,9 +111,7 @@ impl KeeperCapability {
 
     fn mint() -> Result<Self, CapabilityError> {
         let mut bytes = [0_u8; CAPABILITY_BYTES];
-        File::open("/dev/urandom")
-            .and_then(|mut source| source.read_exact(&mut bytes))
-            .map_err(|error| CapabilityError::Entropy(error.to_string()))?;
+        getrandom::fill(&mut bytes).map_err(|error| CapabilityError::Entropy(error.to_string()))?;
         let mut hex = String::with_capacity(CAPABILITY_BYTES * 2);
         for byte in bytes {
             let _ = write!(hex, "{byte:02x}");

@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Real PTYs through the keeper's dispatcher: every byte value reaches a raw
 //! `cat` exactly once and in order, whichever frame carried it (the
 //! "backspace acts like space" guard, v2 `apps/worker/tests/keeper-input-stress.test.ts`),

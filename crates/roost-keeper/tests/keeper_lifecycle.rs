@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The keeper's channel lifecycle: spawn, discovery, conditional shutdown and
 //! exit. Split from the request/response tests because these frames decide
 //! whether a PTY exists at all, and a mistake in one is a leaked process

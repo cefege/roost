@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! PROOF that a keystroke's echo leaves the keeper as soon as the PTY produces
 //! it, and reaches a worker waiting the way the worker's dispatch loop waits:
 //! on the client's arrival bell, bounded by an idle timeout.

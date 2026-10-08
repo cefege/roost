@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! F5: the six frames the daemon already served and the client could not ask
 //! for, against a REAL keeper daemon.
 //!

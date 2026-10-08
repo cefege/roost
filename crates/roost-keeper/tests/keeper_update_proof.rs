@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! What a keeper update rests on, against the real daemon: the `Hello` proves
 //! the daemon's own pid and ONE process epoch across every connection, so a
 //! worker restart finds the same keeper holding the same channels; and an

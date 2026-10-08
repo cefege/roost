@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Closing a channel kills the WHOLE process tree it spawned. Ports
 //! `apps/worker/tests/keeper-child-reap.test.ts` against the real daemon.
 //!

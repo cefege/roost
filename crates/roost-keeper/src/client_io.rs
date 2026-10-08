@@ -7,9 +7,9 @@
 //! keeping it separate is what makes "who answers this?" answerable by reading
 //! one function.
 
+use crate::transport::UnixStream;
 use std::collections::HashMap;
 use std::io::Read;
-use std::os::unix::net::UnixStream;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 

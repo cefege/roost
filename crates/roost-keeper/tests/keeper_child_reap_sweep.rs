@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The snapshot SIGKILL sweep, on its own. Ports the `nohup` half of
 //! `apps/worker/tests/keeper-child-reap.test.ts` (`keeper-process-reap.ts`'s
 //! escalation path) against the real daemon, and it is a separate binary from

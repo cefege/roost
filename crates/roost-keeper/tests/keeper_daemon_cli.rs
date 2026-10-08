@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The keeper binary's command-line surface: what it prints, and what it does
 //! when it cannot start. Split from the lifecycle tests because a failure here
 //! is about how the daemon TALKS to whoever invoked it, not about what it does

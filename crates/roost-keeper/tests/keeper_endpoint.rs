@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The keeper socket's security properties, which need no traffic to prove: the
 //! endpoint's permissions, what may live at its path, and which half of a
 //! leftover file is reclaimable.

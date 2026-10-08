@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! What the keeper daemon PUBLISHES on the filesystem: the endpoint's
 //! permissions, the pid file's permissions, and the pid file's lifetime. Split
 //! from the lifecycle tests because a failure in one is a permissions or

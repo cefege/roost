@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! What a keeper daemon that DIED leaves behind, and what the next one makes of
 //! it. Split from the lifecycle tests because a crash is a different event from
 //! a clean stop, and the leftovers are a different kind of problem: a clean

@@ -10,7 +10,7 @@
 //! wait look identical from a single attempt: a keeper that is not listening
 //! and a keeper that is busy serving another worker.
 
-use std::os::unix::net::UnixStream;
+use crate::transport::UnixStream;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -64,6 +64,11 @@ fn connect_once(endpoint: &KeeperEndpoint) -> Result<KeeperClient, ClientError> 
         .map_err(|_| ClientError::NotListening(endpoint.socket.clone()))?;
     let read_half = stream
         .try_clone()
+        .map_err(|err| ClientError::Io(err.to_string()))?;
+    // Winsock does not promise a duplicated socket shares SO_RCVTIMEO, and the
+    // reader thread's stop check depends on its reads timing out.
+    read_half
+        .set_read_timeout(Some(DEADLINE_TICK))
         .map_err(|err| ClientError::Io(err.to_string()))?;
     stream
         .set_read_timeout(Some(DEADLINE_TICK))

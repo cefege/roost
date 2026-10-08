@@ -10,8 +10,7 @@
 
 use crate::capability::KeeperCapability;
 use crate::keeper::Keeper;
-use std::os::unix::fs::{FileTypeExt, PermissionsExt};
-use std::os::unix::net::{UnixListener, UnixStream};
+use crate::transport::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 
 mod connection;
@@ -84,9 +83,7 @@ impl Endpoint {
         }
         // Something that is not a socket is never a stale keeper, and removing
         // it would destroy whatever it actually is.
-        if let Ok(metadata) = std::fs::symlink_metadata(&path)
-            && !metadata.file_type().is_socket()
-        {
+        if std::fs::symlink_metadata(&path).is_ok() && !crate::transport::is_socket_file(&path) {
             return Err(ListenError::NotASocket(path));
         }
         Ok(Self { path })
@@ -110,11 +107,9 @@ impl Endpoint {
                 ListenError::Bind(self.path.clone(), err.to_string())
             }
         })?;
-        // 0600: the owner may connect, nobody else may. There is no group case
-        // to consider — a keeper socket is per-user by construction.
-        if let Err(err) =
-            std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o600))
-        {
+        // Owner-only: the owner may connect, nobody else may. There is no group
+        // case to consider — a keeper socket is per-user by construction.
+        if let Err(err) = crate::owner_only::restrict_to_owner(&self.path) {
             return Err(ListenError::Secure {
                 path: self.path.clone(),
                 reason: err.to_string(),

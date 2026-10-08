@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Integration tests for the PTY channel. These spawn REAL processes on a REAL
 //! pty: the property under test is that bytes survive a round trip through the
 //! kernel, and no amount of mocking proves that.

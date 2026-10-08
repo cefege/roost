@@ -13,7 +13,7 @@ name = "roost-keeper"
 path = "src/bin/roost-keeper.rs"
 
 [dependencies]
-libc.workspace = true
+getrandom.workspace = true
 portable-pty.workspace = true
 roost-host.workspace = true
 roost-platform.workspace = true
@@ -23,6 +23,13 @@ serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+uds_windows.workspace = true
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Networking_WinSock", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Pipes", "Win32_Storage_FileSystem", "Win32_Security"] }
 
 [dev-dependencies]
 roost-protocol.workspace = true
@@ -43,7 +50,8 @@ serde_json.workspace = true
 # THE DRIFT IS DETECTABLE, NOT MERELY ACCEPTED: `cargo xtask lint` flags a
 # crate that restates a workspace key without `workspace = true`, and this one is
 # the single entry in `xtask/src/lint_table.rs`'s `COPY_EXEMPT` — the reason
-# recorded there being that the signal handler has no safe API and cargo rejects
+# recorded there being that the signal handler, the Win32 console handler, Job
+# Object and named-pipe FFI have no safe API and cargo rejects
 # inheriting a table you also override. So adding a workspace lint without
 # adding it here is a one-line edit plus one line of amendment, rather than a
 # mystery six months later: this crate silently stops receiving it.

@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The keeper's frame dispatcher, driven with no listener, no socket and no
 //! timing. The split from the socket loop is what makes these writable at all:
 //! the protocol's edge cases are the ones that need a second live endpoint to

@@ -3,6 +3,7 @@
 //! every connection turn; the daemon installs it. Ports the `SIGTERM` handler
 //! and the 30 s socket check of v2 `apps/worker/src/keeper/multiplexed-main.ts`.
 
+#[cfg(unix)]
 use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -75,9 +76,7 @@ impl ExitWatch {
             return None;
         }
         self.next_socket_check = now + self.interval;
-        // `exists` follows a symlink and reads any error as absence, which is
-        // what v2's `fs.existsSync` answered.
-        (!self.socket.exists()).then_some(ExitCause::SocketRemoved)
+        (!socket_path_present(&self.socket)).then_some(ExitCause::SocketRemoved)
     }
 
     /// How long a wait may sleep before this watch needs another look.
@@ -88,10 +87,26 @@ impl ExitWatch {
     }
 }
 
+/// Whether the socket file is still there. `exists` follows a symlink and reads
+/// any error as absence, which is what v2's `fs.existsSync` answered.
+#[cfg(unix)]
+fn socket_path_present(socket: &std::path::Path) -> bool {
+    socket.exists()
+}
+
+/// Whether the socket file is still there. A Windows AF_UNIX socket file is a
+/// reparse point that cannot be opened through, so following it would read a
+/// live socket as gone; the entry itself is looked at instead.
+#[cfg(windows)]
+fn socket_path_present(socket: &std::path::Path) -> bool {
+    std::fs::symlink_metadata(socket).is_ok()
+}
+
 /// Wait until `listener` has a connection waiting, or `timeout` passes.
 ///
 /// `false` on a timeout, an interrupting signal, or a failed wait: the caller
 /// answers every one of those by polling its watch again.
+#[cfg(unix)]
 pub(super) fn wait_for_connection(listener: &impl AsRawFd, timeout: Duration) -> bool {
     let mut entry = libc::pollfd {
         fd: listener.as_raw_fd(),
@@ -105,4 +120,31 @@ pub(super) fn wait_for_connection(listener: &impl AsRawFd, timeout: Duration) ->
     // the call.
     let ready = unsafe { libc::poll(&mut entry, 1, millis) };
     ready > 0 && entry.revents & libc::POLLIN != 0
+}
+
+/// Wait until `listener` has a connection waiting, or `timeout` passes.
+///
+/// `false` on a timeout or a failed wait: the caller answers both by polling
+/// its watch again.
+#[cfg(windows)]
+pub(super) fn wait_for_connection(
+    listener: &impl std::os::windows::io::AsRawSocket,
+    timeout: Duration,
+) -> bool {
+    use windows_sys::Win32::Networking::WinSock::{POLLRDNORM, WSAPOLLFD, WSAPoll};
+    let millis = i32::try_from(timeout.as_millis()).unwrap_or(i32::MAX);
+    let Ok(socket) = usize::try_from(listener.as_raw_socket()) else {
+        return false;
+    };
+    let mut entry = WSAPOLLFD {
+        fd: socket,
+        events: POLLRDNORM,
+        revents: 0,
+    };
+    // SAFETY: `entry` is one initialised `WSAPOLLFD`, exclusively borrowed for
+    // the duration of the call, so the count of 1 matches the memory handed
+    // over; its socket stays open because the caller holds the listener across
+    // the call.
+    let ready = unsafe { WSAPoll(&mut entry, 1, millis) };
+    ready > 0 && (entry.revents & POLLRDNORM) != 0
 }

@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The keeper's per-channel input lane with a writer the test controls: one
 //! FIFO across both frame kinds, the command and byte budgets, a batch whose
 //! connection left before it started, and an exit that refuses what is still

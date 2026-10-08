@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The keeper client's request/response shapes: what each call asserts about
 //! the answer, and what a refusal must name. Split from the connection tests
 //! because a failure in one is a protocol contract rather than a question of

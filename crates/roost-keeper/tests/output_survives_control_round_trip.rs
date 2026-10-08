@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! PROOF for F1: a control round-trip must not consume the worker's PTY output.
 //!
 //! `events` is ONE channel carrying both PTY output and control replies,
