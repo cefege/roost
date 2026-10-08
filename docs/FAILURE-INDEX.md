@@ -1018,6 +1018,23 @@ replay yields periodically so live cells preempt it.
 **Guard** — `crates/roost-web-terminal/tests/render_append_frames.rs` —
 `a_viewport_only_full_reserves_depth_and_explicit_pages_fill_the_seam`.
 
+### A terminal mode change is absent from the browser until a later row update
+
+**Symptom** — Kitty Escape remains legacy after `CSI >1u`, or remains encoded as
+`CSI 27u` after `CSI <u`, until another frame changes the terminal's rows.
+
+**Wrong** — force a full frame or synthesize a dirty row for a scalar-only
+change. The worker's delta already carries the mode state, even when its row
+payload is empty; losing the value while folding it leaves the canonical
+browser frame stale.
+
+**Right** — apply every scalar carried by a delta to the held canonical frame.
+`apply_delta` updates the cursor and terminal modes independently of the sparse
+row patch, including `kitty_keyboard_flags`.
+
+**Guard** — `crates/roost-protocol/tests/cell_delta_admission.rs` —
+`an_empty_delta_updates_kitty_keyboard_mode_flags`.
+
 ### The painted grid never converges until a reload
 
 **Symptom** — "terminal keeps running but the painted grid never converges until a reload / typing reaches the PTY while the pane stays frozen / a returned-to pane paints an old frame forever / 'only a refresh fixes it'"
@@ -3911,3 +3928,20 @@ compact branch follows. The ten-foot differences that a desktop width would not 
 
 **Guard** — `crates/roost-web/tests/shell_metrics.rs`:
 `a_television_reporting_a_phone_sized_viewport_gets_the_desktop_shell`.
+
+### `ls` directories and `tput setaf` output paint in the foreground colour
+
+**Symptom** — 16-colour output (SGR 30–37, 40–47, 90–97, 100–107: `ls --color`, `tput setaf 1`, git status
+colours) renders in the default foreground under every colour scheme, while 256-colour and true-colour
+output is coloured; the span's style reads `color:var(--term-fg)`.
+
+**Wrong** — fix it in the browser palette or the colour-scheme CSS. The `--term-color-0..15` bridge is
+correct; the cell arrives with `fg = DEFAULT_COLOR`, so no browser-side palette can recover it.
+
+**Right** — alacritty parses those SGRs as `Color::Named(Red…BrightWhite)`, not `Color::Indexed`.
+`roost-term/src/alacritty/cell.rs::palette` resolves a `Named` colour through the terminal's OSC 4
+overrides first, then maps the sixteen ANSI names to palette indices 0–15; only role names (foreground,
+background, cursor, dim variants) become the default.
+
+**Guard** — `crates/roost-term/tests/cell_model.rs` —
+`the_sixteen_ansi_colours_reach_the_wire_as_palette_indices`.
