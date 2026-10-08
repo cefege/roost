@@ -19,6 +19,7 @@ use serde_json::json;
 use super::actions::{DomRepairCtx, PaneAction, perform, with_state};
 use super::browser::{self, now_ms, request_frame};
 use super::{FrameModes, PaneShared, PaneState};
+use crate::components::terminal::floating_mount::free_below_permille;
 use crate::components::terminal::pane_state::set_if_changed;
 use crate::components::terminal::pane_status::{
     LoadingGate, PaneViewStatus, loading_notice, view_handle_status,
@@ -152,6 +153,10 @@ fn paint_owed(shared: &PaneShared, now: u64) {
         kitty_keyboard_flags: canonical.kitty_keyboard_flags,
     });
     set_if_changed(shared.ui.alt_screen, canonical.alt_screen);
+    set_if_changed(
+        shared.ui.free_below_permille,
+        free_below_permille(canonical.rows, canonical.cursor_row),
+    );
     let delivery = shared.state.borrow_mut().feed.painted(&canonical, revision);
     super::echo::on_frame(shared, &canonical, delivery.scrollback_appended);
     mark_painted_frame(shared, &canonical, painted_as == PaintedAs::Full);

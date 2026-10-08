@@ -64,6 +64,10 @@ pub struct PaneUi {
     /// The reader is parked in history, away from the live tail: the
     /// jump-to-bottom button shows.
     pub scrolled_back: Signal<bool>,
+    /// The share of the grid below the cursor row, in per mille: how much of
+    /// the display a growing composer or an open tray may cover before the
+    /// prompt has to be lifted out of its way.
+    pub free_below_permille: Signal<u16>,
 }
 
 impl PaneUi {
@@ -82,6 +86,7 @@ impl PaneUi {
             link_armed: use_signal(|| false),
             transport: use_signal(|| None),
             scrolled_back: use_signal(|| false),
+            free_below_permille: use_signal(|| 0),
         }
     }
 }
@@ -91,5 +96,17 @@ impl PaneUi {
 pub fn set_if_changed<T: PartialEq + 'static>(mut signal: Signal<T>, value: T) {
     if *signal.peek() != value {
         signal.set(value);
+    }
+}
+
+/// The stream indicator's state token and label, or `None` while idle.
+pub fn presentation_indicator(
+    state: TerminalPresentationState,
+) -> Option<(&'static str, &'static str)> {
+    match state {
+        TerminalPresentationState::Receiving => Some(("receiving", "Receiving terminal frames")),
+        TerminalPresentationState::CatchingUp => Some(("catching_up", "Screen catching up")),
+        TerminalPresentationState::Detached => Some(("detached", "No live terminal stream")),
+        TerminalPresentationState::Idle => None,
     }
 }

@@ -14,15 +14,14 @@ use roost_client_core::store::Session;
 use roost_client_core::store::selectors::{newest_open_session_in_folder, session_folder_key};
 use roost_client_core::store::shell_intent::ShellIntent;
 use roost_client_core::store::terminal_nav_pad::terminal_nav_pad_open;
-use roost_web_terminal::terminal_presentation::TerminalPresentationState;
 
 use super::floating_mount::{
     KeySurface, ctrl_arm_takes_focus, display_lift, key_surface, mounts_nav_pad,
-    mounts_viewport_composer,
+    mounts_viewport_composer, pane_display_style,
 };
 use super::pane_handle::{PaneHandle, PaneMountRequest};
 use super::pane_registry::use_pane_registry;
-use super::pane_state::{PaneFlags, PaneUi};
+use super::pane_state::{PaneFlags, PaneUi, presentation_indicator};
 use super::terminal_drop_target::{TerminalDropOverlay, use_terminal_file_drop};
 use super::terminal_find_bar::TerminalFindBar;
 use super::terminal_jump_to_live::TerminalJumpToLive;
@@ -173,17 +172,7 @@ pub fn CellTerminal(
         mount_handle.mount(&event.data(), request);
     });
 
-    let indicator = match (ui.presentation)() {
-        TerminalPresentationState::Receiving => Some(("receiving", "Receiving terminal frames")),
-        TerminalPresentationState::CatchingUp => Some(("catching_up", "Screen catching up")),
-        TerminalPresentationState::Detached => Some(("detached", "No live terminal stream")),
-        TerminalPresentationState::Idle => None,
-    };
-    let touch_action = if (ui.gestures_forwarded)() {
-        "none"
-    } else {
-        "pan-y"
-    };
+    let indicator = presentation_indicator((ui.presentation)());
     // A dock that grew above its resting row, and an open TV tray, push the
     // terminal UP rather than shrinking it (`display_lift`).
     let dock = use_hook(PaneDockHandle::new);
@@ -209,10 +198,12 @@ pub fn CellTerminal(
         use_tv_layout(),
     );
     let show_nav_pad = keys == KeySurface::Sheet;
-    let lift = display_lift(growth_px(), keys == KeySurface::Tray && view.nav_pad_open);
-    let display_style = format!(
-        "flex: 1; min-width: 0; min-height: 0; touch-action: {touch_action}; transform: {lift};"
+    let lift = display_lift(
+        growth_px(),
+        keys == KeySurface::Tray && view.nav_pad_open,
+        (ui.free_below_permille)(),
     );
+    let display_style = pane_display_style((ui.gestures_forwarded)(), &lift);
     // The sheet REPORTS a latch change and this pane decides what it means: on
     // a device with no pointer and no directional modality, arming a Ctrl that
     // nothing can spend is worthless unless the terminal takes the focus back.
@@ -321,7 +312,11 @@ pub fn CellTerminal(
                 handle: handle.clone(),
                 on_display_mounted,
             }
-            TerminalJumpToLive { visible: (ui.scrolled_back)(), handle: handle.clone(), lift: lift.clone() }
+            TerminalJumpToLive {
+                visible: (ui.scrolled_back)(),
+                handle: handle.clone(),
+                lift: lift.clone(),
+            }
             if show_viewport_composer {
                 TerminalComposer {
                     session_id: session_id.clone(),
@@ -331,7 +326,12 @@ pub fn CellTerminal(
                     staged_files,
                     on_send_uploads,
                     on_attach,
-                    read_context: Some(crate::components::terminal::cell_terminal_dictation::dictation_context(panes.clone(), session_id.as_str())),
+                    read_context: Some(
+                        crate::components::terminal::cell_terminal_dictation::dictation_context(
+                            panes.clone(),
+                            session_id.as_str(),
+                        ),
+                    ),
                 }
             }
             if !compact {
@@ -346,7 +346,12 @@ pub fn CellTerminal(
                     staged_files,
                     on_send_uploads,
                     on_attach,
-                    read_context: Some(crate::components::terminal::cell_terminal_dictation::dictation_context(panes.clone(), session_id.as_str())),
+                    read_context: Some(
+                        crate::components::terminal::cell_terminal_dictation::dictation_context(
+                            panes.clone(),
+                            session_id.as_str(),
+                        ),
+                    ),
                     on_measured: move |measured: u32| growth_px.set(measured),
                     dock_handle: dock,
                     key_tray: key_tray.clone(),
