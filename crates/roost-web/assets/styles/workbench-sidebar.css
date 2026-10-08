@@ -42,8 +42,12 @@ aside[data-testid="sidebar-desktop"] {
 }
 .roost-drawer-overlay { display: none; }
 
+/* `minmax(0, 1fr)` columns: an implicit `auto` track grows to its rows'
+   min-content, which pushed the panels past a fixed-width sidebar (the TV
+   slide-over) and clipped the header tabs and every row's right edge. */
 .workbench-sidebar-root {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   block-size: 100%;
   min-block-size: 0;
@@ -74,6 +78,7 @@ aside[data-testid="sidebar-desktop"] {
 }
 .workbench-sidebar-panels {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   min-block-size: 0;
   overflow: hidden;
 }
@@ -342,51 +347,6 @@ aside[data-testid="sidebar-desktop"] {
 :is(.agent-status, .agent-status-rollup)[data-level="working"] { color: var(--status-info); }
 :is(.agent-status, .agent-status-rollup)[data-level="idle"] { color: var(--text-lo); }
 .agent-status-rollup { overflow: hidden; overscroll-behavior-y: auto; text-overflow: ellipsis; font-weight: var(--md-label-s-weight); }
-
-/* Machine health: one collapsed summary line under the folder row, expanding to
-   the metric tiles. Full-row links above it stay clickable (the toggle raises
-   itself); the readout is secondary, so it never steals the row's emphasis. */
-.df-row:has(> .df-machine-health) { flex-wrap: wrap; }
-.df-machine-health {
-  position: relative;
-  z-index: 2;
-  flex: 1 0 100%;
-  pointer-events: auto;
-  min-inline-size: 0;
-}
-.df-machine-health__toggle {
-  display: flex;
-  align-items: center;
-  gap: var(--md-space-1);
-  min-inline-size: 0;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--text-lo);
-  font: var(--md-label-s-weight) var(--md-label-s-size)/var(--md-label-s-line) var(--md-font);
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-  text-align: start;
-}
-.df-machine-health__toggle:hover { color: var(--text-mid); }
-.df-machine-health__pulse { display: inline-flex; flex: 0 0 auto; }
-.df-machine-health__summary {
-  overflow: hidden;
-  min-inline-size: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.df-machine-health__chevron { flex: 0 0 auto; color: var(--text-lo); }
-.df-machine-health__tiles {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--md-space-2);
-  padding: var(--md-space-2) 0 var(--md-space-1);
-}
-.df-machine-health__tiles .md-metric-tile {
-  padding: var(--md-space-2) var(--md-space-3);
-}
 .workbench-sidebar-agents {
   display: flex;
   flex: 1 1 0;

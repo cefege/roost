@@ -135,6 +135,14 @@ html[data-tv="true"] {
   right: calc(var(--tv-overscan-inline) + var(--md-space-2));
   bottom: calc(var(--term-chat-dock-offset) + var(--tv-overscan-block));
 }
+/* Only the viewport-fixed dock is inset for overscan. A pane-placed dock is
+   `position: relative` in the pane's flow, where those offsets would shift it
+   right by the activity rail and push Send and the keys button off screen. */
+[data-tv="true"] .term-chat__dock[data-placement="pane"] {
+  left: auto;
+  right: auto;
+  bottom: auto;
+}
 
 [data-tv="true"] .term-nav-toggle {
   right: calc(var(--tv-overscan-inline) + var(--md-space-4));

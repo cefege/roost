@@ -210,9 +210,6 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
             if let Some(target) = menu() {
                 FolderRowContextMenu { target, on_close: move |()| menu.set(None) }
             }
-            if let Some(machine_worker) = &worker {
-                super::machine_health::MachineHealth { worker: machine_worker.clone() }
-            }
         }
     }
 }
