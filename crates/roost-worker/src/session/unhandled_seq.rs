@@ -76,6 +76,9 @@ pub fn note_unhandled_sequences(record: &mut SessionRecord, now_mono_ms: u64) {
     }
     let skip = mark.saturating_sub(oldest) as usize;
     for sequence in ring.window().skip(skip) {
+        if super::query_probe::answered_by_worker(sequence.final_byte, sequence.private) {
+            continue;
+        }
         let entry = snapshot_entry(sequence, now_mono_ms);
         let key = sequence_key(&entry);
         if log.keys.iter().any(|known| known == &key) {

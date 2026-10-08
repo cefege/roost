@@ -9,7 +9,9 @@
 //!              `get_response` pops ONE queued reply, so the lane drains until
 //!              `None` after every segment it writes.
 //!   synthetic  probes the core must stay silent on and Roost answers: Primary
-//!              DA (`CSI c`, `CSI 0c`) and XTVERSION (`CSI > q`, `CSI > 0 q`).
+//!              DA (`CSI c`, `CSI 0c`), XTVERSION (`CSI > q`, `CSI > 0 q`) and
+//!              XTSMGRAPHICS (`CSI ? Pi ; Pa ; Pv S`, answered as unsupported);
+//!              `session::query_probe` classifies them.
 //! Ordering falls out of SEGMENTING the write: the chunk is fed to the core in
 //! pieces cut at each synthetic probe's end, the natives those bytes produced
 //! are drained first, and only then is the synthesized reply appended.
@@ -39,6 +41,8 @@ use tokio::sync::mpsc;
 
 use super::input_write::WorkerInputResult;
 use super::lifecycle::SessionManager;
+use super::query_probe::synthesized_reply;
+pub use super::query_probe::{PRIMARY_DA_REPLY, XTVERSION_REPLY};
 use crate::uplink::OwnerFuture;
 
 const ESC: u8 = 0x1b;
@@ -50,19 +54,10 @@ const BODY_MIN: u8 = 0x20;
 const BODY_MAX: u8 = 0x3f;
 const FINAL_MIN: u8 = 0x40;
 const FINAL_MAX: u8 = 0x7e;
-/// A private marker (`<` `=` `>` `?`) occupies the first parameter position.
-const PRIVATE_MIN: u8 = 0x3c;
-const PRIVATE_MAX: u8 = 0x3f;
 
-/// Primary DA reply: VT100 with Advanced Video Option — the universal "I am a
-/// terminal" handshake, enough to unblock any DA-gated init.
-pub const PRIMARY_DA_REPLY: &str = "\x1b[?1;2c";
-/// XTVERSION reply, `DCS > | name ST`: a client that version-gates behaviour
-/// sees a name instead of silence. v2's bytes, verbatim.
-pub const XTVERSION_REPLY: &str = "\x1bP>|wterm(roost)\x1b\\";
-
-/// The longest probe answered is 5 bytes and the longest CSI tokenized past
-/// (DECRQM, `ESC [ ? 2 0 2 6 $ p`) is 9, so no legitimate partial needs more.
+/// The longest probe answered (an XTSMGRAPHICS query, `ESC [ ? 2 ; 1 ; 0 S`)
+/// is 10 bytes and the longest CSI tokenized past (DECRQM,
+/// `ESC [ ? 2 0 2 6 $ p`) is 9, so no legitimate partial needs more.
 /// Past the cap an unterminated CSI is abandoned: a stream that opens a CSI and
 /// never closes it cannot pin worker memory, and the discarded bytes hold no
 /// further ESC to re-anchor on.
@@ -159,7 +154,7 @@ pub fn answer_queries(
         core.write_raw(&chunk[cursor..probe_end]);
         cursor = probe_end;
         drain_core_replies(core, &mut reply);
-        reply.bytes.push_str(synthesized);
+        reply.bytes.push_str(&synthesized);
         reply.synth_bytes += synthesized.len();
     }
     if let Some(core) = core {
@@ -218,30 +213,6 @@ fn is_kitty_keyboard_report(reply: &str) -> bool {
         return false;
     };
     flags.bytes().all(|byte| byte.is_ascii_digit())
-}
-
-/// A synthesized reply for one complete CSI, or `Some("")` to drain a native
-/// reply at that probe boundary; `None` means the CSI is not a handled probe.
-fn synthesized_reply(body: &[u8], final_byte: u8) -> Option<&'static str> {
-    let private = match body.first() {
-        Some(&first) if (PRIVATE_MIN..=PRIVATE_MAX).contains(&first) => first,
-        _ => 0,
-    };
-    let params = if private == 0 { body } else { &body[1..] };
-    match (final_byte, private) {
-        (b'c', 0) if zero_params(params) => Some(PRIMARY_DA_REPLY),
-        (b'q', b'>') if zero_params(params) => Some(XTVERSION_REPLY),
-        (b'u', b'?') if params.is_empty() => Some(""),
-        _ => None,
-    }
-}
-
-/// Primary DA and XTVERSION both take Ps=0, defaulting to 0 when omitted; any
-/// other parameter makes it a different request (`CSI > c` is DA2, `CSI ? … $ p`
-/// is DECRQM), tokenized here so it can never split the stream wrongly, and
-/// never answered here.
-fn zero_params(params: &[u8]) -> bool {
-    params.iter().all(|&byte| byte == b'0' || byte == b';')
 }
 
 /// Where a reply batch is written: worker-originated PTY input with no

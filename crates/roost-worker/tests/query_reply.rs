@@ -77,6 +77,7 @@ fn a_probe_split_at_every_offset_is_answered_exactly_once() {
         ("\x1b[0c", PRIMARY_DA_REPLY),
         ("\x1b[>q", XTVERSION_REPLY),
         ("\x1b[>0q", XTVERSION_REPLY),
+        ("\x1b[?2;1;0S", "\x1b[?2;3;0S"),
     ] {
         for cut in 1..probe.len() {
             let mut core = AlacrittyCore::new(80, 24);
@@ -164,6 +165,16 @@ fn xtversion_is_answered_only_for_a_zero_parameter() {
     assert_eq!(answer_fresh(b"\x1b[>q").bytes, XTVERSION_REPLY);
     assert_eq!(answer_fresh(b"\x1b[>0q").bytes, XTVERSION_REPLY);
     assert_eq!(answer_fresh(b"\x1b[>1q").bytes, "");
+}
+
+/// XTSMGRAPHICS is answered as xterm would answer a terminal with no graphics:
+/// a well-formed probe fails (3), a bad item or action is reported as such.
+#[test]
+fn xtsmgraphics_is_answered_as_unsupported() {
+    assert_eq!(answer_fresh(b"\x1b[?2;1;0S").bytes, "\x1b[?2;3;0S");
+    assert_eq!(answer_fresh(b"\x1b[?9;1;0S").bytes, "\x1b[?9;1;0S");
+    assert_eq!(answer_fresh(b"\x1b[?1;7S").bytes, "\x1b[?1;2;0S");
+    assert_eq!(answer_fresh(b"\x1b[?S").bytes, "");
 }
 
 /// Probes v2's core left unanswered: the application must see exactly what it

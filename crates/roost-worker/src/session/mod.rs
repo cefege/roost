@@ -42,6 +42,7 @@ pub mod keeper_channels;
 pub mod keeper_health;
 pub mod lifecycle;
 pub mod lifecycle_commands;
+pub mod query_probe;
 pub mod query_reply;
 pub mod raw_metadata;
 pub mod replay_align;

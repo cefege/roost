@@ -117,6 +117,21 @@ fn one_final_byte_with_different_parameters_is_two_sequences() {
     );
 }
 
+/// XTSMGRAPHICS never reaches the core (vte dispatches `CSI S` only without a
+/// private marker), but the worker answers it, so it is not a gap to report.
+#[test]
+fn a_probe_the_worker_answers_is_not_reported_as_unhandled() {
+    let mut session = record();
+    session.terminal_core.write(b"\x1b[?2;1;0S\x1b[?7;9;9Z");
+    let snapshot = unhandled_sequence_snapshot(&mut session, 1).expect("the core logged");
+    let shapes: Vec<_> = snapshot
+        .entries
+        .iter()
+        .map(|entry| (entry.private.as_str(), entry.params.clone()))
+        .collect();
+    assert_eq!(shapes, vec![("?", vec![7, 9, 9])]);
+}
+
 #[test]
 fn the_log_stops_at_its_cap_and_says_it_did() {
     let mut session = record();
