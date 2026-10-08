@@ -24,10 +24,11 @@ use roost_host::{EnvSource, HostPlatform};
 use tracing::info;
 
 use crate::command_error::CommandFailure;
-use crate::deploy::apply_release::{RELEASE_BIN_DIR, ROOST_PROGRAM};
+use crate::deploy::apply_release::RELEASE_BIN_DIR;
 use crate::deploy::codes;
 use crate::deploy::release::{StagedRelease, read_keeper_contract, release_digest};
 use crate::update::assets::{WEB_ASSET_NAME, keeper_release_asset_name, release_asset_name};
+use roost_host::ROOST_PROGRAM_FILE;
 
 /// The release a tag publishes, fetched rather than built, staged in the same
 /// tree layout `build_release` produces.
@@ -65,7 +66,7 @@ pub async fn fetch_release(
         abandon(&staging);
         return Err(failure);
     }
-    let keeper_contract = read_keeper_contract(&bin_dir.join(ROOST_PROGRAM))?;
+    let keeper_contract = read_keeper_contract(&bin_dir.join(ROOST_PROGRAM_FILE))?;
     let web = staging.join(crate::services::web_bundle::WEB_DIR_NAME);
     let result = StagedRelease {
         digest: release_digest(&bin_dir)?,
@@ -153,10 +154,10 @@ async fn fetch_into(
     // two files and then reports the release ships no keeper, because it is
     // looking for a name the release never publishes under.
     for (published, installed) in [
-        (release_asset_name(platform, arch)?, ROOST_PROGRAM),
+        (release_asset_name(platform, arch)?, ROOST_PROGRAM_FILE),
         (
             keeper_release_asset_name(platform, arch)?.as_str(),
-            crate::deploy::apply_release::KEEPER_PROGRAM,
+            roost_host::KEEPER_PROGRAM_FILE,
         ),
     ] {
         let file = std::fs::File::create(bin_dir.join(installed)).map_err(|error| {
@@ -214,8 +215,7 @@ async fn fetch_web(env: &dyn EnvSource, tag: &str, bin_dir: &Path) -> Result<(),
 
 /// Make a fetched program executable, as a release's own tarball would ship it.
 fn set_executable(path: &Path) -> Result<(), CommandFailure> {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).map_err(|error| {
+    crate::services::file_mode::set_path_mode(path, 0o755).map_err(|error| {
         codes::refuse(
             codes::BUILD_FAILED,
             format!("cannot make {} executable: {error}", path.display()),

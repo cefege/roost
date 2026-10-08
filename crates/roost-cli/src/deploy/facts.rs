@@ -73,7 +73,7 @@ pub fn read(env: &dyn EnvSource, platform: HostPlatform) -> Result<RemoteFacts, 
         .map(|release| {
             release
                 .join(crate::deploy::apply_release::RELEASE_BIN_DIR)
-                .join(crate::deploy::apply_release::ROOST_PROGRAM)
+                .join(roost_host::ROOST_PROGRAM_FILE)
                 .display()
                 .to_string()
         })

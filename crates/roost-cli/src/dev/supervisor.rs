@@ -10,7 +10,10 @@
 use std::time::{Duration, Instant};
 
 use tokio::process::Child;
+#[cfg(unix)]
 use tokio::signal::unix::{Signal, SignalKind, signal as unix_signal};
+#[cfg(windows)]
+use tokio::signal::windows::{CtrlBreak, CtrlC, ctrl_break, ctrl_c};
 
 use crate::command_error::CommandFailure;
 use crate::dev::plan::DevServer;
@@ -258,19 +261,36 @@ impl DevStack {
 /// The two signals a terminal or a service manager sends this process, held
 /// open for as long as the stack runs. Installed BEFORE anything is started, so
 /// a Ctrl-C during startup is caught rather than ending the process with
-/// children already attached.
+/// children already attached. On Windows they are Ctrl-C and Ctrl-Break.
 #[derive(Debug)]
 pub struct TerminationWatch {
+    #[cfg(unix)]
     interrupt: Signal,
+    #[cfg(unix)]
     terminate: Signal,
+    #[cfg(windows)]
+    interrupt: CtrlC,
+    #[cfg(windows)]
+    terminate: CtrlBreak,
 }
 
 impl TerminationWatch {
+    #[cfg(unix)]
     pub fn install() -> Result<Self, CommandFailure> {
         let interrupt = unix_signal(SignalKind::interrupt())
             .map_err(|error| CommandFailure::generic(error.to_string()))?;
         let terminate = unix_signal(SignalKind::terminate())
             .map_err(|error| CommandFailure::generic(error.to_string()))?;
+        Ok(Self {
+            interrupt,
+            terminate,
+        })
+    }
+
+    #[cfg(windows)]
+    pub fn install() -> Result<Self, CommandFailure> {
+        let interrupt = ctrl_c().map_err(|error| CommandFailure::generic(error.to_string()))?;
+        let terminate = ctrl_break().map_err(|error| CommandFailure::generic(error.to_string()))?;
         Ok(Self {
             interrupt,
             terminate,

@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! What `roost update` does to the file on disk, exercised against a real one.
 //!
 //! The property under test is the one a reader cannot get from the code: a

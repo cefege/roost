@@ -1,8 +1,9 @@
 //! One reader for an installed service definition's `ROOST_*` environment, for
-//! both shapes a POSIX install writes: a launchd `EnvironmentVariables`
-//! dictionary on macOS and `Environment=` lines in a systemd `--user` unit on
-//! Linux. Called by status/collect.rs, which resolves the front door, the
-//! coordinator's own bind, its database and its stamped SPA dist from here.
+//! every shape an install writes: a launchd `EnvironmentVariables` dictionary
+//! on macOS, `Environment=` lines in a systemd `--user` unit on Linux, and
+//! `set "K=V"` lines in a Windows launcher script. Called by status/collect.rs,
+//! which resolves the front door, the coordinator's own bind, its database and
+//! its stamped SPA dist from here.
 //!
 //! It parses rather than reads `process.env` on purpose. The definitions a
 //! deploy writes are the install's own record of what it was told, and the
@@ -40,10 +41,12 @@ pub fn parse_installed_environment(
     match platform {
         HostPlatform::MacOs => parse_launch_agent_keys(definition),
         HostPlatform::Linux => parse_systemd_environment(definition),
-        // v3 ships Linux and macOS only, and `supported_host_platform` refuses a
-        // Windows host before any command runs. The arm exists so the refusal is
-        // the loader's decision rather than this match's.
-        HostPlatform::Windows => InstalledEnvironment::new(),
+        HostPlatform::Windows => {
+            crate::services::scheduled_task::parse_launcher_environment(definition)
+                .into_iter()
+                .filter(|(name, _)| is_install_key(name))
+                .collect()
+        }
     }
 }
 

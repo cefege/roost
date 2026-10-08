@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! `roost worker` — the subcommand a service manager, a container entrypoint
 //! and the smoke stack all address — has to BOOT, not refuse.
 //!

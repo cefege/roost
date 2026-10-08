@@ -56,11 +56,12 @@ pub fn keeper_binary_path() -> Result<PathBuf, CommandFailure> {
             current.display()
         ))
     })?;
-    let candidate = directory.join("roost-keeper");
+    let candidate = directory.join(roost_host::KEEPER_PROGRAM_FILE);
     if !candidate.is_file() {
         return Err(CommandFailure::generic(format!(
-            "no roost-keeper binary beside {}; a keeper contract describes a keeper this \
+            "no {} binary beside {}; a keeper contract describes a keeper this \
              release does not ship",
+            roost_host::KEEPER_PROGRAM_FILE,
             current.display()
         )));
     }

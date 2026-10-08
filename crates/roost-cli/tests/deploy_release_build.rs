@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Where a deploy's release comes from: the cargo packages it is built from and
 //! the directory it is read back out of.
 //!

@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! What an INSTALLED service definition on the target says, and what a deploy
 //! does about the release it names.
 //!

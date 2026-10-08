@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! `roost deploy --release <tag>`: fetching a target's own published binaries
 //! instead of building them on the deploying box.
 //!

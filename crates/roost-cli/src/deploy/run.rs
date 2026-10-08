@@ -122,7 +122,7 @@ pub async fn run(args: &DeployArgs) -> Result<ExitCode, CommandFailure> {
     release_stage::stage_over_ssh(&args.host, &staged, &staged_text).await?;
     let staged_program = staged_dir
         .join(crate::deploy::apply_release::RELEASE_BIN_DIR)
-        .join(crate::deploy::apply_release::ROOST_PROGRAM)
+        .join(roost_host::ROOST_PROGRAM_FILE)
         .display()
         .to_string();
 

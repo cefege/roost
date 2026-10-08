@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The command tree itself: which subcommands exist, that each one's arguments
 //! parse, and that the failures which carry a reserved exit code carry it.
 //!

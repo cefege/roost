@@ -113,6 +113,13 @@ pub struct QuickstartArgs {
 pub async fn run(args: &QuickstartArgs) -> Result<ExitCode, CommandFailure> {
     let env = ProcessEnv::new();
     let platform = roost_host::supported_host_platform()?;
+    // A coordinator is never installed on Windows, so the first machine of a
+    // fleet cannot be one.
+    if platform == roost_host::HostPlatform::Windows {
+        return Err(CommandFailure::usage(
+            "a Windows machine joins an existing coordinator: run roost add-machine --platform windows on the coordinator host",
+        ));
+    }
     // Checked before the endpoint is even decided, so a `--web-dist` naming a
     // directory that was never built is a usage refusal rather than an install
     // that reports success and then answers 404 for every URL.

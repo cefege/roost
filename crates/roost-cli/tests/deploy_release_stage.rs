@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! What `roost deploy` does to a target's staging directory, run through a real
 //! shell rather than read as a string.
 //!

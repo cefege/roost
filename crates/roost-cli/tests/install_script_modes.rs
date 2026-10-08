@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! `install.sh`: which job a run does. A grant makes it `roost join`; its
 //! absence makes it `roost quickstart`, with the arguments after `bash -s --`;
 //! a coordinator URL without a grant installs nothing. Runs the real script

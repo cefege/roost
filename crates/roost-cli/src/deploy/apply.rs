@@ -32,8 +32,8 @@ use roost_host::coord_config_loader::ENV_WEB_DIST_PATH;
 use tracing::{info, warn};
 
 use crate::deploy::apply_release::{
-    RELEASE_BIN_DIR, ROOST_PROGRAM, install_environment, install_release, process_environment,
-    read_installed, reject_staged_path, release_root_for,
+    RELEASE_BIN_DIR, install_environment, install_release, process_environment, read_installed,
+    reject_staged_path, release_root_for,
 };
 use crate::deploy::installed::installed_release_dir;
 use crate::deploy::machine_txn;
@@ -47,6 +47,7 @@ use crate::services::deploy_transaction::{
 use crate::services::service_control::{PlatformServiceManager, ServiceManager};
 use crate::services::service_spec::{ServiceRole, ServiceSpec};
 use crate::services::web_bundle;
+use roost_host::ROOST_PROGRAM_FILE;
 
 /// Run the apply against this process's own environment, driving the machine's
 /// real service manager.
@@ -206,7 +207,7 @@ async fn apply(
         ServiceRole::Worker,
         &install_env,
         platform,
-        &bin_dir.join(ROOST_PROGRAM),
+        &bin_dir.join(ROOST_PROGRAM_FILE),
     ) {
         Ok(spec) => spec,
         Err(error) => {

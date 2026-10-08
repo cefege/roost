@@ -34,6 +34,8 @@ use tracing::info;
 use crate::command_error::CommandFailure;
 use crate::import_v2::copy::TableReport;
 use crate::import_v2::plan::ImportMode;
+use crate::services::scheduled_task::{powershell_argv, running_probe_script};
+use crate::status::service_probe::current_uid;
 use crate::wall_clock;
 
 /// `roost import-v2` — the one command that reads another product's database.
@@ -77,10 +79,9 @@ pub fn coordinator_probe_argv(platform: HostPlatform, label: &str) -> Vec<String
         HostPlatform::MacOs => vec![
             "launchctl".to_string(),
             "print".to_string(),
-            format!("gui/{}/{}", operator_uid(), label),
+            format!("gui/{}/{}", current_uid(), label),
         ],
-        // v3 ships Linux and macOS only; a Windows host is refused at startup.
-        HostPlatform::Windows => Vec::new(),
+        HostPlatform::Windows => powershell_argv(&running_probe_script(label)),
     }
 }
 
@@ -122,20 +123,6 @@ pub fn coordinator_state(platform: HostPlatform, label: &str) -> CoordinatorStat
         }
         Some(String::from_utf8_lossy(&output.stdout).into_owned())
     })
-}
-
-/// The uid in the launchd per-user domain, read from the account's own home.
-///
-/// `libc::getuid` is an `unsafe` call and this crate forbids `unsafe`, so it
-/// is read from a file the account owns — which is the same uid `launchctl`
-/// will be asked about.
-fn operator_uid() -> u32 {
-    use std::os::unix::fs::MetadataExt;
-    std::env::var("HOME")
-        .ok()
-        .and_then(|home| std::fs::metadata(home).ok())
-        .map(|metadata| metadata.uid())
-        .unwrap_or(0)
 }
 
 /// Run the command.

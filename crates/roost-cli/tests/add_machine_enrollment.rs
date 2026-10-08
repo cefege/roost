@@ -138,24 +138,18 @@ fn a_declared_loopback_door_is_refused_because_another_machine_cannot_reach_it()
 }
 
 #[test]
-fn windows_is_refused_at_the_argument_and_the_refusal_explains_why() {
-    let refusal = EnrollmentPlatform::from_name("windows")
-        .expect_err("v3 has no Windows host install to enroll");
+fn every_offered_platform_parses_and_anything_else_is_refused_by_name() {
+    for (name, platform) in [
+        ("macos", EnrollmentPlatform::Macos),
+        ("linux", EnrollmentPlatform::Linux),
+        ("windows", EnrollmentPlatform::Windows),
+    ] {
+        assert_eq!(EnrollmentPlatform::from_name(name), Ok(platform));
+    }
+    let refusal = EnrollmentPlatform::from_name("freebsd").expect_err("freebsd is not offered");
     assert!(
-        refusal.contains("macos or linux"),
+        refusal.contains("macos, linux or windows"),
         "the refusal names what is accepted: {refusal}"
-    );
-    assert!(
-        refusal.contains("no Windows host install"),
-        "the refusal explains why rather than just rejecting: {refusal}"
-    );
-    assert_eq!(
-        EnrollmentPlatform::from_name("macos").expect("macos is offered"),
-        EnrollmentPlatform::Macos
-    );
-    assert_eq!(
-        EnrollmentPlatform::from_name("linux").expect("linux is offered"),
-        EnrollmentPlatform::Linux
     );
 }
 

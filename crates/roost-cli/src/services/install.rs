@@ -11,7 +11,8 @@
 use std::path::{Path, PathBuf};
 
 use roost_host::{
-    EnvSource, HostPlatform, ProtocolError, ProtocolResult, build_identity, roost_versions_dir,
+    EnvSource, HostPlatform, KEEPER_PROGRAM_FILE, ProtocolError, ProtocolResult,
+    ROOST_PROGRAM_FILE, build_identity, roost_versions_dir,
 };
 
 use crate::services::atomic_file::{InstalledFile, read_installed_file, write_durable};
@@ -27,14 +28,6 @@ pub const PROGRAM_MODE: u32 = 0o755;
 
 /// The directory name a release's executables live in, under the release root.
 const RELEASE_BIN_DIR: &str = "bin";
-
-/// The `roost` executable's file name.
-const ROOST_PROGRAM: &str = "roost";
-
-/// The keeper executable that ships beside `roost`. It is a separate binary so
-/// a coordinator deploy never disturbs a live PTY, and `roost keeper` refuses
-/// rather than running something else when it is absent.
-const KEEPER_PROGRAM: &str = "roost-keeper";
 
 /// What one install step did, so a caller can report it and a test can tell a
 /// no-op from a rewrite.
@@ -98,7 +91,7 @@ pub fn default_program_path(
     env: &dyn EnvSource,
     platform: HostPlatform,
 ) -> ProtocolResult<PathBuf> {
-    Ok(release_bin_dir(env, platform)?.join(ROOST_PROGRAM))
+    Ok(release_bin_dir(env, platform)?.join(ROOST_PROGRAM_FILE))
 }
 
 /// Install one program at `destination` with `mode`, and report whether
@@ -126,7 +119,7 @@ pub fn install_release_programs(
 ) -> Result<Vec<InstallOutcome>, InstallError> {
     let mut outcomes = vec![install_binary(
         roost_source,
-        &bin_dir.join(ROOST_PROGRAM),
+        &bin_dir.join(ROOST_PROGRAM_FILE),
         PROGRAM_MODE,
     )?];
     if let Some(keeper) = keeper_source
@@ -134,7 +127,7 @@ pub fn install_release_programs(
     {
         outcomes.push(install_binary(
             keeper,
-            &bin_dir.join(KEEPER_PROGRAM),
+            &bin_dir.join(KEEPER_PROGRAM_FILE),
             PROGRAM_MODE,
         )?);
     }
@@ -212,6 +205,6 @@ fn already_installed(path: &Path, bytes: &[u8], mode: u32) -> Result<bool, Insta
         InstalledFile::Present {
             bytes: present,
             mode: present_mode,
-        } => Ok(present == bytes && present_mode == mode),
+        } => Ok(present == bytes && crate::services::file_mode::modes_match(present_mode, mode)),
     }
 }

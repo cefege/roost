@@ -5,7 +5,8 @@
 //! `libc::kill` is an `unsafe` call and this crate forbids `unsafe`, and
 //! `std::process::Child::kill` is SIGKILL *and* needs the handle the waiting
 //! task owns — so the signal goes out through the `kill` program, the same way
-//! the service probe already sends one.
+//! the service probe already sends one. Windows has no signals: there every
+//! name ends the process tree through `taskkill`.
 
 /// What Ctrl-C in a terminal sends.
 pub const INTERRUPT: &str = "INT";
@@ -41,9 +42,15 @@ pub fn send(pid: u32, signal: &'static str) -> Result<(), SignalError> {
     if pid == 0 || i32::try_from(pid).is_err() {
         return Err(SignalError::NotASingleProcess { pid });
     }
+    #[cfg(unix)]
     let status = std::process::Command::new("kill")
         .arg(format!("-{signal}"))
         .arg(pid.to_string())
+        .status()
+        .map_err(|error| SignalError::NoSignalProgram(error.to_string()))?;
+    #[cfg(windows)]
+    let status = std::process::Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
         .status()
         .map_err(|error| SignalError::NoSignalProgram(error.to_string()))?;
     if status.success() {

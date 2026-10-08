@@ -11,8 +11,9 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+
+use crate::services::file_mode::{mode_of, set_mode, sync_directory};
 
 use crate::services::definition_text::staging_name;
 
@@ -49,7 +50,7 @@ pub fn read_installed_file(path: &Path) -> Result<InstalledFile, std::io::Error>
         }
         Err(error) => return Err(error),
     };
-    let mode = fs::metadata(path)?.permissions().mode() & 0o7777;
+    let mode = mode_of(&fs::metadata(path)?);
     Ok(InstalledFile::Present { bytes, mode })
 }
 
@@ -70,7 +71,7 @@ pub fn write_durable(path: &Path, bytes: &[u8], mode: u32) -> Result<(), std::io
     let (staged, mut file) = create_staging_file(path)?;
     let staged_result = file
         .write_all(bytes)
-        .and_then(|()| file.set_permissions(fs::Permissions::from_mode(mode)))
+        .and_then(|()| set_mode(&file, mode))
         .and_then(|()| file.sync_all());
     // The descriptor is closed before the rename, so the rename cannot land
     // while the content is still buffered.
@@ -92,9 +93,7 @@ pub fn write_durable(path: &Path, bytes: &[u8], mode: u32) -> Result<(), std::io
 /// The permission bits a staged file already has, so an install that finds the
 /// target correct does not rewrite it and a test can see the tree is untouched.
 pub fn current_mode(path: &Path) -> Option<u32> {
-    fs::metadata(path)
-        .ok()
-        .map(|metadata| metadata.permissions().mode() & 0o7777)
+    fs::metadata(path).ok().map(|metadata| mode_of(&metadata))
 }
 
 /// Create a staging file beside `target` and return its path with its open
@@ -128,8 +127,4 @@ fn create_staging_file(target: &Path) -> Result<(PathBuf, File), std::io::Error>
             format!("no staging name beside {} was free", target.display()),
         )
     }))
-}
-
-fn sync_directory(parent: &Path) -> Result<(), std::io::Error> {
-    File::open(parent)?.sync_all()
 }

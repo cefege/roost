@@ -65,9 +65,7 @@ pub fn open_paired_browser(platform: HostPlatform, link: &str) -> Result<(), Str
     let opener = match platform {
         HostPlatform::MacOs => "open",
         HostPlatform::Linux => "xdg-open",
-        HostPlatform::Windows => {
-            return Err("This platform has no browser opener in Roost v3.".to_string());
-        }
+        HostPlatform::Windows => "explorer.exe",
     };
     std::process::Command::new(opener)
         .arg(link)

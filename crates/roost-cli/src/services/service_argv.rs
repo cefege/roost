@@ -10,6 +10,7 @@
 
 use roost_host::HostPlatform;
 
+use crate::services::scheduled_task::{powershell_argv, register_and_start_script, stop_script};
 use crate::services::service_spec::ServiceTarget;
 use crate::status::service_probe::current_uid;
 
@@ -90,7 +91,7 @@ pub fn action_commands(
     match platform {
         HostPlatform::Linux => systemd_commands(action, target),
         HostPlatform::MacOs => launchd_commands(action, target),
-        HostPlatform::Windows => Vec::new(),
+        HostPlatform::Windows => scheduled_task_commands(action, target),
     }
 }
 
@@ -145,6 +146,29 @@ fn launchd_commands(action: ServiceAction, target: &ServiceTarget) -> Vec<Servic
         ServiceCommand::required(&["launchctl", "enable", job.as_str()]),
         ServiceCommand::tolerated(&["launchctl", "kickstart", "-k", job.as_str()]),
     ]
+}
+
+/// Task Scheduler reads the launcher afresh on every start, so there is no
+/// reload. A start registers the task (replacing any older one) and runs it; a
+/// stop that finds nothing running is the normal state of a first install.
+fn scheduled_task_commands(action: ServiceAction, target: &ServiceTarget) -> Vec<ServiceCommand> {
+    let as_command = |script: String, tolerate_failure: bool| ServiceCommand {
+        argv: powershell_argv(&script),
+        tolerate_failure,
+    };
+    let start = || {
+        as_command(
+            register_and_start_script(&target.label, &target.definition_path),
+            false,
+        )
+    };
+    let stop = || as_command(stop_script(&target.label), true);
+    match action {
+        ServiceAction::Reload => Vec::new(),
+        ServiceAction::Start => vec![start()],
+        ServiceAction::Restart => vec![stop(), start()],
+        ServiceAction::Stop => vec![stop()],
+    }
 }
 
 #[cfg(test)]

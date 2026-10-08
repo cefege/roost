@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! What an installed definition says, for both supported platforms and both
 //! roles. These are the bytes a service manager reads, so they are asserted as
 //! whole shapes rather than by grepping for a line that happens to be there.

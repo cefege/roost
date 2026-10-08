@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! `roost self-link` is idempotent, repairs a link that points somewhere else,
 //! and refuses to overwrite something that is not a link.
 //!

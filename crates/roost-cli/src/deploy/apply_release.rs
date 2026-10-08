@@ -15,7 +15,10 @@ use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use roost_host::{EnvSource, HostPlatform, MapEnv, ProcessEnv, roost_versions_dir};
+use roost_host::{
+    EnvSource, HostPlatform, KEEPER_PROGRAM_FILE, MapEnv, ProcessEnv, ROOST_PROGRAM_FILE,
+    roost_versions_dir,
+};
 
 use crate::command_error::CommandFailure;
 use crate::deploy::ssh::reject_control_characters;
@@ -24,15 +27,6 @@ use crate::services::service_environment::{ENV_HOME, ENV_PATH, default_service_p
 
 /// The directory name a release's executables live in, inside a release root.
 pub const RELEASE_BIN_DIR: &str = "bin";
-
-/// The executable name a release installs.
-pub const ROOST_PROGRAM: &str = "roost";
-
-/// The keeper executable beside it. A release without both is not a release: the
-/// keeper is a separate binary precisely so a coordinator deploy never disturbs
-/// a live PTY, and a `roost` beside no `roost-keeper` describes a keeper this
-/// build does not have.
-pub const KEEPER_PROGRAM: &str = "roost-keeper";
 
 /// The directory releases are installed under, from the installed definition when
 /// there is one.
@@ -76,7 +70,7 @@ pub fn install_release(staged_bin: &Path, bin_dir: &Path) -> Result<(), String> 
             staged_bin.display()
         ));
     }
-    for program in [ROOST_PROGRAM, KEEPER_PROGRAM] {
+    for program in [ROOST_PROGRAM_FILE, KEEPER_PROGRAM_FILE] {
         if !staged_bin.join(program).is_file() {
             return Err(format!(
                 "the staged release ships no {program}; a release without it is not a release"
@@ -107,7 +101,7 @@ pub fn install_release(staged_bin: &Path, bin_dir: &Path) -> Result<(), String> 
         ));
     }
     let _ = std::fs::remove_dir_all(&retired);
-    for program in [ROOST_PROGRAM, KEEPER_PROGRAM] {
+    for program in [ROOST_PROGRAM_FILE, KEEPER_PROGRAM_FILE] {
         set_executable(&bin_dir.join(program))?;
     }
     // The staged tree has been moved into place, so the staging directory it
@@ -124,8 +118,7 @@ pub fn install_release(staged_bin: &Path, bin_dir: &Path) -> Result<(), String> 
 }
 
 fn set_executable(path: &Path) -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(PROGRAM_MODE))
+    crate::services::file_mode::set_path_mode(path, PROGRAM_MODE)
         .map_err(|error| format!("cannot make {} executable: {error}", path.display()))
 }
 

@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! The bundle half of `roost deploy`, seen from the machine that receives it.
 //!
 //! The property is that a machine reached through `roost __remote-apply` — the

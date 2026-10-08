@@ -31,7 +31,7 @@ use roost_host::coord_config_loader::{
     ENV_WEB_PUBLIC_URL,
 };
 use roost_host::{DatabaseLocation, EnvSource, HostPlatform, ProcessEnv, normalize_https_origin};
-use roost_platform::machine_join_command;
+use roost_platform::{machine_join_command, machine_join_command_powershell};
 use roost_worker::runtime::boot::ENV_COORDINATOR_URL;
 
 use crate::command_error::CommandFailure;
@@ -58,33 +58,29 @@ pub enum EnrollmentPlatform {
     Macos,
     /// Linux: a systemd user unit.
     Linux,
+    /// Windows: a logon Scheduled Task, enrolled from PowerShell.
+    Windows,
 }
 
 impl EnrollmentPlatform {
     /// The names `--platform` accepts, and what each is called in the printed
     /// line.
-    pub const NAMES: [(&'static str, Self); 2] = [("macos", Self::Macos), ("linux", Self::Linux)];
+    pub const NAMES: [(&'static str, Self); 3] = [
+        ("macos", Self::Macos),
+        ("linux", Self::Linux),
+        ("windows", Self::Windows),
+    ];
 
     /// Parse a `--platform` value, refusing anything else by name.
     ///
-    /// This is clap's value parser rather than a derived enum on purpose. The
-    /// refusal is the answer to "can I enroll a Windows machine?", and v2's
-    /// usage line advertised `windows` on a product that has no Windows host
-    /// install: an operator who typed it got a list of three and a token that
-    /// could not be spent. Here the message says that v3 ships Linux and macOS
-    /// only, and it is this function's text rather than a generated one.
+    /// This is clap's value parser rather than a derived enum so the refusal
+    /// names every accepted value in this function's own words.
     pub fn from_name(value: &str) -> Result<Self, String> {
         Self::NAMES
             .iter()
             .find(|(name, _)| *name == value)
             .map(|(_, platform)| *platform)
-            .ok_or_else(|| {
-                format!(
-                    "--platform must be macos or linux, not {value:?}. Roost v3 has no Windows \
-                     host install, so a Windows machine cannot be enrolled from here; a browser \
-                     on Windows connects to the coordinator as a client."
-                )
-            })
+            .ok_or_else(|| format!("--platform must be macos, linux or windows, not {value:?}."))
     }
 
     /// What the printed line calls the machine, in the words an operator
@@ -93,22 +89,24 @@ impl EnrollmentPlatform {
         match self {
             EnrollmentPlatform::Macos => "Mac",
             EnrollmentPlatform::Linux => "Linux machine",
+            EnrollmentPlatform::Windows => "Windows PC",
         }
     }
 }
 
-/// `roost add-machine --platform macos|linux [--label NAME]`.
+/// `roost add-machine --platform macos|linux|windows [--label NAME]`.
 #[derive(Debug, Args)]
 #[command(
     about = "Mint a one-shot enrollment grant and print the command that spends it",
     long_about = "Mints a one-shot worker grant and prints a copy-pasteable enrollment command. \
                   Run it on the coordinator. The URL the new machine dials is read from this \
-                  host's installed coordinator service definition; Roost derives none. \
-                  Windows is not offered: v3 ships Linux and macOS only."
+                  host's installed coordinator service definition; Roost derives none. A macOS \
+                  or Linux machine pastes the line into a shell; a Windows PC pastes it into a \
+                  non-elevated PowerShell."
 )]
 pub struct AddMachineArgs {
     /// The operating system the new machine runs.
-    #[arg(long, value_parser = EnrollmentPlatform::from_name, value_name = "macos|linux")]
+    #[arg(long, value_parser = EnrollmentPlatform::from_name, value_name = "macos|linux|windows")]
     pub platform: EnrollmentPlatform,
     /// The name this machine appears under in the fleet. Unset, the coordinator
     /// names it from the key the new machine generates.
@@ -138,7 +136,10 @@ pub async fn run(args: &AddMachineArgs) -> Result<ExitCode, CommandFailure> {
 
     println!("Run this on the new {}:", args.platform.machine_label());
     println!();
-    println!("{}", enrollment_command(&coordinator_url, &grant, &label));
+    println!(
+        "{}",
+        enrollment_command(args.platform, &coordinator_url, &grant, &label)
+    );
     println!();
     eprintln!(
         "The grant is one-shot and is accepted for 24 hours. It is also written to the shell \
@@ -152,8 +153,20 @@ pub async fn run(args: &AddMachineArgs) -> Result<ExitCode, CommandFailure> {
 ///
 /// The only caller of the bearer in the whole crate. Everything else in this
 /// module handles a grant as an opaque value.
-pub fn enrollment_command(coordinator_url: &str, grant: &OneShotGrant, label: &str) -> String {
-    machine_join_command(coordinator_url, grant.expose(), label)
+pub fn enrollment_command(
+    platform: EnrollmentPlatform,
+    coordinator_url: &str,
+    grant: &OneShotGrant,
+    label: &str,
+) -> String {
+    match platform {
+        EnrollmentPlatform::Macos | EnrollmentPlatform::Linux => {
+            machine_join_command(coordinator_url, grant.expose(), label)
+        }
+        EnrollmentPlatform::Windows => {
+            machine_join_command_powershell(coordinator_url, grant.expose(), label)
+        }
+    }
 }
 
 /// The label recorded against the grant, which the coordinator shows while the
