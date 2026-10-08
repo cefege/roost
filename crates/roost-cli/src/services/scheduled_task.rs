@@ -78,6 +78,9 @@ pub fn launcher_program(text: &str) -> Option<PathBuf> {
 
 /// Register (or replace) the logon task for `label` running `launcher`, then
 /// start it now.
+///
+/// The user is read from the process token, not `USERDOMAIN`: over an ssh
+/// logon `USERDOMAIN` is `WORKGROUP`, which Task Scheduler cannot map to a SID.
 pub fn register_and_start_script(label: &str, launcher: &Path) -> String {
     let argument = powershell_single_quote(&format!(
         "--headless cmd.exe /d /c \"{}\"",
@@ -86,9 +89,10 @@ pub fn register_and_start_script(label: &str, launcher: &Path) -> String {
     let task = task_selector(label);
     format!(
         "$ErrorActionPreference = 'Stop'\n\
+         $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name\n\
          $action = New-ScheduledTaskAction -Execute \"$env:SystemRoot\\System32\\conhost.exe\" -Argument {argument}\n\
-         $trigger = New-ScheduledTaskTrigger -AtLogOn -User \"$env:USERDOMAIN\\$env:USERNAME\"\n\
-         $principal = New-ScheduledTaskPrincipal -UserId \"$env:USERDOMAIN\\$env:USERNAME\" -LogonType Interactive -RunLevel Limited\n\
+         $trigger = New-ScheduledTaskTrigger -AtLogOn -User $user\n\
+         $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited\n\
          $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew\n\
          Register-ScheduledTask {task} -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null\n\
          Start-ScheduledTask {task}\n"
