@@ -189,12 +189,22 @@ fn bmp_emoji_cluster_has_a_two_column_box_between_narrow_runs() {
     let heart = "❤️";
     let row = row_of(vec![run("a"), atom(heart, 2), run("b")]);
     let element = paint(&row, Some(&[FindHit { col: 2, len: 1 }]), Some(2));
-    assert_eq!(painted_pieces(&element), pieces(&[
-        ("a", ""), (heart, "cell-find-hit cell-find-hit-active"), ("b", "")
-    ]));
+    assert_eq!(
+        painted_pieces(&element),
+        pieces(&[
+            ("a", ""),
+            (heart, "cell-find-hit cell-find-hit-active"),
+            ("b", "")
+        ])
+    );
     assert_eq!(piece_start_columns(&element), vec![0, 1, 3]);
     assert_eq!(painted_columns(&element), 4);
-    assert!(element.children()[1].attribute("style").unwrap().contains("width:2ch"));
+    assert!(
+        element.children()[1]
+            .attribute("style")
+            .unwrap()
+            .contains("width:2ch")
+    );
 }
 
 #[test]
