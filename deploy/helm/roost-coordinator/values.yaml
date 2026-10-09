@@ -97,3 +97,17 @@ logs:
   persistence:
     enabled: false
     storage: 1Gi
+agentHost:
+  enabled: false
+  image:
+    repository: ghcr.io/cefege/roost-agent-host
+    tag: ""
+    pullPolicy: IfNotPresent
+  storage: 5Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi

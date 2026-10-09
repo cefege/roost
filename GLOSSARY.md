@@ -67,11 +67,11 @@ wins.
   `crates/roost-coord/src/events/append_transaction.rs`.
 
 - **Sync stream** — one long-lived protobuf WebSocket that multiplexes exactly
-  seven generation domains: terminal, workers, workspaces, tasks, MCP, pair, and
-  audit. Audit is the only lazy domain. A missing or extra generation is a
-  protocol mismatch, so a tab from an incompatible deployment must reload. Sync
-  remains the authenticated metadata/control plane and terminal fallback even
-  while an elected direct carrier transports a session's cells and input.
+  eight generation domains: terminal, workers, workspaces, tasks, MCP, pair,
+  audit, and agent. Audit is the only lazy domain. A missing or extra generation
+  is a protocol mismatch, so a tab from an incompatible deployment must reload.
+  Sync remains the authenticated metadata/control plane and terminal fallback
+  even while an elected direct carrier transports a session's cells and input.
   Source: `protocol/proto/roost/v1/sync.proto`, `crates/roost-coord/src/sync_ws/`,
   `crates/roost-client-core/src/sync/`.
 
@@ -145,8 +145,15 @@ wins.
 - **agent CLI** — an arbitrary terminal program, such as `omp`, Claude Code, or
   Codex, launched inside a normal shell PTY. Roost transports its terminal
   input and output but does not interpret its transcript, tools, or approval
-  prompts. There is no structured agent session type; the only agent API is
-  the volatile status surface (Get/List/Wait) and the fenced one-shot prompt.
+  prompts. The built-in agent is a separate Roost-owned conversation type.
+
+- **built-in agent** — Roost's pi-durable coding agent hosted by `agent-host/`.
+  It owns durable conversations and provider credentials; its coding tools
+  execute on the selected worker, starting in the chosen folder.
+
+- **agent tunnel** — the authenticated internal WebSocket and worker-link
+  relay carrying opaque pi-env daemon bytes between the agent host and a
+  worker. Roost does not interpret the daemon protocol.
 
 - **agent runtime state** — what a coding agent inside a shell PTY is doing:
   `working`, `blocked` (waiting on the user), or `idle`. Volatile metadata on a

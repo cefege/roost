@@ -66,6 +66,7 @@ container image built from `Dockerfile` and the Helm chart in
 | CLI | `roost-cli` (binary `roost`) | Service entry points (`coord`, `worker`, `keeper`), `quickstart`, `join`, `add-machine`, `add-browser`, `status`, `doctor`, `logs`, `update`, `deploy`, `push` (journaled fleet rollout), `api` (28 headless verbs incl. `agent-*`, `ui`, `tasks`), `skill` (prints the embedded agent skill), `db-to-postgres`, `db-to-sqlite`, `import-v2`. |
 | Protocol | `roost-proto`, `roost-protocol` | `roost-proto`: protobuf messages and Connect stubs generated from `protocol/proto/roost/v1/` (the only protobuf runtime). `roost-protocol`: I/O-free wire logic — the one event fold, cell model, chunk assembly, viewport geometry, view registry, peer packet framing, layout documents. Builds for wasm32 and native. |
 | Host/platform | `roost-host`, `roost-platform`, `roost-observability` | `ROOST_*` config and service names; path/shell conventions; the JSON log line `roost status`/`roost doctor` parse. |
+| Built-in agent host | `agent-host/` | The Roost-owned pi-durable conversation runtime and provider credentials. Its tool processes run on a selected worker through the coordinator's opaque agent tunnel; its SQLite state and durable conversation store share an agent-host PVC. |
 
 `roost-client-core` is UI-free: no DOM type, no async runtime I/O, no timer.
 `roost-web` calls `ClientCore::handle` from exactly one place
@@ -87,8 +88,8 @@ Windows is a browser client only; no Windows host binaries are published.
 | Terminal WebRTC | data channels `roost-terminal-control-v1`, `-data-v1`, `-history-v1` | browser ↔ worker (DTLS/SCTP over UDP) | `crates/roost-worker/src/peer/`; signaling in `crates/roost-coord/src/terminal_direct/` | `protocol/spec/direct-terminal.md` |
 | Keeper socket | Unix-domain socket, length-prefixed frames, channel id per frame | worker ↔ keeper | `crates/roost-keeper/src/server.rs`, `crates/roost-worker/src/keeper_pool/` | `protocol/spec/keeper.md` |
 
-Sync multiplexes exactly seven generation domains — terminal, workers,
-workspaces, tasks, MCP, pair, audit (`SyncDomain::ALL` in
+Sync multiplexes exactly eight generation domains — terminal, workers,
+workspaces, tasks, MCP, pair, audit, and agent (`SyncDomain::ALL` in
 `crates/roost-client-core/src/sync/link.rs`, checked against
 `protocol/proto/roost/v1/sync.proto`). Delivery is ACK-windowed per socket
 (`crates/roost-coord/src/sync_ws/ack_window.rs`).
@@ -200,9 +201,10 @@ Normative detail lives in `protocol/spec/terminal-stream.md` and
   as SGR-1006 or legacy X10 (`crates/roost-web-terminal/src/mouse_forward/`).
   Alternate-screen occupancy alone never captures the mouse.
 
-Every session is a shell PTY. Agent CLIs (`omp`, Claude Code, Codex) run inside
-it. Roost never spawns, supervises, or owns an agent process, conversation,
-transcript, tool call, or approval model.
+Every terminal session is a shell PTY. Agent CLIs (`omp`, Claude Code, Codex)
+still run inside it. Separately, Roost's one built-in agent is hosted by
+`agent-host/`: it owns durable conversations and tool calls, while the tools
+execute on a selected worker through the agent tunnel.
 
 ## Terminal fidelity
 

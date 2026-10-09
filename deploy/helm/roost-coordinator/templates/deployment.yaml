@@ -29,8 +29,10 @@ spec:
       labels:
         {{- include "roost.selectorLabels" . | nindent 8 }}
       annotations:
+        kubectl.kubernetes.io/default-container: coordinator
         # Roll the pod when the database settings change.
         checksum/database: {{ toJson .Values.database | sha256sum }}
+        checksum/agent-host: {{ .Values.agentHost.enabled | ternary (include (print $.Template.BasePath "/agent-host-secret.yaml") . | sha256sum) "disabled" }}
     spec:
       serviceAccountName: {{ include "roost.fullname" . }}
       automountServiceAccountToken: false
@@ -67,6 +69,15 @@ spec:
               value: "0.0.0.0:4113"
             - name: ROOST_TRUST_PROXY
               value: {{ ternary "1" "0" .Values.trustProxy | quote }}
+            {{- if .Values.agentHost.enabled }}
+            - name: ROOST_AGENT_HOST_URL
+              value: "http://127.0.0.1:4115"
+            - name: ROOST_AGENT_HOST_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "roost.fullname" . }}-agent-host
+                  key: ROOST_AGENT_HOST_SECRET
+            {{- end }}
             {{- if .Values.trustedProxyCidrs }}
             - name: ROOST_TRUSTED_PROXY_CIDRS
               value: {{ join "," .Values.trustedProxyCidrs | quote }}
@@ -129,6 +140,37 @@ spec:
             - name: logs
               mountPath: /var/log/roost
             {{- end }}
+        {{- if .Values.agentHost.enabled }}
+        - name: agent-host
+          image: "{{ .Values.agentHost.image.repository }}:{{ .Values.agentHost.image.tag | default .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.agentHost.image.pullPolicy }}
+          env:
+            - name: ROOST_AGENT_HOST_BIND
+              value: "127.0.0.1:4115"
+            - name: ROOST_AGENT_HOST_DATA_DIR
+              value: /var/lib/roost-agent
+            - name: HOME
+              value: /var/lib/roost-agent
+            - name: ROOST_COORDINATOR_INTERNAL_URL
+              value: ws://127.0.0.1:4113
+            - name: ROOST_AGENT_HOST_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "roost.fullname" . }}-agent-host
+                  key: ROOST_AGENT_HOST_SECRET
+          resources:
+            {{- toYaml .Values.agentHost.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: agent-host-data
+              mountPath: /var/lib/roost-agent
+            - name: agent-tmp
+              mountPath: /tmp
+        {{- end }}
       volumes:
         # Scratch only: with a Postgres URL nothing durable is written here.
         - name: tmp
@@ -139,4 +181,11 @@ spec:
         - name: logs
           persistentVolumeClaim:
             claimName: {{ include "roost.fullname" . }}-logs
+        {{- end }}
+        {{- if .Values.agentHost.enabled }}
+        - name: agent-host-data
+          persistentVolumeClaim:
+            claimName: {{ include "roost.fullname" . }}-agent-host
+        - name: agent-tmp
+          emptyDir: {}
         {{- end }}

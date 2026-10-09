@@ -61,3 +61,6 @@ postgres:
 logs:
   persistence:
     enabled: true
+
+agentHost:
+  enabled: true

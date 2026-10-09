@@ -126,3 +126,19 @@ jobs:
           tool: cargo-nextest
       - name: test
         run: cargo nextest run --workspace --no-fail-fast
+
+  agent-host:
+    name: agent host
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+        working-directory: agent-host
+      - run: npm run check
+        working-directory: agent-host
+      - run: npm test
+        working-directory: agent-host
