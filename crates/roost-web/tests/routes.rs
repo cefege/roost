@@ -9,6 +9,7 @@
 //! Mirrors `crates/roost-web/src/routes.rs`.
 
 use roost_web::Route;
+use roost_web::routes::agent_href;
 
 #[test]
 fn the_root_is_the_workbench_and_a_trailing_slash_is_the_same_page() {
@@ -99,6 +100,29 @@ fn browse_is_optional_too_and_never_guesses_a_worker() {
         Route::parse("/browse/aa11"),
         Route::Browse {
             worker_fp: Some("aa11".to_string())
+        }
+    );
+}
+
+#[test]
+fn agent_route_round_trips_and_rejects_extra_segments() {
+    assert_eq!(
+        Route::parse("/a/abc"),
+        Route::Agent {
+            conversation_id: "abc".to_string()
+        }
+    );
+    assert_eq!(
+        Route::parse("/a/abc/x"),
+        Route::Unknown {
+            path: "/a/abc/x".to_string()
+        }
+    );
+    assert_eq!(agent_href("abc"), "/a/abc");
+    assert_eq!(
+        Route::parse(&agent_href("abc")),
+        Route::Agent {
+            conversation_id: "abc".to_string()
         }
     );
 }

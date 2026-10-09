@@ -20,7 +20,7 @@ use crate::components::browse::toolbar::BrowseToolbar;
 use crate::components::browse::unavailable::MachineUnavailable;
 use crate::components::browse::view::PickerReading;
 use crate::components::context_menu::AnchoredMenuPos;
-use crate::components::md::{Button, Surface, SurfaceRadius};
+use crate::components::md::{Button, ButtonVariant, Surface, SurfaceRadius};
 use crate::pump::Pump;
 
 /// The page's content for the machine in `worker_fp`.
@@ -62,6 +62,8 @@ pub fn PickerRegions(
     let on_close_crumb_menu = c.on_close_crumb_menu;
     let on_drill = c.on_drill;
     let on_retry = c.on_retry;
+    let agent_enabled = c.agent_enabled;
+    let on_start_agent = c.on_start_agent;
     let on_open_here = c.on_open_here;
     let on_go_home = c.on_go_home;
     let on_new_folder_name = c.on_new_folder_name;
@@ -140,8 +142,20 @@ pub fn PickerRegions(
                 }
             }
             Surface { class: "df-browse-actions", level: 1, radius: SurfaceRadius::None,
+                if agent_enabled {
+                    Button {
+                        class: "df-browse-open",
+                        variant: ButtonVariant::Default,
+                        icon: Some("smart_toy".to_owned()),
+                        "data-testid": "browse-start-agent",
+                        disabled: !view.scoped,
+                        onclick: move |_| on_start_agent.call(()),
+                        "Start agent here"
+                    }
+                }
                 Button {
                     class: "df-browse-open",
+                    variant: if agent_enabled { ButtonVariant::Outline } else { ButtonVariant::Default },
                     icon: Some("terminal".to_owned()),
                     "data-testid": "browse-open",
                     disabled: !view.scoped,

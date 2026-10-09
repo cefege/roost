@@ -1,8 +1,6 @@
-//! The folder row's right-click menu: "Rename…" names the folder's workspace
-//! (creating it, with the folder's sessions attached, on the first rename),
-//! then the machine's OS hand-offs (Screen sharing / Remote Desktop). Ports
-//! `apps/web/src/components/sidebar/FolderRowContextMenu.tsx`; `FolderRow`
-//! opens it. The rename commits in `RenameDialogHost`.
+//! The folder row's right-click menu: rename the workspace, launch a terminal
+//! or built-in agent in the folder, or hand off to the machine's OS actions.
+//! The rename commits in `RenameDialogHost`; `FolderRow` opens this menu.
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
@@ -12,10 +10,13 @@ use roost_client_core::store::sidebar::folder_groups::workspace_for_folder;
 
 use super::context_menu_frame::ContextMenuFrame;
 use super::machine_action_items::MachineActionItems;
+use crate::components::agent_chat::launch_agent;
+use crate::components::browse::listing;
 use crate::components::context_menu::CtxMenuItem;
 use crate::machine_actions::MachineMenuKind;
 use crate::platform::BrowserWorkerPaths;
 use crate::pump::use_store;
+use crate::router_state::use_navigate;
 
 /// What the folder menu acts on, snapshotted when it opened.
 #[derive(Debug, Clone, PartialEq)]
@@ -38,6 +39,40 @@ pub struct FolderMenuTarget {
 #[component]
 pub fn FolderRowContextMenu(target: FolderMenuTarget, on_close: EventHandler<()>) -> Element {
     let pump = use_store();
+    let navigate = use_navigate();
+    let agent_enabled = pump
+        .core()
+        .borrow()
+        .store()
+        .coord_identity
+        .as_ref()
+        .is_some_and(|identity| identity.builtin_agent_enabled);
+    let agent_worker_fp = target.worker_fp.clone();
+    let agent_folder = target.folder_path.clone();
+    let agent_pump = pump.clone();
+    let agent_navigate = navigate;
+    let on_new_agent = move |_: MouseEvent| {
+        on_close.call(());
+        launch_agent(
+            agent_pump.clone(),
+            agent_worker_fp.clone(),
+            agent_folder.clone(),
+            agent_navigate,
+        );
+    };
+    let terminal_worker_fp = target.worker_fp.clone();
+    let terminal_folder = target.folder_path.clone();
+    let terminal_pump = pump.clone();
+    let terminal_navigate = navigate;
+    let on_new_terminal = move |_: MouseEvent| {
+        on_close.call(());
+        listing::launch_terminal(
+            terminal_pump.clone(),
+            terminal_worker_fp.clone(),
+            terminal_folder.clone(),
+            terminal_navigate,
+        );
+    };
     let machine_fp = target.worker_fp.clone();
     let rename = move |_| {
         let current_title = {
@@ -75,6 +110,10 @@ pub fn FolderRowContextMenu(target: FolderMenuTarget, on_close: EventHandler<()>
             test_id: "folder-context-menu",
             on_close,
             CtxMenuItem { testid: "folder-ctx-rename", onclick: rename, "Rename…" }
+            if agent_enabled {
+                CtxMenuItem { testid: "folder-ctx-new-agent", onclick: on_new_agent, "New agent here" }
+            }
+            CtxMenuItem { testid: "folder-ctx-new-terminal", onclick: on_new_terminal, "New terminal here" }
             MachineActionItems {
                 worker_fp: machine_fp,
                 menu: MachineMenuKind::Folder,

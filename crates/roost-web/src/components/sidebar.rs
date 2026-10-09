@@ -3,6 +3,7 @@
 //! Ports `apps/web/src/components/sidebar/`; `AppShell` mounts `SidebarRoot`.
 //! The state and derivations are `roost_client_core::store::sidebar`.
 
+pub mod agent_conversation_row;
 pub mod all_view;
 pub mod context_menu_frame;
 #[cfg(target_arch = "wasm32")]

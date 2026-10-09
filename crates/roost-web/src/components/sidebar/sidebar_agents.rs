@@ -1,8 +1,7 @@
-//! The Agents panel: open sessions with a known coding-agent status, grouped
-//! under the Folders panel's folder order and ordered by attention, each a
-//! list row linking to its terminal. Ports
-//! `apps/web/src/components/sidebar/SidebarAgents.tsx`; `SidebarRoot` renders
-//! it. The grouping is `store::sidebar::agents_projection`.
+//! The Agents panel: built-in agent conversations above open terminal sessions
+//! with a known coding-agent status. Terminal sessions follow the Folders
+//! panel's folder order and attention order; both row types link to their
+//! respective surfaces.
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
@@ -13,6 +12,7 @@ use roost_client_core::store::sidebar::agents_projection::project_sidebar_agent_
 use roost_client_core::store::sidebar::documents::store_navigation_documents;
 use roost_client_core::store::sidebar::folder_groups::build_folder_groups;
 
+use super::agent_conversation_row::AgentConversationRow;
 use crate::components::agents::agent_status_indicator::AgentStatusIndicator;
 use crate::components::md::{EmptyState, List, ListRow, StatusDot};
 use crate::components::notifications::notify_target::{ring_attribute, use_notify_target};
@@ -28,7 +28,7 @@ pub fn SidebarAgents(query: String) -> Element {
     let path = use_location();
     let navigate = use_navigate();
     let notify_target = use_notify_target();
-    let (groups, active_session_id) = {
+    let (groups, active_session_id, agent_conversation_ids, active_agent_id) = {
         let core = pump.core();
         let core = core.borrow();
         let store = core.store();
@@ -39,12 +39,52 @@ pub fn SidebarAgents(query: String) -> Element {
             project_sidebar_agent_groups(store, &BrowserWorkerPaths, &documents, &query, &folders);
         let active = active_session_for_path(store, &BrowserWorkerPaths, &path.read())
             .map(|session| session.id.to_string());
-        (groups, active)
+        let needle = normalize_navigation_search_query(&query);
+        let mut conversations: Vec<_> = store
+            .agent_chat
+            .conversations
+            .values()
+            .filter(|conversation| {
+                needle.is_empty()
+                    || [
+                        conversation.title.as_str(),
+                        conversation.worker_label.as_str(),
+                        conversation.cwd.as_str(),
+                        conversation
+                            .model
+                            .as_ref()
+                            .map_or("", |model| model.model_id.as_str()),
+                    ]
+                    .iter()
+                    .any(|value| normalize_navigation_search_query(value).contains(needle.as_str()))
+            })
+            .collect();
+        conversations.sort_by(|left, right| {
+            let running_order =
+                |conversation: &roost_protocol::wire::agent_chat::ConversationSummary| {
+                    u8::from(
+                        conversation.run_state
+                            != roost_protocol::wire::agent_chat::AgentRunState::Running,
+                    )
+                };
+            running_order(left)
+                .cmp(&running_order(right))
+                .then_with(|| right.updated_ms.cmp(&left.updated_ms))
+        });
+        let agent_conversation_ids: Vec<String> = conversations
+            .into_iter()
+            .map(|conversation| conversation.id.clone())
+            .collect();
+        let active_agent = match crate::routes::Route::parse(&path.read()) {
+            crate::routes::Route::Agent { conversation_id } => Some(conversation_id),
+            _ => None,
+        };
+        (groups, active, agent_conversation_ids, active_agent)
     };
     let filter_active = !normalize_navigation_search_query(&query).is_empty();
     rsx! {
         section { class: "workbench-sidebar-agents", "data-testid": "sidebar-agents", "aria-label": "Agents",
-            if groups.is_empty() {
+            if groups.is_empty() && agent_conversation_ids.is_empty() {
                 if filter_active {
                     EmptyState { icon: "search_off", title: "No matching agents", supporting: "Try a different filter." }
                 } else {
@@ -52,6 +92,25 @@ pub fn SidebarAgents(query: String) -> Element {
                         icon: "smart_toy",
                         title: "No active agents",
                         supporting: "Active coding agents appear here while their terminal sessions remain open.",
+                    }
+                }
+            }
+            if !agent_conversation_ids.is_empty() {
+                section {
+                    class: "workbench-sidebar-agents__group",
+                    "data-testid": "sidebar-agent-conversations",
+                    "aria-label": "Roost agent",
+                    h3 { class: "workbench-sidebar-agents__group-title",
+                        span { class: "workbench-sidebar-agents__group-name", "Roost agent" }
+                    }
+                    List { class: "workbench-sidebar-agents__list",
+                        for conversation_id in agent_conversation_ids {
+                            AgentConversationRow {
+                                key: "{conversation_id}",
+                                conversation_id: conversation_id.clone(),
+                                selected: active_agent_id.as_deref() == Some(conversation_id.as_str()),
+                            }
+                        }
                     }
                 }
             }

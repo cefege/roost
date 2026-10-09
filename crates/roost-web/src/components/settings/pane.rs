@@ -10,6 +10,7 @@
 use dioxus::prelude::*;
 
 use super::agent_launcher::AgentLauncherPane;
+use super::agent_models::AgentModelsPane;
 use super::attachments::AttachmentsPane;
 use super::audit::AuditLogPane;
 use super::connection::ConnectionPane;
@@ -30,6 +31,7 @@ pub fn SettingsPane(id: &'static str) -> Element {
             "machines" => rsx! { MachinesPane {} },
             "connection" => rsx! { ConnectionPane {} },
             "devices" => rsx! { DevicesPane {} },
+            "models" => rsx! { AgentModelsPane {} },
             "launcher" => rsx! { AgentLauncherPane {} },
             "mcp" => rsx! { McpPane {} },
             "voice" => rsx! { VoicePane {} },

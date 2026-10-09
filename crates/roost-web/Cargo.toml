@@ -35,6 +35,7 @@ futures-util = { workspace = true }
 # the derives and the codec are product code.
 serde = { workspace = true }
 serde_json = { workspace = true }
+pulldown-cmark = { workspace = true, features = ["html"] }
 qrcode = { workspace = true }
 
 thiserror = { workspace = true }
