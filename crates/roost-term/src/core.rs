@@ -4,7 +4,7 @@
 //! This trait is the whole contract between a terminal emulator and its two
 //! readers: the frame emitter, and the worker's query-reply lane and
 //! unhandled-sequence diagnostics. It exists so the emulator can be replaced — it was a patched
-//! WebAssembly build of a Zig library and is now `alacritty_terminal` — without
+//! WebAssembly build of a Zig library, then `alacritty_terminal`, and is now `rio-vt` — without
 //! the emitter, the wire format, or a single test noticing. The method names
 //! are the v2 WebAssembly ABI's, deliberately: that ABI is what the emitter's
 //! behaviour, its conformance vectors and its incident history are written
@@ -56,8 +56,6 @@ pub struct CellData {
     pub link_uri: Option<String>,
     /// Identity of the link run this cell belongs to.
     pub link_key: Option<String>,
-    /// OSC 133 semantic marks stored on the emulator cell.
-    pub semantic_mark: u8,
 }
 
 impl Default for CellData {
@@ -73,7 +71,6 @@ impl Default for CellData {
             bg_rgb: None,
             link_uri: None,
             link_key: None,
-            semantic_mark: 0,
         }
     }
 }
@@ -163,6 +160,16 @@ pub trait TerminalCore {
 
     /// One retained line's cell at `col`, addressed newest-first.
     fn scrollback_cell(&self, offset: usize, col: u16) -> CellData;
+
+    /// One viewport row's OSC 133 row-mark bits (`roost_protocol::cell::row_mark`).
+    fn viewport_row_mark(&self, _row: u16) -> u8 {
+        0
+    }
+
+    /// One retained line's OSC 133 row-mark bits, addressed newest-first.
+    fn scrollback_row_mark(&self, _offset: usize) -> u8 {
+        0
+    }
 
     /// Whether a viewport row changed since the last [`TerminalCore::clear_dirty`].
     fn is_dirty_row(&self, row: u16) -> bool;

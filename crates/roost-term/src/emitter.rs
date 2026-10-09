@@ -119,7 +119,13 @@ pub fn next_cell_frame(
             // reach the client and its history would splice a hole. Those
             // lines are gone from the ring either way; an honest reframe is the
             // only truthful frame left.
-            || sb_dropped > state.last_scrollback_total);
+            || sb_dropped > state.last_scrollback_total
+            // More lines left the ring than reached it: `CSI 3J` or RIS
+            // cleared history the client still holds. The core counts those
+            // lines as evicted, so the total holds still and only this
+            // comparison sees the rows the client must drop.
+            || sb_dropped.saturating_sub(state.sb_dropped)
+                > mono_total.saturating_sub(state.last_scrollback_total));
 
     let live_delta_exceeds_cap = !force
         && state.sent_full

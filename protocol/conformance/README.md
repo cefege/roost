@@ -102,6 +102,6 @@ moved without its bytes moving is a behaviour change and deserves a commit
 message that says so.
 
 The runner is `crates/roost-term/tests/terminal_core_vectors.rs`; it drives
-`AlacrittyCore` and asserts every field of `expected`, then prints the
+`RioCore` and asserts every field of `expected`, then prints the
 outstanding divergences so a run cannot be read as "everything matches v2"
 when it does not.

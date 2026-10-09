@@ -20,7 +20,7 @@ use roost_protocol::viewport::{TerminalGeometry, is_terminal_geometry};
 use roost_protocol::wire::brand::{ChannelId, SessionId, TraceId, WorkerFp};
 use roost_protocol::wire::event::SessionEvent;
 use roost_protocol::wire::session::SessionKind;
-use roost_term::{AlacrittyCore, CellEmitState, TerminalCore};
+use roost_term::{CellEmitState, RioCore, TerminalCore};
 
 use crate::channel_fsm::ChannelEvent;
 use crate::event_store::{DurableEventKind, Reservation};
@@ -253,7 +253,7 @@ async fn spawn_claimed(
             return Err(SpawnRefusal::TerminalCoreCapacity(refusal));
         }
     };
-    let core = AlacrittyCore::new(cols, rows);
+    let core = RioCore::new(cols, rows);
     if core.cols() != cols || core.rows() != rows {
         return Err(SpawnRefusal::CoreGeometryDrift);
     }

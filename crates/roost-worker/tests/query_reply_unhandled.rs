@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_host::HostPlatform;
-use roost_term::{AlacrittyCore, CellEmitState};
+use roost_term::{CellEmitState, RioCore};
 use roost_worker::event_store::{DurableEventKind, Store};
 use roost_worker::session::history::UNHANDLED_SEQ_MAX;
 use roost_worker::session::ring::ScrollbackRing;
@@ -42,7 +42,7 @@ fn record() -> SessionRecord {
             spawned_at_ms: 0,
         },
         reservation,
-        Box::new(AlacrittyCore::new(80, 24)),
+        Box::new(RioCore::new(80, 24)),
         CellEmitState::new("epoch", "stream"),
         ScrollbackRing::default(),
     )
@@ -118,12 +118,14 @@ fn one_final_byte_with_different_parameters_is_two_sequences() {
     );
 }
 
-/// XTSMGRAPHICS never reaches the core (vte dispatches `CSI S` only without a
-/// private marker), but the worker answers it, so it is not a gap to report.
+/// XTSMGRAPHICS and XTVERSION are probes the core answers, so neither is a
+/// gap to report; a CSI nobody handles still is.
 #[test]
 fn a_probe_the_worker_answers_is_not_reported_as_unhandled() {
     let mut session = record();
-    session.terminal_core.write(b"\x1b[?2;1;0S\x1b[?7;9;9Z");
+    session
+        .terminal_core
+        .write(b"\x1b[?2;1;0S\x1b[>q\x1b[?7;9;9Z");
     let snapshot = unhandled_sequence_snapshot(&mut session, 1).expect("the core logged");
     let shapes: Vec<_> = snapshot
         .entries

@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use roost_proto::DKeeperUpdatePrepare;
 use roost_protocol::wire::coord_worker::{TerminalStreamFailureKind, TerminalWritePhase};
-use roost_term::AlacrittyCore;
+use roost_term::RioCore;
 use roost_worker::keeper_pool::{
     BoundaryRelease, JournaledKeeperUpdateActionV1, KeeperUpdateActionResult, KeeperUpdateActions,
     KeeperUpdateBoundary, KeeperUpdatePreparer,
@@ -154,7 +154,7 @@ async fn input_is_rejected_pre_write_with_zero_keeper_writes_and_accepted_after_
 #[tokio::test]
 async fn a_stream_resize_is_refused_without_mutating_stream_state_and_success_thaws_writes() {
     use terminal_stream_support::{COLS, Harness, ROWS, SESSION, STREAM_A, channel, held};
-    let harness = Harness::scripted(AlacrittyCore::new(COLS, ROWS));
+    let harness = Harness::scripted(RioCore::new(COLS, ROWS));
     let boundary = Arc::new(Boundary::default());
     let (preparation, answer) = begin(&harness.manager, &harness.table, SESSION, &boundary);
 

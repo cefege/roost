@@ -7,11 +7,11 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use roost_term::{AlacrittyCore, TerminalCore};
+use roost_term::{RioCore, TerminalCore};
 
 #[test]
 fn replies_pop_one_per_call_in_the_order_the_probes_arrived() {
-    let mut core = AlacrittyCore::new(80, 24);
+    let mut core = RioCore::new(80, 24);
     core.write_raw(b"\x1b[6n\x1b[5;7H\x1b[6n\x1b[5n");
 
     assert_eq!(core.get_response().as_deref(), Some("\x1b[1;1R"));

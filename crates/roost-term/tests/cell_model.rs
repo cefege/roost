@@ -10,7 +10,7 @@
 mod support;
 
 use roost_protocol::cell::{CELL_BOLD, CELL_UNDERLINE, DEFAULT_COLOR, MAX_LINK_URI_BYTES};
-use roost_term::{AlacrittyCore, TerminalCore, grid_delta_frame, grid_to_cell_frame, row_to_spans};
+use roost_term::{RioCore, TerminalCore, grid_delta_frame, grid_to_cell_frame, row_to_spans};
 
 /// A frame row's text, exactly as the wire carries it.
 ///
@@ -27,7 +27,7 @@ use support::row_columns;
 
 #[test]
 fn plain_text_lands_on_the_row_it_was_written_to() {
-    let mut core = AlacrittyCore::new(20, 5);
+    let mut core = RioCore::new(20, 5);
     core.write(b"hello");
     let frame = grid_to_cell_frame(&core, 1, "g:0", "s", Some(0), 0);
     assert_eq!(frame_row_text(&frame, 0), "hello");
@@ -41,7 +41,7 @@ fn plain_text_lands_on_the_row_it_was_written_to() {
 
 #[test]
 fn a_wide_glyph_occupies_two_columns_and_emits_one_span() {
-    let mut core = AlacrittyCore::new(20, 5);
+    let mut core = RioCore::new(20, 5);
     core.write("中文".as_bytes());
     let frame = grid_to_cell_frame(&core, 1, "g:0", "s", Some(0), 0);
     let text = frame_row_text(&frame, 0);
@@ -61,7 +61,7 @@ fn a_wide_glyph_occupies_two_columns_and_emits_one_span() {
 fn a_wide_glyph_does_not_shift_the_columns_to_its_right() {
     // The failure this guards: a continuation emitted as its own cell paints
     // "中  文" and moves every column right of it by one.
-    let mut core = AlacrittyCore::new(20, 5);
+    let mut core = RioCore::new(20, 5);
     core.write("a中b".as_bytes());
     let frame = grid_to_cell_frame(&core, 1, "g:0", "s", Some(0), 0);
     assert_eq!(frame_row_text(&frame, 0), "a中b");
@@ -70,7 +70,7 @@ fn a_wide_glyph_does_not_shift_the_columns_to_its_right() {
 
 #[test]
 fn a_narrow_run_coalesces_into_one_span_and_keeps_its_columns() {
-    let mut core = AlacrittyCore::new(20, 5);
+    let mut core = RioCore::new(20, 5);
     core.write(b"abcdef");
     let frame = grid_to_cell_frame(&core, 1, "g:0", "s", Some(0), 0);
     let spans = &frame.viewport_rows[0].spans;
@@ -81,7 +81,7 @@ fn a_narrow_run_coalesces_into_one_span_and_keeps_its_columns() {
 
 #[test]
 fn a_style_change_breaks_the_run() {
-    let mut core = AlacrittyCore::new(20, 5);
+    let mut core = RioCore::new(20, 5);
     // Bold, then not: the run has to break even though the text does not.
     core.write(b"\x1b[1mab\x1b[0mcd");
     let frame = grid_to_cell_frame(&core, 1, "g:0", "s", Some(0), 0);
@@ -95,7 +95,7 @@ fn a_style_change_breaks_the_run() {
 
 #[test]
 fn underline_reaches_the_wire_flag() {
-    let mut core = AlacrittyCore::new(20, 5);
+    let mut core = RioCore::new(20, 5);
     core.write(b"\x1b[4mab");
     let frame = grid_to_cell_frame(&core, 1, "g:0", "s", Some(0), 0);
     let spans = &frame.viewport_rows[0].spans;
@@ -108,8 +108,8 @@ fn underline_reaches_the_wire_flag() {
 
 #[test]
 fn the_sixteen_ansi_colours_reach_the_wire_as_palette_indices() {
-    let mut core = AlacrittyCore::new(40, 5);
-    // SGR 31 / 44 / 92 / 107 are alacritty `Named` colours, not `Indexed` ones.
+    let mut core = RioCore::new(40, 5);
+    // SGR 31 / 44 / 92 / 107 are rio `Named` colours, not `Indexed` ones.
     core.write(b"\x1b[31;44mab\x1b[0m\x1b[92;107mcd\x1b[0m\x1b[39mef");
     let frame = grid_to_cell_frame(&core, 1, "g:0", "s", Some(0), 0);
     let spans = &frame.viewport_rows[0].spans;
@@ -130,7 +130,7 @@ fn the_sixteen_ansi_colours_reach_the_wire_as_palette_indices() {
 
 #[test]
 fn trailing_blanks_are_trimmed_and_an_empty_row_has_no_spans() {
-    let mut core = AlacrittyCore::new(20, 5);
+    let mut core = RioCore::new(20, 5);
     core.write(b"hi\x1b[2J");
     let frame = grid_to_cell_frame(&core, 1, "g:0", "s", Some(0), 0);
     for row in &frame.viewport_rows {
@@ -146,7 +146,7 @@ fn trailing_blanks_are_trimmed_and_an_empty_row_has_no_spans() {
 
 #[test]
 fn an_osc_8_link_becomes_a_uri_and_a_run_key() {
-    let mut core = AlacrittyCore::new(20, 5);
+    let mut core = RioCore::new(20, 5);
     core.write(b"\x1b]8;;https://example.test/doc\x1b\\linked\x1b]8;;\x1b\\ plain");
     let frame = grid_to_cell_frame(&core, 1, "g:0", "s", Some(0), 0);
     let spans = &frame.viewport_rows[0].spans;
@@ -174,7 +174,7 @@ fn an_osc_8_link_becomes_a_uri_and_a_run_key() {
 fn two_runs_of_the_same_link_stay_two_spans() {
     // Same destination, different runs: merging them would ship one span
     // carrying one link and silently lose the other.
-    let mut core = AlacrittyCore::new(20, 5);
+    let mut core = RioCore::new(20, 5);
     core.write(
         b"\x1b]8;;https://example.test/x\x1b\\one\x1b]8;;\x1b\\ plain \x1b]8;;https://example.test/x\x1b\\two\x1b]8;;\x1b\\",
     );
@@ -193,7 +193,7 @@ fn two_runs_of_the_same_link_stay_two_spans() {
 #[test]
 fn an_over_cap_link_drops_the_link_and_keeps_the_text() {
     let uri = format!("https://example.test/{}", "a".repeat(MAX_LINK_URI_BYTES));
-    let mut core = AlacrittyCore::new(20, 5);
+    let mut core = RioCore::new(20, 5);
     core.write(format!("\x1b]8;;{uri}\x1b\\kept\x1b]8;;\x1b\\").as_bytes());
     let frame = grid_to_cell_frame(&core, 1, "g:0", "s", Some(0), 0);
     let kept = frame.viewport_rows[0]
@@ -213,7 +213,7 @@ fn an_over_cap_link_drops_the_link_and_keeps_the_text() {
 
 #[test]
 fn modes_reach_the_frame() {
-    let mut core = AlacrittyCore::new(20, 5);
+    let mut core = RioCore::new(20, 5);
     core.write(b"\x1b[?1h\x1b[?2004h\x1b[?1000h\x1b[?1006h\x1b[?1004h");
     let frame = grid_to_cell_frame(&core, 1, "g:0", "s", Some(0), 0);
     assert!(frame.cursor_keys_app, "DECCKM");
@@ -229,7 +229,7 @@ fn modes_reach_the_frame() {
 
 #[test]
 fn the_alt_screen_is_reported_and_its_grid_is_read() {
-    let mut core = AlacrittyCore::new(20, 5);
+    let mut core = RioCore::new(20, 5);
     core.write(b"primary\x1b[?1049h\x1b[2J\x1b[Halt");
     let frame = grid_to_cell_frame(&core, 1, "g:0", "s", Some(0), 0);
     assert!(frame.alt_screen, "the alt screen has its own grid");
@@ -245,7 +245,7 @@ fn any_motion_mouse_mode_is_folded_away() {
     // `1003` is folded to "no tracking" by the core, as v2 folded it: a
     // client that received it would have to report motion for a terminal the
     // product does not forward it for.
-    let mut core = AlacrittyCore::new(20, 5);
+    let mut core = RioCore::new(20, 5);
     core.write(b"\x1b[?1003h");
     let frame = grid_to_cell_frame(&core, 1, "g:0", "s", Some(0), 0);
     assert_eq!(
@@ -256,7 +256,7 @@ fn any_motion_mouse_mode_is_folded_away() {
 
 #[test]
 fn history_is_addressed_by_a_monotonic_index_that_advances_past_the_ring() {
-    let mut core = AlacrittyCore::with_history(20, 3, 5);
+    let mut core = RioCore::with_history(20, 3, 5);
     // A cursor parked at the bottom so every line feed scrolls.
     for _ in 0..3 {
         core.write(b"x\n");
@@ -289,7 +289,7 @@ fn history_is_addressed_by_a_monotonic_index_that_advances_past_the_ring() {
 
 #[test]
 fn a_range_read_is_clamped_to_the_retained_window() {
-    let mut core = AlacrittyCore::with_history(20, 3, 5);
+    let mut core = RioCore::with_history(20, 3, 5);
     for _ in 0..3 {
         core.write(b"x\n");
     }
@@ -314,7 +314,7 @@ fn a_range_read_is_clamped_to_the_retained_window() {
 
 #[test]
 fn a_delta_carries_only_the_rows_that_changed() {
-    let mut core = AlacrittyCore::new(20, 5);
+    let mut core = RioCore::new(20, 5);
     core.write(b"one");
     let first = grid_to_cell_frame(&core, 1, "g:0", "s", Some(0), 0);
     core.clear_dirty();

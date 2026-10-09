@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 
 use roost_host::HostPlatform;
 use roost_protocol::wire::brand::SessionId;
-use roost_term::{AlacrittyCore, CellEmitState, TerminalCore};
+use roost_term::{CellEmitState, RioCore, TerminalCore};
 use roost_worker::diag_snapshot::Snapshot;
 use roost_worker::event_store::{DurableEventKind, Store};
 use roost_worker::runtime::cell_delivery::TableCellDelivery;
@@ -58,7 +58,7 @@ fn identity() -> SessionIdentity {
 }
 
 fn record() -> SessionRecord {
-    let mut core = AlacrittyCore::new(24, 4);
+    let mut core = RioCore::new(24, 4);
     core.write(b"first line\r\n");
     let mut store = Store::new();
     let reservation = store

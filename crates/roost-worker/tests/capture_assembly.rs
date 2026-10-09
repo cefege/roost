@@ -13,7 +13,7 @@ use capture_support::{
 };
 use roost_protocol::terminal_capture::TERMINAL_CAPTURE_LIMITS;
 use roost_protocol::terminal_capture::bundle::TerminalWorkerComparison;
-use roost_term::{AlacrittyCore, scrollback_origin};
+use roost_term::{RioCore, scrollback_origin};
 use roost_worker::browser_commands::diagnostics::DiagnosticReports;
 use serde_json::{Value, json};
 use terminal_stream_support::{COLS, Harness, ROWS, SESSION, STREAM_A};
@@ -110,10 +110,7 @@ async fn a_range_below_the_retained_floor_is_reported_evicted_not_omitted() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_over_budget_grid_is_never_scanned_and_says_so_in_coverage() {
-    let harness = CaptureHarness::over(
-        "assembly-grid",
-        Harness::scripted(AlacrittyCore::new(200, 200)),
-    );
+    let harness = CaptureHarness::over("assembly-grid", Harness::scripted(RioCore::new(200, 200)));
     harness.stream.enable(STREAM_A, 200, 200).await;
     harness.start();
     let tap = harness.recorder.tap();

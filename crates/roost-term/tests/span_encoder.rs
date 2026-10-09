@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use roost_protocol::cell::CellSpan;
-use roost_term::{AlacrittyCore, TerminalCore, grid_to_cell_frame, row_to_spans};
+use roost_term::{RioCore, TerminalCore, grid_to_cell_frame, row_to_spans};
 
 /// The terminal columns a row's spans occupy.
 fn column_total(spans: &[CellSpan]) -> u32 {
@@ -65,7 +65,7 @@ fn an_orphan_continuation_still_occupies_its_column() {
 fn span_arrays_are_shared_not_copied_on_a_clone() {
     // The clone of a frame must keep sharing its cells, or a 10k-row frame
     // costs a full deep copy every time a replica reconciles it.
-    let mut core = AlacrittyCore::new(20, 5);
+    let mut core = RioCore::new(20, 5);
     core.write(b"hello");
     let frame = grid_to_cell_frame(&core, 1, "g:0", "s", Some(0), 0);
     let cloned = frame.viewport_rows[0].spans.clone();

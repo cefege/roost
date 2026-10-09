@@ -5,12 +5,14 @@
 //! `apps/worker/src/terminal/terminal-query-reply.ts`.
 //!
 //! TWO SOURCES FEED ONE LANE, and the application reads both off one stdin:
-//!   native     probes the core answers itself — the cursor report (`CSI 6n`).
-//!              `get_response` pops ONE queued reply, so the lane drains until
-//!              `None` after every segment it writes.
-//!   synthetic  probes the core must stay silent on and Roost answers: Primary
-//!              DA (`CSI c`, `CSI 0c`), XTVERSION (`CSI > q`, `CSI > 0 q`) and
-//!              XTSMGRAPHICS (`CSI ? Pi ; Pa ; Pv S`, answered as unsupported);
+//!   native     probes the core answers itself — the cursor report (`CSI 6n`),
+//!              the kitty keyboard query, and the image probes: kitty graphics
+//!              (`APC G … ST`), XTSMGRAPHICS (`CSI ? Pi ; Pa ; Pv S`) and the
+//!              pixel-size reports (`CSI 14 t`, `CSI 16 t`). `get_response`
+//!              pops ONE queued reply, so the lane drains until `None` after
+//!              every segment it writes.
+//!   synthetic  probes whose core answer is withheld and Roost answers: Primary
+//!              DA (`CSI c`, `CSI 0c`) and XTVERSION (`CSI > q`, `CSI > 0 q`);
 //!              `session::query_probe` classifies them.
 //! Ordering falls out of SEGMENTING the write: the chunk is fed to the core in
 //! pieces cut at each synthetic probe's end, the natives those bytes produced
@@ -18,9 +20,9 @@
 //! Concatenating every native ahead of every synthesized reply would answer
 //! `CSI c` then `CSI 6n` backwards.
 //!
-//! v2's core answered cursor and Kitty keyboard queries (v2 muted Kitty).
-//! Alacritty also answers DA1 (`?6c`), DA2, `CSI 5n`, DECRQM and `CSI 18t`;
-//! those are WITHHELD so DA1 is synthesized once. Cursor and Kitty reports pass.
+//! The core also answers DA1, DA2, XTVERSION, `CSI 5n`, DECRQM and `CSI 18t`;
+//! those are WITHHELD so DA1 and XTVERSION are synthesized once and the rest
+//! stay as v2 left them.
 //!
 //! A Kitty keyboard query is segmented like a synthesized probe to preserve ordering; replay uses [`TerminalCore::write`].
 //!
@@ -41,8 +43,8 @@ use tokio::sync::mpsc;
 
 use super::input_write::WorkerInputResult;
 use super::lifecycle::SessionManager;
-use super::query_probe::synthesized_reply;
 pub use super::query_probe::{PRIMARY_DA_REPLY, XTVERSION_REPLY};
+use super::query_probe::{forwarded_native, synthesized_reply};
 use crate::uplink::OwnerFuture;
 
 const ESC: u8 = 0x1b;
@@ -55,9 +57,9 @@ const BODY_MAX: u8 = 0x3f;
 const FINAL_MIN: u8 = 0x40;
 const FINAL_MAX: u8 = 0x7e;
 
-/// The longest probe answered (an XTSMGRAPHICS query, `ESC [ ? 2 ; 1 ; 0 S`)
-/// is 10 bytes and the longest CSI tokenized past (DECRQM,
-/// `ESC [ ? 2 0 2 6 $ p`) is 9, so no legitimate partial needs more.
+/// The longest probe tokenized (an XTSMGRAPHICS query, `ESC [ ? 2 ; 1 ; 0 S`)
+/// is 10 bytes and DECRQM (`ESC [ ? 2 0 2 6 $ p`) is 9, so no legitimate
+/// partial needs more.
 /// Past the cap an unterminated CSI is abandoned: a stream that opens a CSI and
 /// never closes it cannot pin worker memory, and the discarded bytes hold no
 /// further ESC to re-anchor on.
@@ -172,47 +174,20 @@ pub fn answer_queries(
     reply
 }
 
-/// Pop every queued core reply, oldest first, forwarding only the ones v2's
-/// core also sent.
+/// Pop every queued core reply, oldest first, forwarding only the ones the
+/// lane does not synthesize itself (`query_probe::forwarded_native`).
 fn drain_core_replies(core: &mut dyn TerminalCore, reply: &mut QueryReply) {
     while let Some(native) = core.get_response() {
         if native.is_empty() {
             continue;
         }
-        if !is_cursor_position_report(&native) && !is_kitty_keyboard_report(&native) {
+        if !forwarded_native(&native) {
             reply.withheld_native += 1;
             continue;
         }
         reply.native_bytes += native.len();
         reply.bytes.push_str(&native);
     }
-}
-
-/// `ESC [ <row> ; <col> R`: the one native reply v2's core produced that the
-/// lane forwards.
-fn is_cursor_position_report(reply: &str) -> bool {
-    let Some(body) = reply
-        .strip_prefix("\x1b[")
-        .and_then(|rest| rest.strip_suffix('R'))
-    else {
-        return false;
-    };
-    let Some((row, col)) = body.split_once(';') else {
-        return false;
-    };
-    let digits = |part: &str| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit());
-    digits(row) && digits(col)
-}
-
-/// `CSI ? flags u`: a query reply from the live terminal core.
-fn is_kitty_keyboard_report(reply: &str) -> bool {
-    let Some(flags) = reply
-        .strip_prefix("\x1b[?")
-        .and_then(|rest| rest.strip_suffix('u'))
-    else {
-        return false;
-    };
-    flags.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 /// Where a reply batch is written: worker-originated PTY input with no

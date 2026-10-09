@@ -6,7 +6,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use roost_term::{AlacrittyCore, TerminalCore};
+use roost_term::{RioCore, TerminalCore};
 
 /// An OSC 52 store of `count * 3` bytes of `A`: `QUFB` is the base64 of `AAA`.
 fn store_of_repeated_a(count: usize) -> String {
@@ -15,7 +15,7 @@ fn store_of_repeated_a(count: usize) -> String {
 
 #[test]
 fn live_stores_arrive_decoded_in_order_with_either_terminator() {
-    let mut core = AlacrittyCore::new(80, 24);
+    let mut core = RioCore::new(80, 24);
     core.write_raw(b"\x1b]52;c;SGVsbG8=\x07\x1b]52;c;V29ybGQ=\x1b\\");
 
     assert_eq!(core.take_clipboard_writes(), ["Hello", "World"]);
@@ -27,7 +27,7 @@ fn live_stores_arrive_decoded_in_order_with_either_terminator() {
 
 #[test]
 fn a_clipboard_read_is_never_answered_or_forwarded() {
-    let mut core = AlacrittyCore::new(80, 24);
+    let mut core = RioCore::new(80, 24);
     core.write_raw(b"\x1b]52;c;?\x07");
     assert!(core.take_clipboard_writes().is_empty());
     assert_eq!(
@@ -40,7 +40,7 @@ fn a_clipboard_read_is_never_answered_or_forwarded() {
 #[test]
 fn a_store_over_the_cap_is_dropped_and_one_at_the_cap_is_kept() {
     let cap = 256 * 1024;
-    let mut core = AlacrittyCore::new(80, 24);
+    let mut core = RioCore::new(80, 24);
     core.write_raw(store_of_repeated_a(cap / 3 + 1).as_bytes());
     assert!(core.take_clipboard_writes().is_empty());
 
@@ -52,7 +52,7 @@ fn a_store_over_the_cap_is_dropped_and_one_at_the_cap_is_kept() {
 
 #[test]
 fn a_replayed_store_never_reaches_the_clipboard() {
-    let mut core = AlacrittyCore::new(80, 24);
+    let mut core = RioCore::new(80, 24);
     core.write_raw(b"\x1b]52;c;TGl2ZQ==\x07");
     core.write(b"\x1b]52;c;UmVwbGF5\x07");
     assert!(

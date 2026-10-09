@@ -15,7 +15,7 @@ use roost_observability::clock::SystemClock;
 use roost_protocol::cell::CellGridFrame;
 use roost_protocol::wire::brand::{ChannelId, SessionId, TraceId, WorkerFp};
 use roost_protocol::wire::event::SessionEvent;
-use roost_term::{AlacrittyCore, CellEmitState, TerminalCore};
+use roost_term::{CellEmitState, RioCore, TerminalCore};
 use roost_worker::event_store::{DurableEventKind, Reservation, Store};
 use roost_worker::runtime::cell_delivery::TableCellDelivery;
 use roost_worker::runtime::channel_delivery::TableChannelDelivery;
@@ -214,17 +214,17 @@ pub struct Harness {
 }
 
 impl Harness {
-    pub fn new(core: AlacrittyCore) -> Self {
+    pub fn new(core: RioCore) -> Self {
         Self::with_keeper(core, Arc::new(ScriptedKeeper::default()))
     }
 
-    pub fn with_keeper(core: AlacrittyCore, keeper: Arc<dyn KeeperChannels>) -> Self {
+    pub fn with_keeper(core: RioCore, keeper: Arc<dyn KeeperChannels>) -> Self {
         let scripted = Arc::new(ScriptedKeeper::default());
         Self::build(core, keeper, scripted)
     }
 
     fn build(
-        core: AlacrittyCore,
+        core: RioCore,
         keeper: Arc<dyn KeeperChannels>,
         scripted: Arc<ScriptedKeeper>,
     ) -> Self {
@@ -287,7 +287,7 @@ impl Harness {
     }
 
     /// A harness whose keeper is the scripted one, reachable for scripting.
-    pub fn scripted(core: AlacrittyCore) -> Self {
+    pub fn scripted(core: RioCore) -> Self {
         let keeper = Arc::new(ScriptedKeeper::default());
         Self::build(core, Arc::clone(&keeper) as Arc<dyn KeeperChannels>, keeper)
     }
@@ -354,8 +354,8 @@ impl Harness {
     }
 }
 
-pub fn core_with(cols: u16, rows: u16, text: &[u8]) -> AlacrittyCore {
-    let mut core = AlacrittyCore::new(cols, rows);
+pub fn core_with(cols: u16, rows: u16, text: &[u8]) -> RioCore {
+    let mut core = RioCore::new(cols, rows);
     core.write(text);
     core
 }

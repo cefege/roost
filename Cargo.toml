@@ -72,12 +72,6 @@ openssl = { version = "0.10.81", features = ["vendored"] }
 # tokio `File`, so the writer is one pipeline and no `spawn_blocking`.
 async-compression = { version = "0.4.30", features = ["tokio", "gzip"] }
 portable-pty = "0.9.0"
-# Patched: see third_party/alacritty_terminal/ROOST-PATCHES.md. Upstream 0.26.0
-# reports how much history it RETAINS but not how much it has DISCARDED, and
-# every path that shrinks history is private, so the count cannot be derived
-# from outside the crate. Without it every absolute history index re-aliases at
-# the scrollback cap.
-alacritty_terminal = { version = "0.26.0", path = "third_party/alacritty_terminal" }
 # Patched: see third_party/rio_vt/ROOST-PATCHES.md (R1–R6). `graphics` decodes
 # PNG kitty payloads and iTerm2 images; the default `pty` feature is rio's own
 # PTY driver, which Roost does not use.
@@ -130,9 +124,6 @@ tracing = "0.1.44"
 # exist; the two-writer split below is a filtered layer over a registry, not
 # a formatter with two writers.
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json", "registry"] }
-# `vte` (inside alacritty_terminal) reports a CSI it drops only as a
-# `log::debug!` record; roost-term's parity test is the one reader of it.
-log = "0.4.34"
 
 # CLI and errors.
 clap = { version = "4.6.7", features = ["derive"] }
@@ -178,11 +169,9 @@ unimplemented = "deny"
 # Release binaries must be byte-reproducible: the keeper admission gate compares
 # `implementation_digest` (SHA-256 of the roost-keeper binary) across releases,
 # and a drifting digest is a "keeper binary changed" verdict, not a no-op.
-# The vendored terminal cores. One patch set each, one purpose:
-# third_party/alacritty_terminal/ROOST-PATCHES.md and
+# The vendored terminal core. One patch set, one purpose:
 # third_party/rio_vt/ROOST-PATCHES.md.
 [patch.crates-io]
-alacritty_terminal = { path = "third_party/alacritty_terminal" }
 rio-vt = { path = "third_party/rio_vt" }
 
 # The native binaries. Optimised, but without whole-program LTO and with

@@ -11,7 +11,7 @@ mod terminal_stream_support;
 use std::sync::Arc;
 
 use keeper_pool_support::{KeeperFixture, opened, session, sh_spec};
-use roost_term::AlacrittyCore;
+use roost_term::RioCore;
 use roost_worker::session::keeper_channels::KeeperChannels;
 use roost_worker::session::terminal_state::WorkerStreamResult;
 use terminal_stream_support::{CHANNEL, COLS, Harness, ROWS, STREAM_A, STREAM_B, channel};
@@ -32,7 +32,7 @@ async fn a_coordinator_stream_resize_is_applied_by_the_keeper() {
         "the keeper opens a real PTY",
     );
     let harness = Harness::with_keeper(
-        AlacrittyCore::new(COLS, ROWS),
+        RioCore::new(COLS, ROWS),
         Arc::clone(&pool) as Arc<dyn KeeperChannels>,
     );
 

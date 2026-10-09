@@ -9,7 +9,7 @@
 mod browser_command_support;
 use browser_command_support::{OTHER_SESSION, SESSION, command, dispatch, harness, only, session};
 use roost_host::HostPlatform;
-use roost_term::{AlacrittyCore, CellEmitState, TerminalCore};
+use roost_term::{CellEmitState, RioCore, TerminalCore};
 use roost_worker::browser_commands::scrollback_page::RetainedGrid;
 use roost_worker::event_store::{DurableEventKind, Store};
 use roost_worker::scrollback_read::{
@@ -58,7 +58,7 @@ fn record() -> SessionRecord {
 /// The same record over a grid of `lines` rows, for a test whose property needs
 /// a page of a particular SIZE rather than merely a page.
 fn record_holding(lines: usize) -> SessionRecord {
-    let mut core = AlacrittyCore::new(24, ROWS);
+    let mut core = RioCore::new(24, ROWS);
     let mut output = String::new();
     for index in 0..lines {
         output.push_str(&format!("line{index}\r\n"));

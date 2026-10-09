@@ -22,10 +22,10 @@ pub fn viewport_row_spans(core: &dyn TerminalCore, row: u16, cols: u16) -> Arc<[
     viewport_row(core, row, cols).0
 }
 
-/// One viewport row's spans and OR-ed semantic marks.
+/// One viewport row's spans and row mark.
 fn viewport_row(core: &dyn TerminalCore, row: u16, cols: u16) -> (Arc<[CellSpan]>, u8) {
     let cells: Vec<_> = (0..cols).map(|col| core.viewport_cell(row, col)).collect();
-    let mark = cells.iter().fold(0, |mark, cell| mark | cell.semantic_mark);
+    let mark = core.viewport_row_mark(row);
     (Arc::from(row_to_spans(&cells, cells.len())), mark)
 }
 
@@ -37,13 +37,13 @@ pub fn scrollback_offset_spans(core: &dyn TerminalCore, offset: usize) -> Arc<[C
     scrollback_offset_row(core, offset).0
 }
 
-/// One retained line's spans and OR-ed semantic marks.
+/// One retained line's spans and row mark.
 fn scrollback_offset_row(core: &dyn TerminalCore, offset: usize) -> (Arc<[CellSpan]>, u8) {
     let length = core.scrollback_line_len(offset);
     let cells: Vec<_> = (0..length)
         .map(|col| core.scrollback_cell(offset, col as u16))
         .collect();
-    let mark = cells.iter().fold(0, |mark, cell| mark | cell.semantic_mark);
+    let mark = core.scrollback_row_mark(offset);
     (Arc::from(row_to_spans(&cells, cells.len())), mark)
 }
 

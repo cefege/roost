@@ -30,7 +30,7 @@ use std::path::PathBuf;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use roost_protocol::cell::{CellGridFrame, CellSpan, MouseTracking};
-use roost_term::{AlacrittyCore, TerminalCore, grid_to_cell_frame};
+use roost_term::{RioCore, TerminalCore, grid_to_cell_frame};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -121,7 +121,7 @@ fn view_of(frame: &CellGridFrame) -> (Vec<String>, Vec<String>) {
 
 /// Drive one vector and return everything it asserts.
 fn run(vector: &Vector) -> (Expected, String) {
-    let mut core = AlacrittyCore::new(vector.cols, vector.rows);
+    let mut core = RioCore::new(vector.cols, vector.rows);
     for (index, encoded) in vector.chunks.iter().enumerate() {
         // Terminal bytes are UTF-8; a wide glyph is three of them. Decoding
         // as Latin-1 would fold each onto one byte and drive a different

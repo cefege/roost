@@ -10,6 +10,8 @@ mod cell_model;
 mod clipboard_writes;
 #[path = "dyn_dispatch_parity.rs"]
 mod dyn_dispatch_parity;
+#[path = "emitter_history_clear.rs"]
+mod emitter_history_clear;
 #[path = "emitter_row_cap.rs"]
 mod emitter_row_cap;
 #[path = "kitty_keyboard.rs"]
@@ -22,5 +24,3 @@ mod reply_queue;
 mod span_encoder;
 #[path = "terminal_core_vectors.rs"]
 mod terminal_core_vectors;
-#[path = "unhandled_csi_parity.rs"]
-mod unhandled_csi_parity;

@@ -1,11 +1,11 @@
 //! Kitty keyboard mode state as seen by the worker's terminal core.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use roost_term::{AlacrittyCore, TerminalCore};
+use roost_term::{RioCore, TerminalCore};
 
 #[test]
 fn set_modes_and_mode_actions_follow_the_spec() {
-    let mut core = AlacrittyCore::new(80, 24);
+    let mut core = RioCore::new(80, 24);
     core.write_raw(b"\x1b[=3;1u");
     assert_eq!(core.kitty_keyboard_flags(), 3);
     core.write_raw(b"\x1b[=4;2u");
@@ -16,7 +16,7 @@ fn set_modes_and_mode_actions_follow_the_spec() {
 
 #[test]
 fn push_and_pop_restore_previous_flags() {
-    let mut core = AlacrittyCore::new(80, 24);
+    let mut core = RioCore::new(80, 24);
     core.write_raw(b"\x1b[>1u\x1b[>4u");
     assert_eq!(core.kitty_keyboard_flags(), 4);
     core.write_raw(b"\x1b[<u");
@@ -33,7 +33,7 @@ fn push_and_pop_restore_previous_flags() {
 
 #[test]
 fn main_and_alternate_screens_keep_independent_stacks() {
-    let mut core = AlacrittyCore::new(80, 24);
+    let mut core = RioCore::new(80, 24);
     core.write_raw(b"\x1b[>1u\x1b[>2u\x1b[?1049h");
     assert_eq!(core.kitty_keyboard_flags(), 0);
     core.write_raw(b"\x1b[>4u\x1b[<u");
@@ -46,7 +46,7 @@ fn main_and_alternate_screens_keep_independent_stacks() {
 
 #[test]
 fn set_modes_survive_alternate_screen_switches_independently() {
-    let mut core = AlacrittyCore::new(80, 24);
+    let mut core = RioCore::new(80, 24);
     core.write_raw(b"\x1b[=1u\x1b[?1049h\x1b[=4u");
     assert_eq!(core.kitty_keyboard_flags(), 4);
     core.write_raw(b"\x1b[?1049l");
@@ -57,7 +57,7 @@ fn set_modes_survive_alternate_screen_switches_independently() {
 
 #[test]
 fn reset_initialization_clears_both_screen_stacks() {
-    let mut core = AlacrittyCore::new(80, 24);
+    let mut core = RioCore::new(80, 24);
     core.write_raw(b"\x1b[>1u\x1b[>2u\x1b[?1049h\x1b[>4u\x1bc");
     assert_eq!(core.kitty_keyboard_flags(), 0);
     core.write_raw(b"\x1b[?1049l");
@@ -66,7 +66,7 @@ fn reset_initialization_clears_both_screen_stacks() {
 
 #[test]
 fn query_reports_current_flags() {
-    let mut core = AlacrittyCore::new(80, 24);
+    let mut core = RioCore::new(80, 24);
     core.write_raw(b"\x1b[=19u\x1b[?u");
     assert_eq!(core.get_response().as_deref(), Some("\x1b[?19u"));
 }

@@ -11,7 +11,7 @@ use roost_keeper::client_resize::ResizeRejectReason;
 use roost_protocol::wire::coord_worker::{
     TerminalStreamFailureKind as Failure, TerminalWritePhase,
 };
-use roost_term::AlacrittyCore;
+use roost_term::RioCore;
 use roost_worker::session::terminal_state::WorkerStreamResult;
 use terminal_stream_support::{
     Answer, COLS, Harness, ROWS, STREAM_A, STREAM_B, STREAM_C, core_with, held,
@@ -27,7 +27,7 @@ fn failure(result: &WorkerStreamResult) -> (Option<Failure>, TerminalWritePhase,
 
 #[tokio::test]
 async fn invalid_desires_are_refused_before_any_keeper_write() {
-    let harness = Harness::scripted(AlacrittyCore::new(COLS, ROWS));
+    let harness = Harness::scripted(RioCore::new(COLS, ROWS));
     let v7 = "00000000-0000-7000-8000-00000000000a";
     let cases = [
         (harness.intent(v7, true, 12, 6), "stream_id must be a UUID"),
@@ -253,7 +253,7 @@ async fn shrink_and_grow_resize_the_same_core_at_the_keeper_boundary() {
 
 #[tokio::test]
 async fn a_keeper_refusal_after_the_write_is_rejected_as_written_and_moves_nothing() {
-    let harness = Harness::scripted(AlacrittyCore::new(COLS, ROWS));
+    let harness = Harness::scripted(RioCore::new(COLS, ROWS));
     held(&harness.keeper.script).extend([
         Answer::Refuse(ResizeRejectReason::StaleSequence),
         Answer::Refuse(ResizeRejectReason::ChannelExited),

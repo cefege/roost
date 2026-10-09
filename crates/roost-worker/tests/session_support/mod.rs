@@ -30,8 +30,8 @@ use fakes::{
 use std::sync::{Arc, Mutex};
 
 use roost_protocol::wire::brand::{ChannelId, SessionId, TraceId, WorkerFp};
-use roost_term::AlacrittyCore;
 use roost_term::CellEmitState;
+use roost_term::RioCore;
 use roost_worker::event_store::DurableEventKind;
 use roost_worker::session::binding::{CellDelivery, ChannelDelivery};
 use roost_worker::session::keeper_channels::KeeperChannels;
@@ -177,7 +177,7 @@ impl Harness {
                 .now_or_never()
                 .expect("a reserve against the in-memory fake is ready at once")
                 .expect("a fresh store has room"),
-            Box::new(AlacrittyCore::new(80, 24)),
+            Box::new(RioCore::new(80, 24)),
             CellEmitState::new("epoch", "stream"),
             ScrollbackRing::default(),
         );

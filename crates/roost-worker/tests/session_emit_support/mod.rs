@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use roost_protocol::cell::CellGridFrame;
 use roost_protocol::cell::frame_chunks::CellGridSnapshotPart;
 use roost_protocol::wire::brand::{ChannelId, SessionId, TraceId, WorkerFp};
-use roost_term::{AlacrittyCore, CellEmitState, TerminalCore};
+use roost_term::{CellEmitState, RioCore, TerminalCore};
 use roost_worker::event_store::{DurableEventKind, Reservation, Store};
 use roost_worker::session::cell_sink::{CellSink, CellSinkResult, FrameTimings};
 use roost_worker::session::ring::ScrollbackRing;
@@ -249,7 +249,7 @@ impl RecordFixture {
                 spawned_at_ms: 1_000,
             },
             self.close_reservation,
-            Box::new(AlacrittyCore::new(cols, rows)) as Box<dyn TerminalCore + Send>,
+            Box::new(RioCore::new(cols, rows)) as Box<dyn TerminalCore + Send>,
             CellEmitState::new("epoch-base", "stream-placeholder"),
             ScrollbackRing::default(),
         )

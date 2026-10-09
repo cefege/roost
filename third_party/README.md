@@ -24,17 +24,6 @@ Rules for anything in this directory:
 
 ## Contents
 
-- **`alacritty_terminal/`** — crates.io `alacritty_terminal` 0.26.0, the
-  terminal core behind `roost-term`. Wired through `[patch.crates-io]` in the
-  root `Cargo.toml`; outside the workspace (`exclude = ["third_party"]`), so
-  its suite runs by manifest path:
-  `cargo test --manifest-path third_party/alacritty_terminal/Cargo.toml`.
-  [`alacritty_terminal/ROOST-PATCHES.md`](alacritty_terminal/ROOST-PATCHES.md)
-  lists patches P1–P6: a count of history lines scrolled off the top, relative
-  cursor motion bounded by DECSTBM margins, a top-anchored alternate grid on
-  shrink, ED clearing the viewport in place, delete discarding rather than
-  reaching history, and LF clearing a pending wrap.
-
 - **`rio_vt/`** — crates.io `rio-vt` 0.5.28 (MIT), Rio's terminal core,
   which decodes the kitty graphics protocol, sixel and iTerm2 inline images.
   Wired through `[patch.crates-io]`; outside the workspace, so its suite runs

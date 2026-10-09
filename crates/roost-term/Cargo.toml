@@ -5,14 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "The TerminalCore trait, its Alacritty-backed implementation, and the emitter that turns terminal state into a CellGridFrame wire message. Owns the subject side of the terminal-core conformance vectors."
+description = "The TerminalCore trait, its rio-vt-backed implementation, and the emitter that turns terminal state into a CellGridFrame wire message. Owns the subject side of the terminal-core conformance vectors."
 autotests = false
 
 [dev-dependencies]
 base64 = { workspace = true }
-# The oracle of tests/unhandled_csi_parity.rs: vte reports a dropped CSI only
-# through `log::debug!`, so the test captures those records.
-log = { workspace = true, features = ["std"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
@@ -20,7 +17,8 @@ serde_json = { workspace = true }
 workspace = true
 
 [dependencies]
-alacritty_terminal = { workspace = true }
+rio-vt = { workspace = true }
+rio-graphics = { workspace = true }
 roost-observability = { workspace = true }
 roost-protocol = { workspace = true }
 thiserror = { workspace = true }

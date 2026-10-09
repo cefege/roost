@@ -386,7 +386,8 @@ nextest. One test: `cargo nextest run -p <crate> <module>::<test>`.
 
 Before a release tag, `release.yml`'s `verify` job runs the same gates plus
 the vendored terminal core's suite
-(`cargo test --manifest-path third_party/alacritty_terminal/Cargo.toml`; it is
+(`cargo test --manifest-path third_party/rio_vt/Cargo.toml --no-default-features
+--features graphics`; it is
 not a workspace member, because `cargo fmt` walks local path dependencies
 regardless of `exclude`) and the wasm32 build of the browser crates.
 

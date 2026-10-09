@@ -9,7 +9,7 @@ mod terminal_stream_support;
 
 use roost_keeper::history::HistoryRecord;
 use roost_protocol::wire::coord_worker::TerminalStreamFailureKind as Failure;
-use roost_term::AlacrittyCore;
+use roost_term::RioCore;
 use roost_worker::session::keeper_channels::SurvivorHistory;
 use roost_worker::session::resize::ResizeOutcome;
 use roost_worker::session::terminal_state::WorkerStreamResult;
@@ -40,7 +40,7 @@ fn gate_released(harness: &Harness) -> bool {
 
 #[tokio::test]
 async fn a_trapped_resize_reports_a_reprovable_core_and_releases_its_gate() {
-    let harness = Harness::scripted(AlacrittyCore::new(COLS, ROWS));
+    let harness = Harness::scripted(RioCore::new(COLS, ROWS));
     let result = trap(&harness).await;
     assert!(
         matches!(&result, WorkerStreamResult::Ambiguous { failure: Failure::CoreFailed, reason, .. }
@@ -81,7 +81,7 @@ async fn a_trapped_resize_reports_a_reprovable_core_and_releases_its_gate() {
 
 #[tokio::test]
 async fn a_trapped_core_refuses_frames_and_parses_nothing_for_its_generation() {
-    let harness = Harness::scripted(AlacrittyCore::new(COLS, ROWS));
+    let harness = Harness::scripted(RioCore::new(COLS, ROWS));
     harness.enable(STREAM_A, COLS, ROWS).await;
     held(&harness.keeper.script).push_back(Answer::AckAt {
         cols: COLS + 9,
@@ -117,7 +117,7 @@ async fn a_trapped_core_refuses_frames_and_parses_nothing_for_its_generation() {
 
 #[tokio::test]
 async fn a_generation_minted_after_a_trap_that_cannot_be_reproved_stays_closed() {
-    let harness = Harness::scripted(AlacrittyCore::new(COLS, ROWS));
+    let harness = Harness::scripted(RioCore::new(COLS, ROWS));
     trap(&harness).await;
     let frames = held(&harness.sink.frames).len();
     let refused = harness.enable(STREAM_B, REPROVED_COLS, REPROVED_ROWS).await;
@@ -156,7 +156,7 @@ async fn a_generation_minted_after_a_trap_that_cannot_be_reproved_stays_closed()
 
 #[tokio::test]
 async fn a_fail_closed_core_is_reproved_from_keeper_history_on_the_next_desire() {
-    let harness = Harness::scripted(AlacrittyCore::new(COLS, ROWS));
+    let harness = Harness::scripted(RioCore::new(COLS, ROWS));
     harness.enable(STREAM_A, COLS, ROWS).await;
     harness.deliver(b"BEFORE-TRAP");
     held(&harness.keeper.script).push_back(Answer::AckAt {
@@ -210,7 +210,7 @@ async fn a_fail_closed_core_is_reproved_from_keeper_history_on_the_next_desire()
 
 #[tokio::test]
 async fn a_lost_ack_whose_boundary_is_not_retained_reports_a_reprovable_core() {
-    let harness = Harness::scripted(AlacrittyCore::new(COLS, ROWS));
+    let harness = Harness::scripted(RioCore::new(COLS, ROWS));
     *held(&harness.keeper.history) = Some(SurvivorHistory {
         records: Vec::new(),
         head_seq: 0,

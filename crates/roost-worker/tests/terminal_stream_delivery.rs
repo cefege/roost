@@ -6,13 +6,13 @@
 
 mod terminal_stream_support;
 
-use roost_term::AlacrittyCore;
+use roost_term::RioCore;
 use roost_worker::runtime::channel_delivery::CAPTURE_CAP_BYTES;
 use terminal_stream_support::{COLS, Harness, ROWS, STREAM_A, channel, held};
 
 #[test]
 fn an_open_capture_holds_output_and_hands_it_back_on_close() {
-    let harness = Harness::scripted(AlacrittyCore::new(COLS, ROWS));
+    let harness = Harness::scripted(RioCore::new(COLS, ROWS));
     assert!(held(&harness.delivery).freeze_capture(channel(), 1));
     assert!(
         !held(&harness.delivery).freeze_capture(channel(), 1),
@@ -46,7 +46,7 @@ fn an_open_capture_holds_output_and_hands_it_back_on_close() {
 
 #[test]
 fn a_capture_past_the_retained_window_reports_rather_than_trims() {
-    let harness = Harness::scripted(AlacrittyCore::new(COLS, ROWS));
+    let harness = Harness::scripted(RioCore::new(COLS, ROWS));
     held(&harness.delivery).freeze_capture(channel(), 1);
     harness.deliver(&vec![b'x'; CAPTURE_CAP_BYTES + 1]);
     let held_back = held(&harness.delivery).close_capture(channel());
@@ -56,7 +56,7 @@ fn a_capture_past_the_retained_window_reports_rather_than_trims() {
 
 #[tokio::test]
 async fn a_trapped_core_takes_the_retain_only_lane_and_still_scans_alt_mode() {
-    let harness = Harness::scripted(AlacrittyCore::new(COLS, ROWS));
+    let harness = Harness::scripted(RioCore::new(COLS, ROWS));
     harness.enable(STREAM_A, COLS, ROWS).await;
     held(&harness.delivery)
         .stream_emission()

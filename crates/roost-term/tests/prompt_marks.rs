@@ -5,15 +5,15 @@
 
 use roost_protocol::cell::row_mark;
 use roost_term::TerminalCore;
-use roost_term::alacritty::AlacrittyCore;
 use roost_term::frame::grid_to_cell_frame;
+use roost_term::rio::RioCore;
 
-fn frame(core: &AlacrittyCore) -> roost_protocol::cell::CellGridFrame {
+fn frame(core: &RioCore) -> roost_protocol::cell::CellGridFrame {
     let discarded = core.discarded_line_count().unwrap_or(0);
     grid_to_cell_frame(core, 1, "grid:0", "stream", None, discarded)
 }
 
-fn marks(core: &AlacrittyCore) -> Vec<u8> {
+fn marks(core: &RioCore) -> Vec<u8> {
     frame(core)
         .viewport_rows
         .iter()
@@ -33,7 +33,7 @@ fn command(status: u8) -> Vec<u8> {
 
 #[test]
 fn a_finished_command_colours_the_prompt_that_follows_it() {
-    let mut core = AlacrittyCore::new(40, 4);
+    let mut core = RioCore::new(40, 4);
     core.write_raw(&command(0));
     assert_eq!(
         marks(&core),
@@ -45,14 +45,14 @@ fn a_finished_command_colours_the_prompt_that_follows_it() {
         ]
     );
 
-    let mut failed = AlacrittyCore::new(40, 4);
+    let mut failed = RioCore::new(40, 4);
     failed.write_raw(&command(2));
     assert_eq!(marks(&failed)[2], row_mark::PROMPT | row_mark::EXIT_FAILED);
 }
 
 #[test]
 fn a_status_with_no_command_behind_it_colours_nothing() {
-    let mut core = AlacrittyCore::new(40, 4);
+    let mut core = RioCore::new(40, 4);
     // The first prompt, then an empty Enter: D arrives with no C before it.
     core.write_raw(b"\x1b]133;D;0\x07\x1b]133;A\x07$ \r\n\x1b]133;D;1\x07\x1b]133;A\x07$ ");
     assert_eq!(marks(&core)[..2], [row_mark::PROMPT, row_mark::PROMPT]);
@@ -61,7 +61,7 @@ fn a_status_with_no_command_behind_it_colours_nothing() {
 #[test]
 fn the_status_survives_a_blank_line_before_the_next_prompt() {
     // starship's default `add_newline` prints a blank line between D and A.
-    let mut core = AlacrittyCore::new(40, 5);
+    let mut core = RioCore::new(40, 5);
     core.write_raw(b"\x1b]133;A\x07$ false\r\n\x1b]133;C\x07\x1b]133;D;1\x07\r\n\x1b]133;A\x07$ ");
     assert_eq!(
         marks(&core)[..3],
@@ -75,17 +75,17 @@ fn the_status_survives_a_blank_line_before_the_next_prompt() {
 
 #[test]
 fn a_mark_split_across_chunks_lands_where_it_ends_and_replay_rebuilds_it() {
-    let mut live = AlacrittyCore::new(40, 4);
+    let mut live = RioCore::new(40, 4);
     live.write_raw(b"before\r\n\x1b]13");
     live.write_raw(b"3;A\x07prompt");
     assert_eq!(marks(&live)[..2], [0, row_mark::PROMPT]);
 
-    let mut replay = AlacrittyCore::new(40, 4);
+    let mut replay = RioCore::new(40, 4);
     replay.write(&command(1));
     assert_eq!(
         marks(&replay),
         marks(&{
-            let mut again = AlacrittyCore::new(40, 4);
+            let mut again = RioCore::new(40, 4);
             again.write_raw(&command(1));
             again
         })
@@ -94,7 +94,7 @@ fn a_mark_split_across_chunks_lands_where_it_ends_and_replay_rebuilds_it() {
 
 #[test]
 fn the_prompt_mark_survives_the_prompt_being_drawn_over_its_cell() {
-    let mut core = AlacrittyCore::new(40, 4);
+    let mut core = RioCore::new(40, 4);
     // The prompt is drawn after A, then redrawn in place (zle reset-prompt).
     core.write_raw(b"\x1b]133;A\x07~/src $ \r~/src/roost $ ");
     assert_eq!(marks(&core)[0], row_mark::PROMPT);
@@ -102,7 +102,7 @@ fn the_prompt_mark_survives_the_prompt_being_drawn_over_its_cell() {
 
 #[test]
 fn the_alternate_screen_takes_no_marks_and_clearing_erases_them() {
-    let mut core = AlacrittyCore::new(40, 4);
+    let mut core = RioCore::new(40, 4);
     core.write_raw(b"\x1b[?1049h\x1b]133;A\x07\x1b]133;C\x07output\r\n");
     assert!(marks(&core).iter().all(|mark| *mark == 0));
 

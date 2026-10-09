@@ -15,7 +15,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_term::{
-    AlacrittyCore, CellEmitState, LIVE_DELTA_SCROLLBACK_ROWS_CAP, TerminalCore, next_cell_frame,
+    CellEmitState, LIVE_DELTA_SCROLLBACK_ROWS_CAP, RioCore, TerminalCore, next_cell_frame,
 };
 
 /// Scroll `lines` fresh history rows into the core.
@@ -23,7 +23,7 @@ use roost_term::{
 /// Each feed is a CR-LF pair so the caret returns to column zero between lines;
 /// the count that reaches history is the newlines past the viewport height, and
 /// the tests below measure what actually landed rather than trusting this.
-fn scroll_lines(core: &mut AlacrittyCore, lines: usize) {
+fn scroll_lines(core: &mut RioCore, lines: usize) {
     for row in 0..lines {
         core.write(format!("history row {row}\r\n").as_bytes());
     }
@@ -38,7 +38,7 @@ fn scroll_lines(core: &mut AlacrittyCore, lines: usize) {
 /// still passing an `is_full` assertion.
 #[test]
 fn a_delta_past_the_row_cap_becomes_a_viewport_only_full() {
-    let mut core = AlacrittyCore::new(80, 24);
+    let mut core = RioCore::new(80, 24);
 
     // The baseline the delta path is allowed to start from. Forced, because
     // the first frame of any stream is a full whatever the cap says.
@@ -111,7 +111,7 @@ fn a_delta_past_the_row_cap_becomes_a_viewport_only_full() {
 /// grid with a cap, it is a grid that stopped doing deltas.
 #[test]
 fn a_delta_within_the_row_cap_stays_a_delta() {
-    let mut core = AlacrittyCore::new(80, 24);
+    let mut core = RioCore::new(80, 24);
 
     let (_, baseline) = next_cell_frame(
         &core,

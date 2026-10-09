@@ -65,7 +65,7 @@ jobs:
       - name: repo invariants
         run: cargo xtask lint
       - name: vendored terminal core
-        run: cargo test --manifest-path third_party/alacritty_terminal/Cargo.toml
+        run: cargo test --manifest-path third_party/rio_vt/Cargo.toml --no-default-features --features graphics
       - name: wasm32 build
         run: cargo build -p roost-client-core -p roost-protocol -p roost-web -p roost-web-terminal --target wasm32-unknown-unknown
 

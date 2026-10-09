@@ -110,7 +110,7 @@ or finishes, you get a toast and an unseen count in the tab title. Nothing
 about status is stored: restart anything and it re-derives itself.
 
 **The terminal is the only interactive surface.** Every session owns a PTY.
-The worker feeds its output through an Alacritty-based terminal core
+The worker feeds its output through a rio-vt-based terminal core
 (`roost-term`) and ships cell snapshots/deltas; the browser paints that authoritative grid. The
 program itself remains an ordinary agent CLI, shell, REPL, editor, or TUI.
 
@@ -250,7 +250,7 @@ stable tag exists; `ROOST_RELEASE_CHANNEL=prerelease` opts into pre-releases):
 - **Coordinator:** Rust, axum, Connect-RPC (`connectrpc`) + protobuf, sqlx on
   SQLite or Postgres, transactional event projection, EdDSA-JWT auth
 - **Workers:** Rust, `roost-keeper` PTY subprocesses, a vendored
-  `alacritty_terminal` core, `str0m` WebRTC
+  `rio-vt` terminal core, `str0m` WebRTC
 - **Transport:** unary Connect-RPC plus a protobuf Sync WebSocket
   (browser↔coordinator), protobuf WebSocket (worker↔coordinator)
 

@@ -16,7 +16,7 @@ use capture_support::{CaptureHarness, capture_command, read_bundle};
 use roost_protocol::cell::{CellGridFrame, spans_text};
 use roost_protocol::terminal_capture::TERMINAL_CAPTURE_LIMITS;
 use roost_protocol::terminal_capture::view::{canonical_view_of_frame, compare_canonical_views};
-use roost_term::{AlacrittyCore, TerminalCore, grid_to_cell_frame};
+use roost_term::{RioCore, TerminalCore, grid_to_cell_frame};
 use roost_worker::browser_commands::diagnostics::DiagnosticReports;
 use roost_worker::session::terminal_state::WorkerStreamResult;
 use serde_json::{Value, json};
@@ -40,8 +40,8 @@ fn viewport(core: &dyn TerminalCore) -> CellGridFrame {
 
 /// Feed the retained raw chain to a fresh core, resizing it at each accepted
 /// boundary offset — the parser replay a bundle exists to make possible.
-fn replay(section: &Value) -> AlacrittyCore {
-    let mut core = AlacrittyCore::new(COLS, ROWS);
+fn replay(section: &Value) -> RioCore {
+    let mut core = RioCore::new(COLS, ROWS);
     let resizes: Vec<(u64, u16, u16)> = section["resizes"]
         .as_array()
         .unwrap()

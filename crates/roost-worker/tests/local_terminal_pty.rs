@@ -20,7 +20,7 @@ use local_terminal_support::{
 };
 use roost_proto::__buffa::oneof::local_terminal_server_frame::Frame as ServerFrame;
 use roost_protocol::wire::brand::{SessionId, TraceId, WorkerFp};
-use roost_term::{AlacrittyCore, CellEmitState};
+use roost_term::{CellEmitState, RioCore};
 use roost_worker::agents::environment::AgentReportSite;
 use roost_worker::event_store::{DurableEventKind, Journal};
 use roost_worker::link_ports::LocalTerminalGrantPort;
@@ -99,7 +99,7 @@ async fn a_granted_loopback_socket_writes_to_a_real_pty() {
     let record = SessionRecord::new(
         identity,
         reservation,
-        Box::new(AlacrittyCore::new(80, 24)),
+        Box::new(RioCore::new(80, 24)),
         CellEmitState::new("epoch", "stream"),
         ScrollbackRing::default(),
     );

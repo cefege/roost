@@ -15,7 +15,7 @@ registry, `Session` is the user-facing row, `Channel` is a PTY connection,
 | `roost-protocol` | Pure I/O-free wire and terminal logic: event variants and the canonical fold, cell and grid models, viewport geometry, peer packet framing, the keeper-update contract, layout documents. Builds for `wasm32`. | — |
 | `roost-platform` | Platform path and shell conventions. No I/O, no async, no logging. | — |
 | `roost-host` | `ROOST_*` config, service names, durable atomic writes, service health probes. | — |
-| `roost-term` | The `TerminalCore` trait, its Alacritty implementation, and the grid→`CellGridFrame` emitter. | — |
+| `roost-term` | The `TerminalCore` trait, its rio-vt implementation, and the grid→`CellGridFrame` emitter. | — |
 | `roost-keeper` | The keeper daemon: PTY ownership, per-channel byte rings, the framed keeper socket protocol. | `roost-keeper` |
 | `roost-worker` | Sessions, keeper client, durable outbox, coordinator link, local door, WebRTC peer, agent tracking. | — |
 | `roost-coord` | SQLite or Postgres state, auth, Connect RPC handlers, Sync and worker WebSocket links, terminal hubs, server-side web push (no browser subscribes yet). | — |
@@ -37,7 +37,7 @@ roost-observability  → ∅
 roost-platform       → ∅
 roost-protocol       → proto, observability
 roost-host           → protocol, platform, observability
-roost-term           → protocol, observability, alacritty_terminal (vendored)
+roost-term           → protocol, observability, rio-vt (vendored), rio-graphics
 roost-keeper         → protocol, host, platform, observability
 roost-worker         → term, keeper, host, proto, protocol, platform, observability
 roost-coord          → host, proto, protocol, platform, observability

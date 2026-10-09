@@ -3,22 +3,22 @@
 //! the native set is v2's (a cursor report, nothing else), and a replay never
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use roost_term::{AlacrittyCore, TerminalCore};
+use roost_term::{RioCore, TerminalCore};
 use roost_worker::session::query_reply::{
     PRIMARY_DA_REPLY, QUERY_CARRY_MAX, QueryReply, XTVERSION_REPLY, answer_queries,
 };
 
-fn answer(core: &mut AlacrittyCore, carry: &mut Vec<u8>, chunk: &[u8]) -> QueryReply {
+fn answer(core: &mut RioCore, carry: &mut Vec<u8>, chunk: &[u8]) -> QueryReply {
     answer_queries(carry, Some(core as &mut dyn TerminalCore), chunk)
 }
 
 fn answer_fresh(chunk: &[u8]) -> QueryReply {
-    answer(&mut AlacrittyCore::new(80, 24), &mut Vec::new(), chunk)
+    answer(&mut RioCore::new(80, 24), &mut Vec::new(), chunk)
 }
 
 #[test]
 fn a_kitty_keyboard_query_is_answered_with_the_live_flags() {
-    let mut core = AlacrittyCore::new(80, 24);
+    let mut core = RioCore::new(80, 24);
     let mut carry = Vec::new();
     assert_eq!(answer(&mut core, &mut carry, b"\x1b[?u").bytes, "\x1b[?0u");
     assert_eq!(
@@ -29,7 +29,7 @@ fn a_kitty_keyboard_query_is_answered_with_the_live_flags() {
 
 #[test]
 fn a_replayed_kitty_query_does_not_produce_a_reply() {
-    let mut core = AlacrittyCore::new(80, 24);
+    let mut core = RioCore::new(80, 24);
     core.write(b"\x1b[=1u\x1b[?u");
     assert_eq!(core.get_response(), None);
     assert_eq!(core.kitty_keyboard_flags(), 1, "replay restores mode state");
@@ -43,7 +43,7 @@ fn a_live_query_preserves_reply_order_around_synthesized_probes() {
 
 #[test]
 fn a_kitty_query_split_across_chunks_is_answered_once() {
-    let mut core = AlacrittyCore::new(80, 24);
+    let mut core = RioCore::new(80, 24);
     let mut carry = Vec::new();
     assert_eq!(answer(&mut core, &mut carry, b"\x1b[?").bytes, "");
     assert_eq!(answer(&mut core, &mut carry, b"u").bytes, "\x1b[?0u");
@@ -77,10 +77,9 @@ fn a_probe_split_at_every_offset_is_answered_exactly_once() {
         ("\x1b[0c", PRIMARY_DA_REPLY),
         ("\x1b[>q", XTVERSION_REPLY),
         ("\x1b[>0q", XTVERSION_REPLY),
-        ("\x1b[?2;1;0S", "\x1b[?2;3;0S"),
     ] {
         for cut in 1..probe.len() {
-            let mut core = AlacrittyCore::new(80, 24);
+            let mut core = RioCore::new(80, 24);
             let mut carry = Vec::new();
             let first = format!("x{}", &probe[..cut]);
             let second = format!("{}\x1b[6n", &probe[cut..]);
@@ -98,7 +97,7 @@ fn a_probe_split_at_every_offset_is_answered_exactly_once() {
 
 #[test]
 fn the_carry_holds_only_an_unterminated_csi() {
-    let mut core = AlacrittyCore::new(80, 24);
+    let mut core = RioCore::new(80, 24);
     let mut carry = Vec::new();
     answer(&mut core, &mut carry, b"plain text");
     assert!(carry.is_empty());
@@ -117,7 +116,7 @@ fn the_carry_holds_only_an_unterminated_csi() {
 /// partial is reported and its eventual final byte answers nothing.
 #[test]
 fn an_unterminated_csi_past_the_cap_is_abandoned() {
-    let mut core = AlacrittyCore::new(80, 24);
+    let mut core = RioCore::new(80, 24);
     let mut carry = Vec::new();
     let runaway = format!("\x1b[{}", "1;".repeat(QUERY_CARRY_MAX));
     let reply = answer(&mut core, &mut carry, runaway.as_bytes());
@@ -140,7 +139,7 @@ fn the_capture_lane_advances_the_carry_without_touching_the_core() {
 /// discarded, so the next live answer is not preceded by a stale one.
 #[test]
 fn a_plain_write_answers_nothing_and_clears_the_queue() {
-    let mut core = AlacrittyCore::new(80, 24);
+    let mut core = RioCore::new(80, 24);
     core.write(b"\x1b[6n\x1b[c\x1b[5n");
     assert_eq!(core.get_response(), None);
     core.write_raw(b"\x1b[6n");
@@ -167,14 +166,27 @@ fn xtversion_is_answered_only_for_a_zero_parameter() {
     assert_eq!(answer_fresh(b"\x1b[>1q").bytes, "");
 }
 
-/// XTSMGRAPHICS is answered as xterm would answer a terminal with no graphics:
-/// a well-formed probe fails (3), a bad item or action is reported as such.
+/// XTSMGRAPHICS is the core's to answer: sixel tools read the geometry before
+/// they draw, and the core reports the nominal 8×16 px cell grid.
 #[test]
-fn xtsmgraphics_is_answered_as_unsupported() {
-    assert_eq!(answer_fresh(b"\x1b[?2;1;0S").bytes, "\x1b[?2;3;0S");
-    assert_eq!(answer_fresh(b"\x1b[?9;1;0S").bytes, "\x1b[?9;1;0S");
-    assert_eq!(answer_fresh(b"\x1b[?1;7S").bytes, "\x1b[?1;2;0S");
-    assert_eq!(answer_fresh(b"\x1b[?S").bytes, "");
+fn xtsmgraphics_geometry_reports_the_nominal_text_area() {
+    assert_eq!(answer_fresh(b"\x1b[?2;1;0S").bytes, "\x1b[?2;0;640;384S");
+    assert_eq!(answer_fresh(b"\x1b[?9;1;0S").bytes, "\x1b[?9;1S");
+}
+
+/// The pixel-size reports image tools size their output by.
+#[test]
+fn pixel_size_reports_are_forwarded() {
+    assert_eq!(answer_fresh(b"\x1b[14t").bytes, "\x1b[4;384;640t");
+    assert_eq!(answer_fresh(b"\x1b[16t").bytes, "\x1b[6;16;8t");
+}
+
+/// A kitty graphics query is answered by the core, so `icat`-style tools see
+/// a graphics-capable terminal.
+#[test]
+fn a_kitty_graphics_query_is_forwarded() {
+    let reply = answer_fresh(b"\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\").bytes;
+    assert!(reply.starts_with("\x1b_Gi=31;"), "{reply:?}");
 }
 
 /// Probes v2's core left unanswered: the application must see exactly what it

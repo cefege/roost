@@ -3966,8 +3966,8 @@ output is coloured; the span's style reads `color:var(--term-fg)`.
 **Wrong** — fix it in the browser palette or the colour-scheme CSS. The `--term-color-0..15` bridge is
 correct; the cell arrives with `fg = DEFAULT_COLOR`, so no browser-side palette can recover it.
 
-**Right** — alacritty parses those SGRs as `Color::Named(Red…BrightWhite)`, not `Color::Indexed`.
-`roost-term/src/alacritty/cell.rs::palette` resolves a `Named` colour through the terminal's OSC 4
+**Right** — the core parses those SGRs as `AnsiColor::Named(Red…LightWhite)`, not `AnsiColor::Indexed`.
+`roost-term/src/rio/cell.rs::palette` resolves a `Named` colour through the terminal's OSC 4
 overrides first, then maps the sixteen ANSI names to palette indices 0–15; only role names (foreground,
 background, cursor, dim variants) become the default.
 

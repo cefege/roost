@@ -15,7 +15,7 @@ use roost_keeper::history::HistoryRecord;
 use roost_keeper::payloads::TerminalState;
 use roost_protocol::viewport::{TerminalGeometry, is_terminal_geometry};
 use roost_protocol::wire::brand::TraceId;
-use roost_term::AlacrittyCore;
+use roost_term::RioCore;
 use roost_term::TerminalCore;
 
 use super::ids::{mint_trace_id, mint_uuid};
@@ -51,7 +51,7 @@ impl SessionManager {
                 "keeper history reported invalid base terminal geometry".to_owned(),
             ));
         }
-        let mut core = AlacrittyCore::new(history.base_cols, history.base_rows);
+        let mut core = RioCore::new(history.base_cols, history.base_rows);
         if core.cols() != history.base_cols || core.rows() != history.base_rows {
             return Err(refuse(
                 "terminal core did not retain keeper history base geometry".to_owned(),
@@ -118,7 +118,7 @@ impl SessionManager {
 /// cold core's FIRST output write starts at an arbitrary cut, so its orphan
 /// prefix is dropped (the ring keeps every byte); every later record continues
 /// a warm parser and is replayed verbatim.
-fn replay_ordered(core: &mut AlacrittyCore, history: &SurvivorHistory) -> Result<(), String> {
+fn replay_ordered(core: &mut RioCore, history: &SurvivorHistory) -> Result<(), String> {
     let mut drop_orphan_prefix = history.evicted();
     for record in &history.records {
         match record {

@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_host::HostPlatform;
-use roost_term::{AlacrittyCore, CellEmitState};
+use roost_term::{CellEmitState, RioCore};
 use roost_worker::event_store::{DurableEventKind, Store};
 use roost_worker::session::agent_osc::AgentOscState;
 use roost_worker::session::ring::ScrollbackRing;
@@ -42,7 +42,7 @@ fn record(window: usize) -> SessionRecord {
             spawned_at_ms: 1_700_000_000_000,
         },
         reservation,
-        Box::new(AlacrittyCore::new(80, 24)),
+        Box::new(RioCore::new(80, 24)),
         CellEmitState::new("epoch-1", "stream-1"),
         ScrollbackRing::new(window),
     )

@@ -8,7 +8,7 @@
 
 use roost_host::HostPlatform;
 use roost_protocol::wire::brand::SessionId;
-use roost_term::{AlacrittyCore, TerminalCore};
+use roost_term::{RioCore, TerminalCore};
 use roost_worker::event_store::{DurableEventKind, Store};
 use roost_worker::session::ring::ScrollbackRing;
 use roost_worker::session::scrollback::{append_pty_chunk, replay_retained_into};
@@ -42,7 +42,7 @@ fn record(window: usize) -> SessionRecord {
             spawned_at_ms: 1_700_000_000_000,
         },
         reservation,
-        Box::new(AlacrittyCore::new(80, 24)),
+        Box::new(RioCore::new(80, 24)),
         roost_term::CellEmitState::new("epoch-1", "stream-1"),
         ScrollbackRing::new(window),
     )
@@ -221,7 +221,7 @@ fn a_replay_feeds_the_whole_window_and_says_whether_it_was_saturated() {
         "an eight-byte window is full"
     );
 
-    let mut core = AlacrittyCore::new(20, 4);
+    let mut core = RioCore::new(20, 4);
     let replay = replay_retained_into(&mut core, &session);
     assert_eq!(replay.bytes, 8, "the window held eight bytes");
     assert_eq!(replay.head_seq, session.head_seq);
@@ -230,7 +230,7 @@ fn a_replay_feeds_the_whole_window_and_says_whether_it_was_saturated() {
         "and the caller is told the window was at capacity, because rows the \
          old core held may not exist in this one"
     );
-    let mut rebuilt = AlacrittyCore::new(20, 4);
+    let mut rebuilt = RioCore::new(20, 4);
     // Not bound, and not `let _ =`: `Replay` is not `#[must_use]`, so a
     // binding would exist only to stop the compiler asking about a value this
     // test does not assert on. The summary IS pinned, by the `replay`
@@ -244,7 +244,7 @@ fn a_replay_feeds_the_whole_window_and_says_whether_it_was_saturated() {
     );
 
     let mut empty = record(1024);
-    let mut fresh = AlacrittyCore::new(20, 4);
+    let mut fresh = RioCore::new(20, 4);
     let idle = replay_retained_into(&mut fresh, &empty);
     assert_eq!(idle.bytes, 0);
     assert!(!idle.evicted, "an unsaturated window lost nothing");

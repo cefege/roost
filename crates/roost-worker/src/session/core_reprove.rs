@@ -18,7 +18,7 @@ use roost_keeper::history::HistoryRecord;
 use roost_protocol::terminal_capture::bundle::TerminalWorkerResizeOutcome::{LostAck, Recovered};
 use roost_protocol::viewport::{TerminalGeometry, is_terminal_geometry};
 use roost_protocol::wire::brand::ChannelId;
-use roost_term::{AlacrittyCore, CellEmitState, TerminalCore};
+use roost_term::{CellEmitState, RioCore, TerminalCore};
 
 use super::binding::ChannelDelivery;
 use super::ids::mint_uuid;
@@ -112,7 +112,7 @@ impl SessionManager {
             .core_capacity
             .reserve(TerminalCoreAllocationKind::Replacement)
             .map_err(|error| refuse(format!("terminal core reservation refused: {error}"), true))?;
-        let mut core = AlacrittyCore::new(history.base_cols, history.base_rows);
+        let mut core = RioCore::new(history.base_cols, history.base_rows);
         if (core.cols(), core.rows()) != (history.base_cols, history.base_rows) {
             return Err(refuse(
                 "terminal core did not retain the keeper's base geometry".to_owned(),
@@ -323,7 +323,7 @@ struct HistoryReplay {
 /// on whatever this worker retained past the keeper's head (v2
 /// `replayKeeperHistory`). Synchronous by contract: the caller holds the ring.
 fn replay_history(
-    core: &mut AlacrittyCore,
+    core: &mut RioCore,
     history: &SurvivorHistory,
     retained: &[u8],
     live_head_seq: u64,

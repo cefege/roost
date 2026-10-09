@@ -16,7 +16,7 @@ use keeper_pool_support::{KeeperFixture, channel, opened, session, sh_spec};
 use roost_proto::DInputRequest;
 use roost_protocol::wire::brand::{SessionId, TraceId, WorkerFp};
 use roost_protocol::wire::coord_worker::{InputResult, TerminalInputStatus, TerminalWritePhase};
-use roost_term::{AlacrittyCore, CellEmitState};
+use roost_term::{CellEmitState, RioCore};
 use roost_worker::event_store::{DurableEventKind, Journal};
 use roost_worker::link_ports::TerminalInputPort;
 use roost_worker::runtime::session_stack;
@@ -107,7 +107,7 @@ async fn an_input_request_reaches_a_real_pty_and_equal_browser_sequences_both_la
     let record = SessionRecord::new(
         identity,
         reservation,
-        Box::new(AlacrittyCore::new(80, 24)),
+        Box::new(RioCore::new(80, 24)),
         CellEmitState::new("epoch", "stream"),
         ScrollbackRing::default(),
     );

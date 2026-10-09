@@ -25,7 +25,7 @@ use roost_protocol::terminal_search::{
     GLOBAL_TERMINAL_SEARCH_MAX_MATCHES, GLOBAL_TERMINAL_SEARCH_PAGE_DEADLINE_MS,
     GLOBAL_TERMINAL_SEARCH_ROWS_PER_SESSION,
 };
-use roost_term::{AlacrittyCore, CellEmitState, TerminalCore};
+use roost_term::{CellEmitState, RioCore, TerminalCore};
 use roost_worker::browser_commands::search::{BatchSearch, ScrollbackSearch};
 use roost_worker::browser_commands::search_scan::GridScanner;
 use roost_worker::event_store::{DurableEventKind, Store};
@@ -67,7 +67,7 @@ fn identity() -> SessionIdentity {
 /// One session whose grid holds the marker and then far more padding than a
 /// single page may read — the shape the browser spec builds by typing.
 fn table_burying_a_marker() -> Arc<SessionTable> {
-    let mut core = AlacrittyCore::new(120, ROWS);
+    let mut core = RioCore::new(120, ROWS);
     let mut output = format!("{MARKER}\r\n");
     for index in 0..PADDING {
         output.push_str(&format!("padding-{index:04}\r\n"));
@@ -200,7 +200,7 @@ async fn the_page_after_the_cursor_reaches_the_rows_the_first_page_could_not() {
 /// keeping.
 #[tokio::test]
 async fn a_row_with_more_occurrences_than_the_cap_yields_the_cap() {
-    let mut core = AlacrittyCore::new(120, ROWS);
+    let mut core = RioCore::new(120, ROWS);
     core.write(b"needle needle needle needle\r\n");
     let mut store = Store::new();
     let reservation = store

@@ -43,10 +43,10 @@ jobs:
       - name: repo invariants
         run: cargo xtask lint
       # The vendored terminal core is not a workspace member, so its own suite
-      # runs by manifest path. It is a required gate: the patch in
-      # third_party/alacritty_terminal has to keep upstream green.
+      # runs by manifest path. It is a required gate: the patches in
+      # third_party/rio_vt have to keep upstream green.
       - name: vendored terminal core
-        run: cargo test --manifest-path third_party/alacritty_terminal/Cargo.toml
+        run: cargo test --manifest-path third_party/rio_vt/Cargo.toml --no-default-features --features graphics
       # roost-client-core and roost-protocol are the two crates every future
       # front end links, and both must stay free of host-only dependencies.
       #

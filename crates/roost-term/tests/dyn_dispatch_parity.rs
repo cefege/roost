@@ -14,18 +14,18 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use roost_term::{AlacrittyCore, CellEmitState, TerminalCore, next_cell_frame};
+use roost_term::{CellEmitState, RioCore, TerminalCore, next_cell_frame};
 
 /// The feed a core is given, so both paths see the same bytes in the same order
 /// and any difference in the frame is dispatch rather than input.
 const FEED: &[u8] = b"roost dispatch parity\r\n$ echo one\r\none\r\n$ ";
 
-fn concrete() -> AlacrittyCore {
-    AlacrittyCore::new(80, 24)
+fn concrete() -> RioCore {
+    RioCore::new(80, 24)
 }
 
 fn boxed() -> Box<dyn TerminalCore + Send> {
-    Box::new(AlacrittyCore::new(80, 24))
+    Box::new(RioCore::new(80, 24))
 }
 
 /// A frame built through `&dyn` equals the same frame built through the

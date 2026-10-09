@@ -20,7 +20,7 @@ use link_downstream_support::{Fakes, OwnerMode};
 use roost_observability::clock::EventClock;
 use roost_protocol::wire::agent_status::AgentStatusSource;
 use roost_protocol::wire::coord_worker::CoordWorkerUpstream as Up;
-use roost_term::{AlacrittyCore, TerminalCore};
+use roost_term::{RioCore, TerminalCore};
 use roost_worker::agents::detector::sessions::{AgentSessionSource, read_visible_screen};
 use roost_worker::agents::process_scan::{AgentProcessScan, AgentProcessScanner};
 use roost_worker::agents::process_snapshot::PsSnapshotReader;
@@ -94,7 +94,7 @@ async fn a_detected_agent_process_reaches_the_coordinator_link() {
 
 #[test]
 fn the_visible_screen_reads_a_wide_glyph_as_one_character() {
-    let mut core = AlacrittyCore::new(8, 2);
+    let mut core = RioCore::new(8, 2);
     core.write("中文 ok\r\nnext".as_bytes());
     assert_eq!(read_visible_screen(&core), "中文 ok\nnext");
 }

@@ -26,7 +26,7 @@ use roost_proto::{
     DLocalTerminalGrant, InputCommand, LocalTerminalClientFrame, LocalTerminalHello,
     TerminalViewCommand,
 };
-use roost_term::AlacrittyCore;
+use roost_term::RioCore;
 use roost_worker::local_terminal::{
     LocalTerminalDoor, LocalTerminalDoorDeps, LocalTerminalGrantStore, LocalTerminalSockets,
     TerminalPacketPort,
@@ -252,7 +252,7 @@ impl Fixture {
     pub fn new() -> Self {
         let keeper = Arc::new(AutoKeeper::default());
         let harness = Harness::with_keeper(
-            AlacrittyCore::new(COLS, ROWS),
+            RioCore::new(COLS, ROWS),
             Arc::clone(&keeper) as Arc<dyn KeeperChannels>,
         );
         let (uplink, upstream) = channel();

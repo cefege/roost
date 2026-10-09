@@ -9,13 +9,13 @@ mod terminal_stream_support;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use roost_proto::LocalScrollbackRequest;
-use roost_term::AlacrittyCore;
+use roost_term::RioCore;
 use roost_worker::local_terminal::read_local_scrollback;
 use terminal_stream_support::{COLS, Harness, ROWS, SESSION};
 
 #[tokio::test]
 async fn post_read_authority_loss_suppresses_the_direct_scrollback_page() {
-    let harness = Harness::new(AlacrittyCore::new(COLS, ROWS));
+    let harness = Harness::new(RioCore::new(COLS, ROWS));
     let checks = AtomicUsize::new(0);
     let request = LocalScrollbackRequest {
         request_id: "history-authority-loss".to_owned(),
@@ -41,7 +41,7 @@ async fn post_read_authority_loss_suppresses_the_direct_scrollback_page() {
 
 #[tokio::test]
 async fn a_page_names_its_rows_and_the_grid_it_was_read_from() {
-    let harness = Harness::new(AlacrittyCore::new(COLS, ROWS));
+    let harness = Harness::new(RioCore::new(COLS, ROWS));
     for line in 0..20 {
         harness.deliver(format!("line-{line}\r\n").as_bytes());
     }

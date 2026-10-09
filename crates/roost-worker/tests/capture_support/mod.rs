@@ -13,7 +13,7 @@ use roost_protocol::cell::{CellGridFrame, CellRow, CellSpan, DEFAULT_COLOR};
 use roost_protocol::terminal_capture::TerminalCaptureWorkerAck;
 use roost_protocol::terminal_capture::bundle::is_terminal_capture_file_name;
 use roost_protocol::wire::brand::SessionId;
-use roost_term::{AlacrittyCore, grid_to_cell_frame, scrollback_origin};
+use roost_term::{RioCore, grid_to_cell_frame, scrollback_origin};
 use roost_worker::browser_commands::diagnostics::{
     CaptureAction, CaptureCommand, DiagnosticReports,
 };
@@ -69,7 +69,7 @@ impl Drop for CaptureHarness {
 
 impl CaptureHarness {
     pub fn new(label: &str) -> Self {
-        Self::over(label, Harness::scripted(AlacrittyCore::new(COLS, ROWS)))
+        Self::over(label, Harness::scripted(RioCore::new(COLS, ROWS)))
     }
 
     pub fn over(label: &str, stream: Harness) -> Self {

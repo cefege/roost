@@ -47,14 +47,16 @@ const ALLOWED: &[(&str, &[&str])] = &[
         "roost-host",
         &["roost-protocol", "roost-platform", "roost-observability"],
     ),
-    // `alacritty_terminal` is the vendored terminal core, patched through
-    // `[patch.crates-io]`; see third_party/alacritty_terminal/ROOST-PATCHES.md.
+    // `rio-vt` is the vendored terminal core, patched through
+    // `[patch.crates-io]`; see third_party/rio_vt/ROOST-PATCHES.md.
+    // `rio-graphics` is its image data type.
     (
         "roost-term",
         &[
             "roost-protocol",
             "roost-observability",
-            "alacritty_terminal",
+            "rio-vt",
+            "rio-graphics",
         ],
     ),
     // `roost-platform` is here for ONE thing: `HostPlatform::as_str()` is the
