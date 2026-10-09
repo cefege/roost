@@ -1,9 +1,15 @@
 /* NotificationDock.css — geometry for the single bottom overlay column that
    hosts toasts, undo snackbars, transfers and pair requests, plus the toast and
-   undo keyframes those cards animate with, the desktop toast slot measure, and
-   the notify-target ring a hovered toast paints on the pane tab or sidebar row
-   it points at. Imported by NotificationDock.tsx, which publishes
-   --roost-notify-dock-lift. */
+   undo keyframes those cards animate with, the toast overflow bar, and the
+   notify-target ring a hovered toast paints on the pane tab or sidebar row it
+   points at. Imported by notifications.rs, which publishes
+   --roost-notify-dock-lift.
+
+   Placement follows the corner-stack convention (VS Code, Sonner, OS
+   notification centres): on a pointer layout every card is one fixed width and
+   rides the bottom-RIGHT corner, so it never sits over the prompt and cursor
+   at a terminal's bottom-left; on a phone the column spans the screen above the
+   composer. How many cards show at once is toast_stack.rs's rule. */
 
 .roost-notify-dock {
   position: fixed;
@@ -13,25 +19,55 @@
   z-index: 1100;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-end;
   gap: var(--md-space-2);
   pointer-events: none;
 }
 
-/* Cards own their hit area; the column itself must never eat a terminal tap. */
+/* Cards own their hit area; the column itself must never eat a terminal tap.
+   One width for every card, so a stack reads as one column, not a ragged pile. */
 .roost-notify-dock > * {
   pointer-events: auto;
-  inline-size: min(70ch, 100%);
+  inline-size: min(var(--roost-toast-inline-size), 100%);
 }
 
-/* A short toast should read as a short card. The slot shrink-wraps between a
-   floor that keeps a stack of cards from looking ragged and a measure that caps
-   a long line well before the 70ch the wider dock cards need. Compact keeps the
-   full-width slot: a phone toast puts its action row on its own line. */
-.roost-notify-dock > .roost-toast-slot[data-compact="false"] {
-  inline-size: auto;
-  min-inline-size: min(var(--roost-toast-min-inline-size), 100%);
-  max-inline-size: min(var(--roost-toast-max-inline-size), 100%);
+.roost-notify-dock[data-compact="true"] > :not(.pad-hint) {
+  inline-size: 100%;
+}
+
+.roost-toast-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-2);
+}
+
+/* Expanded, the whole backlog can outgrow the viewport; it scrolls inside the
+   column rather than climbing past the top of the screen. */
+.roost-toast-stack[data-expanded="true"] {
+  max-block-size: calc(100dvh - var(--roost-notify-dock-lift) - var(--md-space-9) * 2);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.roost-toast-slot {
+  animation: roost-toast-in var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard-decelerate);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .roost-toast-slot { animation: none; }
+}
+
+.roost-toast-overflow {
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-2);
+  padding: var(--md-space-1) var(--md-space-1) var(--md-space-1) var(--md-space-3);
+}
+
+.roost-toast-overflow__label {
+  flex: 1;
+  min-inline-size: 0;
+  color: var(--md-sys-color-on-surface-variant);
 }
 
 .roost-toast {

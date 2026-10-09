@@ -165,6 +165,10 @@ pub struct Toast {
     pub remaining_ms: u64,
     /// Whether the pointer or focus is on the card and the window is frozen.
     pub held: bool,
+    /// Where the card sits in the stack: the count of cards raised before it
+    /// first appeared. A replacement keeps the value, so a redelivered event
+    /// updates its card in place instead of moving it.
+    pub raised_order: u64,
 }
 
 impl Toast {

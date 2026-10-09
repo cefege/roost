@@ -40,12 +40,14 @@ pub use crate::store::toasts::identity::{
 ///
 /// A `BTreeMap` keyed by id, not a `Vec`: the whole point of the identity is
 /// that a repeat is impossible, and a keyed map makes that a type-level fact
-/// rather than a filter a caller has to remember. The order is the id order,
-/// which is stable across a redelivery, so a replaced card keeps its place
-/// instead of jumping to the end.
+/// rather than a filter a caller has to remember. The id order is NOT the
+/// display order — an agent card is keyed by its session id, so id order would
+/// drop a new card into the middle of the stack — so each card carries the
+/// raise counter it was given, and a replaced card keeps its place.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct ToastStack {
     toasts: BTreeMap<ToastId, Toast>,
+    next_raised_order: u64,
 }
 
 impl ToastStack {
@@ -64,9 +66,11 @@ impl ToastStack {
         self.toasts.is_empty()
     }
 
-    /// The live cards.
+    /// The live cards, oldest raise first.
     pub fn toasts(&self) -> impl Iterator<Item = &Toast> {
-        self.toasts.values()
+        let mut cards: Vec<&Toast> = self.toasts.values().collect();
+        cards.sort_unstable_by_key(|toast| toast.raised_order);
+        cards.into_iter()
     }
 
     /// One card by id.
@@ -139,11 +143,14 @@ pub fn raise_toast(
         expires_at_ms: ttl_ms.map(|ttl| now_ms.saturating_add(ttl)),
         remaining_ms,
         held: previous.is_some_and(|prior| prior.held),
+        raised_order: previous.map_or(toasts.next_raised_order, |prior| prior.raised_order),
     };
     if let Some(sticky) = previous.filter(|prior| prior.held) {
         toast.expires_at_ms = sticky.expires_at_ms;
     }
-    toasts.toasts.insert(id.clone(), toast);
+    if toasts.toasts.insert(id.clone(), toast).is_none() {
+        toasts.next_raised_order += 1;
+    }
     tracing::debug!(
         target: "store",
         kind = kind.as_str(),
@@ -160,6 +167,16 @@ pub fn dismiss_toast(store: &mut Store, id: &ToastId) -> bool {
     }
     store.note_change();
     true
+}
+
+/// Remove every card, because the reader asked to clear the stack. Returns
+/// whether there was anything to clear.
+pub fn dismiss_all_toasts(store: &mut Store) -> bool {
+    let had_any = clear_all(&mut store.toasts);
+    if had_any {
+        store.note_change();
+    }
+    had_any
 }
 
 /// Take a card's button and remove the card in the same step.
@@ -285,9 +302,7 @@ pub fn remove_toasts_for_session(toasts: &mut ToastStack, session_id: &str) -> b
 /// A card from the previous credential names a session and a path the new one
 /// cannot see, and the text of a failure can quote a machine name.
 pub fn clear_toasts_for_account_boundary(store: &mut Store) {
-    if clear_all(&mut store.toasts) {
-        store.note_change();
-    }
+    dismiss_all_toasts(store);
 }
 
 /// The clear itself, WITHOUT bumping `revision`, for a boundary that is clearing

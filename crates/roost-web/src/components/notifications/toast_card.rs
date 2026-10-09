@@ -262,7 +262,7 @@ pub fn ToastCard(toast_id: ToastId) -> Element {
                     pre {
                         "data-testid": "toast-details",
                         class: "md-body-s",
-                        style: "margin: 0; padding: var(--md-space-2); background: var(--md-sys-color-surface-container-highest); border-radius: var(--md-shape-xs); font-family: var(--term-font-family); color: var(--md-sys-color-on-surface-variant); white-space: pre-wrap; word-break: break-word; max-height: calc(var(--md-space-9) * 5); overflow: auto; user-select: text;",
+                        style: "margin: 0; padding: var(--md-space-2); background: var(--md-sys-color-surface-container-highest); border-radius: var(--md-shape-xs); font-family: var(--term-font-family); color: var(--md-sys-color-on-surface-variant); white-space: pre-wrap; word-break: break-word; max-height: calc(var(--md-space-9) * 3); overflow: auto; user-select: text;",
                         "{detail}"
                     }
                 }

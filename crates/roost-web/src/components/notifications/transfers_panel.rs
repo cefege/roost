@@ -36,7 +36,7 @@ pub fn TransfersPanel() -> Element {
             elevation: 3,
             radius: SurfaceRadius::Md,
             border: true,
-            style: "display: flex; flex-direction: column; gap: var(--md-space-1); inline-size: min(var(--roost-toast-max-inline-size), 100%); padding-block-start: var(--md-space-2);",
+            style: "display: flex; flex-direction: column; gap: var(--md-space-1); padding-block-start: var(--md-space-2);",
             div {
                 style: "display: flex; align-items: center; gap: var(--md-space-2); padding-inline: var(--md-space-4);",
                 span {
