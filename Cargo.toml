@@ -72,7 +72,7 @@ openssl = { version = "0.10.81", features = ["vendored"] }
 # tokio `File`, so the writer is one pipeline and no `spawn_blocking`.
 async-compression = { version = "0.4.30", features = ["tokio", "gzip"] }
 portable-pty = "0.9.0"
-# Patched: see third_party/rio_vt/ROOST-PATCHES.md (R1–R6). `graphics` decodes
+# Patched: see third_party/rio_vt/ROOST-PATCHES.md (R1–R7). `graphics` decodes
 # PNG kitty payloads and iTerm2 images; the default `pty` feature is rio's own
 # PTY driver, which Roost does not use.
 rio-vt = { version = "=0.5.28", default-features = false, features = ["graphics"] }

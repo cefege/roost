@@ -1055,7 +1055,7 @@ impl Parser {
     /// cannot build) go scalar.
     #[inline]
     fn decode_codepoints(&mut self, src: &[u8]) {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(feature = "simdutf", not(target_arch = "wasm32")))]
         if src.len() >= SIMD_DECODE_MIN {
             return self.decode_codepoints_simd(src);
         }
@@ -1065,7 +1065,7 @@ impl Parser {
     /// SIMD-transcode a UTF-8 byte slice into [`Self::decode_buf`] as `u32`
     /// codepoints, replacing each invalid UTF-8 maximal subpart with one
     /// U+FFFD inline (W3C/Unicode "Substitution of Maximal Subparts").
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(feature = "simdutf", not(target_arch = "wasm32")))]
     #[inline]
     fn decode_codepoints_simd(&mut self, src: &[u8]) {
         self.decode_buf.clear();
@@ -1275,7 +1275,7 @@ fn find_dcs_boundary(bytes: &[u8]) -> usize {
 const DECODE_CHUNK: usize = 4096;
 
 /// Runs shorter than this decode scalar instead of through simdutf.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "simdutf", not(target_arch = "wasm32")))]
 const SIMD_DECODE_MIN: usize = 16;
 
 /// Length of the maximal valid subpart of a UTF-8 sequence starting at
@@ -1569,7 +1569,7 @@ mod tests {
     /// scalar, only inputs >= SIMD_DECODE_MIN reach the simdutf error
     /// loop. Feed the same invalid corpus through both, below and above
     /// the threshold, and require identical output.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(feature = "simdutf", not(target_arch = "wasm32")))]
     #[test]
     fn scalar_and_simd_decode_agree() {
         let invalid_cases: &[&[u8]] = &[

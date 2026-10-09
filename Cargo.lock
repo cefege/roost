@@ -4933,7 +4933,6 @@ dependencies = [
  "rio-unicode",
  "rustc-hash 2.1.3",
  "serde",
- "simdutf",
  "smallvec",
  "tracing",
  "web-time",
@@ -5704,16 +5703,6 @@ checksum = "11031e251abf8611c80f460e19dbdeb54a66db918e49c65a7065b46ac7aec520"
 dependencies = [
  "rustc_version",
  "simdutf8",
-]
-
-[[package]]
-name = "simdutf"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f542752c7335a9174e7bb81112c3ca1415a7a6b6ec2c3e840aca347a30f9141"
-dependencies = [
- "bitflags 2.13.2",
- "cc",
 ]
 
 [[package]]

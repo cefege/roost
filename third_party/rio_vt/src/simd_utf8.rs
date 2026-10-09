@@ -49,7 +49,7 @@ impl std::error::Error for Utf8Error {}
 /// Single SIMD pass via `simdutf::validate_utf8_with_errors` — gives both
 /// the success-as-`&str` view and the (`valid_up_to`, `error_len`) pair on
 /// failure, replacing the `simdutf8` "basic + compat" two-call dance.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "simdutf", not(target_arch = "wasm32")))]
 #[inline]
 pub fn validate(bytes: &[u8]) -> Result<&str, Utf8Error> {
     let result = simdutf::validate_utf8_with_errors(bytes);
@@ -67,7 +67,7 @@ pub fn validate(bytes: &[u8]) -> Result<&str, Utf8Error> {
 
 /// Scalar path for wasm, where the C++-backed `simdutf` cannot build.
 /// std's validator reports the same (`valid_up_to`, `error_len`) pair.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(not(feature = "simdutf"), target_arch = "wasm32"))]
 #[inline]
 pub fn validate(bytes: &[u8]) -> Result<&str, Utf8Error> {
     std::str::from_utf8(bytes).map_err(|err| Utf8Error {
@@ -80,7 +80,7 @@ pub fn validate(bytes: &[u8]) -> Result<&str, Utf8Error> {
 /// `valid_up_to`, mirroring `simdutf8::compat::from_utf8`'s `error_len()`
 /// semantics: `Some(n)` for a definitively-invalid `n`-byte sequence,
 /// `None` for an unfinished sequence at end-of-input.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "simdutf", not(target_arch = "wasm32")))]
 fn compute_error_len(bytes: &[u8], valid_up_to: usize) -> Option<usize> {
     if valid_up_to >= bytes.len() {
         return None;
@@ -205,6 +205,9 @@ mod tests {
         assert_eq!(err.error_len(), Some(1));
     }
 
+    // ROOST PATCH R7: simdutf's compat error length; std (the scalar path)
+    // reports the Unicode maximal subpart, 1, for a surrogate.
+    #[cfg(all(feature = "simdutf", not(target_arch = "wasm32")))]
     #[test]
     fn complete_invalid_sequence_returns_some_len() {
         // Surrogate codepoint encoded in UTF-8 (3 bytes) — valid bytes,

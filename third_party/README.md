@@ -29,8 +29,9 @@ Rules for anything in this directory:
   Wired through `[patch.crates-io]`; outside the workspace, so its suite runs
   by manifest path:
   `cargo test --manifest-path third_party/rio_vt/Cargo.toml --no-default-features --features graphics`.
-  [`rio_vt/ROOST-PATCHES.md`](rio_vt/ROOST-PATCHES.md) lists patches R1–R6:
+  [`rio_vt/ROOST-PATCHES.md`](rio_vt/ROOST-PATCHES.md) lists patches R1–R7:
   LF clearing a pending wrap, delete discarding rather than reaching history,
   ED clearing the viewport in place, relative cursor motion bounded by DECSTBM
   margins, a per-row Roost prompt mark, and a listener hook for dropped CSI
-  sequences with program-input noise logged at debug.
+  sequences with program-input noise logged at debug, and `simdutf` made optional
+  so no C++ is compiled.

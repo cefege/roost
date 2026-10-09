@@ -1,7 +1,7 @@
 # ROOST-PATCHES — vendored `rio-vt` 0.5.28
 
 crates.io `rio-vt` 0.5.28 (MIT, github.com/raphamorim/rio), the terminal core
-behind `roost-term`. Unmodified except as listed below. Wired in through
+behind `roost-term`. Unmodified except as listed below (R1–R7). Wired in through
 `[patch.crates-io]` in the workspace `Cargo.toml`; outside the workspace, so
 its suite runs by manifest path:
 
@@ -132,3 +132,24 @@ preceding char, a non-local OSC 7 host). Those are now `debug!`: a program
 printing garbage must not write to the worker's error log.
 
 Guard: `tests/roost_unhandled_csi.rs`.
+
+## R7 — `simdutf` is an optional feature
+
+`Cargo.toml` (`simdutf` made optional, a `simdutf` feature in `default`),
+`src/simd_utf8.rs`, `src/simd_base64.rs` and `src/performer/parser/mod.rs`
+(every `cfg(target_arch = "wasm32")` split that chose between simdutf and
+the scalar path now also takes the scalar path when the feature is off).
+
+`simdutf` is a C++ library compiled by the crate's build script. Its AVX-512
+kernels do not build with the C toolchain Roost's Linux x64 release job uses
+(`'_mm512_set1_epi32' requires target feature 'evex512'`), which failed the
+v3.0.0-rc.18 release. Roost depends on rio-vt with `default-features = false`,
+so it takes upstream's own scalar path — the one upstream ships on wasm32 —
+on every target, and no C++ is compiled. The scalar base64 engine also
+forgives non-zero trailing bits, as simdutf's Loose mode does, so a kitty
+payload a simdutf build draws is drawn here too. The one upstream test that pins
+simdutf's own error-length convention for a UTF-8-encoded surrogate (3, where
+std's validator reports the maximal subpart, 1) runs only with the feature.
+
+Guard: `tests/roost_scalar_base64.rs`, and the suite runs both ways, `--no-default-features --features graphics`
+(what Roost builds) and `--features graphics,simdutf`.
