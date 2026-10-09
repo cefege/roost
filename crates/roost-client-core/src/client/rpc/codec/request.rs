@@ -21,6 +21,9 @@ use crate::effect::RpcCall;
 pub fn encode_rpc_request(call: &RpcCall) -> Result<Vec<u8>, RpcCodecError> {
     let method = connect_method(call);
     match call {
+        RpcCall::AgentChatList { .. } => {
+            encode(method, &roost_proto::AgentChatListRequest::default())
+        }
         RpcCall::CoordIdentity { .. } => encode(method, &AuthCoordIdentityRequest::default()),
         RpcCall::SessionsList { sync_socket_id, .. } => encode(
             method,

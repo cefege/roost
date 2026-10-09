@@ -42,6 +42,20 @@ pub fn decode_rpc_response(call: &RpcCall, body: &[u8]) -> Result<RpcResult, Rpc
                 terminal_peer_stun_urls: response
                     .terminal_peer_enabled
                     .then_some(response.terminal_peer_stun_urls),
+                builtin_agent_enabled: response.builtin_agent_enabled,
+            }
+        }
+        RpcCall::AgentChatList { call_id } => {
+            let response: roost_proto::AgentChatListResponse = decode(method, body)?;
+            let conversations = response
+                .conversations
+                .iter()
+                .map(roost_protocol::wire::agent_chat::conversation_from_proto)
+                .collect();
+            RpcResult::AgentChatList {
+                call_id: *call_id,
+                conversations,
+                host_connected: response.host_connected,
             }
         }
         RpcCall::SessionsList { call_id, .. } => {

@@ -150,7 +150,14 @@ fn the_sync_domain_wire_numbers_are_the_ones_sync_proto_declares() {
     let declared = declared_sync_domains();
     let stated: BTreeMap<String, i32> = SyncDomain::ALL
         .iter()
-        .map(|domain| (domain.as_str().to_string(), domain.wire_value()))
+        .map(|domain| {
+            let name = if *domain == SyncDomain::Agent {
+                "SYNC_DOMAIN_AGENT"
+            } else {
+                domain.as_str()
+            };
+            (name.to_owned(), domain.wire_value())
+        })
         .collect();
 
     assert_eq!(

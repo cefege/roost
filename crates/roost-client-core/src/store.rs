@@ -188,6 +188,8 @@ pub struct Store {
     /// Latched by the acknowledgement paths and cleared by the sweep that emits
     /// `Effect::PersistAgentSeen`, which is what makes a burst of
     /// acknowledgements one write. Initialise it to `false` in `Store::new`.
+    /// Agent conversations and lazily loaded transcript replicas.
+    pub agent_chat: crate::client::agent_chat::AgentChatState,
     pub agent_seen_dirty: bool,
     /// Machine-scoped browse state. Keyed by machine, not by path: two
     /// machines can hold the same folder path and a path is not an identity.
@@ -308,6 +310,7 @@ impl Store {
             // field with no initialiser does not compile and this file is the one
             // that owns the constructor.
             agent_status: crate::client::agents::AgentStatusProjection::new(),
+            agent_chat: crate::client::agent_chat::AgentChatState::default(),
             agent_seen: crate::client::agents::AgentSeenLedger::new(),
             agent_seen_dirty: false,
             browse: crate::store::browse_state::BrowseState::new(),

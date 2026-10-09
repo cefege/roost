@@ -230,7 +230,27 @@ fn map_arm(frame: Frame, domain_generation: u64) -> Result<SyncFrame, String> {
         Frame::WorkerPresence(value) => registry::worker_presence(*value),
         Frame::WorkerRoutable(value) => registry::worker_routable(*value),
         Frame::PairRequestDelta(value) => registry::pair_request_delta(*value),
-        Frame::AgentConversation(_) | Frame::AgentChatEvents(_) => Ok(SyncFrame::Keepalive),
+        Frame::AgentConversation(value) => {
+            let conversation = value
+                .conversation
+                .as_option()
+                .map(roost_protocol::wire::agent_chat::conversation_from_proto);
+            Ok(SyncFrame::AgentConversation {
+                conversation_id: value.conversation_id,
+                removed: value.removed,
+                conversation,
+                host_connected: value.host_connected,
+            })
+        }
+        Frame::AgentChatEvents(value) => {
+            let events = serde_json::from_str(&value.events_json)
+                .map_err(|error| format!("invalid agent chat events JSON: {error}"))?;
+            Ok(SyncFrame::AgentChatEvents {
+                conversation_id: value.conversation_id,
+                seq: value.seq,
+                events,
+            })
+        }
     }
 }
 

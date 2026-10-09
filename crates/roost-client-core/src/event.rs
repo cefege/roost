@@ -298,6 +298,8 @@ pub enum ClientEvent {
     Sidebar(crate::store::sidebar::SidebarIntent),
     /// A shell action (`store::shell_intent`).
     Shell(crate::store::shell_intent::ShellIntent),
+    /// A built-in agent transcript was loaded or forgotten by its surface.
+    AgentChat(crate::client::agent_chat::AgentChatIntent),
     /// A terminal-deck gesture or observation (`deck::intent`).
     Deck(crate::deck::DeckIntent),
 
@@ -350,6 +352,7 @@ impl ClientEvent {
             Self::AgentSeenMerged { .. } => "agent_seen_merged",
             Self::Sidebar(_) => "sidebar",
             Self::Shell(_) => "shell",
+            Self::AgentChat(_) => "agent_chat",
             Self::Deck(_) => "deck",
             Self::Sweep { .. } => "sweep",
             Self::TerminalViewIdMinted { .. } => "terminal_view_id_minted",

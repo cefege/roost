@@ -42,6 +42,8 @@ pub enum RpcResult {
         /// `Some(urls)` when the coordinator's direct carrier is enabled, so a
         /// machine may gather before its grant lands; `None` when it is off.
         terminal_peer_stun_urls: Option<Vec<String>>,
+        /// Whether built-in agent RPCs are configured.
+        builtin_agent_enabled: bool,
     },
     /// `SessionsList` succeeded.
     SessionsList {
@@ -93,6 +95,12 @@ pub enum RpcResult {
         call_id: u64,
         /// The pending requests, keyed by ephemeral id.
         requests: BTreeMap<String, PairRequest>,
+    },
+    /// Agent conversation list and host connectivity.
+    AgentChatList {
+        call_id: u64,
+        conversations: Vec<roost_protocol::wire::agent_chat::ConversationSummary>,
+        host_connected: bool,
     },
     /// A pairing token was redeemed.
     PairTokenRedeemed {
@@ -172,6 +180,7 @@ impl RpcResult {
             | Self::McpList { call_id, .. }
             | Self::PairList { call_id, .. }
             | Self::PairTokenRedeemed { call_id }
+            | Self::AgentChatList { call_id, .. }
             | Self::DirectoryListed { call_id, .. }
             | Self::DirectoryCreated { call_id, .. }
             | Self::SearchPage { call_id, .. }
@@ -191,6 +200,7 @@ impl RpcResult {
             Self::TasksList { .. } => "tasks_list",
             Self::McpList { .. } => "mcp_list",
             Self::PairList { .. } => "pair_list",
+            Self::AgentChatList { .. } => "agent_chat_list",
             Self::PairTokenRedeemed { .. } => "pair_token_redeemed",
             Self::DirectoryListed { .. } => "directory_listed",
             Self::DirectoryCreated { .. } => "directory_created",

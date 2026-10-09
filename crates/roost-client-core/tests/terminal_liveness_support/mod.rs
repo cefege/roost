@@ -62,6 +62,7 @@ fn wire_domain(domain: SyncDomain) -> roost_proto::SyncDomain {
         SyncDomain::Mcp => roost_proto::SyncDomain::Mcp,
         SyncDomain::Pair => roost_proto::SyncDomain::Pair,
         SyncDomain::Audit => roost_proto::SyncDomain::Audit,
+        SyncDomain::Agent => roost_proto::SyncDomain::Agent,
     }
 }
 

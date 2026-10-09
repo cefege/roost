@@ -165,6 +165,8 @@ pub struct CoordIdentity {
     pub git_sha: String,
     /// The coordinator's public URL.
     pub public_url: String,
+    /// Whether the built-in agent is configured on this coordinator.
+    pub builtin_agent_enabled: bool,
 }
 
 /// The coordinator refused this device key (v2 `markBrowserDeviceRejected`,

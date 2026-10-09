@@ -133,6 +133,8 @@ pub enum RpcCall {
         /// Skip the graceful hangup; sent only after a graceful kill was refused.
         force: bool,
     },
+    /// `AgentChatList` — all conversations and host connectivity.
+    AgentChatList { call_id: u64 },
 }
 
 /// The bootstrap snapshot call one domain's hydrator makes for
@@ -153,6 +155,7 @@ pub fn hydration_call(domain: SyncDomain, call_id: u64, sync_socket_id: &str) ->
         SyncDomain::Tasks => Some(RpcCall::TasksList { call_id }),
         SyncDomain::Mcp => Some(RpcCall::McpList { call_id }),
         SyncDomain::Pair => Some(RpcCall::PairList { call_id }),
+        SyncDomain::Agent => Some(RpcCall::AgentChatList { call_id }),
         SyncDomain::Audit => None,
     }
 }

@@ -5,6 +5,7 @@
 //! `codec::{encode_message, decode_message}`. v2's equivalent is every
 //! `coordClient.<method>(…)` call site under `apps/web/src/`.
 
+pub mod agent_chat;
 pub mod attachment_direct;
 pub mod attachments;
 pub mod browse;
