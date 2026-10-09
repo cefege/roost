@@ -25,25 +25,39 @@ test("pipes daemon upload and opaque stdin/stdout frames over the internal WebSo
   });
   const [workerSocket] = await workerSocketPromise as [WebSocket];
   workerSocket.binaryType = "nodebuffer";
+  // ws emits every frame of one TCP read synchronously, so sequential `once` calls drop frames.
+  const queued: [Buffer, boolean][] = [];
+  const waiters: ((message: [Buffer, boolean]) => void)[] = [];
+  workerSocket.on("message", (data: Buffer, isBinary: boolean) => {
+    const waiter = waiters.shift();
+    if (waiter) waiter([data, isBinary]); else queued.push([data, isBinary]);
+  });
+  const nextMessage = (): Promise<[Buffer, boolean]> => {
+    const message = queued.shift();
+    if (message) return Promise.resolve(message);
+    const { promise, resolve } = Promise.withResolvers<[Buffer, boolean]>();
+    waiters.push(resolve);
+    return promise;
+  };
   try {
-    const [openData, openBinary] = await once(workerSocket, "message") as [Buffer, boolean];
+    const [openData, openBinary] = await nextMessage();
     expect(openBinary).toBe(false);
     expect(JSON.parse(openData.toString())).toEqual({ type: "open", args: ["serve", "--token", "a".repeat(32)], daemons: { "linux-x64": "b".repeat(64) } });
     workerSocket.send(JSON.stringify({ type: "need_daemon", platform: "linux-x64" }));
-    const [beginData, beginBinary] = await once(workerSocket, "message") as [Buffer, boolean];
+    const [beginData, beginBinary] = await nextMessage();
     expect(beginBinary).toBe(false);
     expect(JSON.parse(beginData.toString())).toEqual({ type: "daemon_chunk_begin", size: daemonBytes.length });
-    const [daemonChunk, chunkIsBinary] = await once(workerSocket, "message") as [Buffer, boolean];
+    const [daemonChunk, chunkIsBinary] = await nextMessage();
     expect(chunkIsBinary).toBe(true);
     expect(daemonChunk).toEqual(await readFile(daemonPath));
-    const [endData, endBinary] = await once(workerSocket, "message") as [Buffer, boolean];
+    const [endData, endBinary] = await nextMessage();
     expect(endBinary).toBe(false);
     expect(JSON.parse(endData.toString())).toEqual({ type: "daemon_end" });
     workerSocket.send(JSON.stringify({ type: "opened" }));
     const childOutput = once(child.stdout, "data") as Promise<[Buffer]>;
     workerSocket.send(Buffer.from("opaque stdout"));
     expect((await childOutput)[0].toString()).toBe("opaque stdout");
-    const inputFrame = once(workerSocket, "message") as Promise<[Buffer, boolean]>;
+    const inputFrame = nextMessage();
     child.stdin.write("opaque stdin");
     const [inputData, inputBinary] = await inputFrame;
     expect(inputBinary).toBe(true);
