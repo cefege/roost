@@ -57,6 +57,35 @@ fn the_host_generation_rides_the_decoded_event() {
         }
     ));
 }
+#[test]
+fn agent_chat_event_batches_decode_as_agent_domain_frames_and_reject_bad_json() {
+    use roost_proto::AgentChatEventsFrame;
+    let arm = Frame::AgentChatEvents(Box::new(AgentChatEventsFrame {
+        conversation_id: "chat-a".to_owned(),
+        seq: 7,
+        events_json: r#"[{"type":"run_state","run_state":"running","error":null}]"#.to_owned(),
+        ..Default::default()
+    }));
+    let event = decode_firehose(
+        &application(SyncDomain::Agent, 1, arm),
+        SyncFrameMeta { generation: 9 },
+    )
+    .expect("valid chat event JSON decodes");
+    assert!(
+        matches!(event, ClientEvent::SyncFrameReceived { frame: SyncFrame::AgentChatEvents { conversation_id, seq: 7, events }, .. } if conversation_id == "chat-a" && events.len() == 1)
+    );
+    let invalid = Frame::AgentChatEvents(Box::new(AgentChatEventsFrame {
+        events_json: "{".to_owned(),
+        ..Default::default()
+    }));
+    assert!(matches!(
+        decode_firehose(
+            &application(SyncDomain::Agent, 2, invalid),
+            SyncFrameMeta { generation: 9 }
+        ),
+        Err(DecodeRefusal::MalformedArm { .. })
+    ));
+}
 
 #[test]
 fn bytes_that_are_not_a_frame_and_a_frame_with_no_arm_are_refused() {

@@ -104,7 +104,8 @@ fn call_id_of(call: &RpcCall) -> u64 {
         | RpcCall::FilesMkdir { call_id, .. }
         | RpcCall::SessionsSearchGlobal { call_id, .. }
         | RpcCall::SessionsCancelGlobalSearch { call_id, .. }
-        | RpcCall::SessionsKill { call_id, .. } => *call_id,
+        | RpcCall::SessionsKill { call_id, .. }
+        | RpcCall::AgentChatList { call_id } => *call_id,
     }
 }
 

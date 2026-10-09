@@ -29,7 +29,7 @@ pub const COORDINATOR_SERVICE_PATH_PREFIX: &str = "/roost.v1.CoordinatorService/
 /// v2 keyed this on the full RPC path (`connect.ts:24-34`); the same nine
 /// methods, keyed on the method name, because the path is this file's rendering
 /// of the name and not an independent input.
-const DEVICE_AUTH_REQUIRED_METHODS: [&str; 9] = [
+const DEVICE_AUTH_REQUIRED_METHODS: [&str; 10] = [
     "WorkersList",
     "SessionsList",
     "WorkspacesList",
@@ -39,12 +39,14 @@ const DEVICE_AUTH_REQUIRED_METHODS: [&str; 9] = [
     "DevicesRevoke",
     "DevicesRotateCurrent",
     "PairApprovalStatus",
+    "AgentChatList",
 ];
 
 /// The Connect method a call goes out as.
 pub fn connect_method(call: &RpcCall) -> &'static str {
     match call {
         RpcCall::CoordIdentity { .. } => "AuthCoordIdentity",
+        RpcCall::AgentChatList { .. } => "AgentChatList",
         RpcCall::SessionsList { .. } => "SessionsList",
         RpcCall::WorkersList { .. } => "WorkersList",
         RpcCall::WorkspacesList { .. } => "WorkspacesList",
@@ -75,7 +77,8 @@ pub fn connect_call_id(call: &RpcCall) -> u64 {
         | RpcCall::FilesMkdir { call_id, .. }
         | RpcCall::SessionsSearchGlobal { call_id, .. }
         | RpcCall::SessionsCancelGlobalSearch { call_id, .. }
-        | RpcCall::SessionsKill { call_id, .. } => *call_id,
+        | RpcCall::SessionsKill { call_id, .. }
+        | RpcCall::AgentChatList { call_id } => *call_id,
     }
 }
 

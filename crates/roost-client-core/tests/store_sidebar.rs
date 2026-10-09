@@ -139,6 +139,7 @@ fn folder(key: &str, name: &str, server: &str, spawn_cwd: &str) -> FolderGroup {
         ports: Vec::new(),
         reach_addr: None,
         agent_status: AgentStatusRollup::default(),
+        agent_conversation_ids: Vec::new(),
     }
 }
 
@@ -264,4 +265,45 @@ fn an_unseen_completion_reads_done_until_acknowledged() {
     assert_eq!(project(&core, "")[0].1[0].1, AgentStatusLevel::Done);
     core.store_mut().agent_seen.mark_seen(&completed);
     assert_eq!(project(&core, "")[0].1[0].1, AgentStatusLevel::Idle);
+}
+#[test]
+fn agent_conversations_join_and_create_folder_groups() {
+    use roost_protocol::wire::agent_chat::{AgentRunState, ConversationSummary};
+    let session = session(SESSION_A, FIRST_FP, "/tmp/repo", 1_000);
+    let mut core = seeded(&[session], &[(FIRST_FP, "First worker")], &[]);
+    let summary = |id: &str, cwd: &str, updated_ms| ConversationSummary {
+        id: id.into(),
+        title: id.into(),
+        worker_fp: FIRST_FP.into(),
+        worker_label: "First worker".into(),
+        cwd: cwd.into(),
+        model: None,
+        thinking_level: None,
+        run_state: AgentRunState::Idle,
+        error: None,
+        created_ms: 1,
+        updated_ms,
+    };
+    core.store_mut().agent_chat.conversations.insert(
+        "agent-mixed".into(),
+        summary("agent-mixed", "/tmp/repo", 2_000),
+    );
+    core.store_mut().agent_chat.conversations.insert(
+        "agent-only".into(),
+        summary("agent-only", "/tmp/other", 3_000),
+    );
+    let groups = build_folder_groups(core.store(), &ExactWorkerPaths, 4_000);
+    let mixed = groups
+        .iter()
+        .find(|group| group.spawn_cwd == "/tmp/repo")
+        .expect("mixed folder");
+    assert_eq!(mixed.session_ids, [SESSION_A.to_owned()]);
+    assert_eq!(mixed.agent_conversation_ids, ["agent-mixed"]);
+    let only = groups
+        .iter()
+        .find(|group| group.spawn_cwd == "/tmp/other")
+        .expect("agent-only folder");
+    assert!(only.session_ids.is_empty());
+    assert!(only.lead_id.is_empty());
+    assert_eq!(only.agent_conversation_ids, ["agent-only"]);
 }

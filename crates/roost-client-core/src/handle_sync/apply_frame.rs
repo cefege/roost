@@ -316,6 +316,28 @@ pub(super) fn apply_frame(
             fold_pair_request(store, change, delivery_seq, now_ms);
         }
         SyncFrame::UiCommand { command } => fold_ui_command(store, command),
+        SyncFrame::AgentConversation {
+            conversation_id,
+            removed,
+            conversation,
+            host_connected,
+        } => {
+            store.agent_chat.apply_conversation_frame(
+                conversation_id.clone(),
+                *removed,
+                conversation.clone(),
+                *host_connected,
+            );
+            store.note_change();
+        }
+        SyncFrame::AgentChatEvents {
+            conversation_id,
+            seq,
+            events,
+        } => {
+            store.agent_chat.apply_events(conversation_id, *seq, events);
+            store.note_change();
+        }
         SyncFrame::CoordinatorRelocation { relocation } => {
             fold_coordinator_relocation(store, generation, relocation, out);
         }

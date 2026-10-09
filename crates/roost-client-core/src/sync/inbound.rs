@@ -26,6 +26,7 @@ pub use self::payloads::{
 use crate::sessions::WireEvent;
 use crate::sync::link::SyncDomain;
 use crate::terminal::input::InputOutcome;
+use roost_protocol::wire::agent_chat::{ChatEvent, ConversationSummary};
 
 /// One persisted clipboard-history event.
 #[derive(Debug, Clone, PartialEq)]
@@ -291,4 +292,17 @@ pub enum SyncFrame {
     },
     /// A timestamp-only liveness frame.
     Keepalive,
+    /// An agent conversation upsert, removal, or host status update.
+    AgentConversation {
+        conversation_id: String,
+        removed: bool,
+        conversation: Option<ConversationSummary>,
+        host_connected: bool,
+    },
+    /// One ordered batch of chat transcript events.
+    AgentChatEvents {
+        conversation_id: String,
+        seq: u64,
+        events: Vec<ChatEvent>,
+    },
 }

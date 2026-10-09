@@ -36,6 +36,9 @@ impl SyncFrame {
             Self::TaskDelta { .. } => Some(SyncDomain::Tasks),
             Self::McpMessage { .. } => Some(SyncDomain::Mcp),
             Self::PairRequestDelta { .. } => Some(SyncDomain::Pair),
+            Self::AgentConversation { .. } | Self::AgentChatEvents { .. } => {
+                Some(SyncDomain::Agent)
+            }
             Self::AuditRow { .. } => Some(SyncDomain::Audit),
             // The session plane IS the terminal domain's snapshot and its live
             // deltas. Answering `None` for them put them on the "any ready
@@ -95,6 +98,8 @@ impl SyncFrame {
             Self::CoordinatorRelocation { .. } => "coordinator_relocation",
             Self::InputRouteResult { .. } => "input_route_result",
             Self::TransportProbeResult { .. } => "terminal_transport_probe_result",
+            Self::AgentConversation { .. } => "agent_conversation",
+            Self::AgentChatEvents { .. } => "agent_chat_events",
             Self::Keepalive => "keepalive",
         }
     }

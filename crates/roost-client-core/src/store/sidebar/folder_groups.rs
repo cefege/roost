@@ -67,6 +67,8 @@ pub struct FolderGroup {
     pub reach_addr: Option<String>,
     /// The highest agent level present and the per-level counts.
     pub agent_status: AgentStatusRollup,
+    /// Agent conversations in this folder, newest first.
+    pub agent_conversation_ids: Vec<String>,
 }
 
 /// The glyph a checks rollup shows beside `#123`; `none` shows none.
@@ -157,6 +159,38 @@ pub fn build_folder_groups_from(
         .into_iter()
         .filter_map(|(key, members)| group_of(store, paths, now_ms, key, &members))
         .collect();
+    let mut agent_buckets: Vec<(
+        String,
+        Vec<&roost_protocol::wire::agent_chat::ConversationSummary>,
+    )> = Vec::new();
+    for conversation in store.agent_chat.conversations.values() {
+        let key = crate::store::paths::folder_key_of(
+            paths,
+            worker_os(store, &conversation.worker_fp),
+            &conversation.worker_fp,
+            &conversation.cwd,
+        );
+        match agent_buckets
+            .iter_mut()
+            .find(|(bucket_key, _)| *bucket_key == key)
+        {
+            Some((_, rows)) => rows.push(conversation),
+            None => agent_buckets.push((key, vec![conversation])),
+        }
+    }
+    for (key, conversations) in agent_buckets {
+        let Some(newest) = conversations.first() else {
+            continue;
+        };
+        if let Some(group) = groups.iter_mut().find(|group| group.key == key) {
+            group.latest_activity = group.latest_activity.max(newest.updated_ms);
+            group.agent_conversation_ids = conversations.iter().map(|row| row.id.clone()).collect();
+        } else {
+            if let Some(group) = agent_only_group_of(store, paths, now_ms, key, &conversations) {
+                groups.push(group);
+            }
+        }
+    }
     groups.sort_by_key(|group| std::cmp::Reverse(group.latest_activity));
     groups
 }
@@ -244,6 +278,51 @@ fn group_of(
         ports,
         reach_addr: worker.and_then(|worker| worker.reachable_addr.clone()),
         agent_status,
+        agent_conversation_ids: Vec::new(),
+    })
+}
+fn agent_only_group_of(
+    store: &Store,
+    paths: &dyn WorkerPaths,
+    now_ms: i64,
+    key: String,
+    conversations: &[&roost_protocol::wire::agent_chat::ConversationSummary],
+) -> Option<FolderGroup> {
+    let head = conversations.first()?;
+    let worker = store.workers.get(&head.worker_fp);
+    let online = worker
+        .is_some_and(|worker| worker_online(worker, store.routable_worker_fps.as_ref(), now_ms));
+    let fallback_label: String = head.worker_fp.chars().take(6).collect();
+    Some(FolderGroup {
+        key,
+        name: paths
+            .basename(worker_os(store, &head.worker_fp), &head.cwd)
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| head.cwd.clone()),
+        server: short_server_label(
+            worker.map_or(fallback_label.as_str(), |row| row.label.as_str()),
+        ),
+        spawn_fp: head.worker_fp.clone(),
+        spawn_cwd: head.cwd.clone(),
+        online,
+        subtitle: if online {
+            String::new()
+        } else {
+            OFFLINE_SUBTITLE.to_owned()
+        },
+        latest_activity: conversations
+            .iter()
+            .map(|row| row.updated_ms)
+            .max()
+            .unwrap_or(head.created_ms),
+        lead_id: String::new(),
+        session_ids: Vec::new(),
+        pr: None,
+        branch: None,
+        ports: Vec::new(),
+        reach_addr: worker.and_then(|row| row.reachable_addr.clone()),
+        agent_status: AgentStatusRollup::default(),
+        agent_conversation_ids: conversations.iter().map(|row| row.id.clone()).collect(),
     })
 }
 

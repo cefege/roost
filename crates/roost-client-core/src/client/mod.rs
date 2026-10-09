@@ -14,6 +14,7 @@
 //! domains, the readiness gate and the acknowledgements; these sit on the host
 //! side of that boundary and hand their answers in as `ClientEvent`s.
 
+pub mod agent_chat;
 pub mod agents;
 pub mod attachments;
 pub mod auth;

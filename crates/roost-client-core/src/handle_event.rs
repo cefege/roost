@@ -114,6 +114,22 @@ pub fn handle_event(
         ClientEvent::RpcResultReceived(result) => {
             handle_rpc_result(store, result, host_now_ms, out)
         }
+        ClientEvent::AgentChat(intent) => match intent {
+            crate::client::agent_chat::AgentChatIntent::SnapshotLoaded {
+                conversation_id,
+                seq,
+                transcript,
+            } => {
+                store
+                    .agent_chat
+                    .load_snapshot(conversation_id.clone(), *seq, transcript.clone());
+                store.note_change();
+            }
+            crate::client::agent_chat::AgentChatIntent::Forget { conversation_id } => {
+                store.agent_chat.forget(conversation_id);
+                store.note_change();
+            }
+        },
         ClientEvent::CredentialsDiscarded => {
             store.account_id = None;
             store.sessions = crate::sessions::SessionPlane::new();

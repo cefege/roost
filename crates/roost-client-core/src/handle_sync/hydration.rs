@@ -153,6 +153,19 @@ pub(crate) fn settle_hydration_result(
             store.pair_requests = requests.clone();
             None
         }
+        (
+            SyncDomain::Agent,
+            RpcResult::AgentChatList {
+                conversations,
+                host_connected,
+                ..
+            },
+        ) => {
+            store
+                .agent_chat
+                .hydrate(conversations.clone(), *host_connected);
+            None
+        }
         (domain, other) => {
             tracing::error!(
                 target: "sync",
