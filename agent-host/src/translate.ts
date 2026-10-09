@@ -2,6 +2,7 @@ import type { AgentEvent, SnapshotEvent } from "@earendil-works/pi-durable";
 
 type JsonRecord = Record<string, any>;
 export type ChatEvent = JsonRecord & { type: string };
+type ToolReference = { name: string; args_json: string };
 
 function contentBlocks(message: JsonRecord): JsonRecord[] {
   const parts = Array.isArray(message.content) ? message.content as JsonRecord[] : [];
@@ -19,28 +20,57 @@ function messageText(message: JsonRecord): string {
 function assistantItem(id: string, message: JsonRecord, streaming: boolean): JsonRecord {
   return { id, kind: "assistant", blocks: contentBlocks(message), streaming, error: message.errorMessage ?? null };
 }
-function entryItem(entry: JsonRecord): JsonRecord | undefined {
+function toolReferences(entries: JsonRecord[]): Record<string, ToolReference> {
+  const references: Record<string, ToolReference> = {};
+  for (const entry of entries) {
+    for (const message of entry.model ?? []) {
+      if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+      for (const block of message.content) {
+        if (block.type === "toolCall") references[block.id] = { name: block.name, args_json: JSON.stringify(block.arguments ?? {}) };
+      }
+    }
+  }
+  return references;
+}
+function entryItem(entry: JsonRecord, references: Record<string, ToolReference>): JsonRecord | undefined {
   const message = entry.model?.[0] as JsonRecord | undefined;
   if (!message) return undefined;
   if (message.role === "user") return { id: String(entry.id), kind: "user", text: messageText(message) };
   if (message.role === "assistant") return assistantItem(String(entry.id), message, false);
-  if (message.role === "toolResult") return { id: String(entry.id), kind: "tool", call_id: message.toolCallId, tool_name: message.toolName, args_json: "{}", output: Array.isArray(message.content) ? message.content.map((part: JsonRecord) => part.text ?? "").join("") : "", is_error: Boolean(message.isError), running: false };
+  if (message.role === "toolResult") {
+    const reference = references[message.toolCallId];
+    return { id: String(entry.id), kind: "tool", call_id: message.toolCallId, tool_name: reference?.name ?? message.toolName, args_json: reference?.args_json ?? "{}", output: messageText(message), is_error: Boolean(message.isError), running: false };
+  }
   return undefined;
 }
 
 export class ChatTranslator {
   runState = "idle";
+  error: string | null = null;
+  model: { provider: string; model_id: string } | null = null;
+  thinkingLevel: string | null = null;
   private liveIndex = 0;
   private assistantId: string | undefined;
   private readonly blockLengths: Record<number, number> = {};
+  private readonly toolArguments: Record<string, ToolReference> = {};
+
   snapshot(value: SnapshotEvent): ChatEvent[] {
     const snapshot = value as JsonRecord;
     this.runState = snapshot.run ? "running" : "idle";
-    const items: JsonRecord[] = snapshot.entries.map((entry: JsonRecord) => entryItem(entry)).filter((item: JsonRecord | undefined): item is JsonRecord => item !== undefined);
+    this.error = null;
+    this.model = snapshot.agent.model ? { provider: snapshot.agent.model.provider, model_id: snapshot.agent.model.modelId } : null;
+    this.thinkingLevel = snapshot.agent.thinkingLevel ?? null;
+    for (const key of Object.keys(this.toolArguments)) delete this.toolArguments[key];
+    Object.assign(this.toolArguments, toolReferences(snapshot.entries));
+    const items: JsonRecord[] = snapshot.entries.map((entry: JsonRecord) => entryItem(entry, this.toolArguments)).filter((item: JsonRecord | undefined): item is JsonRecord => item !== undefined);
     if (snapshot.generation?.message) items.push(assistantItem(`generation-${snapshot.generation.attempt}`, snapshot.generation.message, true));
-    for (const slot of snapshot.tools) items.push({ id: `tool-${slot.callId}`, kind: "tool", call_id: slot.callId, tool_name: slot.name, args_json: "{}", output: slot.output ?? "", is_error: false, running: slot.status === "running" });
-    return [{ type: "reset", transcript: { items, run_state: this.runState, error: null, model: snapshot.agent.model ? { provider: snapshot.agent.model.provider, model_id: snapshot.agent.model.modelId } : null, thinking_level: snapshot.agent.thinkingLevel ?? null, usage: this.usageTotals(snapshot.usage) } }];
+    for (const slot of snapshot.tools) {
+      const reference = this.toolArguments[slot.callId];
+      items.push({ id: `tool-${slot.callId}`, kind: "tool", call_id: slot.callId, tool_name: reference?.name ?? slot.name, args_json: reference?.args_json ?? "{}", output: slot.output ?? "", is_error: false, running: slot.status === "running" });
+    }
+    return [{ type: "reset", transcript: { items, run_state: this.runState, error: this.error, model: this.model, thinking_level: this.thinkingLevel, usage: this.usageTotals(snapshot.usage) } }];
   }
+
   private usageTotals(state: JsonRecord): JsonRecord {
     const totals = { input_tokens: 0, output_tokens: 0, cost_usd: 0 };
     for (const group of [state.models ?? {}, state.tools ?? {}]) {
@@ -52,6 +82,7 @@ export class ChatTranslator {
     }
     return totals;
   }
+
   translate(value: AgentEvent): ChatEvent[] {
     const event = value as JsonRecord;
     const itemId = `live-${++this.liveIndex}`;
@@ -70,6 +101,7 @@ export class ChatTranslator {
               updates.push({ type: block.type === "text" ? "text_delta" : "thinking_delta", item_id: itemId, block: blockIndex, delta: block.text });
               this.blockLengths[blockIndex] = String(block.text).length;
             }
+            if (block.type === "toolCall") this.toolArguments[block.id] = { name: block.name, args_json: JSON.stringify(block.arguments ?? {}) };
           }
           return updates;
         }
@@ -85,19 +117,16 @@ export class ChatTranslator {
             updates.push({ type: change.type, item_id: id, block: change.contentIndex, delta: change.delta });
             this.blockLengths[change.contentIndex] = (this.blockLengths[change.contentIndex] ?? 0) + change.delta.length;
           } else if (change.type === "message") {
-            for (const [blockIndex, block] of (change.message as JsonRecord).content.entries()) {
-              if (block.type === "text" || block.type === "thinking") {
-                const priorLength = this.blockLengths[blockIndex] ?? 0;
-                const text = String(block.text ?? "");
-                if (text.length > priorLength) updates.push({ type: block.type === "text" ? "text_delta" : "thinking_delta", item_id: id, block: blockIndex, delta: text.slice(priorLength) });
-                this.blockLengths[blockIndex] = text.length;
-              } else if (block.type === "toolCall") {
-                updates.push({ type: "block_set", item_id: id, block: blockIndex, value: { type: "tool_call", call_id: block.id, tool_name: block.name, args_json: JSON.stringify(block.arguments ?? {}) } });
-              }
+            const message = change.message as JsonRecord;
+            for (const [blockIndex, block] of message.content.entries()) {
+              if (block.type === "text" || block.type === "thinking") this.blockLengths[blockIndex] = String(block.text ?? "").length;
+              else if (block.type === "toolCall") this.toolArguments[block.id] = { name: block.name, args_json: JSON.stringify(block.arguments ?? {}) };
             }
+            updates.push({ type: "item", item: assistantItem(id, message, true) });
           } else if ("block" in change) {
             const block = change.block as JsonRecord;
-            const blockValue = block.type === "toolCall" ? { type: "tool_call", call_id: block.id, tool_name: block.name, args_json: JSON.stringify(block.arguments ?? {}) } : block;
+            if (block.type === "toolCall") this.toolArguments[block.id] = { name: block.name, args_json: JSON.stringify(block.arguments ?? {}) };
+            const blockValue = block.type === "toolCall" ? { type: "tool_call", call_id: block.id, tool_name: block.name, args_json: this.toolArguments[block.id]!.args_json } : block;
             updates.push({ type: "block_set", item_id: id, block: change.contentIndex, value: blockValue });
             if (block.type === "text" || block.type === "thinking") this.blockLengths[change.contentIndex] = String(block.text ?? "").length;
           }
@@ -105,29 +134,37 @@ export class ChatTranslator {
         return updates;
       }
       case "message_end": {
-        const item = entryItem(event.entry);
+        const item = entryItem(event.entry, this.toolArguments);
         if (!item || !this.assistantId) return [];
         const result = { ...item, id: this.assistantId, streaming: false };
         this.assistantId = undefined;
         return [{ type: "item", item: result }];
       }
-      case "tool_execution_start": return [{ type: "item", item: { id: `tool-${event.toolCallId}`, kind: "tool", call_id: event.toolCallId, tool_name: event.toolName, args_json: JSON.stringify(event.args), output: "", is_error: false, running: true } }];
+      case "tool_execution_start": {
+        const args = JSON.stringify(event.args);
+        this.toolArguments[event.toolCallId] = { name: event.toolName, args_json: args };
+        return [{ type: "item", item: { id: `tool-${event.toolCallId}`, kind: "tool", call_id: event.toolCallId, tool_name: event.toolName, args_json: args, output: "", is_error: false, running: true } }];
+      }
       case "tool_execution_update": {
         const output = event.output as JsonRecord | undefined;
         return [{ type: "tool_output", item_id: `tool-${event.toolCallId}`, ...(output && "set" in output ? { set: output.set } : { trim_start: output?.trimStart ?? null, append: output?.append ?? null }) }];
       }
       case "tool_execution_end": {
-        const result = event.entry ? entryItem(event.entry) : undefined;
+        const result = event.entry ? entryItem(event.entry, this.toolArguments) : undefined;
         const content = event.entry?.model?.[0]?.content;
         const output = Array.isArray(content) ? content.map((part: JsonRecord) => part.text ?? "").join("") : "";
-        return [{ type: "item", item: { id: `tool-${event.toolCallId}`, kind: "tool", call_id: event.toolCallId, tool_name: event.toolName, args_json: "{}", output: result?.output ?? output, is_error: Boolean(event.entry?.model?.[0]?.isError), running: false } }];
+        const reference = this.toolArguments[event.toolCallId];
+        return [{ type: "item", item: { id: `tool-${event.toolCallId}`, kind: "tool", call_id: event.toolCallId, tool_name: reference?.name ?? event.toolName, args_json: reference?.args_json ?? "{}", output: result?.output ?? output, is_error: Boolean(event.entry?.model?.[0]?.isError), running: false } }];
       }
-      case "run_start": this.runState = "running"; return [{ type: "run_state", run_state: "running", error: null }];
-      case "run_end": this.runState = "idle"; return [{ type: "run_state", run_state: "idle", error: null }];
-      case "task_failed": this.runState = "failed"; return [{ type: "run_state", run_state: "failed", error: event.message }];
-      case "auto_retry_start": return [{ type: "run_state", run_state: "running", error: `Retrying (attempt ${event.attempt}): ${event.errorMessage}` }];
-      case "auto_retry_end": return [{ type: "run_state", run_state: "running", error: null }];
-      case "agent_changed": return [{ type: "agent", model: event.agent.model ?? null, thinking_level: event.agent.thinkingLevel ?? null }];
+      case "run_start": this.runState = "running"; this.error = null; return [{ type: "run_state", run_state: this.runState, error: this.error }];
+      case "run_end": this.runState = "idle"; this.error = null; return [{ type: "run_state", run_state: this.runState, error: this.error }];
+      case "task_failed": this.runState = "failed"; this.error = event.message; return [{ type: "run_state", run_state: this.runState, error: this.error }];
+      case "auto_retry_start": this.runState = "running"; this.error = `Retrying (attempt ${event.attempt}): ${event.errorMessage}`; return [{ type: "run_state", run_state: this.runState, error: this.error }];
+      case "auto_retry_end": this.runState = "running"; this.error = null; return [{ type: "run_state", run_state: this.runState, error: this.error }];
+      case "agent_changed":
+        this.model = event.agent.model ? { provider: event.agent.model.provider, model_id: event.agent.model.modelId } : null;
+        this.thinkingLevel = event.agent.thinkingLevel ?? null;
+        return [{ type: "agent", model: this.model, thinking_level: this.thinkingLevel }];
       case "usage_changed": return [{ type: "usage", usage: this.usageTotals(event.usage) }];
       default: return [];
     }
