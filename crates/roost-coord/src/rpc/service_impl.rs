@@ -1,4 +1,4 @@
-//! The ONE `CoordinatorService` implementation: all 108 methods in one `impl`,
+//! The ONE `CoordinatorService` implementation: all 122 methods in one `impl`,
 //! one file because two impl blocks of one trait are E0119. Signatures follow
 //! `protocol/proto/roost/v1/coordinator.proto`; each implemented arm resolves its
 //! caller through `service::caller_of` and delegates to its domain handler.
@@ -18,6 +18,15 @@ use super::service::{
     sync_moved_stream,
 };
 
+use crate::agent_host::rpc_auth::{
+    handle_agent_auth_login_cancel, handle_agent_auth_login_poll, handle_agent_auth_login_respond,
+    handle_agent_auth_login_start, handle_agent_auth_logout, handle_agent_auth_set_api_key,
+};
+use crate::agent_host::rpc_chat::{
+    handle_agent_chat_abort, handle_agent_chat_configure, handle_agent_chat_create,
+    handle_agent_chat_delete, handle_agent_chat_list, handle_agent_chat_snapshot,
+    handle_agent_chat_submit, handle_agent_models_list,
+};
 use crate::agents::rpc_status::{
     handle_agent_config_get, handle_agent_config_set, handle_agent_status_get,
     handle_agent_status_list, handle_agent_status_wait,
@@ -536,8 +545,188 @@ impl CoordinatorService for CoordinatorServiceImpl {
             handle_agent_status_wait(&self.core, caller, r.to_owned_message()).await
         }
     }
-    // ── sessions ────────────────────────────────────────────────────────
 
+    // ── built-in agent host ──────────────────────────────────────────────
+
+    fn agent_chat_list<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentChatListRequest>,
+    ) -> impl Future<Output = ServiceResult<impl Encodable<AgentChatListResponse> + Send + use<'a>>> + Send
+    {
+        async move {
+            let caller = caller_of(&ctx, "AgentChatList")?;
+            handle_agent_chat_list(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn agent_chat_create<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentChatCreateRequest>,
+    ) -> impl Future<Output = ServiceResult<impl Encodable<AgentConversation> + Send + use<'a>>> + Send
+    {
+        async move {
+            let caller = caller_of(&ctx, "AgentChatCreate")?;
+            handle_agent_chat_create(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn agent_chat_submit<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentChatSubmitRequest>,
+    ) -> impl Future<
+        Output = ServiceResult<impl Encodable<AgentChatSubmitResponse> + Send + use<'a>>,
+    > + Send {
+        async move {
+            let caller = caller_of(&ctx, "AgentChatSubmit")?;
+            handle_agent_chat_submit(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn agent_chat_abort<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentChatAbortRequest>,
+    ) -> impl Future<Output = ServiceResult<impl Encodable<AgentChatAbortResponse> + Send + use<'a>>>
+    + Send {
+        async move {
+            let caller = caller_of(&ctx, "AgentChatAbort")?;
+            handle_agent_chat_abort(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn agent_chat_configure<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentChatConfigureRequest>,
+    ) -> impl Future<Output = ServiceResult<impl Encodable<AgentConversation> + Send + use<'a>>> + Send
+    {
+        async move {
+            let caller = caller_of(&ctx, "AgentChatConfigure")?;
+            handle_agent_chat_configure(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn agent_chat_delete<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentChatDeleteRequest>,
+    ) -> impl Future<
+        Output = ServiceResult<impl Encodable<AgentChatDeleteResponse> + Send + use<'a>>,
+    > + Send {
+        async move {
+            let caller = caller_of(&ctx, "AgentChatDelete")?;
+            handle_agent_chat_delete(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn agent_chat_snapshot<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentChatSnapshotRequest>,
+    ) -> impl Future<
+        Output = ServiceResult<impl Encodable<AgentChatSnapshotResponse> + Send + use<'a>>,
+    > + Send {
+        async move {
+            let caller = caller_of(&ctx, "AgentChatSnapshot")?;
+            handle_agent_chat_snapshot(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn agent_models_list<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentModelsListRequest>,
+    ) -> impl Future<
+        Output = ServiceResult<impl Encodable<AgentModelsListResponse> + Send + use<'a>>,
+    > + Send {
+        async move {
+            let caller = caller_of(&ctx, "AgentModelsList")?;
+            handle_agent_models_list(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn agent_auth_login_start<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentAuthLoginStartRequest>,
+    ) -> impl Future<
+        Output = ServiceResult<impl Encodable<AgentAuthLoginStartResponse> + Send + use<'a>>,
+    > + Send {
+        async move {
+            let caller = caller_of(&ctx, "AgentAuthLoginStart")?;
+            handle_agent_auth_login_start(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn agent_auth_login_poll<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentAuthLoginPollRequest>,
+    ) -> impl Future<
+        Output = ServiceResult<impl Encodable<AgentAuthLoginPollResponse> + Send + use<'a>>,
+    > + Send {
+        async move {
+            let caller = caller_of(&ctx, "AgentAuthLoginPoll")?;
+            handle_agent_auth_login_poll(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn agent_auth_login_respond<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentAuthLoginRespondRequest>,
+    ) -> impl Future<
+        Output = ServiceResult<impl Encodable<AgentAuthLoginRespondResponse> + Send + use<'a>>,
+    > + Send {
+        async move {
+            let caller = caller_of(&ctx, "AgentAuthLoginRespond")?;
+            handle_agent_auth_login_respond(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn agent_auth_login_cancel<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentAuthLoginCancelRequest>,
+    ) -> impl Future<
+        Output = ServiceResult<impl Encodable<AgentAuthLoginCancelResponse> + Send + use<'a>>,
+    > + Send {
+        async move {
+            let caller = caller_of(&ctx, "AgentAuthLoginCancel")?;
+            handle_agent_auth_login_cancel(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn agent_auth_set_api_key<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentAuthSetApiKeyRequest>,
+    ) -> impl Future<
+        Output = ServiceResult<impl Encodable<AgentAuthSetApiKeyResponse> + Send + use<'a>>,
+    > + Send {
+        async move {
+            let caller = caller_of(&ctx, "AgentAuthSetApiKey")?;
+            handle_agent_auth_set_api_key(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn agent_auth_logout<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentAuthLogoutRequest>,
+    ) -> impl Future<
+        Output = ServiceResult<impl Encodable<AgentAuthLogoutResponse> + Send + use<'a>>,
+    > + Send {
+        async move {
+            let caller = caller_of(&ctx, "AgentAuthLogout")?;
+            handle_agent_auth_logout(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    // ── sessions ────────────────────────────────────────────────────────
     fn workspaces_list<'a>(
         &'a self,
         ctx: RequestContext,

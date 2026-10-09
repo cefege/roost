@@ -237,7 +237,7 @@ fn an_aged_non_cell_waits_behind_eligible_frames_in_its_own_domain() {
     );
     assert_eq!(
         roost_coord::sync_ws::domain_table::DOMAIN_SLOTS,
-        7,
+        8,
         "one slot per Sync domain"
     );
 }

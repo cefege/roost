@@ -137,11 +137,21 @@ message CoordinatorRelocationFrame {
   string target_url = 3;
 }
 
-// Volatile agent runtime metadata. Inactive frames delete the retained status
-// for a session; active frames are seeded on Sync reconnect.
-// `occupant_exited` marks a row whose occupant's last process is gone: it is
-// retained only to carry a completion, so a browser that has acknowledged that
-// completion retires the row instead of showing a dead agent.
+// Agent conversations are coordinator-owned and independent of terminal sessions.
+message AgentConversationFrame {
+  string conversation_id = 1;
+  bool removed = 2;
+  AgentConversation conversation = 3;
+  bool host_connected = 4;
+}
+message AgentChatEventsFrame {
+  string conversation_id = 1;
+  uint64 seq = 2;
+  string events_json = 3;
+}
+
+// Agent status is volatile per-session runtime metadata. Inactive frames delete
+// the retained status; active frames are seeded on Sync reconnect.
 message AgentStatusFrame {
   string session_id = 1;
   string agent_id = 2;
@@ -186,7 +196,9 @@ enum SyncDomain {
   SYNC_DOMAIN_MCP = 6;
   SYNC_DOMAIN_PAIR = 7;
   SYNC_DOMAIN_AUDIT = 9;
+  SYNC_DOMAIN_AGENT = 10;
 }
+
 
 message SyncDomainGeneration {
   SyncDomain domain = 1;
@@ -360,6 +372,8 @@ message FirehoseFrame {
     KeepaliveFrame keepalive = 26;
     CoordinatorRelocationFrame coordinator_relocation = 27;
     AgentStatusFrame agent_status = 29;
+    AgentConversationFrame agent_conversation = 56;
+    AgentChatEventsFrame agent_chat_events = 57;
 
     // v2 controls. These are emitted only to sync_v=2 sockets with
     // delivery_seq=0, so cached flow=1 clients never observe them.

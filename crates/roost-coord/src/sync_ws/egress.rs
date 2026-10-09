@@ -308,6 +308,8 @@ pub fn frame_kind(frame: &FirehoseFrame) -> &'static str {
         Some(Frame::Keepalive(_)) => "keepalive",
         Some(Frame::CoordinatorRelocation(_)) => "coordinator_relocation",
         Some(Frame::AgentStatus(_)) => "agent_status",
+        Some(Frame::AgentConversation(_)) => "agent_conversation",
+        Some(Frame::AgentChatEvents(_)) => "agent_chat_events",
         Some(Frame::Subscribed(_)) => "subscribed",
         Some(Frame::DomainReset(_)) => "domain_reset",
         Some(Frame::InputAccepted(_)) => "input_accepted",

@@ -269,6 +269,10 @@ pub fn method_audit_skips_success(method: &str) -> bool {
             | "SessionsSearchGlobal"
             | "SessionsCancelGlobalSearch"
             | "TranscriptionGetConfig"
+            | "AgentChatList"
+            | "AgentChatSnapshot"
+            | "AgentModelsList"
+            | "AgentAuthLoginPoll"
     )
 }
 

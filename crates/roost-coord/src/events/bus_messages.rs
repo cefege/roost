@@ -367,3 +367,20 @@ pub enum ClipboardHistoryChangeKind {
     Removed,
     Cleared,
 }
+
+/// One agent conversation projection change for install-wide Sync subscribers.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AgentConversationUpdate {
+    pub conversation_id: String,
+    pub removed: bool,
+    pub conversation: Option<roost_protocol::wire::agent_chat::ConversationSummary>,
+    pub host_connected: Option<bool>,
+}
+
+/// One ordered agent transcript event batch.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AgentChatEventsUpdate {
+    pub conversation_id: String,
+    pub seq: u64,
+    pub events_json: String,
+}

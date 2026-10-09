@@ -1,7 +1,7 @@
 //! Every `CoordinatorService` method, the domain that owns it, what it requires
 //! to be called, and whether this crate answers it yet.
 //!
-//! The 103 rows live in `method_route_rows`, one table per v2 domain folder, so
+//! The 122 rows live in `method_route_rows`, one table per v2 domain folder, so
 //! this file is the vocabulary and the accessors rather than 700 lines of data.
 //! `all_method_routes` concatenates them in the proto's declaration order, which is
 //! the order `tests/method_route_coverage.rs` asserts.
@@ -145,8 +145,8 @@ pub struct MethodRoute {
     pub status: PortStatus,
 }
 
-/// Every method in the `service CoordinatorService` block, 103 in total.
-/// Every method in the `service CoordinatorService` block: 103 rows, in the
+/// Every method in the `service CoordinatorService` block, 122 in total.
+/// Every method in the `service CoordinatorService` block: 122 rows, in the
 /// proto's declaration order.
 ///
 /// A FUNCTION, not a `const`: Rust cannot concatenate slices in a `const`

@@ -1,11 +1,11 @@
-//! The bus-coverage audit: every one of the eighteen coordinator buses has an
+//! The bus-coverage audit: every one of the twenty coordinator buses has an
 //! adapter, and every frame that adapter produces names a domain the socket
 //! table has and a lane the weighted round robin actually visits.
 //!
-//! This is the test eighteen buses with no caller do not have. A bus nobody
+//! This is the test twenty buses with no caller do not have. A bus nobody
 //! reads is a message published into the void, and from the coordinator's side
 //! that is indistinguishable from a browser fleet of zero -- which is why the
-//! coverage is asserted per bus rather than in aggregate. Eighteen buses that
+//! coverage is asserted per bus rather than in aggregate. Twenty buses that
 //! all landed on one lane would satisfy a count and deliver nothing, so the
 //! domains each bus reaches are asserted too.
 //!
@@ -18,15 +18,16 @@ mod sync_feed_support;
 use std::collections::BTreeSet;
 
 use roost_coord::events::bus_messages::{
-    AuditRow, ClipboardHistoryChange, ClipboardHistoryChangeKind, LastActivityUpdate,
-    PairRequestDelta, SessionBell, SessionClipboardWrite, SessionCommandFinished,
-    SessionPresenceUpdate, SessionTerminalSignals, SessionTitleUpdate, TaskBusMsg, TaskBusMsgKind,
-    UiBusMsg, WorkerRoutableSet,
+    AgentChatEventsUpdate, AgentConversationUpdate, AuditRow, ClipboardHistoryChange,
+    ClipboardHistoryChangeKind, LastActivityUpdate, PairRequestDelta, SessionBell,
+    SessionClipboardWrite, SessionCommandFinished, SessionPresenceUpdate, SessionTerminalSignals,
+    SessionTitleUpdate, TaskBusMsg, TaskBusMsgKind, UiBusMsg, WorkerRoutableSet,
 };
 use roost_coord::sync_ws::feed::frames::{
-    agent_status_frame, audit_frame, clipboard_history_frame, mcp_frame, pair_frame,
-    session_bell_frame, session_clipboard_frame, session_command_finished_frame,
-    session_message_frame, session_title_frame, task_frame, workspace_frame,
+    agent_chat_events_frame, agent_conversation_frame, agent_status_frame, audit_frame,
+    clipboard_history_frame, mcp_frame, pair_frame, session_bell_frame, session_clipboard_frame,
+    session_command_finished_frame, session_message_frame, session_title_frame, task_frame,
+    workspace_frame,
 };
 use roost_coord::sync_ws::feed::last_activity::last_activity_frame;
 use roost_coord::sync_ws::feed::presence::session_presence_frame;
@@ -51,8 +52,8 @@ use sync_feed_support::{
 fn every_bus_in_the_coordinator_has_a_producer() {
     assert_eq!(
         BUS_FRAME_ADAPTERS.len(),
-        18,
-        "the coordinator's bus table is eighteen domains; a bus added without \
+        20,
+        "the coordinator's bus table is twenty domains; a bus added without \
          an adapter is a message published into the void"
     );
 
@@ -90,6 +91,23 @@ fn every_bus_in_the_coordinator_has_a_producer() {
         .expect("a relay's free-form config always serialises"),
     );
     record("agent_status_bus", agent_status_frame(&agent_status()));
+    record(
+        "agent_conversation_bus",
+        agent_conversation_frame(&AgentConversationUpdate {
+            conversation_id: "conversation".into(),
+            removed: false,
+            conversation: None,
+            host_connected: Some(true),
+        }),
+    );
+    record(
+        "agent_chat_bus",
+        agent_chat_events_frame(&AgentChatEventsUpdate {
+            conversation_id: "conversation".into(),
+            seq: 1,
+            events_json: "[]".into(),
+        }),
+    );
     record(
         "pair_bus",
         pair_frame(&PairRequestDelta::Removed {
@@ -234,8 +252,7 @@ fn every_bus_in_the_coordinator_has_a_producer() {
         );
     }
 
-    // Fifteen buses that all landed on one lane would satisfy every assertion
-    // above and still deliver nothing: a browser hydrates seven domains.
+    // The browser hydrates eight domains.
     //
     // The set is keyed on `proto_name` rather than on the domain value itself.
     // `SyncDomain` is generated and derives `Clone, Copy, PartialEq, Eq, Hash,
@@ -257,7 +274,8 @@ fn every_bus_in_the_coordinator_has_a_producer() {
             SyncDomain::Mcp.proto_name(),
             SyncDomain::Pair.proto_name(),
             SyncDomain::Audit.proto_name(),
+            SyncDomain::Agent.proto_name(),
         ]),
-        "each of the seven hydrated domains is reachable from at least one bus"
+        "each of the eight hydrated domains is reachable from at least one bus"
     );
 }

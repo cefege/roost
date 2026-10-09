@@ -28,6 +28,7 @@ use roost_protocol::wire::{
     AgentStatusUpdate, McpRelayDelta, McpStreamMessage, WorkspaceDelta, event_to_proto,
 };
 
+pub use super::agent_frames::{agent_chat_events_frame, agent_conversation_frame};
 use crate::events::bus_messages::{
     AuditRow, PairRequestDelta, SessionBell, SessionBusMessage, SessionClipboardWrite,
     SessionCommandFinished, SessionTitleUpdate, TaskBusMsg, TaskBusMsgKind,

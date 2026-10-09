@@ -8,7 +8,7 @@
 //!
 //! The size of `service_impl` is a recorded exception rather than a split, and
 //! the reason is in that file's header: splitting would be impossible anyway, and
-//! the alternative — a macro generating 108 delegations — would hide 108 method
+//! the alternative — a macro generating 122 delegations — would hide 122 method
 //! names behind a list, which is exactly what the no-metaprogramming rule exists
 //! to prevent.
 

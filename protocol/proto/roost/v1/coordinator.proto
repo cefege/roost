@@ -560,6 +560,7 @@ message AuthCoordIdentityResponse {
   // STUN hostnames, not secrets; the list is empty when the carrier is off.
   bool terminal_peer_enabled = 9;
   repeated string terminal_peer_stun_urls = 10;
+  bool builtin_agent_enabled = 11;
 }
 
 // The selected dashboard is resolved from the authenticated device and
@@ -961,6 +962,65 @@ message DevicesRotateCurrentResponse { string fingerprint = 1; }
 
 
 
+// Built-in agent host RPCs. JSON response fields preserve the host contract
+// without duplicating its evolving transcript and model catalog shapes.
+message AgentChatListRequest {}
+message AgentChatListResponse {
+  repeated AgentConversation conversations = 1;
+  bool host_connected = 2;
+}
+message AgentChatCreateRequest {
+  string worker_fp = 1;
+  string cwd = 2;
+  string model_provider = 3;
+  string model_id = 4;
+}
+message AgentChatSubmitRequest {
+  string conversation_id = 1;
+  string text = 2;
+  string request_id = 3;
+}
+message AgentChatSubmitResponse {}
+message AgentChatAbortRequest { string conversation_id = 1; }
+message AgentChatAbortResponse {}
+message AgentChatConfigureRequest {
+  string conversation_id = 1;
+  optional string model_provider = 2;
+  optional string model_id = 3;
+  optional string thinking_level = 4;
+  optional string worker_fp = 5;
+  optional string cwd = 6;
+  optional string title = 7;
+}
+message AgentChatDeleteRequest { string conversation_id = 1; }
+message AgentChatDeleteResponse {}
+message AgentChatSnapshotRequest { string conversation_id = 1; }
+message AgentChatSnapshotResponse {
+  uint64 seq = 1;
+  string transcript_json = 2;
+}
+message AgentModelsListRequest {}
+message AgentModelsListResponse { string catalog_json = 1; }
+message AgentAuthLoginStartRequest { string provider = 1; }
+message AgentAuthLoginStartResponse { string login_id = 1; }
+message AgentAuthLoginPollRequest { string login_id = 1; }
+message AgentAuthLoginPollResponse { string state_json = 1; }
+message AgentAuthLoginRespondRequest {
+  string login_id = 1;
+  string prompt_id = 2;
+  string value = 3;
+}
+message AgentAuthLoginRespondResponse {}
+message AgentAuthLoginCancelRequest { string login_id = 1; }
+message AgentAuthLoginCancelResponse {}
+message AgentAuthSetApiKeyRequest {
+  string provider = 1;
+  string api_key = 2;
+}
+message AgentAuthSetApiKeyResponse {}
+message AgentAuthLogoutRequest { string provider = 1; }
+message AgentAuthLogoutResponse {}
+
 // ─── service ──────────────────────────────────────────────────────────────
 
 service CoordinatorService {
@@ -999,6 +1059,21 @@ service CoordinatorService {
   rpc AgentStatusList(AgentStatusListRequest) returns (AgentStatusListResponse);
   rpc AgentStatusWait(AgentStatusWaitRequest) returns (AgentStatusWaitResponse);
 
+  // Built-in agent chat and host authentication.
+  rpc AgentChatList(AgentChatListRequest) returns (AgentChatListResponse);
+  rpc AgentChatCreate(AgentChatCreateRequest) returns (AgentConversation);
+  rpc AgentChatSubmit(AgentChatSubmitRequest) returns (AgentChatSubmitResponse);
+  rpc AgentChatAbort(AgentChatAbortRequest) returns (AgentChatAbortResponse);
+  rpc AgentChatConfigure(AgentChatConfigureRequest) returns (AgentConversation);
+  rpc AgentChatDelete(AgentChatDeleteRequest) returns (AgentChatDeleteResponse);
+  rpc AgentChatSnapshot(AgentChatSnapshotRequest) returns (AgentChatSnapshotResponse);
+  rpc AgentModelsList(AgentModelsListRequest) returns (AgentModelsListResponse);
+  rpc AgentAuthLoginStart(AgentAuthLoginStartRequest) returns (AgentAuthLoginStartResponse);
+  rpc AgentAuthLoginPoll(AgentAuthLoginPollRequest) returns (AgentAuthLoginPollResponse);
+  rpc AgentAuthLoginRespond(AgentAuthLoginRespondRequest) returns (AgentAuthLoginRespondResponse);
+  rpc AgentAuthLoginCancel(AgentAuthLoginCancelRequest) returns (AgentAuthLoginCancelResponse);
+  rpc AgentAuthSetApiKey(AgentAuthSetApiKeyRequest) returns (AgentAuthSetApiKeyResponse);
+  rpc AgentAuthLogout(AgentAuthLogoutRequest) returns (AgentAuthLogoutResponse);
   // workspaces
   rpc WorkspacesList(WorkspacesListRequest) returns (WorkspacesListResponse);
   rpc WorkspacesCreate(WorkspacesCreateRequest) returns (WorkspacesCreateResponse);
