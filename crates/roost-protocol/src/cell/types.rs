@@ -172,17 +172,27 @@ pub fn link_uri_within_cap(uri: &str) -> bool {
     true
 }
 
-/// True when the span is ONE grid cell that must be painted and highlighted
-/// whole: a wide lead, an astral codepoint, or a grapheme cluster. A run only
-/// ever holds one-scalar narrow cells, so an atomic span is one whose column
-/// count disagrees with its scalar count — OR whose text holds a scalar above
-/// the BMP, which is what a code-unit count saw as a surrogate. "🐙" in one
-/// column is that second case alone: one scalar, one column, one glyph.
+/// True when the span is one grid cell whose text must be painted and selected
+/// whole. Coalesced runs contain only plain narrow scalars; a grapheme's
+/// combining, joiner, selector, regional-indicator, or astral scalar keeps it
+/// atomic even when scalar count happens to equal terminal-column count.
 pub fn span_is_atomic(span: &CellSpan) -> bool {
     if span.columns as usize != scalar_count(span) {
         return true;
     }
-    span.text.chars().any(|character| character > '\u{ffff}')
+    span.text.chars().any(|character| {
+        let scalar = character as u32;
+        character > '\u{ffff}'
+            || (0x0300..=0x036f).contains(&scalar)
+            || (0x1ab0..=0x1aff).contains(&scalar)
+            || (0x1dc0..=0x1dff).contains(&scalar)
+            || (0x20d0..=0x20ff).contains(&scalar)
+            || (0xfe00..=0xfe0f).contains(&scalar)
+            || (0xfe20..=0xfe2f).contains(&scalar)
+            || (0xe0100..=0xe01ef).contains(&scalar)
+            || (0x1f1e6..=0x1f1ff).contains(&scalar)
+            || matches!(scalar, 0x200c..=0x200d | 0x1f3fb..=0x1f3ff)
+    })
 }
 
 /// Terminal columns the spans occupy: less than the grid width for a

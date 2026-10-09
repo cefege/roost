@@ -229,3 +229,14 @@ fn an_ansi_mode_report_is_withheld() {
 fn a_text_area_size_report_is_withheld() {
     assert_withheld(b"\x1b[18t", "");
 }
+
+/// Programs probe grapheme clustering (DECRQM 2027) before enabling it; the
+/// core's answer reaches them, while other mode reports stay withheld.
+#[test]
+fn the_grapheme_clustering_mode_report_is_forwarded() {
+    let reply = answer_fresh(b"\x1b[?2027$p").bytes;
+    assert!(
+        reply.starts_with("\x1b[?2027;") && reply.ends_with("$y"),
+        "{reply:?}"
+    );
+}

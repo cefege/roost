@@ -141,6 +141,23 @@ fn a_grapheme_cluster_is_one_cell_of_many_scalars() {
 }
 
 #[test]
+fn bmp_and_joined_graphemes_are_atomic_independent_of_column_count() {
+    for (text, columns) in [
+        ("❤️", 2),
+        ("👩‍👩‍👧‍👦", 2),
+        ("🇺🇳", 2),
+        ("e\u{301}", 1),
+    ] {
+        let cluster = span(text, columns);
+        assert!(span_is_atomic(&cluster), "{text}");
+        assert_eq!(column_text(std::slice::from_ref(&cluster), 0), text);
+        assert_eq!(column_text(std::slice::from_ref(&cluster), i64::from(columns - 1)), text);
+        assert_eq!(text_offset_to_column_end(std::slice::from_ref(&cluster), 1), columns);
+    }
+    assert!(!span_is_atomic(&span("plain", 5)));
+}
+
+#[test]
 fn a_span_whose_columns_disagree_with_its_text_is_never_sliced() {
     // A producer that ships the wrong occupancy would otherwise have the paint
     // read one character of a three-character run.

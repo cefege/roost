@@ -20,7 +20,8 @@
 //! Concatenating every native ahead of every synthesized reply would answer
 //! `CSI c` then `CSI 6n` backwards.
 //!
-//! The core also answers DA1, DA2, XTVERSION, `CSI 5n`, DECRQM and `CSI 18t`;
+//! The core also answers DA1, DA2, XTVERSION, `CSI 5n`, DECRQM (except mode
+//! 2027, which is forwarded) and `CSI 18t`;
 //! those are WITHHELD so DA1 and XTVERSION are synthesized once and the rest
 //! stay as v2 left them.
 //!

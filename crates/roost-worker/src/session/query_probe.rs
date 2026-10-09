@@ -44,11 +44,14 @@ fn zero_params(params: &[u8]) -> bool {
 }
 
 /// Whether a reply the terminal core produced reaches the application: the
-/// cursor report, the kitty keyboard flags, and the replies image tools wait
-/// on before they draw. Everything else the core answers is withheld.
+/// cursor report, the kitty keyboard flags, the replies image tools wait on
+/// before they draw, and the grapheme-clustering mode report (DECRQM 2027)
+/// programs read before they turn clustering on. Everything else the core
+/// answers is withheld.
 pub(super) fn forwarded_native(reply: &str) -> bool {
     is_cursor_position_report(reply)
         || is_kitty_keyboard_report(reply)
+        || is_grapheme_mode_report(reply)
         || reply.starts_with("\x1b_G")
         || is_xtsmgraphics_report(reply)
         || is_pixel_size_report(reply, "\x1b[4;")
@@ -86,6 +89,14 @@ fn is_kitty_keyboard_report(reply: &str) -> bool {
         return false;
     };
     flags.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+/// `CSI ? 2027 ; Ps $ y`: the DECRQM answer for grapheme clustering only.
+fn is_grapheme_mode_report(reply: &str) -> bool {
+    reply
+        .strip_prefix("\x1b[?2027;")
+        .and_then(|rest| rest.strip_suffix("$y"))
+        .is_some_and(|state| !state.is_empty() && state.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 /// `CSI ? Pi ; Ps ; Pv S`.
