@@ -11,6 +11,18 @@ pub use proto::{conversation_from_proto, conversation_to_proto};
 pub use tunnel_args::validated_daemon_args;
 
 impl AgentRunState {
-    pub fn as_str(self) -> &'static str { match self { Self::Idle => "idle", Self::Running => "running", Self::Failed => "failed" } }
-    pub fn from_wire(value: &str) -> Self { match value { "running" => Self::Running, "failed" => Self::Failed, _ => Self::Idle } }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::Running => "running",
+            Self::Failed => "failed",
+        }
+    }
+    pub fn from_wire(value: &str) -> Self {
+        match value {
+            "running" => Self::Running,
+            "failed" => Self::Failed,
+            _ => Self::Idle,
+        }
+    }
 }
