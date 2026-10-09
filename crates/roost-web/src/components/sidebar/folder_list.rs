@@ -16,6 +16,7 @@ use roost_client_core::store::sidebar::folder_groups::{
 };
 use roost_protocol::wire::{Session, SessionKind};
 
+use super::agent_conversation_row::AgentConversationRow;
 use super::folder_row::FolderRow;
 use super::session_row::SessionRow;
 use crate::components::md::EmptyState;
@@ -39,7 +40,7 @@ pub fn FolderList(active: bool, query: String) -> Element {
     let pump = use_store();
     let path = use_location();
     let core = pump.core();
-    let (groups, filtered_ids, active_folder_key, cursor_id) = {
+    let (groups, filtered_ids, active_folder_key, cursor_id, active_agent_id) = {
         let core = core.borrow();
         let store = core.store();
         let now_ms = i64::try_from(core.clock().now_ms()).unwrap_or(i64::MAX);
@@ -61,14 +62,28 @@ pub fn FolderList(active: bool, query: String) -> Element {
         };
         let active_folder_key = active_session_for_path(store, &BrowserWorkerPaths, &path.read())
             .map(|session| session_folder_key(store, &BrowserWorkerPaths, session));
+        let active_agent_id = match crate::routes::Route::parse(&path.read()) {
+            crate::routes::Route::Agent { conversation_id } => Some(conversation_id),
+            _ => None,
+        };
         let cursor_id = store.sidebar.cursor.cursor_session_id().map(str::to_owned);
-        (groups, filtered_ids, active_folder_key, cursor_id)
+        (
+            groups,
+            filtered_ids,
+            active_folder_key,
+            cursor_id,
+            active_agent_id,
+        )
     };
     let filtering = has_active_filter(&query);
     let visible_ids: Vec<String> = if filtering {
         filtered_ids.clone()
     } else {
-        groups.iter().map(|group| group.lead_id.clone()).collect()
+        groups
+            .iter()
+            .filter(|group| !group.lead_id.is_empty())
+            .map(|group| group.lead_id.clone())
+            .collect()
     };
     publish_cursor_targets(&pump, active, visible_ids);
 
@@ -86,9 +101,18 @@ pub fn FolderList(active: bool, query: String) -> Element {
                         for group in groups {
                             FolderRow {
                                 key: "{group.key}",
-                                selected: active_folder_key.as_deref() == Some(group.key.as_str()),
-                                cursor: cursor_id.as_deref() == Some(group.lead_id.as_str()),
-                                group,
+                                selected: active_folder_key.as_deref() == Some(group.key.as_str())
+                                    || active_agent_id.as_ref().is_some_and(|id| group.agent_conversation_ids.contains(id)),
+                                cursor: !group.lead_id.is_empty()
+                                    && cursor_id.as_deref() == Some(group.lead_id.as_str()),
+                                group: group.clone(),
+                            }
+                            for conversation_id in group.agent_conversation_ids.iter() {
+                                AgentConversationRow {
+                                    key: "{conversation_id}",
+                                    conversation_id: conversation_id.clone(),
+                                    selected: active_agent_id.as_deref() == Some(conversation_id.as_str()),
+                                }
                             }
                         }
                     }

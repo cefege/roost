@@ -1,8 +1,7 @@
-//! One folder row: the machine mark, the folder name and age, the offline
-//! subtitle, the agent rollup, and the machine / pane count / branch / PR /
-//! port chips, over a full-row link to the folder's last-visited (or lead)
-//! terminal. The `renderFolderRow` and `FolderStatusRollup` halves of
-//! `apps/web/src/components/sidebar/FolderList.tsx`; `FolderList` renders it.
+//! One folder row: the machine mark, folder name and age, offline subtitle,
+//! agent rollup, and machine / pane / branch / PR / port details. The full-row
+//! link targets its last-visited terminal, lead terminal, or first agent
+//! conversation when the folder has no terminals.
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
@@ -81,7 +80,15 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
             &group.key,
         )
     });
-    let href = format!("/s/{target_id}");
+    let href = if group.session_ids.is_empty() {
+        group
+            .agent_conversation_ids
+            .first()
+            .map(|id| crate::routes::agent_href(id))
+            .unwrap_or_else(|| crate::routes::browse_href(&group.spawn_fp))
+    } else {
+        format!("/s/{target_id}")
+    };
     let pane_count = group.session_ids.len();
     let panes_title = format!(
         "{pane_count} pane{} in this workspace",
@@ -100,6 +107,7 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
         }
     };
     let more_target = menu_target.clone();
+    let has_sessions = !group.session_ids.is_empty();
     let rollup = group.agent_status;
     let show_rollup = rollup.total > 0 && rollup.level != AgentStatusLevel::Unknown;
     rsx! {
@@ -123,11 +131,15 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
                 "aria-label": "Open {group.name}",
                 style: "position: absolute; inset: 0; z-index: 1;",
                 onclick: move |event: MouseEvent| {
-                    pump.dispatch(ClientEvent::Sidebar(SidebarIntent::RecordNavigation {
-                        session_id: target_id.clone(),
-                        last_workspace: None,
-                        close_drawer: true,
-                    }));
+                    if has_sessions {
+                        pump.dispatch(ClientEvent::Sidebar(SidebarIntent::RecordNavigation {
+                            session_id: target_id.clone(),
+                            last_workspace: None,
+                            close_drawer: true,
+                        }));
+                    } else {
+                        pump.dispatch(ClientEvent::Sidebar(SidebarIntent::CloseDrawer));
+                    }
                     let primary = event.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary);
                     if is_in_app_navigation_click(primary, event.modifiers()) {
                         event.prevent_default();

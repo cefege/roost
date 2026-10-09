@@ -6,8 +6,9 @@
 //!
 //! The patterns are the route table the plan fixes — `/`, `/s/:sessionId`,
 //! `/t/:workerFp/*folderPath`, the legacy `/w/:workspaceId` and
-//! `/w/:workspaceId/t/:channelId`, `/settings/:pane?`, `/pair`, `/help`,
-//! `/design`, `/file/:workerFp/*path`, `/browse[/:workerFp]`, `/search` — and
+//! `/w/:workspaceId/t/:channelId`, `/a/:conversationId`, `/settings/:pane?`,
+//! `/pair`, `/help`, `/design`, `/file/:workerFp/*path`, `/browse[/:workerFp]`,
+//! `/search` — and
 //! their rules are exercised through the public surface in
 //! `crates/roost-web/tests/routes.rs`.
 
@@ -20,6 +21,11 @@ pub enum Route {
     Session {
         /// The session to open.
         session_id: String,
+    },
+    /// `/a/:conversationId` — one built-in agent conversation's chat.
+    Agent {
+        /// The agent conversation to open.
+        conversation_id: String,
     },
     /// `/t/:workerFp/*folderPath` — a local terminal in a folder on a machine.
     Terminal {
@@ -88,6 +94,9 @@ impl Route {
         Route::Session {
             session_id: String::new(),
         },
+        Route::Agent {
+            conversation_id: String::new(),
+        },
         Route::Terminal {
             worker_fp: String::new(),
             folder_path: String::new(),
@@ -129,6 +138,9 @@ impl Route {
             None => Route::Home,
             Some("s") if decoded.len() == 2 => Route::Session {
                 session_id: decoded[1].clone(),
+            },
+            Some("a") if decoded.len() == 2 => Route::Agent {
+                conversation_id: decoded[1].clone(),
             },
             Some("t") => match (decoded.get(1), decoded.get(2)) {
                 (Some(worker_fp), Some(_)) => Route::Terminal {
@@ -187,6 +199,7 @@ impl Route {
         match self {
             Self::Home => "/".to_string(),
             Self::Session { session_id } => format!("/s/{session_id}"),
+            Self::Agent { conversation_id } => format!("/a/{conversation_id}"),
             Self::Terminal {
                 worker_fp,
                 folder_path,
@@ -220,6 +233,14 @@ impl Route {
 pub fn session_href(session_id: &str) -> String {
     Route::Session {
         session_id: session_id.to_owned(),
+    }
+    .to_path()
+}
+
+/// `/a/:conversationId` for one built-in agent conversation.
+pub fn agent_href(conversation_id: &str) -> String {
+    Route::Agent {
+        conversation_id: conversation_id.to_owned(),
     }
     .to_path()
 }

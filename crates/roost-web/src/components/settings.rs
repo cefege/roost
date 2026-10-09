@@ -9,6 +9,8 @@
 //! as v2's `SettingsPane.tsx` switch did.
 
 pub mod agent_launcher;
+pub mod agent_login_dialog;
+pub mod agent_models;
 pub mod agents;
 pub mod attachments;
 pub mod audit;

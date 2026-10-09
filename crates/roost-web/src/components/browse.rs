@@ -18,7 +18,7 @@ mod dom;
 mod entry_list;
 mod key_listener;
 mod keys;
-mod listing;
+pub(crate) mod listing;
 mod new_folder;
 mod path_bar;
 mod picker;

@@ -13,6 +13,7 @@
 //! module here is a compile error.
 
 pub mod access_gate;
+pub mod agent_chat;
 pub mod agents;
 pub mod app_error_boundary;
 pub mod brand_mark;

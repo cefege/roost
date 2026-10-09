@@ -39,6 +39,7 @@ style = [
   "/styles/workbench-shell.css",
   "/styles/workbench-sidebar.css",
   "/styles/workbench-tabs.css",
+  "/styles/agent-chat.css",
   "/styles/tv.css",
   "/styles/gamepad.css",
 ]

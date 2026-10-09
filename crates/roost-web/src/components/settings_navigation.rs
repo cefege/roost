@@ -54,6 +54,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
         label: "Agents",
         panes: &[
             pane("launcher", "Launcher", "rocket_launch", "Default agent"),
+            pane("models", "Models", "smart_toy", "Built-in agent models"),
             pane("mcp", "MCP", "extension", "MCP relays"),
         ],
     },
