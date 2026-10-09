@@ -27,3 +27,4 @@ STATE.md
 .cache/
 mockups/
 
+agent-host/node_modules/
