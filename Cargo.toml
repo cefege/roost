@@ -78,6 +78,11 @@ portable-pty = "0.9.0"
 # from outside the crate. Without it every absolute history index re-aliases at
 # the scrollback cap.
 alacritty_terminal = { version = "0.26.0", path = "third_party/alacritty_terminal" }
+# Patched: see third_party/rio_vt/ROOST-PATCHES.md (R1–R6). `graphics` decodes
+# PNG kitty payloads and iTerm2 images; the default `pty` feature is rio's own
+# PTY driver, which Roost does not use.
+rio-vt = { version = "=0.5.28", default-features = false, features = ["graphics"] }
+rio-graphics = "=0.5.28"
 str0m = "0.23.1"
 # The pairing QR: the CLI draws the matrix itself in half blocks and the web
 # client uses the SVG renderer, so neither needs the `image` raster stack.
@@ -173,10 +178,12 @@ unimplemented = "deny"
 # Release binaries must be byte-reproducible: the keeper admission gate compares
 # `implementation_digest` (SHA-256 of the roost-keeper binary) across releases,
 # and a drifting digest is a "keeper binary changed" verdict, not a no-op.
-# The vendored terminal core. One patch, one purpose:
-# third_party/alacritty_terminal/ROOST-PATCHES.md.
+# The vendored terminal cores. One patch set each, one purpose:
+# third_party/alacritty_terminal/ROOST-PATCHES.md and
+# third_party/rio_vt/ROOST-PATCHES.md.
 [patch.crates-io]
 alacritty_terminal = { path = "third_party/alacritty_terminal" }
+rio-vt = { path = "third_party/rio_vt" }
 
 # The native binaries. Optimised, but without whole-program LTO and with
 # parallel codegen: under `lto = true` + `codegen-units = 1` any one-crate
