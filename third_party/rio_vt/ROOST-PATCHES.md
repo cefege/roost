@@ -76,7 +76,9 @@ blanking them, and on the primary grid that scroll reaches history: a plain
 every monotonic history index. When the viewport is pinned to the active area
 (`display_offset == 0`) the patch resets the viewport rows in place and clips
 sixel/iTerm2 placements on screen, as the alternate-screen arm already does.
-A viewport scrolled back keeps upstream's path.
+A viewport scrolled back keeps upstream's path. The in-place clear also erases the kitty placements on screen, as kitty
+does (upstream's scroll carried them into history), and `CSI 3J` expires the
+kitty placements it clears out of history, as a scroll off the ring does.
 `protocol/conformance/terminal-core/clear-and-erase.json` pins it.
 
 Guard: `tests/roost_clear_in_place.rs`.

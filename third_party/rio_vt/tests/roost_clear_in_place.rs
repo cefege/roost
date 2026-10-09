@@ -46,3 +46,44 @@ fn erase_display_leaves_history_untouched() {
         assert_eq!(row_text(&term, line, 10).trim(), "", "row {line} is blank");
     }
 }
+
+#[cfg(feature = "graphics")]
+#[test]
+fn erase_display_and_clear_history_drop_kitty_images() {
+    // Kitty placements need a cell size in pixels.
+    let mut term = Crosswords::new(
+        CrosswordsSize::new_with_dimensions(20, 6, 160, 96, 8, 16),
+        CursorShape::Block,
+        VoidListener,
+        WindowId::from(0),
+        0,
+        100,
+    );
+    let mut parser = Processor::default();
+    // A 1x1 red pixel, placed over 2x1 cells at the cursor.
+    parser.advance(&mut term, b"\x1b_Ga=T,f=32,s=1,v=1,c=2,r=1;/wAA/w==\x1b\\");
+    assert_eq!(term.graphics.kitty_placements.len(), 1);
+    parser.advance(&mut term, b"\x1b[2J");
+    assert!(
+        term.graphics.kitty_placements.is_empty(),
+        "ED 2 erases on-screen images"
+    );
+
+    parser.advance(
+        &mut term,
+        b"\x1b[H\x1b_Ga=T,f=32,s=1,v=1,c=2,r=1;/wAA/w==\x1b\\",
+    );
+    for _ in 0..10 {
+        parser.advance(&mut term, b"\r\n");
+    }
+    assert_eq!(
+        term.graphics.kitty_placements.len(),
+        1,
+        "scrolled into history"
+    );
+    parser.advance(&mut term, b"\x1b[3J");
+    assert!(
+        term.graphics.kitty_placements.is_empty(),
+        "ED 3 erases images in history"
+    );
+}

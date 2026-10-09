@@ -106,6 +106,14 @@ pub fn StatusBar() -> Element {
     let machine = readings.machine.clone();
     let agent = readings.agent.clone();
     let context = readings.context.clone();
+    // The focused session's shell variables (OSC 1337 SetUserVar) ride the
+    // bar: the sidebar's folder rows aggregate sessions and the tab is narrow.
+    let focused_session = crate::route_session::active_session_for_path(
+        core.borrow().store(),
+        &crate::platform::worker_paths::BrowserWorkerPaths,
+        &path,
+    )
+    .map(|session| session.id.as_str().to_owned());
     rsx! {
         footer {
             class: "workbench-status-bar",
@@ -141,6 +149,9 @@ pub fn StatusBar() -> Element {
                         "data-testid": "workbench-status-context",
                         {context}
                     }
+                }
+                if let Some(session_id) = focused_session {
+                    crate::components::terminal_signal_marks::TerminalUserVarBadges { session_id }
                 }
             }
             div { class: "workbench-status-bar__right",

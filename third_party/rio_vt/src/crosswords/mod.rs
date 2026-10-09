@@ -4179,6 +4179,15 @@ impl<U: EventListener> Handler for Crosswords<U> {
                     self.grid.reset_region(..);
                     let columns = self.grid.columns();
                     self.clip_atlas_placements(0, screen_lines as i32, 0, columns);
+                    // The in-place clear erases the kitty images on screen
+                    // too, as kitty does; scrolled away, they went with it.
+                    let top =
+                        (self.grid.lines_evicted() + self.history_size() as u64) as i64;
+                    let bottom = top + screen_lines as i64;
+                    self.graphics.kitty_placements.retain(|_, p| {
+                        p.dest_row + p.rows as i64 <= top || p.dest_row >= bottom
+                    });
+                    self.graphics.kitty_graphics_dirty = true;
                     self.vi_mode_cursor.pos.row = self
                         .vi_mode_cursor
                         .pos
@@ -4204,6 +4213,13 @@ impl<U: EventListener> Handler for Crosswords<U> {
             ClearMode::Saved if self.history_size() > 0 => {
                 self.grid.clear_history();
                 self.expire_atlas_placements();
+                // ROOST PATCH R3: kitty placements wholly in the cleared
+                // history expire with it, as a scroll off the ring does.
+                let base = self.grid.lines_evicted() as i64;
+                self.graphics
+                    .kitty_placements
+                    .retain(|_, p| p.dest_row + p.rows as i64 > base);
+                self.graphics.kitty_graphics_dirty = true;
 
                 self.vi_mode_cursor.pos.row = self
                     .vi_mode_cursor
