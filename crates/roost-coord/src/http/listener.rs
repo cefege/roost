@@ -67,7 +67,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 
 use crate::coord_core::CoordCore;
 use crate::http::db_export::db_export;
@@ -217,13 +217,13 @@ pub fn build_router(state: Arc<ListenerState>) -> MountedListener {
     // meets.
     let router = Router::new()
         .route(SYNC_WS_PATH, get(sync_upgrade))
-        .route(RETIRED_SYNC_PATH, get(retired_sync))
         .route("/ws/coord-worker/{fingerprint}", get(worker_upgrade))
         .route(
             "/internal/agent-env/{worker_fp}",
-            get(crate::agent_tunnel::agent_env_upgrade),
+            get(crate::agent_host::agent_env_upgrade),
         )
         .route(DB_EXPORT_PATH, get(db_export).head(db_export))
+        .route(RETIRED_SYNC_PATH, post(retired_sync))
         .merge(crate::http::health::health_routes())
         .fallback_service(connect)
         // The SPA is the fallback for the paths nothing above claims, and it is
