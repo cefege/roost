@@ -42,14 +42,16 @@
   gap: var(--md-space-1);
 }
 
-/* The dock stretches every child to min(70ch, 100%) and gives it
-   pointer-events:auto; the legend shrink-wraps and stays untouchable — it is a
-   legend, never a focus or hit target (lib/focusOwners.ts). Both declarations
-   are qualified by the dock selector so neither depends on which stylesheet
-   the bundler emits last. */
+/* The dock sizes every child to the card width, rides them to the right, and
+   gives them pointer-events:auto; the legend shrink-wraps, stays centred under
+   the screen it describes, and stays untouchable — it is a legend, never a
+   focus or hit target (lib/focusOwners.ts). Every declaration is qualified by
+   the dock selector so none depends on which stylesheet the bundler emits
+   last. */
 .roost-notify-dock > .pad-hint {
   inline-size: auto;
   max-inline-size: 100%;
+  align-self: center;
   pointer-events: none;
 }
 

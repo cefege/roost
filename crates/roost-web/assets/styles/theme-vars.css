@@ -179,11 +179,11 @@
   --roost-notify-dock-lift: 0px;
   --roost-notify-dock-overscan: 0px;
 
-  /* Toast slot measure. A toast card shrink-wraps its content between these
-     bounds on desktop instead of taking the dock's full 70ch; declared here
-     because theme-vars.css is the only legal var declaration site. */
-  --roost-toast-min-inline-size: 34ch;
-  --roost-toast-max-inline-size: 52ch;
+  /* The notification dock's card width on a pointer layout: every card in the
+     corner column takes exactly this, the fixed-measure convention of corner
+     toast stacks. Declared here because theme-vars.css is the only legal var
+     declaration site. */
+  --roost-toast-inline-size: 46ch;
 
   /* M3 elevation shadows — the SINGLE declaration site (design-system phase 1:
      the md/tokens.css duplicate was removed). Global surfaces AND the settings
