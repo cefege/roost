@@ -166,7 +166,7 @@ pub fn merge_terminal_metadata(
         update.command_finished || held.is_some_and(|held| held.command_finished);
     let command_update = update.command_finished;
     let bell = update.bell || held.is_some_and(|held| held.bell);
-    TerminalMetadata {
+    let mut merged = TerminalMetadata {
         channel_id: update.channel_id,
         title_changed: update.title_changed || held.is_some_and(|held| held.title_changed),
         title: if update.title_changed {
@@ -198,5 +198,11 @@ pub fn merge_terminal_metadata(
             held.map_or(0, |held| held.command_duration_ms)
         },
         bell,
-    }
+        progress: None,
+        notifications: Vec::new(),
+        user_vars_changed: false,
+        user_vars: Vec::new(),
+    };
+    merged.merge_signals(held, update);
+    merged
 }

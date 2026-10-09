@@ -11,8 +11,12 @@
 
 use serde_json::{Value, json};
 
-use roost_proto::{WAgentStatus, WTerminalMetadata, WUpdateProgress};
+use roost_proto::{
+    WAgentStatus, WTerminalMetadata, WTerminalNotification, WTerminalProgress, WTerminalUserVar,
+    WUpdateProgress,
+};
 
+use crate::terminal_signals::{TerminalNotification, TerminalProgress, TerminalUserVar};
 use crate::wire::agent_status::{AgentStatus, AgentStatusSource, AgentStatusUpdate};
 use crate::wire::brand::ChannelId;
 use crate::wire::coord_worker::{AgentStatusFrame, TerminalMetadata, UpdateProgress};
@@ -197,6 +201,36 @@ pub(super) fn metadata_to_proto(metadata: &TerminalMetadata) -> ProtocolResult<W
         command_exit_code: metadata.command_exit_code,
         command_duration_ms: metadata.command_duration_ms,
         bell: metadata.bell,
+        progress: match metadata.progress {
+            Some(progress) => {
+                let (state, percent) = progress.to_wire();
+                roost_proto::buffa::MessageField::some(WTerminalProgress {
+                    state,
+                    percent,
+                    ..Default::default()
+                })
+            }
+            None => roost_proto::buffa::MessageField::none(),
+        },
+        notifications: metadata
+            .notifications
+            .iter()
+            .map(|notification| WTerminalNotification {
+                title: notification.title.clone(),
+                body: notification.body.clone(),
+                ..Default::default()
+            })
+            .collect(),
+        user_vars_changed: metadata.user_vars_changed,
+        user_vars: metadata
+            .user_vars
+            .iter()
+            .map(|var| WTerminalUserVar {
+                key: var.key.clone(),
+                value: var.value.clone(),
+                ..Default::default()
+            })
+            .collect(),
         ..Default::default()
     })
 }
@@ -216,6 +250,34 @@ pub(super) fn metadata_from_proto(
         command_exit_code: metadata.command_exit_code,
         command_duration_ms: metadata.command_duration_ms,
         bell: metadata.bell,
+        progress: match metadata.progress.as_option() {
+            Some(progress) => Some(
+                TerminalProgress::from_wire(progress.state, progress.percent).ok_or_else(|| {
+                    ProtocolError::new(
+                        "terminal_metadata.progress.state",
+                        format!("{} is not an OSC 9;4 state", progress.state),
+                    )
+                })?,
+            ),
+            None => None,
+        },
+        notifications: metadata
+            .notifications
+            .iter()
+            .map(|notification| TerminalNotification {
+                title: notification.title.clone(),
+                body: notification.body.clone(),
+            })
+            .collect(),
+        user_vars_changed: metadata.user_vars_changed,
+        user_vars: metadata
+            .user_vars
+            .iter()
+            .map(|var| TerminalUserVar {
+                key: var.key.clone(),
+                value: var.value.clone(),
+            })
+            .collect(),
     })
 }
 

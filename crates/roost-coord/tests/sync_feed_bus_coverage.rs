@@ -1,11 +1,11 @@
-//! The bus-coverage audit: every one of the seventeen coordinator buses has an
+//! The bus-coverage audit: every one of the eighteen coordinator buses has an
 //! adapter, and every frame that adapter produces names a domain the socket
 //! table has and a lane the weighted round robin actually visits.
 //!
-//! This is the test seventeen buses with no caller do not have. A bus nobody
+//! This is the test eighteen buses with no caller do not have. A bus nobody
 //! reads is a message published into the void, and from the coordinator's side
 //! that is indistinguishable from a browser fleet of zero -- which is why the
-//! coverage is asserted per bus rather than in aggregate. Seventeen buses that
+//! coverage is asserted per bus rather than in aggregate. Eighteen buses that
 //! all landed on one lane would satisfy a count and deliver nothing, so the
 //! domains each bus reaches are asserted too.
 //!
@@ -20,8 +20,8 @@ use std::collections::BTreeSet;
 use roost_coord::events::bus_messages::{
     AuditRow, ClipboardHistoryChange, ClipboardHistoryChangeKind, LastActivityUpdate,
     PairRequestDelta, SessionBell, SessionClipboardWrite, SessionCommandFinished,
-    SessionPresenceUpdate, SessionTitleUpdate, TaskBusMsg, TaskBusMsgKind, UiBusMsg,
-    WorkerRoutableSet,
+    SessionPresenceUpdate, SessionTerminalSignals, SessionTitleUpdate, TaskBusMsg, TaskBusMsgKind,
+    UiBusMsg, WorkerRoutableSet,
 };
 use roost_coord::sync_ws::feed::frames::{
     agent_status_frame, audit_frame, clipboard_history_frame, mcp_frame, pair_frame,
@@ -30,6 +30,7 @@ use roost_coord::sync_ws::feed::frames::{
 };
 use roost_coord::sync_ws::feed::last_activity::last_activity_frame;
 use roost_coord::sync_ws::feed::presence::session_presence_frame;
+use roost_coord::sync_ws::feed::signal_frames::session_terminal_signals_frame;
 use roost_coord::sync_ws::feed::ui::{UiViewer, ui_bus_frame};
 use roost_coord::sync_ws::feed::worker_frames::{worker_presence_frame, worker_routable_frame};
 use roost_coord::sync_ws::feed::{BUS_FRAME_ADAPTERS, FeedFrame};
@@ -50,8 +51,8 @@ use sync_feed_support::{
 fn every_bus_in_the_coordinator_has_a_producer() {
     assert_eq!(
         BUS_FRAME_ADAPTERS.len(),
-        17,
-        "the coordinator's bus table is seventeen domains; a bus added without \
+        18,
+        "the coordinator's bus table is eighteen domains; a bus added without \
          an adapter is a message published into the void"
     );
 
@@ -150,6 +151,17 @@ fn every_bus_in_the_coordinator_has_a_producer() {
         "bell_bus",
         session_bell_frame(&SessionBell {
             session_id: SESSION_A.to_owned(),
+        }),
+    );
+    record(
+        "terminal_signal_bus",
+        session_terminal_signals_frame(&SessionTerminalSignals {
+            session_id: SESSION_A.to_owned(),
+            progress: Some(roost_protocol::terminal_signals::TerminalProgress::Normal(
+                42,
+            )),
+            user_vars: None,
+            notification: None,
         }),
     );
     record(

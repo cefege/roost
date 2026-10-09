@@ -334,6 +334,8 @@ mod terminal_input_work_budget;
 mod terminal_input_write;
 #[path = "terminal_metadata.rs"]
 mod terminal_metadata;
+#[path = "terminal_metadata_signals.rs"]
+mod terminal_metadata_signals;
 #[path = "terminal_peer_offer_faults.rs"]
 mod terminal_peer_offer_faults;
 #[path = "terminal_peer_owner.rs"]

@@ -874,3 +874,51 @@
   color: var(--md-sys-color-primary);
 }
 
+/* A program's OSC 9;4 progress: a short bar beside the bell, coloured by state. */
+.terminal-progress-mark {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 calc(var(--md-space-9) * 2);
+  min-inline-size: var(--md-space-7);
+}
+.terminal-progress-mark .roost-progress { inline-size: 100%; }
+.terminal-progress-mark[data-state="error"] .roost-progress__fill { background: var(--md-error); }
+.terminal-progress-mark[data-state="paused"] .roost-progress__fill { background: var(--md-warning); }
+
+/* The shell's OSC 1337 user variables as small badges. */
+.terminal-user-vars {
+  display: inline-flex;
+  gap: var(--md-space-1);
+  min-inline-size: 0;
+  overflow: hidden;
+}
+
+
+/* Images this tab uploaded into a terminal, previewed above its composer. */
+.sent-image-strip {
+  display: flex;
+  gap: var(--md-space-2);
+  overflow-x: auto;
+  pointer-events: auto;
+  padding-block: var(--md-space-1);
+}
+.sent-image {
+  position: relative;
+  flex: 0 0 auto;
+  block-size: calc(var(--md-space-9) * 1.5);
+  inline-size: calc(var(--md-space-9) * 1.5);
+  border-radius: var(--md-shape-sm);
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.sent-image img {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+.sent-image__dismiss {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+}

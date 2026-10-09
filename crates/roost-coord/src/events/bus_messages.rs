@@ -187,6 +187,17 @@ pub struct SessionTitleUpdate {
     pub title: String,
 }
 
+/// A program's terminal signals for one session: progress and user variables
+/// are retained by `TerminalSignalHub` and seeded; a notification is one-shot.
+/// Each part is `Some` only when it changed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionTerminalSignals {
+    pub session_id: String,
+    pub progress: Option<roost_protocol::terminal_signals::TerminalProgress>,
+    pub user_vars: Option<Vec<roost_protocol::terminal_signals::TerminalUserVar>>,
+    pub notification: Option<roost_protocol::terminal_signals::TerminalNotification>,
+}
+
 /// A one-shot OSC 52 clipboard write requested by terminal output.
 ///
 /// This is a volatile event, never retained or seeded to a new Sync subscriber.

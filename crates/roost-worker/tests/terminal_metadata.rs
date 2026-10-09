@@ -243,6 +243,10 @@ fn a_backpressured_title_survives_a_later_activity_only_record() {
         command_exit_code: Some(9),
         command_duration_ms: 12_000,
         bell: true,
+        progress: None,
+        notifications: Vec::new(),
+        user_vars_changed: false,
+        user_vars: Vec::new(),
     };
     let activity = TerminalMetadata {
         channel_id: channel(9),
@@ -256,6 +260,10 @@ fn a_backpressured_title_survives_a_later_activity_only_record() {
         command_exit_code: None,
         command_duration_ms: 0,
         bell: false,
+        progress: None,
+        notifications: Vec::new(),
+        user_vars_changed: false,
+        user_vars: Vec::new(),
     };
     let merged = merge_terminal_metadata(Some(&pending), &activity);
     assert!(merged.title_changed && merged.activity_changed);

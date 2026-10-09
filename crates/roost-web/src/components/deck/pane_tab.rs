@@ -111,6 +111,7 @@ pub fn PaneTab(
                     suppress_tooltip: hover_card_available,
                 }
                 crate::components::terminal_bell_mark::TerminalBellMark { session_id: session_id.clone() }
+                crate::components::terminal_signal_marks::TerminalProgressMark { session_id: session_id.clone() }
             }
             IconButton {
                 icon: "close",

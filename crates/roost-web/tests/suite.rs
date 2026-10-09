@@ -130,6 +130,8 @@ mod terminal_pane_presentation;
 mod terminal_pane_registry;
 #[path = "terminal_pane_rules.rs"]
 mod terminal_pane_rules;
+#[path = "terminal_signal_marks.rs"]
+mod terminal_signal_marks;
 #[path = "terminal_viewport_publication.rs"]
 mod terminal_viewport_publication;
 #[path = "theme_engine.rs"]

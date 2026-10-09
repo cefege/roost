@@ -311,6 +311,35 @@ impl WorkerFrameDispatcher {
                 });
             tracing::debug!(worker_fp = %worker, session_id = %session_id, "terminal bell received");
         }
+        if metadata.progress.is_some()
+            || metadata.user_vars_changed
+            || !metadata.notifications.is_empty()
+        {
+            // A coalesced record can carry several notifications; each
+            // reaches the browser, the retained facts ride the first.
+            let mut progress = metadata.progress;
+            let mut user_vars = metadata
+                .user_vars_changed
+                .then(|| metadata.user_vars.clone());
+            let mut notifications = metadata
+                .notifications
+                .iter()
+                .cloned()
+                .map(Some)
+                .collect::<Vec<_>>();
+            if notifications.is_empty() {
+                notifications.push(None);
+            }
+            for notification in notifications {
+                services.terminal_signals.observe(
+                    &services.buses,
+                    session_id.as_str(),
+                    progress.take(),
+                    user_vars.take(),
+                    notification,
+                );
+            }
+        }
         if metadata.activity_changed
             && let Ok(observed_at_ms) = i64::try_from(metadata.activity_ts_ms)
         {

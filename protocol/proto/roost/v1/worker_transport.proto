@@ -54,6 +54,30 @@ message WTerminalMetadata {
   uint64 command_duration_ms = 10;
   // At least one BEL was parsed from live PTY output; an event, not state.
   bool bell = 11;
+  // The latest OSC 9;4 progress report; retained state, present only when it
+  // changed or is re-asserted. State 0 clears it.
+  WTerminalProgress progress = 12;
+  // OSC 9 / OSC 777 notifications from live output; events.
+  repeated WTerminalNotification notifications = 13;
+  // The OSC 1337 user variables changed; user_vars is the whole current set.
+  bool user_vars_changed = 14;
+  repeated WTerminalUserVar user_vars = 15;
+}
+
+// OSC 9;4: state 0 clear, 1 normal, 2 error, 3 indeterminate, 4 paused.
+message WTerminalProgress {
+  uint32 state = 1;
+  optional uint32 percent = 2;
+}
+
+message WTerminalNotification {
+  string title = 1;
+  string body = 2;
+}
+
+message WTerminalUserVar {
+  string key = 1;
+  string value = 2;
 }
 
 // T2.2 — in-band JWT rotation. Worker sends this BEFORE the current

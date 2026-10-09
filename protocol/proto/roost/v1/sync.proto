@@ -64,6 +64,27 @@ message TerminalBellFrame {
   string session_id = 1;
 }
 
+// A program's signals for an observed session: its OSC 9;4 progress report
+// and OSC 1337 user variables (retained, seeded on connect) and an OSC 9 /
+// OSC 777 desktop notification (one-shot). Each part is present only when it
+// changed; progress state 0 clears the report.
+message TerminalSignalsFrame {
+  string session_id = 1;
+  bool progress_present = 2;
+  uint32 progress_state = 3;
+  optional uint32 progress_percent = 4;
+  bool user_vars_present = 5;
+  repeated TerminalUserVar user_vars = 6;
+  bool notification_present = 7;
+  string notification_title = 8;
+  string notification_body = 9;
+}
+
+message TerminalUserVar {
+  string key = 1;
+  string value = 2;
+}
+
 // OSC 0/2 terminal title, parsed centrally by coord (terminal-title-hub) from
 // the same relayed byte stream and fanned out here. Volatile (re-derived from
 // output) — NOT backfilled on reconnect; seeded on Sync connect like status.
@@ -340,6 +361,7 @@ message FirehoseFrame {
     TerminalCommandFinishedFrame terminal_command_finished = 52;
     ClipboardHistoryFrame clipboard_history = 53;
     TerminalBellFrame terminal_bell = 54;
+    TerminalSignalsFrame terminal_signals = 55;
   }
 }
 

@@ -150,6 +150,7 @@ pub fn seed_domain(
 /// The session-keyed retained owners, read once for one seed.
 struct RetainedSessionState {
     titles: Vec<SessionTitleUpdate>,
+    signals: Vec<crate::events::bus_messages::SessionTerminalSignals>,
     activity: Vec<LastActivityUpdate>,
     statuses: Vec<AgentStatus>,
     viewers: BTreeMap<String, BTreeMap<String, TerminalGeometry>>,
@@ -159,6 +160,7 @@ impl RetainedSessionState {
     fn read(services: &CoordServices) -> Self {
         Self {
             titles: services.titles.title_snapshot(),
+            signals: services.terminal_signals.snapshot(),
             activity: services.feed.last_activity().snapshot(),
             statuses: services.agents.status.snapshot(),
             viewers: services
@@ -170,7 +172,8 @@ impl RetainedSessionState {
         }
     }
 
-    /// Titles, activity, agent status and (for a v2 terminal seed) viewer
+    /// Titles, terminal signals, activity, agent status and (for a v2
+    /// terminal seed) viewer
     /// rooms, each only for a session this socket observes and, when given,
     /// was admitted.
     fn collect(
@@ -186,6 +189,16 @@ impl RetainedSessionState {
         let mut frames = Vec::new();
         for title in self.titles.iter().filter(|title| seeds(&title.session_id)) {
             frames.push((session_title_frame(title), title.session_id.clone()));
+        }
+        for signals in self
+            .signals
+            .iter()
+            .filter(|signals| seeds(&signals.session_id))
+        {
+            frames.push((
+                crate::sync_ws::feed::signal_frames::session_terminal_signals_frame(signals),
+                signals.session_id.clone(),
+            ));
         }
         for update in self
             .activity

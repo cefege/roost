@@ -2,8 +2,9 @@
 //! `apps/worker/src/session/session-terminal-metadata.ts` (per-channel title and
 //! activity facts, the negotiated flag, the fair 32-frame flush, replay after the
 //! snapshot barrier) and `packages/protocol/src/terminal-metadata.ts`
-//! (`TerminalTitleParser`). OSC 52 clipboard writes, long-command finishes and
-//! bells are events: sent once, never reasserted by a replay. `session::emit`
+//! (`TerminalTitleParser`). OSC 52 clipboard writes, long-command finishes,
+//! bells and program notifications are events: sent once, never reasserted by
+//! a replay; progress and user variables are retained facts (`signals.rs`). `session::emit`
 //! observes every chunk; the cadence flushes into the link's coalescing lane.
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -12,7 +13,9 @@ use roost_protocol::wire::brand::ChannelId;
 use roost_term::core::CommandEvent;
 
 use roost_protocol::wire::coord_worker::TerminalMetadata;
+mod signals;
 mod title_parser;
+pub use signals::{LiveSignals, TERMINAL_NOTIFICATION_RATE_LIMIT_MS};
 pub use title_parser::{TerminalTitleParser, TitleObservation, normalize_terminal_title};
 
 /// v2 `TERMINAL_METADATA_DISPATCH_FRAME_BUDGET`.
@@ -55,6 +58,7 @@ pub struct ChannelMetadata {
     command_dirty: bool,
     bell_pending: bool,
     last_bell_at_ms: Option<i64>,
+    signals: signals::ChannelSignals,
 }
 
 /// The semantic lane: every channel's facts, the ready ring, and the flag.
@@ -173,6 +177,30 @@ impl TerminalMetadataStage {
         self.negotiated && finished && self.mark_ready(channel_id)
     }
 
+    /// Progress, notifications and user variables a live parse produced. A
+    /// notification seen before the link negotiated metadata is dropped, like a
+    /// bell; progress and user variables are retained and sent once it is up.
+    pub fn observe_signals(
+        &mut self,
+        channel_id: ChannelId,
+        mut live: LiveSignals,
+        now_ms: i64,
+    ) -> bool {
+        if live.is_empty() {
+            return false;
+        }
+        if !self.negotiated {
+            live.notifications.clear();
+        }
+        let owed = self
+            .channels
+            .entry(channel_id)
+            .or_default()
+            .signals
+            .observe(live, now_ms);
+        self.negotiated && owed && self.mark_ready(channel_id)
+    }
+
     /// v2 `setTerminalMetadataNegotiated`. Returns whether a flush became owed.
     pub fn set_negotiated(&mut self, negotiated: bool) -> bool {
         if self.negotiated == negotiated {
@@ -202,6 +230,7 @@ impl TerminalMetadataStage {
             if let Some(state) = self.channels.get_mut(&channel_id) {
                 state.title_dirty |= state.title.is_some();
                 state.activity_dirty |= state.activity_ts_ms.is_some();
+                state.signals.reassert();
             }
             owed |= self.mark_ready(channel_id);
         }
@@ -238,11 +267,13 @@ impl TerminalMetadataStage {
             let clipboard = state.clipboard.clone().unwrap_or_default();
             let activity_changed = state.activity_dirty && activity.is_some();
             let bell = state.bell_pending;
+            let signals = state.signals.pending();
             if !title_changed
                 && !activity_changed
                 && !clipboard_changed
                 && !command_finished
                 && !bell
+                && signals == signals::PendingSignals::default()
             {
                 continue;
             }
@@ -260,6 +291,10 @@ impl TerminalMetadataStage {
                     .filter(|_| command_finished)
                     .map_or(0, |(_, duration)| duration),
                 bell,
+                progress: signals.progress,
+                notifications: signals.notification.clone().into_iter().collect(),
+                user_vars_changed: signals.user_vars.is_some(),
+                user_vars: signals.user_vars.clone().unwrap_or_default(),
             });
             frames += 1;
             if result == MetadataSend::Dropped {
@@ -292,11 +327,13 @@ impl TerminalMetadataStage {
             if bell {
                 state.bell_pending = false;
             }
+            state.signals.sent(&signals);
             if (state.title_dirty
                 || state.activity_dirty
                 || state.clipboard_dirty
                 || state.command_dirty
-                || state.bell_pending)
+                || state.bell_pending
+                || state.signals.dirty())
                 && !self.ready_set.contains(&channel_id)
             {
                 self.ready.push_back(channel_id);

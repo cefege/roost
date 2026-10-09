@@ -9,7 +9,8 @@
 //! contract. A text-area size request (`CSI 14 t`) arrives as a closure that
 //! needs the window size, answered here from the nominal cell size the core
 //! runs with. An OSC 52 store arrives decoded as `ClipboardStore`. Decoded
-//! images arrive as `UpdateGraphics`. A dropped CSI arrives through the
+//! images arrive as `UpdateGraphics`; progress reports and desktop
+//! notifications go to [`SignalQueue`]. A dropped CSI arrives through the
 //! vendored R6 hook (`third_party/rio_vt/ROOST-PATCHES.md`). Every other
 //! event — colour requests, clipboard loads, titles, redraws — is dropped:
 //! they need a window this core does not have, and a clipboard READ would let
@@ -21,6 +22,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use rio_vt::ansi::graphics::UpdateQueues;
 use rio_vt::event::{EventListener, RioEvent, WindowId, WindowSize};
 
+use super::signal_queue::SignalQueue;
 use crate::unhandled::{UNHANDLED_PARAMS_RECORDED, UnhandledSequence, UnhandledSequenceRing};
 
 /// The largest OSC 52 store forwarded, in decoded UTF-8 bytes. A clipboard
@@ -183,6 +185,7 @@ pub(crate) struct RioListener {
     pub(crate) unhandled: UnhandledQueue,
     pub(crate) graphics: GraphicsQueue,
     pub(crate) text_area: TextArea,
+    pub(crate) signals: SignalQueue,
 }
 
 impl EventListener for RioListener {
@@ -195,6 +198,10 @@ impl EventListener for RioListener {
             RioEvent::ClipboardStore(_, text) => self.clipboard.push(text),
             RioEvent::Bell(_) => self.bells.record(),
             RioEvent::UpdateGraphics { queues, .. } => locked(&self.graphics.queued).push(queues),
+            RioEvent::ProgressReport(report) => self.signals.record_progress(report),
+            RioEvent::DesktopNotification { title, body } => {
+                self.signals.record_notification(&title, &body);
+            }
             _ => {}
         }
     }

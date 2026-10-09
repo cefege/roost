@@ -86,6 +86,8 @@ pub fn SessionRowFlat(facts: SessionRowFacts) -> Element {
             span { class: "df-flat-activity",
                 AgentStatusIndicator { session_id: session_id.clone() }
                 crate::components::terminal_bell_mark::TerminalBellMark { session_id: session_id.clone() }
+                crate::components::terminal_signal_marks::TerminalProgressMark { session_id: session_id.clone() }
+                crate::components::terminal_signal_marks::TerminalUserVarBadges { session_id: session_id.clone() }
                 if !server_online {
                     span { class: "df-stage-text", "data-stage": "offline", "data-testid": "session-offline-{session_id}", "offline" }
                 }

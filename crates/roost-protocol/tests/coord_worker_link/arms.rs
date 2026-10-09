@@ -155,6 +155,10 @@ pub fn upstream_arms() -> Vec<(&'static str, CoordWorkerUpstream)> {
                 command_exit_code: Some(2),
                 command_duration_ms: 12_000,
                 bell: true,
+                progress: None,
+                notifications: Vec::new(),
+                user_vars_changed: false,
+                user_vars: Vec::new(),
             }),
         ),
         (

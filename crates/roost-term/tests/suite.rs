@@ -26,3 +26,5 @@ mod reply_queue;
 mod span_encoder;
 #[path = "terminal_core_vectors.rs"]
 mod terminal_core_vectors;
+#[path = "terminal_signals.rs"]
+mod terminal_signals;

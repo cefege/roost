@@ -82,7 +82,13 @@ pub fn merge_terminal_metadata(
         command_exit_code: newest_command.command_exit_code,
         command_duration_ms: newest_command.command_duration_ms,
         bell: previous.bell || incoming.bell,
+        progress: None,
+        notifications: Vec::new(),
+        user_vars_changed: false,
+        user_vars: Vec::new(),
     };
+    let mut metadata = metadata;
+    metadata.merge_signals(Some(previous), incoming);
     let frame = CoordWorkerUpstream::TerminalMetadata(metadata);
     let encoded_bytes = u64::try_from(encode_upstream(&frame).ok()?.len()).ok()?;
     let CoordWorkerUpstream::TerminalMetadata(metadata) = frame else {

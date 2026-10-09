@@ -28,6 +28,7 @@ pub mod pending_close;
 pub mod prefs;
 pub mod root;
 pub mod selectors;
+pub mod sent_images;
 pub mod shell_dialogs;
 pub mod shell_intent;
 pub mod sidebar;
@@ -37,6 +38,7 @@ pub mod sync_smoke;
 pub mod terminal_bells;
 pub mod terminal_nav_pad;
 mod terminal_replicas;
+pub mod terminal_signals;
 pub mod terminal_transport;
 pub mod toasts;
 pub mod transfers;
@@ -231,6 +233,10 @@ pub struct Store {
     pub command_finished_requests: command_finished_requests::CommandFinishedRequests,
     /// Terminal bells not yet presented, and sessions that rang off screen.
     pub terminal_bells: terminal_bells::TerminalBells,
+    /// Program progress, user variables and pending desktop notifications.
+    pub terminal_signals: terminal_signals::TerminalSignals,
+    /// Images this tab uploaded into each session, for the preview strip.
+    pub sent_images: sent_images::SentImages,
     /// The coordinator's bounded clipboard history and snapshot readiness.
     pub clipboard_history: clipboard_history::ClipboardHistory,
     /// Pending terminal clipboard writes, drained by the host.
@@ -337,6 +343,8 @@ impl Store {
             command_finished_requests: command_finished_requests::CommandFinishedRequests::default(
             ),
             terminal_bells: terminal_bells::TerminalBells::default(),
+            terminal_signals: terminal_signals::TerminalSignals::default(),
+            sent_images: sent_images::SentImages::default(),
             transport_probes: BTreeMap::new(),
             pending_transport_probes: BTreeMap::new(),
             announced_pairings: VecDeque::new(),

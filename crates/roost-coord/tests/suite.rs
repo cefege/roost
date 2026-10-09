@@ -336,6 +336,8 @@ mod terminal_screen_search_result;
 mod terminal_screen_title;
 #[path = "terminal_seam_wiring.rs"]
 mod terminal_seam_wiring;
+#[path = "terminal_signal_hub.rs"]
+mod terminal_signal_hub;
 #[path = "terminal_view_geometry.rs"]
 mod terminal_view_geometry;
 #[path = "terminal_view_membership.rs"]

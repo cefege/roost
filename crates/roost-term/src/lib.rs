@@ -36,6 +36,7 @@ pub mod error;
 pub mod frame;
 pub mod rio;
 pub mod row_spans;
+pub mod signals;
 pub mod unhandled;
 
 pub use core::{CellData, CoreImagePlacement, CursorState, TerminalCore};
@@ -44,6 +45,7 @@ pub use error::{TerminalCoreError, TerminalCoreResult};
 pub use frame::{grid_delta_frame, grid_to_cell_frame, read_scrollback_range, scrollback_origin};
 pub use rio::{NOMINAL_CELL_HEIGHT_PX, NOMINAL_CELL_WIDTH_PX, RioCore};
 pub use row_spans::{link_uri_within_cap, row_to_spans};
+pub use signals::{TerminalNotification, TerminalProgress, TerminalUserVar};
 pub use unhandled::{UNHANDLED_RING_CAPACITY, UnhandledSequence, UnhandledSequenceRing};
 
 /// The palette index meaning "the terminal's own default colour".

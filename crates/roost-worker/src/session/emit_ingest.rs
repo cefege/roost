@@ -13,6 +13,7 @@ use tracing::warn;
 use super::cwd_events::CwdEventLane;
 use super::emit::{CellEmitter, IngestOutcome};
 use super::scrollback::{advance_captured_query_carry, answer_terminal_queries, append_pty_chunk};
+use super::terminal_metadata::LiveSignals;
 use super::types::SessionRecord;
 
 impl CellEmitter {
@@ -51,6 +52,14 @@ impl CellEmitter {
                 .last(),
             bell_count: record.terminal_core.take_bell_events(),
             commands: record.terminal_core.take_command_events(),
+            signals: LiveSignals {
+                progress: record.terminal_core.take_progress(),
+                notifications: record.terminal_core.take_desktop_notifications(),
+                user_vars: record
+                    .terminal_core
+                    .take_user_vars_changed()
+                    .then(|| record.terminal_core.user_vars()),
+            },
         };
         self.observe_sync_output(channel_id, chunk);
         let input_echo = self.input_echo_armed(channel_id, now_ms);
@@ -151,16 +160,19 @@ impl CellEmitter {
         events: LiveTerminalEvents,
         now_ms: i64,
     ) {
-        let flush_owed =
-            self.metadata.observe_live(
-                channel_id,
-                chunk,
-                events.clipboard,
-                events.bell_count,
-                now_ms,
-            ) | self
-                .metadata
-                .observe_command_events(channel_id, events.commands, now_ms);
+        let flush_owed = self.metadata.observe_live(
+            channel_id,
+            chunk,
+            events.clipboard,
+            events.bell_count,
+            now_ms,
+        ) | self.metadata.observe_command_events(
+            channel_id,
+            events.commands,
+            now_ms,
+        ) | self
+            .metadata
+            .observe_signals(channel_id, events.signals, now_ms);
         let raw_owed = !self.metadata.negotiated() && self.raw.stage(channel_id, end_seq, chunk);
         if flush_owed || raw_owed {
             self.wake_cadence();
@@ -206,4 +218,6 @@ struct LiveTerminalEvents {
     bell_count: u32,
     /// OSC 133 command lifecycle markers, oldest first.
     commands: Vec<roost_term::core::CommandEvent>,
+    /// Progress, notifications and user variables.
+    signals: LiveSignals,
 }

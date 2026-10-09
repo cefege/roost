@@ -20,6 +20,7 @@ pub(crate) mod images;
 pub(crate) mod listener;
 mod prompt_marks;
 mod prompt_marks_apply;
+mod signal_queue;
 
 use std::collections::VecDeque;
 
@@ -63,6 +64,8 @@ pub struct RioCore {
     /// Live shell command lifecycle events not yet taken by the worker.
     command_events: VecDeque<CommandEvent>,
     images: images::ImageStore,
+    /// The shell's OSC 1337 user variables as last observed.
+    user_vars: signal_queue::UserVarsWatch,
 }
 
 impl RioCore {
@@ -98,6 +101,7 @@ impl RioCore {
             command_events: VecDeque::new(),
             dirty: Vec::new(),
             images: images::ImageStore::default(),
+            user_vars: signal_queue::UserVarsWatch::default(),
         }
     }
 }
@@ -124,6 +128,7 @@ impl TerminalCore for RioCore {
         self.queues.replies.discard();
         self.queues.clipboard.discard();
         self.queues.bells.discard();
+        self.queues.signals.discard();
         self.command_events.clear();
     }
 
@@ -145,6 +150,22 @@ impl TerminalCore for RioCore {
 
     fn take_bell_events(&mut self) -> u32 {
         self.queues.bells.take()
+    }
+
+    fn take_progress(&mut self) -> Option<crate::signals::TerminalProgress> {
+        self.queues.signals.take_progress()
+    }
+
+    fn take_desktop_notifications(&mut self) -> Vec<crate::signals::TerminalNotification> {
+        self.queues.signals.take_notifications()
+    }
+
+    fn user_vars(&self) -> Vec<crate::signals::TerminalUserVar> {
+        self.user_vars.current()
+    }
+
+    fn take_user_vars_changed(&mut self) -> bool {
+        self.user_vars.take_changed()
     }
 
     fn unhandled_sequences(&self) -> &UnhandledSequenceRing {
@@ -292,6 +313,7 @@ impl RioCore {
         for graphics in self.queues.graphics.take() {
             self.images.ingest(graphics, &self.term);
         }
+        self.user_vars.observe(&self.term.user_vars);
         self.snapshot_damage();
     }
 

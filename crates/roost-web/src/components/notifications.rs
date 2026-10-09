@@ -16,6 +16,7 @@ pub mod pad_hint_bar;
 pub mod store_write;
 pub mod terminal_bell;
 pub mod terminal_clipboard;
+pub mod terminal_notification;
 pub mod toast_card;
 pub mod toast_stack;
 pub mod transfer_outcome;
@@ -71,6 +72,7 @@ pub fn NotificationDock() -> Element {
         terminal_clipboard::TerminalClipboard {}
         command_finished::CommandFinished {}
         terminal_bell::TerminalBellPresenter {}
+        terminal_notification::TerminalNotification {}
         desktop_push_bridge::DesktopPushBridge {}
     }
 }

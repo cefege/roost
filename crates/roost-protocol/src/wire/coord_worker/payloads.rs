@@ -15,6 +15,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::terminal_signals::{TerminalNotification, TerminalProgress, TerminalUserVar};
+
 use crate::wire::agent_status::AgentStatus;
 use crate::wire::brand::{ChannelId, SessionId};
 use crate::wire::coord_worker::{DIR_FROM_PTY, DIR_TO_PTY};
@@ -124,6 +126,48 @@ pub struct TerminalMetadata {
     pub command_duration_ms: u64,
     /// At least one BEL was parsed from live PTY output in this record.
     pub bell: bool,
+    /// The program's latest OSC 9;4 progress report. Retained state like the
+    /// title: `Some` when it changed (or is re-asserted), `Clear` removes it.
+    pub progress: Option<TerminalProgress>,
+    /// OSC 9 / OSC 777 notifications parsed from live output; events.
+    pub notifications: Vec<TerminalNotification>,
+    /// The shell's OSC 1337 user variables changed (or are re-asserted);
+    /// `user_vars` is then the whole current set.
+    pub user_vars_changed: bool,
+    pub user_vars: Vec<TerminalUserVar>,
+}
+
+/// Notifications one coalesced record carries; older ones are dropped.
+pub const TERMINAL_METADATA_NOTIFICATIONS_MAX: usize = 4;
+
+impl TerminalMetadata {
+    /// The signal fields of `update` folded over the record still pending
+    /// for its channel. Both coalescing points (the worker's link lane and
+    /// the coordinator's announced retention) use this one rule: retained
+    /// facts take the newest value that changed them, notifications append.
+    pub fn merge_signals(&mut self, held: Option<&TerminalMetadata>, update: &TerminalMetadata) {
+        self.progress = update
+            .progress
+            .or_else(|| held.and_then(|held| held.progress));
+        let mut notifications: Vec<TerminalNotification> =
+            held.map_or_else(Vec::new, |held| held.notifications.clone());
+        notifications.extend(update.notifications.iter().cloned());
+        let excess = notifications
+            .len()
+            .saturating_sub(TERMINAL_METADATA_NOTIFICATIONS_MAX);
+        notifications.drain(..excess);
+        self.notifications = notifications;
+        if update.user_vars_changed {
+            self.user_vars_changed = true;
+            self.user_vars = update.user_vars.clone();
+        } else if let Some(held) = held.filter(|held| held.user_vars_changed) {
+            self.user_vars_changed = true;
+            self.user_vars = held.user_vars.clone();
+        } else {
+            self.user_vars_changed = false;
+            self.user_vars = Vec::new();
+        }
+    }
 }
 
 /// Journal-backed progress of one update job on the worker host. Replayed

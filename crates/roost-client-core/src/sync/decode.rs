@@ -211,6 +211,7 @@ fn map_arm(frame: Frame, domain_generation: u64) -> Result<SyncFrame, String> {
         Frame::ClipboardHistory(value) => clipboard_history(*value),
         Frame::TerminalCommandFinished(value) => Ok(terminal::command_finished(*value)),
         Frame::TerminalBell(value) => Ok(terminal::bell(*value)),
+        Frame::TerminalSignals(value) => terminal::signals(*value),
         Frame::TerminalTitle(value) => Ok(SyncFrame::TerminalTitle {
             session_id: value.session_id,
             title: value.title,

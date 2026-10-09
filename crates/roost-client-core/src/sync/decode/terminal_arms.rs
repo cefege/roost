@@ -212,3 +212,37 @@ pub(super) fn bell(value: roost_proto::TerminalBellFrame) -> SyncFrame {
         session_id: value.session_id,
     }
 }
+
+/// A program's changed terminal signals; an unknown progress state refuses
+/// the frame rather than showing a guess.
+pub(super) fn signals(value: roost_proto::TerminalSignalsFrame) -> Result<SyncFrame, String> {
+    use roost_protocol::terminal_signals::{
+        TerminalNotification, TerminalProgress, TerminalUserVar,
+    };
+    let progress = if value.progress_present {
+        Some(
+            TerminalProgress::from_wire(value.progress_state, value.progress_percent)
+                .ok_or_else(|| format!("unknown progress state {}", value.progress_state))?,
+        )
+    } else {
+        None
+    };
+    Ok(SyncFrame::TerminalSignals {
+        session_id: value.session_id,
+        progress,
+        user_vars: value.user_vars_present.then(|| {
+            value
+                .user_vars
+                .into_iter()
+                .map(|var| TerminalUserVar {
+                    key: var.key,
+                    value: var.value,
+                })
+                .collect()
+        }),
+        notification: value.notification_present.then_some(TerminalNotification {
+            title: value.notification_title,
+            body: value.notification_body,
+        }),
+    })
+}

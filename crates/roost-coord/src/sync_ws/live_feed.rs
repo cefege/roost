@@ -30,6 +30,7 @@ use crate::sync_ws::feed::frames::{
 };
 use crate::sync_ws::feed::last_activity::last_activity_frame;
 use crate::sync_ws::feed::presence::{presence_echo_is_own_notice, session_presence_frame};
+use crate::sync_ws::feed::signal_frames::session_terminal_signals_frame;
 use crate::sync_ws::feed::ui::{UiViewer, ui_bus_frame};
 use crate::sync_ws::feed::worker_frames::{worker_presence_frame, worker_routable_frame};
 use crate::sync_ws::session_replay::LiveVerdict;
@@ -141,6 +142,15 @@ impl LiveFeed {
                 observes(state, &bell.session_id).then(|| session_bell_frame(bell))
             });
         })));
+        let sink = Arc::clone(link);
+        subscriptions.push(Box::new(buses.terminal_signal_bus.subscribe(
+            move |signals| {
+                sink.deliver_with(|state| {
+                    observes(state, &signals.session_id)
+                        .then(|| session_terminal_signals_frame(signals))
+                });
+            },
+        )));
         let sink = Arc::clone(link);
         subscriptions.push(Box::new(buses.last_activity_bus.subscribe(move |update| {
             sink.deliver_with(|state| {

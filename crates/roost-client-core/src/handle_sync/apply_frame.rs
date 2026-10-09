@@ -109,6 +109,11 @@ pub(super) fn apply_frame(
             if *domain == SyncDomain::Terminal && *subscribed {
                 store.hydrated = false;
             }
+            // The terminal seed re-sends every retained progress report and
+            // variable set; one cleared while this socket was away must go.
+            if *domain == SyncDomain::Terminal {
+                store.terminal_signals.reset_retained();
+            }
             store.note_change();
             tracing::info!(
                 target: "sync",
@@ -279,6 +284,21 @@ pub(super) fn apply_frame(
         ),
         SyncFrame::TerminalBell { session_id } => {
             store.terminal_bells.ring(session_id);
+            store.note_change();
+        }
+        SyncFrame::TerminalSignals {
+            session_id,
+            progress,
+            user_vars,
+            notification,
+        } => {
+            store.terminal_signals.apply(
+                session_id,
+                *progress,
+                user_vars.as_deref(),
+                notification.as_ref(),
+                delivery_seq,
+            );
             store.note_change();
         }
         SyncFrame::WorkerPresence { event } => {

@@ -144,15 +144,13 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
             Arc::clone(&services.views) as Arc<dyn ActiveTerminalViewers>,
             Arc::clone(&web_push),
         )));
-    // A long shell command finishing reaches a phone the same way. Held for
-    // the life of `serve`: dropping the subscription stops these pushes.
-    let _command_finished_push = Arc::new(crate::push::command_finished::CommandFinishedPush::new(
-        services.db.pool().clone(),
-        push.allowed_origins().to_vec(),
-        Arc::clone(&services.views) as Arc<dyn ActiveTerminalViewers>,
+    // Long shell commands and programs' own notifications reach a phone the
+    // same way. Held for the life of `serve`: dropping them stops the pushes.
+    let _session_pushes = crate::push::session_push::subscribe_session_pushes(
+        &services,
+        push.allowed_origins(),
         web_push,
-    ))
-    .subscribe(&services.buses);
+    );
 
     let terminal = terminal_seams(&services);
     let core = CoordCore::with_terminal_and_push(Arc::clone(&services), terminal, push);
@@ -225,6 +223,10 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
     let _title_release = state
         .services
         .titles
+        .subscribe_session_close(&state.services.buses);
+    let _terminal_signals_release = state
+        .services
+        .terminal_signals
         .subscribe_session_close(&state.services.buses);
 
     // Boot step 9, the pair-request half: a sweep that reclaims a request whose

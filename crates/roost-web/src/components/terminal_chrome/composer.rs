@@ -290,6 +290,7 @@ pub fn TerminalComposer(
                     slot.attach(event.data());
                 }
             },
+            super::sent_image_strip::SentImageStrip { session_id: owner_id.clone() }
             StagedAttachments {
                 staged_files,
                 on_send_uploads,

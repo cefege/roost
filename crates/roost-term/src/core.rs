@@ -145,6 +145,22 @@ pub trait TerminalCore {
     fn take_bell_events(&mut self) -> u32;
     /// Take command lifecycle markers parsed from the live PTY stream, oldest first.
     fn take_command_events(&mut self) -> Vec<CommandEvent>;
+    /// The latest live progress report since the last take, if it changed.
+    fn take_progress(&mut self) -> Option<crate::signals::TerminalProgress> {
+        None
+    }
+    /// Live desktop notifications since the last take, oldest first.
+    fn take_desktop_notifications(&mut self) -> Vec<crate::signals::TerminalNotification> {
+        Vec::new()
+    }
+    /// The shell's published user variables, bounded and sorted.
+    fn user_vars(&self) -> Vec<crate::signals::TerminalUserVar> {
+        Vec::new()
+    }
+    /// Whether the user variables changed since the last take.
+    fn take_user_vars_changed(&mut self) -> bool {
+        false
+    }
 
     /// The CSI sequences this core's dispatcher dropped, as a never-cleared
     /// ring. A partial detector by construction: it sees unrecognised CSI, not

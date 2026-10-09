@@ -32,6 +32,7 @@
 pub mod frames;
 pub mod last_activity;
 pub mod presence;
+pub mod signal_frames;
 pub mod sync_state;
 pub mod ui;
 pub mod worker_frames;
@@ -237,6 +238,10 @@ pub const BUS_FRAME_ADAPTERS: &[(&str, &str)] = &[
     ),
     ("ui_bus", "sync_ws::feed::ui::ui_bus_frame"),
     ("bell_bus", "sync_ws::feed::frames::session_bell_frame"),
+    (
+        "terminal_signal_bus",
+        "sync_ws::feed::signal_frames::session_terminal_signals_frame",
+    ),
 ];
 
 /// A stored millisecond stamp as the `uint64` the wire carries.

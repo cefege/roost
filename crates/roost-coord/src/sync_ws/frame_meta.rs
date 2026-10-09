@@ -145,6 +145,7 @@ pub fn frame_meta_for(frame: &Frame) -> SyncFrameMeta {
         Frame::TerminalClipboard(clipboard) => session_keyed_meta(Some(&clipboard.session_id)),
         Frame::TerminalCommandFinished(finished) => session_keyed_meta(Some(&finished.session_id)),
         Frame::TerminalBell(bell) => session_keyed_meta(Some(&bell.session_id)),
+        Frame::TerminalSignals(signals) => session_keyed_meta(Some(&signals.session_id)),
         Frame::LastActivity(activity) => session_keyed_meta(Some(&activity.session_id)),
         Frame::AgentStatus(status) => session_keyed_meta(Some(&status.session_id)),
         Frame::WorkerPresence(_) | Frame::WorkerRoutable(_) => domain_meta(SyncDomain::Workers),

@@ -168,6 +168,10 @@ pub fn metadata(
         command_exit_code: None,
         command_duration_ms: 0,
         bell: false,
+        progress: None,
+        notifications: Vec::new(),
+        user_vars_changed: false,
+        user_vars: Vec::new(),
     })
 }
 

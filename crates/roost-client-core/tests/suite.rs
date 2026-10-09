@@ -186,6 +186,8 @@ mod sync_reconnect_placement;
 mod sync_redial_pacing;
 #[path = "sync_rehydration_prunes_nothing.rs"]
 mod sync_rehydration_prunes_nothing;
+#[path = "sync_terminal_signals.rs"]
+mod sync_terminal_signals;
 #[path = "tab_identity.rs"]
 mod tab_identity;
 #[path = "terminal_chunk_conformance.rs"]

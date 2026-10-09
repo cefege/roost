@@ -47,4 +47,5 @@ pub mod term_font_stepper;
 pub mod terminal;
 pub mod terminal_bell_mark;
 pub mod terminal_chrome;
+pub mod terminal_signal_marks;
 pub mod tv_home_board;

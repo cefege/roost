@@ -146,6 +146,9 @@ pub struct CoordServices {
     /// Every session's retained terminal title, deduplicated across spinner
     /// animation; the Sync seed replays it to a fresh subscriber.
     pub titles: Arc<crate::terminal_screen::title_hub::TerminalTitleHub>,
+    /// Every session's retained progress report and user variables; the Sync
+    /// seed replays them to a fresh subscriber.
+    pub terminal_signals: Arc<crate::terminal_screen::signal_hub::TerminalSignalHub>,
     /// Terminal input: the sender lanes, the input audit queue, and the typed
     /// input-route owner the worker link settles and the lifecycle fences.
     pub terminal_input: crate::terminal_input::TerminalInputRuntime,
@@ -309,6 +312,7 @@ impl CoordServices {
             event_log,
             views,
             titles: Arc::new(crate::terminal_screen::title_hub::TerminalTitleHub::new()),
+            terminal_signals: Arc::new(crate::terminal_screen::signal_hub::TerminalSignalHub::new()),
             terminal_input,
             terminal_direct,
         }

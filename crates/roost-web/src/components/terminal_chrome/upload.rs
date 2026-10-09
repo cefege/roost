@@ -167,6 +167,7 @@ async fn run_one(job: QueuedUpload) {
     {
         write_store(&pump, |store| upload_card::mark_deduplicated(store, &id));
         insert_path(&job, &path);
+        remember_image(&job, &path).await;
         return;
     }
 
@@ -177,6 +178,7 @@ async fn run_one(job: QueuedUpload) {
     });
     if let Some(path) = committed {
         insert_path(&job, &path);
+        remember_image(&job, &path).await;
     }
     tracing::info!(
         target: "attachments",
@@ -310,6 +312,19 @@ async fn relay(job: &QueuedUpload, plan: &UploadPlan) -> UploadOutcome {
 /// Type a committed path into the session's PTY, when the WORKER's shell rules
 /// say it may be typed. The rules are the worker's because the path is typed
 /// into the worker's shell, not the reader's.
+/// Keep a committed image beside the terminal it was sent to.
+async fn remember_image(job: &QueuedUpload, path: &str) {
+    super::sent_image_strip::record_sent_image(
+        &job.pump,
+        &job.session_id,
+        &job.upload_id,
+        &job.file.file,
+        &job.file.name,
+        path,
+    )
+    .await;
+}
+
 fn insert_path(job: &QueuedUpload, abs_path: &str) {
     let worker_os = {
         let core = job.pump.core();

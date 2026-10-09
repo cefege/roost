@@ -33,6 +33,7 @@ pub mod terminal_capture;
 pub mod terminal_input;
 pub mod terminal_peer;
 pub mod terminal_search;
+pub mod terminal_signals;
 pub mod terminal_view;
 pub mod ui_state;
 pub mod viewport;
