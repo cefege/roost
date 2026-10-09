@@ -228,6 +228,10 @@ fn a_skipped_success_still_persists_its_failure() {
         "MiscHealth",
         "WorkersHeartbeat",
         "PairApprovalStatus",
+        "AgentChatList",
+        "AgentChatSnapshot",
+        "AgentModelsList",
+        "AgentAuthLoginPoll",
     ] {
         assert!(method_audit_skips_success(method), "{method}");
         assert!(!should_persist_method_audit(method, 200, false));

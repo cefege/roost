@@ -82,9 +82,11 @@ const COMMAND_FINISHED: FirehoseArm =
 const CLIPBOARD_HISTORY: FirehoseArm = application(53, "clipboard_history", SyncDomain::Pair);
 const TERMINAL_BELL: FirehoseArm = application(54, "terminal_bell", SyncDomain::Terminal);
 const TERMINAL_SIGNALS: FirehoseArm = application(55, "terminal_signals", SyncDomain::Terminal);
+const AGENT_CONVERSATION: FirehoseArm = control(56, "agent_conversation");
+const AGENT_CHAT_EVENTS: FirehoseArm = control(57, "agent_chat_events");
 /// Every arm, in field order. All of them are mapped: `decode::map_arm` has no
 /// wildcard, so an arm with no row here cannot have a mapping either.
-pub const FIREHOSE_ARMS: [FirehoseArm; 32] = [
+pub const FIREHOSE_ARMS: [FirehoseArm; 34] = [
     SESSIONS,
     SESSION_PRESENCE,
     AUDIT_ROW,
@@ -117,6 +119,8 @@ pub const FIREHOSE_ARMS: [FirehoseArm; 32] = [
     COMMAND_FINISHED,
     TERMINAL_BELL,
     TERMINAL_SIGNALS,
+    AGENT_CONVERSATION,
+    AGENT_CHAT_EVENTS,
 ];
 
 /// The table row for a decoded arm.
@@ -154,5 +158,7 @@ pub const fn arm_of(frame: &Frame) -> FirehoseArm {
         Frame::TerminalCommandFinished(_) => COMMAND_FINISHED,
         Frame::TerminalBell(_) => TERMINAL_BELL,
         Frame::TerminalSignals(_) => TERMINAL_SIGNALS,
+        Frame::AgentConversation(_) => AGENT_CONVERSATION,
+        Frame::AgentChatEvents(_) => AGENT_CHAT_EVENTS,
     }
 }

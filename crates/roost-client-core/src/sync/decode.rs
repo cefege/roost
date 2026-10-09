@@ -150,6 +150,11 @@ fn check_meta(
     domain_generation: u64,
 ) -> Result<(), DecodeRefusal> {
     match arm.lane {
+        // Agent frames are emitted before this client slice can project them;
+        // accept their global sequence so the stream can advance.
+        ArmLane::Control if arm.name == "agent_conversation" || arm.name == "agent_chat_events" => {
+            Ok(())
+        }
         ArmLane::Control if delivery_seq != 0 || domain != 0 || domain_generation != 0 => {
             Err(DecodeRefusal::SequencedControl {
                 arm: arm.name,
@@ -225,6 +230,7 @@ fn map_arm(frame: Frame, domain_generation: u64) -> Result<SyncFrame, String> {
         Frame::WorkerPresence(value) => registry::worker_presence(*value),
         Frame::WorkerRoutable(value) => registry::worker_routable(*value),
         Frame::PairRequestDelta(value) => registry::pair_request_delta(*value),
+        Frame::AgentConversation(_) | Frame::AgentChatEvents(_) => Ok(SyncFrame::Keepalive),
     }
 }
 

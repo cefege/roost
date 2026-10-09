@@ -148,6 +148,7 @@ pub fn frame_meta_for(frame: &Frame) -> SyncFrameMeta {
         Frame::TerminalSignals(signals) => session_keyed_meta(Some(&signals.session_id)),
         Frame::LastActivity(activity) => session_keyed_meta(Some(&activity.session_id)),
         Frame::AgentStatus(status) => session_keyed_meta(Some(&status.session_id)),
+        Frame::AgentConversation(_) | Frame::AgentChatEvents(_) => domain_meta(SyncDomain::Agent),
         Frame::WorkerPresence(_) | Frame::WorkerRoutable(_) => domain_meta(SyncDomain::Workers),
         Frame::WorkspaceDelta(_) => domain_meta(SyncDomain::Workspaces),
         Frame::TaskDelta(_) => domain_meta(SyncDomain::Tasks),

@@ -26,7 +26,7 @@ const LARGE_PAYLOAD: usize = 1_200_000;
 
 // v2 sync-ws-keepalive-upgrade.test.ts: an admitted upgrade answers 101 and
 // echoes `roost-auth`, never the credential; the v2 socket opens with the
-// `subscribed` barrier naming this process's epoch and all seven domains.
+// `subscribed` barrier naming this process's epoch and all eight domains.
 #[tokio::test]
 async fn an_admitted_sync_upgrade_switches_protocols_and_echoes_only_the_marker() {
     let fixture = SyncFixture::start("upgrade").await;
@@ -45,7 +45,7 @@ async fn an_admitted_sync_upgrade_switches_protocols_and_echoes_only_the_marker(
         subscribed.process_epoch,
         fixture.services.feed.process_epoch()
     );
-    assert_eq!(subscribed.generations.len(), 7);
+    assert_eq!(subscribed.generations.len(), 8);
     let audit = subscribed
         .generations
         .iter()

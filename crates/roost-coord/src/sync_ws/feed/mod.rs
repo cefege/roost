@@ -29,6 +29,7 @@
 //! announces, and every open socket a key revocation must reach
 //! (`sync_ws::open_sockets`).
 
+pub mod agent_frames;
 pub mod frames;
 pub mod last_activity;
 pub mod presence;
@@ -204,6 +205,14 @@ pub const BUS_FRAME_ADAPTERS: &[(&str, &str)] = &[
     (
         "agent_status_bus",
         "sync_ws::feed::frames::agent_status_frame",
+    ),
+    (
+        "agent_conversation_bus",
+        "sync_ws::feed::frames::agent_conversation_frame",
+    ),
+    (
+        "agent_chat_bus",
+        "sync_ws::feed::frames::agent_chat_events_frame",
     ),
     ("pair_bus", "sync_ws::feed::frames::pair_frame"),
     ("audit_bus", "sync_ws::feed::frames::audit_frame"),

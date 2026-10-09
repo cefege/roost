@@ -24,9 +24,10 @@ use crate::sync_ws::backfill::reset_terminal_for_recovery;
 use crate::sync_ws::driver::{LinkState, SyncLink};
 use crate::sync_ws::feed::FeedFrame;
 use crate::sync_ws::feed::frames::{
-    agent_status_frame, audit_frame, clipboard_history_frame, mcp_frame, pair_frame,
-    session_bell_frame, session_clipboard_frame, session_command_finished_frame,
-    session_message_frame, session_title_frame, task_frame, workspace_frame,
+    agent_chat_events_frame, agent_conversation_frame, agent_status_frame, audit_frame,
+    clipboard_history_frame, mcp_frame, pair_frame, session_bell_frame, session_clipboard_frame,
+    session_command_finished_frame, session_message_frame, session_title_frame, task_frame,
+    workspace_frame,
 };
 use crate::sync_ws::feed::last_activity::last_activity_frame;
 use crate::sync_ws::feed::presence::{presence_echo_is_own_notice, session_presence_frame};
@@ -93,6 +94,26 @@ impl LiveFeed {
         let sink = Arc::clone(link);
         subscriptions.push(Box::new(buses.pair_bus.subscribe(move |delta| {
             sink.deliver_with(|state| state.index.is_install_wide().then(|| pair_frame(delta)));
+        })));
+        let sink = Arc::clone(link);
+        subscriptions.push(Box::new(buses.agent_conversation_bus.subscribe(
+            move |update| {
+                sink.deliver_with(|state| {
+                    state
+                        .index
+                        .is_install_wide()
+                        .then(|| agent_conversation_frame(update))
+                });
+            },
+        )));
+        let sink = Arc::clone(link);
+        subscriptions.push(Box::new(buses.agent_chat_bus.subscribe(move |update| {
+            sink.deliver_with(|state| {
+                state
+                    .index
+                    .is_install_wide()
+                    .then(|| agent_chat_events_frame(update))
+            });
         })));
         let sink = Arc::clone(link);
         subscriptions.push(Box::new(buses.global_presence_bus.subscribe(

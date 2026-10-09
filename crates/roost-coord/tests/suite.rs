@@ -4,6 +4,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::duplicate_mod)]
 
+#[path = "agent_chat_rpc.rs"]
+mod agent_chat_rpc;
 #[path = "agent_config_rpc.rs"]
 mod agent_config_rpc;
 #[path = "agent_prompt_handlers.rs"]

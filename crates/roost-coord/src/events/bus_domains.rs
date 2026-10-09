@@ -1,4 +1,4 @@
-//! The one table of buses: eighteen domains, eighteen bounds, one owner.
+//! The one table of buses: twenty domains, twenty bounds, one owner.
 //!
 //! Ported from the singleton block of `apps/coord/src/events/buses.ts:114-180`.
 //! v2 exports thirteen module-level `const` buses and every publisher,
@@ -29,9 +29,10 @@ use roost_protocol::wire::{
 
 use crate::events::bus::BoundedBus;
 use crate::events::bus_messages::{
-    AuditRow, ClipboardHistoryChange, LastActivityUpdate, PairRequestDelta, SessionBell,
-    SessionBusMessage, SessionClipboardWrite, SessionCommandFinished, SessionPresenceUpdate,
-    SessionTerminalSignals, SessionTitleUpdate, TaskBusMsg, UiBusMsg, WorkerRoutableSet,
+    AgentChatEventsUpdate, AgentConversationUpdate, AuditRow, ClipboardHistoryChange,
+    LastActivityUpdate, PairRequestDelta, SessionBell, SessionBusMessage, SessionClipboardWrite,
+    SessionCommandFinished, SessionPresenceUpdate, SessionTerminalSignals, SessionTitleUpdate,
+    TaskBusMsg, UiBusMsg, WorkerRoutableSet,
 };
 
 /// Every in-process broadcast bus the coordinator owns.
@@ -87,10 +88,14 @@ pub struct Buses {
     /// this bus must hold no payload at all. Pinned by
     /// `apps/coord/tests/ui-state/ui-state-owner.test.ts:117-124`.
     pub ui_bus: BoundedBus<UiBusMsg>,
+    /// Current agent conversations, summaries and host connectivity. 256.
+    pub agent_conversation_bus: BoundedBus<AgentConversationUpdate>,
+    /// Ordered transcript event batches. 256.
+    pub agent_chat_bus: BoundedBus<AgentChatEventsUpdate>,
 }
 
 impl Buses {
-    /// The eighteen buses, each at its v2 bound.
+    /// The twenty buses, each at its established bound.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -112,10 +117,12 @@ impl Buses {
             clipboard_history_bus: BoundedBus::new(256),
             last_activity_bus: BoundedBus::new(256),
             ui_bus: BoundedBus::new(0),
+            agent_conversation_bus: BoundedBus::new(256),
+            agent_chat_bus: BoundedBus::new(256),
         }
     }
 
-    /// The eighteen buses behind one shared handle.
+    /// The twenty buses behind one shared handle.
     #[must_use]
     pub fn shared() -> Arc<Self> {
         Arc::new(Self::new())
