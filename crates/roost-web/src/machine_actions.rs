@@ -64,14 +64,11 @@ pub fn machine_actions(os: WorkerOs, menu: MachineMenuKind) -> &'static [Machine
         (WorkerOs::Darwin, MachineMenuKind::Session) => {
             &[MachineAction::OpenInFinder, MachineAction::ScreenSharing]
         }
-        // VNC on Windows needs a server the operator installed (TightVNC,
-        // UltraVNC, RealVNC); Remote Desktop is the built-in one.
-        (WorkerOs::Win32, MachineMenuKind::Folder) => {
-            &[MachineAction::ScreenSharing, MachineAction::RemoteDesktop]
-        }
+        // Only the hand-offs the OS ships a server for: Remote Desktop is
+        // built into Windows, VNC is not.
+        (WorkerOs::Win32, MachineMenuKind::Folder) => &[MachineAction::RemoteDesktop],
         (WorkerOs::Win32, MachineMenuKind::Session) => &[
             MachineAction::CopyNetworkSharePath,
-            MachineAction::ScreenSharing,
             MachineAction::RemoteDesktop,
         ],
         (WorkerOs::Linux, _) => &[],

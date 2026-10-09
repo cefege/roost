@@ -37,13 +37,10 @@ fn each_platform_offers_its_own_hand_offs_per_menu() {
         machine_actions(WorkerOs::Darwin, Session),
         &[OpenInFinder, ScreenSharing]
     );
-    assert_eq!(
-        machine_actions(WorkerOs::Win32, Folder),
-        &[ScreenSharing, RemoteDesktop]
-    );
+    assert_eq!(machine_actions(WorkerOs::Win32, Folder), &[RemoteDesktop]);
     assert_eq!(
         machine_actions(WorkerOs::Win32, Session),
-        &[CopyNetworkSharePath, ScreenSharing, RemoteDesktop]
+        &[CopyNetworkSharePath, RemoteDesktop]
     );
     assert!(machine_actions(WorkerOs::Linux, Folder).is_empty());
     assert!(machine_actions(WorkerOs::Linux, Session).is_empty());
