@@ -306,6 +306,10 @@ mod terminal_screen_hub_hold;
 mod terminal_screen_hub_lifecycle;
 #[path = "terminal_screen_hub_snapshot.rs"]
 mod terminal_screen_hub_snapshot;
+#[path = "terminal_screen_image_rpc.rs"]
+mod terminal_screen_image_rpc;
+#[path = "terminal_screen_images.rs"]
+mod terminal_screen_images;
 #[path = "terminal_screen_pipeline_cache.rs"]
 mod terminal_screen_pipeline_cache;
 #[path = "terminal_screen_pipeline_snapshot.rs"]

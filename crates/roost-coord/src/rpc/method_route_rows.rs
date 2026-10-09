@@ -85,6 +85,7 @@ pub const ROWS_SESSIONS: &[MethodRoute] = &[
     route("SessionsCursorPos", "sessions", AuthRequirement::Device, PortStatus::Implemented),
     route("SessionsAssignWorkspace", "sessions", AuthRequirement::Device, PortStatus::Implemented),
     route("SessionsGetScrollbackCells", "sessions", AuthRequirement::Device, PortStatus::Implemented),
+    route("SessionsGetTerminalImage", "sessions", AuthRequirement::Device, PortStatus::Implemented),
     route("SessionsSearchScrollback", "sessions", AuthRequirement::Device, PortStatus::Implemented),
     route("SessionsCancelScrollbackSearch", "sessions", AuthRequirement::Device, PortStatus::Implemented),
     route("SessionsGrantLocalTerminal", "sessions", AuthRequirement::Device, PortStatus::Implemented),

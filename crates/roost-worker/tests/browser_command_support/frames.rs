@@ -68,6 +68,10 @@ pub fn every_kind() -> Vec<(&'static str, Value)> {
             ],
         ),
         frame(
+            "get-terminal-image",
+            &[("request_id", json!("r19")), ("image_key", json!(99))],
+        ),
+        frame(
             "search-scrollback",
             &[
                 ("request_id", json!("r10")),
@@ -136,7 +140,7 @@ pub fn every_kind() -> Vec<(&'static str, Value)> {
 /// The batch and file frames do not, and they are STRICT: a session id added
 /// to one is a key the frame does not define, which is the refusal a caller
 /// gets from a build it does not match.
-const SESSION_SCOPED: [&str; 14] = [
+const SESSION_SCOPED: [&str; 15] = [
     "attach",
     "cursor-pos",
     "kill",
@@ -144,6 +148,7 @@ const SESSION_SCOPED: [&str; 14] = [
     "git-diff",
     "set-title",
     "get-scrollback-cells",
+    "get-terminal-image",
     "search-scrollback",
     "cancel-scrollback-search",
     "list-attachments",

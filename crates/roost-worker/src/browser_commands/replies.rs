@@ -117,6 +117,7 @@ pub fn trace_id(frame: &ClientControlFrame) -> Option<TraceId> {
         | ClientControlFrame::CursorPos { trace_id, .. }
         | ClientControlFrame::GetHome { trace_id, .. }
         | ClientControlFrame::GetScrollbackCells { trace_id, .. }
+        | ClientControlFrame::GetTerminalImage { trace_id, .. }
         | ClientControlFrame::SearchScrollback { trace_id, .. }
         | ClientControlFrame::CancelScrollbackSearch { trace_id, .. }
         | ClientControlFrame::SearchScrollbackBatch { trace_id, .. }

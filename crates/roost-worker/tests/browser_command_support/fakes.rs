@@ -21,6 +21,7 @@ use roost_worker::browser_commands::presence::PresenceReports;
 use roost_worker::browser_commands::scrollback_page::{GridDescription, RetainedGrid};
 use roost_worker::browser_commands::search::{BatchSearch, ScrollbackSearch, SingleSearch};
 use roost_worker::browser_commands::session_lifecycle::{SessionLifecycle, SessionOutcome};
+use roost_worker::browser_commands::terminal_image::TerminalImages;
 use roost_worker::diag_snapshot::{Snapshot, SnapshotBuild};
 use roost_worker::scrollback_read::EpochBinding;
 use roost_worker::session::retained_grid::CellRowJson;
@@ -273,5 +274,25 @@ impl RetainedGrid for FakeGrid {
             }]),
         };
         Box::pin(async move { Some(CellRowJson::owned(row)) })
+    }
+}
+#[derive(Debug, Default)]
+pub struct FakeTerminalImages {
+    pub requests: Mutex<Vec<(String, u64)>>,
+}
+
+impl TerminalImages for FakeTerminalImages {
+    fn png(
+        &self,
+        session_id: SessionId,
+        image_key: u64,
+    ) -> roost_worker::browser_commands::Boxed<
+        Result<Option<std::sync::Arc<[u8]>>, roost_worker::browser_commands::Refusal>,
+    > {
+        self.requests
+            .lock()
+            .expect("held")
+            .push((session_id.to_string(), image_key));
+        Box::pin(async { Ok(Some(std::sync::Arc::from([137, 80, 78, 71]))) })
     }
 }

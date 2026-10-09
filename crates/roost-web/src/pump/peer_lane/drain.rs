@@ -287,6 +287,9 @@ fn deliver(
         DirectInbound::Scrollback(answer) => {
             super::super::direct_history::answered(pump, answer);
         }
+        DirectInbound::TerminalImage(answer) => {
+            super::super::direct_images::answered(pump, answer);
+        }
         frame => {
             let token = pump
                 .inner

@@ -14,6 +14,8 @@ mod dyn_dispatch_parity;
 mod emitter_history_clear;
 #[path = "emitter_row_cap.rs"]
 mod emitter_row_cap;
+#[path = "image_placements.rs"]
+mod image_placements;
 #[path = "kitty_keyboard.rs"]
 mod kitty_keyboard;
 #[path = "prompt_marks.rs"]

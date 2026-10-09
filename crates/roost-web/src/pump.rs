@@ -25,6 +25,7 @@ mod browser;
 mod carrier_dial;
 mod carriers;
 mod direct_history;
+mod direct_images;
 mod effects;
 mod listeners;
 #[cfg(target_arch = "wasm32")]
@@ -99,6 +100,8 @@ struct PumpInner {
     /// The history reads sent on a direct carrier and not yet answered, by
     /// request id: the carrier has no RPC framing to carry the reply.
     direct_history: RefCell<direct_history::DirectHistoryReads>,
+    /// The image reads sent on a direct carrier and not yet answered.
+    direct_images: RefCell<direct_images::DirectImageReads>,
 }
 
 impl std::fmt::Debug for Pump {
@@ -150,6 +153,7 @@ impl Pump {
                 listeners: RefCell::new(Vec::new()),
                 find_intents: RefCell::new(FindIntentRegistry::new()),
                 direct_history: RefCell::new(direct_history::DirectHistoryReads::default()),
+                direct_images: RefCell::new(direct_images::DirectImageReads::default()),
                 sweeps: Listeners::new(),
                 frames: Listeners::new(),
             }),

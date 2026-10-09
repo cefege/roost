@@ -12,7 +12,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use render_support::{
-    FakeEl, delta_frame, full_frame, mount, row, sb_el, sb_rows, seed_held_history, vp_el,
+    FakeEl, delta_frame, full_frame, mount, row, sb_el, sb_rows, seed_held_history, vp_el, vp_rows,
 };
 use roost_protocol::cell::{CellGridFrame, CellRow};
 use roost_web_terminal::presentation::{
@@ -43,7 +43,12 @@ fn rows(texts: &[&str]) -> Vec<CellRow> {
 }
 
 fn child(viewport: &FakeEl, index: usize) -> FakeEl {
-    viewport.children()[index].clone()
+    viewport
+        .children()
+        .into_iter()
+        .filter(|child| child.has_class("cell-row"))
+        .nth(index)
+        .expect("viewport row exists")
 }
 
 fn cursor_of(viewport: &FakeEl) -> FakeEl {
@@ -183,9 +188,9 @@ fn a_viewport_only_full_frame_rebuild_prunes_surplus_viewport_rows() {
     let viewport = vp_el(&container);
     seed_held_history(&mut renderer, 80, rows(&["v0", "v1", "v2"]), Vec::new());
     let first = child(&viewport, 0);
-    assert_eq!(viewport.children().len(), 5);
+    assert_eq!(vp_rows(&container).len(), 3);
     seed_held_history(&mut renderer, 80, rows(&["v0"]), Vec::new());
-    assert_eq!(viewport.children().len(), 3);
+    assert_eq!(vp_rows(&container).len(), 1);
     assert_ne!(child(&viewport, 0), first);
 }
 
@@ -322,7 +327,7 @@ fn region_scroll() -> CellGridFrame {
 
 fn assert_fixed_panel_kept(container: &FakeEl, fixed: &FakeEl, status: &str) {
     let viewport = vp_el(container);
-    let texts: Vec<String> = viewport.children()[..6]
+    let texts: Vec<String> = vp_rows(container)
         .iter()
         .map(FakeEl::text_content)
         .collect();

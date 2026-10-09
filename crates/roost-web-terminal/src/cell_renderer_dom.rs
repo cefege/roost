@@ -49,8 +49,12 @@ pub struct CellRendererElements<E> {
     pub spacer: E,
     /// The immutable painted history: blocks and exact-height gaps.
     pub scrollback: E,
-    /// The live grid rows, plus the cursor and ghost overlays.
+    /// The live grid rows and the two image layers.
     pub viewport: E,
+    /// Images that are composited below terminal text.
+    pub image_below: E,
+    /// Images that are composited above terminal text.
+    pub images: E,
     /// The local cursor block.
     pub cursor: E,
     /// Remote cursor overlays, sharing the viewport as their host.
@@ -91,8 +95,12 @@ pub fn create_cell_renderer_elements<E: RenderElement>(
     let scrollback = classed_div(container, "cell-scrollback")?;
     let viewport = classed_div(container, "cell-viewport")?;
     viewport.set_style("position", "relative");
+    let image_below = classed_div(&viewport, "cell-images-below")?;
+    let images = classed_div(&viewport, "cell-images")?;
     let cursor = classed_div(container, "cell-cursor")?;
     let ghosts = classed_div(container, "cell-ghosts")?;
+    viewport.append_child(&image_below);
+    viewport.append_child(&images);
     container.append_child(&spacer);
     container.append_child(&scrollback);
     container.append_child(&viewport);
@@ -100,6 +108,8 @@ pub fn create_cell_renderer_elements<E: RenderElement>(
         spacer,
         scrollback,
         viewport,
+        image_below,
+        images,
         cursor,
         ghosts,
     })

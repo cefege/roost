@@ -13,6 +13,7 @@ mod grant_scope;
 mod grant_state;
 mod grants;
 mod hello;
+mod images;
 mod input;
 mod loopback;
 mod port;

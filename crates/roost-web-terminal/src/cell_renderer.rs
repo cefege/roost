@@ -7,6 +7,7 @@
 
 mod eviction;
 mod history_page;
+mod images;
 mod ingest;
 mod paint;
 mod probe;
@@ -16,7 +17,7 @@ mod scroll_events;
 mod scrollback;
 
 use std::cell::{Cell, RefCell};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::rc::Rc;
 
@@ -49,8 +50,12 @@ pub struct CellGridRenderer<E = web_sys::Element> {
     spacer: E,
     scrollback: E,
     viewport: E,
+    image_below: E,
+    images: E,
     cursor: E,
     ghosts: E,
+    image_urls: HashMap<u64, String>,
+    image_failed: HashSet<u64>,
     /// Shared by refcount, so a render pass that holds it across `&mut self`
     /// borrows a pointer rather than copying the grid.
     frame: Option<Rc<CellGridFrame>>,
@@ -173,8 +178,12 @@ impl<E: RenderElement> CellGridRenderer<E> {
             spacer: elements.spacer,
             scrollback: elements.scrollback,
             viewport: elements.viewport,
+            image_below: elements.image_below,
+            images: elements.images,
             cursor: elements.cursor,
             ghosts: elements.ghosts,
+            image_urls: HashMap::new(),
+            image_failed: HashSet::new(),
             frame: None,
             reader_pending_frame: None,
             reader_pending_frame_retains_history: true,

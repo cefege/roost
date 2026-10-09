@@ -263,6 +263,7 @@ pub fn method_audit_skips_success(method: &str) -> bool {
             | "SessionsCursorPos"
             | "UiReportState"
             | "SessionsGetScrollbackCells"
+            | "SessionsGetTerminalImage"
             | "SessionsSearchScrollback"
             | "SessionsCancelScrollbackSearch"
             | "SessionsSearchGlobal"

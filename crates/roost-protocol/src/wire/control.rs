@@ -201,6 +201,15 @@ pub enum ClientControlFrame {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         trace_id: Option<TraceId>,
     },
+    /// Fetch one image retained by the terminal image store.
+    #[serde(rename = "get-terminal-image")]
+    GetTerminalImage {
+        request_id: String,
+        session_id: SessionId,
+        image_key: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        trace_id: Option<TraceId>,
+    },
     /// Bounded, exclusive-cursor search over the worker's authoritative grid.
     /// Rows are absolute indices inside one grid epoch.
     #[serde(rename = "search-scrollback")]
@@ -330,6 +339,7 @@ impl ClientControlFrame {
             Self::Detach { .. } => "detach",
             Self::SpawnShell { .. } => "spawn-shell",
             Self::Kill { .. } => "kill",
+            Self::GetTerminalImage { .. } => "get-terminal-image",
             Self::ReadFile { .. } => "read-file",
             Self::ReadFileChunk { .. } => "read-file-chunk",
             Self::AttachmentProbe { .. } => "attachment-probe",

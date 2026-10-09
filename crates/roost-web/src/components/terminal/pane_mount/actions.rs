@@ -66,6 +66,8 @@ pub(super) fn perform(shared: &PaneShared, actions: Vec<PaneAction>) {
             PaneAction::Backfill(work) => browser::perform_backfill(shared, work),
         }
     }
+    #[cfg(target_arch = "wasm32")]
+    super::image_io::fetch_wanted(shared);
     browser::rearm(shared);
 }
 

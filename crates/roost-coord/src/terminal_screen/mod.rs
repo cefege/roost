@@ -12,6 +12,7 @@ pub mod byte_hub;
 pub mod hub_contract;
 pub mod hub_fanout;
 pub mod hub_state;
+pub mod image_rpc;
 pub mod live_effects;
 pub mod orphan_kills;
 pub mod pending_rpcs;

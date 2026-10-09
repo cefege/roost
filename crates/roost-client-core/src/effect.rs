@@ -336,6 +336,15 @@ pub enum DirectCommand {
         /// The grid numbering the pager's rows belong to.
         grid_epoch: String,
     },
+    /// Fetch one terminal image from the worker on the other end.
+    TerminalImage {
+        /// The session.
+        session_id: String,
+        /// The id the answer is matched on because direct carriers have no RPC framing.
+        request_id: String,
+        /// The retained image's key.
+        image_key: u64,
+    },
     /// A content-free control probe to the worker behind this carrier. Scoped
     /// to the session whose route it measures, so a carrier that may not carry
     /// that session never sends it.

@@ -357,6 +357,20 @@
 }
 .term-find-toggle { flex: 0 0 auto; }
 
+/* Images share the viewport's cell coordinates; isolation keeps the below-text
+   layer behind terminal rows without letting it escape the terminal surface. */
+.cell-grid .cell-viewport { isolation: isolate; }
+.cell-grid .cell-images,
+.cell-grid .cell-images-below {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.cell-grid .cell-images-below { z-index: -1; }
+.cell-grid .cell-image {
+  position: absolute;
+  background-repeat: no-repeat;
+}
 /* Ghost cursors — remote viewers' cursor cells (CellGridRenderer.setGhosts).
    Positioned in ch/lh viewport coords like the real cursor. */
 .cell-grid .cell-ghosts { position: absolute; inset: 0; pointer-events: none; }

@@ -9,7 +9,7 @@ mod render_support;
 
 use render_support::{
     FakeEl, FakeRenderer, ROW_PX, alt_full_frame, delta_frame, mount, numbered_rows, row, sb_el,
-    sb_rows, seed_held_history, vp_el,
+    sb_rows, seed_held_history, vp_el, vp_rows,
 };
 use roost_protocol::cell::CellGridFrame;
 use roost_web_terminal::presentation::{LiveInteractionResult, RendererEpochSeq};
@@ -45,14 +45,14 @@ fn viewport_delta(text: &str, seq: u64, total: u64) -> CellGridFrame {
 fn deep_pane() -> (FakeEl, FakeRenderer, FakeEl) {
     let (container, mut renderer) = mount();
     seed_held_history(&mut renderer, 80, vec![row(0, "v0")], numbered_rows(400, 0));
-    let held_row = vp_el(&container).children()[0].clone();
+    let held_row = vp_rows(&container)[0].clone();
     (container, renderer, held_row)
 }
 
 #[test]
 fn selection_freezes_canonical_paint_and_reconciles_when_its_last_hold_releases() {
     let (container, mut renderer) = mount();
-    let (viewport, scrollback) = (vp_el(&container), sb_el(&container));
+    let scrollback = sb_el(&container);
     assert!(seed_held_history(
         &mut renderer,
         80,
@@ -60,7 +60,7 @@ fn selection_freezes_canonical_paint_and_reconciles_when_its_last_hold_releases(
         vec![row(0, "h0")]
     ));
     let before_hold = renderer.reconciled_epoch_seq();
-    let held_row = viewport.children()[0].clone();
+    let held_row = vp_rows(&container)[0].clone();
 
     assert_eq!(renderer.set_selection_hold(true), UNCHANGED);
     assert_eq!(renderer.reader_intent(), ReaderIntent::Reading);
@@ -71,7 +71,7 @@ fn selection_freezes_canonical_paint_and_reconciles_when_its_last_hold_releases(
     };
     assert!(renderer.apply(&appended));
     assert!(renderer.apply(&viewport_delta("v0-again", 4, 2)));
-    assert_eq!(viewport.children()[0], held_row);
+    assert_eq!(vp_rows(&container)[0], held_row);
     assert_eq!(sb_rows(&scrollback).len(), 1);
     assert_eq!(renderer.canonical_epoch_seq(), epoch_seq(4));
     assert_eq!(renderer.reconciled_epoch_seq(), before_hold);
@@ -87,7 +87,7 @@ fn selection_freezes_canonical_paint_and_reconciles_when_its_last_hold_releases(
     assert_eq!(renderer.grid_text(), "v0-again");
 
     assert_eq!(renderer.set_selection_hold(false), RESUMED);
-    assert_ne!(viewport.children()[0], held_row);
+    assert_ne!(vp_rows(&container)[0], held_row);
     assert_eq!(sb_rows(&scrollback).len(), 2);
     assert_eq!(renderer.reconciled_epoch_seq(), epoch_seq(4));
     assert_eq!(renderer.reader_intent(), ReaderIntent::Live);
@@ -100,9 +100,8 @@ fn selection_freezes_canonical_paint_and_reconciles_when_its_last_hold_releases(
 #[test]
 fn an_armed_link_hold_freezes_the_viewport_and_flushes_on_release_without_entering_reading() {
     let (container, mut renderer) = mount();
-    let viewport = vp_el(&container);
     seed_held_history(&mut renderer, 80, vec![row(0, "v0")], Vec::new());
-    let held_row = viewport.children()[0].clone();
+    let held_row = vp_rows(&container)[0].clone();
 
     renderer.set_armed_hold(true);
     assert_eq!(renderer.reader_intent(), ReaderIntent::Live);
@@ -114,7 +113,7 @@ fn an_armed_link_hold_freezes_the_viewport_and_flushes_on_release_without_enteri
         Vec::new(),
         2,
     ));
-    assert_eq!(viewport.children()[0], held_row);
+    assert_eq!(vp_rows(&container)[0], held_row);
     assert_eq!(renderer.canonical_epoch_seq(), epoch_seq(2));
     assert_eq!(renderer.reconciled_epoch_seq(), epoch_seq(1));
     assert_eq!(
@@ -127,7 +126,7 @@ fn an_armed_link_hold_freezes_the_viewport_and_flushes_on_release_without_enteri
         anchor_changed: false,
     };
     assert_eq!(renderer.set_armed_hold(false), flushed);
-    assert_ne!(viewport.children()[0], held_row);
+    assert_ne!(vp_rows(&container)[0], held_row);
     assert_eq!(renderer.reconciled_epoch_seq(), epoch_seq(2));
     assert_eq!(
         renderer.reconcile_block_reason(),
@@ -150,7 +149,7 @@ fn a_hold_release_resumes_a_wheel_park_whose_box_lost_its_scroll_range() {
 
     assert!(renderer.set_armed_hold(false).reconciled);
     assert_eq!(renderer.reader_intent(), ReaderIntent::Live);
-    assert_ne!(vp_el(&container).children()[0], held_row);
+    assert_ne!(vp_rows(&container)[0], held_row);
     assert_eq!(vp_el(&container).text_content(), "v0-latest");
     assert_eq!(
         renderer.reconcile_block_reason(),
@@ -169,7 +168,7 @@ fn a_hold_release_resumes_a_bottom_following_wheel_park_that_kept_its_range() {
 
     assert!(renderer.set_armed_hold(false).reconciled);
     assert_eq!(renderer.reader_intent(), ReaderIntent::Live);
-    assert_ne!(vp_el(&container).children()[0], held_row);
+    assert_ne!(vp_rows(&container)[0], held_row);
     assert_eq!(vp_el(&container).text_content(), "v0-latest");
     assert_eq!(
         renderer.reconcile_block_reason(),
@@ -188,7 +187,7 @@ fn a_hold_release_leaves_a_find_park_that_can_still_reach_its_anchor() {
     assert_eq!(renderer.set_armed_hold(false), UNCHANGED);
     assert_eq!(renderer.reader_intent(), ReaderIntent::Reading);
     assert_eq!(renderer.reader_reason(), Some(ReaderIntentReason::Find));
-    assert_eq!(vp_el(&container).children()[0], held_row);
+    assert_eq!(vp_rows(&container)[0], held_row);
 }
 
 #[test]

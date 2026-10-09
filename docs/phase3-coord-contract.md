@@ -1025,7 +1025,7 @@ compile.**
 | 17 | `makePushHandlers` | 3 | device |
 | 18 | `makeStreamingHandlers` | 1 | device, then `Unimplemented` |
 
-**91 of the 107 proto-declared methods are wired.** The 16 that are not answer
+**92 of the 108 proto-declared methods are wired.** The 16 that are not answer
 Connect `Unimplemented` / HTTP 501: twelve auth methods
 (`AuthDashboardAccess`, `AuthOwnerActivate`, `AuthPasswordResetRequest`,
 `AuthPasswordResetRedeem`, `AuthPasswordLogin`, `AuthFederatedContinue`,
@@ -1164,7 +1164,7 @@ disjoint.** Two `impl CoordinatorService for CoordinatorServiceImpl` blocks are
 `E0119 conflicting implementations`. This was verified with a twenty-line
 program rather than assumed, because it is the opposite of the intuition (inherent
 impls *may* be split, and `impl Trait for &T` and `impl Trait for T` are
-different impls). It is why all 107 methods live in one
+different impls). It is why all 108 methods live in one
 `crates/roost-coord/src/rpc/service_impl.rs` with a recorded size exception,
 rather than in the twelve per-domain files the v2 factory split suggests.
 
@@ -1940,8 +1940,8 @@ identical to it (every table's `PRAGMA table_info`, `foreign_key_list`,
 | `sync_ws/upgrade_admission.rs` | the Sync five-step order, the origin policy, the scope a socket gets |
 | `sync_ws/ack_window.rs` | the cumulative ACK window and every close it can take |
 | `rpc/method_route.rs` | the route table's vocabulary -- domain, auth requirement, status -- and its accessors |
-| `rpc/method_route_rows.rs` | the 107 rows, one table per v2 domain folder |
-| `rpc/service_impl.rs` | the ONE `impl CoordinatorService` block; all 107 methods, a recorded size exception, and §5.7's four signature facts |
+| `rpc/method_route_rows.rs` | the 108 rows, one table per v2 domain folder |
+| `rpc/service_impl.rs` | the ONE `impl CoordinatorService` block; all 108 methods, a recorded size exception, and §5.7's four signature facts |
 
 ### The thin I/O shell
 
@@ -2012,7 +2012,7 @@ scrollback, local-terminal grant, terminal-peer and global-search — plus
 though the route table gives `WorkersPrepareKeeperUpdate` to `deploy` and the
 other two deploy methods to `workers`.
 
-**The sessions domain owns all fifteen delegations in `service_impl.rs`** and
+**The sessions domain owns all sixteen delegations in `service_impl.rs`** and
 calls the other domains' `handle_*` functions with `&CoordCore`. Folder
 ownership was the alternative and it buys nothing: the methods still funnel
 through one `impl` block, and it multiplies the number of agents editing that
@@ -2021,7 +2021,7 @@ every other domain still builds and lands in parallel first.
 
 ### 12.2 `service_impl.rs` is edited once, by the integrator
 
-One file, one `impl CoordinatorService` block, all 107 methods — and Rust
+One file, one `impl CoordinatorService` block, all 108 methods — and Rust
 forbids splitting a trait implementation across blocks (E0119) even when the
 method names are disjoint, so there is no per-domain `service_*.rs` and there
 cannot be one. Every domain slice therefore delivers a

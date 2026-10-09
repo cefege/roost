@@ -7,7 +7,7 @@
 //! below is refused, never approximated: a replica that guessed would freeze a
 //! stale repaint generation into history.
 
-use crate::cell::types::{CellGridFrame, CellRow};
+use crate::cell::types::{CellGridFrame, CellRow, no_image_placements};
 
 /// Give a replica or renderer independent mutable row coordinates while sharing
 /// immutable span arrays. `apply_delta` replaces row slots and renumbers rows, so
@@ -46,6 +46,7 @@ pub fn clone_cell_grid_frame_without_history(frame: &CellGridFrame) -> CellGridF
         sb_base: frame.sb_base,
         base_seq: frame.base_seq,
         seq: frame.seq,
+        image_placements: frame.image_placements.clone(),
     }
 }
 
@@ -58,6 +59,10 @@ pub fn normalize_cell_grid_frame(frame: &mut CellGridFrame) {
     frame.scrollback_rows = Vec::new();
     frame.scrollback_append = Vec::new();
     frame.sb_base = frame.scrollback_total;
+    // A full frame always states its image set, even when it has none.
+    frame
+        .image_placements
+        .get_or_insert_with(no_image_placements);
 }
 
 /// Number of held viewport rows reusable by a global viewport shift.
@@ -165,6 +170,10 @@ pub fn apply_delta(base: &mut CellGridFrame, delta: &CellGridFrame) -> Option<()
     base.scrollback_total = delta.scrollback_total;
     base.base_seq = 0;
     base.seq = delta.seq;
+    // A delta states its image set only when it changed, and then replaces it.
+    if let Some(placements) = &delta.image_placements {
+        base.image_placements = Some(placements.clone());
+    }
     // sb_base is deliberately untouched: deltas never move the held window's base.
     Some(())
 }

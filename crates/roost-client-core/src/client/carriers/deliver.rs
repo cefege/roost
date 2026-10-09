@@ -147,6 +147,7 @@ pub fn session_of(command: &DirectCommand) -> &str {
         | DirectCommand::Input { session_id, .. }
         | DirectCommand::RouteClaim { session_id, .. }
         | DirectCommand::Scrollback { session_id, .. }
+        | DirectCommand::TerminalImage { session_id, .. }
         | DirectCommand::TransportProbe { session_id, .. } => session_id,
     }
 }

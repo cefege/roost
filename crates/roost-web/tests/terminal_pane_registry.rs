@@ -151,6 +151,7 @@ fn a_preview_shows_the_newest_non_blank_rows_oldest_first() {
         sb_base: 0,
         base_seq: 0,
         seq: 1,
+        image_placements: Some(roost_protocol::cell::no_image_placements()),
     };
     let picked = preview_rows_of(&frame);
     assert_eq!(picked.len(), MAX_PREVIEW_ROWS);

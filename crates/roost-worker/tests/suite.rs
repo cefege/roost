@@ -86,6 +86,8 @@ mod browser_command_diagnostics;
 mod browser_command_files;
 #[path = "browser_command_terminal.rs"]
 mod browser_command_terminal;
+#[path = "browser_command_terminal_image.rs"]
+mod browser_command_terminal_image;
 #[path = "browser_commands.rs"]
 mod browser_commands;
 #[path = "capture_ack.rs"]

@@ -234,8 +234,15 @@ server-side multiplexers use:
   hyperlink source), `CellRow` (absolute index plus spans), and
   `CellGridFrame` (`stream_id`, `grid_epoch`, geometry, cursor, modes, `full`,
   `viewport_rows`, `scrollback_append`, `scrollback_total`, `sb_base`,
-  `base_seq`, `seq`). `protocol/proto/roost/v1/cell.proto` mirrors it on every
-  carrier.
+  `base_seq`, `seq`, `image_placements`). `protocol/proto/roost/v1/cell.proto`
+  mirrors it on every carrier.
+- **Inline images ride the frame as placements, never as pixels.** The core
+  decodes kitty graphics, sixel and iTerm2 (`crates/roost-term/src/rio/images.rs`);
+  a frame carries each placement's absolute row, cell span and source crop,
+  keyed by a content hash. A full states the whole set, a delta only a changed
+  set. Browsers fetch each PNG once by key (`SessionsGetTerminalImage`, or the
+  direct carriers' image request) and paint it in a layer above or below the
+  rows (`crates/roost-web-terminal/src/cell_renderer/images.rs`).
 - **Full or delta is the emitter's one decision**
   (`crates/roost-term/src/emitter.rs`): first frame, explicit force, or a
   semantic reframe (shape change, alt-screen toggle, total going backwards,

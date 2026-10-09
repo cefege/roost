@@ -137,6 +137,7 @@ pub fn case(frame: &ServerFrame) -> &'static str {
         ServerFrame::Closed(_) => "closed",
         ServerFrame::InputRouteResult(_) => "inputRouteResult",
         ServerFrame::TransportProbeResult(_) => "transportProbeResult",
+        ServerFrame::ImageResponse(_) => "imageResponse",
     }
 }
 

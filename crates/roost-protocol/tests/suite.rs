@@ -40,6 +40,8 @@ mod event_proto_contract;
 mod event_proto_failures;
 #[path = "event_proto_precision.rs"]
 mod event_proto_precision;
+#[path = "image_placements.rs"]
+mod image_placements;
 #[path = "keeper_update.rs"]
 mod keeper_update;
 #[path = "keeper_update_shapes.rs"]

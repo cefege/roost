@@ -35,6 +35,7 @@ pub mod search_match;
 pub mod search_page;
 pub mod search_scan;
 pub mod session_lifecycle;
+pub mod terminal_image;
 
 pub use replies::Reply;
 
@@ -103,6 +104,7 @@ impl Command {
             | ClientControlFrame::Detach { session_id, .. }
             | ClientControlFrame::SetTitle { session_id, .. }
             | ClientControlFrame::CursorPos { session_id, .. }
+            | ClientControlFrame::GetTerminalImage { session_id, .. }
             | ClientControlFrame::GitDiff { session_id, .. }
             | ClientControlFrame::RespawnIfMissing { session_id, .. } => Some(session_id),
             _ => None,
@@ -135,6 +137,8 @@ pub enum Owner {
     Files,
     /// One bounded page out of a session's authoritative grid.
     RetainedGrid,
+    /// Fetching encoded pixels for an image retained by a session's terminal.
+    TerminalImages,
     /// A bounded cursor search over one session or a page-budget's worth.
     Search,
     /// The on-disk store behind a session's attachment directory.
@@ -182,6 +186,7 @@ pub const OWNERS: &[CommandOwner] = &[
     cmd("set-title", Owner::Presence),
     cmd("get-home", Owner::Files),
     cmd("get-scrollback-cells", Owner::RetainedGrid),
+    cmd("get-terminal-image", Owner::TerminalImages),
     cmd("search-scrollback", Owner::Search),
     cmd("cancel-scrollback-search", Owner::Search),
     cmd("search-scrollback-batch", Owner::Search),
@@ -265,6 +270,7 @@ pub struct Deps {
     pub presence: Arc<dyn presence::PresenceReports>,
     pub files: Arc<dyn file_commands::FileCommands>,
     pub grid: Arc<dyn scrollback_page::RetainedGrid>,
+    pub images: Arc<dyn terminal_image::TerminalImages>,
     pub search: Arc<dyn search::ScrollbackSearch>,
     /// The searches this worker is running and the cancels waiting to meet
     /// one. Separate from the scanner because admission is a decision about
@@ -308,6 +314,7 @@ pub async fn dispatch(command: &Command, deps: &Deps) -> Vec<CoordWorkerUpstream
         Owner::Presence => presence::execute(command, deps).await,
         Owner::Files => file_commands::execute(command, deps).await,
         Owner::RetainedGrid => scrollback_page::execute(command, deps).await,
+        Owner::TerminalImages => terminal_image::execute(command, deps).await,
         Owner::Search => search::execute(command, deps).await,
         Owner::Attachments => attachments::execute(command, deps).await,
         Owner::Diagnostics => diagnostics::execute(command, deps).await,

@@ -260,6 +260,10 @@ fn deliver(pump: &Pump, connection_id: &str, bytes: &[u8]) {
             super::direct_history::answered(pump, answer);
             return;
         }
+        DirectInbound::TerminalImage(answer) => {
+            super::direct_images::answered(pump, answer);
+            return;
+        }
         other => other,
     };
     if let DirectInbound::Closed { reason } = &inbound {
@@ -327,4 +331,5 @@ fn lose(pump: &Pump, connection_id: &str, code: u16, reason: &str) {
         connection_id: connection_id.to_owned(),
     });
     super::direct_history::lose_reads_off_route(pump, reason);
+    super::direct_images::lose_reads_off_route(pump, reason);
 }

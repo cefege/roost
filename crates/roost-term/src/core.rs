@@ -74,6 +74,26 @@ impl Default for CellData {
         }
     }
 }
+/// Image geometry attached to a terminal frame; `viewport_row` is relative
+/// to the viewport top and negative values address retained history.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CoreImagePlacement {
+    pub image_key: u64,
+    pub viewport_row: i64,
+    pub col: u16,
+    pub columns: u16,
+    pub rows: u16,
+    pub source_x: u32,
+    pub source_y: u32,
+    pub source_width: u32,
+    pub source_height: u32,
+    pub image_width: u32,
+    pub image_height: u32,
+    pub offset_x_px: u16,
+    pub offset_y_px: u16,
+    pub z_index: i32,
+}
+
 /// A live command lifecycle marker parsed from shell integration output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandEvent {
@@ -130,6 +150,20 @@ pub trait TerminalCore {
     /// ring. A partial detector by construction: it sees unrecognised CSI, not
     /// an OSC or a mode number the emulator accepts and ignores.
     fn unhandled_sequences(&self) -> &UnhandledSequenceRing;
+    /// Current image placements relative to the viewport top.
+    fn image_placements(&self) -> Vec<CoreImagePlacement> {
+        Vec::new()
+    }
+
+    /// Encoded PNG bytes for a stable image content key.
+    fn image_png(&mut self, _image_key: u64) -> Option<std::sync::Arc<[u8]>> {
+        None
+    }
+
+    /// Whether image pixels or placement geometry changed since the last take.
+    fn take_image_changes(&mut self) -> bool {
+        false
+    }
 
     /// Resize the viewport. A core that reflows its history reports the change
     /// through the discarded count on the next read.

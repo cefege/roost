@@ -15,7 +15,7 @@
 //!
 //! It is a source-reading test, and that is the honest description: there is no
 //! runtime way to ask "does this row's arm call real code" without booting a
-//! coordinator and calling all 107 methods, which is a different test with a
+//! coordinator and calling all 108 methods, which is a different test with a
 //! different purpose.
 //!
 //! `expect` and `unwrap` are denied outside `#[cfg(test)]`, and an integration
@@ -221,7 +221,7 @@ fn the_table_is_not_satisfied_by_marking_nothing_implemented() {
         .filter(|row| row.status == PortStatus::AwaitingDomainPort)
         .count();
     let total = rows.len();
-    assert_eq!(total, 107, "the proto declares 107 methods");
+    assert_eq!(total, 108, "the proto declares 108 methods");
     let unwired = rows
         .iter()
         .filter(|row| row.status == PortStatus::UnwiredInV2)

@@ -1,4 +1,4 @@
-//! The ONE `CoordinatorService` implementation: all 107 methods in one `impl`,
+//! The ONE `CoordinatorService` implementation: all 108 methods in one `impl`,
 //! one file because two impl blocks of one trait are E0119. Signatures follow
 //! `protocol/proto/roost/v1/coordinator.proto`; each implemented arm resolves its
 //! caller through `service::caller_of` and delegates to its domain handler.
@@ -61,6 +61,7 @@ use crate::sessions::tasks::{
     handle_tasks_cancel, handle_tasks_enqueue, handle_tasks_list, handle_tasks_next_pending,
     handle_tasks_set_state,
 };
+use crate::terminal_screen::image_rpc::handle_sessions_get_terminal_image;
 use crate::terminal_screen::rpc::{
     handle_sessions_cancel_scrollback_search, handle_sessions_get_scrollback_cells,
     handle_sessions_search_scrollback,
@@ -357,6 +358,18 @@ impl CoordinatorService for CoordinatorServiceImpl {
         async move {
             let caller = caller_of(&ctx, "SessionsGetScrollbackCells")?;
             handle_sessions_get_scrollback_cells(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+    fn sessions_get_terminal_image<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, SessionsGetTerminalImageRequest>,
+    ) -> impl Future<
+        Output = ServiceResult<impl Encodable<SessionsGetTerminalImageResponse> + Send + use<'a>>,
+    > + Send {
+        async move {
+            let caller = caller_of(&ctx, "SessionsGetTerminalImage")?;
+            handle_sessions_get_terminal_image(&self.core, caller, r.to_owned_message()).await
         }
     }
 

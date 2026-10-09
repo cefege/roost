@@ -70,6 +70,8 @@ mod render_history;
 mod render_history_checkpoint;
 #[path = "render_history_repair.rs"]
 mod render_history_repair;
+#[path = "render_images.rs"]
+mod render_images;
 #[path = "render_presentation_controller.rs"]
 mod render_presentation_controller;
 #[path = "render_presentation_state.rs"]

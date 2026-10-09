@@ -61,6 +61,21 @@ message LocalScrollbackResponse {
   string error = 9;
 }
 
+// Fetches PNG pixels for a stable content key advertised in image placements.
+message LocalImageRequest {
+  string request_id = 1;
+  string session_id = 2;
+  uint64 image_key = 3;
+}
+
+message LocalImageResponse {
+  string request_id = 1;
+  string session_id = 2;
+  uint64 image_key = 3;
+  bytes png = 4;
+  string error = 5;
+}
+
 message LocalTerminalClientFrame {
   oneof frame {
     LocalTerminalHello hello = 1;
@@ -70,6 +85,7 @@ message LocalTerminalClientFrame {
     LocalScrollbackRequest scrollback = 5;
     TerminalInputRouteClaim input_route_claim = 6;
     TerminalTransportProbe transport_probe = 7;
+    LocalImageRequest image_request = 8;
   }
 }
 
@@ -86,5 +102,6 @@ message LocalTerminalServerFrame {
     LocalTerminalClosed closed = 9;
     TerminalInputRouteResult input_route_result = 10;
     TerminalTransportProbeResult transport_probe_result = 11;
+    LocalImageResponse image_response = 12;
   }
 }

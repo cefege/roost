@@ -78,6 +78,8 @@ portable-pty = "0.9.0"
 rio-vt = { version = "=0.5.28", default-features = false, features = ["graphics"] }
 rio-graphics = "=0.5.28"
 str0m = "0.23.1"
+# PNG encoding for terminal graphics fetched independently from cell frames.
+image = { version = "0.25", default-features = false, features = ["png"] }
 # The pairing QR: the CLI draws the matrix itself in half blocks and the web
 # client uses the SVG renderer, so neither needs the `image` raster stack.
 qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }

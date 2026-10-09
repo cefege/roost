@@ -83,6 +83,8 @@ pub enum DirectInbound {
     TransportProbeResult(TransportProbeResult),
     /// The answer to a history read this carrier sent.
     Scrollback(DirectScrollback),
+    /// An image fetch answer; it belongs to the requesting host, not the fold.
+    TerminalImage(DirectTerminalImage),
     /// A frame that arrived BEFORE the carrier authenticated.
     PreHelloFrame,
 }
@@ -135,11 +137,13 @@ impl DirectInbound {
             // peer's drain settles its heartbeat's before it gets here.
             Self::TransportProbeResult(result) => Some(SyncFrame::TransportProbeResult { result }),
             // A close is a socket ending, a handshake is the transport's own
-            // state, and a history page belongs to the pager that asked. None of
-            // them is a frame the fold should ever see.
-            Self::Closed { .. } | Self::Ready(_) | Self::Scrollback(_) | Self::PreHelloFrame => {
-                None
-            }
+            // state, and history and image answers belong to their requesting
+            // host. None of them is a frame the fold should ever see.
+            Self::Closed { .. }
+            | Self::Ready(_)
+            | Self::Scrollback(_)
+            | Self::TerminalImage(_)
+            | Self::PreHelloFrame => None,
         }
     }
 }
@@ -152,6 +156,20 @@ pub struct DirectScrollback {
     pub request_id: String,
     /// The page, or the worker's own refusal.
     pub page: Result<ScrollbackCellsPage, String>,
+}
+/// One direct terminal-image read's answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirectTerminalImage {
+    /// The id the read was sent under.
+    pub request_id: String,
+    /// The session the image belongs to.
+    pub session_id: String,
+    /// The key of the requested retained image.
+    pub image_key: u64,
+    /// The PNG bytes, empty when the worker reported an error.
+    pub png: Vec<u8>,
+    /// The worker refusal, empty when the image was found.
+    pub error: String,
 }
 
 /// The batch sequence one input outcome belongs to, which every arm carries.

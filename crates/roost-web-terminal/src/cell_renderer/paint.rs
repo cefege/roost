@@ -145,23 +145,23 @@ impl<E: RenderElement> CellGridRenderer<E> {
         Ok(())
     }
 
-    /// Append one row element BELOW the overlays, so a row never lands between
-    /// the cursor and the rows it points at.
+    /// Insert a row before the image and cursor overlays.
     fn insert_viewport_row(&self, element: &E) {
-        let anchor = is_placed_in(&self.cursor, &self.viewport).then_some(&self.cursor);
+        let anchor = if is_placed_in(&self.images, &self.viewport) {
+            Some(&self.images)
+        } else if is_placed_in(&self.cursor, &self.viewport) {
+            Some(&self.cursor)
+        } else {
+            None
+        };
         self.viewport.insert_before(element, anchor);
     }
 
-    /// Keep the cursor and the ghost host inside the viewport, then place the
-    /// cursor. The overlays must be the LAST children so a row appended above
-    /// them does not cover the cursor.
+    /// Keep the image layers, cursor and ghost host above the viewport rows.
     fn attach_viewport_overlays(&mut self) {
-        if !is_placed_in(&self.cursor, &self.viewport) {
-            self.viewport.append_child(&self.cursor);
-        }
-        if !is_placed_in(&self.ghosts, &self.viewport) {
-            self.viewport.append_child(&self.ghosts);
-        }
+        self.attach_image_layers();
+        self.viewport.append_child(&self.cursor);
+        self.viewport.append_child(&self.ghosts);
         self.update_cursor();
     }
 

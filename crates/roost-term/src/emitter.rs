@@ -56,6 +56,9 @@ pub struct CellEmitState {
     /// `scrollback_total` and append range all describe the same observation of
     /// the ring.
     pub sb_dropped: u64,
+    /// The image set the client holds after the last emit, so a delta states
+    /// the set only when it changed.
+    pub last_image_placements: Option<roost_protocol::cell::ImagePlacements>,
 }
 
 impl CellEmitState {
@@ -73,6 +76,7 @@ impl CellEmitState {
             alt: false,
             scrollback_origin: 0,
             sb_dropped: 0,
+            last_image_placements: None,
         }
     }
 
@@ -164,6 +168,10 @@ pub fn next_cell_frame(
             sb_dropped,
         )
     };
+    let mut frame = frame;
+    if !frame.full && frame.image_placements == state.last_image_placements {
+        frame.image_placements = None;
+    }
 
     let next = CellEmitState {
         stream_id: state.stream_id.clone(),
@@ -177,6 +185,10 @@ pub fn next_cell_frame(
         alt,
         scrollback_origin: state.scrollback_origin,
         sb_dropped,
+        last_image_placements: frame
+            .image_placements
+            .clone()
+            .or_else(|| state.last_image_placements.clone()),
     };
     Ok((frame, next))
 }

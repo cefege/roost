@@ -12,7 +12,7 @@ mod terminal_links_support;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use render_support::{FakeEl, FakeRenderer, delta_frame, mount, row, seed_held_history, vp_el};
+use render_support::{FakeEl, FakeRenderer, delta_frame, mount, row, seed_held_history, vp_rows};
 use roost_web_terminal::links::{
     LinkListener, LinkModifierKey, TerminalLinkOptions, TerminalLinks,
 };
@@ -72,7 +72,11 @@ impl ArmedPane {
     }
 
     fn painted_tail(&self) -> String {
-        vp_el(&self.paint).children()[0].text_content()
+        vp_rows(&self.paint)
+            .into_iter()
+            .next()
+            .map(|row| row.text_content())
+            .unwrap_or_default()
     }
 
     fn pointer(&mut self, listener: LinkListener, meta: bool) {

@@ -89,6 +89,31 @@ message PbCellGridFrame {
   string stream_id = 25;
   uint64 base_seq = 26;
   uint32 kitty_keyboard_flags = 27; // Kitty keyboard progressive-enhancement flags (bits 0–4)
+  // Inline images on the grid. A full frame carries the whole set; a delta
+  // carries a set only when it changed (image_placements_present), replacing
+  // the previous one. At most 256. Pixels are fetched by image_key.
+  repeated PbImagePlacement image_placements = 28;
+  bool image_placements_present = 29;
+}
+
+// One inline image placed on the cell grid. `row` is absolute in the frame's
+// row space (viewport row v = scrollback_total + v); the source rectangle and
+// image size are in image pixels; offsets in the core's nominal 8x16 cell px.
+message PbImagePlacement {
+  uint64 image_key = 1;
+  uint64 row = 2;
+  uint32 col = 3;
+  uint32 columns = 4;
+  uint32 rows = 5;
+  uint32 source_x = 6;
+  uint32 source_y = 7;
+  uint32 source_width = 8;
+  uint32 source_height = 9;
+  uint32 image_width = 10;
+  uint32 image_height = 11;
+  uint32 offset_x_px = 12;
+  uint32 offset_y_px = 13;
+  sint32 z_index = 14;
 }
 
 // One deterministic whole-row part of an oversized full snapshot. Every part

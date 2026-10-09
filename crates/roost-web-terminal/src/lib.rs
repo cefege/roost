@@ -28,6 +28,7 @@ pub mod echo_overlay;
 #[cfg(target_arch = "wasm32")]
 pub mod element_style;
 pub mod find;
+pub mod image_geometry;
 pub mod input;
 pub mod link_target;
 pub mod links;
@@ -49,6 +50,7 @@ pub use cell_row::{
     FindHit, LINK_KEY_ATTR, ROW_COLUMNS_ATTR, ROW_HAS_LINKS_ATTR, TERMINAL_LINK_CLASS,
     TERMINAL_LINK_TARGET_ATTR,
 };
+pub use image_geometry::{ImageBoxStyle, image_style};
 pub use link_target::{TerminalLinkTarget, classify_terminal_link_target};
 pub use painted_history::{MAX_HELD_SCROLLBACK_ROWS, PaintedHistory};
 pub use presentation::{

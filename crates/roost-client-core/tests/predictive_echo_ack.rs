@@ -88,6 +88,7 @@ fn frame(
         sb_base: 0,
         base_seq: seq.saturating_sub(1),
         seq,
+        image_placements: None,
     }
 }
 

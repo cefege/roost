@@ -16,6 +16,7 @@ use std::sync::Arc;
 use roost_proto::{PbCellGridFrame, PbCellRow, PbCellSpan};
 
 use crate::cell::frame_structure::assert_frame_structure;
+use crate::cell::proto_image::{placements_from_proto, placements_to_proto};
 use crate::cell::types::{
     CellGridFrame, CellRow, CellSpan, as_mouse_tracking, assert_cell_row_spans,
 };
@@ -114,6 +115,8 @@ pub fn cell_frame_to_proto(
         frame.base_seq,
         frame.seq,
     )?;
+    let (image_placements, image_placements_present) =
+        placements_to_proto(frame.image_placements.as_ref());
     let proto = PbCellGridFrame {
         session_id: session_id.to_owned(),
         stream_id: frame.stream_id.clone(),
@@ -150,6 +153,8 @@ pub fn cell_frame_to_proto(
         kitty_keyboard_flags: u32::from(frame.kitty_keyboard_flags),
         focus_events: frame.focus_events,
         base_seq: frame.base_seq,
+        image_placements,
+        image_placements_present,
         __buffa_unknown_fields: Default::default(),
     };
     assert_frame_structure(&proto)?;
@@ -178,6 +183,7 @@ pub fn proto_to_cell_frame(frame: &PbCellGridFrame) -> ProtocolResult<CellGridFr
         scrollback_append: decode_rows(&frame.scrollback_append, 0)?,
         stream_id: frame.stream_id.clone(),
         grid_epoch: frame.grid_epoch.clone(),
+        image_placements: placements_from_proto(frame)?,
         ..frame_scalars(frame)
     })
 }
@@ -193,12 +199,14 @@ pub fn proto_into_cell_frame(frame: PbCellGridFrame) -> ProtocolResult<CellGridF
             .collect::<ProtocolResult<Vec<_>>>()
     };
     let scalars = frame_scalars(&frame);
+    let image_placements = placements_from_proto(&frame)?;
     Ok(CellGridFrame {
         viewport_rows: decode_rows(frame.viewport_rows, frame.cols)?,
         scrollback_rows: decode_rows(frame.scrollback_rows, 0)?,
         scrollback_append: decode_rows(frame.scrollback_append, 0)?,
         stream_id: frame.stream_id,
         grid_epoch: frame.grid_epoch,
+        image_placements,
         ..scalars
     })
 }
@@ -228,6 +236,7 @@ fn frame_scalars(frame: &PbCellGridFrame) -> CellGridFrame {
         sb_base: frame.sb_base,
         base_seq: frame.base_seq,
         seq: frame.seq,
+        image_placements: None,
     }
 }
 

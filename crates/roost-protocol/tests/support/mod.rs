@@ -126,6 +126,15 @@ pub fn canonical_frames() -> Vec<(&'static str, Value)> {
             }),
         ),
         (
+            "get-terminal-image",
+            json!({
+                "kind": "get-terminal-image",
+                "request_id": "r-image",
+                "session_id": CONTROL_SESSION,
+                "image_key": 123,
+            }),
+        ),
+        (
             "search-scrollback",
             json!({
                 "kind": "search-scrollback",

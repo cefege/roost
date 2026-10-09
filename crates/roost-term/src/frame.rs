@@ -11,11 +11,58 @@
 
 use std::sync::Arc;
 
-use roost_protocol::cell::{CellGridFrame, CellRow, CellSpan};
-
 use crate::core::TerminalCore;
 use crate::error::TerminalCoreResult;
 use crate::row_spans::row_to_spans;
+use roost_protocol::cell::{
+    CellGridFrame, CellRow, CellSpan, ImagePlacement, ImagePlacements, no_image_placements,
+};
+
+/// The core's image placements in `frame`'s absolute row space, without any
+/// placement that lies wholly below the frame's retained history window or
+/// starts past the viewport.
+fn frame_image_placements(core: &dyn TerminalCore, frame: &CellGridFrame) -> ImagePlacements {
+    let start = frame.sb_base;
+    let end = frame.scrollback_total.saturating_add(u64::from(frame.rows));
+    let mut placements: Vec<ImagePlacement> = core
+        .image_placements()
+        .into_iter()
+        .filter_map(|placement| {
+            let row = i64::try_from(frame.scrollback_total)
+                .ok()?
+                .checked_add(placement.viewport_row)?;
+            if row < 0 {
+                return None;
+            }
+            let row = row as u64;
+            if row.saturating_add(u64::from(placement.rows)) <= start
+                || row >= end
+                || placement.columns == 0
+                || placement.rows == 0
+            {
+                return None;
+            }
+            Some(ImagePlacement {
+                image_key: placement.image_key,
+                row,
+                col: placement.col,
+                columns: placement.columns,
+                rows: placement.rows,
+                source_x: placement.source_x,
+                source_y: placement.source_y,
+                source_width: placement.source_width,
+                source_height: placement.source_height,
+                image_width: placement.image_width,
+                image_height: placement.image_height,
+                offset_x_px: placement.offset_x_px,
+                offset_y_px: placement.offset_y_px,
+                z_index: placement.z_index,
+            })
+        })
+        .collect();
+    placements.sort_by_key(|placement| placement.row);
+    Arc::from(placements)
+}
 
 /// One viewport row's spans.
 pub fn viewport_row_spans(core: &dyn TerminalCore, row: u16, cols: u16) -> Arc<[CellSpan]> {
@@ -96,6 +143,7 @@ fn scalar_state(
         sb_base: 0,
         base_seq,
         seq,
+        image_placements: full.then(no_image_placements),
     }
 }
 
@@ -131,6 +179,7 @@ pub fn grid_to_cell_frame(
     frame.scrollback_rows = (sb_base..mono_total)
         .map(|absolute| scrollback_row(core, absolute, retained, sb_dropped))
         .collect();
+    frame.image_placements = Some(frame_image_placements(core, &frame));
     frame
 }
 
@@ -163,6 +212,9 @@ pub fn grid_delta_frame(
     let retained = core.scrollback_count() as u64;
     frame.scrollback_append =
         read_scrollback_range(core, previous_mono_total, sb_dropped + retained, sb_dropped);
+    // The whole current set; the emitter drops it when the client already
+    // holds it, so a delta states the set only on change.
+    frame.image_placements = Some(frame_image_placements(core, &frame));
     frame
 }
 

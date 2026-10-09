@@ -79,6 +79,7 @@ fn base_frame(cols: u32, rows: u32, full: bool) -> CellGridFrame {
         sb_base: 0,
         base_seq: 0,
         seq: 1,
+        image_placements: (full).then(roost_protocol::cell::no_image_placements),
     }
 }
 
@@ -199,7 +200,7 @@ pub fn vp_rows(container: &FakeEl) -> Vec<FakeEl> {
     vp_el(container)
         .children()
         .into_iter()
-        .filter(|child| child.class_name() == "cell-row")
+        .filter(|child| child.has_class("cell-row"))
         .collect()
 }
 

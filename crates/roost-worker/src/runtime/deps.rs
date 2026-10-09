@@ -34,6 +34,7 @@ use crate::browser_commands::search_scan::GridScanner;
 use crate::capture::CaptureRecorder;
 use crate::session::lifecycle::{SessionManager, SessionTable};
 use crate::session::retained_grid::SessionGrid;
+use crate::session::terminal_images::SessionTerminalImages;
 
 /// Everything the builder needs that is NOT a capability.
 ///
@@ -92,6 +93,7 @@ impl WorkerCapabilities {
             presence: Arc::new(WorkerPresence),
             files: Arc::new(LocalFiles::new(Arc::new(ProcessEnv::new()), platform)),
             grid: Arc::new(SessionGrid::new(Arc::clone(&sessions))),
+            images: Arc::new(SessionTerminalImages::new(Arc::clone(&sessions))),
             search: Arc::new(GridScanner::new(Arc::clone(&sessions))),
             searches: Arc::clone(&searches),
             attachments: Arc::new(SessionAttachments::new(attachments)),

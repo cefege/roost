@@ -73,6 +73,7 @@ fn frame() -> CellGridFrame {
         sb_base: 0,
         base_seq: 0,
         seq: 42,
+        image_placements: Some(roost_protocol::cell::no_image_placements()),
     }
 }
 

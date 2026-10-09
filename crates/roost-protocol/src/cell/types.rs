@@ -11,7 +11,11 @@
 use std::sync::Arc;
 
 use crate::error::{ProtocolError, ProtocolResult};
+mod image_placement;
 mod mouse_tracking;
+pub use self::image_placement::{
+    ImagePlacement, ImagePlacements, MAX_IMAGE_PLACEMENTS, no_image_placements,
+};
 pub use self::mouse_tracking::{MouseTracking, as_mouse_tracking};
 
 /// Palette value meaning "the terminal's own default colour", which is neither
@@ -142,6 +146,10 @@ pub struct CellGridFrame {
     pub base_seq: u64,
     /// Monotonic sequence within the stream; gaps require a new full baseline.
     pub seq: u64,
+    /// Inline images on the grid. A full frame always carries `Some` (possibly
+    /// empty). A delta carries `Some` only when the set changed, and then it
+    /// REPLACES the set; `None` leaves it as it was.
+    pub image_placements: Option<ImagePlacements>,
 }
 
 /// True when `uri` fits MAX_LINK_URI_BYTES once UTF-8 encoded. Exact and

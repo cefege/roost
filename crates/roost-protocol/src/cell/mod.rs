@@ -13,6 +13,7 @@ pub mod frame_chunk_validation;
 pub mod frame_chunks;
 mod frame_structure;
 pub mod proto;
+mod proto_image;
 pub mod row_mark;
 pub mod types;
 
@@ -37,9 +38,9 @@ pub use proto::{
 };
 pub use types::{
     CELL_BLINK, CELL_BOLD, CELL_DIM, CELL_INVISIBLE, CELL_ITALIC, CELL_REVERSE, CELL_STRIKE,
-    CELL_UNDERLINE, CellGridFrame, CellRow, CellSpan, ColumnRange, DEFAULT_COLOR,
-    MAX_LINK_URI_BYTES, MouseTracking, SB_SNAPSHOT_HISTORY_ROWS, as_mouse_tracking,
-    assert_cell_row_spans, column_span, column_text, link_uri_within_cap, row_columns,
-    span_is_atomic, spans_text, text_offset_to_column, text_offset_to_column_end,
-    text_range_to_columns,
+    CELL_UNDERLINE, CellGridFrame, CellRow, CellSpan, ColumnRange, DEFAULT_COLOR, ImagePlacement,
+    ImagePlacements, MAX_IMAGE_PLACEMENTS, MAX_LINK_URI_BYTES, MouseTracking,
+    SB_SNAPSHOT_HISTORY_ROWS, as_mouse_tracking, assert_cell_row_spans, column_span, column_text,
+    link_uri_within_cap, no_image_placements, row_columns, span_is_atomic, spans_text,
+    text_offset_to_column, text_offset_to_column_end, text_range_to_columns,
 };

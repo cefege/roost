@@ -66,6 +66,7 @@ pub mod sync_output;
 pub mod table;
 pub mod terminal_changed;
 pub mod terminal_control;
+pub mod terminal_images;
 pub mod terminal_metadata;
 pub mod terminal_state;
 pub mod terminal_stream_owner;

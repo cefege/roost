@@ -9,7 +9,7 @@ mod render_support;
 
 use render_support::{
     FakeEl, PAD_TOP, ROW_PX, alt_delta_frame, alt_full_frame, delta_frame, mount, row, sb_el,
-    sb_rows, seed_held_history, seed_held_history_to, vp_el,
+    sb_rows, seed_held_history, seed_held_history_to, vp_rows,
 };
 use roost_protocol::cell::{CellGridFrame, CellRow, spans_text};
 use roost_web_terminal::presentation::{
@@ -65,11 +65,10 @@ fn mode(
 #[test]
 fn an_incompatible_full_stays_off_dom_during_native_reading_and_reconciles_on_resume() {
     let (container, mut renderer) = mount();
-    let viewport = vp_el(&container);
     seed_held_history(&mut renderer, 80, vec![row(0, "old-v")], rows(400, 0));
     container.set_scroll_top_raw(PAD_TOP + 50.0 * ROW_PX);
     assert_eq!(renderer.handle_scroll(), UNCHANGED);
-    let held_row = viewport.children()[0].clone();
+    let held_row = vp_rows(&container)[0].clone();
     container.reset_scroll_top_writes();
 
     let modes = |frame: CellGridFrame| CellGridFrame {
@@ -98,7 +97,7 @@ fn an_incompatible_full_stays_off_dom_during_native_reading_and_reconciles_on_re
     );
     assert_eq!(renderer.current_frame().unwrap().grid_epoch, "test-grid:0");
     assert_eq!(renderer.canonical_epoch_seq(), next_epoch(4));
-    assert_eq!(viewport.children()[0], held_row);
+    assert_eq!(vp_rows(&container)[0], held_row);
     assert_eq!(container.scroll_top(), PAD_TOP + 50.0 * ROW_PX);
     assert_eq!(container.scroll_top_writes(), 0);
     assert_eq!(renderer.backfill_anchor(), None);
@@ -107,7 +106,7 @@ fn an_incompatible_full_stays_off_dom_during_native_reading_and_reconciles_on_re
     assert_eq!(snapshot.reconciled_mode, mode(false, false, false));
 
     assert_eq!(renderer.prepare_live_interaction(), RESUMED);
-    assert_ne!(viewport.children()[0], held_row);
+    assert_ne!(vp_rows(&container)[0], held_row);
     let frame = renderer.current_frame().unwrap();
     assert_eq!((frame.grid_epoch.as_str(), frame.seq), ("test-grid:1", 4));
     assert_eq!(renderer.reader_intent(), ReaderIntent::Live);
@@ -124,14 +123,13 @@ fn an_incompatible_full_stays_off_dom_during_native_reading_and_reconciles_on_re
 #[test]
 fn native_selection_keeps_an_incompatible_full_off_dom_until_selection_release() {
     let (container, mut renderer) = mount();
-    let viewport = vp_el(&container);
     seed_held_history(
         &mut renderer,
         80,
         vec![row(0, "selected-old")],
         rows(400, 0),
     );
-    let held_row = viewport.children()[0].clone();
+    let held_row = vp_rows(&container)[0].clone();
 
     assert_eq!(renderer.set_selection_hold(true), UNCHANGED);
     let full = CellGridFrame {
@@ -158,14 +156,14 @@ fn native_selection_keeps_an_incompatible_full_off_dom_until_selection_release()
         spans_text(&renderer.current_frame().unwrap().viewport_rows[0].spans),
         "selected-old"
     );
-    assert_eq!(viewport.children()[0], held_row);
+    assert_eq!(vp_rows(&container)[0], held_row);
 
     assert_eq!(renderer.set_selection_hold(false), RESUMED);
     assert_eq!(renderer.reader_intent(), ReaderIntent::Live);
     let frame = renderer.current_frame().unwrap();
     assert_eq!(frame.seq, 4);
     assert_eq!(spans_text(&frame.viewport_rows[0].spans), "selected-latest");
-    assert_ne!(viewport.children()[0], held_row);
+    assert_ne!(vp_rows(&container)[0], held_row);
     assert_eq!(
         renderer.reconciled_epoch_seq(),
         renderer.canonical_epoch_seq()
@@ -175,9 +173,8 @@ fn native_selection_keeps_an_incompatible_full_off_dom_until_selection_release()
 #[test]
 fn selection_release_preserves_an_independent_wheel_reader_interval() {
     let (container, mut renderer) = mount();
-    let viewport = vp_el(&container);
     seed_held_history(&mut renderer, 80, vec![row(0, "wheel-old")], rows(400, 0));
-    let held_row = viewport.children()[0].clone();
+    let held_row = vp_rows(&container)[0].clone();
     container.set_scroll_top_raw(bottom_of(&container) - 3.0 * ROW_PX);
     renderer.enter_reading(ReaderIntentReason::Wheel);
     renderer.set_selection_hold(true);
@@ -189,10 +186,10 @@ fn selection_release_preserves_an_independent_wheel_reader_interval() {
     }));
     assert_eq!(renderer.set_selection_hold(false), UNCHANGED);
     assert_eq!(renderer.reader_reason(), Some(ReaderIntentReason::Wheel));
-    assert_eq!(viewport.children()[0], held_row);
+    assert_eq!(vp_rows(&container)[0], held_row);
 
     assert_eq!(renderer.prepare_live_interaction(), RESUMED);
-    assert_ne!(viewport.children()[0], held_row);
+    assert_ne!(vp_rows(&container)[0], held_row);
 }
 
 #[test]

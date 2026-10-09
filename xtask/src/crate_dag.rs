@@ -57,6 +57,8 @@ const ALLOWED: &[(&str, &[&str])] = &[
             "roost-observability",
             "rio-vt",
             "rio-graphics",
+            "image", // PNG encoding for independently fetched terminal graphics.
+            "sha2",
         ],
     ),
     // `roost-platform` is here for ONE thing: `HostPlatform::as_str()` is the

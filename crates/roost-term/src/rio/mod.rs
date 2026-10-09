@@ -16,6 +16,7 @@
 //! block must be answered in stream order.
 
 pub(crate) mod cell;
+pub(crate) mod images;
 pub(crate) mod listener;
 mod prompt_marks;
 mod prompt_marks_apply;
@@ -61,6 +62,7 @@ pub struct RioCore {
     command_lifecycle: prompt_marks_apply::CommandLifecycle,
     /// Live shell command lifecycle events not yet taken by the worker.
     command_events: VecDeque<CommandEvent>,
+    images: images::ImageStore,
 }
 
 impl RioCore {
@@ -95,6 +97,7 @@ impl RioCore {
             command_lifecycle: prompt_marks_apply::CommandLifecycle::default(),
             command_events: VecDeque::new(),
             dirty: Vec::new(),
+            images: images::ImageStore::default(),
         }
     }
 }
@@ -252,6 +255,26 @@ impl TerminalCore for RioCore {
     fn kitty_keyboard_flags(&self) -> u8 {
         self.term.keyboard_mode().bits() & 0x1f
     }
+    fn image_placements(&self) -> Vec<crate::core::CoreImagePlacement> {
+        self.images.placements(&self.term)
+    }
+
+    fn image_png(&mut self, image_key: u64) -> Option<std::sync::Arc<[u8]>> {
+        self.images.png(image_key)
+    }
+
+    fn take_image_changes(&mut self) -> bool {
+        let graphics_dirty = self.term.graphics.kitty_graphics_dirty;
+        self.term.graphics.kitty_graphics_dirty = false;
+        let current = self.images.placements(&self.term);
+        let placements_changed = self
+            .images
+            .last_placements
+            .as_ref()
+            .is_some_and(|previous| previous != &current);
+        self.images.last_placements = Some(current);
+        self.images.take_changed() || graphics_dirty || placements_changed
+    }
 }
 
 impl RioCore {
@@ -266,7 +289,9 @@ impl RioCore {
         }
         self.advance(&bytes[start..]);
         self.queues.unhandled.refresh(&mut self.unhandled);
-        self.queues.graphics.take();
+        for graphics in self.queues.graphics.take() {
+            self.images.ingest(graphics, &self.term);
+        }
         self.snapshot_damage();
     }
 

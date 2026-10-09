@@ -16,6 +16,7 @@ pub mod pairing;
 pub mod sessions;
 pub mod settings;
 pub mod tasks;
+pub mod terminal_image;
 pub mod terminal_pane;
 pub mod ui_state;
 pub mod workspaces;

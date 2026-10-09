@@ -137,7 +137,7 @@ async fn the_five_worker_arms_refuse_when_no_caller_is_on_the_request() {
 }
 
 #[tokio::test]
-async fn the_three_scrollback_arms_refuse_when_no_caller_is_on_the_request() {
+async fn terminal_scrollback_and_image_arms_refuse_when_no_caller_is_on_the_request() {
     let fixture = ServiceFixture::new("scrollback-refusal").await;
 
     service_request!(cells, roost_proto::SessionsGetScrollbackCellsRequest);
@@ -149,6 +149,16 @@ async fn the_three_scrollback_arms_refuse_when_no_caller_is_on_the_request() {
         panic!("SessionsGetScrollbackCells must refuse without a caller");
     };
     assert_named_refusal(error, "SessionsGetScrollbackCells");
+
+    service_request!(image, roost_proto::SessionsGetTerminalImageRequest);
+    let Err(error) = fixture
+        .service
+        .sessions_get_terminal_image(RequestContext::default(), image)
+        .await
+    else {
+        panic!("SessionsGetTerminalImage must refuse without a caller");
+    };
+    assert_named_refusal(error, "SessionsGetTerminalImage");
 
     service_request!(search, roost_proto::SessionsSearchScrollbackRequest);
     let Err(error) = fixture

@@ -58,6 +58,10 @@ impl CellEmitter {
             warn!(%channel_id, len = chunk.len(), "PTY output arrived with no cell sink registered");
         }
         let accepted = self.route_chunk_to_cells(record, input_echo, false, now_ms, now);
+        let image_changed = record.terminal_core.take_image_changes();
+        if image_changed && accepted {
+            self.schedule_cell_emission(record, input_echo, now_ms, now);
+        }
         self.observe_upstream(channel_id, end_seq, chunk, events, now_ms);
         tracing::trace!(%channel_id, len = chunk.len(), end_seq, accepted, "a PTY chunk was ingested");
         if accepted {

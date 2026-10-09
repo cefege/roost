@@ -4,12 +4,15 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_client_core::client::rpc::UnaryMethod;
+use roost_client_core::client::rpc::calls::terminal_image::TerminalImage;
 use roost_client_core::client::rpc::calls::terminal_pane::{CursorPos, ScrollbackCells};
 use roost_proto::buffa::Message;
 use roost_proto::{
     PbCellRow, PbCellSpan, ScrollbackHistoryFloor as PbFloor, SessionsCursorPosRequest,
     SessionsGetScrollbackCellsRequest, SessionsGetScrollbackCellsResponse,
+    SessionsGetTerminalImageRequest, SessionsGetTerminalImageResponse,
 };
+
 use roost_protocol::terminal_search::ScrollbackHistoryFloor;
 
 fn row(index: u32, text: &str, fg: u32) -> PbCellRow {
@@ -104,4 +107,28 @@ fn a_cursor_report_carries_the_column_and_row() {
         (sent.session_id.as_str(), sent.col, sent.row),
         ("s-2", 12, 3)
     );
+}
+#[test]
+fn an_image_request_names_the_session_and_retained_image_key() {
+    let call = TerminalImage {
+        session_id: "s-image".to_owned(),
+        image_key: 0x1020_3040_5060_7080,
+    };
+    let sent = SessionsGetTerminalImageRequest::decode_from_slice(&call.encode_request().unwrap())
+        .unwrap();
+    assert_eq!(
+        (sent.session_id.as_str(), sent.image_key),
+        ("s-image", 0x1020_3040_5060_7080)
+    );
+}
+
+#[test]
+fn an_image_response_decodes_its_png_bytes() {
+    let png = vec![0x89, b'P', b'N', b'G', 0, 0xff];
+    let body = SessionsGetTerminalImageResponse {
+        png: png.clone(),
+        ..Default::default()
+    }
+    .encode_to_vec();
+    assert_eq!(TerminalImage::decode_response(&body).unwrap(), png);
 }

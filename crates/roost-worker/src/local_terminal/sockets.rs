@@ -181,6 +181,7 @@ impl LocalTerminalSockets {
             }
             ClientFrame::Input(command) => self.start_input(&session, *command),
             ClientFrame::Scrollback(request) => self.start_scrollback(&session, *request),
+            ClientFrame::ImageRequest(request) => self.start_image(&session, *request),
             ClientFrame::InputRouteClaim(claim) => self.start_claim(&session, *claim),
             ClientFrame::TransportProbe(probe) => self.probe(&session, &probe),
         }

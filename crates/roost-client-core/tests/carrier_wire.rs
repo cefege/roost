@@ -17,7 +17,7 @@ use roost_proto::__buffa::oneof::local_terminal_client_frame::Frame as ClientFra
 use roost_proto::__buffa::oneof::local_terminal_server_frame::Frame as ServerFrame;
 use roost_proto::buffa::Message;
 use roost_proto::{
-    InputAccepted, InputAmbiguous, InputRejected, LocalScrollbackResponse,
+    InputAccepted, InputAmbiguous, InputRejected, LocalImageResponse, LocalScrollbackResponse,
     LocalTerminalClientFrame, LocalTerminalReady, LocalTerminalServerFrame,
 };
 
@@ -265,4 +265,73 @@ fn a_history_read_names_its_request_and_the_epoch_it_pages() {
     assert_eq!(read.session_id, "session-a");
     assert_eq!((read.end_row, read.max_rows), (400, 200));
     assert_eq!(read.grid_epoch, "epoch-7");
+}
+#[test]
+fn an_image_command_encodes_its_request_and_local_image_fields() {
+    let bytes = encode_direct_command(&DirectCommand::TerminalImage {
+        request_id: "request-image".to_owned(),
+        session_id: "session-image".to_owned(),
+        image_key: 0x1020_3040_5060_7080,
+    });
+    let client = LocalTerminalClientFrame::decode_from_slice(&bytes).unwrap();
+    let Some(ClientFrame::ImageRequest(request)) = client.frame else {
+        panic!("image command did not encode as an image request");
+    };
+    assert_eq!(
+        (
+            request.request_id.as_str(),
+            request.session_id.as_str(),
+            request.image_key,
+        ),
+        ("request-image", "session-image", 0x1020_3040_5060_7080)
+    );
+}
+
+#[test]
+fn an_image_answer_preserves_its_correlation_and_is_not_a_sync_frame() {
+    let inbound = decode_server_frame(
+        &encode_server(ServerFrame::ImageResponse(Box::new(LocalImageResponse {
+            request_id: "request-image".to_owned(),
+            session_id: "session-image".to_owned(),
+            image_key: 0x1020_3040_5060_7080,
+            png: vec![0x89, b'P', b'N', b'G'],
+            error: String::new(),
+            ..Default::default()
+        }))),
+        true,
+    )
+    .unwrap();
+    let DirectInbound::TerminalImage(image) = inbound else {
+        panic!("image response did not decode as a terminal image");
+    };
+    assert_eq!(image.request_id, "request-image");
+    assert_eq!(image.session_id, "session-image");
+    assert_eq!(image.image_key, 0x1020_3040_5060_7080);
+    assert_eq!(image.png, [0x89, b'P', b'N', b'G']);
+    assert!(image.error.is_empty());
+    assert!(
+        DirectInbound::TerminalImage(image)
+            .as_sync_frame(42)
+            .is_none()
+    );
+
+    let refusal = decode_server_frame(
+        &encode_server(ServerFrame::ImageResponse(Box::new(LocalImageResponse {
+            request_id: "request-refused".to_owned(),
+            session_id: "session-refused".to_owned(),
+            image_key: 7,
+            error: "image expired".to_owned(),
+            ..Default::default()
+        }))),
+        true,
+    )
+    .unwrap();
+    let DirectInbound::TerminalImage(refusal) = refusal else {
+        panic!("image refusal did not decode as a terminal image");
+    };
+    assert_eq!(refusal.request_id, "request-refused");
+    assert_eq!(refusal.session_id, "session-refused");
+    assert_eq!(refusal.image_key, 7);
+    assert!(refusal.png.is_empty());
+    assert_eq!(refusal.error, "image expired");
 }

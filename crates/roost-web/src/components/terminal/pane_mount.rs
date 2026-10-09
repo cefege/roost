@@ -14,6 +14,8 @@ mod clipboard_actions;
 mod cursor_report;
 mod echo;
 mod find_io;
+#[cfg(target_arch = "wasm32")]
+mod image_io;
 mod input;
 mod interactions;
 mod ligatures;
@@ -98,6 +100,8 @@ pub(super) struct PaneState {
     pub backfill: ScrollbackBackfill,
     pub find: find_io::PaneFind,
     pub prompt_seek: prompt_jump::PromptSeek,
+    #[cfg(target_arch = "wasm32")]
+    pub image_reads: std::collections::HashSet<u64>,
     pub view_opened: bool,
     pub published: Option<(u32, u32)>,
     pub has_reconciled_frame: bool,
@@ -232,6 +236,8 @@ impl PaneMount {
                     &init.session_id,
                     &crate::platform::terminal_view_id::mint_view_id().unwrap_or_default(),
                 ),
+                #[cfg(target_arch = "wasm32")]
+                image_reads: std::collections::HashSet::new(),
                 prompt_seek: prompt_jump::PromptSeek::default(),
                 view_opened: false,
                 published: None,

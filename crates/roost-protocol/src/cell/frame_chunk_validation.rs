@@ -344,6 +344,8 @@ pub fn has_same_snapshot_metadata(a: &PbCellGridFrame, b: &PbCellGridFrame) -> b
         && a.worker_emit_ms == b.worker_emit_ms
         && a.coord_recv_ms == b.coord_recv_ms
         && a.coord_fanout_ms == b.coord_fanout_ms
+        && a.image_placements_present == b.image_placements_present
+        && a.image_placements == b.image_placements
 }
 
 /// A value as the wire spells a quoted string, for a reason that names it.

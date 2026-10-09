@@ -24,13 +24,13 @@ use roost_proto::__buffa::oneof::local_terminal_client_frame::Frame as ClientFra
 use roost_proto::__buffa::oneof::local_terminal_server_frame::Frame as ServerFrame;
 use roost_proto::buffa::Message;
 use roost_proto::{
-    InputCommand, LocalScrollbackRequest, LocalTerminalClientFrame, LocalTerminalClosed,
-    LocalTerminalHello, LocalTerminalReady, LocalTerminalServerFrame, TerminalInputRouteClaim,
-    TerminalResyncCommand, TerminalTransportProbe, TerminalViewCommand,
+    InputCommand, LocalImageRequest, LocalScrollbackRequest, LocalTerminalClientFrame,
+    LocalTerminalClosed, LocalTerminalHello, LocalTerminalReady, LocalTerminalServerFrame,
+    TerminalInputRouteClaim, TerminalResyncCommand, TerminalTransportProbe, TerminalViewCommand,
 };
 
 use crate::client::carriers::ReadyTuple;
-use crate::client::carriers::inbound::{DirectInbound, DirectScrollback};
+use crate::client::carriers::inbound::{DirectInbound, DirectScrollback, DirectTerminalImage};
 use crate::client::local::door::LoopbackReady;
 use crate::client::rpc::calls::terminal_pane::direct_scrollback_page;
 use crate::effect::DirectCommand;
@@ -122,6 +122,16 @@ pub fn encode_direct_command(command: &DirectCommand) -> Vec<u8> {
             end_row: *end_row,
             max_rows: *max_rows,
             grid_epoch: grid_epoch.clone(),
+            ..Default::default()
+        })),
+        DirectCommand::TerminalImage {
+            request_id,
+            session_id,
+            image_key,
+        } => ClientFrame::ImageRequest(Box::new(LocalImageRequest {
+            request_id: request_id.clone(),
+            session_id: session_id.clone(),
+            image_key: *image_key,
             ..Default::default()
         })),
         DirectCommand::TransportProbe {
@@ -288,6 +298,13 @@ pub fn decode_server_frame(bytes: &[u8], authenticated: bool) -> Result<DirectIn
         ServerFrame::Scrollback(response) => DirectInbound::Scrollback(DirectScrollback {
             request_id: response.request_id.clone(),
             page: direct_scrollback_page(*response),
+        }),
+        ServerFrame::ImageResponse(response) => DirectInbound::TerminalImage(DirectTerminalImage {
+            request_id: response.request_id,
+            session_id: response.session_id,
+            image_key: response.image_key,
+            png: response.png,
+            error: response.error,
         }),
     })
 }

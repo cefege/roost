@@ -46,7 +46,9 @@ pub use scratch::scratch_root;
 // depend on which test happens to be compiling.
 #[allow(unused_imports)]
 pub use dispatch::{base64_decode, command, dispatch, floor, frame_of, only};
-pub use fakes::{FakeDiagnostics, FakeGrid, FakePresence, FakeSearch, FakeSessions};
+pub use fakes::{
+    FakeDiagnostics, FakeGrid, FakePresence, FakeSearch, FakeSessions, FakeTerminalImages,
+};
 
 // Re-exported so a test binary can name the collaborators it drives without
 // importing four modules to reach them.
@@ -81,6 +83,7 @@ pub fn harness() -> Harness {
     let sessions = Arc::new(FakeSessions::default());
     let presence = Arc::new(FakePresence::default());
     let search = Arc::new(FakeSearch::default());
+    let images = Arc::new(FakeTerminalImages::default());
     let diagnostics = Arc::new(FakeDiagnostics::default());
     Harness {
         deps: Deps {
@@ -88,6 +91,7 @@ pub fn harness() -> Harness {
             presence: presence.clone(),
             files,
             grid: Arc::new(FakeGrid::default()),
+            images: images.clone(),
             search: search.clone(),
             searches: Arc::new(Mutex::new(Searches::new())),
             attachments,

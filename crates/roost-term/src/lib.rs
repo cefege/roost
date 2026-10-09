@@ -38,7 +38,7 @@ pub mod rio;
 pub mod row_spans;
 pub mod unhandled;
 
-pub use core::{CellData, CursorState, TerminalCore};
+pub use core::{CellData, CoreImagePlacement, CursorState, TerminalCore};
 pub use emitter::{CellEmitState, LIVE_DELTA_SCROLLBACK_ROWS_CAP, next_cell_frame};
 pub use error::{TerminalCoreError, TerminalCoreResult};
 pub use frame::{grid_delta_frame, grid_to_cell_frame, read_scrollback_range, scrollback_origin};

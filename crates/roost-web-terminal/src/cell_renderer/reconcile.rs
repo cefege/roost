@@ -52,6 +52,7 @@ impl<E: RenderElement> CellGridRenderer<E> {
         self.sync_alt_screen();
         self.pin_to_bottom(should_pin);
         self.mark_reconciled_if_current();
+        self.paint_images();
         Ok(())
     }
 
@@ -88,6 +89,7 @@ impl<E: RenderElement> CellGridRenderer<E> {
         self.sync_alt_screen();
         self.pin_to_bottom(should_pin);
         self.mark_reconciled_if_current();
+        self.paint_images();
         Ok(())
     }
 
