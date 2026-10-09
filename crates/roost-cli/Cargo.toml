@@ -18,6 +18,11 @@ path = "src/main.rs"
 
 [dependencies]
 getrandom.workspace = true
+# `roost api login` enrols an ed25519 device key and signs each call's bearer
+# with the same JWT builder the browser uses.
+ed25519-dalek.workspace = true
+base64.workspace = true
+roost-client-core.workspace = true
 roost-coord.workspace = true
 roost-host.workspace = true
 roost-keeper.workspace = true

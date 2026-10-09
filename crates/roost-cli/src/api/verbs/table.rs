@@ -228,6 +228,30 @@ pub const VERBS: &[VerbSpec] = &[
         options: &[flag("--json")],
     },
     VerbSpec {
+        verb: "login",
+        usage: "roost api login <pairing-url | token --url <origin>> [--label <name>]",
+        positionals: (1, 1),
+        options: &[valued("--url"), valued("--label")],
+    },
+    VerbSpec {
+        verb: "logout",
+        usage: "roost api logout",
+        positionals: (0, 0),
+        options: NO_OPTIONS,
+    },
+    VerbSpec {
+        verb: "devices",
+        usage: "roost api devices",
+        positionals: (0, 0),
+        options: NO_OPTIONS,
+    },
+    VerbSpec {
+        verb: "device-revoke",
+        usage: "roost api device-revoke <fingerprint|prefix|label> --yes",
+        positionals: (1, 1),
+        options: &[flag("--yes")],
+    },
+    VerbSpec {
         verb: "device-revoke-local",
         usage: "roost api device-revoke-local <fingerprint> --yes",
         positionals: (1, 1),

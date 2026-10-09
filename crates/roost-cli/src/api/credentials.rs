@@ -3,13 +3,10 @@
 //! installed coordinator definition this crate's `status` already reads, and on
 //! the two environment names the deploy group already owns.
 //!
-//! ONE CREDENTIAL, ONE NAME. v2 read a device key from `~/.roost/cli-key` and
-//! signed a JWT with it, redeeming a one-shot grant against a local
-//! coordinator database the first time it ran. Signing is an ed25519 operation
-//! and `roost-cli` has no signer, so that path is not ported: what `roost api`
-//! presents is the bearer this crate already presents for every other
-//! coordinator call. A second way to be authenticated would be a second answer
-//! to "who is asking", and the coordinator's audit row can only record one.
+//! TWO WAYS TO BE ASKED, ONE PRECEDENCE. An explicit `ROOST_CLI_TOKEN` bearer
+//! wins; otherwise the device `roost api login` enrolled (`api::cli_device`)
+//! signs a short-lived EdDSA bearer for the call, exactly as a browser does,
+//! so the coordinator's audit row names a real device either way.
 //!
 //! WHY THE INSTALLED DEFINITION IS THE FALLBACK AND NOT THE FIRST CHOICE.
 //! `roost status` reads the installed coordinator unit because that unit is
@@ -27,11 +24,20 @@ use crate::status::collect::{installed_coordinator_environment, resolve_endpoint
 
 /// The bearer this command presents, or `None` when the operator enrolled none.
 ///
-/// Read from the environment only. Nothing here opens a key file, and nothing
-/// here can put a credential on stdout: the value is handed straight to the
-/// client's default headers and is never formatted.
+/// `ROOST_CLI_TOKEN` first; otherwise a bearer the logged-in device signs for
+/// `origin`, when it was enrolled with that coordinator. Nothing here can put
+/// a credential on stdout: the value goes straight to the client's headers.
 pub fn token(env: &dyn EnvSource) -> Option<String> {
     env.get(CLI_TOKEN_ENV).filter(|value| !value.is_empty())
+}
+
+/// [`token`], falling back to the enrolled device's signed bearer.
+pub fn token_for(env: &dyn EnvSource, origin: &str, now_ms: u64) -> Option<String> {
+    token(env).or_else(|| {
+        crate::api::cli_device::load(env)
+            .filter(|device| device.origin == origin.trim_end_matches('/'))
+            .and_then(|device| device.bearer(now_ms).ok())
+    })
 }
 
 /// The coordinator this command talks to, as an origin.
@@ -48,9 +54,13 @@ pub fn origin(env: &dyn EnvSource, platform: HostPlatform) -> Result<String, Com
     if let Some(bind) = resolve_endpoint(&installed, None).coord_url {
         return Ok(bind);
     }
+    if let Some(device) = crate::api::cli_device::load(env) {
+        return Ok(device.origin);
+    }
     Err(CommandFailure::generic(format!(
-        "{COORD_URL_ENV} is empty and this machine has no installed coordinator definition naming \
-         a bind; a headless call needs a coordinator to answer"
+        "{COORD_URL_ENV} is empty, this machine has no installed coordinator definition naming \
+         a bind, and `roost api login` has enrolled no device; a headless call needs a \
+         coordinator to answer"
     )))
 }
 

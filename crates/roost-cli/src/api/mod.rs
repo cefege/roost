@@ -20,9 +20,11 @@
 pub mod agent_projection;
 pub mod agent_prompt;
 pub mod agents;
+pub mod cli_device;
 pub mod client;
 pub mod credentials;
 pub mod device;
+pub mod device_login;
 pub mod output;
 pub mod scrollback;
 pub mod sessions;
@@ -127,6 +129,10 @@ async fn dispatch(
         "task-cancel" => tasks::cancel(&link()?, &parsed, output).await,
         "ui" => ui::command(&link()?, &parsed, output).await,
         "ui-state" => ui::state(&link()?, &parsed, output).await,
+        "login" => device_login::login(&ProcessEnv::new(), &parsed, output).await,
+        "logout" => device_login::logout(&ProcessEnv::new(), output).await,
+        "devices" => device::list(&link()?, &parsed, output).await,
+        "device-revoke" => device::revoke(&link()?, &parsed, output).await,
         "device-revoke-local" => {
             let platform = roost_host::supported_host_platform()?;
             device::revoke_local(&ProcessEnv::new(), platform, &parsed, output).await

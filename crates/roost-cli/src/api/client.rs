@@ -1,7 +1,7 @@
 //! The one way `roost api` reaches a coordinator, and the one way it reads what
 //! came back. Called by every verb in the module; depends on the generated
-//! Connect client in `roost-proto`, on `api::credentials` for where to point,
-//! and on nothing else.
+//! Connect client in `roost-proto`, on `api::credentials` for where to point
+//! and what to present, and on the worker's coordinator TLS roots for https.
 //!
 //! NOTHING HERE NAMES A METHOD. Every call site writes
 //! `api.stub().sessions_list(..)` or `api.stub().agent_status_get(..)`: the
@@ -28,7 +28,6 @@ use roost_proto::roost::v1::CoordinatorServiceClient;
 
 use crate::api::credentials;
 use crate::command_error::CommandFailure;
-use crate::deploy::keeper_client::COORD_URL_ENV;
 
 /// How long one coordinator call may take before it counts as unanswered.
 ///
@@ -58,6 +57,16 @@ impl std::fmt::Debug for CoordinatorApi {
     }
 }
 
+/// TLS with the worker's coordinator trust roots for `https://`, else plaintext.
+fn transport_for(origin: &str) -> Result<HttpClient, CommandFailure> {
+    if !origin.starts_with("https://") {
+        return Ok(HttpClient::plaintext());
+    }
+    let tls = roost_worker::coordinator_tls::coordinator_tls_config()
+        .map_err(|error| CommandFailure::generic(format!("no TLS configuration: {error}")))?;
+    Ok(HttpClient::with_tls(tls))
+}
+
 impl CoordinatorApi {
     /// The coordinator this shell and this machine can name, presenting
     /// whatever bearer the operator enrolled.
@@ -66,7 +75,11 @@ impl CoordinatorApi {
         platform: HostPlatform,
     ) -> Result<Self, CommandFailure> {
         let origin = credentials::origin(env, platform)?;
-        Self::at(&origin, credentials::token(env).as_deref())
+        let now_ms = crate::api::cli_device::now_ms();
+        Self::at(
+            &origin,
+            credentials::token_for(env, &origin, now_ms).as_deref(),
+        )
     }
 
     /// A coordinator at a named origin, presenting a named bearer.
@@ -86,13 +99,6 @@ impl CoordinatorApi {
                 "the coordinator URL {origin} is not an http or https origin"
             )));
         }
-        if origin.starts_with("https://") {
-            return Err(CommandFailure::generic(format!(
-                "{origin} is https, and this build's Connect transport is plaintext-only. Point \
-                 {COORD_URL_ENV} at the coordinator's own listener, or build roost-cli with \
-                 connectrpc's `client-tls` feature."
-            )));
-        }
         let uri: Uri = origin.parse().map_err(|_| {
             CommandFailure::generic(format!("the coordinator URL {origin} cannot be parsed"))
         })?;
@@ -103,7 +109,7 @@ impl CoordinatorApi {
         };
         Ok(Self {
             origin: origin.to_string(),
-            client: CoordinatorServiceClient::new(HttpClient::plaintext(), config),
+            client: CoordinatorServiceClient::new(transport_for(origin)?, config),
         })
     }
 
