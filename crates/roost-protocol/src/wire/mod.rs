@@ -6,6 +6,7 @@
 //! session row is ever produced, in every component of every front end. A
 //! second fold anywhere else is the defect this module exists to prevent.
 
+pub mod agent_chat;
 pub mod agent_status;
 pub mod brand;
 #[cfg(test)]

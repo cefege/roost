@@ -156,6 +156,20 @@ message AgentStatusFrame {
   optional string source = 11;
   bool occupant_exited = 12;
 }
+message AgentConversation {
+  string id = 1;
+  string title = 2;
+  string worker_fp = 3;
+  string worker_label = 4;
+  string cwd = 5;
+  string model_provider = 6;
+  string model_id = 7;
+  string thinking_level = 8;
+  string run_state = 9;
+  string error = 10;
+  int64 created_ms = 11;
+  int64 updated_ms = 12;
+}
 
 
 // Sync v2 divides application traffic into independently hydrated domains.
