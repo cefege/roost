@@ -36,8 +36,9 @@ pub fn tailscale_binary_candidates(platform: HostPlatform, env: &dyn EnvSource) 
             "/usr/bin/tailscale",
             "/usr/local/bin/tailscale",
         ],
-        // Windows is paused; its installed paths are not searched.
-        HostPlatform::Windows => &[],
+        // The Tailscale MSI installs the CLI beside the GUI; a service's PATH
+        // usually lacks it.
+        HostPlatform::Windows => &["tailscale.exe", r"C:\Program Files\Tailscale\tailscale.exe"],
     };
     candidates.extend(installed.iter().map(|candidate| (*candidate).to_string()));
     candidates

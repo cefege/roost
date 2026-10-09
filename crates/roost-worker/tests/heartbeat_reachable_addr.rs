@@ -138,3 +138,23 @@ fn an_expired_name_that_no_longer_resolves_reports_unknown() {
     // by keeping the prior row value rather than clearing it.
     assert_eq!(address.current(), None);
 }
+
+/// A Windows worker finds the Tailscale CLI the MSI installs, after an
+/// explicit `ROOST_TAILSCALE_BIN`; without it the sidebar's hand-offs (VNC,
+/// Remote Desktop) have no address and stay disabled.
+#[test]
+fn a_windows_worker_searches_the_tailscale_install_path() {
+    use roost_host::HostPlatform;
+    use roost_worker::host::tailnet::{TAILSCALE_BIN_ENV, tailscale_binary_candidates};
+
+    let env = MapEnv::new().with(TAILSCALE_BIN_ENV, r"D:\tools\tailscale.exe");
+    let candidates = tailscale_binary_candidates(HostPlatform::Windows, &env);
+    assert_eq!(
+        candidates,
+        vec![
+            r"D:\tools\tailscale.exe".to_string(),
+            "tailscale.exe".to_string(),
+            r"C:\Program Files\Tailscale\tailscale.exe".to_string(),
+        ]
+    );
+}

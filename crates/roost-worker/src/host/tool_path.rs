@@ -106,6 +106,14 @@ pub fn run_bounded(
     if let Some(path) = path {
         command.env("PATH", path);
     }
+    // A worker in an interactive Windows session would otherwise flash a
+    // console window for every probe (`tailscale status` each heartbeat).
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
     let mut child = command.spawn().ok()?;
     let mut stdout = child.stdout.take()?;
     let reader = std::thread::Builder::new()
