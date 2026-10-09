@@ -228,6 +228,7 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     // the stack (moved in; reached as `owners.stack` from here on).
     let mut owners = super::owners::WorkerOwners::build(
         stack,
+        &boot.data_dir,
         &uplink,
         &boot.process_epoch,
         Arc::clone(&survivors),

@@ -19,6 +19,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod agent_host;
+pub mod agent_tunnel;
 pub mod agents;
 pub mod attachments;
 pub mod auth;

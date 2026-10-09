@@ -23,9 +23,9 @@ use crate::attachments::peer_owner::AttachmentPeerBootstrapState;
 use crate::door::loopback::{LoopbackOwner, LoopbackRoutes};
 use crate::keeper_pool::{KeeperPool, KeeperUpdateBoundary, KeeperUpdatePreparer};
 use crate::link_ports::{
-    AttachmentPeerPort, DirectTerminalPort, DownstreamOwners, KeeperUpdatePort, LinkLifecyclePort,
-    LinkLifecycles, LocalTerminalGrantPort, TerminalInputPort, TerminalPipelinePort,
-    TerminalStreamPort, TerminalViewPort,
+    AgentTunnelPort, AttachmentPeerPort, DirectTerminalPort, DownstreamOwners, KeeperUpdatePort,
+    LinkLifecyclePort, LinkLifecycles, LocalTerminalGrantPort, TerminalInputPort,
+    TerminalPipelinePort, TerminalStreamPort, TerminalViewPort,
 };
 use crate::local_terminal::{LocalTerminalDoor, LocalTerminalDoorDeps};
 use crate::peer::native::NativeLoader;
@@ -102,6 +102,7 @@ impl WorkerOwners {
     #[allow(clippy::too_many_arguments)]
     pub fn build(
         stack: SessionStack,
+        data_dir: &std::path::Path,
         uplink: &Uplink,
         process_epoch: &str,
         pool: Arc<KeeperPool>,
@@ -219,9 +220,14 @@ impl WorkerOwners {
         );
 
         let agent_report = AgentReportServer::start_for_worker(&stack.agent_environment, &agents);
+        let agent_tunnel = Arc::new(crate::runtime::agent_tunnel::AgentTunnelOwner::new(
+            data_dir.join("agent-env"),
+            uplink.clone(),
+        )) as Arc<dyn AgentTunnelPort>;
         register_session_closed(&stack, &routes, &view);
 
         let downstream = DownstreamOwners {
+            agent_tunnel: Some(Arc::clone(&agent_tunnel)),
             input: Arc::new(input) as Arc<dyn TerminalInputPort>,
             stream: Arc::new(StreamOwner::new(Arc::clone(&stack.manager)))
                 as Arc<dyn TerminalStreamPort>,

@@ -125,6 +125,13 @@ impl LinkLoop {
             "the coordinator link detached; its pong, control, terminal and raw frames were dropped"
         );
         self.notify_detach();
+        if let Some(owner) = self
+            .dispatcher
+            .owners()
+            .and_then(|owners| owners.agent_tunnel.as_ref())
+        {
+            owner.close_all();
+        }
     }
 
     /// v2 `clear`: the link is gone for good, so a reconcile waiting for its

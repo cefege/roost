@@ -13,10 +13,10 @@
 //! the hub owns every question about whether the report may be applied.
 //!
 //! NEITHER ARM OWNS A SOCKET. Both resolve to synchronous coordinator state —
-//! the byte hub, the view hub, a bus, the pending-RPC table — and neither can
-//! ask for a close it does not understand. An arm with no destination is
-//! `Refused`, which is the read loop's signal that this dispatcher did not
-//! handle the frame; it is not a claim that the frame was malformed.
+//! the byte hub, the view hub, a bus, the pending-RPC table, or the agent tunnel
+//! registry — and neither can ask for a close it does not understand. An arm
+//! with no destination is `Refused`, which is the read loop's signal that this
+//! dispatcher did not handle the frame; it is not a claim that it was malformed.
 
 use roost_protocol::versioning::CAPABILITY_TERMINAL_METADATA_V1;
 use roost_protocol::wire::agent_status::AgentStatusUpdate;
@@ -113,6 +113,10 @@ impl WorkerFrameDispatcher {
                     .status
                     .accept_worker_status(&self.core, &worker, value);
                 DispatchOutcome::Handled
+            }
+            CoordWorkerUpstream::AgentTunnelState(_)
+            | CoordWorkerUpstream::AgentTunnelOutput(_) => {
+                self.handle_agent_tunnel_live(worker_fp, upstream)
             }
             _ => self.refuse(channel, "live_arm_has_no_destination"),
         }

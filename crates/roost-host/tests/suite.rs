@@ -4,6 +4,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::duplicate_mod)]
 
+#[path = "agent_host_config.rs"]
+mod agent_host_config;
 #[path = "coord_config.rs"]
 mod coord_config;
 #[path = "coord_config_blank_settings.rs"]

@@ -18,9 +18,9 @@
 //!    disabled or unloadable transport is never promised.
 
 use roost_protocol::versioning::{
-    CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1, CAPABILITY_TERMINAL_INPUT_ROUTE_V1,
-    CAPABILITY_TERMINAL_METADATA_V1, CAPABILITY_TERMINAL_PEER_WEBRTC_V1,
-    CAPABILITY_TERMINAL_VIEW_OWNER_V1,
+    CAPABILITY_AGENT_TOOL_TUNNEL_V1, CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1,
+    CAPABILITY_TERMINAL_INPUT_ROUTE_V1, CAPABILITY_TERMINAL_METADATA_V1,
+    CAPABILITY_TERMINAL_PEER_WEBRTC_V1, CAPABILITY_TERMINAL_VIEW_OWNER_V1,
 };
 
 use crate::peer::DirectPeerSupport;
@@ -33,6 +33,7 @@ use crate::peer::DirectPeerSupport;
 #[must_use]
 pub fn advertised(direct: DirectPeerSupport) -> Vec<String> {
     let mut capabilities = vec![
+        CAPABILITY_AGENT_TOOL_TUNNEL_V1.to_owned(),
         CAPABILITY_TERMINAL_METADATA_V1.to_owned(),
         CAPABILITY_TERMINAL_VIEW_OWNER_V1.to_owned(),
         CAPABILITY_TERMINAL_INPUT_ROUTE_V1.to_owned(),
@@ -56,14 +57,13 @@ mod tests {
     // fleet-visible outage, and that reasoning does not reach a test.
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-    use roost_protocol::versioning::{
-        CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1, CAPABILITY_TERMINAL_INPUT_ROUTE_V1,
-        CAPABILITY_TERMINAL_METADATA_V1, CAPABILITY_TERMINAL_PEER_WEBRTC_V1,
-        CAPABILITY_TERMINAL_VIEW_OWNER_V1,
-    };
-
     use super::advertised;
     use crate::peer::DirectPeerSupport;
+    use roost_protocol::versioning::{
+        CAPABILITY_AGENT_TOOL_TUNNEL_V1, CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1,
+        CAPABILITY_TERMINAL_INPUT_ROUTE_V1, CAPABILITY_TERMINAL_METADATA_V1,
+        CAPABILITY_TERMINAL_PEER_WEBRTC_V1, CAPABILITY_TERMINAL_VIEW_OWNER_V1,
+    };
 
     const BOTH: DirectPeerSupport = DirectPeerSupport {
         terminal: true,
@@ -78,6 +78,7 @@ mod tests {
     #[test]
     fn every_advertised_name_is_the_protocols_own_spelling() {
         let known = [
+            CAPABILITY_AGENT_TOOL_TUNNEL_V1.to_owned(),
             CAPABILITY_TERMINAL_METADATA_V1.to_owned(),
             CAPABILITY_TERMINAL_VIEW_OWNER_V1.to_owned(),
             CAPABILITY_TERMINAL_INPUT_ROUTE_V1.to_owned(),

@@ -30,6 +30,7 @@
 //! the one thing the boot-facts rule exists to prevent.
 use std::sync::Arc;
 
+use crate::agent_host::AgentHostRuntime;
 use crate::agents::AgentsRuntime;
 use crate::attachments::AttachmentsRuntime;
 use crate::auth::jwt_key_cache::JwtKeyCache;
@@ -125,6 +126,8 @@ pub struct CoordServices {
     pub sessions: SessionsRuntime,
     /// Per-session agent status, its wait queues, and the agent configuration.
     pub agents: AgentsRuntime,
+    /// Agent host runtime and the internal worker-tool tunnel registry.
+    pub agent_host: Arc<AgentHostRuntime>,
     /// File RPCs, the chunk relay, direct grants, and peer negotiations.
     pub attachments: AttachmentsRuntime,
     /// Global session search across every worker, and its cancellations.
@@ -268,30 +271,35 @@ impl CoordServices {
             boot.config.as_deref(),
         );
         let deploy = DeployRuntime::new();
+        let agent_host = Arc::new(AgentHostRuntime::new());
         let catch_up_on_ready = Arc::new(crate::deploy::catchup_on_ready::CatchUpOnReady::new(
             deploy.clone(),
             db.clone(),
         ));
+        let worker_lifecycle = crate::coord_core::worker_lifecycle::WorkerLifecycle::new(vec![
+            Arc::clone(scrollback.pending())
+                as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
+            Arc::clone(sessions.pending_spawns())
+                as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
+            Arc::clone(terminal_input.route_results())
+                as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
+            Arc::clone(terminal_direct.negotiations())
+                as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
+            attachments.worker_lifecycle_observer(),
+            catch_up_on_ready
+                as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
+            Arc::clone(&agent_host)
+                as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
+        ]);
         Self {
             db,
             boot,
             write_gate: WriteGate::new(),
             jwt_keys: JwtKeyCache::new(),
-            pending_publications,
             buses,
-            worker_lifecycle: crate::coord_core::worker_lifecycle::WorkerLifecycle::new(vec![
-                Arc::clone(scrollback.pending())
-                    as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
-                Arc::clone(sessions.pending_spawns())
-                    as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
-                Arc::clone(terminal_input.route_results())
-                    as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
-                Arc::clone(terminal_direct.negotiations())
-                    as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
-                attachments.worker_lifecycle_observer(),
-                catch_up_on_ready
-                    as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
-            ]),
+            pending_publications,
+            worker_lifecycle,
+            agent_host,
             diag_pipelines: WorkerTerminalPipelineSnapshotCache::new(scrollback.clone()),
             terminal_capture,
             scrollback,

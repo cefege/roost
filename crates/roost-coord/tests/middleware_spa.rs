@@ -264,6 +264,13 @@ async fn the_api_namespace_and_the_sockets_are_not_pages() {
     let unknown_api = fixture.get("/api/nope");
     assert_eq!(unknown_api.status, 404);
 
+    let internal = fixture.get("/internal/agent-env/worker");
+    assert_eq!(internal.status, 404);
+    assert!(
+        !internal.body.contains("<title>roost</title>"),
+        "an internal coordinator route must not resolve as a page"
+    );
+
     // A socket handshake is not a page request: the upgrade either happens or
     // it is refused, and neither answer is a 200 with the shell in it.
     let socket = fixture.request("GET", "/ws/coord-sync", &[]);

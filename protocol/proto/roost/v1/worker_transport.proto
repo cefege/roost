@@ -17,6 +17,28 @@ import "roost/v1/attachment_transfer.proto";
 
 // ── Upstream (worker → coord) ────────────────────────────────────
 
+// C2 shared agent-tool tunnel traffic. Byte payloads are opaque to the
+// coordinator; tunnel lifecycle state is explicit and correlated by tunnel_id.
+enum AgentTunnelState {
+  AGENT_TUNNEL_STATE_UNSPECIFIED = 0;
+  AGENT_TUNNEL_STATE_OPENED = 1;
+  AGENT_TUNNEL_STATE_NEED_DAEMON = 2;
+  AGENT_TUNNEL_STATE_CLOSED = 3;
+}
+message WAgentTunnelState {
+  string tunnel_id = 1;
+  AgentTunnelState state = 2;
+  string platform = 3;
+  int32 exit_code = 4;
+  string error = 5;
+}
+message WAgentTunnelOutput {
+  string tunnel_id = 1;
+  bool stderr = 2;
+  bytes data = 3;
+}
+
+
 message WHello {
   string worker_fp = 1;
   string version = 2;
@@ -297,6 +319,8 @@ message CoordWorkerUp {
     WLocalAttachmentPeerAnswer local_attachment_peer_answer = 27;
     WLocalAttachmentPeerError local_attachment_peer_error = 28;
     WAttachmentDirectStatus attachment_direct_status = 29;
+    WAgentTunnelState agent_tunnel_state = 31;
+    WAgentTunnelOutput agent_tunnel_output = 32;
   }
 }
 
@@ -567,6 +591,22 @@ message DTerminalDirectRetire {
   string reason = 2;
 }
 
+message DAgentTunnelOpen {
+  string tunnel_id = 1;
+  repeated string args = 2;
+  map<string, string> daemon_sha256 = 3;
+}
+message DAgentTunnelInput {
+  string tunnel_id = 1;
+  bytes data = 2;
+}
+message DAgentTunnelDaemonChunk {
+  string tunnel_id = 1;
+  bytes data = 2;
+  bool last = 3;
+}
+message DAgentTunnelClose { string tunnel_id = 1; }
+
 message CoordWorkerDown {
   reserved 11;
   reserved "viewport_request";
@@ -602,6 +642,10 @@ message CoordWorkerDown {
     DLocalAttachmentGrant local_attachment_grant = 29;
     DLocalAttachmentGrantRevoke local_attachment_grant_revoke = 31;
     DAttachmentDirectStatusRequest attachment_direct_status_request = 32;
+    DAgentTunnelOpen agent_tunnel_open = 33;
+    DAgentTunnelInput agent_tunnel_input = 34;
+    DAgentTunnelDaemonChunk agent_tunnel_daemon_chunk = 35;
+    DAgentTunnelClose agent_tunnel_close = 36;
   }
 }
 

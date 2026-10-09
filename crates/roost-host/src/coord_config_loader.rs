@@ -86,6 +86,12 @@ pub const ENV_COORD_TERMINAL_MEMORY_BUDGET_BYTES: &str = "ROOST_COORD_TERMINAL_M
 /// Exactly `0` or `1`: whether the direct WebRTC terminal carrier is offered.
 pub const ENV_TERMINAL_PEER_ENABLED: &str = "ROOST_TERMINAL_PEER_ENABLED";
 
+/// The internal agent host HTTP endpoint.
+pub const ENV_AGENT_HOST_URL: &str = "ROOST_AGENT_HOST_URL";
+
+/// The bearer secret shared with the internal agent host.
+pub const ENV_AGENT_HOST_SECRET: &str = "ROOST_AGENT_HOST_SECRET";
+
 /// A comma-separated list of operator-declared `stun:` URLs.
 pub const ENV_TERMINAL_PEER_STUN_URLS: &str = "ROOST_TERMINAL_PEER_STUN_URLS";
 
@@ -146,6 +152,8 @@ pub fn load_coord_config(
             env.get(ENV_COORDINATOR_PUBLIC_URL).as_deref(),
             ENV_COORDINATOR_PUBLIC_URL,
         )?,
+        agent_host_url: agent_host_url(env)?,
+        agent_host_secret: declared_or_absent(env, ENV_AGENT_HOST_SECRET),
         terminal_memory_budget_bytes: integer_env(env, ENV_COORD_TERMINAL_MEMORY_BUDGET_BYTES)?,
         terminal_peer_enabled: Some(parse_terminal_peer_enabled(
             env.get(ENV_TERMINAL_PEER_ENABLED).as_deref(),
@@ -156,6 +164,30 @@ pub fn load_coord_config(
     })?;
     apply_listener_policy(&config)?;
     Ok(config)
+}
+
+/// Resolve the optional internal host endpoint and enforce the URL/secret pair.
+fn agent_host_url(env: &dyn EnvSource) -> ProtocolResult<Option<String>> {
+    let url = declared_or_absent(env, ENV_AGENT_HOST_URL);
+    let secret = declared_or_absent(env, ENV_AGENT_HOST_SECRET);
+    if url.is_some() != secret.is_some() {
+        return Err(ProtocolError::new(
+            ENV_AGENT_HOST_SECRET,
+            format!("{ENV_AGENT_HOST_URL} and {ENV_AGENT_HOST_SECRET} must be set together"),
+        ));
+    }
+    if let Some(secret) = secret.as_deref()
+        && secret.len() < 32
+    {
+        return Err(ProtocolError::new(
+            ENV_AGENT_HOST_SECRET,
+            "must contain at least 32 bytes",
+        ));
+    }
+    if let Some(url) = url.as_deref() {
+        validate_bare_http_origin(url, ENV_AGENT_HOST_URL)?;
+    }
+    Ok(url)
 }
 
 /// The Postgres URL when one is declared, else the SQLite file.

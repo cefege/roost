@@ -41,6 +41,8 @@ const UPSTREAM_FIELD_NUMBERS: &[(&str, u32)] = &[
     ("local-attachment-peer-error", 28),
     ("attachment-direct-status", 29),
     ("update-progress", 30),
+    ("agent-tunnel-state", 31),
+    ("agent-tunnel-output", 32),
 ];
 
 /// `CoordWorkerDown`'s oneof arms. Field 11 is `reserved`, so a peer that
@@ -77,6 +79,10 @@ const DOWNSTREAM_FIELD_NUMBERS: &[(&str, u32)] = &[
     ("update-broker", 30),
     ("local-attachment-grant-revoke", 31),
     ("attachment-direct-status-request", 32),
+    ("agent-tunnel-open", 33),
+    ("agent-tunnel-input", 34),
+    ("agent-tunnel-daemon-chunk", 35),
+    ("agent-tunnel-close", 36),
 ];
 
 /// The field number of a length-delimited protobuf field, read off the wire.
