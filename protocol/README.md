@@ -19,6 +19,7 @@
 | Literal | Meaning | Rust source |
 | --- | --- | --- |
 | `attachment-transfer-peer-webrtc-v1` | Worker capability for the attachment-specific WebRTC carrier. | `crates/roost-protocol/src/versioning.rs` |
+| `agent_tool_tunnel_v1` | Worker capability for the shared agent-tool tunnel. | `crates/roost-protocol/src/versioning.rs` |
 | `roost-local-attachment-transfer-v1` | Worker loopback WebSocket subprotocol for attachment transfer. | `crates/roost-protocol/src/versioning.rs` |
 | `roost-attachment-control-v1` | Ordered attachment WebRTC control-channel label. | `crates/roost-protocol/src/versioning.rs` |
 | `roost-attachment-data-v1` | Ordered attachment WebRTC data-channel label. | `crates/roost-protocol/src/versioning.rs` |

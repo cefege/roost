@@ -1,6 +1,6 @@
-//! The coordinator's HTTP listener: the Connect mount, the two WebSocket
-//! upgrades, the export route, the middleware stack in front of all of it, and
-//! the order they are tried in.
+//! The coordinator's HTTP listener: the Connect mount, its WebSocket upgrades,
+//! the export route, the middleware stack in front of all of it, and the order
+//! they are tried in.
 //!
 //! Owned by the coordinator. `serve` builds one and hands it to the runtime; the
 //! upgrade DECISIONS live in `http::upgrade`, the Host/Origin gate's decisions
@@ -14,7 +14,7 @@
 //! Outside in:
 //!
 //! 1. `middleware::admission_layer` -- the Host/Origin gate. Outermost, and
-//!    around the whole router rather than around the two upgrade routes alone,
+//!    around the whole router rather than around the upgrade routes alone,
 //!    because v2 runs it first thing in the fetch handler: a request it refuses
 //!    must not reach Connect either, or the same DNS-rebinding request is one
 //!    RPC path removed from a refused one.
@@ -33,7 +33,7 @@
 //! 6. `http::spa` -- the browser's front door, inside the audit mount so a page
 //!    load is audited like every other non-Connect response, and OUTSIDE
 //!    Connect because a path is a page before it is an RPC.
-//! 7. The two WebSocket upgrades, then the retired Connect `Sync`, then Connect
+//! 7. The WebSocket upgrades, then the retired Connect `Sync`, then Connect
 //!    itself, then the export route, then the namespace misses.
 //!
 //! `Router::layer` wraps what is already there, so the LAST layer applied is
@@ -217,9 +217,13 @@ pub fn build_router(state: Arc<ListenerState>) -> MountedListener {
     // meets.
     let router = Router::new()
         .route(SYNC_WS_PATH, get(sync_upgrade))
+        .route(RETIRED_SYNC_PATH, get(retired_sync))
         .route("/ws/coord-worker/{fingerprint}", get(worker_upgrade))
+        .route(
+            "/internal/agent-env/{worker_fp}",
+            get(crate::agent_tunnel::agent_env_upgrade),
+        )
         .route(DB_EXPORT_PATH, get(db_export).head(db_export))
-        .route(RETIRED_SYNC_PATH, axum::routing::post(retired_sync))
         .merge(crate::http::health::health_routes())
         .fallback_service(connect)
         // The SPA is the fallback for the paths nothing above claims, and it is
@@ -282,6 +286,7 @@ pub fn mounted_paths() -> Vec<&'static str> {
     vec![
         SYNC_WS_PATH,
         "/ws/coord-worker/{fingerprint}",
+        "/internal/agent-env/{worker_fp}",
         DB_EXPORT_PATH,
         RETIRED_SYNC_PATH,
         HEALTHZ_PATH,

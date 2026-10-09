@@ -25,9 +25,10 @@ mod upstream;
 
 pub use downstream::CoordWorkerDownstream;
 pub use payloads::{
-    AgentStatusFrame, Binary, EventAck, InputResult, RefreshJwt, TerminalInputStatus,
-    TerminalMetadata, TerminalSnapshotRequest, TerminalStreamFailureKind, TerminalStreamResult,
-    TerminalStreamStatus, TerminalWritePhase, UpdateProgress,
+    AgentStatusFrame, AgentTunnelOutput, AgentTunnelState, AgentTunnelStateFrame, Binary, EventAck,
+    InputResult, RefreshJwt, TerminalInputStatus, TerminalMetadata, TerminalSnapshotRequest,
+    TerminalStreamFailureKind, TerminalStreamResult, TerminalStreamStatus, TerminalWritePhase,
+    UpdateProgress,
 };
 pub use upstream::CoordWorkerUpstream;
 

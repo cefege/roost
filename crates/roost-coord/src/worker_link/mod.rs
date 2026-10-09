@@ -19,6 +19,7 @@
 //! message, and its `TerminalInputRouteResultSink` is
 //! `terminal_input::route_results`.
 
+mod agent_tunnel_live_frames;
 pub mod announced_barrier;
 mod announced_channel;
 mod announced_lane;

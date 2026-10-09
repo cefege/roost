@@ -46,6 +46,8 @@ mod agent_status_registry_identity;
 mod agent_status_screen_gate;
 #[path = "agent_status_stable_transitions.rs"]
 mod agent_status_stable_transitions;
+#[path = "agent_tunnel.rs"]
+mod agent_tunnel;
 #[path = "attachment_direct_socket.rs"]
 mod attachment_direct_socket;
 #[path = "attachment_grants.rs"]

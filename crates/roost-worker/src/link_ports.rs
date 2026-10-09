@@ -236,10 +236,20 @@ pub trait KeeperUpdatePort: Send + Sync + std::fmt::Debug {
     ) -> OwnerFuture<Result<serde_json::Value, String>>;
 }
 
+/// Worker-owned opaque agent tunnel processes.
+pub trait AgentTunnelPort: Send + Sync + std::fmt::Debug {
+    fn open(&self, request: roost_proto::DAgentTunnelOpen);
+    fn input(&self, request: roost_proto::DAgentTunnelInput);
+    fn daemon_chunk(&self, request: roost_proto::DAgentTunnelDaemonChunk);
+    fn close(&self, request: roost_proto::DAgentTunnelClose);
+    fn close_all(&self);
+}
+
 /// Every owner a downstream frame can route to.
 #[derive(Clone, Debug)]
 pub struct DownstreamOwners {
     pub input: Arc<dyn TerminalInputPort>,
+    pub agent_tunnel: Option<Arc<dyn AgentTunnelPort>>,
     pub stream: Arc<dyn TerminalStreamPort>,
     pub pipeline: Arc<dyn TerminalPipelinePort>,
     pub view: Arc<dyn TerminalViewPort>,

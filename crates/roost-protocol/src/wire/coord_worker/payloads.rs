@@ -23,45 +23,18 @@ use crate::wire::coord_worker::{DIR_FROM_PTY, DIR_TO_PTY};
 use crate::{ProtocolError, ProtocolResult};
 
 pub use roost_proto::{
-    // Downstream arms with no domain owner yet.
-    DAgentPrompt,
-    DAttachmentChunk,
-    DAttachmentDirectStatusRequest,
-    DCoordMovePrepare,
-    DCoordMoveSnapshotChunk,
-    DCoordMoveSnapshotStart,
-    DCoordRelocate,
-    DInputRequest,
-    DKeeperUpdatePrepare,
-    DLocalAttachmentGrant,
-    DLocalAttachmentGrantRevoke,
-    DLocalAttachmentPeerCancel,
-    DLocalAttachmentPeerOffer,
-    DLocalTerminalGrant,
-    DLocalTerminalGrantRevoke,
-    DLocalTerminalPeerCancel,
-    DLocalTerminalPeerOffer,
-    DTerminalDirectRetire,
-    DTerminalInputRouteClaim,
-    DTerminalPipelineSnapshotRequest,
-    DTerminalStreamState,
-    DTerminalTransportProbe,
-    DTerminalViewRelay,
-    DTerminalViewSocketClosed,
-    DUpdateBroker,
-    // Upstream arms with no domain owner yet.
-    WAttachmentDirectStatus,
-    WCellGrid,
-    WCellGridChunk,
-    WLocalAttachmentPeerAnswer,
-    WLocalAttachmentPeerError,
-    WLocalTerminalPeerAnswer,
-    WLocalTerminalPeerError,
-    WTerminalInputRouteResult,
-    WTerminalPipelineSnapshot,
-    WTerminalTransportProbeResult,
-    WTerminalViewProjection,
-    WTerminalViewState,
+    DAgentPrompt, DAgentTunnelClose, DAgentTunnelDaemonChunk, DAgentTunnelInput, DAgentTunnelOpen,
+    DAttachmentChunk, DAttachmentDirectStatusRequest, DCoordMovePrepare, DCoordMoveSnapshotChunk,
+    DCoordMoveSnapshotStart, DCoordRelocate, DInputRequest, DKeeperUpdatePrepare,
+    DLocalAttachmentGrant, DLocalAttachmentGrantRevoke, DLocalAttachmentPeerCancel,
+    DLocalAttachmentPeerOffer, DLocalTerminalGrant, DLocalTerminalGrantRevoke,
+    DLocalTerminalPeerCancel, DLocalTerminalPeerOffer, DTerminalDirectRetire,
+    DTerminalInputRouteClaim, DTerminalPipelineSnapshotRequest, DTerminalStreamState,
+    DTerminalTransportProbe, DTerminalViewRelay, DTerminalViewSocketClosed, DUpdateBroker,
+    WAttachmentDirectStatus, WCellGrid, WCellGridChunk, WLocalAttachmentPeerAnswer,
+    WLocalAttachmentPeerError, WLocalTerminalPeerAnswer, WLocalTerminalPeerError,
+    WTerminalInputRouteResult, WTerminalPipelineSnapshot, WTerminalTransportProbeResult,
+    WTerminalViewProjection, WTerminalViewState,
 };
 
 /// PTY bytes in flight between the two ends of the link. `seq` is the keeper
@@ -332,4 +305,28 @@ pub struct TerminalStreamResult {
     /// and a committed stream has no failure to name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure_kind: Option<TerminalStreamFailureKind>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum AgentTunnelState {
+    Opened,
+    NeedDaemon,
+    Closed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentTunnelStateFrame {
+    pub tunnel_id: String,
+    pub state: AgentTunnelState,
+    pub platform: String,
+    pub exit_code: i32,
+    pub error: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentTunnelOutput {
+    pub tunnel_id: String,
+    pub stderr: bool,
+    pub data: Vec<u8>,
 }

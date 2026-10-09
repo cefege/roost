@@ -13,6 +13,7 @@
 //! arrived on.
 
 mod agent_prompt;
+mod agent_tunnel;
 mod attachment_peer;
 mod attachments;
 mod direct;
@@ -170,11 +171,16 @@ impl Dispatcher {
                 self.terminal_direct_retire(&request);
             }
             CoordWorkerDownstream::AttachmentChunk(chunk) => self.attachment_chunk(chunk),
-            // v2 has no case for these: a retired schema tag stays inert.
-            CoordWorkerDownstream::CoordMovePrepare(_) => retired(kind),
-            CoordWorkerDownstream::CoordMoveSnapshotStart(_) => retired(kind),
-            CoordWorkerDownstream::CoordMoveSnapshotChunk(_) => retired(kind),
-            CoordWorkerDownstream::CoordRelocate(_) => retired(kind),
+            frame @ (CoordWorkerDownstream::CoordMovePrepare(_)
+            | CoordWorkerDownstream::CoordMoveSnapshotStart(_)
+            | CoordWorkerDownstream::CoordMoveSnapshotChunk(_)
+            | CoordWorkerDownstream::CoordRelocate(_)) => retired(frame.kind()),
+            CoordWorkerDownstream::AgentTunnelOpen(request) => self.agent_tunnel_open(request),
+            CoordWorkerDownstream::AgentTunnelInput(request) => self.agent_tunnel_input(request),
+            CoordWorkerDownstream::AgentTunnelDaemonChunk(request) => {
+                self.agent_tunnel_daemon_chunk(request)
+            }
+            CoordWorkerDownstream::AgentTunnelClose(request) => self.agent_tunnel_close(request),
         }
     }
 }

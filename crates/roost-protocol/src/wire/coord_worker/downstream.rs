@@ -9,7 +9,8 @@ use serde_json::Value;
 
 use super::kind_of;
 use super::payloads::{
-    Binary, DAgentPrompt, DAttachmentChunk, DAttachmentDirectStatusRequest, DCoordMovePrepare,
+    Binary, DAgentPrompt, DAgentTunnelClose, DAgentTunnelDaemonChunk, DAgentTunnelInput,
+    DAgentTunnelOpen, DAttachmentChunk, DAttachmentDirectStatusRequest, DCoordMovePrepare,
     DCoordMoveSnapshotChunk, DCoordMoveSnapshotStart, DCoordRelocate, DInputRequest,
     DKeeperUpdatePrepare, DLocalAttachmentGrant, DLocalAttachmentGrantRevoke,
     DLocalAttachmentPeerCancel, DLocalAttachmentPeerOffer, DLocalTerminalGrant,
@@ -147,6 +148,14 @@ pub enum CoordWorkerDownstream {
     /// was composed against so a fenced occupant's prompt is not delivered.
     #[serde(rename = "agent-prompt")]
     AgentPrompt(DAgentPrompt),
+    #[serde(rename = "agent-tunnel-open")]
+    AgentTunnelOpen(DAgentTunnelOpen),
+    #[serde(rename = "agent-tunnel-input")]
+    AgentTunnelInput(DAgentTunnelInput),
+    #[serde(rename = "agent-tunnel-daemon-chunk")]
+    AgentTunnelDaemonChunk(DAgentTunnelDaemonChunk),
+    #[serde(rename = "agent-tunnel-close")]
+    AgentTunnelClose(DAgentTunnelClose),
 }
 
 impl CoordWorkerDownstream {
@@ -184,6 +193,10 @@ impl CoordWorkerDownstream {
             Self::UpdateBroker(_) => "update-broker",
             Self::KeeperUpdatePrepare(_) => "keeper-update-prepare",
             Self::AgentPrompt(_) => "agent-prompt",
+            Self::AgentTunnelOpen(_) => "agent-tunnel-open",
+            Self::AgentTunnelInput(_) => "agent-tunnel-input",
+            Self::AgentTunnelDaemonChunk(_) => "agent-tunnel-daemon-chunk",
+            Self::AgentTunnelClose(_) => "agent-tunnel-close",
         }
     }
 

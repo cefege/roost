@@ -95,6 +95,7 @@ impl Fakes {
     pub fn owners(&self) -> DownstreamOwners {
         let fakes = Arc::new(self.clone());
         DownstreamOwners {
+            agent_tunnel: None,
             input: Arc::clone(&fakes) as Arc<dyn TerminalInputPort>,
             stream: Arc::clone(&fakes) as Arc<dyn TerminalStreamPort>,
             pipeline: Arc::clone(&fakes) as Arc<dyn TerminalPipelinePort>,

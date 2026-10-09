@@ -16,9 +16,9 @@
 //! through the router untouched.
 //!
 //! The method rule is v2's (`spa.ts:161-163`): a page is GET or HEAD, and
-//! anything else is 405 rather than a page. `/roost.`, `/ws/` and `/api/` are
-//! excluded FIRST, so a Connect POST, a socket upgrade and the export are
-//! exactly as they were.
+//! anything else is 405 rather than a page. `/roost.`, `/internal/`, `/ws/` and
+//! `/api/` are excluded FIRST, so Connect, private routes, sockets and exports
+//! are exactly as they were.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -117,10 +117,11 @@ struct SpaRequest<'a> {
     head_only: bool,
 }
 
-/// Whether a path belongs to a surface that is not the SPA: Connect, the API
-/// namespace, one of the two socket upgrades, or an orchestrator probe.
+/// Whether a path belongs to a surface that is not the SPA: Connect, internal
+/// coordinator APIs, the API namespace, one of the socket upgrades, or a probe.
 fn owns_another_surface(path: &str) -> bool {
     path.starts_with(CONNECT_PATH_PREFIX)
+        || path.starts_with("/internal/")
         || path.starts_with(API_PREFIX)
         || path.starts_with(WS_PREFIX)
         || path == HEALTHZ_PATH
