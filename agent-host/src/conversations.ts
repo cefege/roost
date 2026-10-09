@@ -18,12 +18,12 @@ export class Conversations {
     if (!conversation) throw Object.assign(new Error("conversation not found"), { status: 404, code: "not_found" });
     return conversation;
   }
-  async summary(id: string, runState = "idle"): Promise<Record<string, unknown>> {
+  async summary(id: string, runState = "idle", error: string | null = null): Promise<Record<string, unknown>> {
     const conversation = await this.get(id);
     const target = await this.harness.snapshot(RoostTarget, Number(id) as never, BACKGROUND_CONTEXT);
     const index = this.db.prepare("SELECT title,created_ms,updated_ms FROM conversations WHERE id=?").get(id) as { title: string; created_ms: number; updated_ms: number } | undefined;
     const agent = await conversation.agent(BACKGROUND_CONTEXT);
-    return { id, title: index?.title ?? "New conversation", worker_fp: target?.worker_fp ?? "", worker_label: target?.worker_label ?? "", cwd: target?.cwd ?? "", model: agent.model ? { provider: agent.model.provider, model_id: agent.model.modelId } : null, thinking_level: agent.thinkingLevel ?? null, run_state: runState, error: null, created_ms: index?.created_ms ?? Date.now(), updated_ms: index?.updated_ms ?? Date.now() };
+    return { id, title: index?.title ?? "New conversation", worker_fp: target?.worker_fp ?? "", worker_label: target?.worker_label ?? "", cwd: target?.cwd ?? "", model: agent.model ? { provider: agent.model.provider, model_id: agent.model.modelId } : null, thinking_level: agent.thinkingLevel ?? null, run_state: runState, error, created_ms: index?.created_ms ?? Date.now(), updated_ms: index?.updated_ms ?? Date.now() };
   }
   async list(): Promise<Record<string, unknown>[]> {
     const rows = this.db.prepare("SELECT id FROM conversations ORDER BY updated_ms DESC").all() as { id: string }[];
@@ -46,7 +46,10 @@ export class Conversations {
   async submit(id: string, text: string, requestId: string): Promise<void> {
     const conversation = await this.get(id);
     const row = this.db.prepare("SELECT title FROM conversations WHERE id=?").get(id) as { title: string } | undefined;
-    if (row?.title === "New conversation") this.db.prepare("UPDATE conversations SET title=?,updated_ms=? WHERE id=?").run(text.replace(/\s+/g, " ").slice(0, 60), Date.now(), id);
+    if (row?.title === "New conversation") {
+      this.db.prepare("UPDATE conversations SET title=?,updated_ms=? WHERE id=?").run(text.replace(/\s+/g, " ").slice(0, 60), Date.now(), id);
+      await this.hub.conversationChanged(id);
+    }
     await conversation.submit({ type: "input", content: text, requestId, whenBusy: "steer" }, BACKGROUND_CONTEXT);
   }
   async configure(id: string, change: Record<string, unknown>): Promise<Record<string, unknown>> {
