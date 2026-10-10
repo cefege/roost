@@ -283,13 +283,11 @@ pub fn handle_rpc_result(
             git_sha,
             public_url,
             terminal_peer_stun_urls,
-            builtin_agent_enabled,
             ..
         } => {
             store.coord_identity = Some(CoordIdentity {
                 git_sha: git_sha.clone(),
                 public_url: public_url.clone(),
-                builtin_agent_enabled: *builtin_agent_enabled,
             });
             store.direct.set_stun_urls(terminal_peer_stun_urls.clone());
             store.note_change();

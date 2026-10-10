@@ -125,7 +125,7 @@ pub const ROWS_AGENTS: &[MethodRoute] = &[
     route("AgentConfigGet", "agents", AuthRequirement::Device, PortStatus::Implemented),
     route("AgentConfigSet", "agents", AuthRequirement::Device, PortStatus::Implemented),
 ];
-/// Built-in agent conversations and agent-host authentication.
+/// Built-in agent conversations, provider accounts and harness settings.
 #[rustfmt::skip]
 pub const ROWS_AGENT_CHAT: &[MethodRoute] = &[
     route("AgentChatList", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
@@ -141,7 +141,12 @@ pub const ROWS_AGENT_CHAT: &[MethodRoute] = &[
     route("AgentAuthLoginRespond", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
     route("AgentAuthLoginCancel", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
     route("AgentAuthSetApiKey", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
-    route("AgentAuthLogout", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
+    route("AgentAccountsList", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
+    route("AgentAccountRemove", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
+    route("AgentUsageGet", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
+    route("AgentSettingsGet", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
+    route("AgentSettingsSet", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
+    route("AgentChatPlanDecide", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
 ];
 
 /// global session search across every worker.

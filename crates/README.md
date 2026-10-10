@@ -19,7 +19,7 @@ registry, `Session` is the user-facing row, `Channel` is a PTY connection,
 | `roost-keeper` | The keeper daemon: PTY ownership, per-channel byte rings, the framed keeper socket protocol. | `roost-keeper` |
 | `roost-worker` | Sessions, keeper client, durable outbox, coordinator link, local door, WebRTC peer, agent tracking. | — |
 | `roost-coord` | SQLite or Postgres state, auth, Connect RPC handlers, Sync and worker WebSocket links, terminal hubs, server-side web push (no browser subscribes yet). | — |
-| `roost-coord::agent_host` | Built-in agent chat/auth RPCs, host event follower/cache, and internal worker tool tunnel. | — |
+| `roost-coord::agent` | The agent harness wired to the coordinator: database stores, provider sign-ins and accounts, chat/settings RPCs, the transcript event cache, and worker tool calls. | — |
 | `roost-client-core` | The UI-free client: Connect client, Sync state machine, store fold, terminal-stream replica and route election, input lanes, encoders, find paging. | — |
 | `roost-llm` | The agent harness's provider layer: model catalog, Anthropic / OpenAI Codex / OpenRouter / TypeSafe wire clients, OAuth logins, the multi-account credential pool and rotation, usage reports, the judge. | — |
 | `roost-agent` | The agent harness: conversation loop, prompts, model roles, plan mode, subagents, semantic find, the advisor, slash commands. The coordinator drives it through store, tool-executor and sink traits. | — |

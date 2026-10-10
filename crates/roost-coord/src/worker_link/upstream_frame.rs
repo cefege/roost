@@ -124,11 +124,9 @@ fn classify(upstream: CoordWorkerUpstream) -> LinkFrame {
         Up::CellGridChunk(chunk) => (FrameClass::Live, chunk.channel_id),
         Up::Binary(binary) => (FrameClass::Live, binary.channel_id.as_u32()),
         Up::TerminalMetadata(metadata) => (FrameClass::Live, metadata.channel_id.as_u32()),
-        Up::TerminalViewState(_)
-        | Up::TerminalViewProjection(_)
-        | Up::AgentStatus(_)
-        | Up::AgentTunnelState(_)
-        | Up::AgentTunnelOutput(_) => (FrameClass::Live, 0),
+        Up::TerminalViewState(_) | Up::TerminalViewProjection(_) | Up::AgentStatus(_) => {
+            (FrameClass::Live, 0)
+        }
         Up::RpcOk { .. }
         | Up::RpcError { .. }
         | Up::InputResult(_)

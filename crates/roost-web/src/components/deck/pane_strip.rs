@@ -22,7 +22,6 @@ use crate::components::context_menu::AnchoredMenuPos;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::md::{IconButton, IconButtonSize};
 use crate::components::terminal::terminal_transport_indicator::TerminalTransportIndicator;
-use crate::pump::use_store;
 /// How long a pointer rests on a tab before its hover card opens, ms.
 const HOVER_DWELL_MS: u32 = 450;
 /// How long a closing tab animates out before the close lands, ms.
@@ -45,14 +44,6 @@ pub fn PaneStrip(
     on_tab_tile_drop: Option<Callback<(String, f64, f64), bool>>,
     on_tab_drag_end: Option<EventHandler<()>>,
 ) -> Element {
-    let pump = use_store();
-    let agent_enabled = pump
-        .core()
-        .borrow()
-        .store()
-        .coord_identity
-        .as_ref()
-        .is_some_and(|identity| identity.builtin_agent_enabled);
     let compact = use_is_compact();
     let gesture = StripGesture::use_strip_gesture();
     let closing = use_signal(BTreeSet::<String>::new);
@@ -197,7 +188,6 @@ pub fn PaneStrip(
             }
             PaneTabNewMenu {
                 pane_id: pane_id.clone(),
-                agent_enabled,
                 on_new_terminal: move |_| on_new_tab.call(()),
                 on_new_agent: move |_| {
                     if let Some(on_new_agent) = on_new_agent {

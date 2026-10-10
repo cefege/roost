@@ -104,17 +104,17 @@ fn no_route_row_names_a_method_the_proto_does_not_declare() {
 
 #[test]
 fn the_table_holds_exactly_the_protos_method_count() {
-    // 122, spelled out so a method added to the proto without a row here, or a
+    // 127, spelled out so a method added to the proto without a row here, or a
     // row added for a method nobody declared, fails one number rather than
     // producing a diff nobody reads.
-    assert_eq!(declared_methods().len(), 122);
-    assert_eq!(all_method_routes().len(), 122);
+    assert_eq!(declared_methods().len(), 127);
+    assert_eq!(all_method_routes().len(), 127);
 }
 
 #[test]
 fn exactly_sixteen_methods_are_unwired_in_v2_and_those_are_the_ones_named() {
     // v2 routes these to Connect's own unimplemented stub. The count comes from
-    // the assembled service: 106 of 122 methods are wired, so 16 are not. Getting
+    // the assembled service: 111 of 127 methods are wired, so 16 are not. Getting
     // this number wrong in EITHER direction is the bug -- too many and a real
     // method silently 501s, too few and this crate claims to have retired a
     // method v2 still answers.
@@ -363,7 +363,7 @@ fn the_table_covers_the_proto_in_both_directions_whatever_its_order() {
     assert_eq!(sorted_routed, sorted_declared);
     assert_eq!(
         declared.len(),
-        122,
+        127,
         "the proto parse is vacuous if it found fewer"
     );
 }

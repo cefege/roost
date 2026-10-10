@@ -174,13 +174,6 @@ pub fn build_controls(
             );
         }
     });
-    let agent_enabled = pump
-        .core()
-        .borrow()
-        .store()
-        .coord_identity
-        .as_ref()
-        .is_some_and(|identity| identity.builtin_agent_enabled);
     let on_start_agent = EventHandler::new({
         let pump = pump.clone();
         let worker_fp = worker_fp.to_owned();
@@ -336,7 +329,6 @@ pub fn build_controls(
         }),
         on_drill,
         on_retry,
-        agent_enabled,
         on_start_agent,
         on_open_here,
         on_go_home: EventHandler::new(move |()| navigate.call("/".to_owned())),

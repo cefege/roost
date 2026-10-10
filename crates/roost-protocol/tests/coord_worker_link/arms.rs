@@ -6,10 +6,10 @@
 use super::fixtures::{FINGERPRINT, SESSION, STREAM, channel, hello, session};
 use roost_protocol::wire::control::ClientControlFrame;
 use roost_protocol::wire::coord_worker::{
-    AgentStatusFrame, AgentTunnelOutput, AgentTunnelState, AgentTunnelStateFrame, Binary,
-    CoordWorkerDownstream, CoordWorkerUpstream, EventAck, InputResult, RefreshJwt,
-    TerminalInputStatus, TerminalMetadata, TerminalSnapshotRequest, TerminalStreamFailureKind,
-    TerminalStreamResult, TerminalStreamStatus, TerminalWritePhase, UpdateProgress,
+    AgentStatusFrame, Binary, CoordWorkerDownstream, CoordWorkerUpstream, EventAck, InputResult,
+    RefreshJwt, TerminalInputStatus, TerminalMetadata, TerminalSnapshotRequest,
+    TerminalStreamFailureKind, TerminalStreamResult, TerminalStreamStatus, TerminalWritePhase,
+    UpdateProgress,
 };
 
 #[path = "agent_tool_arms.rs"]
@@ -203,24 +203,6 @@ pub fn upstream_arms() -> Vec<(&'static str, CoordWorkerUpstream)> {
             "terminal-pipeline-snapshot",
             CoordWorkerUpstream::TerminalPipelineSnapshot(Default::default()),
         ),
-        (
-            "agent-tunnel-state",
-            CoordWorkerUpstream::AgentTunnelState(AgentTunnelStateFrame {
-                tunnel_id: "tunnel-1".to_owned(),
-                state: AgentTunnelState::Opened,
-                platform: String::new(),
-                exit_code: 0,
-                error: String::new(),
-            }),
-        ),
-        (
-            "agent-tunnel-output",
-            CoordWorkerUpstream::AgentTunnelOutput(AgentTunnelOutput {
-                tunnel_id: "tunnel-1".to_owned(),
-                stderr: false,
-                data: vec![1, 2],
-            }),
-        ),
     ];
     arms.extend(agent_tool_arms::upstream_arms());
     arms
@@ -376,22 +358,6 @@ pub fn downstream_arms() -> Vec<(&'static str, CoordWorkerDownstream)> {
         (
             "agent-prompt",
             CoordWorkerDownstream::AgentPrompt(Default::default()),
-        ),
-        (
-            "agent-tunnel-open",
-            CoordWorkerDownstream::AgentTunnelOpen(Default::default()),
-        ),
-        (
-            "agent-tunnel-input",
-            CoordWorkerDownstream::AgentTunnelInput(Default::default()),
-        ),
-        (
-            "agent-tunnel-daemon-chunk",
-            CoordWorkerDownstream::AgentTunnelDaemonChunk(Default::default()),
-        ),
-        (
-            "agent-tunnel-close",
-            CoordWorkerDownstream::AgentTunnelClose(Default::default()),
         ),
     ];
     arms.extend(agent_tool_arms::downstream_arms());

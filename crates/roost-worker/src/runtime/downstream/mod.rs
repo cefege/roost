@@ -14,7 +14,6 @@
 
 mod agent_prompt;
 mod agent_tools;
-mod agent_tunnel;
 mod attachment_peer;
 mod attachments;
 mod direct;
@@ -176,12 +175,6 @@ impl Dispatcher {
             | CoordWorkerDownstream::CoordMoveSnapshotStart(_)
             | CoordWorkerDownstream::CoordMoveSnapshotChunk(_)
             | CoordWorkerDownstream::CoordRelocate(_)) => retired(frame.kind()),
-            CoordWorkerDownstream::AgentTunnelOpen(request) => self.agent_tunnel_open(request),
-            CoordWorkerDownstream::AgentTunnelInput(request) => self.agent_tunnel_input(request),
-            CoordWorkerDownstream::AgentTunnelDaemonChunk(request) => {
-                self.agent_tunnel_daemon_chunk(request)
-            }
-            CoordWorkerDownstream::AgentTunnelClose(request) => self.agent_tunnel_close(request),
             CoordWorkerDownstream::AgentToolCall(request) => self.agent_tool_call(request),
             CoordWorkerDownstream::AgentToolCancel(request) => self.agent_tool_cancel(request),
             CoordWorkerDownstream::AgentConversationClosed(request) => {

@@ -16,7 +16,6 @@ fn the_identity_answer_is_the_build_and_url_v2_keeps() {
         instance_id: "instance-1".to_owned(),
         terminal_peer_enabled: true,
         terminal_peer_stun_urls: vec!["stun:stun.example:3478".to_owned()],
-        builtin_agent_enabled: true,
         ..Default::default()
     }
     .encode_to_vec();
@@ -27,7 +26,6 @@ fn the_identity_answer_is_the_build_and_url_v2_keeps() {
             git_sha: "abc123".to_owned(),
             public_url: "https://roost.example".to_owned(),
             terminal_peer_stun_urls: Some(vec!["stun:stun.example:3478".to_owned()]),
-            builtin_agent_enabled: true,
         }
     );
 }

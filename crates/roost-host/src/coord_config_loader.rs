@@ -86,11 +86,9 @@ pub const ENV_COORD_TERMINAL_MEMORY_BUDGET_BYTES: &str = "ROOST_COORD_TERMINAL_M
 /// Exactly `0` or `1`: whether the direct WebRTC terminal carrier is offered.
 pub const ENV_TERMINAL_PEER_ENABLED: &str = "ROOST_TERMINAL_PEER_ENABLED";
 
-/// The internal agent host HTTP endpoint.
-pub const ENV_AGENT_HOST_URL: &str = "ROOST_AGENT_HOST_URL";
-
-/// The bearer secret shared with the internal agent host.
-pub const ENV_AGENT_HOST_SECRET: &str = "ROOST_AGENT_HOST_SECRET";
+/// A JSON object of provider id → base URL overriding the agent harness's
+/// provider endpoints, e.g. `{"anthropic":"http://127.0.0.1:9000"}`.
+pub const ENV_AGENT_ENDPOINT_OVERRIDES: &str = "ROOST_AGENT_ENDPOINT_OVERRIDES";
 
 /// A comma-separated list of operator-declared `stun:` URLs.
 pub const ENV_TERMINAL_PEER_STUN_URLS: &str = "ROOST_TERMINAL_PEER_STUN_URLS";
@@ -152,8 +150,7 @@ pub fn load_coord_config(
             env.get(ENV_COORDINATOR_PUBLIC_URL).as_deref(),
             ENV_COORDINATOR_PUBLIC_URL,
         )?,
-        agent_host_url: agent_host_url(env)?,
-        agent_host_secret: declared_or_absent(env, ENV_AGENT_HOST_SECRET),
+        agent_endpoint_overrides: Some(agent_endpoint_overrides(env)?),
         terminal_memory_budget_bytes: integer_env(env, ENV_COORD_TERMINAL_MEMORY_BUDGET_BYTES)?,
         terminal_peer_enabled: Some(parse_terminal_peer_enabled(
             env.get(ENV_TERMINAL_PEER_ENABLED).as_deref(),
@@ -166,28 +163,30 @@ pub fn load_coord_config(
     Ok(config)
 }
 
-/// Resolve the optional internal host endpoint and enforce the URL/secret pair.
-fn agent_host_url(env: &dyn EnvSource) -> ProtocolResult<Option<String>> {
-    let url = declared_or_absent(env, ENV_AGENT_HOST_URL);
-    let secret = declared_or_absent(env, ENV_AGENT_HOST_SECRET);
-    if url.is_some() != secret.is_some() {
-        return Err(ProtocolError::new(
-            ENV_AGENT_HOST_SECRET,
-            format!("{ENV_AGENT_HOST_URL} and {ENV_AGENT_HOST_SECRET} must be set together"),
-        ));
+/// Parse `ROOST_AGENT_ENDPOINT_OVERRIDES`; malformed JSON or a non-HTTP URL
+/// fails boot rather than silently sending provider traffic to the default.
+fn agent_endpoint_overrides(
+    env: &dyn EnvSource,
+) -> ProtocolResult<std::collections::BTreeMap<String, String>> {
+    let Some(raw) = declared_or_absent(env, ENV_AGENT_ENDPOINT_OVERRIDES) else {
+        return Ok(std::collections::BTreeMap::new());
+    };
+    let overrides: std::collections::BTreeMap<String, String> = serde_json::from_str(&raw)
+        .map_err(|error| {
+            ProtocolError::new(
+                ENV_AGENT_ENDPOINT_OVERRIDES,
+                format!("must be a JSON object of provider to URL: {error}"),
+            )
+        })?;
+    for (provider, url) in &overrides {
+        if !(url.starts_with("http://") || url.starts_with("https://")) {
+            return Err(ProtocolError::new(
+                ENV_AGENT_ENDPOINT_OVERRIDES,
+                format!("{provider}: {url:?} is not an http(s) URL"),
+            ));
+        }
     }
-    if let Some(secret) = secret.as_deref()
-        && secret.len() < 32
-    {
-        return Err(ProtocolError::new(
-            ENV_AGENT_HOST_SECRET,
-            "must contain at least 32 bytes",
-        ));
-    }
-    if let Some(url) = url.as_deref() {
-        validate_bare_http_origin(url, ENV_AGENT_HOST_URL)?;
-    }
-    Ok(url)
+    Ok(overrides)
 }
 
 /// The Postgres URL when one is declared, else the SQLite file.

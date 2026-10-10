@@ -27,9 +27,12 @@ base64.workspace = true
 connectrpc = { workspace = true, features = ["server", "axum"] }
 ed25519-dalek.workspace = true
 futures-util.workspace = true
+futures.workspace = true
 getrandom.workspace = true
 hex.workspace = true
 ipnet.workspace = true
+roost-agent.workspace = true
+roost-llm.workspace = true
 roost-host.workspace = true
 roost-observability.workspace = true
 roost-platform.workspace = true

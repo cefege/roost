@@ -5,10 +5,10 @@
 
 use dioxus::prelude::*;
 #[cfg(target_arch = "wasm32")]
-use roost_client_core::client::rpc::calls::agent_chat::{ListAgentModels, LogoutAgentProvider};
-use roost_protocol::wire::agent_chat::{CredentialKind, ModelsCatalog, ProviderEntry};
+use roost_client_core::client::rpc::calls::agent_chat::{ListAgentModels, RemoveAgentAccount};
+use roost_protocol::wire::agent_chat::{AccountKind, ModelsCatalog, ProviderEntry};
 
-use crate::components::md::{Button, ButtonVariant, Chip, EmptyState, Skeleton, TextField};
+use crate::components::md::{Button, ButtonVariant, Skeleton, TextField};
 use crate::pump::{Pump, use_store};
 
 use super::agent_connect_dialog::AgentConnectDialog;
@@ -22,30 +22,11 @@ pub fn AgentModelsPane() -> Element {
     let mut filter = use_signal(String::new);
     let mut connect_provider = use_signal(|| None::<(ProviderEntry, bool)>);
     let mut refresh = use_signal(|| 0_u64);
-    let enabled = pump
-        .core()
-        .borrow()
-        .store()
-        .coord_identity
-        .as_ref()
-        .is_some_and(|identity| identity.builtin_agent_enabled);
     let load_pump = pump.clone();
     use_effect(move || {
         let _revision = refresh();
-        if enabled {
-            load_catalog(load_pump.clone(), catalog, error);
-        }
+        load_catalog(load_pump.clone(), catalog, error);
     });
-
-    if !enabled {
-        return rsx! {
-            EmptyState {
-                icon: "smart_toy",
-                title: "Built-in agent unavailable",
-                supporting: "The coordinator has not enabled the built-in agent host.",
-            }
-        };
-    }
 
     let catalog_value = catalog();
     let providers = catalog_value
@@ -156,36 +137,47 @@ fn connected_provider_row(
     refresh: Signal<u64>,
     mut connect_provider: Signal<Option<(ProviderEntry, bool)>>,
 ) -> Element {
-    let credential = match provider.credential {
-        Some(CredentialKind::Oauth) => "OAuth",
-        Some(CredentialKind::ApiKey) => "API key",
-        Some(CredentialKind::Env) => "Environment",
-        None => "Connected",
-    };
-    let logout_id = provider.id.clone();
+    let is_api_key = provider
+        .accounts
+        .iter()
+        .any(|account| account.kind == AccountKind::ApiKey);
+    let first_account = provider.accounts.first().cloned();
     let logout_pump = pump;
     rsx! {
         div { class: "agent-settings__provider-row", key: "{provider.id}",
             div { class: "agent-settings__provider-info",
                 span { class: "agent-settings__provider-name", "{provider.name}" }
                 span { class: "agent-settings__provider-id", "{provider.id}" }
+                for account in provider.accounts.iter() {
+                    span { class: "agent-settings__provider-id",
+                        "{account.label} · {account_kind_label(account.kind)}"
+                    }
+                }
             }
-            Chip { label: credential.to_owned(), icon: None }
             div { class: "agent-settings__provider-actions",
-                if provider.credential == Some(CredentialKind::ApiKey) {
+                if is_api_key {
                     Button {
                         variant: ButtonVariant::Outline,
                         onclick: move |_| connect_provider.set(Some((provider.clone(), true))),
                         "Change key"
                     }
                 }
-                Button {
-                    variant: ButtonVariant::Outline,
-                    onclick: move |_| logout_provider(logout_pump.clone(), logout_id.clone(), error, refresh),
-                    "Sign out"
+                if let Some(account) = first_account {
+                    Button {
+                        variant: ButtonVariant::Outline,
+                        onclick: move |_| logout_account(logout_pump.clone(), account.credential_id, error, refresh),
+                        "Sign out"
+                    }
                 }
             }
         }
+    }
+}
+
+fn account_kind_label(kind: AccountKind) -> &'static str {
+    match kind {
+        AccountKind::Oauth => "OAuth",
+        AccountKind::ApiKey => "API key",
     }
 }
 
@@ -205,13 +197,12 @@ fn load_catalog(pump: Pump, catalog: Signal<Option<ModelsCatalog>>, error: Signa
     #[cfg(not(target_arch = "wasm32"))]
     let _ = (pump, catalog, error);
 }
-
-fn logout_provider(pump: Pump, provider: String, error: Signal<String>, refresh: Signal<u64>) {
+fn logout_account(pump: Pump, credential_id: i64, error: Signal<String>, refresh: Signal<u64>) {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_futures::spawn_local(async move {
         let mut error = error;
         let mut refresh = refresh;
-        match pump.rpc().call(&LogoutAgentProvider { provider }).await {
+        match pump.rpc().call(&RemoveAgentAccount { credential_id }).await {
             Ok(()) => {
                 error.set(String::new());
                 refresh.set(refresh().wrapping_add(1));
@@ -220,5 +211,5 @@ fn logout_provider(pump: Pump, provider: String, error: Signal<String>, refresh:
         }
     });
     #[cfg(not(target_arch = "wasm32"))]
-    let _ = (pump, provider, error, refresh);
+    let _ = (pump, credential_id, error, refresh);
 }

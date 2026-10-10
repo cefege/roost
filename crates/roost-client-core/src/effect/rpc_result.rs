@@ -42,8 +42,6 @@ pub enum RpcResult {
         /// `Some(urls)` when the coordinator's direct carrier is enabled, so a
         /// machine may gather before its grant lands; `None` when it is off.
         terminal_peer_stun_urls: Option<Vec<String>>,
-        /// Whether built-in agent RPCs are configured.
-        builtin_agent_enabled: bool,
     },
     /// `SessionsList` succeeded.
     SessionsList {

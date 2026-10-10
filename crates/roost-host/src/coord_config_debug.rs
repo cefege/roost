@@ -1,6 +1,6 @@
 //! Debug formatting for coordinator configuration.
 //!
-//! This implementation keeps the agent-host bearer secret out of diagnostics;
+//! A hand-written `Debug` so a secret-bearing field added later is redacted here;
 //! the config value itself remains in `coord_config`.
 
 use crate::coord_config::CoordConfig;
@@ -29,11 +29,7 @@ impl std::fmt::Debug for CoordConfig {
                 "terminal_memory_budget_bytes",
                 &self.terminal_memory_budget_bytes,
             )
-            .field("agent_host_url", &self.agent_host_url)
-            .field(
-                "agent_host_secret",
-                &self.agent_host_secret.as_ref().map(|_| "[REDACTED]"),
-            )
+            .field("agent_endpoint_overrides", &self.agent_endpoint_overrides)
             .field("terminal_peer_enabled", &self.terminal_peer_enabled)
             .field("terminal_peer_stun_urls", &self.terminal_peer_stun_urls)
             .finish()

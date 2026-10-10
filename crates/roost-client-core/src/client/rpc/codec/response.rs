@@ -42,7 +42,6 @@ pub fn decode_rpc_response(call: &RpcCall, body: &[u8]) -> Result<RpcResult, Rpc
                 terminal_peer_stun_urls: response
                     .terminal_peer_enabled
                     .then_some(response.terminal_peer_stun_urls),
-                builtin_agent_enabled: response.builtin_agent_enabled,
             }
         }
         RpcCall::AgentChatList { call_id } => {

@@ -6,7 +6,7 @@
 
 ## Purpose
 
-Agent status is volatile worker observation (`idle|working|blocked`) used for dashboard state, waits, notifications, and one identity-fenced PTY input. It is not an agent execution API; the separate Roost-owned built-in agent and its tool tunnel are specified in `protocol/spec/agent-host.md`.
+Agent status is volatile worker observation (`idle|working|blocked`) used for dashboard state, waits, notifications, and one identity-fenced PTY input. It is not an agent execution API.
 
 ## Messages
 

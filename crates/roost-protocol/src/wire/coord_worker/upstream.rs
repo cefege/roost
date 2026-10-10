@@ -9,12 +9,11 @@ use serde_json::Value;
 
 use super::kind_of;
 use super::payloads::{
-    AgentStatusFrame, AgentTunnelOutput, AgentTunnelStateFrame, Binary, InputResult, RefreshJwt,
-    TerminalMetadata, TerminalStreamResult, UpdateProgress, WAttachmentDirectStatus, WCellGrid,
-    WCellGridChunk, WLocalAttachmentPeerAnswer, WLocalAttachmentPeerError,
-    WLocalTerminalPeerAnswer, WLocalTerminalPeerError, WTerminalInputRouteResult,
-    WTerminalPipelineSnapshot, WTerminalTransportProbeResult, WTerminalViewProjection,
-    WTerminalViewState,
+    AgentStatusFrame, Binary, InputResult, RefreshJwt, TerminalMetadata, TerminalStreamResult,
+    UpdateProgress, WAttachmentDirectStatus, WCellGrid, WCellGridChunk, WLocalAttachmentPeerAnswer,
+    WLocalAttachmentPeerError, WLocalTerminalPeerAnswer, WLocalTerminalPeerError,
+    WTerminalInputRouteResult, WTerminalPipelineSnapshot, WTerminalTransportProbeResult,
+    WTerminalViewProjection, WTerminalViewState,
 };
 use crate::validate::nonnegative;
 use crate::wire::brand::{TraceId, WorkerFp};
@@ -140,10 +139,6 @@ pub enum CoordWorkerUpstream {
     /// worker reports only source-owned ids, counters and ages.
     #[serde(rename = "terminal-pipeline-snapshot")]
     TerminalPipelineSnapshot(WTerminalPipelineSnapshot),
-    #[serde(rename = "agent-tunnel-state")]
-    AgentTunnelState(AgentTunnelStateFrame),
-    #[serde(rename = "agent-tunnel-output")]
-    AgentTunnelOutput(AgentTunnelOutput),
     #[serde(rename = "agent-tool-output")]
     AgentToolOutput(roost_proto::WAgentToolOutput),
     #[serde(rename = "agent-tool-result")]
@@ -178,8 +173,6 @@ impl CoordWorkerUpstream {
             Self::TerminalInputRouteResult(_) => "terminal-input-route-result",
             Self::TerminalTransportProbeResult(_) => "terminal-transport-probe-result",
             Self::TerminalPipelineSnapshot(_) => "terminal-pipeline-snapshot",
-            Self::AgentTunnelState(_) => "agent-tunnel-state",
-            Self::AgentTunnelOutput(_) => "agent-tunnel-output",
             Self::AgentToolOutput(_) => "agent-tool-output",
             Self::AgentToolResult(_) => "agent-tool-result",
         }

@@ -31,7 +31,6 @@
 use std::sync::Arc;
 
 use crate::agent::tool_calls::ToolCallRegistry;
-use crate::agent_host::AgentHostRuntime;
 use crate::agents::AgentsRuntime;
 use crate::attachments::AttachmentsRuntime;
 use crate::auth::jwt_key_cache::JwtKeyCache;
@@ -127,8 +126,8 @@ pub struct CoordServices {
     pub sessions: SessionsRuntime,
     /// Per-session agent status, its wait queues, and the agent configuration.
     pub agents: AgentsRuntime,
-    /// Agent host runtime and the internal worker-tool tunnel registry.
-    pub agent_host: Arc<AgentHostRuntime>,
+    /// The agent harness: conversations, accounts, sign-ins and its event cache.
+    pub agent: Arc<crate::agent::AgentService>,
     /// Native worker tool calls and their generation-bound completions.
     pub agent_tools: Arc<ToolCallRegistry>,
     /// File RPCs, the chunk relay, direct grants, and peer negotiations.
@@ -274,8 +273,16 @@ impl CoordServices {
             boot.config.as_deref(),
         );
         let deploy = DeployRuntime::new();
-        let agent_host = Arc::new(AgentHostRuntime::new());
         let agent_tools = Arc::new(ToolCallRegistry::new(Arc::clone(&workers), db.clone()));
+        let agent = crate::agent::AgentService::new(
+            db.clone(),
+            Arc::clone(&buses),
+            Arc::clone(&agent_tools),
+            boot.config
+                .as_deref()
+                .map(|config| config.agent_endpoint_overrides.clone())
+                .unwrap_or_default(),
+        );
         let catch_up_on_ready = Arc::new(crate::deploy::catchup_on_ready::CatchUpOnReady::new(
             deploy.clone(),
             db.clone(),
@@ -292,8 +299,6 @@ impl CoordServices {
             attachments.worker_lifecycle_observer(),
             catch_up_on_ready
                 as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
-            Arc::clone(&agent_host)
-                as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
             Arc::clone(&agent_tools)
                 as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
         ]);
@@ -305,7 +310,7 @@ impl CoordServices {
             buses,
             pending_publications,
             worker_lifecycle,
-            agent_host,
+            agent,
             agent_tools,
             diag_pipelines: WorkerTerminalPipelineSnapshotCache::new(scrollback.clone()),
             terminal_capture,

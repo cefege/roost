@@ -114,10 +114,6 @@ impl WorkerFrameDispatcher {
                     .accept_worker_status(&self.core, &worker, value);
                 DispatchOutcome::Handled
             }
-            CoordWorkerUpstream::AgentTunnelState(_)
-            | CoordWorkerUpstream::AgentTunnelOutput(_) => {
-                self.handle_agent_tunnel_live(worker_fp, upstream)
-            }
             _ => self.refuse(channel, "live_arm_has_no_destination"),
         }
     }

@@ -36,23 +36,14 @@ pub fn TerminalContextMenu(
     on_display_mounted: EventHandler<MountedEvent>,
 ) -> Element {
     let pump = use_store();
-    let agent_enabled = pump
-        .core()
-        .borrow()
-        .store()
-        .coord_identity
-        .as_ref()
-        .is_some_and(|identity| identity.builtin_agent_enabled);
     let mut target = use_signal(|| None::<MenuTarget>);
     let agent_pump = pump.clone();
     let agent_session_id = session_id.clone();
     let mut agent_target = target;
-    let on_start_agent = agent_enabled.then(|| {
-        EventHandler::new(move |()| {
-            start_agent_for_session(&agent_pump, &agent_session_id, compact);
-            agent_target.set(None);
-        })
-    });
+    let on_start_agent = Some(EventHandler::new(move |()| {
+        start_agent_for_session(&agent_pump, &agent_session_id, compact);
+        agent_target.set(None);
+    }));
     let on_context_menu = move |event: MouseEvent| {
         event.prevent_default();
         let (shift_held, button, trusted) = context_event_modifiers(&event);
@@ -153,13 +144,6 @@ fn start_agent_for_session(pump: &Pump, session_id: &str, compact: bool) {
         let core = pump.core();
         let core = core.borrow();
         let store = core.store();
-        if !store
-            .coord_identity
-            .as_ref()
-            .is_some_and(|identity| identity.builtin_agent_enabled)
-        {
-            return;
-        }
         let Some(session) = session_by_id(store, session_id) else {
             return;
         };
