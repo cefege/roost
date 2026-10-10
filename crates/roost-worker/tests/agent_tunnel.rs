@@ -2,9 +2,10 @@
 
 use std::time::Duration;
 
-use roost_proto::{DAgentTunnelDaemonChunk, DAgentTunnelOpen};
+use roost_proto::{DAgentTunnelDaemonChunk, DAgentTunnelInput, DAgentTunnelOpen};
 use roost_protocol::wire::coord_worker::{AgentTunnelState, CoordWorkerUpstream};
-use roost_worker::runtime::agent_tunnel::AgentTunnelOwner;
+use roost_worker::link_ports::AgentTunnelPort;
+use roost_worker::runtime::agent_tunnel::{AgentTunnelOwner, AgentTunnelQueue};
 use roost_worker::uplink;
 use sha2::{Digest, Sha256};
 
@@ -33,13 +34,8 @@ async fn next_frame(receiver: &mut uplink::UplinkReceiver) -> CoordWorkerUpstrea
         .unwrap()
 }
 
-#[tokio::test]
-async fn uploads_verified_daemon_and_round_trips_child_stdin_and_stdout() {
-    let cache = temp_dir();
-    let daemon = b"#!/bin/sh\nIFS= read -r value\nprintf 'reply:%s\\n' \"$value\" | cat\n";
-    let (uplink, mut receiver) = uplink::channel();
-    let owner = AgentTunnelOwner::new(cache.clone(), uplink);
-    let platform = format!(
+fn native_platform() -> String {
+    format!(
         "{}-{}",
         if cfg!(target_os = "macos") {
             "darwin"
@@ -51,7 +47,16 @@ async fn uploads_verified_daemon_and_round_trips_child_stdin_and_stdout() {
         } else {
             "x64"
         }
-    );
+    )
+}
+
+#[tokio::test]
+async fn uploads_verified_daemon_and_round_trips_child_stdin_and_stdout() {
+    let cache = temp_dir();
+    let daemon = b"#!/bin/sh\nIFS= read -r value\nprintf 'reply:%s\\n' \"$value\" | cat\n";
+    let (uplink, mut receiver) = uplink::channel();
+    let owner = AgentTunnelOwner::new(cache.clone(), uplink);
+    let platform = native_platform();
     owner
         .open(DAgentTunnelOpen {
             tunnel_id: "roundtrip".into(),
@@ -100,6 +105,65 @@ async fn uploads_verified_daemon_and_round_trips_child_stdin_and_stdout() {
         }
     }
     assert_eq!(output, b"reply:ping\n");
+    let _ = tokio::fs::remove_dir_all(cache).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_port_applies_back_to_back_frames_in_link_order() {
+    let cache = temp_dir();
+    let daemon = b"#!/bin/sh\nexec cat\n";
+    let (uplink, mut receiver) = uplink::channel();
+    let port = AgentTunnelQueue::start(AgentTunnelOwner::new(cache.clone(), uplink));
+    port.open(DAgentTunnelOpen {
+        tunnel_id: "ordered".into(),
+        args: vec![
+            "serve".into(),
+            "--token".into(),
+            "0123456789abcdef0123456789abcdef".into(),
+        ],
+        daemon_sha256: std::iter::once((native_platform(), sha(daemon))).collect(),
+        ..Default::default()
+    });
+    // One byte per chunk: any reordering changes the digest.
+    for byte in daemon {
+        port.daemon_chunk(DAgentTunnelDaemonChunk {
+            tunnel_id: "ordered".into(),
+            data: vec![*byte],
+            last: false,
+            ..Default::default()
+        });
+    }
+    port.daemon_chunk(DAgentTunnelDaemonChunk {
+        tunnel_id: "ordered".into(),
+        data: Vec::new(),
+        last: true,
+        ..Default::default()
+    });
+    let mut expected = Vec::new();
+    for line in 0..64 {
+        let data = format!("line-{line}\n").into_bytes();
+        expected.extend_from_slice(&data);
+        port.input(DAgentTunnelInput {
+            tunnel_id: "ordered".into(),
+            data,
+            ..Default::default()
+        });
+    }
+    let mut output = Vec::new();
+    while output.len() < expected.len() {
+        match next_frame(&mut receiver).await {
+            CoordWorkerUpstream::AgentTunnelOutput(frame) if !frame.stderr => {
+                output.extend(frame.data)
+            }
+            CoordWorkerUpstream::AgentTunnelState(frame)
+                if frame.state == AgentTunnelState::Closed =>
+            {
+                panic!("tunnel closed early: {}", frame.error);
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(output, expected);
     let _ = tokio::fs::remove_dir_all(cache).await;
 }
 

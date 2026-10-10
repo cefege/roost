@@ -220,9 +220,11 @@ impl WorkerOwners {
         );
 
         let agent_report = AgentReportServer::start_for_worker(&stack.agent_environment, &agents);
-        let agent_tunnel = Arc::new(crate::runtime::agent_tunnel::AgentTunnelOwner::new(
-            data_dir.join("agent-env"),
-            uplink.clone(),
+        let agent_tunnel = Arc::new(crate::runtime::agent_tunnel::AgentTunnelQueue::start(
+            crate::runtime::agent_tunnel::AgentTunnelOwner::new(
+                data_dir.join("agent-env"),
+                uplink.clone(),
+            ),
         )) as Arc<dyn AgentTunnelPort>;
         register_session_closed(&stack, &routes, &view);
 

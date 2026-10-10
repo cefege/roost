@@ -4027,3 +4027,21 @@ lanes each tick, and `sweep_held` does not expire a batch queued behind a sendin
 `keystrokes_past_the_window_wait_and_go_out_in_order_as_results_settle`,
 `a_direct_result_sends_the_next_queued_keystroke`,
 `a_keystroke_queued_behind_the_window_outlives_the_admission_timeout`.
+
+### Built-in agent tools fail: `daemon SHA mismatch`
+
+**Symptom** — every built-in agent tool call fails on every worker; pi logs
+`pi-env exited with code 1 before it was ready` and the tunnel closes with `daemon SHA mismatch`,
+though the coordinator verified the same upload's digest.
+
+**Wrong** — re-upload, raise the size cap, or hash on the coordinator only. The worker's
+`AgentTunnelPort` spawned one task per downstream frame, so back-to-back daemon chunks (and the empty
+`last` chunk) were applied out of order; stdin frames were reordered the same way, which corrupts the
+daemon's protocol even when the upload survives.
+
+**Right** — the port is `runtime::agent_tunnel::AgentTunnelQueue`: the dispatcher's calls enqueue, and one
+consumer task applies every frame in link order. A per-frame `tokio::spawn` is never right for a byte
+stream.
+
+**Guard** — `crates/roost-worker/tests/agent_tunnel.rs` —
+`the_port_applies_back_to_back_frames_in_link_order` (multi-thread runtime, one byte per chunk).
