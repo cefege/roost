@@ -12,3 +12,38 @@ autotests = false
 workspace = true
 
 [dependencies]
+flate2 = { workspace = true }
+globset = { workspace = true }
+grep-regex = { workspace = true }
+grep-searcher = { workspace = true }
+ignore = { workspace = true }
+lsp-types = { workspace = true }
+roost-observability = { workspace = true }
+roost-platform = { workspace = true }
+roost-protocol = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true, features = ["rustls"] }
+sha2 = { workspace = true }
+hex = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt", "sync", "time"] }
+url = { workspace = true }
+tokio-util = { workspace = true }
+tar = { workspace = true }
+tracing = { workspace = true }
+getrandom = { workspace = true }
+xxhash-rust = { workspace = true }
+zip = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "process", "rt", "rt-multi-thread", "sync", "time", "test-util"] }
+axum = { workspace = true, features = ["http1", "tokio"] }
+
+[[test]]
+name = "suite"
+path = "tests/suite.rs"

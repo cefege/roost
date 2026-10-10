@@ -1,9 +1,14 @@
 //! Agent-host JSON contracts, transcript folding, and sync protobuf conversion.
 
+mod commands;
 mod fold;
 mod model;
 mod proto;
+mod tools;
 mod tunnel_args;
+
+pub use commands::{AGENT_SLASH_COMMANDS, SlashCommand, parse_slash_command};
+pub use tools::*;
 
 pub use fold::fold_chat_event;
 pub use model::*;

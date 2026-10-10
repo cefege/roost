@@ -5114,14 +5114,19 @@ name = "roost-agent"
 version = "3.0.0"
 dependencies = [
  "futures",
+ "getrandom 0.4.3",
+ "hex",
+ "regex",
  "reqwest 0.13.5",
  "roost-llm",
  "roost-protocol",
  "serde",
  "serde_json",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-util",
  "tracing",
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -5134,6 +5139,7 @@ dependencies = [
  "globset",
  "grep-regex",
  "grep-searcher",
+ "hex",
  "ignore",
  "libc",
  "lsp-types",
