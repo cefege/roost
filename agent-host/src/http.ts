@@ -8,7 +8,7 @@ import type { Logins } from "./logins.ts";
 import type { ModelsService } from "./models.ts";
 
 export interface AgentHost { server: Server; listen(): Promise<AddressInfo>; close(): Promise<void> }
-export interface AgentHostOptions { config: HostConfig; conversations: Conversations; hub: EventHub; models: ModelsService; logins: Logins }
+export interface AgentHostOptions { config: HostConfig; conversations: Conversations; hub: EventHub; models: ModelsService; logins: Logins; onInternalError?: (error: unknown) => void }
 const BODY_LIMIT = 1024 * 1024;
 const digest = (value: string) => createHash("sha256").update(value).digest();
 
@@ -28,11 +28,12 @@ function sendJson(response: ServerResponse, value: unknown, status = 200): void 
   response.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
   response.end(JSON.stringify(value));
 }
-function sendError(response: ServerResponse, error: unknown): void {
+function sendError(response: ServerResponse, error: unknown): number {
   const issue = error as { status?: number; code?: string; message?: string };
   const status = issue.status ?? 500;
   const code = ["not_found", "invalid", "busy", "unavailable", "internal"].includes(issue.code ?? "") ? issue.code : status === 404 ? "not_found" : status < 500 ? "invalid" : "internal";
   sendJson(response, { error: { code, message: issue.message ?? "internal error" } }, status);
+  return status;
 }
 function authorized(request: IncomingMessage, secret: string): boolean {
   const authorization = request.headers.authorization ?? "";
@@ -41,7 +42,7 @@ function authorized(request: IncomingMessage, secret: string): boolean {
 }
 
 export function createAgentHost(options: AgentHostOptions): AgentHost {
-  const { config, conversations, hub, models, logins } = options;
+  const { config, conversations, hub, models, logins, onInternalError } = options;
   const server = createServer(async (request, response) => {
     const url = new URL(request.url ?? "/", "http://localhost");
     if (request.method === "GET" && url.pathname === "/healthz") { response.writeHead(200, { "content-type": "text/plain" }); response.end("ok"); return; }
@@ -84,7 +85,7 @@ export function createAgentHost(options: AgentHostOptions): AgentHost {
       match = path.match(/^\/v1\/auth\/credentials\/([^/]+)$/);
       if (request.method === "DELETE" && match) { await models.models.logout(decodeURIComponent(match[1]!)); sendJson(response, {}); return; }
       sendJson(response, { error: { code: "not_found", message: "not found" } }, 404);
-    } catch (error) { sendError(response, error); }
+    } catch (error) { if (sendError(response, error) >= 500) onInternalError?.(error); }
   });
   return {
     server,
