@@ -50,6 +50,10 @@ env:
   ROOST_RELAXED_CSP: "0"
   ROOST_TERMINAL_PEER_ENABLED: "1"
   ROOST_TERMINAL_PEER_STUN_URLS: stun:stun.cloudflare.com:3478
+  # Web Push providers a subscription endpoint may live on, matched exactly:
+  # Chrome and other Chromium browsers (FCM), Safari and iOS Home Screen apps,
+  # Firefox. Unset, Push is off and the Desktop switch reports it unavailable.
+  ROOST_PUSH_ALLOWED_ORIGINS: https://fcm.googleapis.com,https://web.push.apple.com,https://updates.push.services.mozilla.com
 
 postgres:
   enabled: true
