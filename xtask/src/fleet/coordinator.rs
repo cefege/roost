@@ -30,8 +30,6 @@ pub struct KubeCoordinator {
     pub values: String,
     /// The image repository, `ghcr.io/<owner>/<name>`.
     pub image: String,
-    /// The optional built-in agent host image, checked before Helm upgrade.
-    pub agent_host_image: Option<String>,
 }
 
 /// Upgrade the release to `release`'s tag and prove the pod runs it.
@@ -83,17 +81,6 @@ fn upgrade_script(coordinator: &KubeCoordinator, tag: &str, sha: &str) -> Result
         .image
         .strip_prefix("ghcr.io/")
         .ok_or_else(|| format!("{}: only ghcr.io images are checked", coordinator.name))?;
-    let agent_host_repository = coordinator
-        .agent_host_image
-        .as_deref()
-        .map(|image| {
-            image
-                .strip_prefix("ghcr.io/")
-                .map(str::to_owned)
-                .ok_or_else(|| format!("{}: only ghcr.io images are checked", coordinator.name))
-        })
-        .transpose()?
-        .unwrap_or_default();
     let image_tag = image_tag(tag);
     let KubeCoordinator {
         kubeconfig,
@@ -115,16 +102,6 @@ fn upgrade_script(coordinator: &KubeCoordinator, tag: &str, sha: &str) -> Result
            echo \"{image}:{image_tag} is not published; push {tag} ({sha}) and wait for the container workflow\" >&2\n\
            exit 1\n\
          fi\n\
-         if [ -n \"{agent_host_repository}\" ]; then\n\
-           AGENT_TOKEN=$(curl -fsS \"https://ghcr.io/token?scope=repository:{agent_host_repository}:pull\" \
-             | sed -E 's/.*\"token\":\"([^\"]+)\".*/\\1/')\n\
-           if ! curl -fsS -o /dev/null -H \"Authorization: Bearer $AGENT_TOKEN\" \
-             -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json' \
-             \"https://ghcr.io/v2/{agent_host_repository}/manifests/{image_tag}\"; then\n\
-             echo \"{agent_host_repository}:{image_tag} is not published; push {tag} ({sha}) and wait for the container workflow\" >&2\n\
-             exit 1\n\
-           fi\n\
-         fi\n\
          helm upgrade --install \"{release}\" \"{chart}\" -n \"{namespace}\" --reset-then-reuse-values \
            -f \"{values}\" --set image.tag=\"{image_tag}\" --set replicas=1 --wait --timeout 10m >&2\n\
          kubectl -n \"{namespace}\" rollout status \"deploy/{release}\" --timeout=300s >&2\n\
@@ -135,7 +112,7 @@ fn upgrade_script(coordinator: &KubeCoordinator, tag: &str, sha: &str) -> Result
 
 #[cfg(test)]
 mod tests {
-    use super::{KubeCoordinator, image_tag, upgrade_script};
+    use super::image_tag;
 
     #[test]
     fn the_image_tag_is_the_release_tag_without_its_v() {
@@ -143,28 +120,4 @@ mod tests {
         assert_eq!(image_tag("3.0.0"), "3.0.0");
     }
 
-    #[test]
-    fn the_agent_host_image_is_checked_before_the_helm_upgrade() {
-        let coordinator = KubeCoordinator {
-            name: "test".to_owned(),
-            kubeconfig: "/tmp/kubeconfig".to_owned(),
-            namespace: "roost".to_owned(),
-            release: "roost-coordinator".to_owned(),
-            chart: "deploy/helm/roost-coordinator".to_owned(),
-            values: "deploy/helm/fleet-ovh1.values.yaml".to_owned(),
-            image: "ghcr.io/owner/roost-coordinator".to_owned(),
-            agent_host_image: Some("ghcr.io/owner/roost-agent-host".to_owned()),
-        };
-        let script = upgrade_script(&coordinator, "v3.0.0", "0123456789abcdef");
-        assert!(script.is_ok());
-        let script = script.unwrap_or_default();
-        assert!(script.contains("repository:owner/roost-agent-host:pull"));
-        assert!(script.contains("v2/owner/roost-agent-host/manifests/3.0.0"));
-        assert!(
-            script
-                .find("roost-agent-host/manifests")
-                .unwrap_or(usize::MAX)
-                < script.find("helm upgrade").unwrap_or(0)
-        );
-    }
 }

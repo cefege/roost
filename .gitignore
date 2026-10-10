@@ -26,5 +26,3 @@ STATE.md
 # deployable without committing scratch material.
 .cache/
 mockups/
-
-agent-host/node_modules/
