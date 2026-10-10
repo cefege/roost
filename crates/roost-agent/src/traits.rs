@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
+use roost_llm::web_search::{ParsedQuery, SearchQuery, SearchResponse};
 use roost_llm::{
     Answer, Catalog, ChatRequest, LlmError, ModelInfo, Question, ResolvedAuth, StreamEvent,
     UsageWindow,
@@ -142,10 +143,21 @@ pub trait Llm: Send + Sync {
     fn account_usage(&self) -> BoxFuture<'_, Vec<AccountUsage>>;
     fn fetch_url<'a>(&'a self, url: &'a str)
     -> BoxFuture<'a, Result<crate::FetchedPage, LlmError>>;
-    fn web_search<'a>(
+    fn search_engine<'a>(
         &'a self,
-        query: &'a str,
-        limit: u32,
-    ) -> BoxFuture<'a, Result<Vec<crate::SearchHit>, LlmError>>;
-    fn has_web_search(&self) -> BoxFuture<'_, bool>;
+        engine_id: &'a str,
+        base_url: Option<&'a str>,
+        query: &'a SearchQuery,
+        parsed: &'a ParsedQuery,
+        cancel: CancellationToken,
+    ) -> BoxFuture<'a, Result<SearchResponse, LlmError>>;
+    fn engine_configured<'a>(&'a self, engine_id: &'a str) -> BoxFuture<'a, bool>;
+    fn hosted_search<'a>(
+        &'a self,
+        model: &'a ModelInfo,
+        conversation_id: &'a str,
+        query: &'a SearchQuery,
+        parsed: &'a ParsedQuery,
+        cancel: CancellationToken,
+    ) -> BoxFuture<'a, Result<SearchResponse, LlmError>>;
 }

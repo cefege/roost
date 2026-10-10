@@ -149,7 +149,7 @@ async fn run_call(scope: &CallScope<'_>, call_id: &str, name: &str, args: &str) 
         }
         TOOL_FETCH | TOOL_WEB_SEARCH => {
             drop(out);
-            web_tools::run(scope.runtime, name, args).await
+            web_tools::run(scope, name, args).await
         }
         TOOL_PROPOSE_PLAN => {
             drop(out);

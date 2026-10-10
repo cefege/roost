@@ -284,7 +284,7 @@ impl AgentRuntime {
     /// Saves settings after checking every role selector's syntax.
     pub async fn set_settings(&self, settings: AgentSettings) -> Result<(), AgentError> {
         for (role, selector) in &settings.model_roles {
-            roles::validate_selector(selector).map_err(|error| {
+            roles::validate_role_selector(*role, selector).map_err(|error| {
                 AgentError::InvalidArgument(format!("role {}: {error}", role.as_str()))
             })?;
         }

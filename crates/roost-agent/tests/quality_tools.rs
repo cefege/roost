@@ -239,25 +239,25 @@ async fn todo_and_ask_are_offered_only_to_the_intended_agent_kinds() {
     let harness = Harness::new();
     let id = harness.conversation().await;
     let record = harness.store.conversation(&id).await.unwrap().unwrap();
-    let top_level = roost_agent::toolset::toolset_for(&record, 0, false, false);
+    let top_level = roost_agent::toolset::toolset_for(&record, 0, false);
     assert!(top_level.offers("todo"));
     assert!(top_level.offers("ask"));
-    assert!(!top_level.offers("web_search"));
+    assert!(top_level.offers("web_search"));
 
     let mut child = record.clone();
     child.parent_id = Some(id);
     child.agent = Some("task".into());
-    let task = roost_agent::toolset::toolset_for(&child, 1, false, false);
+    let task = roost_agent::toolset::toolset_for(&child, 1, false);
     assert!(task.offers("todo"));
     assert!(!task.offers("ask"));
     child.agent = Some("reviewer".into());
-    let reviewer = roost_agent::toolset::toolset_for(&child, 1, false, false);
+    let reviewer = roost_agent::toolset::toolset_for(&child, 1, false);
     assert!(reviewer.offers("todo"));
     assert!(!reviewer.offers("ask"));
     child.agent = Some("scout".into());
-    let scout = roost_agent::toolset::toolset_for(&child, 1, false, false);
+    let scout = roost_agent::toolset::toolset_for(&child, 1, false);
     assert!(!scout.offers("todo"));
     assert!(scout.offers("fetch"));
-    assert!(!scout.offers("web_search"));
+    assert!(scout.offers("web_search"));
     assert!(!scout.offers("ask"));
 }

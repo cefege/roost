@@ -1,0 +1,7 @@
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"web_search_tool_result","content":[{"type":"web_search_result","title":"Anthropic source","url":"https://example.com/anthropic"}]}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hosted answer"}}
+
+data: [DONE]

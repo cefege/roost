@@ -4,7 +4,7 @@
 
 #![forbid(unsafe_code)]
 mod web_types;
-pub use web_types::{FetchedPage, SearchHit};
+pub use web_types::FetchedPage;
 
 mod advisor;
 mod ask;

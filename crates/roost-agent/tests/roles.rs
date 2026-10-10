@@ -34,6 +34,22 @@ fn selectors_parse_models_roles_thinking_and_lists() {
     assert!(parse_selector("a/b,,c/d").is_err());
 }
 
+#[test]
+fn web_role_parses_known_engine_chain_selectors_only() {
+    assert_eq!(
+        parse_selector("web/hosted, web/exa, web/public").unwrap(),
+        vec![
+            SelectorCandidate::WebHosted,
+            SelectorCandidate::WebEngine("exa".into()),
+            SelectorCandidate::WebEngine("public".into()),
+        ]
+    );
+    assert!(parse_selector("web/unknown").is_err());
+    assert!(roost_agent::roles::validate_role_selector(Role::Web, "web/brave").is_ok());
+    assert!(roost_agent::roles::validate_role_selector(Role::Web, "anthropic/model").is_err());
+    assert!(roost_agent::roles::validate_role_selector(Role::Default, "web/brave").is_err());
+}
+
 #[tokio::test]
 async fn unconfigured_smol_falls_back_to_the_default_role() {
     let llm = ScriptedLlm::new(&["anthropic"]);

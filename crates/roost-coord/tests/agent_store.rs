@@ -131,6 +131,7 @@ async fn conversation_entries_settings_and_credentials_round_trip() {
             model_id: "claude".to_owned(),
         }),
         advisor_enabled: true,
+        searxng_url: Some("https://search.example".to_owned()),
     };
     store.save_settings(&settings).await.expect("save settings");
     assert_eq!(store.settings().await.expect("load settings"), settings);
