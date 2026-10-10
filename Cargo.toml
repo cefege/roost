@@ -31,6 +31,9 @@ roost-worker = { path = "crates/roost-worker" }
 roost-coord = { path = "crates/roost-coord" }
 roost-client-core = { path = "crates/roost-client-core" }
 roost-web-terminal = { path = "crates/roost-web-terminal" }
+roost-llm = { path = "crates/roost-llm" }
+roost-agent = { path = "crates/roost-agent" }
+roost-agent-tools = { path = "crates/roost-agent-tools" }
 # `zstd` is deliberately off. It is a C library built through `cc`, so it
 # cannot compile for `wasm32-unknown-unknown`, and the browser client is a
 # first-class target of this workspace. Connect's compression is per-request
@@ -153,6 +156,24 @@ uds_windows = "1.2.1"
 windows-sys = "0.61"
 # OS entropy on every platform: /dev/urandom does not exist on Windows.
 getrandom = "0.4"
+
+# The agent harness. The hashline TAG is xxh32 over the normalised file text,
+# the same digest OMP renders, so a header the model saw in one tool matches
+# the header the edit checks.
+xxhash-rust = { version = "0.8.18", features = ["xxh32"] }
+# ripgrep's walker, glob matcher and searcher behind the worker's grep/glob
+# tools: `.gitignore`-aware, and the same semantics a developer's `rg` has.
+ignore = "0.4.33"
+globset = "0.4.20"
+grep-regex = "0.1.14"
+grep-searcher = "0.1.17"
+lsp-types = "0.97.0"
+# Unpacking the on-demand language-server downloads (gz, tar.gz, zip).
+flate2 = "1.1.10"
+tar = "0.4.46"
+zip = { version = "9.0.1", default-features = false, features = ["deflate"] }
+tempfile = "3.27.0"
+async-stream = "0.3.6"
 
 # xtask only.
 cargo_metadata = "0.23.1"

@@ -94,6 +94,7 @@ const ALLOWED: &[(&str, &[&str])] = &[
             "roost-protocol",
             "roost-platform",
             "roost-observability",
+            "roost-agent-tools",
         ],
     ),
     // `roost-proto` is here because a Connect service is IMPLEMENTED against
@@ -110,7 +111,21 @@ const ALLOWED: &[(&str, &[&str])] = &[
             "roost-protocol",
             "roost-platform",
             "roost-observability",
+            "roost-agent",
+            "roost-llm",
         ],
+    ),
+    // The agent harness. Providers and accounts sit below the loop, and the
+    // worker-side tools share only the protocol's argument shapes with it:
+    // the coordinator runs the loop, the worker runs the tools.
+    ("roost-llm", &["roost-observability"]),
+    (
+        "roost-agent",
+        &["roost-llm", "roost-protocol", "roost-observability"],
+    ),
+    (
+        "roost-agent-tools",
+        &["roost-protocol", "roost-platform", "roost-observability"],
     ),
     (
         "roost-client-core",
