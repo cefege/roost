@@ -58,8 +58,6 @@ pub enum ServedSurface {
     Help,
     /// `/design` — the design-system gallery, outside the workbench.
     Design,
-    /// `/a/:conversationId` — one built-in agent conversation's chat.
-    Agent,
 }
 
 impl ServedSurface {
@@ -75,12 +73,12 @@ pub fn surface_for(route: &Route) -> Surface {
     match route {
         Route::Home => Surface::Served(ServedSurface::Home),
         Route::Session { .. }
+        | Route::Agent { .. }
         | Route::Terminal { .. }
         | Route::Workspace { .. }
         | Route::File { .. }
         | Route::Search => Surface::Served(ServedSurface::MainPane),
         Route::Design => Surface::Served(ServedSurface::Design),
-        Route::Agent { .. } => Surface::Served(ServedSurface::Agent),
         Route::Settings { .. } => Surface::Served(ServedSurface::Settings),
         Route::Pair => Surface::Served(ServedSurface::Pair),
         Route::Browse { .. } => Surface::Served(ServedSurface::Browse),
@@ -348,12 +346,6 @@ fn RouteContent(surface: Surface, route: Route) -> Element {
             rsx! { crate::components::browse::BrowseSurface { route } }
         }
         Surface::Served(ServedSurface::Help) => rsx! { crate::components::help::HelpSurface {} },
-        Surface::Served(ServedSurface::Agent) => match route {
-            Route::Agent { conversation_id } => rsx! {
-                crate::components::agent_chat::AgentChatSurface { conversation_id }
-            },
-            _ => rsx! {},
-        },
         Surface::NotServed { path } => rsx! { crate::components::not_served::NotServed { path } },
         Surface::NotFound { path } => {
             rsx! { crate::components::not_served::NotFound { path, on_navigate: navigate } }

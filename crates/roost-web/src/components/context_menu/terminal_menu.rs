@@ -9,7 +9,7 @@ use crate::components::context_menu::{
 };
 #[cfg(target_arch = "wasm32")]
 use crate::components::context_menu::{MenuFocusEdge, focus_menu_edge};
-
+use crate::components::md::{Icon, IconSize};
 /// The actions this menu exposes, with stable test identifiers.
 pub const TERMINAL_MENU_ITEMS: &[(&str, &str)] = &[
     ("ctx-copy-selection", "Copy"),
@@ -74,6 +74,7 @@ pub fn TerminalFloatingMenu(
     on_paste: EventHandler<()>,
     on_find: EventHandler<()>,
     on_close: EventHandler<()>,
+    #[props(default)] on_start_agent: Option<EventHandler<()>>,
 ) -> Element {
     use_floating_menu_dismiss(on_close, None, vec![menu_id.clone()]);
     #[cfg(target_arch = "wasm32")]
@@ -122,7 +123,14 @@ pub fn TerminalFloatingMenu(
                     "Copy"
                 }
             }
-            CtxMenuItem { testid: "ctx-paste", onclick: move |_| on_paste.call(()), "Paste" }
+            if let Some(on_start_agent) = on_start_agent {
+                CtxMenuItem {
+                    testid: "ctx-start-agent",
+                    onclick: move |_| on_start_agent.call(()),
+                    Icon { name: "smart_toy", size: IconSize::Sm }
+                    "Start agent here"
+                }
+            }
             CtxMenuItem { testid: "ctx-find", onclick: move |_| on_find.call(()), "Find" }
         }
     }
@@ -137,6 +145,7 @@ pub fn TerminalActionSheet(
     on_paste: EventHandler<()>,
     on_find: EventHandler<()>,
     on_cancel: EventHandler<()>,
+    #[props(default)] on_start_agent: Option<EventHandler<()>>,
 ) -> Element {
     let has_selection = !selection.is_empty();
     let copy_selection = selection.clone();
@@ -180,6 +189,14 @@ pub fn TerminalActionSheet(
 
             SheetItem { testid: "ctx-paste", on_activate: move |_| on_paste.call(()), "Paste" }
             SheetItem { testid: "ctx-find", on_activate: move |_| on_find.call(()), "Find" }
+            if let Some(on_start_agent) = on_start_agent {
+                SheetItem {
+                    testid: "ctx-start-agent",
+                    on_activate: move |_| on_start_agent.call(()),
+                    Icon { name: "smart_toy", size: IconSize::Sm }
+                    "Start agent here"
+                }
+            }
             SheetItem {
                 testid: "ctx-cancel",
                 on_activate: move |_| on_cancel.call(()),

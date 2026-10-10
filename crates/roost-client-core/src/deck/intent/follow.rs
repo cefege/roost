@@ -4,7 +4,7 @@
 //! `deck::intent`. Ports the route-follow and `selectSessionOp` halves of
 //! `apps/web/src/lib/deckOps.ts` and `terminal-deck-operations.ts`.
 
-use super::{DeckFolder, commit, session_path};
+use super::{DeckFolder, commit, deck_tab_path};
 use crate::deck::route_selection::{SessionSelection, route_selection_commit, session_selection};
 use crate::platform::KeyValueStore;
 use crate::store::Store;
@@ -23,9 +23,14 @@ pub(super) fn observe(
     if previous.is_some_and(|previous| previous != folder_key) {
         clear_spotlight(store);
     }
-    let stale_spotlight = store.spotlight.session_id().is_some_and(|session_id| {
-        crate::store::selectors::session_by_id(store, session_id)
-            .is_none_or(|session| session.status != roost_protocol::wire::SessionStatus::Open)
+    let stale_spotlight = store.spotlight.session_id().is_some_and(|tab_id| {
+        if let Some(conversation_id) = tab_id.strip_prefix("agent:") {
+            !store.agent_chat.conversations.contains_key(conversation_id)
+                || store.pending_closes.contains(tab_id)
+        } else {
+            crate::store::selectors::session_by_id(store, tab_id)
+                .is_none_or(|session| session.status != roost_protocol::wire::SessionStatus::Open)
+        }
     });
     if stale_spotlight {
         clear_spotlight(store);
@@ -59,7 +64,7 @@ pub(super) fn select_session(
 ) {
     let current = store.deck.resolve_for_edit(folder);
     if session_selection(Some(&current), compact) == SessionSelection::NavigateOnly {
-        store.deck.request_navigation(session_path(session_id));
+        store.deck.request_navigation(deck_tab_path(session_id));
         store.note_change();
         return;
     }
@@ -78,7 +83,7 @@ pub(super) fn select_session(
         find_leaf_of_tab(&next.root, session_id).is_some_and(|leaf| leaf.pane_id == pane_id)
     });
     commit(store, folder, next, storage);
-    store.deck.request_navigation(session_path(session_id));
+    store.deck.request_navigation(deck_tab_path(session_id));
     if lands_in_spotlit {
         set_spotlight_session_id(store, Some(session_id.to_owned()));
     }

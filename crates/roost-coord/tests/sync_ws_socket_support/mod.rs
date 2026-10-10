@@ -183,6 +183,29 @@ impl SyncFixture {
             },
         });
     }
+
+    /// Publish one transcript batch for `conversation_id` at `seq`.
+    pub fn publish_agent_chat(&self, conversation_id: &str, seq: u64) {
+        self.services.buses.agent_chat_bus.publish(
+            roost_coord::events::bus_messages::AgentChatEventsUpdate {
+                conversation_id: conversation_id.to_owned(),
+                seq,
+                events_json: "[]".to_owned(),
+            },
+        );
+    }
+
+    /// Publish one conversation row removal for `conversation_id`.
+    pub fn publish_agent_conversation_removed(&self, conversation_id: &str) {
+        self.services.buses.agent_conversation_bus.publish(
+            roost_coord::events::bus_messages::AgentConversationUpdate {
+                conversation_id: conversation_id.to_owned(),
+                removed: true,
+                conversation: None,
+                host_connected: None,
+            },
+        );
+    }
 }
 
 impl Drop for SyncFixture {

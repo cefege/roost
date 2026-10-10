@@ -10,10 +10,12 @@ use roost_client_core::ClientCore;
 use roost_client_core::store::{
     ChannelId, Session, SessionId, SessionKind, SessionMap, SessionStatus, WorkerFp, WorkspaceId,
 };
+use roost_protocol::wire::agent_chat::{AgentRunState, ConversationSummary};
 use roost_web::app::{ServedSurface, Surface, surface_for};
 use roost_web::platform::worker_paths::BrowserWorkerPaths;
 use roost_web::route_session::{
-    active_open_session_for_route, active_session_for_path, sibling_or_home_href,
+    active_deck_tab_for_route, active_open_session_for_route, active_session_for_path,
+    sibling_or_home_href,
 };
 use roost_web::routes::Route;
 use roost_web::terminal_href::{decode_folder_path, encode_folder_path, terminal_href};
@@ -127,6 +129,7 @@ fn every_terminal_file_and_search_route_is_one_main_pane_surface() {
         "/w/ws1",
         "/w/ws1/t/3",
         "/file/aa/etc/hosts",
+        "/a/abc",
         "/search",
     ] {
         assert_eq!(
@@ -135,6 +138,32 @@ fn every_terminal_file_and_search_route_is_one_main_pane_surface() {
             "{path}"
         );
     }
+}
+
+#[test]
+fn an_agent_route_selects_its_agent_deck_tab() {
+    let mut core = core_with(Vec::new());
+    core.store_mut().agent_chat.conversations.insert(
+        "abc".to_owned(),
+        ConversationSummary {
+            id: "abc".to_owned(),
+            title: "Agent".to_owned(),
+            worker_fp: fp(),
+            worker_label: "dev".to_owned(),
+            cwd: FOLDER.to_owned(),
+            model: None,
+            thinking_level: None,
+            run_state: AgentRunState::Idle,
+            error: None,
+            created_ms: 1,
+            updated_ms: 1,
+        },
+    );
+    assert_eq!(
+        active_deck_tab_for_route(core.store(), &BrowserWorkerPaths, &Route::parse("/a/abc"))
+            .as_deref(),
+        Some("agent:abc")
+    );
 }
 
 #[test]

@@ -49,7 +49,15 @@ pub fn PaneTabList(
         tab_ids
             .iter()
             .filter_map(|id| {
-                session_by_id(store, id).map(|session| (id.clone(), session_title(store, session)))
+                session_by_id(store, id)
+                    .map(|session| (id.clone(), session_title(store, session)))
+                    .or_else(|| {
+                        id.strip_prefix("agent:")
+                            .and_then(|conversation_id| {
+                                store.agent_chat.conversations.get(conversation_id)
+                            })
+                            .map(|conversation| (id.clone(), conversation.title.clone()))
+                    })
             })
             .collect()
     };
@@ -176,7 +184,7 @@ pub fn PaneTabList(
                             let session_id = session_id.clone();
                             move |_| choose(session_id.clone())
                         },
-                        Icon { name: "terminal", class: "workbench-tab-list__item-icon", size: IconSize::Sm }
+                        Icon { name: if session_id.starts_with("agent:") { "smart_toy" } else { "terminal" }, class: "workbench-tab-list__item-icon", size: IconSize::Sm }
                         span { class: "workbench-tab-list__item-label", "{title}" }
                         if session_id == selected_tab {
                             Icon { name: "check", class: "workbench-tab-list__item-check", size: IconSize::Sm }

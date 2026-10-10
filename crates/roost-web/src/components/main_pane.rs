@@ -15,7 +15,9 @@ use roost_client_core::sync::SyncDomain;
 use crate::components::layout::window_size::use_is_compact;
 use crate::platform::worker_paths::BrowserWorkerPaths;
 use crate::pump::use_store;
-use crate::route_session::{active_open_session_for_route, is_terminal_route};
+use crate::route_session::{
+    active_deck_tab_for_route, active_open_session_for_route, is_terminal_route,
+};
 use crate::router_state::use_location;
 use crate::routes::Route;
 use crate::terminal_href::terminal_href;
@@ -46,6 +48,7 @@ impl MainPaneOverlay {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PaneReading {
     open_session_id: Option<String>,
+    active_deck_tab_id: Option<String>,
     visit: Option<(String, String, String, String)>,
     sidebar_open: bool,
 }
@@ -63,6 +66,7 @@ pub fn MainPane(route: Route) -> Element {
         let store = core.store();
         let open = active_open_session_for_route(store, &BrowserWorkerPaths, &route);
         PaneReading {
+            active_deck_tab_id: active_deck_tab_for_route(store, &BrowserWorkerPaths, &route),
             open_session_id: open.map(|session| session.id.as_str().to_owned()),
             visit: open.map(|session| {
                 (
@@ -121,7 +125,7 @@ pub fn MainPane(route: Route) -> Element {
                 style: deck_host_style(overlay_active),
                 "aria-hidden": overlay_active.then_some("true"),
                 crate::components::deck::terminal_deck::TerminalDeck {
-                    active_session_id: reading.open_session_id.clone(),
+                    active_session_id: reading.active_deck_tab_id.clone(),
                     surface_visible: !overlay_active,
                 }
             }

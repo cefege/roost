@@ -10,71 +10,78 @@ use crate::store::Store;
 use crate::store::pending_close::sweep_pending_closes;
 use crate::store::toasts::{ToastId, ToastKind, ToastOptions, ToastSource, add_toast};
 
-/// Issue one graceful `SessionsKill` per close whose window has run out, in
-/// the order the queue returns them.
+/// Issue one delete or graceful terminal kill per expired close.
 pub(crate) fn issue_due_kills(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
-    for session_id in sweep_pending_closes(store, now_ms) {
-        issue_kill(store, session_id, false, out);
+    for tab_id in sweep_pending_closes(store, now_ms) {
+        issue_kill(store, tab_id, false, out);
     }
 }
 
-fn issue_kill(store: &mut Store, session_id: String, force: bool, out: &mut Vec<Effect>) {
+fn issue_kill(store: &mut Store, tab_id: String, force: bool, out: &mut Vec<Effect>) {
     let call_id = store.next_call_id();
-    store.pending_closes.begin_kill(call_id, session_id.clone());
-    tracing::info!(target: "close", call_id, session_id = %session_id, force, "killing closed session");
-    out.push(Effect::Rpc(RpcCall::SessionsKill {
-        call_id,
-        session_id,
-        force,
-    }));
+    store.pending_closes.begin_kill(call_id, tab_id.clone());
+    if let Some(conversation_id) = tab_id.strip_prefix("agent:") {
+        tracing::info!(target: "close", call_id, conversation_id, "deleting closed agent conversation");
+        out.push(Effect::Rpc(RpcCall::AgentChatDelete {
+            call_id,
+            conversation_id: conversation_id.to_owned(),
+        }));
+    } else {
+        tracing::info!(target: "close", call_id, session_id = %tab_id, force, "killing closed session");
+        out.push(Effect::Rpc(RpcCall::SessionsKill {
+            call_id,
+            session_id: tab_id,
+            force,
+        }));
+    }
 }
 
-/// Fold a `SessionsKill` answer. Returns whether `result` answered a kill.
+/// Fold a close answer. Returns whether `result` answered a pending close.
 pub(crate) fn settle_kill(
     store: &mut Store,
     result: &RpcResult,
     now_ms: u64,
     out: &mut Vec<Effect>,
 ) -> bool {
-    let Some(session_id) = store.pending_closes.take_kill(result.call_id()) else {
+    let Some(tab_id) = store.pending_closes.take_kill(result.call_id()) else {
         return false;
     };
-    match result {
-        RpcResult::SessionKillAnswered {
-            accepted: false,
-            force: false,
-            ..
-        } => {
-            tracing::info!(target: "close", session_id = %session_id, "graceful kill refused; forcing");
-            issue_kill(store, session_id, true, out);
+    if let RpcResult::SessionKillAnswered {
+        accepted: false,
+        force: false,
+        ..
+    } = result
+        && !tab_id.starts_with("agent:")
+    {
+        tracing::info!(target: "close", session_id = %tab_id, "graceful kill refused; forcing");
+        issue_kill(store, tab_id, true, out);
+        return true;
+    }
+    if let RpcResult::Failed { call_id, error } = result {
+        tracing::warn!(target: "close", tab_id = %tab_id, %error, "close failed");
+        if store.pending_closes.release_closing(&tab_id) {
+            store.note_change();
         }
-        RpcResult::Failed { call_id, error } => {
-            tracing::warn!(target: "close", session_id = %session_id, %error, "close failed");
-            // The session is still running, so it comes back on screen beside
-            // the card that says why.
-            if store.pending_closes.release_closing(&session_id) {
-                store.note_change();
-            }
-            add_toast(
-                store,
-                ToastId::new(ToastSource::Rpc { call_id: *call_id }, session_id),
-                format!("Close failed: {error}"),
-                ToastKind::Err,
-                ToastOptions::plain(),
-                now_ms,
-            );
-        }
+        add_toast(
+            store,
+            ToastId::new(ToastSource::Rpc { call_id: *call_id }, tab_id),
+            format!("Close failed: {error}"),
+            ToastKind::Err,
+            ToastOptions::plain(),
+            now_ms,
+        );
+    } else if matches!(
+        result,
         RpcResult::SessionKillAnswered {
             accepted: false,
             force: true,
             ..
-        } => {
-            tracing::warn!(target: "close", session_id = %session_id, "forced kill refused");
-            if store.pending_closes.release_closing(&session_id) {
-                store.note_change();
-            }
         }
-        _ => {}
+    ) {
+        tracing::warn!(target: "close", tab_id = %tab_id, "forced kill refused");
+        if store.pending_closes.release_closing(&tab_id) {
+            store.note_change();
+        }
     }
     true
 }

@@ -86,11 +86,13 @@ fn pane_group(pane: PaneView, operations: DeckOperations, strip_height: f64) -> 
     let close_ops = operations.clone();
     let reorder_ops = operations.clone();
     let new_tab_ops = operations.clone();
+    let new_agent_ops = operations.clone();
     let move_ops = operations.clone();
     let drop_ops = operations.clone();
     let end_ops = operations;
     let reorder_pane = pane_id.clone();
     let new_tab_pane = pane_id.clone();
+    let new_agent_pane = pane_id.clone();
     let move_pane = pane_id.clone();
     let drop_pane = pane_id.clone();
     rsx! {
@@ -110,6 +112,7 @@ fn pane_group(pane: PaneView, operations: DeckOperations, strip_height: f64) -> 
                     on_close: move |session_id| close_ops.close(session_id),
                     on_reorder: move |ordered_ids| reorder_ops.reorder(reorder_pane.clone(), ordered_ids),
                     on_new_tab: move |()| new_tab_ops.new_tab(new_tab_pane.clone()),
+                    on_new_agent: move |()| new_agent_ops.new_agent(new_agent_pane.clone()),
                     on_tab_drag_move: move |(x, y): (f64, f64)| move_ops.tab_drag_move(&move_pane, x, y),
                     on_tab_tile_drop: Callback::new(move |(tab_id, x, y): (String, f64, f64)| {
                         drop_ops.tab_tile_drop(tab_id, &drop_pane, x, y)

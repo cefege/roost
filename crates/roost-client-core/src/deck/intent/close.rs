@@ -4,7 +4,7 @@
 //! `closeSessionOp` from `apps/web/src/lib/deckOps.ts` and the deck half of
 //! `siblingOrHomeHref` (`apps/web/src/lib/closeSession.ts`).
 
-use super::{DeckFolder, commit, session_path};
+use super::{DeckFolder, commit, deck_tab_path};
 use crate::platform::KeyValueStore;
 use crate::store::Store;
 use crate::store::layout::{PaneLayout, close_tab, find_leaf};
@@ -27,7 +27,7 @@ fn close_destination(
         .map(|leaf| leaf.selected_tab.as_str())
         .filter(|tab| !tab.is_empty());
     if let Some(tab) = shown {
-        return session_path(tab);
+        return deck_tab_path(tab);
     }
     folder
         .and_then(|folder| {
@@ -37,7 +37,7 @@ fn close_destination(
                 .rev()
                 .find(|id| id.as_str() != closing_session_id)
         })
-        .map_or_else(|| "/".to_owned(), |sibling| session_path(sibling))
+        .map_or_else(|| "/".to_owned(), |sibling| deck_tab_path(sibling))
 }
 
 pub(super) fn close_session(
@@ -96,6 +96,6 @@ pub(super) fn undo_close(store: &mut Store, session_id: &str, storage: &dyn KeyV
     store.deck.commit(&undo.folder_key, undo.before, storage);
     store.note_change();
     if undo.was_viewed {
-        store.deck.request_navigation(session_path(session_id));
+        store.deck.request_navigation(deck_tab_path(session_id));
     }
 }

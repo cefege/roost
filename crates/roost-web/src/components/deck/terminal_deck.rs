@@ -5,9 +5,6 @@
 //! asks for. Mounted by `main_pane::MainPane`; state is `roost_client_core::deck`.
 //! Ports `apps/web/src/components/deck/TerminalDeck.tsx`.
 
-use std::collections::BTreeMap;
-use std::rc::Rc;
-
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
 use roost_client_core::deck::{
@@ -15,6 +12,9 @@ use roost_client_core::deck::{
 };
 use roost_client_core::store::Session;
 use roost_client_core::store::selectors::session_by_id;
+use roost_protocol::wire::agent_chat::ConversationSummary;
+use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use super::deck_dom::DeckContainer;
 use super::deck_swipe::Swipe;
@@ -45,6 +45,22 @@ struct MountedTerminal {
     style: String,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct MountedAgent {
+    tab_id: String,
+    conversation: ConversationSummary,
+    slot: Option<TerminalSessionSlot>,
+    style: String,
+}
+
+type DeckRenderSnapshot = (
+    DeckFrame,
+    Option<DeckNavigation>,
+    BTreeMap<String, Session>,
+    BTreeMap<String, ConversationSummary>,
+    bool,
+);
+
 /// The deck. Props are v2's `TerminalDeckProps`, snake-cased.
 #[component]
 pub fn TerminalDeck(active_session_id: Option<String>, surface_visible: bool) -> Element {
@@ -68,12 +84,7 @@ pub fn TerminalDeck(active_session_id: Option<String>, surface_visible: bool) ->
     let desktop_strip_height = (measure.desktop_strip_height)();
     let retained_id = retained.read().clone();
     let swipe_now = swipe.read().clone();
-    let (frame, navigation, sessions, store_spotlight_active): (
-        DeckFrame,
-        Option<DeckNavigation>,
-        BTreeMap<String, Session>,
-        bool,
-    ) = {
+    let (frame, navigation, sessions, conversations, store_spotlight_active): DeckRenderSnapshot = {
         let core = pump.core();
         let core = core.borrow();
         let store = core.store();
@@ -99,10 +110,24 @@ pub fn TerminalDeck(active_session_id: Option<String>, surface_visible: bool) ->
             .iter()
             .filter_map(|id| session_by_id(store, id).map(|session| (id.clone(), session.clone())))
             .collect();
+        let conversations = frame
+            .open_session_ids
+            .iter()
+            .filter_map(|tab_id| {
+                let id = tab_id.strip_prefix("agent:")?;
+                store
+                    .agent_chat
+                    .conversations
+                    .get(id)
+                    .cloned()
+                    .map(|conversation| (tab_id.clone(), conversation))
+            })
+            .collect();
         (
             frame,
             store.deck.navigation().cloned(),
             sessions,
+            conversations,
             store.spotlight.session_id().is_some(),
         )
     };
@@ -156,6 +181,28 @@ pub fn TerminalDeck(active_session_id: Option<String>, surface_visible: bool) ->
             .css();
             Some(MountedTerminal {
                 session,
+                slot,
+                style,
+            })
+        })
+        .collect();
+    let agents: Vec<MountedAgent> = mounted_ids
+        .iter()
+        .filter_map(|tab_id| {
+            let conversation = conversations.get(tab_id)?.clone();
+            let slot = frame.slots.get(tab_id).cloned();
+            let style = terminal_session_style(
+                slot.as_ref(),
+                frame.park_sizes.get(tab_id).copied(),
+                size,
+                frame.strip_height,
+                compact,
+            )
+            .merged(&swipe_style_for(swipe_now.as_ref(), tab_id, size.w))
+            .css();
+            Some(MountedAgent {
+                tab_id: tab_id.clone(),
+                conversation,
                 slot,
                 style,
             })
@@ -217,6 +264,14 @@ pub fn TerminalDeck(active_session_id: Option<String>, surface_visible: bool) ->
                     spotlight_active,
                 }
             }
+            for agent in agents {
+                AgentSlot {
+                    key: "{agent.tab_id}",
+                    agent,
+                    surface_visible,
+                    spotlight_active,
+                }
+            }
             if compact {
                 {compact_chrome(&frame, &operations, swipe_now.as_ref(), active_session_id.as_deref().unwrap_or_default(), size.w)}
             }
@@ -268,6 +323,32 @@ fn TerminalSlot(
                 spotlit,
                 surface_visible,
                 surface_active: !spotlight_active || spotlit,
+            }
+        }
+    }
+}
+
+#[component]
+fn AgentSlot(agent: MountedAgent, surface_visible: bool, spotlight_active: bool) -> Element {
+    let slot = agent.slot.as_ref();
+    let pane_id = slot.map_or_else(String::new, |slot| slot.pane_id.clone());
+    let focused = slot.is_some_and(|slot| slot.focused);
+    let spotlit = slot.is_some_and(|slot| slot.spotlit);
+    let hidden =
+        !surface_visible || (!spotlight_active && !focused) || (spotlight_active && !spotlit);
+    rsx! {
+        div {
+            class: "workbench-terminal-slot",
+            "data-testid": "agent-slot-{agent.conversation.id}",
+            "data-pane-slot": "true",
+            "data-pane": "true",
+            "data-pane-id": pane_id,
+            "data-focused": if focused { "true" } else { "false" },
+            "data-spotlit": spotlit.then_some("true"),
+            style: agent.style,
+            aria_hidden: hidden,
+            crate::components::agent_chat::AgentChatSurface {
+                conversation_id: agent.conversation.id.clone(),
             }
         }
     }

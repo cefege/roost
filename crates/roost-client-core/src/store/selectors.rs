@@ -57,6 +57,25 @@ pub fn live_session_ids_for_folder(
     live.into_iter().map(|(_, session_id)| session_id).collect()
 }
 
+/// The deck's canonical membership: live terminal ids followed by agent tabs
+/// in the same folder bucket.
+pub fn deck_tab_ids_for_folder(
+    store: &Store,
+    paths: &dyn WorkerPaths,
+    folder_key: &str,
+) -> Vec<String> {
+    let mut tab_ids = live_session_ids_for_folder(store, paths, folder_key);
+    tab_ids.extend(
+        store
+            .agent_chat
+            .conversations_in_folder(paths, store, folder_key)
+            .into_iter()
+            .filter(|id| !is_pending_close(store, &crate::deck::agent_tab_id(id)))
+            .map(|id| crate::deck::agent_tab_id(&id)),
+    );
+    tab_ids
+}
+
 /// One session by id.
 pub fn session_by_id<'session>(
     store: &'session Store,

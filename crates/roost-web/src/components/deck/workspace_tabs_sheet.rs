@@ -5,11 +5,12 @@
 //! transform does not confine it. Ports `WorkspaceTabsSheet` from
 //! `apps/web/src/components/deck/MobileDeckBar.tsx`.
 
+use crate::components::md::IconButton;
 use dioxus::prelude::*;
 use roost_client_core::store::selectors::session_by_id;
 
 use super::workspace_tabs_menu::WorkspaceTabsMenu;
-use crate::components::md::IconButton;
+use crate::components::md::{Icon, IconSize, StatusDot};
 use crate::components::terminal::terminal_card::TerminalCard;
 use crate::pump::use_store;
 
@@ -18,7 +19,7 @@ pub fn sheet_heading(selection_mode: bool, selected: usize, total: usize) -> Str
     if selection_mode {
         format!("{selected} selected")
     } else {
-        format!("{total} terminal{}", if total == 1 { "" } else { "s" })
+        format!("{total} tab{}", if total == 1 { "" } else { "s" })
     }
 }
 
@@ -35,14 +36,23 @@ pub fn WorkspaceTabsSheet(
     let pump = use_store();
     let mut selection_mode = use_signal(|| false);
     let mut selected_ids = use_signal(Vec::<String>::new);
-    let sessions: Vec<_> = {
+    let (sessions, agents): (Vec<_>, Vec<_>) = {
         let core = pump.core();
         let core = core.borrow();
         let store = core.store();
-        tab_ids
-            .iter()
-            .filter_map(|id| session_by_id(store, id).cloned())
-            .collect()
+        (
+            tab_ids
+                .iter()
+                .filter_map(|id| session_by_id(store, id).cloned())
+                .collect(),
+            tab_ids
+                .iter()
+                .filter_map(|tab_id| {
+                    let conversation_id = tab_id.strip_prefix("agent:")?;
+                    store.agent_chat.conversations.get(conversation_id).cloned()
+                })
+                .collect(),
+        )
     };
     let mut exit_selection = move || {
         selection_mode.set(false);
@@ -124,9 +134,9 @@ pub fn WorkspaceTabsSheet(
                     on_close_selected: close_selected,
                 }
             }
-            if sessions.is_empty() {
+            if sessions.is_empty() && agents.is_empty() {
                 div { class: "home-landing-empty", "data-testid": "workspace-tabs-empty", style: "padding-top: calc(var(--md-space-9) + var(--md-space-4));",
-                    div { class: "home-landing-empty-title", "No terminals" }
+                    div { class: "home-landing-empty-title", "No tabs" }
                     div { class: "home-landing-empty-sub", "Open one with the + above." }
                 }
             } else {
@@ -150,6 +160,28 @@ pub fn WorkspaceTabsSheet(
                                         None => chosen.push(id),
                                     }
                                 },
+                            }
+                        }
+                    }
+                    for conversation in agents {
+                        {
+                            let tab_id = roost_client_core::deck::agent_tab_id(&conversation.id);
+                            let status = match conversation.run_state {
+                                roost_protocol::wire::agent_chat::AgentRunState::Running => "info",
+                                roost_protocol::wire::agent_chat::AgentRunState::Failed => "warn",
+                                roost_protocol::wire::agent_chat::AgentRunState::Idle => "idle",
+                            };
+                            rsx! {
+                                button {
+                                    key: "{tab_id}",
+                                    class: "terminal-card-wrap",
+                                    "data-testid": "workspace-agent-card-{conversation.id}",
+                                    aria_current: (tab_id == selected_tab).then_some("page"),
+                                    onclick: move |_| on_select.call(tab_id.clone()),
+                                    Icon { name: "smart_toy", size: IconSize::Sm }
+                                    span { "{conversation.title}" }
+                                    StatusDot { status: status.to_owned() }
+                                }
                             }
                         }
                     }

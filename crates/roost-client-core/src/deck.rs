@@ -9,16 +9,17 @@ pub mod intent;
 pub mod route_selection;
 pub mod spawn;
 pub mod state;
+pub mod tab;
 pub mod tab_badge;
 pub mod view;
 pub mod warm_set;
-
-pub use intent::{DeckFolder, DeckIntent};
+pub use intent::{DeckFolder, DeckIntent, deck_tab_path};
 pub use route_selection::{
     SessionSelection, pane_focus_persists, route_selection_commit, session_selection,
 };
 pub use spawn::DeckSpawn;
 pub use state::{DeckNavigation, DeckPaneIds, DeckState};
+pub use tab::{DeckTab, agent_tab_id};
 pub use tab_badge::{DeckTabBadge, deck_tab_badge};
 pub use view::{
     DeckSize, DeckView, TerminalSessionSlot, deck_session_id, deck_view, mobile_tab_ids,

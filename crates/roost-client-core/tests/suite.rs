@@ -50,6 +50,8 @@ mod carriers_prewarm;
 mod connect_interceptor;
 #[path = "core_without_a_browser.rs"]
 mod core_without_a_browser;
+#[path = "deck_agent_intent.rs"]
+mod deck_agent_intent;
 #[path = "deck_intent.rs"]
 mod deck_intent;
 #[path = "deck_spawn.rs"]

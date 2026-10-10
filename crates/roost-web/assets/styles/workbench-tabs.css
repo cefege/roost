@@ -372,3 +372,5 @@
 [data-multi-pane="true"] [data-pane-slot][data-focused="true"][data-spotlit="true"]::after { display: none; }
 [data-testid="terminal-deck"][data-resizing="true"] [data-pane-slot][data-focused="true"]::after { box-shadow: none; }
 [data-pane-slot]:focus-visible { outline: calc(var(--workbench-border-width) * 3) solid var(--workbench-pane-focus); outline-offset: calc(var(--workbench-border-width) * -3); }
+.workbench-pane-tab-new-row { display: flex; align-items: center; gap: var(--md-space-2); white-space: nowrap; }
+.workbench-pane-tab-new-row .material-symbols-rounded { color: var(--text-lo); }

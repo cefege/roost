@@ -39,8 +39,10 @@ impl AgentChatState {
         conversation: Option<ConversationSummary>,
         host_connected: bool,
     ) {
-        self.host_connected = host_connected;
+        // Only the frame without a conversation speaks for the host; on a
+        // conversation upsert the flag is unset, not "offline" (spec C3).
         if id.is_empty() {
+            self.host_connected = host_connected;
             return;
         }
         if removed {
