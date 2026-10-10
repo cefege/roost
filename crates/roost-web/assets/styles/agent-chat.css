@@ -601,3 +601,32 @@
   .agent-chat__assistant[data-streaming] .agent-chat__markdown:last-of-type > :last-child::after { animation: none; }
   .agent-chat__shimmer { color: var(--md-sys-color-on-surface-variant); background: none; }
 }
+.agent-chat__composer { position: relative; }
+.agent-chat__slash-menu {
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  bottom: calc(100% + var(--md-space-2));
+  left: 0;
+  max-height: calc(var(--md-space-9) * 7);
+  overflow-y: auto;
+  background: var(--md-sys-color-surface-container-high);
+  box-shadow: var(--md-elev-3);
+}
+.agent-chat__notice-card,
+.agent-chat__plan-card,
+.agent-chat__advisory-card { border-inline-start: var(--md-space-1) solid var(--md-sys-color-outline-variant); }
+.agent-chat__notice-card--info,
+.agent-chat__advisory-card--info { border-inline-start-color: var(--md-sys-color-primary); }
+.agent-chat__notice-card--warning,
+.agent-chat__advisory-card--warning { border-inline-start-color: var(--md-sys-color-tertiary); }
+.agent-chat__notice-card--error,
+.agent-chat__advisory-card--error { border-inline-start-color: var(--md-sys-color-error); }
+.agent-chat__plan-actions,
+.agent-chat__plan-refine,
+.agent-chat__task-children { display: flex; flex-wrap: wrap; align-items: center; gap: var(--md-space-2); }
+.agent-chat__plan-refine { margin-top: var(--md-space-3); }
+.agent-chat__plan-refine-field { flex: 1 1 100%; }
+.agent-chat__plan-refine-field .roost-text-field__control { min-height: calc(var(--md-space-9) * 2); }
+.agent-chat__advisory-pending { color: var(--md-sys-color-on-surface-variant); font-size: var(--md-body-s-size); }
+.agent-chat__task-children a { color: var(--md-sys-color-primary); }

@@ -44,6 +44,7 @@ pub fn SidebarAgents(query: String) -> Element {
             .agent_chat
             .conversations
             .values()
+            .filter(|conversation| conversation.parent_id.is_none())
             .filter(|conversation| {
                 needle.is_empty()
                     || [

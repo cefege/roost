@@ -164,6 +164,9 @@ pub fn build_folder_groups_from(
         Vec<&roost_protocol::wire::agent_chat::ConversationSummary>,
     )> = Vec::new();
     for conversation in store.agent_chat.conversations.values() {
+        if conversation.parent_id.is_some() {
+            continue;
+        }
         let key = crate::store::paths::folder_key_of(
             paths,
             worker_os(store, &conversation.worker_fp),

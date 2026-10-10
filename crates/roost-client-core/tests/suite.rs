@@ -4,6 +4,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::duplicate_mod)]
 
+#[path = "agent_chat_slash.rs"]
+mod agent_chat_slash;
 #[path = "agent_chat_store.rs"]
 mod agent_chat_store;
 #[path = "agent_status_ordering.rs"]

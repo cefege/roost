@@ -8,10 +8,12 @@
 //! One module per pane below, each keeping its own data and mutations, exactly
 //! as v2's `SettingsPane.tsx` switch did.
 
+pub mod agent_accounts;
 pub mod agent_connect_dialog;
 pub mod agent_launcher;
 pub mod agent_login_dialog;
 pub mod agent_models;
+pub mod agent_roles;
 pub mod agents;
 pub mod attachments;
 pub mod audit;
