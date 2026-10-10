@@ -62,6 +62,9 @@ pub struct Hydrations {
     probe_call_id: Option<u64>,
     /// Whether the probe already ran for the latest dial.
     probed: bool,
+    /// The latest dial was refused before it opened, so the probe is owed now
+    /// rather than after the subscribed wait.
+    probe_now: bool,
 }
 
 impl Hydrations {
@@ -158,20 +161,29 @@ impl Hydrations {
     pub fn note_dial_started(&mut self, now_ms: u64) {
         self.dial_started_ms = Some(now_ms);
         self.probed = false;
+        self.probe_now = false;
     }
 
     /// `subscribed` arrived; no probe is owed for this dial.
     pub fn note_subscribed(&mut self) {
         self.dial_started_ms = None;
+        self.probe_now = false;
     }
 
-    /// Whether the subscribed wait for the latest dial has run out, taking it.
+    /// The latest dial was refused before it opened: probe on the next sweep.
+    pub fn note_refused_before_open(&mut self) {
+        self.probe_now = true;
+    }
+
+    /// Whether the probe is owed for the latest dial — refused before it
+    /// opened, or past the subscribed wait — taking it.
     pub fn take_probe_due(&mut self, now_ms: u64) -> bool {
         let due = !self.probed
             && self.probe_call_id.is_none()
-            && self
-                .dial_started_ms
-                .is_some_and(|at| now_ms.saturating_sub(at) >= SYNC_SUBSCRIBED_WAIT_MS);
+            && (self.probe_now
+                || self
+                    .dial_started_ms
+                    .is_some_and(|at| now_ms.saturating_sub(at) >= SYNC_SUBSCRIBED_WAIT_MS));
         if due {
             self.probed = true;
         }
@@ -256,5 +268,17 @@ mod tests {
         hydrations.note_dial_started(10_000);
         hydrations.note_subscribed();
         assert!(!hydrations.take_probe_due(20_000));
+    }
+
+    #[test]
+    fn a_refusal_before_open_makes_the_probe_due_at_once() {
+        let mut hydrations = Hydrations::default();
+        hydrations.note_dial_started(1_000);
+        hydrations.note_refused_before_open();
+        assert!(hydrations.take_probe_due(1_001));
+        assert!(!hydrations.take_probe_due(1_002));
+        hydrations.note_dial_started(5_000);
+        assert!(!hydrations.take_probe_due(5_001));
+        assert!(hydrations.take_probe_due(8_000));
     }
 }

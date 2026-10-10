@@ -76,6 +76,12 @@ pub(crate) fn on_link_closed(
         mark_browser_device_rejected(store, "sync_4001");
         return;
     }
+    // A dial refused before it opened is how an unpaired browser's upgrade
+    // ends; probing now rather than after the subscribed wait reaches the
+    // device verdict on the first dial instead of the third.
+    if !was_open && store.browser_access_state == BrowserAccessState::Checking {
+        store.sync.hydrations.note_refused_before_open();
+    }
     // A backpressure 1013 held the records rather than dropping them, so the
     // redial is immediate and resumes from the cursor (v2 `flow`); the SAME code
     // with the rejection reason gets the backoff.
