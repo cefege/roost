@@ -221,5 +221,6 @@ async fn conversation_entries_settings_and_credentials_round_trip() {
             .expect("read child entries")
             .is_empty()
     );
-    std::fs::remove_dir_all(root).expect("remove scratch directory");
+    // Windows keeps the SQLite file locked until the pool drops; cleanup is best-effort.
+    let _ = std::fs::remove_dir_all(root);
 }
