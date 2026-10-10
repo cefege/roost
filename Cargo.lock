@@ -4958,6 +4958,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "roost-agent"
+version = "3.0.0"
+
+[[package]]
+name = "roost-agent-tools"
+version = "3.0.0"
+
+[[package]]
 name = "roost-bench"
 version = "3.0.0"
 dependencies = [
@@ -5093,6 +5101,10 @@ dependencies = [
  "uds_windows",
  "windows-sys 0.61.2",
 ]
+
+[[package]]
+name = "roost-llm"
+version = "3.0.0"
 
 [[package]]
 name = "roost-observability"

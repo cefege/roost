@@ -1,6 +1,6 @@
 # `crates/` — the v3 crate map
 
-Fourteen crates plus a gate runner (`xtask/`). One Git repository, one wire
+Seventeen crates plus a gate runner (`xtask/`). One Git repository, one wire
 contract; the vendored terminal core lives in `third_party/`, outside the
 workspace.
 
@@ -21,6 +21,9 @@ registry, `Session` is the user-facing row, `Channel` is a PTY connection,
 | `roost-coord` | SQLite or Postgres state, auth, Connect RPC handlers, Sync and worker WebSocket links, terminal hubs, server-side web push (no browser subscribes yet). | — |
 | `roost-coord::agent_host` | Built-in agent chat/auth RPCs, host event follower/cache, and internal worker tool tunnel. | — |
 | `roost-client-core` | The UI-free client: Connect client, Sync state machine, store fold, terminal-stream replica and route election, input lanes, encoders, find paging. | — |
+| `roost-llm` | The agent harness's provider layer: model catalog, Anthropic / OpenAI Codex / OpenRouter / TypeSafe wire clients, OAuth logins, the multi-account credential pool and rotation, usage reports, the judge. | — |
+| `roost-agent` | The agent harness: conversation loop, prompts, model roles, plan mode, subagents, semantic find, the advisor, slash commands. The coordinator drives it through store, tool-executor and sink traits. | — |
+| `roost-agent-tools` | The worker-side agent tools: hashline read/edit, write, bash, grep, glob, LSP client and on-demand language-server installer. | — |
 | `roost-web-terminal` | The imperative `web-sys` terminal renderer and its input, IME, mouse, selection and link controllers. | — |
 | `roost-web` | The Dioxus 0.7 web application: routes, components, static assets. | — |
 | `roost-cli` | The `roost` binary: `coord`, `worker`, `quickstart`, `join`, `add-machine`, `add-browser`, `status`, `doctor`, `update`, `deploy`, `push`, `api` (28 headless verbs), `skill`, `db-to-postgres`, `db-to-sqlite`, `import-v2`. | `roost` |
@@ -40,8 +43,11 @@ roost-protocol       → proto, observability
 roost-host           → protocol, platform, observability
 roost-term           → protocol, observability, rio-vt (vendored), rio-graphics
 roost-keeper         → protocol, host, platform, observability
-roost-worker         → term, keeper, host, proto, protocol, platform, observability
-roost-coord          → host, proto, protocol, platform, observability
+roost-worker         → term, keeper, host, proto, protocol, platform, observability, agent-tools
+roost-coord          → host, proto, protocol, platform, observability, agent, llm
+roost-llm            → observability
+roost-agent          → llm, protocol, observability
+roost-agent-tools    → protocol, platform, observability
 roost-client-core    → protocol, proto, observability
 roost-web-terminal   → client-core, protocol
 roost-web            → web-terminal, client-core, protocol, platform
