@@ -66,7 +66,7 @@ impl std::error::Error for CommandFailure {}
 /// in the crate.
 impl From<anyhow::Error> for CommandFailure {
     fn from(error: anyhow::Error) -> Self {
-        CommandFailure::generic(error.to_string())
+        CommandFailure::generic(format!("{error:#}"))
     }
 }
 

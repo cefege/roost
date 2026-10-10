@@ -6,6 +6,7 @@
 //! none of them, so each new connection applies them in `after_connect`.
 
 use std::path::Path;
+use std::time::Duration;
 
 use sqlx::AnyPool;
 use sqlx::any::AnyPoolOptions;
@@ -101,13 +102,70 @@ pub fn sqlite_url(path: &Path) -> String {
     format!("sqlite:{path}?mode=rwc")
 }
 
-/// A pool over the Postgres server at `url`.
+/// How long a booting coordinator keeps retrying a Postgres it cannot reach.
+///
+/// A new pod's IP is admitted by the Postgres NetworkPolicy asynchronously, so
+/// the first connect after a rollout can fail for a few seconds.
+pub const POSTGRES_CONNECT_BUDGET: Duration = Duration::from_secs(60);
+
+/// The wait before connect attempt `attempt + 1`: 500 ms doubling, capped at 5 s.
+#[must_use]
+pub fn postgres_connect_delay(attempt: u32) -> Duration {
+    const FIRST_DELAY_MS: u64 = 500;
+    const MAX_DELAY_MS: u64 = 5_000;
+    let factor = 1_u64.checked_shl(attempt).unwrap_or(u64::MAX);
+    Duration::from_millis(FIRST_DELAY_MS.saturating_mul(factor).min(MAX_DELAY_MS))
+}
+
+/// Whether a failed connect can succeed on a later attempt.
+#[must_use]
+pub fn postgres_connect_is_transient(error: &sqlx::Error) -> bool {
+    match error {
+        sqlx::Error::Io(_) | sqlx::Error::Tls(_) | sqlx::Error::PoolTimedOut => true,
+        sqlx::Error::Database(database_error) => matches!(
+            database_error.code().as_deref(),
+            Some("57P03" | "53300" | "08000" | "08001" | "08006")
+        ),
+        _ => false,
+    }
+}
+
+/// A pool over the Postgres server at `url`, retrying a transient failure
+/// within [`POSTGRES_CONNECT_BUDGET`].
 pub(super) async fn connect_postgres(url: &str) -> Result<AnyPool, DbError> {
-    Ok(AnyPoolOptions::new()
-        .max_connections(POSTGRES_POOL_SIZE)
-        .acquire_timeout(BUSY_TIMEOUT)
-        .connect(url)
-        .await?)
+    let started = tokio::time::Instant::now();
+    let mut attempt: u32 = 0;
+    loop {
+        let connected = AnyPoolOptions::new()
+            .max_connections(POSTGRES_POOL_SIZE)
+            .acquire_timeout(BUSY_TIMEOUT)
+            .connect(url)
+            .await;
+        match connected {
+            Ok(pool) => {
+                if attempt > 0 {
+                    tracing::info!(attempts = attempt + 1, "postgres reachable after retrying");
+                }
+                return Ok(pool);
+            }
+            Err(error) => {
+                let delay = postgres_connect_delay(attempt);
+                if !postgres_connect_is_transient(&error)
+                    || started.elapsed() + delay >= POSTGRES_CONNECT_BUDGET
+                {
+                    return Err(error.into());
+                }
+                tracing::warn!(
+                    attempt = attempt + 1,
+                    delay_ms = u64::try_from(delay.as_millis()).unwrap_or(u64::MAX),
+                    error = %error,
+                    "postgres unreachable at boot; retrying"
+                );
+                tokio::time::sleep(delay).await;
+                attempt += 1;
+            }
+        }
+    }
 }
 
 /// Whether `_sqlx_migrations` exists, asked through each backend's catalog so
@@ -148,5 +206,37 @@ impl CoordDb {
                 Ok(transaction)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::{postgres_connect_delay, postgres_connect_is_transient};
+
+    #[test]
+    fn the_connect_delay_doubles_from_half_a_second_to_a_five_second_cap() {
+        let delays: Vec<Duration> = [0, 1, 2, 3, 4, 10]
+            .into_iter()
+            .map(postgres_connect_delay)
+            .collect();
+        let expected: Vec<Duration> = [500, 1_000, 2_000, 4_000, 5_000, 5_000]
+            .into_iter()
+            .map(Duration::from_millis)
+            .collect();
+        assert_eq!(delays, expected);
+        assert_eq!(postgres_connect_delay(u32::MAX), Duration::from_secs(5));
+    }
+
+    #[test]
+    fn an_unreachable_server_is_retried_and_a_misconfiguration_is_not() {
+        let refused = std::io::Error::from(std::io::ErrorKind::ConnectionRefused);
+        assert!(postgres_connect_is_transient(&sqlx::Error::Io(refused)));
+        assert!(postgres_connect_is_transient(&sqlx::Error::PoolTimedOut));
+        assert!(!postgres_connect_is_transient(&sqlx::Error::Configuration(
+            "bad url".into()
+        )));
+        assert!(!postgres_connect_is_transient(&sqlx::Error::RowNotFound));
     }
 }
