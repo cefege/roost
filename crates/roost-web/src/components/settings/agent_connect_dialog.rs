@@ -54,19 +54,20 @@ pub fn AgentConnectDialog(
                 p { class: "md-body-s",
                     if change_key {
                         "Enter a replacement API key for {provider_name}."
-                    } else if provider.id == "exa" {
-                        "Connect {provider_name} with an API key."
+                    } else if is_oauth {
+                        "Sign in with your {provider_name} subscription, or paste an API key."
                     } else {
-                        "Choose a sign-in method for {provider_name}."
+                        "Connect {provider_name} with an API key."
                     }
                 }
                 if is_oauth {
                     Button {
-                        variant: ButtonVariant::Outline,
+                        variant: ButtonVariant::Default,
                         icon: "login",
                         onclick: move |_| begin_oauth(oauth_pump.clone(), oauth_provider_id.clone(), login_id, error),
                         "Sign in with {provider.name}"
                     }
+                    p { class: "agent-settings__muted md-label-m", "or use an API key" }
                 }
                 TextField {
                     label: "API key",
@@ -76,7 +77,7 @@ pub fn AgentConnectDialog(
                     on_input: move |value| api_key.set(value),
                 }
                 Button {
-                    variant: ButtonVariant::Default,
+                    variant: if is_oauth { ButtonVariant::Outline } else { ButtonVariant::Default },
                     disabled: api_key().trim().is_empty(),
                     onclick: move |_| save_key(save_pump.clone(), save_provider_id.clone(), api_key(), error, on_close),
                     "Save API key"

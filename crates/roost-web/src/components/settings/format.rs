@@ -23,6 +23,19 @@ pub fn relative_time(now_ms: u64, then_ms: u64) -> String {
     format!("{}h ago", minutes / 60)
 }
 
+/// How long until a future moment, two units at most: "in 2h 10m", "in 3d 4h".
+pub fn time_until(now_ms: u64, then_ms: u64) -> String {
+    let minutes = then_ms.saturating_sub(now_ms).div_ceil(60_000);
+    match minutes {
+        0 => "now".to_owned(),
+        1..60 => format!("in {minutes}m"),
+        60..1_440 if minutes.is_multiple_of(60) => format!("in {}h", minutes / 60),
+        60..1_440 => format!("in {}h {}m", minutes / 60, minutes % 60),
+        _ if minutes % 1_440 < 60 => format!("in {}d", minutes / 1_440),
+        _ => format!("in {}d {}h", minutes / 1_440, minutes % 1_440 / 60),
+    }
+}
+
 /// An attachment's age, in the coarser wording a file list uses.
 pub fn format_age(now_ms: u64, then_ms: u64) -> String {
     let minutes = now_ms.saturating_sub(then_ms).div_ceil(60_000);
@@ -127,6 +140,17 @@ mod tests {
     #[test]
     fn a_future_timestamp_does_not_wrap() {
         assert_eq!(relative_time(1_000, 9_000), "just now");
+    }
+
+    #[test]
+    fn time_until_keeps_the_two_largest_units() {
+        assert_eq!(time_until(10_000, 5_000), "now");
+        assert_eq!(time_until(0, 1), "in 1m");
+        assert_eq!(time_until(0, 59 * 60_000), "in 59m");
+        assert_eq!(time_until(0, 120 * 60_000), "in 2h");
+        assert_eq!(time_until(0, 130 * 60_000), "in 2h 10m");
+        assert_eq!(time_until(0, (3 * 1_440 + 30) * 60_000), "in 3d");
+        assert_eq!(time_until(0, (3 * 1_440 + 250) * 60_000), "in 3d 4h");
     }
 
     #[test]

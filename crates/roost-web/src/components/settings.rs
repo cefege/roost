@@ -13,6 +13,8 @@ pub mod agent_connect_dialog;
 pub mod agent_launcher;
 pub mod agent_login_dialog;
 pub mod agent_models;
+pub mod agent_provider_list;
+pub mod agent_provider_status;
 pub mod agent_roles;
 pub mod agents;
 pub mod attachments;

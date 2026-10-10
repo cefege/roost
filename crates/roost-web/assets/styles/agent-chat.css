@@ -581,6 +581,20 @@
   gap: var(--md-space-2);
 }
 
+.agent-chat__model-setup-body {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-body-m-size);
+}
+
+.agent-chat__model-setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--md-space-2);
+  margin-top: var(--md-space-3);
+}
+
 /* ── loading ── */
 
 .agent-chat__loading { display: flex; flex-direction: column; gap: var(--md-space-3); }

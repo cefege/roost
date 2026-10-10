@@ -9,7 +9,7 @@ use roost_llm::{CredentialKind, ModelKind, StoredCredential};
 use roost_proto as proto;
 use roost_protocol::wire::agent_chat::{
     AccountBrief, AccountEntry, AccountKind, AccountUsage, AccountUsageWindow, AgentSettingsView,
-    ModelEntry, ModelsCatalog, ProviderEntry,
+    ModelEntry, ModelsCatalog, ProviderEntry, compare_models_newest_first,
 };
 
 use super::AgentService;
@@ -90,7 +90,7 @@ pub async fn models_catalog(agent: &AgentService) -> ModelsCatalog {
             supports_oauth: false,
         });
     }
-    let models = catalog
+    let mut models: Vec<ModelEntry> = catalog
         .models()
         .iter()
         .map(|model| ModelEntry {
@@ -102,6 +102,7 @@ pub async fn models_catalog(agent: &AgentService) -> ModelsCatalog {
             classifier: model.kind == ModelKind::Classifier,
         })
         .collect();
+    models.sort_by(compare_models_newest_first);
     ModelsCatalog {
         models,
         providers,

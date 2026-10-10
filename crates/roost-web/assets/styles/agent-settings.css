@@ -1,23 +1,37 @@
-/* Dense built-in-agent provider rows and connection dialogs. */
+/* The Models pane: overview tiles, provider cards, account rows, roles. */
 .agent-settings__filter { margin-block-end: var(--md-space-3); }
-.agent-settings__section + .agent-settings__section { margin-block-start: var(--md-space-5); }
+.agent-settings__section + .agent-settings__section { margin-block-start: var(--md-space-7); }
+.agent-settings__section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-2);
+  margin-block-end: var(--md-space-3);
+}
+.agent-settings__section-action { margin-inline-start: auto; }
+.agent-settings__section-head .agent-settings__muted { margin: 0; }
 .agent-settings__section-title {
-  margin: 0 0 var(--md-space-2);
+  margin: 0;
   color: var(--text-hi);
   font: var(--md-title-s-weight) var(--md-title-s-size)/var(--md-title-s-line) var(--md-font);
 }
-.agent-settings__provider-list {
+.agent-settings__muted { margin: 0 0 var(--md-space-3); color: var(--text-lo); }
+.agent-settings__overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(calc(var(--md-space-9) * 3), 1fr));
+  gap: var(--md-space-3);
+  margin-block-end: var(--md-space-6);
+}
+.agent-settings__skeleton-tile { block-size: calc(var(--md-space-9) * 2); border-radius: var(--md-shape-m); }
+.agent-settings__provider-cards {
   display: flex;
   flex-direction: column;
-  min-inline-size: 0;
+  gap: var(--md-space-4);
 }
-.agent-settings__provider-row {
+.agent-settings__provider-card { display: flex; flex-direction: column; gap: var(--md-space-3); }
+.agent-settings__provider-head {
   display: flex;
   align-items: center;
   gap: var(--md-space-3);
-  min-block-size: var(--md-space-9);
-  padding: var(--md-space-2) 0;
-  border-block-end: var(--workbench-border-width) solid var(--workbench-sidebar-border);
 }
 .agent-settings__provider-info {
   display: flex;
@@ -40,20 +54,36 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.agent-settings__provider-actions {
-  display: flex;
-  align-items: center;
-  flex: 0 0 auto;
-  gap: var(--md-space-2);
+.agent-settings__account-state { display: block; color: var(--text-mid); }
+.agent-settings__usage {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(calc(var(--md-space-9) * 3), 1fr));
+  gap: var(--md-space-2) var(--md-space-4);
+  margin-block-start: var(--md-space-2);
 }
-.agent-settings__skeleton-row {
+.agent-settings__usage-window { display: flex; flex-direction: column; gap: var(--md-space-1); }
+.agent-settings__usage-caption {
+  color: var(--text-mid);
+  font: var(--md-label-s-weight) var(--md-label-s-size)/var(--md-label-s-line) var(--md-font);
+}
+.agent-settings__model-preview { display: flex; flex-direction: column; align-items: flex-start; gap: var(--md-space-2); }
+.agent-settings__model-preview > .agent-settings__muted { margin: 0; }
+.agent-settings__model-chips { display: flex; flex-wrap: wrap; gap: var(--md-space-2); }
+.agent-settings__quick-sign-in {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   justify-content: center;
   gap: var(--md-space-2);
+}
+.agent-settings__role-row {
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-3);
   min-block-size: var(--md-space-9);
+  padding: var(--md-space-2) 0;
   border-block-end: var(--workbench-border-width) solid var(--workbench-sidebar-border);
 }
+.agent-settings__role-row .agent-settings__provider-id { white-space: normal; }
 .agent-settings__notice {
   margin-block: var(--md-space-2);
   color: var(--md-error);

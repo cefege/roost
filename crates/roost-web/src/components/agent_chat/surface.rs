@@ -10,6 +10,7 @@ use roost_protocol::wire::agent_chat::{AgentRunState, ModelsCatalog, TodoPhase, 
 use super::composer::AgentComposer;
 use super::header::{AgentChatHeader, short_path};
 use super::interaction_cards::TodoCard;
+use super::model_controls::{ModelSetup, ModelSetupCard};
 use super::welcome::AgentWelcome;
 use crate::components::md::{ButtonVariant, EmptyState, IconButton, IconButtonSize, Skeleton};
 use crate::pump::use_store;
@@ -43,6 +44,9 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
     let fetch_attempt = use_signal(|| 0_u32);
     #[allow(unused_mut)]
     let mut catalog = use_signal(|| None::<ModelsCatalog>);
+    #[allow(unused_mut)]
+    let mut catalog_failed = use_signal(|| false);
+    let mut catalog_attempt = use_signal(|| 0_u32);
     let mut draft = use_signal(String::new);
     let mut field = use_signal(|| None::<std::rc::Rc<MountedData>>);
     let mut scroll_node = use_signal(|| None::<std::rc::Rc<MountedData>>);
@@ -67,17 +71,24 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
             },
         ));
         let models_pump = pump.clone();
-        use_effect(use_reactive((&conversation_id,), move |_| {
-            let pump = models_pump.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                match pump.rpc().call(&ListAgentModels).await {
-                    Ok(models) => catalog.set(Some(models)),
-                    Err(error) => {
-                        tracing::warn!(target: "agent_chat", %error, "agent models unavailable")
+        use_effect(use_reactive(
+            (&conversation_id, &catalog_attempt()),
+            move |_| {
+                let pump = models_pump.clone();
+                catalog_failed.set(false);
+                wasm_bindgen_futures::spawn_local(async move {
+                    match pump.rpc().call(&ListAgentModels).await {
+                        Ok(models) => catalog.set(Some(models)),
+                        Err(error) => {
+                            tracing::warn!(target: "agent_chat", %error, "agent models unavailable");
+                            if let Ok(mut failed) = catalog_failed.try_write() {
+                                *failed = true;
+                            }
+                        }
                     }
-                }
-            });
-        }));
+                });
+            },
+        ));
         let transcript_for_scroll = transcript.clone();
         use_effect(use_reactive((&transcript_for_scroll,), move |_| {
             if let (Some(node), true) = (scroll_node(), *pinned_to_bottom.peek()) {
@@ -109,10 +120,13 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
         return rsx! { div { class: "agent-chat", {header} LoadingTranscript {} } };
     };
     let running = transcript.run_state == AgentRunState::Running;
+    let setup = ModelSetup::from_catalog(catalog.read().as_ref(), catalog_failed());
+    let retry_catalog = move |()| catalog_attempt += 1;
     let composer = rsx! {
         AgentComposer {
             conversation: conversation.clone(),
             catalog: catalog(),
+            catalog_failed: catalog_failed(),
             transcript: transcript.clone(),
             draft,
             running,
@@ -128,10 +142,12 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
                 AgentWelcome {
                     folder: short_path(&conversation.cwd).rsplit('/').next().unwrap_or_default().to_string(),
                     machine: conversation.worker_label.clone(),
+                    show_suggestions: setup == ModelSetup::Ready,
                     on_suggest: move |text: String| {
                         draft.set(text);
                         focus(field());
                     },
+                    ModelSetupCard { setup, on_retry: retry_catalog }
                     {composer}
                 }
             }
@@ -180,6 +196,7 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
                     }
                 }
                 if let Some(phases) = latest_todo(&transcript) { TodoCard { phases } }
+                ModelSetupCard { setup, on_retry: retry_catalog }
                 {composer}
             }
         }

@@ -31,6 +31,8 @@ const SUGGESTIONS: [(&str, &str); 4] = [
 pub fn AgentWelcome(
     folder: String,
     machine: String,
+    /// Off while no model can run: a starting point would only fail.
+    show_suggestions: bool,
     on_suggest: EventHandler<String>,
     children: Element,
 ) -> Element {
@@ -40,12 +42,14 @@ pub fn AgentWelcome(
                 h2 { class: "agent-chat__welcome-title", "What should we work on in {folder}?" }
                 p { class: "agent-chat__welcome-hint", "Tools run on {machine}, starting in this folder." }
                 {children}
-                div { class: "agent-chat__suggestions",
-                    for (label, draft) in SUGGESTIONS {
-                        Chip {
-                            key: "{label}",
-                            label: label.to_string(),
-                            onclick: move |()| on_suggest.call(draft.to_string()),
+                if show_suggestions {
+                    div { class: "agent-chat__suggestions",
+                        for (label, draft) in SUGGESTIONS {
+                            Chip {
+                                key: "{label}",
+                                label: label.to_string(),
+                                onclick: move |()| on_suggest.call(draft.to_string()),
+                            }
                         }
                     }
                 }

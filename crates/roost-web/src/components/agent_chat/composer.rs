@@ -24,6 +24,7 @@ use roost_client_core::client::rpc::calls::agent_chat::{AbortAgentChat, SubmitAg
 pub fn AgentComposer(
     conversation: ConversationSummary,
     catalog: Option<ModelsCatalog>,
+    catalog_failed: bool,
     transcript: Transcript,
     draft: Signal<String>,
     running: bool,
@@ -179,7 +180,7 @@ pub fn AgentComposer(
                         move |_| submit_direct_command(pump.clone(), conversation_id.clone(), "/advisor".to_string())
                     }))
                 }
-                AgentModelControls { conversation: conversation.clone(), catalog, pump: pump.clone() }
+                AgentModelControls { conversation: conversation.clone(), catalog, catalog_failed, pump: pump.clone() }
                 span { class: "agent-chat__composer-spacer" }
                 if running && empty {
                     IconButton {
