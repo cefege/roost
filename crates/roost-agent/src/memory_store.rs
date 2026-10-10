@@ -21,6 +21,7 @@ struct MemoryState {
     conversations: BTreeMap<String, ConversationRecord>,
     entries: BTreeMap<String, Vec<(u64, Entry)>>,
     settings: AgentSettings,
+    advisor_states: BTreeMap<String, String>,
 }
 
 impl InMemoryAgentStore {
@@ -78,6 +79,7 @@ impl AgentStore for InMemoryAgentStore {
                 for conversation_id in doomed {
                     state.conversations.remove(&conversation_id);
                     state.entries.remove(&conversation_id);
+                    state.advisor_states.remove(&conversation_id);
                 }
             })
         })
@@ -115,6 +117,27 @@ impl AgentStore for InMemoryAgentStore {
         Box::pin(async move {
             self.with_state(|state| {
                 state.settings = settings.clone();
+            })
+        })
+    }
+
+    fn advisor_state<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> BoxFuture<'a, Result<Option<String>, AgentError>> {
+        Box::pin(async move { self.with_state(|state| state.advisor_states.get(id).cloned()) })
+    }
+
+    fn save_advisor_state<'a>(
+        &'a self,
+        id: &'a str,
+        state_json: &'a str,
+    ) -> BoxFuture<'a, Result<(), AgentError>> {
+        Box::pin(async move {
+            self.with_state(|state| {
+                state
+                    .advisor_states
+                    .insert(id.to_owned(), state_json.to_owned());
             })
         })
     }

@@ -46,8 +46,12 @@ pub fn active_window(entries: &[(u64, Entry)]) -> (Option<&str>, &[(u64, Entry)]
 /// Provider messages for a call to `provider`. Thinking blocks from another
 /// provider are dropped: their signatures are meaningless elsewhere.
 pub fn build_messages(entries: &[(u64, Entry)], provider: &str) -> Vec<Message> {
+    let entries = &crate::journal::effective_entries(entries);
     let (summary, window) = active_window(entries);
     let latest_copies = latest_item_copies(window);
+    let latest_todo = window
+        .iter()
+        .rposition(|(_, entry)| matches!(entry, Entry::Todo { .. }));
     let mut messages = Vec::new();
     if let Some(summary) = summary {
         messages.push(Message::user_text(format!(
@@ -115,7 +119,28 @@ pub fn build_messages(entries: &[(u64, Entry)], provider: &str) -> Vec<Message> 
             } if latest_copies.contains(&position) => {
                 messages.push(Message::user_text(advisory_message(*severity, note)));
             }
-            Entry::Advisory { .. }
+            Entry::Todo { phases } => {
+                // The list rides along as a user-role note, so the model
+                // sees its current plan after compaction or a long gap.
+                if latest_todo == Some(position) {
+                    messages.push(Message::user_text(todo_message(phases)));
+                }
+            }
+            Entry::Ask {
+                answers: Some(answers),
+                ..
+            } if latest_copies.contains(&position) => {
+                messages.push(Message::user_text(format!(
+                    "<answers>{}</answers>",
+                    serde_json::to_string(answers).unwrap_or_default()
+                )));
+            }
+            Entry::Ask { .. }
+            | Entry::Btw { .. }
+            | Entry::Rewind { .. }
+            | Entry::ExtraUsage { .. }
+            | Entry::SubagentContext { .. }
+            | Entry::Advisory { .. }
             | Entry::Compaction { .. }
             | Entry::ModeChange { .. }
             | Entry::PlanProposal { .. }
@@ -137,12 +162,15 @@ fn close_open_calls(messages: &mut Vec<Message>, open_calls: &mut Vec<(String, S
     }
 }
 
-/// Positions of the latest copy of each advisory item.
+/// Positions of the latest copy of each advisory and ask item.
 fn latest_item_copies(window: &[(u64, Entry)]) -> HashSet<usize> {
     let mut latest: HashMap<&str, usize> = HashMap::new();
     for (position, (_, entry)) in window.iter().enumerate() {
-        if let Entry::Advisory { item_id, .. } = entry {
-            latest.insert(item_id.as_str(), position);
+        match entry {
+            Entry::Advisory { item_id, .. } | Entry::Ask { item_id, .. } => {
+                latest.insert(item_id.as_str(), position);
+            }
+            _ => {}
         }
     }
     latest.into_values().collect()
@@ -164,7 +192,18 @@ pub fn estimate_tokens(entry: &Entry) -> u64 {
         Entry::ToolResult { text, .. } => text.len(),
         Entry::Advisory { note, .. } => note.len(),
         Entry::Compaction { summary, .. } => summary.len(),
-        Entry::ModeChange { .. } | Entry::PlanProposal { .. } | Entry::Notice { .. } => 0,
+        Entry::Todo { phases } => todo_message(phases).len(),
+        Entry::Ask { questions, .. } => questions
+            .iter()
+            .map(|question| question.question.len())
+            .sum(),
+        Entry::ModeChange { .. }
+        | Entry::PlanProposal { .. }
+        | Entry::Notice { .. }
+        | Entry::Btw { .. }
+        | Entry::Rewind { .. }
+        | Entry::ExtraUsage { .. }
+        | Entry::SubagentContext { .. } => 0,
     };
     (bytes as u64).div_ceil(4)
 }
@@ -200,8 +239,49 @@ pub fn render_for_summary(entries: &[(u64, Entry)]) -> String {
                 rendered.push_str(&format!("\n[earlier summary]\n{summary}\n"));
             }
             Entry::Advisory { note, .. } => rendered.push_str(&format!("\n[advisory] {note}\n")),
-            Entry::ModeChange { .. } | Entry::PlanProposal { .. } | Entry::Notice { .. } => {}
+            Entry::Todo { phases } => rendered.push_str(&format!("\n{}\n", todo_message(phases))),
+            Entry::Ask {
+                questions, answers, ..
+            } => {
+                for question in questions {
+                    rendered.push_str(&format!("\n[asked the user] {}\n", question.question));
+                }
+                if let Some(answers) = answers {
+                    rendered.push_str(&format!(
+                        "[user answered] {}\n",
+                        serde_json::to_string(answers).unwrap_or_default()
+                    ));
+                }
+            }
+            Entry::ModeChange { .. }
+            | Entry::PlanProposal { .. }
+            | Entry::Notice { .. }
+            | Entry::Btw { .. }
+            | Entry::Rewind { .. }
+            | Entry::ExtraUsage { .. }
+            | Entry::SubagentContext { .. } => {}
         }
     }
+    rendered
+}
+
+/// The model-facing form of the current task list.
+pub fn todo_message(phases: &[roost_protocol::wire::agent_chat::TodoPhase]) -> String {
+    let mut rendered = String::from("<todo>\n");
+    for phase in phases {
+        rendered.push_str(&format!("{}:\n", phase.name));
+        for task in &phase.tasks {
+            let status = serde_json::to_value(task.status)
+                .ok()
+                .and_then(|value| value.as_str().map(str::to_owned))
+                .unwrap_or_default();
+            rendered.push_str(&format!("- [{status}] {}", task.content));
+            if let Some(blocker) = &task.blocker {
+                rendered.push_str(&format!(" (blocked: {blocker})"));
+            }
+            rendered.push('\n');
+        }
+    }
+    rendered.push_str("</todo>");
     rendered
 }

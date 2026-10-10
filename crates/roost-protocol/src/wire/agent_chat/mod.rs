@@ -4,6 +4,7 @@
 mod catalog;
 mod commands;
 mod fold;
+mod interaction;
 mod model;
 mod proto;
 mod tools;

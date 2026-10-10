@@ -3,15 +3,20 @@
 //! the store, tool-executor, sink and model seams in `traits`.
 
 #![forbid(unsafe_code)]
+mod web_types;
+pub use web_types::{FetchedPage, SearchHit};
 
 mod advisor;
+mod ask;
 mod auto_thinking;
+mod btw;
 mod commands;
 mod compaction;
 mod context_files;
 pub mod error;
 mod find;
 pub mod history;
+pub mod journal;
 mod judging;
 pub mod llm_adapter;
 pub mod memory_store;
@@ -20,15 +25,19 @@ mod plan_mode;
 pub mod projection;
 pub mod prompts;
 pub mod records;
+mod rewind;
 pub mod roles;
 mod run_loop;
 mod runtime;
 mod subagents;
+mod todo;
 mod tool_round;
 pub mod toolset;
 pub mod traits;
 mod turn;
 mod unexpected_stop;
+mod web_adapter;
+mod web_tools;
 
 pub use error::AgentError;
 pub use llm_adapter::RoostLlm;

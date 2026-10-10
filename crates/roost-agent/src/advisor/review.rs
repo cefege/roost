@@ -3,7 +3,7 @@
 
 use roost_llm::{ChatRequest, Message, ToolSpec};
 use roost_protocol::wire::agent_chat::worker_tool_specs;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -25,7 +25,7 @@ const ADVISE_TOOL: &str = include_str!("../prompts/advise_tool.md");
 const MAX_TOOL_ROUNDS: usize = 8;
 const MAX_RETRIES: usize = 3;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub(crate) struct ReviewState {
     pub transcript: Vec<Message>,
     pub cursor: u64,
@@ -302,6 +302,7 @@ async fn worker_call(
                 tool: tool.to_owned(),
                 args_json: args.to_owned(),
                 timeout_ms: 120_000,
+                checkpoint_id: 0,
             },
             out,
             cancel.child_token(),

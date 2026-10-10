@@ -9,10 +9,13 @@ use roost_protocol::wire::agent_chat::{
 };
 
 use super::advisory_card::AdvisoryCard;
+use super::interaction_cards::{AskCard, BtwCard};
+use super::message_actions::{ForkMessageAction, UserMessageActions};
 use super::notice_card::NoticeCard;
 use super::plan_card::PlanCard;
 use super::tool_card::ToolCard;
 use crate::components::md::{ButtonVariant, Icon, IconButton, IconButtonSize, IconSize};
+use crate::pump::Pump;
 
 enum Segment<'transcript> {
     User(&'transcript TranscriptItem),
@@ -21,10 +24,17 @@ enum Segment<'transcript> {
     Notice(&'transcript TranscriptItem),
     Plan(&'transcript TranscriptItem),
     Advisory(&'transcript TranscriptItem),
+    Ask(&'transcript TranscriptItem),
+    Btw(&'transcript TranscriptItem),
 }
 
 #[component]
-pub fn AgentTranscriptView(transcript: Transcript, conversation_id: String) -> Element {
+pub fn AgentTranscriptView(
+    transcript: Transcript,
+    conversation_id: String,
+    pump: Pump,
+    draft: Signal<String>,
+) -> Element {
     let segments = segments(&transcript);
     let streaming = assistant_is_streaming(&transcript);
     let running = transcript.run_state == AgentRunState::Running;
@@ -33,10 +43,10 @@ pub fn AgentTranscriptView(transcript: Transcript, conversation_id: String) -> E
             for segment in segments {
                 match segment {
                     Segment::User(TranscriptItem::User { id, text }) => rsx! {
-                        UserMessage { key: "{id}", text: text.clone() }
+                        UserMessage { key: "{id}", id: id.clone(), text: text.clone(), conversation_id: conversation_id.clone(), draft, pump: pump.clone() }
                     },
                     Segment::Assistant(TranscriptItem::Assistant { id, blocks, streaming, error }) => rsx! {
-                        AssistantMessage { key: "{id}", blocks: blocks.clone(), streaming: *streaming, error: error.clone() }
+                        AssistantMessage { key: "{id}", id: id.clone(), blocks: blocks.clone(), streaming: *streaming, error: error.clone(), conversation_id: conversation_id.clone(), pump: pump.clone() }
                     },
                     Segment::Steps(steps) => rsx! {
                         div { key: "{step_group_key(&steps)}", class: "agent-chat__steps",
@@ -64,6 +74,12 @@ pub fn AgentTranscriptView(transcript: Transcript, conversation_id: String) -> E
                     Segment::Advisory(TranscriptItem::Advisory { id, severity, note, delivered }) => rsx! {
                         AdvisoryCard { key: "{id}", id: id.clone(), severity: severity.clone(), note: note.clone(), delivered: *delivered }
                     },
+                    Segment::Ask(TranscriptItem::Ask { id, questions, answers }) => rsx! {
+                        AskCard { key: "{id}", conversation_id: conversation_id.clone(), item_id: id.clone(), questions: questions.clone(), answers: answers.clone(), pump: pump.clone() }
+                    },
+                    Segment::Btw(TranscriptItem::Btw { id, question, answer, error }) => rsx! {
+                        BtwCard { key: "{id}", question: question.clone(), answer: answer.clone(), error: error.clone() }
+                    },
                     _ => rsx! {},
                 }
             }
@@ -84,19 +100,29 @@ pub fn AgentTranscriptView(transcript: Transcript, conversation_id: String) -> E
 }
 
 #[component]
-fn UserMessage(text: String) -> Element {
+fn UserMessage(
+    id: String,
+    text: String,
+    conversation_id: String,
+    draft: Signal<String>,
+    pump: Pump,
+) -> Element {
     rsx! {
         div { class: "agent-chat__user",
             div { class: "agent-chat__user-bubble", "{text}" }
+            UserMessageActions { conversation_id, item_id: id, text, draft, pump }
         }
     }
 }
 
 #[component]
 fn AssistantMessage(
+    id: String,
     blocks: Vec<TranscriptBlock>,
     streaming: bool,
     error: Option<String>,
+    conversation_id: String,
+    pump: Pump,
 ) -> Element {
     let last_thinking = blocks
         .iter()
@@ -157,6 +183,11 @@ fn AssistantMessage(
                     }
                 }
             }
+            if !streaming {
+                div { class: "agent-chat__message-actions",
+                    ForkMessageAction { conversation_id: conversation_id.clone(), item_id: id.clone(), pump: pump.clone() }
+                }
+            }
         }
     }
 }
@@ -193,6 +224,9 @@ fn segments(transcript: &Transcript) -> Vec<Segment<'_>> {
             },
             TranscriptItem::Notice { .. } => segments.push(Segment::Notice(item)),
             TranscriptItem::Plan { .. } => segments.push(Segment::Plan(item)),
+            TranscriptItem::Todo { .. } => {}
+            TranscriptItem::Ask { .. } => segments.push(Segment::Ask(item)),
+            TranscriptItem::Btw { .. } => segments.push(Segment::Btw(item)),
             TranscriptItem::Advisory { .. } => segments.push(Segment::Advisory(item)),
         }
     }

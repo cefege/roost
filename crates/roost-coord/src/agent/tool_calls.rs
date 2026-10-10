@@ -35,6 +35,7 @@ pub struct AgentToolCallSpec {
     pub tool: String,
     pub args_json: String,
     pub timeout_ms: u32,
+    pub checkpoint_id: u64,
 }
 
 #[derive(Debug)]
@@ -110,6 +111,7 @@ impl ToolCallRegistry {
                 tool: call.tool,
                 args_json: call.args_json,
                 timeout_ms: call.timeout_ms,
+                checkpoint_id: call.checkpoint_id,
                 ..Default::default()
             },
         ));

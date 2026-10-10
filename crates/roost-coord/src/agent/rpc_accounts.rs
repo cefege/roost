@@ -66,6 +66,25 @@ pub async fn models_catalog(agent: &AgentService) -> ModelsCatalog {
             supports_oauth: OAUTH_PROVIDERS.contains(&provider),
         });
     }
+    let exa_accounts = agent.pool().store().list("exa").await;
+    let exa_configured = !exa_accounts.is_empty();
+    if exa_configured {
+        connected.push("exa".to_owned());
+    }
+    providers.push(ProviderEntry {
+        id: "exa".to_owned(),
+        name: "Exa (web search)".to_owned(),
+        configured: exa_configured,
+        accounts: exa_accounts
+            .iter()
+            .map(|credential| AccountBrief {
+                credential_id: credential.id,
+                label: credential.label.clone(),
+                kind: account_kind(credential),
+            })
+            .collect(),
+        supports_oauth: false,
+    });
     let models = catalog
         .models()
         .iter()
@@ -89,7 +108,13 @@ pub async fn models_catalog(agent: &AgentService) -> ModelsCatalog {
 async fn account_entries(agent: &AgentService, with_usage: bool) -> Vec<AccountEntry> {
     let mut entries = Vec::new();
     let store = agent.pool().store();
-    for provider in agent.runtime.catalog().providers() {
+    for provider in agent
+        .runtime
+        .catalog()
+        .providers()
+        .into_iter()
+        .chain(std::iter::once("exa"))
+    {
         let blocks: BTreeMap<i64, i64> = store.blocks(provider).await.into_iter().collect();
         for credential in store.list(provider).await {
             let report = if with_usage {

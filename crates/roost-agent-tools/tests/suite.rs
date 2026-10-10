@@ -8,3 +8,5 @@
 mod file_tools;
 #[path = "hashline.rs"]
 mod hashline;
+#[path = "restore_points.rs"]
+mod restore_points;

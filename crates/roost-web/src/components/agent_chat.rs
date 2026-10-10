@@ -7,8 +7,10 @@
 mod advisory_card;
 mod composer;
 mod header;
+mod interaction_cards;
 mod launch;
 mod markdown;
+mod message_actions;
 mod model_controls;
 mod notice_card;
 mod plan_card;

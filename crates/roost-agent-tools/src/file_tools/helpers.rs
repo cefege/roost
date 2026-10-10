@@ -5,7 +5,7 @@
 use std::collections::{BTreeSet, HashSet};
 use std::path::PathBuf;
 
-pub(super) fn snapshot_mismatch(
+pub(crate) fn snapshot_mismatch(
     path: &str,
     expected: &str,
     actual: &str,
@@ -74,7 +74,7 @@ fn anchored_context(anchor_lines: &[u32], file_text: &str) -> Vec<String> {
     rows
 }
 
-pub(super) fn unseen_lines_message(path: &str, tag: &str, lines: &[u32]) -> String {
+pub(crate) fn unseen_lines_message(path: &str, tag: &str, lines: &[u32]) -> String {
     let mut sorted = lines.to_vec();
     sorted.sort_unstable();
     sorted.dedup();

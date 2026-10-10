@@ -1,6 +1,6 @@
-//! Which tools a conversation offers the model: the worker tools from
-//! roost-protocol, filtered by mode and subagent kind, plus the harness tools
-//! the coordinator executes itself (`task`, `find`, `propose_plan`, `yield`).
+//! Which tools a conversation offers the model: worker tools from
+//! roost-protocol, harness tools the coordinator executes itself, and the
+//! mode-specific filters for subagents.
 
 use roost_llm::ToolSpec;
 use roost_protocol::wire::agent_chat::{
@@ -15,6 +15,10 @@ pub const TOOL_TASK: &str = "task";
 pub const TOOL_FIND: &str = "find";
 pub const TOOL_PROPOSE_PLAN: &str = "propose_plan";
 pub const TOOL_YIELD: &str = "yield";
+pub const TOOL_TODO: &str = "todo";
+pub const TOOL_ASK: &str = "ask";
+pub const TOOL_FETCH: &str = "fetch";
+pub const TOOL_WEB_SEARCH: &str = "web_search";
 
 /// Subagent nesting limit: a depth-2 child may not spawn further children.
 pub const MAX_DEPTH: u32 = 2;
@@ -84,12 +88,17 @@ impl Toolset {
 pub fn is_read_only(name: &str) -> bool {
     matches!(
         name,
-        TOOL_READ | TOOL_GREP | TOOL_GLOB | TOOL_LSP | TOOL_FIND
+        TOOL_READ | TOOL_GREP | TOOL_GLOB | TOOL_LSP | TOOL_FIND | TOOL_FETCH | TOOL_WEB_SEARCH
     )
 }
 
 /// The tools for `record` at nesting `depth` (0 = a top-level conversation).
-pub fn toolset_for(record: &ConversationRecord, depth: u32, find_available: bool) -> Toolset {
+pub fn toolset_for(
+    record: &ConversationRecord,
+    depth: u32,
+    find_available: bool,
+    web_search_available: bool,
+) -> Toolset {
     let kind = record.agent.as_deref().and_then(SubagentKind::from_name);
     let plan_mode = record.mode == Mode::Plan;
     let read_only_lsp = plan_mode || kind == Some(SubagentKind::Scout);
@@ -121,6 +130,10 @@ pub fn toolset_for(record: &ConversationRecord, depth: u32, find_available: bool
     if find_available {
         specs.push(find_spec());
     }
+    specs.push(crate::web_tools::fetch_spec());
+    if web_search_available {
+        specs.push(crate::web_tools::web_search_spec());
+    }
     let may_delegate = match kind {
         None => true,
         Some(SubagentKind::Task) => depth < MAX_DEPTH,
@@ -128,6 +141,12 @@ pub fn toolset_for(record: &ConversationRecord, depth: u32, find_available: bool
     };
     if may_delegate {
         specs.push(task_spec(plan_mode));
+    }
+    if kind != Some(SubagentKind::Scout) {
+        specs.push(todo_spec());
+    }
+    if kind.is_none() {
+        specs.push(ask_spec());
     }
     if kind.is_some() {
         specs.push(yield_spec());
@@ -190,6 +209,59 @@ pub fn find_spec() -> ToolSpec {
     }
 }
 
+pub fn todo_spec() -> ToolSpec {
+    ToolSpec {
+        name: TOOL_TODO.into(),
+        description: prompts::TODO_TOOL.into(),
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "op": {"type": "string", "enum": ["init", "start", "done", "rm", "drop", "block", "unblock", "append", "view"]},
+                "list": {"type": "array", "items": {"type": "object", "properties": {
+                    "phase": {"type": "string"},
+                    "items": {"type": "array", "items": {"type": "string"}, "minItems": 1}
+                }, "required": ["phase", "items"], "additionalProperties": false}},
+                "task": {"type": "string", "description": "Verbatim task content"},
+                "phase": {"type": "string"},
+                "items": {"type": "array", "items": {"type": "string"}},
+                "reason": {"type": "string"}
+            },
+            "required": ["op"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+pub fn ask_spec() -> ToolSpec {
+    ToolSpec {
+        name: TOOL_ASK.into(),
+        description: prompts::ASK_TOOL.into(),
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "questions": {"type": "array", "minItems": 1, "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"},
+                        "question": {"type": "string"},
+                        "options": {"type": "array", "minItems": 2, "maxItems": 5, "items": {
+                            "type": "object", "properties": {
+                                "label": {"type": "string"},
+                                "description": {"type": "string"}
+                            }, "required": ["label"], "additionalProperties": false
+                        }},
+                        "multi": {"type": "boolean"},
+                        "recommended": {"type": "integer", "minimum": 0}
+                    },
+                    "required": ["question", "options"],
+                    "additionalProperties": false
+                }}
+            },
+            "required": ["questions"],
+            "additionalProperties": false
+        }),
+    }
+}
 pub fn propose_plan_spec() -> ToolSpec {
     ToolSpec {
         name: TOOL_PROPOSE_PLAN.into(),

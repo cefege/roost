@@ -90,6 +90,7 @@ impl AgentToolsOwner {
                 tool: request.tool,
                 args_json: request.args_json,
                 timeout_ms: request.timeout_ms,
+                checkpoint_id: request.checkpoint_id,
             };
             let call_cancel = cancel.as_ref().clone();
             let mut host_call =

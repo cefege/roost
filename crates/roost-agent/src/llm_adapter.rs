@@ -131,4 +131,48 @@ impl Llm for RoostLlm {
             rows
         })
     }
+
+    fn fetch_url<'a>(
+        &'a self,
+        url: &'a str,
+    ) -> BoxFuture<'a, Result<crate::FetchedPage, LlmError>> {
+        Box::pin(crate::web_adapter::fetch(url))
+    }
+
+    fn web_search<'a>(
+        &'a self,
+        query: &'a str,
+        limit: u32,
+    ) -> BoxFuture<'a, Result<Vec<crate::SearchHit>, LlmError>> {
+        Box::pin(async move {
+            use roost_llm::credentials::CredentialKind;
+            let credentials = self.pool.store().list("exa").await;
+            let key = credentials
+                .into_iter()
+                .filter(|credential| credential.disabled_cause.is_none())
+                .find_map(|credential| match credential.kind {
+                    CredentialKind::ApiKey { key } => Some(key),
+                    CredentialKind::OAuth { .. } => None,
+                })
+                .ok_or_else(|| LlmError::NoCredential {
+                    provider: "exa".into(),
+                })?;
+            crate::web_adapter::search(&self.http, &self.endpoints, &key, query, limit).await
+        })
+    }
+
+    fn has_web_search(&self) -> BoxFuture<'_, bool> {
+        Box::pin(async move {
+            use roost_llm::credentials::CredentialKind;
+            self.pool
+                .store()
+                .list("exa")
+                .await
+                .iter()
+                .any(|credential| {
+                    credential.disabled_cause.is_none()
+                        && matches!(&credential.kind, CredentialKind::ApiKey { .. })
+                })
+        })
+    }
 }

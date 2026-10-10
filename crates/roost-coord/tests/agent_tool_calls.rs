@@ -28,6 +28,7 @@ fn call_spec() -> AgentToolCallSpec {
         tool: "read".to_owned(),
         args_json: r#"{"path":"README.md"}"#.to_owned(),
         timeout_ms: 5_000,
+        checkpoint_id: 42,
     }
 }
 
@@ -87,7 +88,10 @@ async fn worker_link_close_fails_pending_call_as_disconnected() {
         .recv()
         .await
         .expect("tool call reached fake worker");
-    assert!(matches!(frame, CoordWorkerDownstream::AgentToolCall(_)));
+    assert!(matches!(
+        &frame,
+        CoordWorkerDownstream::AgentToolCall(call) if call.checkpoint_id == 42
+    ));
     fixture
         .core
         .services

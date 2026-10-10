@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 
 use roost_llm::{AssistantBlock, Usage};
-use roost_protocol::wire::agent_chat::{AgentRunState, ModelRef};
+use roost_protocol::wire::agent_chat::{AgentRunState, AskQuestion, ModelRef, TodoPhase};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -147,6 +147,39 @@ pub enum Entry {
         severity: AdvisorySeverity,
         note: String,
         delivered: bool,
+    },
+    /// The agent's task list after a `todo` call; the latest copy is current.
+    Todo {
+        phases: Vec<TodoPhase>,
+    },
+    /// Questions the `ask` tool put to the user; re-appended with `answers`.
+    Ask {
+        item_id: String,
+        questions: Vec<AskQuestion>,
+        answers: Option<BTreeMap<String, Vec<String>>>,
+    },
+    /// A `/btw` side question and its answer. Never sent to the model.
+    Btw {
+        item_id: String,
+        question: String,
+        answer: Option<String>,
+        error: Option<String>,
+    },
+    /// Every earlier entry with `seq >= to_seq` is undone: hidden from the
+    /// transcript and the model history.
+    Rewind {
+        to_seq: u64,
+    },
+    /// Tokens spent outside the conversation's own turns (advisor reviews,
+    /// compaction, `/btw`, judgments). Counted in usage totals only.
+    ExtraUsage {
+        provider: String,
+        model_id: String,
+        usage: Usage,
+    },
+    /// A subagent's shared `task` context, written once at creation.
+    SubagentContext {
+        context: String,
     },
 }
 

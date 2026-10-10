@@ -98,7 +98,60 @@ async fn agent_tool_call_reads_file_and_returns_hashline_result() {
         "{}",
         result.content
     );
-    assert!(result.content.contains("1:hello"), "{}", result.content);
+    dispatcher.dispatch(
+        CoordWorkerDownstream::AgentToolCall(DAgentToolCall {
+            call_id: "write-1".into(),
+            conversation_id: "conversation-1".into(),
+            cwd: scratch.0.to_string_lossy().into_owned(),
+            tool: "write".into(),
+            args_json: r#"{"path":"answer.txt","content":"changed"}"#.into(),
+            checkpoint_id: 73,
+            ..Default::default()
+        }),
+        Instant::now(),
+        &mut TestLink,
+    );
+    let write_result = timeout(Duration::from_secs(2), async {
+        loop {
+            if let Some(CoordWorkerUpstream::AgentToolResult(result)) = frames.recv().await
+                && result.call_id == "write-1"
+            {
+                break result;
+            }
+        }
+    })
+    .await
+    .expect("tool write completes promptly");
+    assert!(!write_result.is_error, "{}", write_result.content);
+    dispatcher.dispatch(
+        CoordWorkerDownstream::AgentToolCall(DAgentToolCall {
+            call_id: "rewind-1".into(),
+            conversation_id: "conversation-1".into(),
+            cwd: scratch.0.to_string_lossy().into_owned(),
+            tool: "rewind_files".into(),
+            args_json: r#"{"checkpoint_id":73}"#.into(),
+            checkpoint_id: 73,
+            ..Default::default()
+        }),
+        Instant::now(),
+        &mut TestLink,
+    );
+    let rewind_result = timeout(Duration::from_secs(2), async {
+        loop {
+            if let Some(CoordWorkerUpstream::AgentToolResult(result)) = frames.recv().await
+                && result.call_id == "rewind-1"
+            {
+                break result;
+            }
+        }
+    })
+    .await
+    .expect("file rewind completes promptly");
+    assert!(!rewind_result.is_error, "{}", rewind_result.content);
+    assert_eq!(
+        std::fs::read_to_string(scratch.0.join("answer.txt")).expect("restored answer"),
+        "hello\n"
+    );
 }
 
 #[cfg(unix)]

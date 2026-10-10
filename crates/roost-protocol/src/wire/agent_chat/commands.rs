@@ -81,6 +81,48 @@ pub const AGENT_SLASH_COMMANDS: &[SlashCommand] = &[
         summary: "Toggle turn reviews",
         client_bare: false,
     },
+    SlashCommand {
+        name: "btw",
+        aliases: &[],
+        args: "<question>",
+        summary: "Ask a side question without adding it to the conversation",
+        client_bare: false,
+    },
+    SlashCommand {
+        name: "retry",
+        aliases: &[],
+        args: "",
+        summary: "Discard the last answer and run the last message again",
+        client_bare: false,
+    },
+    SlashCommand {
+        name: "rewind",
+        aliases: &["undo"],
+        args: "",
+        summary: "Undo the last turn, restoring the files it changed",
+        client_bare: false,
+    },
+    SlashCommand {
+        name: "fork",
+        aliases: &[],
+        args: "",
+        summary: "Copy this conversation into a new one",
+        client_bare: false,
+    },
+    SlashCommand {
+        name: "rename",
+        aliases: &[],
+        args: "<title>",
+        summary: "Rename this conversation",
+        client_bare: false,
+    },
+    SlashCommand {
+        name: "export",
+        aliases: &[],
+        args: "",
+        summary: "Download this conversation as Markdown",
+        client_bare: true,
+    },
 ];
 
 pub fn parse_slash_command(text: &str) -> Option<(&'static SlashCommand, &str)> {

@@ -287,6 +287,7 @@ async fn worker(
                 tool: tool.to_owned(),
                 args_json: args.to_string(),
                 timeout_ms: 120_000,
+                checkpoint_id: 0,
             },
             out.clone(),
             scope.cancel.child_token(),

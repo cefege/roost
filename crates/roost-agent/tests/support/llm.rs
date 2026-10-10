@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
-use roost_agent::{AccountUsage, Llm};
+use roost_agent::{AccountUsage, FetchedPage, Llm, SearchHit};
 use roost_llm::{
     Answer, Catalog, ChatRequest, LlmError, ModelInfo, Question, ResolvedAuth, StreamEvent,
 };
@@ -30,6 +30,8 @@ pub struct ScriptedLlm {
     pub judge_requests: Mutex<Vec<(String, serde_json::Value, Vec<Question>)>>,
     pub rotations: Mutex<Vec<i64>>,
     pub usage_rows: Mutex<Vec<AccountUsage>>,
+    pub pages: Mutex<HashMap<String, FetchedPage>>,
+    pub search_hits: Mutex<HashMap<String, Vec<SearchHit>>>,
 }
 
 impl ScriptedLlm {
@@ -67,6 +69,17 @@ impl ScriptedLlm {
             .filter(|request| request.session_id == session_id)
             .cloned()
             .collect()
+    }
+
+    pub fn page(&self, url: &str, page: FetchedPage) {
+        self.pages.lock().unwrap().insert(url.to_owned(), page);
+    }
+
+    pub fn search(&self, query: &str, hits: Vec<SearchHit>) {
+        self.search_hits
+            .lock()
+            .unwrap()
+            .insert(query.to_owned(), hits);
     }
 }
 
@@ -172,5 +185,33 @@ impl Llm for ScriptedLlm {
     fn account_usage(&self) -> BoxFuture<'_, Vec<AccountUsage>> {
         let rows = self.usage_rows.lock().unwrap().clone();
         Box::pin(async move { rows })
+    }
+
+    fn fetch_url<'a>(&'a self, url: &'a str) -> BoxFuture<'a, Result<FetchedPage, LlmError>> {
+        let page = self.pages.lock().unwrap().get(url).cloned();
+        Box::pin(async move {
+            page.ok_or_else(|| LlmError::Decode(format!("no page scripted for {url}")))
+        })
+    }
+
+    fn web_search<'a>(
+        &'a self,
+        query: &'a str,
+        _limit: u32,
+    ) -> BoxFuture<'a, Result<Vec<SearchHit>, LlmError>> {
+        let hits = self.search_hits.lock().unwrap().get(query).cloned();
+        Box::pin(async move {
+            hits.ok_or_else(|| LlmError::Decode(format!("no search scripted for {query}")))
+        })
+    }
+
+    fn has_web_search(&self) -> BoxFuture<'_, bool> {
+        let available = self
+            .providers
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|provider| provider == "exa");
+        Box::pin(async move { available })
     }
 }

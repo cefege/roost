@@ -12,5 +12,11 @@ mod agent_loop;
 mod find;
 #[path = "plan_and_tasks.rs"]
 mod plan_and_tasks;
+#[path = "quality_tools.rs"]
+mod quality_tools;
+#[path = "rewind_fork.rs"]
+mod rewind_fork;
 #[path = "roles.rs"]
 mod roles;
+#[path = "web_tools.rs"]
+mod web_tools;

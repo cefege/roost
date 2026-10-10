@@ -3,6 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub use super::interaction::{AskOption, AskQuestion, TodoPhase, TodoStatus, TodoTask};
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelRef {
     pub provider: String,
@@ -102,6 +104,24 @@ pub enum TranscriptItem {
         severity: String,
         note: String,
         delivered: bool,
+    },
+    /// The agent's task list; one per conversation, replaced on every change.
+    #[serde(rename = "todo")]
+    Todo { id: String, phases: Vec<TodoPhase> },
+    /// Questions the agent put to the user; `answers` is `None` until answered.
+    #[serde(rename = "ask")]
+    Ask {
+        id: String,
+        questions: Vec<AskQuestion>,
+        answers: Option<std::collections::BTreeMap<String, Vec<String>>>,
+    },
+    /// A `/btw` side question; `answer` and `error` are `None` while it runs.
+    #[serde(rename = "btw")]
+    Btw {
+        id: String,
+        question: String,
+        answer: Option<String>,
+        error: Option<String>,
     },
 }
 
