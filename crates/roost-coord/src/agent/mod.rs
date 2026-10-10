@@ -9,6 +9,7 @@ pub mod rpc_accounts;
 pub mod rpc_auth;
 pub mod rpc_chat;
 mod rpc_errors;
+pub mod rpc_turns;
 mod sink;
 pub mod store;
 pub mod tool_calls;

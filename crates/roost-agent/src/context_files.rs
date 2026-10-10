@@ -33,6 +33,7 @@ pub(crate) async fn context_files(
         tool: TOOL_CONTEXT_FILES.to_owned(),
         args_json: "{}".to_owned(),
         timeout_ms: FETCH_TIMEOUT_MS,
+        checkpoint_id: 0,
     };
     let fetched = runtime
         .inner

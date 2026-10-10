@@ -78,9 +78,6 @@ pub(crate) struct RuntimeInner {
     record_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     context_cache:
         Mutex<HashMap<String, (Instant, roost_protocol::wire::agent_chat::ContextFiles)>>,
-    extra_usage: Mutex<HashMap<String, UsageTotals>>,
-    /// Shared `task` context of each live child conversation.
-    pub(crate) child_context: Mutex<HashMap<String, String>>,
     pub(crate) advisors: AdvisorHub,
 }
 
@@ -131,8 +128,6 @@ impl AgentRuntime {
                 aborted_last: Mutex::new(HashMap::new()),
                 record_locks: Mutex::new(HashMap::new()),
                 context_cache: Mutex::new(HashMap::new()),
-                extra_usage: Mutex::new(HashMap::new()),
-                child_context: Mutex::new(HashMap::new()),
                 advisors: AdvisorHub::default(),
             }),
         }
@@ -234,10 +229,13 @@ impl AgentRuntime {
         model_id: &str,
         usage: &roost_llm::Usage,
     ) {
-        {
-            let mut extra = lock(&self.inner.extra_usage);
-            let totals = extra.entry(id.to_owned()).or_default();
-            projection::add_usage(totals, self.inner.llm.catalog(), provider, model_id, usage);
+        let entry = Entry::ExtraUsage {
+            provider: provider.to_owned(),
+            model_id: model_id.to_owned(),
+            usage: *usage,
+        };
+        if let Err(error) = self.inner.store.append_entry(id, &entry).await {
+            tracing::warn!(conversation_id = id, %error, "out-of-turn usage was not recorded");
         }
         if let Ok(totals) = self.usage_totals(id).await {
             self.emit(id, vec![ChatEvent::Usage { usage: totals }])
@@ -247,14 +245,10 @@ impl AgentRuntime {
 
     pub(crate) async fn usage_totals(&self, id: &str) -> Result<UsageTotals, AgentError> {
         let entries = self.inner.store.entries(id).await?;
-        let extra = lock(&self.inner.extra_usage)
-            .get(id)
-            .cloned()
-            .unwrap_or_default();
         Ok(projection::usage_totals(
             self.inner.llm.catalog(),
             &entries,
-            &extra,
+            &UsageTotals::default(),
         ))
     }
 
@@ -288,14 +282,6 @@ impl AgentRuntime {
         lock(&self.inner.context_cache).insert(key.to_owned(), (Instant::now(), files));
     }
 
-    pub(crate) fn child_context(&self, id: &str) -> Option<String> {
-        lock(&self.inner.child_context).get(id).cloned()
-    }
-
-    pub(crate) fn set_child_context(&self, id: &str, context: String) {
-        lock(&self.inner.child_context).insert(id.to_owned(), context);
-    }
-
     fn mark_aborted(&self, id: &str, aborted: bool) {
         lock(&self.inner.aborted_last).insert(id.to_owned(), aborted);
     }
@@ -313,7 +299,7 @@ impl AgentRuntime {
         true
     }
 
-    fn with_run<T>(&self, id: &str, read: impl FnOnce(&RunHandle) -> T) -> Option<T> {
+    pub(crate) fn with_run<T>(&self, id: &str, read: impl FnOnce(&RunHandle) -> T) -> Option<T> {
         lock(&self.inner.runs).get(id).map(read)
     }
 

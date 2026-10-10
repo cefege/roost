@@ -17,7 +17,7 @@ impl Endpoints {
     }
 
     /// Replace the base URL of each named provider. Keys are provider ids
-    /// (`anthropic`, `openai-codex`, `openrouter`, `typesafe`) or the auxiliary
+    /// (`anthropic`, `openai-codex`, `openrouter`, `typesafe`, `exa`) or the auxiliary
     /// hosts `anthropic-console` (OAuth token/profile/usage) and
     /// `openai-auth` (Codex OAuth).
     pub fn with_overrides(overrides: BTreeMap<String, String>) -> Self {

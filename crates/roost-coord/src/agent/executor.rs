@@ -38,6 +38,7 @@ impl ToolExecutor for WorkerToolExecutor {
                 tool: call.tool,
                 args_json: call.args_json,
                 timeout_ms: call.timeout_ms,
+                checkpoint_id: call.checkpoint_id,
             };
             let deadline = std::time::Duration::from_millis(u64::from(spec.timeout_ms));
             // The deadline cancels rather than drops the call, so the registry

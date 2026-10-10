@@ -31,6 +31,9 @@ use crate::agent::rpc_chat::{
     handle_agent_chat_delete, handle_agent_chat_list, handle_agent_chat_plan_decide,
     handle_agent_chat_snapshot, handle_agent_chat_submit, handle_agent_models_list,
 };
+use crate::agent::rpc_turns::{
+    handle_agent_chat_answer, handle_agent_chat_fork, handle_agent_chat_rewind,
+};
 use crate::agents::rpc_status::{
     handle_agent_config_get, handle_agent_config_set, handle_agent_status_get,
     handle_agent_status_list, handle_agent_status_wait,
@@ -791,6 +794,44 @@ impl CoordinatorService for CoordinatorServiceImpl {
         async move {
             let caller = caller_of(&ctx, "AgentChatPlanDecide")?;
             handle_agent_chat_plan_decide(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn agent_chat_answer<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentChatAnswerRequest>,
+    ) -> impl Future<
+        Output = ServiceResult<impl Encodable<AgentChatAnswerResponse> + Send + use<'a>>,
+    > + Send {
+        async move {
+            let caller = caller_of(&ctx, "AgentChatAnswer")?;
+            handle_agent_chat_answer(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn agent_chat_rewind<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentChatRewindRequest>,
+    ) -> impl Future<
+        Output = ServiceResult<impl Encodable<AgentChatRewindResponse> + Send + use<'a>>,
+    > + Send {
+        async move {
+            let caller = caller_of(&ctx, "AgentChatRewind")?;
+            handle_agent_chat_rewind(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn agent_chat_fork<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentChatForkRequest>,
+    ) -> impl Future<Output = ServiceResult<impl Encodable<AgentConversation> + Send + use<'a>>> + Send
+    {
+        async move {
+            let caller = caller_of(&ctx, "AgentChatFork")?;
+            handle_agent_chat_fork(&self.core, caller, r.to_owned_message()).await
         }
     }
 

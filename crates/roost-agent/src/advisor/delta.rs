@@ -72,6 +72,31 @@ fn render_entry(entry: &Entry) -> Option<String> {
             ..
         } if !delivered => Some(format!("## Advisory card ({})\n{note}", severity.as_str())),
         Entry::Advisory { .. } => None,
+        Entry::Todo { phases } => Some(format!(
+            "## Task list\n{}",
+            crate::history::todo_message(phases)
+        )),
+        Entry::Ask {
+            questions, answers, ..
+        } => Some(format!(
+            "## Asked the user\n{}{}",
+            questions
+                .iter()
+                .map(|question| question.question.as_str())
+                .collect::<Vec<_>>()
+                .join("\n"),
+            answers
+                .as_ref()
+                .map(|answers| format!(
+                    "\nAnswered: {}",
+                    serde_json::to_string(answers).unwrap_or_default()
+                ))
+                .unwrap_or_default()
+        )),
+        Entry::Btw { .. }
+        | Entry::Rewind { .. }
+        | Entry::ExtraUsage { .. }
+        | Entry::SubagentContext { .. } => None,
     }
 }
 

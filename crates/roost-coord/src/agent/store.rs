@@ -180,6 +180,37 @@ impl AgentStore for CoordAgentStore {
             Ok(())
         })
     }
+    fn advisor_state<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> BoxFuture<'a, Result<Option<String>, AgentError>> {
+        Box::pin(async move {
+            sqlx::query_scalar(
+                "SELECT state_json FROM agent_advisor_state WHERE conversation_id=$1",
+            )
+            .bind(id)
+            .fetch_optional(self.db.pool())
+            .await
+            .map_err(store_error)
+        })
+    }
+
+    fn save_advisor_state<'a>(
+        &'a self,
+        id: &'a str,
+        state_json: &'a str,
+    ) -> BoxFuture<'a, Result<(), AgentError>> {
+        Box::pin(async move {
+            sqlx::query("INSERT INTO agent_advisor_state(conversation_id,state_json,updated_ms) VALUES($1,$2,$3) ON CONFLICT(conversation_id) DO UPDATE SET state_json=excluded.state_json,updated_ms=excluded.updated_ms")
+                .bind(id)
+                .bind(state_json)
+                .bind(now_ms())
+                .execute(self.db.pool())
+                .await
+                .map_err(store_error)?;
+            Ok(())
+        })
+    }
 }
 
 fn now_ms() -> i64 {

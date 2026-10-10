@@ -1,14 +1,15 @@
-//! Coordinator-run slash commands. Each answers with a `Notice` entry and
-//! never calls the conversation's model, except `/compact`, whose summary is
-//! the point. Client-only commands are refused here; the browser runs them.
+//! Coordinator-run slash commands. Each answers with a `Notice` entry; `/btw`
+//! calls a side model and `/compact` summarizes history. Client-only commands
+//! are refused here; the browser runs them.
 
 use roost_protocol::wire::agent_chat::{AGENT_SLASH_COMMANDS, SlashCommand};
 use tokio_util::sync::CancellationToken;
 
 use crate::error::AgentError;
-use crate::records::{ConversationRecord, model_ref};
+use crate::journal::effective_entries;
+use crate::records::{ConversationRecord, Entry, model_ref};
 use crate::runtime::AgentRuntime;
-use crate::{advisor, compaction, plan_mode, roles, turn};
+use crate::{advisor, btw, compaction, plan_mode, roles, turn};
 
 pub(crate) async fn execute(
     runtime: &AgentRuntime,
@@ -23,6 +24,11 @@ pub(crate) async fn execute(
         "effort" => set_effort(runtime, record, args).await,
         "usage" => usage(runtime, record).await,
         "compact" => compact(runtime, record, args).await,
+        "btw" => btw::run(runtime, &record.id, args).await,
+        "rename" => rename(runtime, record, args).await,
+        "retry" => retry(runtime, record).await,
+        "rewind" => rewind_latest(runtime, record).await,
+        "fork" => fork(runtime, record).await,
         "help" => {
             runtime
                 .notice(&record.id, "info", "Commands", &help_table())
@@ -34,6 +40,55 @@ pub(crate) async fn execute(
             "/{other} runs in the browser"
         ))),
     }
+}
+async fn retry(runtime: &AgentRuntime, record: &ConversationRecord) -> Result<(), AgentError> {
+    let (item_id, _) = latest_user(runtime, &record.id).await?;
+    let text = runtime.rewind(&record.id, &item_id, false).await?;
+    runtime
+        .notice(
+            &record.id,
+            "info",
+            "Retrying turn",
+            "Resubmitting the previous user message.",
+        )
+        .await;
+    Box::pin(runtime.submit(&record.id, text)).await
+}
+
+async fn rewind_latest(
+    runtime: &AgentRuntime,
+    record: &ConversationRecord,
+) -> Result<(), AgentError> {
+    let (item_id, _) = latest_user(runtime, &record.id).await?;
+    runtime.rewind(&record.id, &item_id, true).await?;
+    Ok(())
+}
+
+async fn fork(runtime: &AgentRuntime, record: &ConversationRecord) -> Result<(), AgentError> {
+    let fork = runtime.fork(&record.id, None).await?;
+    runtime
+        .notice(
+            &record.id,
+            "info",
+            "Conversation forked",
+            &format!("New conversation: [Open fork](/?conversation={})", fork.id),
+        )
+        .await;
+    Ok(())
+}
+
+async fn latest_user(
+    runtime: &AgentRuntime,
+    conversation_id: &str,
+) -> Result<(String, String), AgentError> {
+    effective_entries(&runtime.inner.store.entries(conversation_id).await?)
+        .into_iter()
+        .rev()
+        .find_map(|(seq, entry)| match entry {
+            Entry::User { text } => Some((format!("u{seq}"), text)),
+            _ => None,
+        })
+        .ok_or_else(|| AgentError::InvalidArgument("no user turn to rewind".into()))
 }
 
 async fn set_model(
@@ -198,6 +253,23 @@ async fn compact(
     Ok(())
 }
 
+async fn rename(
+    runtime: &AgentRuntime,
+    record: &ConversationRecord,
+    args: &str,
+) -> Result<(), AgentError> {
+    let title = args.trim();
+    if title.is_empty() {
+        return Err(AgentError::InvalidArgument("/rename needs a title".into()));
+    }
+    runtime
+        .set_details(&record.id, Some(title.to_owned()), None, None)
+        .await?;
+    runtime
+        .notice(&record.id, "info", "Conversation renamed", title)
+        .await;
+    Ok(())
+}
 fn help_table() -> String {
     let mut table = String::from("| Command | Arguments | What it does |\n|---|---|---|\n");
     for command in AGENT_SLASH_COMMANDS {

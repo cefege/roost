@@ -585,6 +585,9 @@ message DAgentToolCall {
   string tool = 4;
   string args_json = 5;
   uint32 timeout_ms = 6;
+  // The harness turn (user-entry seq) a write/edit belongs to; `rewind_files`
+  // restores files changed at or after it. 0 = not part of a turn.
+  uint64 checkpoint_id = 7;
 }
 message DAgentToolCancel { string call_id = 1; }
 message DAgentConversationClosed { string conversation_id = 1; }

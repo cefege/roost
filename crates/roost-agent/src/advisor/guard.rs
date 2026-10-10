@@ -4,6 +4,8 @@
 
 use std::collections::{HashMap, VecDeque};
 
+use serde::{Deserialize, Serialize};
+
 use unicode_normalization::UnicodeNormalization;
 
 use crate::records::AdvisorySeverity;
@@ -30,7 +32,7 @@ impl Emission {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub(crate) struct EmissionGuard {
     history: HashMap<String, AdvisorySeverity>,
     order: VecDeque<String>,

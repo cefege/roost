@@ -106,6 +106,22 @@ async fn conversation_entries_settings_and_credentials_round_trip() {
         store.entries("parent").await.expect("entries"),
         vec![(1, first), (2, second)]
     );
+    store
+        .save_advisor_state("parent", "{\"cursor\":7}")
+        .await
+        .expect("save advisor state");
+    store
+        .save_advisor_state("parent", "{\"cursor\":8}")
+        .await
+        .expect("upsert advisor state");
+    assert_eq!(
+        store
+            .advisor_state("parent")
+            .await
+            .expect("read advisor state")
+            .as_deref(),
+        Some("{\"cursor\":8}")
+    );
     let settings = AgentSettings {
         model_roles: [(Role::Smol, "openrouter/model".to_owned())]
             .into_iter()
@@ -193,6 +209,13 @@ async fn conversation_entries_settings_and_credentials_round_trip() {
         .delete_conversation("parent")
         .await
         .expect("delete tree");
+    assert_eq!(
+        store
+            .advisor_state("parent")
+            .await
+            .expect("cascade advisor state"),
+        None
+    );
     assert!(
         store
             .conversation("parent")

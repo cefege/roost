@@ -123,9 +123,16 @@ pub(crate) async fn take_turn(
     let thinking = resolve_thinking(runtime, &record, &model, &entries, memory).await;
     let depth = depth_of(runtime, &record).await;
     let find_available = find::available(runtime, &model.info).await;
-    let toolset = toolset_for(&record, depth, find_available);
+    let web_search_available = runtime.inner.llm.has_web_search().await;
+    let toolset = toolset_for(&record, depth, find_available, web_search_available);
     let files = context_files::context_files(runtime, &record, cancel).await;
-    let child_context = runtime.child_context(id).unwrap_or_default();
+    let child_context = entries
+        .iter()
+        .find_map(|(_, entry)| match entry {
+            Entry::SubagentContext { context } => Some(context.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
     let subagent = record
         .agent
         .as_deref()
@@ -152,7 +159,16 @@ pub(crate) async fn take_turn(
             model: Box::new(model),
         });
     }
-    let end = tool_round::execute_round(runtime, &record, &toolset, depth, calls, cancel).await?;
+    let end = tool_round::execute_round(
+        runtime,
+        &record,
+        &toolset,
+        depth,
+        crate::journal::current_checkpoint(&entries),
+        calls,
+        cancel,
+    )
+    .await?;
     Ok(TurnOutcome::Tools { end })
 }
 

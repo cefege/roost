@@ -23,7 +23,8 @@ pub(crate) async fn compact_if_needed(
     model: &ModelInfo,
     cancel: &CancellationToken,
 ) -> Result<(), AgentError> {
-    let entries = runtime.inner.store.entries(&record.id).await?;
+    let entries =
+        crate::journal::effective_entries(&runtime.inner.store.entries(&record.id).await?);
     let (_, window) = active_window(&entries);
     let last_tokens = window.iter().rev().find_map(|(_, entry)| match entry {
         Entry::Assistant { usage, .. } if usage.input + usage.output > 0 => {
@@ -47,7 +48,8 @@ pub(crate) async fn compact(
     instructions: Option<&str>,
     cancel: &CancellationToken,
 ) -> Result<bool, AgentError> {
-    let entries = runtime.inner.store.entries(&record.id).await?;
+    let entries =
+        crate::journal::effective_entries(&runtime.inner.store.entries(&record.id).await?);
     let (previous_summary, window) = active_window(&entries);
     let Some(split) = split_point(window) else {
         return Ok(false);

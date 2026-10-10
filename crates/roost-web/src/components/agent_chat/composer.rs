@@ -6,7 +6,8 @@
 
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{
-    AGENT_SLASH_COMMANDS, ConversationSummary, ModelsCatalog, ProviderEntry, parse_slash_command,
+    AGENT_SLASH_COMMANDS, ConversationSummary, ModelsCatalog, ProviderEntry, Transcript,
+    parse_slash_command,
 };
 
 use super::model_controls::AgentModelControls;
@@ -23,6 +24,7 @@ use roost_client_core::client::rpc::calls::agent_chat::{AbortAgentChat, SubmitAg
 pub fn AgentComposer(
     conversation: ConversationSummary,
     catalog: Option<ModelsCatalog>,
+    transcript: Transcript,
     draft: Signal<String>,
     running: bool,
     host_connected: bool,
@@ -65,6 +67,7 @@ pub fn AgentComposer(
                     args,
                     &LocalCommandScope {
                         conversation: &conversation,
+                        transcript: &transcript,
                         catalog: catalog.as_ref(),
                         pump: pump.clone(),
                         navigate,
@@ -212,9 +215,9 @@ pub fn AgentComposer(
         }
     }
 }
-/// What a browser-run slash command may act on.
 struct LocalCommandScope<'a> {
     conversation: &'a ConversationSummary,
+    transcript: &'a Transcript,
     catalog: Option<&'a ModelsCatalog>,
     pump: Pump,
     navigate: EventHandler<String>,
@@ -268,7 +271,39 @@ fn run_local_command(
             );
             true
         }
+        "export" => {
+            let title = safe_download_title(&conversation.title);
+            let markdown = roost_client_core::client::agent_chat::export::transcript_to_markdown(
+                &conversation.title,
+                scope.transcript,
+            );
+            crate::platform::file_save::save_text_file(
+                &format!("{title}.md"),
+                "text/markdown",
+                &markdown,
+            );
+            true
+        }
         _ => false,
+    }
+}
+fn safe_download_title(title: &str) -> String {
+    let cleaned = title
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, ' ' | '-' | '_') {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim()
+        .to_string();
+    if cleaned.is_empty() {
+        "Conversation".to_owned()
+    } else {
+        cleaned
     }
 }
 

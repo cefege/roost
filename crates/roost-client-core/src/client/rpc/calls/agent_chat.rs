@@ -40,6 +40,9 @@ simple_call!(GetAgentUsage,AgentUsageGetRequest,AgentUsageGetResponse,String,"Ag
 simple_call!(GetAgentSettings,AgentSettingsGetRequest,AgentSettingsGetResponse,String,"AgentSettingsGet",|response:AgentSettingsGetResponse| Ok(response.settings_json););
 simple_call!(SetAgentSettings,AgentSettingsSetRequest,AgentSettingsSetResponse,(),"AgentSettingsSet",empty; settings_json:String);
 simple_call!(DecideAgentPlan,AgentChatPlanDecideRequest,AgentChatPlanDecideResponse,String,"AgentChatPlanDecide",|response:AgentChatPlanDecideResponse| Ok(response.new_conversation_id); conversation_id:String,item_id:String,decision:String,feedback:String);
+simple_call!(AnswerAgentQuestion,AgentChatAnswerRequest,AgentChatAnswerResponse,(),"AgentChatAnswer",empty; conversation_id:String,item_id:String,answers_json:String);
+simple_call!(RewindAgentChat,AgentChatRewindRequest,AgentChatRewindResponse,String,"AgentChatRewind",|response:AgentChatRewindResponse| Ok(response.text); conversation_id:String,item_id:String,restore_files:bool);
+simple_call!(ForkAgentChat,AgentChatForkRequest,AgentConversation,AgentConversation,"AgentChatFork",|response:AgentConversation| Ok(response); conversation_id:String,item_id:String);
 
 #[derive(Debug, Clone, Default)]
 pub struct CreateAgentChat {

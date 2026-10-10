@@ -96,6 +96,7 @@ unicode-segmentation = "1.13.3"
 # first, so two spellings of one directory are one directory.
 unicode-normalization = "0.1.25"
 pulldown-cmark = { version = "0.13.4", default-features = false }
+html2text = "0.14.2" # Converts fetched HTML to readable text without a browser.
 ammonia = "4.2.0"
 # WHATWG URL parsing for terminal link targets: the web terminal classifies
 # untrusted OSC 8 and inferred targets exactly as the browser's `new URL()`.

@@ -12,7 +12,7 @@ use crate::coord_core::{Caller, CoordCore};
 use crate::rpc::service::ok_response;
 
 /// Providers that accept an API key.
-const API_KEY_PROVIDERS: [&str; 3] = ["anthropic", "openrouter", "typesafe"];
+const API_KEY_PROVIDERS: [&str; 4] = ["anthropic", "openrouter", "typesafe", "exa"];
 
 pub async fn handle_agent_auth_login_start(
     core: &CoordCore,

@@ -131,7 +131,10 @@ impl TranscriptItem {
             | Self::Tool { id, .. }
             | Self::Notice { id, .. }
             | Self::Plan { id, .. }
-            | Self::Advisory { id, .. } => id,
+            | Self::Advisory { id, .. }
+            | Self::Todo { id, .. }
+            | Self::Ask { id, .. }
+            | Self::Btw { id, .. } => id,
         }
     }
 }

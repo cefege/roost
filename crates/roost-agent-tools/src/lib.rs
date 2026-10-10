@@ -6,6 +6,7 @@
 
 pub mod bash;
 pub mod context_files;
+mod file_mutations;
 pub mod file_tools;
 pub mod glob;
 pub mod grep;
@@ -13,6 +14,7 @@ pub mod hashline;
 pub mod host;
 pub mod lsp;
 pub mod outcome;
+pub mod restore_points;
 pub mod search_path;
 
 pub use host::{ToolCallRequest, ToolHost};

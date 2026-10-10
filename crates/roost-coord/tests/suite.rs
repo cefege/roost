@@ -6,6 +6,8 @@
 
 #[path = "agent_chat_rpc.rs"]
 mod agent_chat_rpc;
+#[path = "agent_chat_turns.rs"]
+mod agent_chat_turns;
 #[path = "agent_config_rpc.rs"]
 mod agent_config_rpc;
 #[path = "agent_prompt_handlers.rs"]

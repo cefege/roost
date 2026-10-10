@@ -41,6 +41,16 @@ pub trait AgentStore: Send + Sync {
         &'a self,
         settings: &'a AgentSettings,
     ) -> BoxFuture<'a, Result<(), AgentError>>;
+    /// The advisor's persisted review state for a conversation, as JSON.
+    fn advisor_state<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> BoxFuture<'a, Result<Option<String>, AgentError>>;
+    fn save_advisor_state<'a>(
+        &'a self,
+        id: &'a str,
+        state_json: &'a str,
+    ) -> BoxFuture<'a, Result<(), AgentError>>;
 }
 
 /// One worker tool invocation.
@@ -53,6 +63,8 @@ pub struct ToolCall {
     pub tool: String,
     pub args_json: String,
     pub timeout_ms: u32,
+    /// The turn (user-entry seq) this call belongs to; 0 outside a turn.
+    pub checkpoint_id: u64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -98,7 +110,7 @@ pub struct AccountUsage {
     pub disabled_cause: Option<String>,
 }
 
-/// Model access: catalog, accounts, streaming and judgments.
+/// Model access: catalog, accounts, streaming, judgments, and coordinator web requests.
 pub trait Llm: Send + Sync {
     fn catalog(&self) -> &Catalog;
     fn has_credential<'a>(&'a self, provider: &'a str) -> BoxFuture<'a, bool>;
@@ -128,4 +140,12 @@ pub trait Llm: Send + Sync {
         questions: Vec<Question>,
     ) -> BoxFuture<'a, Result<BTreeMap<String, Answer>, LlmError>>;
     fn account_usage(&self) -> BoxFuture<'_, Vec<AccountUsage>>;
+    fn fetch_url<'a>(&'a self, url: &'a str)
+    -> BoxFuture<'a, Result<crate::FetchedPage, LlmError>>;
+    fn web_search<'a>(
+        &'a self,
+        query: &'a str,
+        limit: u32,
+    ) -> BoxFuture<'a, Result<Vec<crate::SearchHit>, LlmError>>;
+    fn has_web_search(&self) -> BoxFuture<'_, bool>;
 }

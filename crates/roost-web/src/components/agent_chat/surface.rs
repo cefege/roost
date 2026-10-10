@@ -5,10 +5,11 @@
 //! code-block Copy delegation. Mounted by the deck's `AgentSlot`.
 
 use dioxus::prelude::*;
-use roost_protocol::wire::agent_chat::{AgentRunState, ModelsCatalog, Transcript};
+use roost_protocol::wire::agent_chat::{AgentRunState, ModelsCatalog, TodoPhase, Transcript};
 
 use super::composer::AgentComposer;
 use super::header::{AgentChatHeader, short_path};
+use super::interaction_cards::TodoCard;
 use super::welcome::AgentWelcome;
 use crate::components::md::{ButtonVariant, EmptyState, IconButton, IconButtonSize, Skeleton};
 use crate::pump::use_store;
@@ -112,6 +113,7 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
         AgentComposer {
             conversation: conversation.clone(),
             catalog: catalog(),
+            transcript: transcript.clone(),
             draft,
             running,
             host_connected,
@@ -156,7 +158,7 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
                 },
                 onclick: move |event: MouseEvent| copy_code_block(&event),
                 div { class: "agent-chat__column",
-                    super::transcript::AgentTranscriptView { transcript, conversation_id: conversation_id.clone() }
+                    super::transcript::AgentTranscriptView { transcript: transcript.clone(), conversation_id: conversation_id.clone(), pump: pump.clone(), draft }
                 }
             }
             div { class: "agent-chat__dock",
@@ -177,6 +179,7 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
                         },
                     }
                 }
+                if let Some(phases) = latest_todo(&transcript) { TodoCard { phases } }
                 {composer}
             }
         }
@@ -232,6 +235,14 @@ fn read_store(pump: &crate::pump::Pump, conversation_id: &str) -> StoreReading {
     )
 }
 
+fn latest_todo(transcript: &Transcript) -> Option<Vec<TodoPhase>> {
+    transcript.items.iter().rev().find_map(|item| match item {
+        roost_protocol::wire::agent_chat::TranscriptItem::Todo { phases, .. } => {
+            Some(phases.clone())
+        }
+        _ => None,
+    })
+}
 /// Nothing said and nothing running: the welcome, not an empty log.
 fn is_blank(transcript: &Transcript) -> bool {
     transcript.items.is_empty() && transcript.run_state != AgentRunState::Running

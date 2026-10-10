@@ -39,7 +39,7 @@ pub fn AgentConnectDialog(
     let oauth_pump = pump.clone();
     let save_pump = pump.clone();
     let provider_name = provider.name.clone();
-    let is_oauth = provider.supports_oauth && !change_key;
+    let is_oauth = provider.supports_oauth && provider.id != "exa" && !change_key;
     rsx! {
         Dialog {
             open: true,
@@ -54,6 +54,8 @@ pub fn AgentConnectDialog(
                 p { class: "md-body-s",
                     if change_key {
                         "Enter a replacement API key for {provider_name}."
+                    } else if provider.id == "exa" {
+                        "Connect {provider_name} with an API key."
                     } else {
                         "Choose a sign-in method for {provider_name}."
                     }

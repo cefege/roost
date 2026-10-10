@@ -18,6 +18,11 @@ pub const YIELD_REMINDER: &str = include_str!("prompts/yield_reminder.md");
 pub const UNEXPECTED_STOP: &str = include_str!("prompts/unexpected_stop.md");
 pub const COMPACTION: &str = include_str!("prompts/compaction.md");
 pub const FIND_TOOL: &str = include_str!("prompts/find_tool.md");
+pub const TODO_TOOL: &str = include_str!("prompts/todo_tool.md");
+pub const ASK_TOOL: &str = include_str!("prompts/ask_tool.md");
+pub const FETCH_TOOL: &str = include_str!("prompts/fetch_tool.md");
+pub const WEB_SEARCH_TOOL: &str = include_str!("prompts/web_search_tool.md");
+pub const BTW: &str = include_str!("prompts/btw.md");
 
 /// Replaces each `{{name}}` with its value. Unknown placeholders stay as-is
 /// so a missing variable is visible in the rendered prompt.

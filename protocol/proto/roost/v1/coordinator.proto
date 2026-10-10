@@ -1040,6 +1040,28 @@ message AgentChatPlanDecideRequest {
   string feedback = 4;
 }
 message AgentChatPlanDecideResponse { string new_conversation_id = 1; }
+message AgentChatAnswerRequest {
+  string conversation_id = 1;
+  // The `ask` transcript item being answered.
+  string item_id = 2;
+  // JSON object: question id -> array of chosen labels (or one typed answer).
+  string answers_json = 3;
+}
+message AgentChatAnswerResponse {}
+message AgentChatRewindRequest {
+  string conversation_id = 1;
+  // The `user` transcript item to rewind to; it and everything after go.
+  string item_id = 2;
+  // Also restore the files the rewound turns changed.
+  bool restore_files = 3;
+}
+// The rewound user message, for the composer to offer again.
+message AgentChatRewindResponse { string text = 1; }
+message AgentChatForkRequest {
+  string conversation_id = 1;
+  // Copy up to and including this transcript item; empty copies everything.
+  string item_id = 2;
+}
 
 // ─── service ──────────────────────────────────────────────────────────────
 
@@ -1099,6 +1121,9 @@ service CoordinatorService {
   rpc AgentSettingsGet(AgentSettingsGetRequest) returns (AgentSettingsGetResponse);
   rpc AgentSettingsSet(AgentSettingsSetRequest) returns (AgentSettingsSetResponse);
   rpc AgentChatPlanDecide(AgentChatPlanDecideRequest) returns (AgentChatPlanDecideResponse);
+  rpc AgentChatAnswer(AgentChatAnswerRequest) returns (AgentChatAnswerResponse);
+  rpc AgentChatRewind(AgentChatRewindRequest) returns (AgentChatRewindResponse);
+  rpc AgentChatFork(AgentChatForkRequest) returns (AgentConversation);
   // workspaces
   rpc WorkspacesList(WorkspacesListRequest) returns (WorkspacesListResponse);
   rpc WorkspacesCreate(WorkspacesCreateRequest) returns (WorkspacesCreateResponse);

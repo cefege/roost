@@ -9,6 +9,9 @@ use roost_protocol::wire::agent_chat::{Transcript, TranscriptBlock, TranscriptIt
 
 use crate::records::{ConversationRecord, Entry};
 
+/// The one task-list card of a conversation; each `todo` call replaces it.
+pub const TODO_ITEM_ID: &str = "todo";
+
 /// The transcript item id of a tool call's result card.
 pub fn tool_item_id(call_id: &str) -> String {
     format!("tool-{call_id}")
@@ -152,12 +155,38 @@ pub fn entry_item(seq: u64, entry: &Entry, tools: &ToolCallIndex) -> Option<Tran
             note: note.clone(),
             delivered: *delivered,
         }),
+        Entry::Todo { phases } => Some(TranscriptItem::Todo {
+            id: TODO_ITEM_ID.into(),
+            phases: phases.clone(),
+        }),
+        Entry::Ask {
+            item_id,
+            questions,
+            answers,
+        } => Some(TranscriptItem::Ask {
+            id: item_id.clone(),
+            questions: questions.clone(),
+            answers: answers.clone(),
+        }),
+        Entry::Btw {
+            item_id,
+            question,
+            answer,
+            error,
+        } => Some(TranscriptItem::Btw {
+            id: item_id.clone(),
+            question: question.clone(),
+            answer: answer.clone(),
+            error: error.clone(),
+        }),
+        Entry::Rewind { .. } | Entry::ExtraUsage { .. } | Entry::SubagentContext { .. } => None,
     }
 }
 
 /// Every visible item in journal order. A re-appended plan or advisory
 /// replaces its earlier copy in place, so a card keeps its position.
 pub fn project_items(entries: &[(u64, Entry)]) -> Vec<TranscriptItem> {
+    let entries = &crate::journal::effective_entries(entries);
     let tools = index_tool_calls(entries);
     let mut items: Vec<TranscriptItem> = Vec::new();
     let mut positions: HashMap<String, usize> = HashMap::new();
@@ -183,7 +212,10 @@ pub fn item_id(item: &TranscriptItem) -> &str {
         | TranscriptItem::Tool { id, .. }
         | TranscriptItem::Notice { id, .. }
         | TranscriptItem::Plan { id, .. }
-        | TranscriptItem::Advisory { id, .. } => id,
+        | TranscriptItem::Advisory { id, .. }
+        | TranscriptItem::Todo { id, .. }
+        | TranscriptItem::Ask { id, .. }
+        | TranscriptItem::Btw { id, .. } => id,
     }
 }
 

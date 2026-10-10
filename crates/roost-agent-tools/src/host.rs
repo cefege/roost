@@ -13,15 +13,16 @@ use std::{
 };
 
 use roost_protocol::wire::agent_chat::{
-    BashArgs, EditArgs, GlobArgs, GrepArgs, LspArgs, ReadArgs, TOOL_BASH, TOOL_CONTEXT_FILES,
-    TOOL_EDIT, TOOL_GLOB, TOOL_GREP, TOOL_LSP, TOOL_READ, TOOL_WRITE, WriteArgs,
+    BashArgs, EditArgs, GlobArgs, GrepArgs, LspArgs, ReadArgs, RewindFilesArgs, TOOL_BASH,
+    TOOL_CONTEXT_FILES, TOOL_EDIT, TOOL_GLOB, TOOL_GREP, TOOL_LSP, TOOL_READ, TOOL_REWIND_FILES,
+    TOOL_WRITE, WriteArgs,
 };
 use tokio::sync::{Mutex, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
     bash::bash_tool, context_files::context_files_tool, file_tools, glob::glob_tool,
-    grep::grep_tool, hashline::EditStore, lsp::LspManager, outcome::ToolOutcome,
+    grep::grep_tool, hashline::EditStore, lsp::LspManager, outcome::ToolOutcome, restore_points,
 };
 
 const IDLE_TTL: Duration = Duration::from_secs(60 * 60);
@@ -49,6 +50,7 @@ pub struct ToolCallRequest {
     pub tool: String,
     pub args_json: String,
     pub timeout_ms: u32,
+    pub checkpoint_id: u64,
 }
 
 pub struct ToolHost {
@@ -68,6 +70,9 @@ impl std::fmt::Debug for ToolHost {
 
 impl ToolHost {
     pub fn new(data_dir: PathBuf) -> Self {
+        if let Err(error) = restore_points::prune_expired(&data_dir) {
+            tracing::warn!(%error, "agent tool restore-point pruning failed");
+        }
         Self {
             lsp: LspManager::new(data_dir.clone()),
             data_dir,
@@ -119,6 +124,11 @@ impl ToolHost {
                         args,
                         &self.lsp,
                         &out,
+                        Some(file_tools::RestorePointContext {
+                            data_dir: &self.data_dir,
+                            conversation_id: &request.conversation_id,
+                            checkpoint_id: request.checkpoint_id,
+                        }),
                     )
                     .await
                 }
@@ -126,12 +136,17 @@ impl ToolHost {
             },
             TOOL_EDIT => match decode::<EditArgs>(&request.args_json) {
                 Ok(args) => {
-                    file_tools::edit_tool(
+                    file_tools::edit_tool_with_restore(
                         &mut conversation.state.lock().await.edit_store,
                         &request.cwd,
                         args,
                         &self.lsp,
                         &out,
+                        Some(file_tools::RestorePointContext {
+                            data_dir: &self.data_dir,
+                            conversation_id: &request.conversation_id,
+                            checkpoint_id: request.checkpoint_id,
+                        }),
                     )
                     .await
                 }
@@ -171,6 +186,30 @@ impl ToolHost {
                 Ok(args) => self.lsp.run_tool(&request.cwd, args, &out, cancel).await,
                 Err(error) => ToolOutcome::failure(error),
             },
+            TOOL_REWIND_FILES => match decode::<RewindFilesArgs>(&request.args_json) {
+                Ok(args) => match restore_points::restore_from(
+                    &self.data_dir,
+                    &request.conversation_id,
+                    args.checkpoint_id,
+                ) {
+                    Ok(report) => {
+                        let mut sections = Vec::new();
+                        if !report.restored.is_empty() {
+                            sections.push(format!("Restored:\n{}", report.restored.join("\n")));
+                        }
+                        if !report.deleted.is_empty() {
+                            sections.push(format!("Deleted:\n{}", report.deleted.join("\n")));
+                        }
+                        ToolOutcome::success(if sections.is_empty() {
+                            "No files needed restoring.".to_owned()
+                        } else {
+                            sections.join("\n")
+                        })
+                    }
+                    Err(error) => ToolOutcome::failure(format!("Unable to restore files: {error}")),
+                },
+                Err(error) => ToolOutcome::failure(error),
+            },
             name => ToolOutcome::failure(format!("unknown tool: {name}")),
         };
         conversation.state.lock().await.last_used = Instant::now();
@@ -180,6 +219,9 @@ impl ToolHost {
 
     pub async fn close_conversation(&self, conversation_id: &str) {
         self.conversations.lock().await.remove(conversation_id);
+        if let Err(error) = restore_points::close_conversation(&self.data_dir, conversation_id) {
+            tracing::warn!(conversation_id, %error, "agent tool restore-point cleanup failed");
+        }
     }
 
     pub async fn evict_idle(&self) {

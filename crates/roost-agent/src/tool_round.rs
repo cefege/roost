@@ -12,10 +12,12 @@ use crate::projection::tool_item_id;
 use crate::records::{ConversationRecord, Entry};
 use crate::runtime::{AgentRuntime, RunEnd};
 use crate::toolset::{
-    LSP_READ_ACTIONS, TOOL_FIND, TOOL_PROPOSE_PLAN, TOOL_TASK, TOOL_YIELD, Toolset, is_read_only,
+    LSP_READ_ACTIONS, TOOL_ASK, TOOL_FETCH, TOOL_FIND, TOOL_PROPOSE_PLAN, TOOL_TASK, TOOL_TODO,
+    TOOL_WEB_SEARCH, TOOL_YIELD, Toolset, is_read_only,
 };
 use crate::traits::{ToolCall, ToolOutcome};
-use crate::{find, plan_mode, subagents};
+use crate::web_tools;
+use crate::{ask, find, plan_mode, subagents, todo};
 
 /// Live output kept in a running tool card; older output is trimmed.
 const LIVE_OUTPUT_CHARS: u64 = 64 * 1024;
@@ -49,6 +51,8 @@ pub(crate) struct CallScope<'a> {
     pub record: &'a ConversationRecord,
     pub toolset: &'a Toolset,
     pub depth: u32,
+    /// The turn's user-entry seq; workers key file restore points by it.
+    pub checkpoint_id: u64,
     pub cancel: &'a CancellationToken,
 }
 
@@ -57,6 +61,7 @@ pub(crate) async fn execute_round(
     record: &ConversationRecord,
     toolset: &Toolset,
     depth: u32,
+    checkpoint_id: u64,
     calls: Vec<(String, String, String)>,
     cancel: &CancellationToken,
 ) -> Result<Option<RunEnd>, AgentError> {
@@ -81,6 +86,7 @@ pub(crate) async fn execute_round(
         record,
         toolset,
         depth,
+        checkpoint_id,
         cancel,
     };
     let results: Vec<CallResult> = if calls.iter().all(|(_, name, _)| is_read_only(name)) {
@@ -133,6 +139,18 @@ async fn run_call(scope: &CallScope<'_>, call_id: &str, name: &str, args: &str) 
     let result = match name {
         TOOL_TASK => subagents::run_task(scope, call_id, args, out).await,
         TOOL_FIND => find::run_find(scope, args, out).await,
+        TOOL_TODO => {
+            drop(out);
+            todo::run(scope, args).await
+        }
+        TOOL_ASK => {
+            drop(out);
+            ask::run(scope, args).await
+        }
+        TOOL_FETCH | TOOL_WEB_SEARCH => {
+            drop(out);
+            web_tools::run(scope.runtime, name, args).await
+        }
         TOOL_PROPOSE_PLAN => {
             drop(out);
             plan_mode::propose(scope, args).await
@@ -203,6 +221,7 @@ async fn run_worker_tool(
         tool: name.to_owned(),
         args_json: args.to_owned(),
         timeout_ms: timeout_ms(name, args),
+        checkpoint_id: scope.checkpoint_id,
     };
     match scope
         .runtime

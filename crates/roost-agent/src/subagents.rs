@@ -205,7 +205,16 @@ async fn create_child(
     };
     runtime.inner.store.save_conversation(&child).await?;
     runtime.publish_summary(&child).await;
-    runtime.set_child_context(&child.id, context.to_owned());
+    runtime
+        .inner
+        .store
+        .append_entry(
+            &child.id,
+            &Entry::SubagentContext {
+                context: context.to_owned(),
+            },
+        )
+        .await?;
     runtime
         .append(
             &child.id,

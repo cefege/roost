@@ -130,6 +130,14 @@ async fn queue_loop(
     mut receiver: mpsc::UnboundedReceiver<AdvisorJob>,
     state: std::sync::Arc<AsyncMutex<ReviewState>>,
 ) {
+    if let Ok(Some(saved)) = runtime.inner.store.advisor_state(&id).await {
+        match serde_json::from_str::<ReviewState>(&saved) {
+            Ok(saved) => *state.lock().await = saved,
+            Err(error) => {
+                tracing::warn!(conversation_id = id, %error, "advisor state could not be restored")
+            }
+        }
+    }
     while let Some(job) = receiver.recv().await {
         let ended_with_tool_calls = match job {
             AdvisorJob::Reset => {
@@ -141,12 +149,13 @@ async fn queue_loop(
                     .ok()
                     .and_then(|entries| entries.last().map(|(seq, _)| *seq))
                     .unwrap_or_default();
-                let mut state = state.lock().await;
-                *state = ReviewState {
+                let mut review_state = state.lock().await;
+                *review_state = ReviewState {
                     cursor,
                     seeded: true,
                     ..ReviewState::default()
                 };
+                persist_state(&runtime, &id, &review_state).await;
                 continue;
             }
             AdvisorJob::Turn {
@@ -205,6 +214,20 @@ async fn queue_loop(
             ended_with_tool_calls,
         )
         .await;
+        persist_state(&runtime, &id, &review_state).await;
+    }
+}
+
+async fn persist_state(runtime: &AgentRuntime, id: &str, state: &ReviewState) {
+    match serde_json::to_string(state) {
+        Ok(json) => {
+            if let Err(error) = runtime.inner.store.save_advisor_state(id, &json).await {
+                tracing::warn!(conversation_id = id, %error, "advisor state was not persisted");
+            }
+        }
+        Err(error) => {
+            tracing::warn!(conversation_id = id, %error, "advisor state could not be serialized")
+        }
     }
 }
 

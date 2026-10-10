@@ -13,6 +13,9 @@ pub const TOOL_GREP: &str = "grep";
 pub const TOOL_GLOB: &str = "glob";
 pub const TOOL_LSP: &str = "lsp";
 pub const TOOL_CONTEXT_FILES: &str = "context_files";
+/// Hidden: restores every file a conversation's `write`/`edit` calls changed
+/// at or after `checkpoint_id` (see `RewindFilesArgs`). Never offered to the model.
+pub const TOOL_REWIND_FILES: &str = "rewind_files";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReadArgs {
@@ -85,6 +88,13 @@ pub struct ContextFiles {
     pub context: String,
     pub watchdog: String,
 }
+/// Arguments of the hidden `rewind_files` tool. Checkpoint ids are the
+/// harness's user-entry sequence numbers, so "at or after" is numeric.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RewindFilesArgs {
+    pub checkpoint_id: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkerToolSpec {
     pub name: String,
