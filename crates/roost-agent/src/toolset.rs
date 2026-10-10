@@ -107,13 +107,10 @@ pub fn toolset_for(record: &ConversationRecord, depth: u32, find_available: bool
             TOOL_READ, TOOL_GREP, TOOL_GLOB, TOOL_LSP, TOOL_BASH, TOOL_EDIT, TOOL_WRITE,
         ],
     };
+    // `edit` and `write` exist only in the non-read-only list, and no
+    // read-only agent is offered them, so one list covers every kind.
     let mut specs: Vec<ToolSpec> = worker_tool_specs(read_only_lsp)
         .into_iter()
-        .chain(
-            worker_tool_specs(false)
-                .into_iter()
-                .filter(|spec| spec.name == TOOL_EDIT || spec.name == TOOL_WRITE),
-        )
         .filter(|spec| worker_names.contains(&spec.name.as_str()))
         .map(|spec| ToolSpec {
             name: spec.name,
@@ -121,7 +118,6 @@ pub fn toolset_for(record: &ConversationRecord, depth: u32, find_available: bool
             parameters: spec.parameters,
         })
         .collect();
-    specs.dedup_by(|left, right| left.name == right.name);
     if find_available {
         specs.push(find_spec());
     }
@@ -146,10 +142,26 @@ pub fn toolset_for(record: &ConversationRecord, depth: u32, find_available: bool
     } else if plan_mode {
         specs.push(propose_plan_spec());
     }
+    let specs = keep_first_tool_names(specs);
     Toolset {
         specs,
         lsp_read_only: read_only_lsp,
     }
+}
+
+fn keep_first_tool_names(specs: Vec<ToolSpec>) -> Vec<ToolSpec> {
+    let mut unique = Vec::with_capacity(specs.len());
+    for spec in specs {
+        if unique
+            .iter()
+            .any(|existing: &ToolSpec| existing.name == spec.name)
+        {
+            tracing::warn!(tool = %spec.name, "dropping duplicate agent tool name");
+        } else {
+            unique.push(spec);
+        }
+    }
+    unique
 }
 
 pub fn task_spec(scouts_only: bool) -> ToolSpec {
@@ -281,5 +293,41 @@ pub fn yield_spec() -> ToolSpec {
             "required": ["result"],
             "additionalProperties": false
         }),
+    }
+}
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merged_tool_specs_keep_first_definition_for_duplicate_names() {
+        let specs = vec![
+            ToolSpec {
+                name: "read".into(),
+                description: "built-in definition".into(),
+                parameters: json!({"type": "object"}),
+            },
+            ToolSpec {
+                name: "read".into(),
+                description: "colliding definition".into(),
+                parameters: json!({"type": "string"}),
+            },
+            ToolSpec {
+                name: "mcp__relay_read".into(),
+                description: "distinct relay tool".into(),
+                parameters: json!({"type": "object"}),
+            },
+        ];
+        let merged = keep_first_tool_names(specs);
+
+        assert_eq!(
+            merged
+                .iter()
+                .map(|spec| spec.name.as_str())
+                .collect::<Vec<_>>(),
+            ["read", "mcp__relay_read"]
+        );
+        assert_eq!(merged[0].description, "built-in definition");
     }
 }

@@ -4066,3 +4066,20 @@ reserve).
 **Guard** — `crates/roost-web/tests/md_primitives.rs` —
 `a_status_dot_never_puts_its_token_in_a_shorthand`; `layout::shell_style::editor_style_tests` —
 `every_editor_style_names_every_property_it_can_set`.
+
+### Every agent turn fails: `tools: Tool names must be unique.`
+
+**Symptom** — the built-in agent's first turn ends with `provider returned HTTP 400:
+{"type":"error","error":{"type":"invalid_request_error","message":"tools: Tool names must be unique."}}`
+on Anthropic.
+
+**Wrong** — dedupe in the provider adapter, or `dedup_by` a list whose duplicates are not adjacent.
+`toolset_for` chained `worker_tool_specs(false)`'s `edit`/`write` onto a list that already held
+them, so the request carried `…, edit, write, edit, write`, and the adjacent-only dedup kept both.
+
+**Right** — build the tool list from one `worker_tool_specs` call filtered by the agent kind's
+names (`roost_agent::toolset::toolset_for`); a first-seen name guard, as OMP's
+`normalizeToolNames`, catches a later merge.
+
+**Guard** — `crates/roost-agent/tests/quality_tools.rs` —
+`every_agent_kind_and_mode_offers_each_tool_name_once`.

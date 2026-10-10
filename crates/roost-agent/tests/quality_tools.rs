@@ -261,3 +261,29 @@ async fn todo_and_ask_are_offered_only_to_the_intended_agent_kinds() {
     assert!(scout.offers("web_search"));
     assert!(!scout.offers("ask"));
 }
+
+#[tokio::test]
+async fn every_agent_kind_and_mode_offers_each_tool_name_once() {
+    let harness = Harness::new();
+    let id = harness.conversation().await;
+    let record = harness.store.conversation(&id).await.unwrap().unwrap();
+    for agent in [None, Some("task"), Some("reviewer"), Some("scout")] {
+        for mode in [roost_agent::Mode::Normal, roost_agent::Mode::Plan] {
+            for find_available in [false, true] {
+                let mut variant = record.clone();
+                variant.agent = agent.map(str::to_owned);
+                variant.mode = mode;
+                let toolset = roost_agent::toolset::toolset_for(&variant, 1, find_available);
+                let mut names: Vec<&str> = toolset
+                    .specs
+                    .iter()
+                    .map(|spec| spec.name.as_str())
+                    .collect();
+                let offered = names.len();
+                names.sort_unstable();
+                names.dedup();
+                assert_eq!(names.len(), offered, "{agent:?} {mode:?}: {names:?}");
+            }
+        }
+    }
+}
