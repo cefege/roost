@@ -5,7 +5,10 @@
 
 mod cache;
 mod process;
+mod queue;
 mod support;
+
+pub use queue::AgentTunnelQueue;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -55,39 +58,6 @@ pub struct AgentTunnelOwner {
     state: Arc<Mutex<State>>,
     cache: PathBuf,
     uplink: Uplink,
-}
-
-impl crate::link_ports::AgentTunnelPort for AgentTunnelOwner {
-    fn open(&self, request: DAgentTunnelOpen) {
-        let owner = self.clone();
-        tokio::spawn(async move {
-            AgentTunnelOwner::open(&owner, request).await;
-        });
-    }
-    fn input(&self, request: DAgentTunnelInput) {
-        let owner = self.clone();
-        tokio::spawn(async move {
-            AgentTunnelOwner::input(&owner, request).await;
-        });
-    }
-    fn daemon_chunk(&self, request: DAgentTunnelDaemonChunk) {
-        let owner = self.clone();
-        tokio::spawn(async move {
-            AgentTunnelOwner::daemon_chunk(&owner, request).await;
-        });
-    }
-    fn close(&self, request: DAgentTunnelClose) {
-        let owner = self.clone();
-        tokio::spawn(async move {
-            AgentTunnelOwner::close(&owner, request).await;
-        });
-    }
-    fn close_all(&self) {
-        let owner = self.clone();
-        tokio::spawn(async move {
-            AgentTunnelOwner::close_all(&owner).await;
-        });
-    }
 }
 
 impl AgentTunnelOwner {
