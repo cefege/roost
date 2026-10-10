@@ -10,7 +10,7 @@ export function createModelService(credentials: SqliteCredentialStore, db: Datab
   const models = createModels({ credentials });
   for (const provider of builtinProviders()) models.setProvider(provider);
   async function catalog(): Promise<Record<string, unknown>> {
-    const available = await models.getAvailable();
+    const available = new Set((await models.getAvailable()).map(model => `${model.provider}\0${model.id}`));
     const credentialRows = await credentials.list();
     const credentialsByProvider = new Map(credentialRows.map(row => [row.providerId, row.type]));
     const providers = await Promise.all(models.getProviders().map(async provider => {
@@ -26,7 +26,7 @@ export function createModelService(credentials: SqliteCredentialStore, db: Datab
     }));
     const defaultModel = db.prepare("SELECT value FROM settings WHERE key='default_model'").get() as { value: string } | undefined;
     return {
-      models: available.map(model => ({ provider: model.provider, model_id: model.id, name: model.name, reasoning: model.reasoning, available: true })),
+      models: models.getModels().map(model => ({ provider: model.provider, model_id: model.id, name: model.name, reasoning: model.reasoning, available: available.has(`${model.provider}\0${model.id}`) })),
       providers,
       thinking_levels: [...thinkingLevels],
       default_model: defaultModel ? JSON.parse(defaultModel.value) : null,
