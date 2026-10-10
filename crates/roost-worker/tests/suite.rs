@@ -48,8 +48,6 @@ mod agent_status_screen_gate;
 mod agent_status_stable_transitions;
 #[path = "agent_tools.rs"]
 mod agent_tools;
-#[path = "agent_tunnel.rs"]
-mod agent_tunnel;
 #[path = "attachment_direct_socket.rs"]
 mod attachment_direct_socket;
 #[path = "attachment_grants.rs"]

@@ -23,8 +23,8 @@ use crate::attachments::peer_owner::AttachmentPeerBootstrapState;
 use crate::door::loopback::{LoopbackOwner, LoopbackRoutes};
 use crate::keeper_pool::{KeeperPool, KeeperUpdateBoundary, KeeperUpdatePreparer};
 use crate::link_ports::{
-    AgentToolsPort, AgentTunnelPort, AttachmentPeerPort, DirectTerminalPort, DownstreamOwners,
-    KeeperUpdatePort, LinkLifecyclePort, LinkLifecycles, LocalTerminalGrantPort, TerminalInputPort,
+    AgentToolsPort, AttachmentPeerPort, DirectTerminalPort, DownstreamOwners, KeeperUpdatePort,
+    LinkLifecyclePort, LinkLifecycles, LocalTerminalGrantPort, TerminalInputPort,
     TerminalPipelinePort, TerminalStreamPort, TerminalViewPort,
 };
 use crate::local_terminal::{LocalTerminalDoor, LocalTerminalDoorDeps};
@@ -220,12 +220,6 @@ impl WorkerOwners {
         );
 
         let agent_report = AgentReportServer::start_for_worker(&stack.agent_environment, &agents);
-        let agent_tunnel = Arc::new(crate::runtime::agent_tunnel::AgentTunnelQueue::start(
-            crate::runtime::agent_tunnel::AgentTunnelOwner::new(
-                data_dir.join("agent-env"),
-                uplink.clone(),
-            ),
-        )) as Arc<dyn AgentTunnelPort>;
         let agent_tools = Arc::new(crate::runtime::agent_tools::AgentToolsOwner::new(
             data_dir.to_path_buf(),
             uplink.clone(),
@@ -233,14 +227,11 @@ impl WorkerOwners {
         register_session_closed(&stack, &routes, &view);
 
         let downstream = DownstreamOwners {
-            agent_tunnel: Some(Arc::clone(&agent_tunnel)),
             input: Arc::new(input) as Arc<dyn TerminalInputPort>,
             stream: Arc::new(StreamOwner::new(Arc::clone(&stack.manager)))
                 as Arc<dyn TerminalStreamPort>,
             pipeline: Arc::new(pipeline) as Arc<dyn TerminalPipelinePort>,
             view: Arc::clone(&view) as Arc<dyn TerminalViewPort>,
-            // v2 `onSnapshotReady` reaches the direct path and cell sink, then
-            // `agentRegistry.resend()` (`coord-link-deps.ts:176`).
             lifecycle: Arc::new(LinkLifecycles::new(vec![
                 Arc::new(DirectLinkLifecycle::new(
                     Arc::clone(&direct),

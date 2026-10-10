@@ -41,7 +41,6 @@ pub fn handle_auth_coord_identity(
             .or_else(|| config.web_public_url.clone())
             .unwrap_or_default(),
         terminal_peer_enabled: config.terminal_peer_enabled,
-        builtin_agent_enabled: config.agent_host_url.is_some(),
         terminal_peer_stun_urls: if config.terminal_peer_enabled {
             config.terminal_peer_stun_urls.clone()
         } else {

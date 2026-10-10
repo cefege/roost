@@ -9,7 +9,7 @@ macro_rules! simple_call {
  ($name:ident,$req:ty,$wire:ty,$out:ty,$method:literal,$convert:expr; $($field:ident:$field_type:ty),* $(,)?) => {
   #[derive(Debug,Clone,Default)] pub struct $name { $(pub $field:$field_type,)* }
   impl UnaryMethod for $name { const METHOD:&'static str=$method; type Response=$out;
-   fn encode_request(&self)->Result<Vec<u8>,RpcCodecError>{let mut request=<$req>::default();$(request.$field=self.$field.clone();)*encode_message(Self::METHOD,&request)}
+   fn encode_request(&self)->Result<Vec<u8>,RpcCodecError>{#[allow(unused_mut)] let mut request=<$req>::default();$(request.$field=self.$field.clone();)*encode_message(Self::METHOD,&request)}
    fn decode_response(body:&[u8])->Result<Self::Response,RpcCodecError>{let wire:$wire=decode_message(Self::METHOD,body)?;($convert)(wire)}
   }
  }
@@ -34,7 +34,12 @@ simple_call!(StartAgentLogin,AgentAuthLoginStartRequest,AgentAuthLoginStartRespo
 simple_call!(RespondAgentLogin,AgentAuthLoginRespondRequest,AgentAuthLoginRespondResponse,(),"AgentAuthLoginRespond",empty; login_id:String,prompt_id:String,value:String);
 simple_call!(CancelAgentLogin,AgentAuthLoginCancelRequest,AgentAuthLoginCancelResponse,(),"AgentAuthLoginCancel",empty; login_id:String);
 simple_call!(SetAgentApiKey,AgentAuthSetApiKeyRequest,AgentAuthSetApiKeyResponse,(),"AgentAuthSetApiKey",empty; provider:String,api_key:String);
-simple_call!(LogoutAgentProvider,AgentAuthLogoutRequest,AgentAuthLogoutResponse,(),"AgentAuthLogout",empty; provider:String);
+simple_call!(RemoveAgentAccount,AgentAccountRemoveRequest,AgentAccountRemoveResponse,(),"AgentAccountRemove",empty; credential_id:i64);
+simple_call!(ListAgentAccounts,AgentAccountsListRequest,AgentAccountsListResponse,String,"AgentAccountsList",|response:AgentAccountsListResponse| Ok(response.accounts_json););
+simple_call!(GetAgentUsage,AgentUsageGetRequest,AgentUsageGetResponse,String,"AgentUsageGet",|response:AgentUsageGetResponse| Ok(response.usage_json););
+simple_call!(GetAgentSettings,AgentSettingsGetRequest,AgentSettingsGetResponse,String,"AgentSettingsGet",|response:AgentSettingsGetResponse| Ok(response.settings_json););
+simple_call!(SetAgentSettings,AgentSettingsSetRequest,AgentSettingsSetResponse,(),"AgentSettingsSet",empty; settings_json:String);
+simple_call!(DecideAgentPlan,AgentChatPlanDecideRequest,AgentChatPlanDecideResponse,String,"AgentChatPlanDecide",|response:AgentChatPlanDecideResponse| Ok(response.new_conversation_id); conversation_id:String,item_id:String,decision:String,feedback:String);
 
 #[derive(Debug, Clone, Default)]
 pub struct CreateAgentChat {

@@ -56,8 +56,6 @@ pub struct PickerControls {
     pub on_drill: EventHandler<String>,
     /// Ask the machine for the directory again.
     pub on_retry: EventHandler<()>,
-    /// Whether the coordinator advertises the built-in agent.
-    pub agent_enabled: bool,
     /// Start an agent in the resolved folder.
     pub on_start_agent: EventHandler<()>,
     /// Open a terminal in the directory being browsed.

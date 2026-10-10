@@ -1,7 +1,7 @@
-//! A pane strip's "+": a new terminal in the pane's folder, or, when the
-//! coordinator runs the built-in agent, a menu offering a terminal or an agent.
+//! A pane strip's "+": a new terminal or agent in the pane's folder.
 //! Anchored, dismissed and keyboard-driven the way `arrange_menu` is; the
 //! creation itself is `TerminalDeck`'s, through the two callbacks.
+//!
 
 use dioxus::prelude::*;
 
@@ -15,7 +15,6 @@ use crate::components::md::{Icon, IconButton, IconButtonSize};
 #[component]
 pub fn PaneTabNewMenu(
     pane_id: String,
-    agent_enabled: bool,
     on_new_terminal: EventHandler<()>,
     on_new_agent: EventHandler<()>,
 ) -> Element {
@@ -24,19 +23,6 @@ pub fn PaneTabNewMenu(
     let container = try_use_context::<DeckContainer>();
     let trigger_id = format!("tab-new-{pane_id}");
     let menu_id = format!("tab-new-menu-{pane_id}");
-    if !agent_enabled {
-        return rsx! {
-            IconButton {
-                icon: "add",
-                label: "New terminal — same folder and server",
-                size: IconButtonSize::IconSm,
-                class: "df-tab-new workbench-pane-tab-control",
-                "data-testid": "tab-new",
-                title: "New terminal in this folder (or double-click the empty bar)",
-                onclick: move |_| on_new_terminal.call(()),
-            }
-        };
-    }
     let open_menu = {
         let menu_id = menu_id.clone();
         move |edge: MenuFocusEdge| {

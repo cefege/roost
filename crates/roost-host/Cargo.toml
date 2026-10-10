@@ -10,6 +10,7 @@ description = "ROOST_* configuration, service names, durable atomic writes, and 
 autotests = false
 
 [dependencies]
+serde_json = { workspace = true }
 base64.workspace = true
 ipnet.workspace = true
 roost-observability.workspace = true

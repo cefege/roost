@@ -230,6 +230,9 @@ async fn insert_row(
             ColumnKind::BigInt => {
                 statement.bind(row.try_get::<Option<i64>, _>(index).map_err(value_error)?)
             }
+            ColumnKind::Boolean => {
+                statement.bind(row.try_get::<Option<bool>, _>(index).map_err(value_error)?)
+            }
             ColumnKind::Text => statement.bind(
                 row.try_get::<Option<String>, _>(index)
                     .map_err(value_error)?,

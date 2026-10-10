@@ -62,7 +62,6 @@ pub fn PickerRegions(
     let on_close_crumb_menu = c.on_close_crumb_menu;
     let on_drill = c.on_drill;
     let on_retry = c.on_retry;
-    let agent_enabled = c.agent_enabled;
     let on_start_agent = c.on_start_agent;
     let on_open_here = c.on_open_here;
     let on_go_home = c.on_go_home;
@@ -142,20 +141,18 @@ pub fn PickerRegions(
                 }
             }
             Surface { class: "df-browse-actions", level: 1, radius: SurfaceRadius::None,
-                if agent_enabled {
-                    Button {
-                        class: "df-browse-open",
-                        variant: ButtonVariant::Default,
-                        icon: Some("smart_toy".to_owned()),
-                        "data-testid": "browse-start-agent",
-                        disabled: !view.scoped,
-                        onclick: move |_| on_start_agent.call(()),
-                        "Start agent here"
-                    }
+                Button {
+                    class: "df-browse-open",
+                    variant: ButtonVariant::Default,
+                    icon: Some("smart_toy".to_owned()),
+                    "data-testid": "browse-start-agent",
+                    disabled: !view.scoped,
+                    onclick: move |_| on_start_agent.call(()),
+                    "Start agent here"
                 }
                 Button {
                     class: "df-browse-open",
-                    variant: if agent_enabled { ButtonVariant::Outline } else { ButtonVariant::Default },
+                    variant: ButtonVariant::Outline,
                     icon: Some("terminal".to_owned()),
                     "data-testid": "browse-open",
                     disabled: !view.scoped,

@@ -23,6 +23,8 @@ use crate::db::CoordDb;
 pub enum ColumnKind {
     /// `BIGINT`: every SQLite integer.
     BigInt,
+    /// `BOOLEAN`, represented as SQLite integer 0 or 1.
+    Boolean,
     /// `TEXT`.
     Text,
     /// `BYTEA`: every SQLite blob.
@@ -33,6 +35,7 @@ impl ColumnKind {
     fn from_postgres(data_type: &str) -> Option<Self> {
         match data_type {
             "bigint" => Some(Self::BigInt),
+            "boolean" => Some(Self::Boolean),
             "text" => Some(Self::Text),
             "bytea" => Some(Self::Bytea),
             _ => None,
@@ -44,6 +47,7 @@ impl ColumnKind {
     pub fn array_cast(self) -> &'static str {
         match self {
             Self::BigInt => "bigint[]",
+            Self::Boolean => "boolean[]",
             Self::Text => "text[]",
             Self::Bytea => "bytea[]",
         }
@@ -57,8 +61,8 @@ pub struct TableColumn {
     pub name: String,
     /// Its Postgres type.
     pub kind: ColumnKind,
-    /// Whether it is `GENERATED … AS IDENTITY`, whose sequence must be moved
-    /// past the largest copied value.
+    /// Whether it owns a Postgres sequence, as a `SERIAL` column or
+    /// `GENERATED … AS IDENTITY`, which must move past copied ids.
     pub identity: bool,
 }
 
@@ -97,7 +101,8 @@ pub async fn read_postgres_plan(
     .fetch_all(&mut *target)
     .await?;
     let column_rows = sqlx::query(
-        "SELECT table_name::text, column_name::text, data_type::text, is_identity::text \
+        "SELECT table_name::text, column_name::text, data_type::text, is_identity::text, \
+         COALESCE(column_default, '')::text \
          FROM information_schema.columns WHERE table_schema = current_schema() \
          ORDER BY table_name, ordinal_position",
     )
@@ -110,6 +115,7 @@ pub async fn read_postgres_plan(
         let name: String = row.try_get(1)?;
         let data_type: String = row.try_get(2)?;
         let identity: String = row.try_get(3)?;
+        let default: String = row.try_get(4)?;
         let Some(kind) = ColumnKind::from_postgres(&data_type) else {
             if table == MIGRATIONS_TABLE {
                 continue;
@@ -121,7 +127,7 @@ pub async fn read_postgres_plan(
         columns.entry(table).or_default().push(TableColumn {
             name,
             kind,
-            identity: identity == "YES",
+            identity: identity == "YES" || default.starts_with("nextval("),
         });
     }
     let ordered = order_parents_first(&names, &edges)?;

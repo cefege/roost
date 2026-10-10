@@ -17,6 +17,7 @@ use super::catalog::{ColumnKind, TablePlan, quote_identifier};
 #[derive(Debug)]
 enum ColumnValues {
     BigInt(Vec<Option<i64>>),
+    Boolean(Vec<Option<bool>>),
     Text(Vec<Option<String>>),
     Bytea(Vec<Option<Vec<u8>>>),
 }
@@ -25,6 +26,7 @@ impl ColumnValues {
     fn empty(kind: ColumnKind, capacity: usize) -> Self {
         match kind {
             ColumnKind::BigInt => Self::BigInt(Vec::with_capacity(capacity)),
+            ColumnKind::Boolean => Self::Boolean(Vec::with_capacity(capacity)),
             ColumnKind::Text => Self::Text(Vec::with_capacity(capacity)),
             ColumnKind::Bytea => Self::Bytea(Vec::with_capacity(capacity)),
         }
@@ -33,6 +35,20 @@ impl ColumnValues {
     fn push_from(&mut self, row: &AnyRow, index: usize) -> Result<(), sqlx::Error> {
         match self {
             Self::BigInt(values) => values.push(row.try_get(index)?),
+            Self::Boolean(values) => {
+                let value: Option<i64> = row.try_get(index)?;
+                values.push(
+                    value
+                        .map(|integer| match integer {
+                            0 => Ok(false),
+                            1 => Ok(true),
+                            _ => Err(sqlx::Error::Decode(Box::new(std::io::Error::other(
+                                "SQLite boolean is not 0 or 1",
+                            )))),
+                        })
+                        .transpose()?,
+                );
+            }
             Self::Text(values) => values.push(row.try_get(index)?),
             Self::Bytea(values) => values.push(row.try_get(index)?),
         }
@@ -42,6 +58,7 @@ impl ColumnValues {
     fn clear(&mut self) {
         match self {
             Self::BigInt(values) => values.clear(),
+            Self::Boolean(values) => values.clear(),
             Self::Text(values) => values.clear(),
             Self::Bytea(values) => values.clear(),
         }
@@ -105,6 +122,7 @@ impl<'plan> TableBatch<'plan> {
         for values in &self.columns {
             statement = match values {
                 ColumnValues::BigInt(values) => statement.bind(values),
+                ColumnValues::Boolean(values) => statement.bind(values),
                 ColumnValues::Text(values) => statement.bind(values),
                 ColumnValues::Bytea(values) => statement.bind(values),
             };

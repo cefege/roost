@@ -24,10 +24,7 @@ pub const CAPABILITY_TERMINAL_VIEW_OWNER_V1: &str = "terminal-view-owner-v1";
 /// hyphens: v2 spells it `terminal_metadata_v1` (`packages/protocol/src/terminal-metadata.ts:6`),
 /// and a mixed fleet negotiates on the exact string.
 pub const CAPABILITY_TERMINAL_METADATA_V1: &str = "terminal_metadata_v1";
-/// Worker capability for the shared agent-tool tunnel.
-pub const CAPABILITY_AGENT_TOOL_TUNNEL_V1: &str = "agent_tool_tunnel_v1";
 
-/// Worker capability for native coordinator-dispatched tools.
 pub const CAPABILITY_AGENT_TOOLS_V1: &str = "agent_tools_v1";
 
 /// Direct-terminal WebRTC control-channel label.

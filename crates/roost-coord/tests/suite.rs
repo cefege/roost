@@ -22,10 +22,10 @@ mod agent_status_retirement;
 mod agent_status_rpc;
 #[path = "agent_status_wait.rs"]
 mod agent_status_wait;
+#[path = "agent_store.rs"]
+mod agent_store;
 #[path = "agent_tool_calls.rs"]
 mod agent_tool_calls;
-#[path = "agent_tunnel_relay.rs"]
-mod agent_tunnel_relay;
 #[path = "announced_barrier.rs"]
 mod announced_barrier;
 #[path = "announced_retention.rs"]

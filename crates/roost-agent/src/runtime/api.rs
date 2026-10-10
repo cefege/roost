@@ -221,6 +221,41 @@ impl AgentRuntime {
         Ok(())
     }
 
+    /// Renames or moves a conversation to another machine or folder. Worker
+    /// state for the old location is released.
+    pub async fn set_details(
+        &self,
+        id: &str,
+        title: Option<String>,
+        worker: Option<(String, String, String)>,
+        cwd: Option<String>,
+    ) -> Result<ConversationSummary, AgentError> {
+        let before = self.record(id).await?;
+        let moved = worker.is_some() || cwd.is_some();
+        let record = self
+            .update_record(id, |row| {
+                if let Some(title) = title {
+                    row.title = title;
+                }
+                if let Some((fp, label, os)) = worker {
+                    row.worker_fp = fp;
+                    row.worker_label = label;
+                    row.worker_os = os;
+                }
+                if let Some(cwd) = cwd {
+                    row.cwd = cwd;
+                }
+            })
+            .await?;
+        if moved {
+            self.inner
+                .tools
+                .close_conversation(&before.worker_fp, id)
+                .await;
+        }
+        Ok(self.summary(&record).await)
+    }
+
     pub async fn set_thinking_level(&self, id: &str, level: String) -> Result<(), AgentError> {
         validate_thinking(&level)?;
         let record = self

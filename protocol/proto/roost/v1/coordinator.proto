@@ -560,7 +560,8 @@ message AuthCoordIdentityResponse {
   // STUN hostnames, not secrets; the list is empty when the carrier is off.
   bool terminal_peer_enabled = 9;
   repeated string terminal_peer_stun_urls = 10;
-  bool builtin_agent_enabled = 11;
+  // builtin_agent_enabled: the built-in agent is always available.
+  reserved 11;
 }
 
 // The selected dashboard is resolved from the authenticated device and
@@ -962,8 +963,8 @@ message DevicesRotateCurrentResponse { string fingerprint = 1; }
 
 
 
-// Built-in agent host RPCs. JSON response fields preserve the host contract
-// without duplicating its evolving transcript and model catalog shapes.
+// Built-in agent harness RPCs. JSON fields carry roost-protocol's
+// wire/agent_chat shapes (transcript, catalog, accounts, settings).
 message AgentChatListRequest {}
 message AgentChatListResponse {
   repeated AgentConversation conversations = 1;
@@ -1018,8 +1019,27 @@ message AgentAuthSetApiKeyRequest {
   string api_key = 2;
 }
 message AgentAuthSetApiKeyResponse {}
-message AgentAuthLogoutRequest { string provider = 1; }
-message AgentAuthLogoutResponse {}
+message AgentAccountsListRequest {}
+// JSON array of AccountEntry (roost-protocol wire/agent_chat).
+message AgentAccountsListResponse { string accounts_json = 1; }
+message AgentAccountRemoveRequest { int64 credential_id = 1; }
+message AgentAccountRemoveResponse {}
+message AgentUsageGetRequest {}
+// JSON array of AccountEntry with fresh usage reports.
+message AgentUsageGetResponse { string usage_json = 1; }
+message AgentSettingsGetRequest {}
+// JSON AgentSettingsView (roost-protocol wire/agent_chat).
+message AgentSettingsGetResponse { string settings_json = 1; }
+message AgentSettingsSetRequest { string settings_json = 1; }
+message AgentSettingsSetResponse {}
+message AgentChatPlanDecideRequest {
+  string conversation_id = 1;
+  string item_id = 2;
+  // approve | approve_new | refine
+  string decision = 3;
+  string feedback = 4;
+}
+message AgentChatPlanDecideResponse { string new_conversation_id = 1; }
 
 // ─── service ──────────────────────────────────────────────────────────────
 
@@ -1073,7 +1093,12 @@ service CoordinatorService {
   rpc AgentAuthLoginRespond(AgentAuthLoginRespondRequest) returns (AgentAuthLoginRespondResponse);
   rpc AgentAuthLoginCancel(AgentAuthLoginCancelRequest) returns (AgentAuthLoginCancelResponse);
   rpc AgentAuthSetApiKey(AgentAuthSetApiKeyRequest) returns (AgentAuthSetApiKeyResponse);
-  rpc AgentAuthLogout(AgentAuthLogoutRequest) returns (AgentAuthLogoutResponse);
+  rpc AgentAccountsList(AgentAccountsListRequest) returns (AgentAccountsListResponse);
+  rpc AgentAccountRemove(AgentAccountRemoveRequest) returns (AgentAccountRemoveResponse);
+  rpc AgentUsageGet(AgentUsageGetRequest) returns (AgentUsageGetResponse);
+  rpc AgentSettingsGet(AgentSettingsGetRequest) returns (AgentSettingsGetResponse);
+  rpc AgentSettingsSet(AgentSettingsSetRequest) returns (AgentSettingsSetResponse);
+  rpc AgentChatPlanDecide(AgentChatPlanDecideRequest) returns (AgentChatPlanDecideResponse);
   // workspaces
   rpc WorkspacesList(WorkspacesListRequest) returns (WorkspacesListResponse);
   rpc WorkspacesCreate(WorkspacesCreateRequest) returns (WorkspacesCreateResponse);

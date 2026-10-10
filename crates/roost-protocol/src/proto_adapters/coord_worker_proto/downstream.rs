@@ -16,8 +16,7 @@ use crate::wire::coord_worker::{Binary, EventAck, TerminalSnapshotRequest};
 use crate::{ProtocolError, ProtocolResult};
 use roost_proto::coord_worker_down::Frame;
 use roost_proto::{
-    CoordWorkerDown, DAgentTunnelClose, DAgentTunnelDaemonChunk, DAgentTunnelInput,
-    DAgentTunnelOpen, DBinary, DBrowserCommand, DEventAck, DHelloAck, DPing,
+    CoordWorkerDown, DBinary, DBrowserCommand, DEventAck, DHelloAck, DPing,
     DTerminalSnapshotRequest,
 };
 
@@ -139,35 +138,6 @@ pub(super) fn to_proto(frame: &CoordWorkerDownstream) -> ProtocolResult<CoordWor
         }
         CoordWorkerDownstream::AgentPrompt(prompt) => {
             Frame::AgentPrompt(Box::new((*prompt).clone()))
-        }
-        CoordWorkerDownstream::AgentTunnelOpen(open) => {
-            Frame::AgentTunnelOpen(Box::new(DAgentTunnelOpen {
-                tunnel_id: open.tunnel_id.clone(),
-                args: open.args.clone(),
-                daemon_sha256: open.daemon_sha256.clone(),
-                ..Default::default()
-            }))
-        }
-        CoordWorkerDownstream::AgentTunnelInput(input) => {
-            Frame::AgentTunnelInput(Box::new(DAgentTunnelInput {
-                tunnel_id: input.tunnel_id.clone(),
-                data: input.data.clone(),
-                ..Default::default()
-            }))
-        }
-        CoordWorkerDownstream::AgentTunnelDaemonChunk(chunk) => {
-            Frame::AgentTunnelDaemonChunk(Box::new(DAgentTunnelDaemonChunk {
-                tunnel_id: chunk.tunnel_id.clone(),
-                data: chunk.data.clone(),
-                last: chunk.last,
-                ..Default::default()
-            }))
-        }
-        CoordWorkerDownstream::AgentTunnelClose(close) => {
-            Frame::AgentTunnelClose(Box::new(DAgentTunnelClose {
-                tunnel_id: close.tunnel_id.clone(),
-                ..Default::default()
-            }))
         }
         CoordWorkerDownstream::AgentToolCall(call) => {
             Frame::AgentToolCall(Box::new((*call).clone()))
@@ -297,16 +267,6 @@ pub(super) fn from_proto(message: &CoordWorkerDown) -> ProtocolResult<CoordWorke
             CoordWorkerDownstream::KeeperUpdatePrepare((**prepare).clone())
         }
         Frame::AgentPrompt(prompt) => CoordWorkerDownstream::AgentPrompt((**prompt).clone()),
-        Frame::AgentTunnelOpen(open) => CoordWorkerDownstream::AgentTunnelOpen((**open).clone()),
-        Frame::AgentTunnelInput(input) => {
-            CoordWorkerDownstream::AgentTunnelInput((**input).clone())
-        }
-        Frame::AgentTunnelDaemonChunk(chunk) => {
-            CoordWorkerDownstream::AgentTunnelDaemonChunk((**chunk).clone())
-        }
-        Frame::AgentTunnelClose(close) => {
-            CoordWorkerDownstream::AgentTunnelClose((**close).clone())
-        }
         Frame::AgentToolCall(call) => CoordWorkerDownstream::AgentToolCall((**call).clone()),
         Frame::AgentToolCancel(cancel) => {
             CoordWorkerDownstream::AgentToolCancel((**cancel).clone())

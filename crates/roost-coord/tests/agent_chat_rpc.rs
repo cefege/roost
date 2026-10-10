@@ -1,369 +1,385 @@
-//! Agent chat RPCs against a fake agent host, including the NDJSON follower's
-//! transcript cache and install-wide event publication.
-//!
-//! The host listener is real loopback HTTP: these tests pin the coordinator's
-//! authentication, HTTP contract, cache projection and Connect error boundary.
+//! Agent chat RPCs over the coordinator's Rust harness, against a loopback
+//! fake Anthropic Messages server and a tool executor that answers for the
+//! worker: a full tool round reaches the Sync bus, a rate-limited account
+//! rotates to the next, settings are validated, and restarts settle runs.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod agent_fixture;
 mod db_support;
 
-use std::convert::Infallible;
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use agent_fixture::AgentFixture;
-use axum::body::{Body, Bytes};
+use agent_fixture::{AgentFixture, WORKER_A};
 use axum::extract::State;
-use axum::http::{HeaderMap, Method, StatusCode};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::post;
 use axum::{Json, Router};
 use connectrpc::ErrorCode;
-use futures_util::stream;
-use roost_coord::agent_host::rpc_chat::{
-    handle_agent_chat_list, handle_agent_chat_snapshot, handle_agent_chat_submit,
+use futures::future::BoxFuture;
+use roost_agent::{AgentStore, Entry, ToolCall, ToolExecutor, ToolOutcome};
+use roost_coord::agent::AgentService;
+use roost_coord::agent::rpc_accounts::handle_agent_settings_set;
+use roost_coord::agent::rpc_auth::handle_agent_auth_set_api_key;
+use roost_coord::agent::rpc_chat::{
+    handle_agent_chat_create, handle_agent_chat_snapshot, handle_agent_chat_submit,
 };
-use roost_coord::agent_host::{FollowerHandle, spawn_follower};
-use roost_host::{CoordConfig, CoordConfigInput, DatabaseLocation};
 use roost_proto as proto;
-use serde_json::{Value, json};
+use roost_protocol::wire::agent_chat::AgentRunState;
+use serde_json::Value;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
-const CONVERSATION_ID: &str = "conversation-1";
-const SECRET: &str = "agent-host-test-secret-with-at-least-32-bytes";
+const MODEL: &str = "claude-sonnet-5";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RecordedRequest {
-    method: Method,
-    path: String,
-    authorization: Option<String>,
-    body: Vec<u8>,
+/// Answers each `messages` call from a queue; a key on the rate-limited list
+/// gets HTTP 429 instead.
+#[derive(Clone, Default)]
+struct FakeAnthropic {
+    replies: Arc<Mutex<Vec<String>>>,
+    limited_keys: Arc<Mutex<Vec<String>>>,
+    seen_keys: Arc<Mutex<Vec<String>>>,
 }
 
-#[derive(Clone)]
-struct HostState {
-    events: Vec<String>,
-    requests: Arc<Mutex<Vec<RecordedRequest>>>,
-}
-
-struct FakeHost {
-    base: String,
-    requests: Arc<Mutex<Vec<RecordedRequest>>>,
-    task: tokio::task::JoinHandle<()>,
-}
-
-impl FakeHost {
-    async fn start(events: Vec<Value>) -> Self {
-        let requests = Arc::new(Mutex::new(Vec::new()));
-        let events = events
-            .into_iter()
-            .map(|event| format!("{}\n", event))
-            .collect();
-        let state = HostState {
-            events,
-            requests: Arc::clone(&requests),
-        };
-        let app = Router::new()
-            .route("/v1/events", get(events_handler))
-            .route("/v1/conversations/{id}/submit", post(submit_handler))
-            .with_state(state);
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("bind fake host");
-        let address = listener.local_addr().expect("fake host address");
-        let task = tokio::spawn(async move {
-            axum::serve(listener, app).await.expect("fake host server");
-        });
-        Self {
-            base: format!("http://{address}"),
-            requests,
-            task,
-        }
-    }
-
-    fn recorded(&self) -> Vec<RecordedRequest> {
-        self.requests.lock().expect("request recorder lock").clone()
-    }
-
-    async fn stop(self) {
-        self.task.abort();
-        let _ = self.task.await;
-    }
-}
-
-async fn events_handler(State(state): State<HostState>, headers: HeaderMap) -> Response {
-    state.record(Method::GET, "/v1/events", headers, Vec::new());
-    let chunks = state
-        .events
-        .into_iter()
-        .map(|line| Ok::<Bytes, Infallible>(Bytes::from(line)));
-    Response::builder()
-        .status(StatusCode::OK)
-        .header("content-type", "application/x-ndjson")
-        .body(Body::from_stream(stream::iter(chunks)))
-        .expect("event stream response")
-}
-
-async fn submit_handler(
-    State(state): State<HostState>,
-    axum::extract::Path(id): axum::extract::Path<String>,
+async fn messages(
+    State(fake): State<FakeAnthropic>,
     headers: HeaderMap,
-    body: Bytes,
+    Json(_body): Json<Value>,
 ) -> Response {
-    let path = format!("/v1/conversations/{id}/submit");
-    state.record(Method::POST, &path, headers, body.to_vec());
-    if id == "missing" {
+    let key = headers
+        .get("x-api-key")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("")
+        .to_owned();
+    fake.seen_keys.lock().unwrap().push(key.clone());
+    if fake.limited_keys.lock().unwrap().contains(&key) {
         return (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": {"code": "not_found", "message": "conversation missing"}})),
+            StatusCode::TOO_MANY_REQUESTS,
+            [("retry-after", "30")],
+            "slow down",
         )
             .into_response();
     }
-    (StatusCode::OK, Json(json!({"ok": true}))).into_response()
+    let reply = {
+        let mut replies = fake.replies.lock().unwrap();
+        if replies.is_empty() {
+            text_sse("out of script")
+        } else {
+            replies.remove(0)
+        }
+    };
+    ([("content-type", "text/event-stream")], reply).into_response()
 }
 
-impl HostState {
-    fn record(&self, method: Method, path: &str, headers: HeaderMap, body: Vec<u8>) {
-        self.requests
-            .lock()
-            .expect("request recorder lock")
-            .push(RecordedRequest {
-                method,
-                path: path.to_owned(),
-                authorization: headers
-                    .get(axum::http::header::AUTHORIZATION)
-                    .and_then(|value| value.to_str().ok())
-                    .map(str::to_owned),
-                body,
-            });
+fn sse(events: &[Value]) -> String {
+    events
+        .iter()
+        .map(|event| format!("data: {event}\n\n"))
+        .collect()
+}
+
+fn text_sse(text: &str) -> String {
+    sse(&[
+        serde_json::json!({"type":"message_start","message":{"usage":{"input_tokens":10,"output_tokens":0}}}),
+        serde_json::json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
+        serde_json::json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":text}}),
+        serde_json::json!({"type":"content_block_stop","index":0}),
+        serde_json::json!({"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}),
+        serde_json::json!({"type":"message_stop"}),
+    ])
+}
+
+fn tool_sse(call_id: &str, name: &str, args: &str) -> String {
+    sse(&[
+        serde_json::json!({"type":"message_start","message":{"usage":{"input_tokens":10,"output_tokens":0}}}),
+        serde_json::json!({"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":call_id,"name":name,"input":{}}}),
+        serde_json::json!({"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":args}}),
+        serde_json::json!({"type":"content_block_stop","index":0}),
+        serde_json::json!({"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":5}}),
+        serde_json::json!({"type":"message_stop"}),
+    ])
+}
+
+/// Stands in for the worker: `read` answers with a hashline file.
+#[derive(Debug, Default)]
+struct FakeWorker {
+    calls: Mutex<Vec<ToolCall>>,
+}
+
+impl ToolExecutor for FakeWorker {
+    fn execute<'a>(
+        &'a self,
+        _worker_fp: &'a str,
+        call: ToolCall,
+        _out: mpsc::Sender<String>,
+        _cancel: CancellationToken,
+    ) -> BoxFuture<'a, Result<ToolOutcome, String>> {
+        let content = if call.tool == "context_files" {
+            r#"{"context":"","watchdog":""}"#.to_owned()
+        } else {
+            "[README.md#5BF9]\n1:hello".to_owned()
+        };
+        self.calls.lock().unwrap().push(call);
+        Box::pin(async move {
+            Ok(ToolOutcome {
+                is_error: false,
+                content,
+                details_json: "{}".into(),
+            })
+        })
+    }
+
+    fn close_conversation<'a>(
+        &'a self,
+        _worker_fp: &'a str,
+        _conversation_id: &'a str,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async {})
     }
 }
 
-fn conversation() -> Value {
-    json!({
-        "id": CONVERSATION_ID,
-        "title": "Test conversation",
-        "worker_fp": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "worker_label": "worker-a",
-        "cwd": "/work",
-        "model": null,
-        "thinking_level": null,
-        "run_state": "idle",
-        "error": null,
-        "created_ms": 1,
-        "updated_ms": 2
-    })
+struct Setup {
+    fixture: AgentFixture,
+    fake: FakeAnthropic,
+    worker: Arc<FakeWorker>,
 }
 
-fn stream_events() -> Vec<Value> {
-    vec![
-        json!({"type": "conversations", "conversations": [conversation()]}),
-        json!({
-            "type": "chat",
-            "conversation_id": CONVERSATION_ID,
-            "events": [{
-                "type": "reset",
-                "transcript": {
-                    "items": [{"kind": "assistant", "id": "assistant-1", "blocks": [], "streaming": true, "error": null}],
-                    "run_state": "running",
-                    "error": null,
-                    "model": null,
-                    "thinking_level": null,
-                    "usage": {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
-                }
-            }]
-        }),
-        json!({
-            "type": "chat",
-            "conversation_id": CONVERSATION_ID,
-            "events": [{"type": "text_delta", "item_id": "assistant-1", "block": 0, "delta": "hello from host"}]
-        }),
-    ]
-}
-
-async fn configured_fixture(host: &FakeHost, label: &str) -> AgentFixture {
+async fn setup(label: &str) -> Setup {
+    let fake = FakeAnthropic::default();
+    let app = Router::new()
+        .route("/v1/messages", post(messages))
+        .with_state(fake.clone());
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
     let mut fixture = AgentFixture::new(label).await;
-    let config = CoordConfig::parse(CoordConfigInput {
-        database: Some(DatabaseLocation::SqliteFile(
-            std::env::temp_dir().join(format!("{label}.db")),
-        )),
-        authorized_keys_path: Some(std::env::temp_dir().join(format!("{label}-keys"))),
-        log_dir: Some(std::env::temp_dir().join(format!("{label}-logs"))),
-        agent_host_url: Some(host.base.clone()),
-        agent_host_secret: Some(SECRET.to_owned()),
-        ..Default::default()
-    })
-    .expect("agent host coordinator config");
+    let worker = Arc::new(FakeWorker::default());
     let services = Arc::get_mut(&mut fixture.core.services).expect("fixture owns services");
-    services.boot.config = Some(Arc::new(config));
-    fixture
+    services.agent = AgentService::with_tools(
+        services.db.clone(),
+        Arc::clone(&services.buses),
+        Arc::clone(&worker) as Arc<dyn ToolExecutor>,
+        BTreeMap::from([("anthropic".to_owned(), format!("http://{address}"))]),
+    );
+    Setup {
+        fixture,
+        fake,
+        worker,
+    }
 }
 
-async fn wait_for_disconnected_list(fixture: &AgentFixture) -> proto::AgentChatListResponse {
-    tokio::time::timeout(Duration::from_secs(3), async {
+async fn add_key(setup: &Setup, key: &str) {
+    handle_agent_auth_set_api_key(
+        &setup.fixture.core,
+        &setup.fixture.caller,
+        proto::AgentAuthSetApiKeyRequest {
+            provider: "anthropic".into(),
+            api_key: key.into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("API key stored");
+}
+
+async fn create(setup: &Setup) -> String {
+    handle_agent_chat_create(
+        &setup.fixture.core,
+        &setup.fixture.caller,
+        proto::AgentChatCreateRequest {
+            worker_fp: WORKER_A.into(),
+            cwd: "/repo".into(),
+            model_provider: "anthropic".into(),
+            model_id: MODEL.into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("conversation created")
+    .body
+    .id
+}
+
+async fn submit(setup: &Setup, id: &str, text: &str) {
+    handle_agent_chat_submit(
+        &setup.fixture.core,
+        &setup.fixture.caller,
+        proto::AgentChatSubmitRequest {
+            conversation_id: id.into(),
+            text: text.into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("submitted");
+}
+
+async fn settled_transcript(setup: &Setup, id: &str) -> Value {
+    tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            let list = handle_agent_chat_list(
-                &fixture.core,
-                &fixture.caller,
-                proto::AgentChatListRequest::default(),
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            let snapshot = handle_agent_chat_snapshot(
+                &setup.fixture.core,
+                &setup.fixture.caller,
+                proto::AgentChatSnapshotRequest {
+                    conversation_id: id.into(),
+                    ..Default::default()
+                },
             )
             .await
-            .expect("cached conversation list")
+            .expect("snapshot")
             .body;
-            if !list.host_connected
-                && list
-                    .conversations
-                    .iter()
-                    .any(|item| item.id == CONVERSATION_ID)
-            {
-                return list;
+            let transcript: Value = serde_json::from_str(&snapshot.transcript_json).unwrap();
+            if transcript["run_state"] != "running" {
+                return transcript;
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
     .await
-    .expect("closed event stream marks host disconnected")
-}
-
-async fn stop_follower(follower: FollowerHandle) {
-    follower.stop().await;
+    .expect("run settles")
 }
 
 #[tokio::test]
-async fn follower_stream_projects_snapshot_and_publishes_ordered_chat_events() {
-    let host = FakeHost::start(stream_events()).await;
-    let fixture = configured_fixture(&host, "agent-chat-rpc-stream").await;
-    let (published_tx, mut published_rx) = mpsc::unbounded_channel();
-    let _subscription = fixture
+async fn a_submitted_message_runs_a_tool_round_and_publishes_the_transcript() {
+    let setup = setup("agent-chat-tool-round").await;
+    add_key(&setup, "sk-ant-first-key-0001").await;
+    setup.fake.replies.lock().unwrap().extend([
+        tool_sse("call-1", "read", r#"{"path":"README.md"}"#),
+        text_sse("The README says hello."),
+    ]);
+    let (published, mut published_rx) = mpsc::unbounded_channel();
+    let _subscription = setup
+        .fixture
         .core
         .services
         .buses
         .agent_chat_bus
         .subscribe(move |update| {
-            let _ = published_tx.send(update.clone());
+            let _ = published.send(update.clone());
         });
-    let follower = spawn_follower(Arc::clone(&fixture.core.services));
+    let id = create(&setup).await;
+    submit(&setup, &id, "what does the README say?").await;
+    let transcript = settled_transcript(&setup, &id).await;
 
-    let mut seq_two = None;
-    tokio::time::timeout(Duration::from_secs(3), async {
-        while let Some(update) = published_rx.recv().await {
-            if update.conversation_id == CONVERSATION_ID && update.seq == 2 {
-                seq_two = Some(update);
-                break;
-            }
-        }
-    })
-    .await
-    .expect("second chat event is published");
-
-    let snapshot = handle_agent_chat_snapshot(
-        &fixture.core,
-        &fixture.caller,
-        proto::AgentChatSnapshotRequest {
-            conversation_id: CONVERSATION_ID.to_owned(),
-            ..Default::default()
-        },
-    )
-    .await
-    .expect("cached transcript snapshot")
-    .body;
-    assert_eq!(snapshot.seq, 2);
-    let transcript: Value = serde_json::from_str(&snapshot.transcript_json).expect("snapshot JSON");
-    assert_eq!(
-        transcript["items"][0]["blocks"][0]["text"],
-        "hello from host"
-    );
-    let published = seq_two.expect("publication at sequence two");
-    assert_eq!(
-        published.events_json,
-        json!([{"type":"text_delta","item_id":"assistant-1","block":0,"delta":"hello from host"}])
-            .to_string()
-    );
-
-    let list = wait_for_disconnected_list(&fixture).await;
-    assert_eq!(list.conversations.len(), 1);
-    assert_eq!(list.conversations[0].id, CONVERSATION_ID);
+    assert_eq!(transcript["run_state"], "idle", "{transcript}");
+    let items = transcript["items"].as_array().unwrap();
     assert!(
-        !list.host_connected,
-        "the finite fake stream has been closed by its host"
+        items
+            .iter()
+            .any(|item| item["kind"] == "tool"
+                && item["output"].as_str().unwrap().contains("1:hello"))
     );
+    assert!(items.iter().any(|item| {
+        item["kind"] == "assistant"
+            && item["blocks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|block| block["text"] == "The README says hello.")
+    }));
+    let reads: Vec<ToolCall> = setup
+        .worker
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|call| call.tool == "read")
+        .cloned()
+        .collect();
+    assert_eq!(reads.len(), 1);
+    assert_eq!(reads[0].cwd, "/repo");
 
-    stop_follower(follower).await;
-    host.stop().await;
+    let mut bus_text = String::new();
+    while let Ok(update) = published_rx.try_recv() {
+        if update.conversation_id == id {
+            bus_text.push_str(&update.events_json);
+        }
+    }
+    assert!(
+        bus_text.contains("The README says hello."),
+        "the Sync bus carried the answer"
+    );
 }
 
 #[tokio::test]
-async fn submit_forwards_bearer_and_body_and_maps_host_not_found() {
-    let host = FakeHost::start(Vec::new()).await;
-    let fixture = configured_fixture(&host, "agent-chat-rpc-submit").await;
-    let request = proto::AgentChatSubmitRequest {
-        conversation_id: "conversation-1".to_owned(),
-        text: "please continue".to_owned(),
-        request_id: "request-7".to_owned(),
-        ..Default::default()
-    };
-    handle_agent_chat_submit(&fixture.core, &fixture.caller, request)
-        .await
-        .expect("submit reaches host");
+async fn a_rate_limited_account_rotates_to_the_next_one() {
+    let setup = setup("agent-chat-rotation").await;
+    add_key(&setup, "sk-ant-first-key-0001").await;
+    add_key(&setup, "sk-ant-second-key-0002").await;
+    setup
+        .fake
+        .limited_keys
+        .lock()
+        .unwrap()
+        .push("sk-ant-first-key-0001".into());
+    setup.fake.replies.lock().unwrap().push(text_sse("served"));
+    let id = create(&setup).await;
+    // Whichever account the pool tries first, the run must end on the second.
+    submit(&setup, &id, "hi").await;
+    let transcript = settled_transcript(&setup, &id).await;
+    assert_eq!(transcript["run_state"], "idle", "{transcript}");
+    let answered = transcript["items"].as_array().unwrap().iter().any(|item| {
+        item["kind"] == "assistant"
+            && item["blocks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|block| block["text"] == "served")
+    });
+    assert!(
+        answered,
+        "the run answered through the unthrottled account: {transcript}"
+    );
+    // Judgments after the answer resolve accounts on their own, so only the
+    // presence of the second key is a fact about rotation, not its position.
+    assert!(
+        setup
+            .fake
+            .seen_keys
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|key| key == "sk-ant-second-key-0002")
+    );
+}
 
-    let error = handle_agent_chat_submit(
-        &fixture.core,
-        &fixture.caller,
-        proto::AgentChatSubmitRequest {
-            conversation_id: "missing".to_owned(),
-            text: "ignored".to_owned(),
-            request_id: "request-8".to_owned(),
+#[tokio::test]
+async fn an_invalid_role_selector_is_rejected() {
+    let setup = setup("agent-settings-invalid").await;
+    let error = handle_agent_settings_set(
+        &setup.fixture.core,
+        &setup.fixture.caller,
+        proto::AgentSettingsSetRequest {
+            settings_json: r#"{"model_roles":{"smol":"not a selector"}}"#.into(),
             ..Default::default()
         },
     )
     .await
-    .expect_err("host not_found is returned to caller");
-    assert_eq!(error.code, ErrorCode::NotFound);
-
-    let recorded = host.recorded();
-    assert_eq!(recorded.len(), 2);
-    assert_eq!(recorded[0].method, Method::POST);
-    assert_eq!(recorded[0].path, "/v1/conversations/conversation-1/submit");
-    let expected_bearer = format!("Bearer {SECRET}");
-    assert_eq!(
-        recorded[0].authorization.as_deref(),
-        Some(expected_bearer.as_str())
-    );
-    let body: Value = serde_json::from_slice(&recorded[0].body).expect("submit request JSON");
-    assert_eq!(
-        body,
-        json!({"text":"please continue", "request_id":"request-7"})
-    );
-    assert_eq!(recorded[1].path, "/v1/conversations/missing/submit");
-
-    host.stop().await;
+    .expect_err("an invalid selector was accepted");
+    assert_eq!(error.code, ErrorCode::InvalidArgument);
 }
 
 #[tokio::test]
-async fn unconfigured_agent_host_is_unavailable() {
-    let mut fixture = AgentFixture::new("agent-chat-rpc-unconfigured").await;
-    let config = CoordConfig::parse(CoordConfigInput {
-        database: Some(DatabaseLocation::SqliteFile(
-            std::env::temp_dir().join("agent-chat-rpc-unconfigured.db"),
-        )),
-        authorized_keys_path: Some(std::env::temp_dir().join("agent-chat-rpc-unconfigured-keys")),
-        log_dir: Some(std::env::temp_dir().join("agent-chat-rpc-unconfigured-logs")),
-        ..Default::default()
-    })
-    .expect("unconfigured coordinator config");
-    Arc::get_mut(&mut fixture.core.services)
-        .expect("fixture owns services")
-        .boot
-        .config = Some(Arc::new(config));
-    let error = handle_agent_chat_list(
-        &fixture.core,
-        &fixture.caller,
-        proto::AgentChatListRequest::default(),
-    )
-    .await
-    .expect_err("agent host is not configured");
-    assert_eq!(error.code, ErrorCode::Unavailable);
+async fn a_run_interrupted_by_a_restart_comes_back_idle_with_a_notice() {
+    let setup = setup("agent-restart-recovery").await;
+    let id = create(&setup).await;
+    let store =
+        roost_coord::agent::store::CoordAgentStore::new(setup.fixture.core.services.db.clone());
+    let mut record = store.conversation(&id).await.unwrap().unwrap();
+    record.run_state = AgentRunState::Running;
+    store.save_conversation(&record).await.unwrap();
+
+    setup.fixture.core.services.agent.recover().await;
+
+    let record = store.conversation(&id).await.unwrap().unwrap();
+    assert_eq!(record.run_state, AgentRunState::Idle);
+    let entries = store.entries(&id).await.unwrap();
+    assert!(entries.iter().any(|(_, entry)| matches!(entry,
+        Entry::Notice { body, .. } if body == "Run interrupted by a coordinator restart")));
 }

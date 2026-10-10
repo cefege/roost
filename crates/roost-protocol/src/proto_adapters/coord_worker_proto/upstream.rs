@@ -9,10 +9,6 @@
 
 use roost_proto::buffa::MessageField;
 use roost_proto::coord_worker_up::Frame;
-use roost_proto::{
-    AgentTunnelState as ProtoAgentTunnelState, CoordWorkerUp, WAgentTunnelOutput,
-    WAgentTunnelState, WBinary, WHello, WPong, WRefreshJwt, WRpcError, WRpcOk, WSessionEvent,
-};
 
 use super::control_outcomes::{
     input_result_from_proto, input_result_to_proto, stream_result_from_proto,
@@ -29,6 +25,9 @@ use crate::wire::coord_worker::CoordWorkerUpstream;
 use crate::wire::coord_worker::{Binary, RefreshJwt};
 use crate::wire::event_proto::{event_to_proto, proto_to_event};
 use crate::{ProtocolError, ProtocolResult};
+use roost_proto::{
+    CoordWorkerUp, WBinary, WHello, WPong, WRefreshJwt, WRpcError, WRpcOk, WSessionEvent,
+};
 
 /// Map one union frame onto the generated oneof. The event and the status
 /// carry values the domain union holds as `i64` and whole milliseconds, so this
@@ -134,35 +133,6 @@ pub(super) fn to_proto(frame: &CoordWorkerUpstream) -> ProtocolResult<CoordWorke
         }
         CoordWorkerUpstream::TerminalPipelineSnapshot(snapshot) => {
             Frame::TerminalPipelineSnapshot(Box::new((*snapshot).clone()))
-        }
-        CoordWorkerUpstream::AgentTunnelState(state) => {
-            Frame::AgentTunnelState(Box::new(WAgentTunnelState {
-                tunnel_id: state.tunnel_id.clone(),
-                state: match state.state {
-                    crate::wire::coord_worker::AgentTunnelState::Opened => {
-                        ProtoAgentTunnelState::Opened
-                    }
-                    crate::wire::coord_worker::AgentTunnelState::NeedDaemon => {
-                        ProtoAgentTunnelState::NeedDaemon
-                    }
-                    crate::wire::coord_worker::AgentTunnelState::Closed => {
-                        ProtoAgentTunnelState::Closed
-                    }
-                }
-                .into(),
-                platform: state.platform.clone(),
-                exit_code: state.exit_code,
-                error: state.error.clone(),
-                ..Default::default()
-            }))
-        }
-        CoordWorkerUpstream::AgentTunnelOutput(output) => {
-            Frame::AgentTunnelOutput(Box::new(WAgentTunnelOutput {
-                tunnel_id: output.tunnel_id.clone(),
-                stderr: output.stderr,
-                data: output.data.clone(),
-                ..Default::default()
-            }))
         }
         CoordWorkerUpstream::AgentToolOutput(output) => {
             Frame::AgentToolOutput(Box::new((*output).clone()))
@@ -279,44 +249,6 @@ pub(super) fn from_proto(message: &CoordWorkerUp) -> ProtocolResult<CoordWorkerU
         }
         Frame::TerminalPipelineSnapshot(snapshot) => {
             CoordWorkerUpstream::TerminalPipelineSnapshot((**snapshot).clone())
-        }
-        Frame::AgentTunnelState(state) => {
-            let state_value = state
-                .state
-                .as_known()
-                .ok_or_else(|| ProtocolError::new("agent-tunnel-state.state", "unknown state"))?;
-            CoordWorkerUpstream::AgentTunnelState(
-                crate::wire::coord_worker::AgentTunnelStateFrame {
-                    tunnel_id: state.tunnel_id.clone(),
-                    state: match state_value {
-                        ProtoAgentTunnelState::Opened => {
-                            crate::wire::coord_worker::AgentTunnelState::Opened
-                        }
-                        ProtoAgentTunnelState::NeedDaemon => {
-                            crate::wire::coord_worker::AgentTunnelState::NeedDaemon
-                        }
-                        ProtoAgentTunnelState::Closed => {
-                            crate::wire::coord_worker::AgentTunnelState::Closed
-                        }
-                        ProtoAgentTunnelState::Unspecified => {
-                            return Err(ProtocolError::new(
-                                "agent-tunnel-state.state",
-                                "unspecified state",
-                            ));
-                        }
-                    },
-                    platform: state.platform.clone(),
-                    exit_code: state.exit_code,
-                    error: state.error.clone(),
-                },
-            )
-        }
-        Frame::AgentTunnelOutput(output) => {
-            CoordWorkerUpstream::AgentTunnelOutput(crate::wire::coord_worker::AgentTunnelOutput {
-                tunnel_id: output.tunnel_id.clone(),
-                stderr: output.stderr,
-                data: output.data.clone(),
-            })
         }
         Frame::AgentToolOutput(output) => CoordWorkerUpstream::AgentToolOutput((**output).clone()),
         Frame::AgentToolResult(result) => CoordWorkerUpstream::AgentToolResult((**result).clone()),

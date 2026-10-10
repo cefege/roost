@@ -245,7 +245,7 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
         Arc::clone(&state.services),
         pair_stopped,
     );
-    let agent_follower = crate::agent_host::spawn_follower(Arc::clone(&state.services));
+    state.services.agent.recover().await;
 
     // Nagle holds a small write for the peer's delayed ACK (~40 ms), clumping a
     // keystroke's echo frame behind later acknowledgements on every socket.
@@ -266,7 +266,6 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
 
     drop(pair_shutdown);
     pair_retention.stop().await;
-    agent_follower.stop().await;
 
     // A drain the bound cut short is a clean exit: the open sockets belong to
     // workers and browsers that redial.

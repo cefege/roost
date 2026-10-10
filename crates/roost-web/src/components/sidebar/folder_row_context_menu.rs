@@ -40,13 +40,6 @@ pub struct FolderMenuTarget {
 pub fn FolderRowContextMenu(target: FolderMenuTarget, on_close: EventHandler<()>) -> Element {
     let pump = use_store();
     let navigate = use_navigate();
-    let agent_enabled = pump
-        .core()
-        .borrow()
-        .store()
-        .coord_identity
-        .as_ref()
-        .is_some_and(|identity| identity.builtin_agent_enabled);
     let agent_worker_fp = target.worker_fp.clone();
     let agent_folder = target.folder_path.clone();
     let agent_pump = pump.clone();
@@ -110,9 +103,7 @@ pub fn FolderRowContextMenu(target: FolderMenuTarget, on_close: EventHandler<()>
             test_id: "folder-context-menu",
             on_close,
             CtxMenuItem { testid: "folder-ctx-rename", onclick: rename, "Rename…" }
-            if agent_enabled {
-                CtxMenuItem { testid: "folder-ctx-new-agent", onclick: on_new_agent, "New agent here" }
-            }
+            CtxMenuItem { testid: "folder-ctx-new-agent", onclick: on_new_agent, "New agent here" }
             CtxMenuItem { testid: "folder-ctx-new-terminal", onclick: on_new_terminal, "New terminal here" }
             MachineActionItems {
                 worker_fp: machine_fp,
