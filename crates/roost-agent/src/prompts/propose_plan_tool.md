@@ -1,0 +1,1 @@
+Submit the finished plan for the user's approval and end this turn. Call ONLY when the plan is decision-complete. `title`: short plain-text name; `plan`: the full plan in Markdown. The user then approves it (execution starts with full tools) or asks for refinements.

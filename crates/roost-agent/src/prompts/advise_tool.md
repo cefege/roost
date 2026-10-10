@@ -1,0 +1,1 @@
+Watched agent: send one concrete, terse piece of advice. Use sparingly; stay silent when nothing matters. Call only to avert likely-wrong or materially wasteful work. Choose `nit` for non-urgent improvements, `concern` for a material risk, and `blocker` only for a verified stop-and-reconsider issue.

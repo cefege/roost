@@ -1,0 +1,1 @@
+Finish your assignment and return your result to the main agent. `result`: the complete deliverable (findings, changes made, evidence, blockers). This ends your work.
