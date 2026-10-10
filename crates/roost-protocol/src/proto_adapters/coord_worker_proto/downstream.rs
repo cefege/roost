@@ -169,6 +169,15 @@ pub(super) fn to_proto(frame: &CoordWorkerDownstream) -> ProtocolResult<CoordWor
                 ..Default::default()
             }))
         }
+        CoordWorkerDownstream::AgentToolCall(call) => {
+            Frame::AgentToolCall(Box::new((*call).clone()))
+        }
+        CoordWorkerDownstream::AgentToolCancel(cancel) => {
+            Frame::AgentToolCancel(Box::new((*cancel).clone()))
+        }
+        CoordWorkerDownstream::AgentConversationClosed(closed) => {
+            Frame::AgentConversationClosed(Box::new((*closed).clone()))
+        }
     };
     Ok(CoordWorkerDown {
         frame: Some(arm),
@@ -297,6 +306,13 @@ pub(super) fn from_proto(message: &CoordWorkerDown) -> ProtocolResult<CoordWorke
         }
         Frame::AgentTunnelClose(close) => {
             CoordWorkerDownstream::AgentTunnelClose((**close).clone())
+        }
+        Frame::AgentToolCall(call) => CoordWorkerDownstream::AgentToolCall((**call).clone()),
+        Frame::AgentToolCancel(cancel) => {
+            CoordWorkerDownstream::AgentToolCancel((**cancel).clone())
+        }
+        Frame::AgentConversationClosed(closed) => {
+            CoordWorkerDownstream::AgentConversationClosed((**closed).clone())
         }
     };
     frame.check()?;

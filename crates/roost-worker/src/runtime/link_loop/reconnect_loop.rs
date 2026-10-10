@@ -132,6 +132,13 @@ impl LinkLoop {
         {
             owner.close_all();
         }
+        if let Some(owner) = self
+            .dispatcher
+            .owners()
+            .and_then(|owners| owners.agent_tools.as_ref())
+        {
+            owner.close_all();
+        }
     }
 
     /// v2 `clear`: the link is gone for good, so a reconcile waiting for its

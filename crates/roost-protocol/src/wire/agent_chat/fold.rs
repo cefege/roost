@@ -76,9 +76,11 @@ pub fn fold_chat_event(transcript: &mut Transcript, event: &ChatEvent) {
         ChatEvent::Agent {
             model,
             thinking_level,
+            mode,
         } => {
             transcript.model = model.clone();
             transcript.thinking_level = thinking_level.clone();
+            transcript.mode = mode.clone();
         }
         ChatEvent::Usage { usage } => transcript.usage = usage.clone(),
     }
@@ -124,7 +126,12 @@ fn item_mut<'a>(transcript: &'a mut Transcript, id: &str) -> Option<&'a mut Tran
 impl TranscriptItem {
     fn id(&self) -> &str {
         match self {
-            Self::User { id, .. } | Self::Assistant { id, .. } | Self::Tool { id, .. } => id,
+            Self::User { id, .. }
+            | Self::Assistant { id, .. }
+            | Self::Tool { id, .. }
+            | Self::Notice { id, .. }
+            | Self::Plan { id, .. }
+            | Self::Advisory { id, .. } => id,
         }
     }
 }

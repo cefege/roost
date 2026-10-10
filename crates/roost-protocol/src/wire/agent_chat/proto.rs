@@ -23,6 +23,10 @@ pub fn conversation_to_proto(summary: &ConversationSummary) -> PbAgentConversati
         run_state: summary.run_state.as_str().to_owned(),
         error: summary.error.clone().unwrap_or_default(),
         created_ms: summary.created_ms,
+        mode: summary.mode.clone(),
+        parent_id: summary.parent_id.clone().unwrap_or_default(),
+        agent: summary.agent.clone().unwrap_or_default(),
+        advisor: summary.advisor,
         updated_ms: summary.updated_ms,
         ..Default::default()
     }
@@ -35,6 +39,14 @@ pub fn conversation_from_proto(message: &PbAgentConversation) -> ConversationSum
         worker_fp: message.worker_fp.clone(),
         worker_label: message.worker_label.clone(),
         cwd: message.cwd.clone(),
+        mode: if message.mode.is_empty() {
+            "normal".to_owned()
+        } else {
+            message.mode.clone()
+        },
+        parent_id: (!message.parent_id.is_empty()).then(|| message.parent_id.clone()),
+        agent: (!message.agent.is_empty()).then(|| message.agent.clone()),
+        advisor: message.advisor,
         model: if message.model_provider.is_empty() && message.model_id.is_empty() {
             None
         } else {

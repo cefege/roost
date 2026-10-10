@@ -23,8 +23,8 @@ use crate::attachments::peer_owner::AttachmentPeerBootstrapState;
 use crate::door::loopback::{LoopbackOwner, LoopbackRoutes};
 use crate::keeper_pool::{KeeperPool, KeeperUpdateBoundary, KeeperUpdatePreparer};
 use crate::link_ports::{
-    AgentTunnelPort, AttachmentPeerPort, DirectTerminalPort, DownstreamOwners, KeeperUpdatePort,
-    LinkLifecyclePort, LinkLifecycles, LocalTerminalGrantPort, TerminalInputPort,
+    AgentToolsPort, AgentTunnelPort, AttachmentPeerPort, DirectTerminalPort, DownstreamOwners,
+    KeeperUpdatePort, LinkLifecyclePort, LinkLifecycles, LocalTerminalGrantPort, TerminalInputPort,
     TerminalPipelinePort, TerminalStreamPort, TerminalViewPort,
 };
 use crate::local_terminal::{LocalTerminalDoor, LocalTerminalDoorDeps};
@@ -226,6 +226,10 @@ impl WorkerOwners {
                 uplink.clone(),
             ),
         )) as Arc<dyn AgentTunnelPort>;
+        let agent_tools = Arc::new(crate::runtime::agent_tools::AgentToolsOwner::new(
+            data_dir.to_path_buf(),
+            uplink.clone(),
+        )) as Arc<dyn AgentToolsPort>;
         register_session_closed(&stack, &routes, &view);
 
         let downstream = DownstreamOwners {
@@ -260,6 +264,7 @@ impl WorkerOwners {
                 Arc::new(attachments.direct.clone()) as Arc<dyn AttachmentPeerPort>
             ),
             keeper_update: Arc::new(keeper_update) as Arc<dyn KeeperUpdatePort>,
+            agent_tools: Some(Arc::clone(&agent_tools)),
         };
         tracing::info!(
             "the downstream owners are built: input, stream, pipeline, view and the cell cadence"

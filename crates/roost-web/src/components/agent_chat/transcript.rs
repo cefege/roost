@@ -9,13 +9,15 @@ use roost_protocol::wire::agent_chat::{
 };
 
 use super::tool_card::ToolCard;
-use crate::components::md::{ButtonVariant, Icon, IconButton, IconButtonSize, IconSize};
+use crate::components::md::{ButtonVariant, Card, Icon, IconButton, IconButtonSize, IconSize};
 
-/// A stretch of the transcript drawn as one unit.
 enum Segment<'transcript> {
     User(&'transcript TranscriptItem),
     Assistant(&'transcript TranscriptItem),
     Steps(Vec<&'transcript TranscriptItem>),
+    Notice(&'transcript TranscriptItem),
+    Plan(&'transcript TranscriptItem),
+    Advisory(&'transcript TranscriptItem),
 }
 
 #[component]
@@ -48,6 +50,15 @@ pub fn AgentTranscriptView(transcript: Transcript) -> Element {
                                 }
                             }
                         }
+                    },
+                    Segment::Notice(TranscriptItem::Notice { id, title, body, .. }) => rsx! {
+                        Card { key: "{id}", title: Some(title.clone()), children: rsx! { p { "{body}" } } }
+                    },
+                    Segment::Plan(TranscriptItem::Plan { id, title, content, .. }) => rsx! {
+                        Card { key: "{id}", title: Some(title.clone()), children: rsx! { p { "{content}" } } }
+                    },
+                    Segment::Advisory(TranscriptItem::Advisory { id, note, .. }) => rsx! {
+                        Card { key: "{id}", title: Some("Advisor note".to_owned()), children: rsx! { p { "{note}" } } }
                     },
                     _ => rsx! {},
                 }
@@ -176,6 +187,9 @@ fn segments(transcript: &Transcript) -> Vec<Segment<'_>> {
                 Some(Segment::Steps(steps)) => steps.push(item),
                 _ => segments.push(Segment::Steps(vec![item])),
             },
+            TranscriptItem::Notice { .. } => segments.push(Segment::Notice(item)),
+            TranscriptItem::Plan { .. } => segments.push(Segment::Plan(item)),
+            TranscriptItem::Advisory { .. } => segments.push(Segment::Advisory(item)),
         }
     }
     segments

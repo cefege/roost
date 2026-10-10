@@ -26,10 +26,24 @@ pub struct ConversationSummary {
     pub cwd: String,
     pub model: Option<ModelRef>,
     pub thinking_level: Option<String>,
+    /// `normal` or `plan`.
+    #[serde(default = "normal_mode")]
+    pub mode: String,
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    #[serde(default)]
+    pub agent: Option<String>,
+    /// Whether the advisor reviews this conversation's turns.
+    #[serde(default)]
+    pub advisor: bool,
     pub run_state: AgentRunState,
     pub error: Option<String>,
     pub created_ms: i64,
     pub updated_ms: i64,
+}
+
+fn normal_mode() -> String {
+    "normal".to_owned()
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -39,6 +53,8 @@ pub struct Transcript {
     pub error: Option<String>,
     pub model: Option<ModelRef>,
     pub thinking_level: Option<String>,
+    #[serde(default)]
+    pub mode: Option<String>,
     pub usage: UsageTotals,
 }
 
@@ -63,6 +79,29 @@ pub enum TranscriptItem {
         output: String,
         is_error: bool,
         running: bool,
+        #[serde(default)]
+        children: Vec<String>,
+    },
+    #[serde(rename = "notice")]
+    Notice {
+        id: String,
+        level: String,
+        title: String,
+        body: String,
+    },
+    #[serde(rename = "plan")]
+    Plan {
+        id: String,
+        title: String,
+        content: String,
+        state: String,
+    },
+    #[serde(rename = "advisory")]
+    Advisory {
+        id: String,
+        severity: String,
+        note: String,
+        delivered: bool,
     },
 }
 
@@ -125,6 +164,7 @@ pub enum ChatEvent {
     Agent {
         model: Option<ModelRef>,
         thinking_level: Option<String>,
+        mode: Option<String>,
     },
     Usage {
         usage: UsageTotals,
@@ -141,7 +181,7 @@ pub enum HostStreamLine {
         conversations: Vec<ConversationSummary>,
     },
     Conversation {
-        conversation: ConversationSummary,
+        conversation: Box<ConversationSummary>,
     },
     ConversationRemoved {
         id: String,

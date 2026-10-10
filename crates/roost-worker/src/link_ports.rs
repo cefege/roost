@@ -245,6 +245,14 @@ pub trait AgentTunnelPort: Send + Sync + std::fmt::Debug {
     fn close_all(&self);
 }
 
+/// Worker-owned coordinator-dispatched tool calls.
+pub trait AgentToolsPort: Send + Sync + std::fmt::Debug {
+    fn call(&self, request: roost_proto::DAgentToolCall);
+    fn cancel(&self, request: roost_proto::DAgentToolCancel);
+    fn close_conversation(&self, request: roost_proto::DAgentConversationClosed);
+    fn close_all(&self);
+}
+
 /// Every owner a downstream frame can route to.
 #[derive(Clone, Debug)]
 pub struct DownstreamOwners {
@@ -260,4 +268,5 @@ pub struct DownstreamOwners {
     pub attachment_peers: Option<Arc<dyn AttachmentPeerPort>>,
     pub attachments: Arc<dyn AttachmentLinkPort>,
     pub keeper_update: Arc<dyn KeeperUpdatePort>,
+    pub agent_tools: Option<Arc<dyn AgentToolsPort>>,
 }

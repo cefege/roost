@@ -13,6 +13,7 @@
 //! arrived on.
 
 mod agent_prompt;
+mod agent_tools;
 mod agent_tunnel;
 mod attachment_peer;
 mod attachments;
@@ -181,6 +182,11 @@ impl Dispatcher {
                 self.agent_tunnel_daemon_chunk(request)
             }
             CoordWorkerDownstream::AgentTunnelClose(request) => self.agent_tunnel_close(request),
+            CoordWorkerDownstream::AgentToolCall(request) => self.agent_tool_call(request),
+            CoordWorkerDownstream::AgentToolCancel(request) => self.agent_tool_cancel(request),
+            CoordWorkerDownstream::AgentConversationClosed(request) => {
+                self.agent_conversation_closed(request)
+            }
         }
     }
 }

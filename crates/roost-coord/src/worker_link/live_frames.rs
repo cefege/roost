@@ -160,6 +160,16 @@ impl WorkerFrameDispatcher {
             return DispatchOutcome::Refused;
         }
         let pending = self.core.services.scrollback.pending();
+        if matches!(
+            upstream,
+            CoordWorkerUpstream::AgentToolOutput(_) | CoordWorkerUpstream::AgentToolResult(_)
+        ) {
+            return if self.core.services.agent_tools.receive(worker_fp, upstream) {
+                DispatchOutcome::Handled
+            } else {
+                self.refuse(channel, "agent_tool_frame_has_no_pending_call")
+            };
+        }
         match upstream {
             CoordWorkerUpstream::RpcOk {
                 request_id, data, ..

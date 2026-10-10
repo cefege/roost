@@ -290,6 +290,13 @@ message WAttachmentDirectStatus {
   string request_id = 1;
   AttachmentTransferStatus status = 2;
 }
+message WAgentToolOutput { string call_id = 1; string chunk = 2; }
+message WAgentToolResult {
+  string call_id = 1;
+  bool is_error = 2;
+  string content = 3;
+  string details_json = 4;
+}
 
 message CoordWorkerUp {
   reserved 4, 5, 8, 9, 13, 15;
@@ -321,6 +328,8 @@ message CoordWorkerUp {
     WAttachmentDirectStatus attachment_direct_status = 29;
     WAgentTunnelState agent_tunnel_state = 31;
     WAgentTunnelOutput agent_tunnel_output = 32;
+    WAgentToolOutput agent_tool_output = 33;
+    WAgentToolResult agent_tool_result = 34;
   }
 }
 
@@ -605,6 +614,16 @@ message DAgentTunnelDaemonChunk {
   bytes data = 2;
   bool last = 3;
 }
+message DAgentToolCall {
+  string call_id = 1;
+  string conversation_id = 2;
+  string cwd = 3;
+  string tool = 4;
+  string args_json = 5;
+  uint32 timeout_ms = 6;
+}
+message DAgentToolCancel { string call_id = 1; }
+message DAgentConversationClosed { string conversation_id = 1; }
 message DAgentTunnelClose { string tunnel_id = 1; }
 
 message CoordWorkerDown {
@@ -646,6 +665,9 @@ message CoordWorkerDown {
     DAgentTunnelInput agent_tunnel_input = 34;
     DAgentTunnelDaemonChunk agent_tunnel_daemon_chunk = 35;
     DAgentTunnelClose agent_tunnel_close = 36;
+    DAgentToolCall agent_tool_call = 37;
+    DAgentToolCancel agent_tool_cancel = 38;
+    DAgentConversationClosed agent_conversation_closed = 39;
   }
 }
 
