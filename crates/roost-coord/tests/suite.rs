@@ -170,6 +170,8 @@ mod push_dispatch_fences;
 mod push_dispatch_payload;
 #[path = "push_dispatch_targets.rs"]
 mod push_dispatch_targets;
+#[path = "push_pair_request.rs"]
+mod push_pair_request;
 #[path = "push_sender_bounds.rs"]
 mod push_sender_bounds;
 #[path = "push_sender_delivery.rs"]

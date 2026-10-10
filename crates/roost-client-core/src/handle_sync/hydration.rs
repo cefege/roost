@@ -150,7 +150,8 @@ pub(crate) fn settle_hydration_result(
             None
         }
         (SyncDomain::Pair, RpcResult::PairList { requests, .. }) => {
-            store.pair_requests = requests.clone();
+            let pending: Vec<_> = requests.values().cloned().collect();
+            super::fold_controls::replace_pair_requests(store, &pending, now_ms);
             None
         }
         (

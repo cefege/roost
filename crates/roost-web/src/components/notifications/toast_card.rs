@@ -172,6 +172,9 @@ pub fn ToastCard(toast_id: ToastId) -> Element {
                         }
                     });
                 }
+                ToastIntent::OpenPairApprovals => {
+                    navigate.call(crate::routes::Route::Pair.to_path())
+                }
             }
         }
     });

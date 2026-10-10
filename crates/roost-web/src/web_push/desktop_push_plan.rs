@@ -1,6 +1,6 @@
 //! The Desktop notifications decisions with no browser in them: what the
 //! Settings switch shows, what a page load repairs, how a failure reads, and
-//! which session a notification click names.
+//! where a notification click goes.
 //!
 //! Called by the Settings notifications pane, `push_lifecycle` and
 //! `DesktopPushBridge`; the browser facts arrive as plain values from
@@ -187,14 +187,32 @@ pub fn preference_after_toggle(requested: bool, outcome: &Result<(), DesktopPush
     requested && outcome.is_ok()
 }
 
-/// The session a service worker `message` names, when it is a notification
-/// click for a well-formed session id.
+/// Where a notification click asks this window to go.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NotificationClick {
+    /// A session's terminal.
+    Session(SessionId),
+    /// The pairing approvals at /pair.
+    PairApprovals,
+}
+
+/// The destination a service-worker `message` names, when it is a
+/// notification click: the pairing approvals, or a well-formed session id.
 #[must_use]
-pub fn clicked_session(message_type: Option<&str>, session_id: Option<&str>) -> Option<SessionId> {
+pub fn clicked_target(
+    message_type: Option<&str>,
+    session_id: Option<&str>,
+    target: Option<&str>,
+) -> Option<NotificationClick> {
     if message_type != Some(NAVIGATE_MESSAGE_TYPE) {
         return None;
     }
-    SessionId::try_from(session_id?).ok()
+    if target == Some("pair") {
+        return Some(NotificationClick::PairApprovals);
+    }
+    SessionId::try_from(session_id?)
+        .ok()
+        .map(NotificationClick::Session)
 }
 
 #[cfg(test)]
@@ -334,16 +352,27 @@ mod tests {
     fn a_click_message_names_a_session_only_when_well_formed() {
         let id = "11111111-1111-4111-8111-111111111111";
         assert_eq!(
-            clicked_session(Some(NAVIGATE_MESSAGE_TYPE), Some(id))
-                .map(|session| session.to_string()),
-            Some(id.to_owned())
+            clicked_target(Some(NAVIGATE_MESSAGE_TYPE), Some(id), None),
+            SessionId::try_from(id).ok().map(NotificationClick::Session)
         );
-        assert_eq!(clicked_session(Some("other"), Some(id)), None);
+        assert_eq!(clicked_target(Some("other"), Some(id), None), None);
         assert_eq!(
-            clicked_session(Some(NAVIGATE_MESSAGE_TYPE), Some("../settings")),
+            clicked_target(Some(NAVIGATE_MESSAGE_TYPE), Some("../settings"), None),
             None
         );
-        assert_eq!(clicked_session(Some(NAVIGATE_MESSAGE_TYPE), None), None);
-        assert_eq!(clicked_session(None, Some(id)), None);
+        assert_eq!(
+            clicked_target(Some(NAVIGATE_MESSAGE_TYPE), None, None),
+            None
+        );
+        assert_eq!(clicked_target(None, Some(id), None), None);
+    }
+
+    #[test]
+    fn a_pairing_click_opens_the_approvals() {
+        assert_eq!(
+            clicked_target(Some(NAVIGATE_MESSAGE_TYPE), None, Some("pair")),
+            Some(NotificationClick::PairApprovals)
+        );
+        assert_eq!(clicked_target(Some("other"), None, Some("pair")), None);
     }
 }

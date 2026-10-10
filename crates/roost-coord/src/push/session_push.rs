@@ -2,7 +2,7 @@
 //! session's display title, take the deliverable subscriptions, skip devices
 //! already viewing the session, send, and log the counts. `command_finished`
 //! and `terminal_notification` build only their payloads; `serve` subscribes
-//! both through [`subscribe_session_pushes`].
+//! them, and the `pair_request` push, through [`subscribe_event_pushes`].
 
 use std::sync::Arc;
 
@@ -104,19 +104,25 @@ fn log_failed(event: &str, session_id: &str, error: &str) {
     );
 }
 
-/// Subscribe the command-finished and terminal-notification pushes; the
-/// returned handles are their whole lifetime.
-pub fn subscribe_session_pushes(
+/// Subscribe the command-finished, terminal-notification and pair-request
+/// pushes; the returned handles are their whole lifetime.
+pub fn subscribe_event_pushes(
     services: &crate::services::CoordServices,
     allowed_origins: &[String],
     transport: Arc<dyn PushNotificationTransport>,
-) -> SessionPushSubscriptions {
+) -> EventPushSubscriptions {
     let viewers = || Arc::clone(&services.views) as Arc<dyn ActiveTerminalViewers>;
-    SessionPushSubscriptions {
+    EventPushSubscriptions {
         _command_finished: Arc::new(crate::push::command_finished::CommandFinishedPush::new(
             services.db.pool().clone(),
             allowed_origins.to_vec(),
             viewers(),
+            Arc::clone(&transport),
+        ))
+        .subscribe(&services.buses),
+        _pair_request: Arc::new(crate::push::pair_request::PairRequestPush::new(
+            services.db.pool().clone(),
+            allowed_origins.to_vec(),
             Arc::clone(&transport),
         ))
         .subscribe(&services.buses),
@@ -132,11 +138,12 @@ pub fn subscribe_session_pushes(
     }
 }
 
-/// The session pushes' bus subscriptions; dropping this stops them.
+/// The event pushes' bus subscriptions; dropping this stops them.
 #[derive(Debug)]
-pub struct SessionPushSubscriptions {
+pub struct EventPushSubscriptions {
     _command_finished:
         crate::events::bus::Subscription<crate::events::bus_messages::SessionCommandFinished>,
+    _pair_request: crate::events::bus::Subscription<crate::events::bus_messages::PairRequestDelta>,
     _terminal_notification:
         crate::events::bus::Subscription<crate::events::bus_messages::SessionTerminalSignals>,
 }

@@ -15,6 +15,7 @@
 pub mod command_finished;
 pub mod dispatch;
 pub mod endpoint_policy;
+pub mod pair_request;
 pub mod rpc;
 pub mod sender;
 pub mod session_push;

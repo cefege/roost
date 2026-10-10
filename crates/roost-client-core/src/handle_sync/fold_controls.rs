@@ -12,9 +12,12 @@ use std::collections::BTreeSet;
 
 use crate::effect::Effect;
 use crate::store::Store;
-use crate::store::mutations::delete_pair_request;
+use crate::store::mutations::{PairRequest, delete_pair_request};
 use crate::store::sync_feeds::{ANNOUNCED_PAIRINGS_MAX, AUDIT_ROW_RING_MAX, UI_COMMAND_QUEUE_MAX};
-use crate::store::toasts::{ToastId, ToastKind, ToastOptions, ToastSource, raise_toast};
+use crate::store::toasts::{
+    ToastId, ToastKind, ToastOptions, ToastSource, pair_request_toast_id, raise_toast,
+    remove_pair_request_toast,
+};
 use crate::sync::SyncDomain;
 use crate::sync::inbound::{AuditEntry, CoordinatorRelocation, PairRequestChange, PairedBrowser};
 
@@ -30,50 +33,90 @@ pub(super) fn fold_pair_request(
 ) {
     match change {
         PairRequestChange::Pending(request) => {
-            if store.pair_requests.get(&request.ephemeral_id) != Some(request) {
+            let previous = store.pair_requests.get(&request.ephemeral_id);
+            let is_new = previous.is_none();
+            if previous != Some(request) {
                 store
                     .pair_requests
                     .insert(request.ephemeral_id.clone(), request.clone());
+                // Only absent → present raises: a changed request already
+                // carded must not bring back a card the operator dismissed.
+                if is_new {
+                    raise_pair_request_toast(store, request, now_ms);
+                }
                 store.note_change();
             }
             tracing::debug!(target: "sync", ephemeral_id = %request.ephemeral_id, "pair request pending");
         }
         PairRequestChange::Removed { ephemeral_id } => {
             delete_pair_request(store, ephemeral_id);
-        }
-        PairRequestChange::Snapshot(pending) => {
-            let keep: BTreeSet<&str> = pending
-                .iter()
-                .map(|request| request.ephemeral_id.as_str())
-                .collect();
-            let mut changed = false;
-            store.pair_requests.retain(|ephemeral_id, _| {
-                let kept = keep.contains(ephemeral_id.as_str());
-                changed |= !kept;
-                kept
-            });
-            for request in pending {
-                if store.pair_requests.get(&request.ephemeral_id) != Some(request) {
-                    store
-                        .pair_requests
-                        .insert(request.ephemeral_id.clone(), request.clone());
-                    changed = true;
-                }
-            }
-            if changed {
+            if remove_pair_request_toast(&mut store.toasts, ephemeral_id) {
                 store.note_change();
             }
-            tracing::info!(target: "sync", pending = pending.len(), "pair request snapshot replaced the set");
         }
+        PairRequestChange::Snapshot(pending) => replace_pair_requests(store, pending, now_ms),
         PairRequestChange::Completed(browser) => {
             let removed = store.pair_requests.remove(&browser.ephemeral_id).is_some();
+            let uncarded = remove_pair_request_toast(&mut store.toasts, &browser.ephemeral_id);
             let announced = announce_paired_browser(store, browser, delivery_seq, now_ms);
-            if removed || announced {
+            if removed || uncarded || announced {
                 store.note_change();
             }
             tracing::info!(target: "sync", ephemeral_id = %browser.ephemeral_id, announced, "pairing completed");
         }
     }
+}
+
+/// Replace the pending set with an authoritative one — a Sync snapshot or the
+/// hydration answer — raising a card for each request not held before and
+/// dropping the card of each request that vanished.
+pub(super) fn replace_pair_requests(store: &mut Store, pending: &[PairRequest], now_ms: u64) {
+    let keep: BTreeSet<&str> = pending
+        .iter()
+        .map(|request| request.ephemeral_id.as_str())
+        .collect();
+    let mut vanished = Vec::new();
+    store.pair_requests.retain(|ephemeral_id, _| {
+        let kept = keep.contains(ephemeral_id.as_str());
+        if !kept {
+            vanished.push(ephemeral_id.clone());
+        }
+        kept
+    });
+    let mut changed = !vanished.is_empty();
+    for ephemeral_id in &vanished {
+        remove_pair_request_toast(&mut store.toasts, ephemeral_id);
+    }
+    for request in pending {
+        let previous = store.pair_requests.get(&request.ephemeral_id);
+        let is_new = previous.is_none();
+        if previous != Some(request) {
+            store
+                .pair_requests
+                .insert(request.ephemeral_id.clone(), request.clone());
+            if is_new {
+                raise_pair_request_toast(store, request, now_ms);
+            }
+            changed = true;
+        }
+    }
+    if changed {
+        store.note_change();
+    }
+    tracing::info!(target: "sync", pending = pending.len(), "pair request snapshot replaced the set");
+}
+
+/// The sticky "wants to pair" card for one pending request, with the button
+/// that opens the approvals. The caller owns the revision bump.
+fn raise_pair_request_toast(store: &mut Store, request: &PairRequest, now_ms: u64) {
+    raise_toast(
+        &mut store.toasts,
+        pair_request_toast_id(&request.ephemeral_id),
+        format!("{} wants to pair with Roost", request.announcement_label()),
+        ToastKind::Warn,
+        ToastOptions::with_ttl(None).with_pair_review_action(),
+        now_ms,
+    );
 }
 
 /// Raise "New browser paired" once per pairing however many frames report it

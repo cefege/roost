@@ -6,6 +6,8 @@
 //! Ported from `apps/web/src/store/sync-frame.ts:102-371` and
 //! `apps/web/src/lib/pairedBrowserNotice.ts`.
 
+use roost_protocol::wire::pairing::requester_label;
+
 use crate::store::PairRequest;
 
 /// One viewer of a session, from a `session_presence` frame of kind `viewers`.
@@ -103,33 +105,17 @@ pub struct PairedBrowser {
     pub country_code: String,
 }
 
-/// What the notice calls a browser neither the edge nor the requester named.
-const UNKNOWN_BROWSER_LABEL: &str = "Unknown browser";
-
 impl PairedBrowser {
-    /// "Chrome on macOS · Berlin": the parsed browser and OS first, the
-    /// requester's own label when neither was parsed, then the most specific
-    /// known place. v2 `formatPairedBrowserLabel`.
+    /// "Chrome on macOS · Berlin". v2 `formatPairedBrowserLabel`.
     pub fn announcement_label(&self) -> String {
-        let browser = self.client_browser.trim();
-        let os = self.client_os.trim();
-        let device = match (browser.is_empty(), os.is_empty()) {
-            (false, false) => format!("{browser} on {os}"),
-            (false, true) => browser.to_owned(),
-            (true, false) => os.to_owned(),
-            (true, true) => match self.label.trim() {
-                "" => UNKNOWN_BROWSER_LABEL.to_owned(),
-                label => label.to_owned(),
-            },
-        };
-        let place = [&self.city, &self.region, &self.country_code]
-            .into_iter()
-            .map(|part| part.trim())
-            .find(|part| !part.is_empty());
-        match place {
-            Some(place) => format!("{device} · {place}"),
-            None => device,
-        }
+        requester_label(
+            &self.label,
+            &self.client_browser,
+            &self.client_os,
+            &self.city,
+            &self.region,
+            &self.country_code,
+        )
     }
 }
 
