@@ -1,0 +1,77 @@
+/* Dense built-in-agent provider rows and connection dialogs. */
+.agent-settings__filter { margin-block-end: var(--md-space-3); }
+.agent-settings__section + .agent-settings__section { margin-block-start: var(--md-space-5); }
+.agent-settings__section-title {
+  margin: 0 0 var(--md-space-2);
+  color: var(--text-hi);
+  font: var(--md-title-s-weight) var(--md-title-s-size)/var(--md-title-s-line) var(--md-font);
+}
+.agent-settings__provider-list {
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+}
+.agent-settings__provider-row {
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-3);
+  min-block-size: var(--md-space-9);
+  padding: var(--md-space-2) 0;
+  border-block-end: var(--workbench-border-width) solid var(--workbench-sidebar-border);
+}
+.agent-settings__provider-info {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-inline-size: 0;
+  gap: var(--md-space-1);
+}
+.agent-settings__provider-name {
+  overflow: hidden;
+  color: var(--text-hi);
+  font: var(--md-label-l-weight) var(--md-label-l-size)/var(--md-label-l-line) var(--md-font);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-settings__provider-id {
+  overflow: hidden;
+  color: var(--text-lo);
+  font: var(--md-label-s-weight) var(--md-label-s-size)/var(--md-label-s-line) var(--md-font);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-settings__provider-actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: var(--md-space-2);
+}
+.agent-settings__skeleton-row {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--md-space-2);
+  min-block-size: var(--md-space-9);
+  border-block-end: var(--workbench-border-width) solid var(--workbench-sidebar-border);
+}
+.agent-settings__notice {
+  margin-block: var(--md-space-2);
+  color: var(--md-error);
+}
+.agent-settings__dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-3);
+}
+.agent-settings__notice-card { padding: var(--md-space-3); }
+.agent-settings__device-code {
+  color: var(--text-hi);
+  font: var(--md-headline-s-weight) var(--md-headline-s-size)/var(--md-headline-s-line) var(--font-mono);
+  letter-spacing: var(--md-space-1);
+}
+.agent-settings__select-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-1);
+}
+.agent-settings__manual-instruction { color: var(--text-mid); }

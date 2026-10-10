@@ -473,3 +473,52 @@ aside[data-testid="sidebar-desktop"] {
 @media (hover: none) {
   .df-row .df-action { opacity: 1; }
 }
+/* A built-in agent conversation under its folder: one dense line. */
+.workbench-sidebar-agent-conversation {
+  min-block-size: var(--md-space-7);
+  padding-inline-start: calc(var(--md-space-3) + var(--md-space-6));
+  border-inline-start: var(--workbench-border-width) solid transparent;
+  border-block-end-color: transparent;
+  color: var(--text-mid);
+  gap: var(--md-space-2);
+}
+.workbench-sidebar-agent-conversation .md-list-row__leading {
+  inline-size: var(--md-space-4);
+  color: var(--text-lo);
+}
+.workbench-sidebar-agent-conversation .md-list-row__leading .roost-icon {
+  inline-size: var(--md-space-4);
+  block-size: var(--md-space-4);
+}
+.workbench-sidebar-agent-conversation .md-list-row__body {
+  display: flex;
+  align-items: baseline;
+  gap: var(--md-space-2);
+  min-inline-size: 0;
+}
+.workbench-sidebar-agent-conversation .md-list-row__headline,
+.workbench-sidebar-agent-conversation .md-list-row__support {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workbench-sidebar-agent-conversation .md-list-row__headline {
+  flex: 0 1 auto;
+  color: var(--text-mid);
+  font: var(--md-label-m-weight) var(--md-label-m-size)/var(--md-label-m-line) var(--md-font);
+}
+.workbench-sidebar-agent-conversation .md-list-row__support {
+  flex: 1 1 auto;
+  color: var(--text-lo);
+  font: var(--md-label-s-weight) var(--md-label-s-size)/var(--md-label-s-line) var(--md-font);
+}
+.workbench-sidebar-agent-conversation .md-list-row__trailing {
+  flex: 0 0 auto;
+}
+.workbench-sidebar-agent-conversation[data-selected="true"],
+.workbench-sidebar-agent-conversation[aria-current="page"] {
+  background: var(--workbench-sidebar-selected);
+  border-inline-start-color: var(--workbench-active);
+  color: var(--workbench-sidebar-selected-text);
+}
