@@ -11,6 +11,8 @@
 mod hydration;
 pub use hydration::answer_hydrations;
 
+pub mod pair;
+
 use roost_client_core::effect::{Effect, SyncCommand};
 use roost_client_core::event::ClientEvent;
 use roost_client_core::sync::decode::{DecodeRefusal, SyncFrameMeta, decode_firehose};

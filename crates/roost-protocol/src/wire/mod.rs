@@ -17,6 +17,7 @@ pub mod event;
 pub mod event_proto;
 pub mod headers;
 pub mod mcp;
+pub mod pairing;
 pub mod session;
 pub mod session_proto;
 pub mod sync_ws;

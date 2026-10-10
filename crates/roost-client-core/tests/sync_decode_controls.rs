@@ -16,40 +16,15 @@ use roost_client_core::{ClientEvent, Effect, SyncCommand, SyncDomain};
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
 use roost_proto::__buffa::oneof::pair_request_delta_proto::Kind as PairKind;
 use roost_proto::{
-    CoordinatorRelocationFrame, PairCompleted, PairRequest, PairRequestDeltaProto,
-    PairRequestsSnapshot, SyncDomainResetFrame, TerminalInputRouteResult,
-    TerminalTransportProbeResult, UiCommandFrame, UiStateFrame,
+    CoordinatorRelocationFrame, PairRequestsSnapshot, SyncDomainResetFrame,
+    TerminalInputRouteResult, TerminalTransportProbeResult, UiCommandFrame, UiStateFrame,
 };
 
+use sync_decode_support::pair::{completed, pair_arm, pair_ids, pending, toast_messages};
 use sync_decode_support::{
     SESSION, SOCKET, WORKER_FP, acked, application, closes, control, deliver, ready_core, refused,
     subscribed_arm,
 };
-
-fn pair_arm(kind: PairKind) -> Frame {
-    Frame::PairRequestDelta(Box::new(PairRequestDeltaProto {
-        kind: Some(kind),
-        ..PairRequestDeltaProto::default()
-    }))
-}
-
-fn pending(ephemeral_id: &str) -> PairRequest {
-    PairRequest {
-        ephemeral_id: ephemeral_id.to_owned(),
-        label: "Chrome — macOS".to_owned(),
-        created_at_ms: 1,
-        expires_at_ms: 60_000,
-        ..PairRequest::default()
-    }
-}
-
-fn pair_ids(core: &roost_client_core::ClientCore) -> Vec<&str> {
-    core.store()
-        .pair_requests
-        .keys()
-        .map(String::as_str)
-        .collect()
-}
 
 #[test]
 fn a_pair_snapshot_replaces_the_set_so_a_missed_removal_cannot_linger() {
@@ -80,28 +55,6 @@ fn a_pair_snapshot_replaces_the_set_so_a_missed_removal_cannot_linger() {
         &application(SyncDomain::Pair, 4, snapshot),
     );
     assert_eq!(pair_ids(&core), ["c", "d"], "b was not in the snapshot");
-}
-
-fn completed(ephemeral_id: &str) -> Frame {
-    pair_arm(PairKind::Completed(Box::new(PairCompleted {
-        ephemeral_id: ephemeral_id.to_owned(),
-        label: "Chrome — macOS".to_owned(),
-        client_browser: "Chrome".to_owned(),
-        client_os: "macOS".to_owned(),
-        city: "Berlin".to_owned(),
-        region: "Berlin".to_owned(),
-        country_code: "DE".to_owned(),
-        paired_at_ms: 1,
-        ..PairCompleted::default()
-    })))
-}
-
-fn toast_messages(core: &roost_client_core::ClientCore) -> Vec<String> {
-    core.store()
-        .toasts
-        .toasts()
-        .map(|toast| toast.msg.clone())
-        .collect()
 }
 
 #[test]

@@ -71,6 +71,18 @@ impl PairRequest {
     pub fn is_live_at(&self, now_ms: i64) -> bool {
         now_ms < self.expires_at_ms
     }
+
+    /// "Chrome on macOS · Berlin": how the pairing card names the requester.
+    pub fn announcement_label(&self) -> String {
+        roost_protocol::wire::pairing::requester_label(
+            &self.label,
+            &self.client_browser,
+            &self.client_os,
+            &self.city,
+            &self.region,
+            &self.country_code,
+        )
+    }
 }
 
 /// Replace the worker registry with an authoritative list.

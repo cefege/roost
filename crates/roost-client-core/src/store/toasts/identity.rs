@@ -129,6 +129,8 @@ pub enum ToastIntent {
         /// The text the operator explicitly chose to copy.
         text: String,
     },
+    /// Open the pairing approvals at /pair.
+    OpenPairApprovals,
 }
 
 /// The button a card offers.
@@ -237,6 +239,15 @@ impl ToastOptions {
         self.action = Some(ToastAction {
             label: "Copy".to_owned(),
             intent: ToastIntent::CopyText { text: text.into() },
+        });
+        self
+    }
+
+    /// Attach the "Review" button that opens the pairing approvals.
+    pub fn with_pair_review_action(mut self) -> Self {
+        self.action = Some(ToastAction {
+            label: "Review".to_owned(),
+            intent: ToastIntent::OpenPairApprovals,
         });
         self
     }

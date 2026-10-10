@@ -297,6 +297,30 @@ pub fn remove_toasts_for_session(toasts: &mut ToastStack, session_id: &str) -> b
     !doomed.is_empty()
 }
 
+/// The source every pending-pair card shares: one card per request, however it
+/// arrived. A host fact rather than a Sync source, so a live frame, a snapshot
+/// and a hydration of the same request all name one card.
+pub const PAIR_REQUEST_TOAST_SOURCE: &str = "pair_request";
+
+/// The id of the card for pending request `ephemeral_id`.
+pub fn pair_request_toast_id(ephemeral_id: &str) -> ToastId {
+    ToastId::new(
+        ToastSource::Host {
+            name: PAIR_REQUEST_TOAST_SOURCE,
+        },
+        ephemeral_id,
+    )
+}
+
+/// Drop the card for pending request `ephemeral_id`, reporting whether one was
+/// held. Does not bump `revision`; the pair fold notes the change once.
+pub fn remove_pair_request_toast(toasts: &mut ToastStack, ephemeral_id: &str) -> bool {
+    toasts
+        .toasts
+        .remove(&pair_request_toast_id(ephemeral_id))
+        .is_some()
+}
+
 /// Drop every card, at a credential boundary.
 ///
 /// A card from the previous credential names a session and a path the new one

@@ -184,6 +184,8 @@ mod sync_encode;
 mod sync_encode_terminal;
 #[path = "sync_generation_fence.rs"]
 mod sync_generation_fence;
+#[path = "sync_pair_request_cards.rs"]
+mod sync_pair_request_cards;
 #[path = "sync_reconnect_placement.rs"]
 mod sync_reconnect_placement;
 #[path = "sync_redial_pacing.rs"]

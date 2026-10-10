@@ -144,9 +144,9 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
             Arc::clone(&services.views) as Arc<dyn ActiveTerminalViewers>,
             Arc::clone(&web_push),
         )));
-    // Long shell commands and programs' own notifications reach a phone the
-    // same way. Held for the life of `serve`: dropping them stops the pushes.
-    let _session_pushes = crate::push::session_push::subscribe_session_pushes(
+    // Long shell commands, programs' own notifications and pairing requests
+    // reach a phone the same way. Held for the life of `serve`.
+    let _event_pushes = crate::push::session_push::subscribe_event_pushes(
         &services,
         push.allowed_origins(),
         web_push,

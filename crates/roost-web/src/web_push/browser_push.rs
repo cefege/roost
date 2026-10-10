@@ -8,7 +8,6 @@
 //! those globals unchecked, so calling through an absent one throws out of wasm.
 
 use js_sys::{Promise, Reflect, Uint8Array};
-use roost_protocol::wire::SessionId;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::{JsCast as _, JsValue};
 use wasm_bindgen_futures::JsFuture;
@@ -18,7 +17,9 @@ use web_sys::{
 };
 
 use super::PUSH_SERVICE_WORKER_URL;
-use super::desktop_push_plan::{DesktopPushError, PushPermission, clicked_session};
+use super::desktop_push_plan::{
+    DesktopPushError, NotificationClick, PushPermission, clicked_target,
+};
 use crate::platform::device_key::describe_js;
 
 /// Whether `owner` has a member called `name`. A failed reflection is "no".
@@ -197,8 +198,8 @@ impl std::fmt::Debug for ServiceWorkerClicks {
 }
 
 impl ServiceWorkerClicks {
-    /// Call `on_session` with each session a clicked notification names.
-    pub fn install(mut on_session: impl FnMut(SessionId) + 'static) -> Option<Self> {
+    /// Call `on_click` with each destination a clicked notification names.
+    pub fn install(mut on_click: impl FnMut(NotificationClick) + 'static) -> Option<Self> {
         let container = service_worker_container()?;
         let listener = Closure::<dyn FnMut(MessageEvent)>::new(move |event: MessageEvent| {
             let data = event.data();
@@ -207,10 +208,12 @@ impl ServiceWorkerClicks {
                     .ok()
                     .and_then(|value| value.as_string())
             };
-            if let Some(session_id) =
-                clicked_session(member("type").as_deref(), member("sessionId").as_deref())
-            {
-                on_session(session_id);
+            if let Some(click) = clicked_target(
+                member("type").as_deref(),
+                member("sessionId").as_deref(),
+                member("target").as_deref(),
+            ) {
+                on_click(click);
             }
         });
         container.set_onmessage(Some(listener.as_ref().unchecked_ref()));
