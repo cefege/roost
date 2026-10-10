@@ -1,0 +1,22 @@
+data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"msg-1"}}
+
+data: {"type":"response.output_text.delta","output_index":0,"delta":"Codex"}
+
+data: {"type":"response.output_item.done","output_index":0,"item":{"type":"message","id":"msg-1","content":[]}}
+
+data: {"type":"response.output_item.added","output_index":1,"item":{"type":"reasoning","id":"reason-1"}}
+
+data: {"type":"response.reasoning_summary_text.delta","output_index":1,"delta":"thinking"}
+
+data: {"type":"response.output_item.done","output_index":1,"item":{"type":"reasoning","encrypted_content":"opaque-ciphertext"}}
+
+data: {"type":"response.output_item.added","output_index":2,"item":{"type":"function_call","id":"item-1","call_id":"call-codex","name":"read","arguments":""}}
+
+data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":"{\"path\":"}
+
+data: {"type":"response.function_call_arguments.delta","output_index":2,"delta":"\"src/main.rs\"}"}
+
+data: {"type":"response.output_item.done","output_index":2,"item":{"type":"function_call","call_id":"call-codex","name":"read","arguments":"{\"path\":\"src/main.rs\"}"}}
+
+data: {"type":"response.completed","response":{"status":"completed","output":[{"type":"function_call"}],"usage":{"input_tokens":23,"output_tokens":8,"input_tokens_details":{"cached_tokens":5}}}}
+

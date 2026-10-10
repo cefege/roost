@@ -12,3 +12,28 @@ autotests = false
 workspace = true
 
 [dependencies]
+roost-observability = { workspace = true }
+async-stream = { workspace = true }
+base64 = { workspace = true }
+futures = { workspace = true }
+getrandom = { workspace = true }
+hex = { workspace = true }
+reqwest = { workspace = true, features = ["json", "rustls", "stream"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+xxhash-rust = { workspace = true }
+
+[dev-dependencies]
+axum = { workspace = true, features = ["http1", "json", "query", "tokio"] }
+tokio = { workspace = true, features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time", "test-util"] }
+
+[[test]]
+name = "suite"
+path = "tests/suite.rs"
+
