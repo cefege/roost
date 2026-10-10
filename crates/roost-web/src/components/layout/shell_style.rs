@@ -54,32 +54,47 @@ pub fn shell_style(
 }
 
 /// The editor region's inline style.
+///
+/// Every branch names every property it can ever set. Dioxus MERGES a `style`
+/// update: a property the new value omits keeps its previous value, so a
+/// padding written by one early compact render used to outlive the switch to
+/// the desktop layout and leave an empty band under the deck.
 pub fn editor_style(
     terminal_route: bool,
+    reserves_composer: bool,
     compact: bool,
     keyboard_resize: bool,
     composer: ComposerGeometry,
 ) -> String {
-    let base = "--term-chat-growth: 0px;";
-    if !terminal_route || keyboard_resize {
-        return base.to_owned();
-    }
-    let shift = "transform: translateY(calc(var(--kb-offset) * -1));";
-    if !compact {
-        return format!("{base} {shift}");
-    }
-    let growth = if composer.active {
+    let shifts = terminal_route && !keyboard_resize;
+    let transform = if shifts {
+        "translateY(calc(var(--kb-offset) * -1))"
+    } else {
+        "none"
+    };
+    let reserve = shifts && compact && reserves_composer;
+    let padding = if reserve {
+        "calc(var(--term-chat-rest-height) + var(--term-chat-dock-rest-offset))"
+    } else {
+        "0px"
+    };
+    let growth = if reserve && composer.active {
         format!(
             "max(0px, calc({}px - var(--term-chat-rest-height)))",
             composer.height_px
         )
     } else {
-        "0".to_owned()
+        "0px".to_owned()
     };
-    format!(
-        "{shift} padding-bottom: calc(var(--term-chat-rest-height) + var(--term-chat-dock-rest-offset)); \
-         --term-chat-growth: {growth};"
-    )
+    format!("--term-chat-growth: {growth}; transform: {transform}; padding-bottom: {padding};")
+}
+
+/// `data-composer-reserve`: the compact editor keeps the portaled terminal
+/// composer's resting row. An agent tab carries its composer inline in the
+/// deck slot, so it shifts for the keyboard but reserves nothing.
+#[must_use]
+pub fn reserves_terminal_composer(pathname: &str, keyboard_resize: bool) -> bool {
+    keyboard_shift(is_terminal_path(pathname), keyboard_resize) && !pathname.starts_with("/a/")
 }
 
 /// `data-keyboard-shift`: set on a terminal route unless the reader opted into
@@ -124,7 +139,10 @@ pub fn shows_mobile_top_bar(compact: bool, pathname: &str, terminal_route: bool)
 /// v2's terminal-route test for the shell: a prefix, so a terminal route that
 /// has not resolved yet still shifts for the keyboard.
 pub fn is_terminal_path(pathname: &str) -> bool {
-    pathname.starts_with("/s/") || pathname.starts_with("/t/") || pathname.starts_with("/w/")
+    pathname.starts_with("/s/")
+        || pathname.starts_with("/t/")
+        || pathname.starts_with("/w/")
+        || pathname.starts_with("/a/")
 }
 
 /// Where the drawer stands when the route or the size class changes.
@@ -181,5 +199,47 @@ mod tests {
             drawer_intent_for_route(false, "/"),
             SidebarIntent::CloseDrawer
         );
+    }
+}
+
+#[cfg(test)]
+mod editor_style_tests {
+    use super::*;
+
+    fn idle() -> ComposerGeometry {
+        ComposerGeometry::default()
+    }
+
+    #[test]
+    fn every_editor_style_names_every_property_it_can_set() {
+        for (terminal, reserves, compact, resize) in [
+            (false, false, false, false),
+            (true, true, false, false),
+            (true, true, true, false),
+            (true, false, true, false),
+            (true, true, true, true),
+        ] {
+            let style = editor_style(terminal, reserves, compact, resize, idle());
+            for property in ["--term-chat-growth:", "transform:", "padding-bottom:"] {
+                assert!(style.contains(property), "{property} missing from {style}");
+            }
+        }
+    }
+
+    #[test]
+    fn only_a_compact_terminal_route_reserves_the_composer_row() {
+        assert!(
+            editor_style(true, true, true, false, idle()).contains("var(--term-chat-rest-height)")
+        );
+        assert!(editor_style(true, true, false, false, idle()).contains("padding-bottom: 0px"));
+        assert!(editor_style(true, false, true, false, idle()).contains("padding-bottom: 0px"));
+    }
+
+    #[test]
+    fn an_agent_tab_shifts_for_the_keyboard_but_reserves_nothing() {
+        assert!(keyboard_shift(is_terminal_path("/a/7"), false));
+        assert!(!reserves_terminal_composer("/a/7", false));
+        assert!(reserves_terminal_composer("/s/abc", false));
+        assert!(!reserves_terminal_composer("/s/abc", true));
     }
 }
