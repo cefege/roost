@@ -468,7 +468,7 @@ Needs `gh`, `helm` and `kubectl` on this machine.
 
 ## Failure index
 
-[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md) is the symptom→fix index: 153
+[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md) is the symptom→fix index: 154
 entries, one `###` heading each, with `**Symptom**` (the grep string),
 `**Wrong**`, `**Right**`, and `**Guard**` (the test or lint check
 that pins it). It is the only actively maintained institutional memory in this repo and

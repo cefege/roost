@@ -30,12 +30,20 @@ pub fn status_dot_token(status: &str) -> &'static str {
 
 /// The dot's inline style: its geometry, and either a filled background or, for
 /// the hollow variant the folder list uses, an outline in the same token.
+///
+/// Longhands only. Dioxus updates a `style` attribute by re-applying every
+/// property the new value reports as empty, and a shorthand holding `var()`
+/// reports its longhands empty, so `background: var(--x)` was erased on the
+/// first re-render and a dot whose status changed lost its colour.
 pub fn status_dot_style(status: &str, size_px: u32, hollow: bool) -> String {
     let token = status_dot_token(status);
     let fill = if hollow {
-        format!("background: transparent; border: 1.5px solid var({token});")
+        format!(
+            "background-color: transparent; border-width: 1.5px; border-style: solid; \
+             border-color: var({token});"
+        )
     } else {
-        format!("background: var({token});")
+        format!("background-color: var({token});")
     };
     format!(
         "display: inline-block; flex-shrink: 0; width: {size_px}px; height: {size_px}px; \

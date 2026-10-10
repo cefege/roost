@@ -21,7 +21,7 @@ use super::mobile_bar::MobileTopBar;
 use super::mobile_sidebar_drawer::MobileSidebarDrawer;
 use super::shell_style::{
     ComposerGeometry, drawer_intent_for_route, editor_style, is_terminal_path, keyboard_shift,
-    shell_style, shows_mobile_top_bar,
+    reserves_terminal_composer, shell_style, shows_mobile_top_bar,
 };
 use super::sidebar_region::SidebarRegion;
 use super::status_bar::StatusBar;
@@ -149,7 +149,7 @@ pub fn AppShell(children: Element) -> Element {
             main {
                 class: "workbench-editor-region",
                 "data-keyboard-shift": keyboard_shift(terminal_route, reading.keyboard_resize).then_some("true"),
-                style: editor_style(terminal_route, compact, reading.keyboard_resize, composer),
+                style: editor_style(terminal_route, reserves_terminal_composer(&path, reading.keyboard_resize), compact, reading.keyboard_resize, composer),
                 if shows_mobile_top_bar(compact, &path, terminal_route) {
                     MobileTopBar { path: path.clone(), session_title: title, session_folder: folder }
                 }

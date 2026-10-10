@@ -4045,3 +4045,24 @@ stream.
 
 **Guard** — `crates/roost-worker/tests/agent_tunnel.rs` —
 `the_port_applies_back_to_back_frames_in_link_order` (multi-thread runtime, one byte per chunk).
+
+### A status dot is blank, or an empty band sits under the deck: Dioxus merged a `style`
+
+**Symptom** — a `StatusDot` (sidebar rollups, the agent chat toolbar) renders as an empty
+circle whose inline `style` has the geometry but no `background`; or, on desktop, the editor region
+keeps a `padding-bottom` reserve under the deck that only the compact layout asked for.
+
+**Wrong** — re-render harder, patch it from CSS beside it, or pass another status name. Dioxus updates
+a `style` attribute by setting the new string and then re-applying every property of the OLD value
+that the new one reports empty. So a property the new string omits survives (the padding from one
+early compact render), and a shorthand holding `var()` — whose longhands report empty — is erased by
+the re-applied empty longhands (`background: var(--token)`).
+
+**Right** — a dynamic inline style writes longhands only (`md::status_dot::status_dot_style`:
+`background-color`, `border-width`/`border-style`/`border-color`) and names every property it can
+ever set in every branch (`layout::shell_style::editor_style`: `padding-bottom: 0px` when it does not
+reserve).
+
+**Guard** — `crates/roost-web/tests/md_primitives.rs` —
+`a_status_dot_never_puts_its_token_in_a_shorthand`; `layout::shell_style::editor_style_tests` —
+`every_editor_style_names_every_property_it_can_set`.

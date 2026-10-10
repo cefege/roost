@@ -211,14 +211,6 @@
   transition: transform var(--md-sys-motion-duration-medium1) var(--md-sys-motion-easing-emphasized);
 }
 
-/* The compact editor reserves the composer's RESTING row whether or not the
-   composer is mounted right now, because a row that appears and disappears with
-   the composer is a row the terminal's height changes with. */
-.workbench-shell[data-compact="true"] .workbench-editor-region[data-keyboard-shift="true"] {
-  --term-chat-growth: 0px;
-  padding-bottom: calc(var(--term-chat-rest-height) + var(--term-chat-dock-rest-offset));
-}
-
 /* A portal's wrappers generate no box, so a `position: fixed` child resolves
    against the viewport exactly as a `<body>` child does. */
 .roost-portal-root,
