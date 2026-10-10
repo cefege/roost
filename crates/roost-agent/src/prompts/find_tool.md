@@ -1,0 +1,1 @@
+Semantic file search: describe behavior or a concept in plain language and get the files and line ranges that implement it, strongest first. Use FIRST for unknown locations; use `grep` for known literals and `glob` for names. `query`: plain-language description; `path`: optional directory to scope the search.
