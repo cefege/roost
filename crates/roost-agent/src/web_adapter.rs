@@ -1,18 +1,17 @@
-//! Coordinator-owned web access used by harness tools.
-//! Fetches validate every resolved address and every redirect hop.
-//! Search uses the Exa account pool and its configured endpoint.
+//! Coordinator-owned URL fetching used by harness tools.
+//! Every resolved address and redirect hop is checked before a request.
+//! Search transport and provider credentials live in roost-llm.
 
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
-use roost_llm::{Endpoints, LlmError};
+use roost_llm::LlmError;
 
-use crate::{FetchedPage, SearchHit};
+use crate::FetchedPage;
 
 const MAX_FETCH_BYTES: usize = 10 * 1024 * 1024;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_REDIRECTS: usize = 10;
-const EXA_DEFAULT: &str = "https://api.exa.ai";
 
 pub(crate) async fn fetch(url: &str) -> Result<FetchedPage, LlmError> {
     tokio::time::timeout(FETCH_TIMEOUT, fetch_inner(url))
@@ -156,57 +155,6 @@ pub(crate) fn is_public_address(address: IpAddr) -> bool {
                     .is_some_and(|mapped| !is_public_address(IpAddr::V4(mapped))))
         }
     }
-}
-
-pub(crate) async fn search(
-    http: &reqwest::Client,
-    endpoints: &Endpoints,
-    api_key: &str,
-    query: &str,
-    limit: u32,
-) -> Result<Vec<SearchHit>, LlmError> {
-    let url = format!("{}/search", endpoints.base("exa", EXA_DEFAULT));
-    let response = http
-        .post(url)
-        .header("x-api-key", api_key)
-        .json(&serde_json::json!({
-            "query": query,
-            "numResults": limit.clamp(1, 20),
-            "contents": { "text": { "maxCharacters": 500 } }
-        }))
-        .timeout(FETCH_TIMEOUT)
-        .send()
-        .await?;
-    if !response.status().is_success() {
-        return Err(LlmError::Http {
-            status: response.status().as_u16(),
-            body: "Exa search failed".into(),
-        });
-    }
-    let payload: serde_json::Value = response.json().await?;
-    let results = payload
-        .get("results")
-        .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| LlmError::Decode("Exa response has no results".into()))?;
-    Ok(results
-        .iter()
-        .take(limit.clamp(1, 20) as usize)
-        .filter_map(|result| {
-            Some(SearchHit {
-                title: result.get("title")?.as_str()?.to_owned(),
-                url: result.get("url")?.as_str()?.to_owned(),
-                snippet: result
-                    .get("text")
-                    .or_else(|| result.get("highlights").and_then(|value| value.get(0)))?
-                    .as_str()?
-                    .to_owned(),
-                published: result
-                    .get("publishedDate")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_owned),
-            })
-        })
-        .collect())
 }
 
 #[cfg(test)]

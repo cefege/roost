@@ -12,3 +12,5 @@ mod provider_auth;
 mod provider_stream;
 #[path = "provider_support.rs"]
 mod provider_support;
+#[path = "web_search.rs"]
+mod web_search;

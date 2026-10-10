@@ -1,4 +1,5 @@
-//! Ported from oh-my-pi packages/coding-agent/src/config/model-resolver.ts and src/judgment/index.ts (MIT).
+//! Ported from oh-my-pi packages/coding-agent/src/config/model-resolver.ts,
+//! src/judgment/index.ts, and src/priority.json (MIT).
 //! Model selectors (`provider/id[:thinking]`, `@role`, comma lists) and role
 //! resolution: configured value first, then the role's fallback. "Available"
 //! means the catalog has the model and the account pool holds a credential.
@@ -13,6 +14,9 @@ use crate::traits::Llm;
 /// directly, then through OpenRouter, then progressively larger chat models.
 const BUILTIN_JUDGE_CHAIN: &str =
     "typesafe/jev-latest, openrouter/~typesafe/jev-latest, @tiny, @smol, @default";
+
+/// Default provider chain from oh-my-pi's `src/priority.json`.
+pub const DEFAULT_WEB_CHAIN: &str = "web/parallel, web/hosted, web/exa, web/firecrawl, web/searxng, web/startpage, web/duckduckgo, web/ecosia, web/google, web/mojeek, web/public";
 
 /// Chat models tried, in order, when neither the `default` role nor a
 /// default model is configured.
@@ -31,6 +35,8 @@ pub enum SelectorCandidate {
         thinking: Option<String>,
     },
     Role(Role),
+    WebHosted,
+    WebEngine(String),
 }
 
 /// A model chosen for a call, with the thinking level its selector pinned.
@@ -63,6 +69,26 @@ pub fn validate_selector(text: &str) -> Result<(), AgentError> {
     parse_selector(text).map(|_| ())
 }
 
+/// Validates provider-chain selectors only in the web role.
+pub fn validate_role_selector(role: Role, text: &str) -> Result<(), AgentError> {
+    let candidates = parse_selector(text)?;
+    let invalid = candidates.iter().any(|candidate| {
+        let web_candidate = matches!(
+            candidate,
+            SelectorCandidate::WebHosted | SelectorCandidate::WebEngine(_)
+        );
+        web_candidate != (role == Role::Web)
+    });
+    if invalid {
+        return Err(AgentError::InvalidArgument(if role == Role::Web {
+            "the web role accepts only web search selectors".into()
+        } else {
+            "web search selectors are only valid for the web role".into()
+        }));
+    }
+    Ok(())
+}
+
 fn parse_candidate(candidate: &str) -> Result<SelectorCandidate, AgentError> {
     if let Some(role_name) = candidate.strip_prefix('@') {
         return Role::from_name(role_name)
@@ -74,6 +100,17 @@ fn parse_candidate(candidate: &str) -> Result<SelectorCandidate, AgentError> {
             "model selector {candidate:?} must be provider/id or @role"
         )));
     };
+    if provider == "web" {
+        if rest == "hosted" {
+            return Ok(SelectorCandidate::WebHosted);
+        }
+        if roost_llm::web_search::ENGINE_IDS.contains(&rest) {
+            return Ok(SelectorCandidate::WebEngine(rest.to_owned()));
+        }
+        return Err(AgentError::InvalidArgument(format!(
+            "unknown web search engine {rest:?}"
+        )));
+    }
     // Model ids may contain `:` (`respan/span-01-lite:free`), so only a known
     // thinking level after the last `:` is a thinking suffix.
     let (id, thinking) = match rest.rsplit_once(':') {
@@ -150,6 +187,7 @@ pub async fn judge_candidates(
                     .await
                     .map(|model| model.info)
             }
+            SelectorCandidate::WebHosted | SelectorCandidate::WebEngine(_) => None,
         };
         if let Some(model) = resolved
             && !chain.iter().any(|known| same_model(known, &model))
@@ -222,7 +260,7 @@ async fn resolve_role_inner(
             Box::pin(resolve_role_inner(llm, settings, Role::Default, visited)).await
         }
         Role::Default => default_model(llm, settings).await,
-        Role::Plan | Role::Task | Role::Judge => None,
+        Role::Plan | Role::Task | Role::Judge | Role::Web => None,
     }
 }
 
@@ -270,6 +308,7 @@ async fn first_available(
             SelectorCandidate::Role(role) => {
                 Box::pin(resolve_role_inner(llm, settings, *role, visited)).await
             }
+            SelectorCandidate::WebHosted | SelectorCandidate::WebEngine(_) => None,
         };
         if found.is_some() {
             return found;

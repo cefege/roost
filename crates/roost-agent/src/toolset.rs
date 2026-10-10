@@ -93,12 +93,7 @@ pub fn is_read_only(name: &str) -> bool {
 }
 
 /// The tools for `record` at nesting `depth` (0 = a top-level conversation).
-pub fn toolset_for(
-    record: &ConversationRecord,
-    depth: u32,
-    find_available: bool,
-    web_search_available: bool,
-) -> Toolset {
+pub fn toolset_for(record: &ConversationRecord, depth: u32, find_available: bool) -> Toolset {
     let kind = record.agent.as_deref().and_then(SubagentKind::from_name);
     let plan_mode = record.mode == Mode::Plan;
     let read_only_lsp = plan_mode || kind == Some(SubagentKind::Scout);
@@ -131,9 +126,7 @@ pub fn toolset_for(
         specs.push(find_spec());
     }
     specs.push(crate::web_tools::fetch_spec());
-    if web_search_available {
-        specs.push(crate::web_tools::web_search_spec());
-    }
+    specs.push(crate::web_tools::web_search_spec());
     let may_delegate = match kind {
         None => true,
         Some(SubagentKind::Task) => depth < MAX_DEPTH,

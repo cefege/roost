@@ -148,7 +148,7 @@ async fn a_depth_two_child_is_not_offered_the_task_tool() {
     };
     child.agent = Some("task".into());
     child.parent_id = Some("parent".into());
-    assert!(toolset_for(&child, 1, false, false).offers("task"));
-    assert!(!toolset_for(&child, 2, false, false).offers("task"));
-    assert!(toolset_for(&child, 2, false, false).offers("yield"));
+    assert!(toolset_for(&child, 1, false).offers("task"));
+    assert!(!toolset_for(&child, 2, false).offers("task"));
+    assert!(toolset_for(&child, 2, false).offers("yield"));
 }

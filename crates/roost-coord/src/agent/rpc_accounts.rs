@@ -62,29 +62,34 @@ pub async fn models_catalog(agent: &AgentService) -> ModelsCatalog {
             id: provider.to_owned(),
             name: provider_name(provider),
             configured: !accounts.is_empty(),
+            category: "model".to_owned(),
             accounts,
             supports_oauth: OAUTH_PROVIDERS.contains(&provider),
         });
     }
-    let exa_accounts = agent.pool().store().list("exa").await;
-    let exa_configured = !exa_accounts.is_empty();
-    if exa_configured {
-        connected.push("exa".to_owned());
+    for engine in roost_llm::web_search::ENGINE_IDS.iter().copied() {
+        let label = roost_llm::web_search::engine_label(engine);
+        let accounts = agent.pool().store().list(engine).await;
+        let configured = !accounts.is_empty();
+        if configured {
+            connected.push(engine.to_owned());
+        }
+        providers.push(ProviderEntry {
+            id: engine.to_owned(),
+            name: label.to_owned(),
+            configured,
+            category: "web_search".to_owned(),
+            accounts: accounts
+                .iter()
+                .map(|credential| AccountBrief {
+                    credential_id: credential.id,
+                    label: credential.label.clone(),
+                    kind: account_kind(credential),
+                })
+                .collect(),
+            supports_oauth: false,
+        });
     }
-    providers.push(ProviderEntry {
-        id: "exa".to_owned(),
-        name: "Exa (web search)".to_owned(),
-        configured: exa_configured,
-        accounts: exa_accounts
-            .iter()
-            .map(|credential| AccountBrief {
-                credential_id: credential.id,
-                label: credential.label.clone(),
-                kind: account_kind(credential),
-            })
-            .collect(),
-        supports_oauth: false,
-    });
     let models = catalog
         .models()
         .iter()
@@ -108,13 +113,12 @@ pub async fn models_catalog(agent: &AgentService) -> ModelsCatalog {
 async fn account_entries(agent: &AgentService, with_usage: bool) -> Vec<AccountEntry> {
     let mut entries = Vec::new();
     let store = agent.pool().store();
-    for provider in agent
-        .runtime
-        .catalog()
-        .providers()
-        .into_iter()
-        .chain(std::iter::once("exa"))
-    {
+    for provider in agent.runtime.catalog().providers().into_iter().chain(
+        roost_llm::web_search::ENGINE_IDS
+            .iter()
+            .copied()
+            .filter(|engine| roost_llm::web_search::engine_needs_key(engine)),
+    ) {
         let blocks: BTreeMap<i64, i64> = store.blocks(provider).await.into_iter().collect();
         for credential in store.list(provider).await {
             let report = if with_usage {
@@ -222,6 +226,7 @@ pub async fn handle_agent_settings_get(
             .collect(),
         default_model: settings.default_model,
         advisor_enabled: settings.advisor_enabled,
+        searxng_url: settings.searxng_url,
     };
     let settings_json =
         serde_json::to_string(&view).map_err(|_| internal("settings did not serialize"))?;
@@ -257,6 +262,7 @@ pub async fn handle_agent_settings_set(
         model_roles,
         default_model: view.default_model,
         advisor_enabled: view.advisor_enabled,
+        searxng_url: view.searxng_url,
     };
     core.services
         .agent

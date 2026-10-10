@@ -376,6 +376,8 @@ mod ui_state_legacy_command;
 mod ui_state_reports;
 #[path = "upgrade_admission.rs"]
 mod upgrade_admission;
+#[path = "web_search_settings.rs"]
+mod web_search_settings;
 #[path = "worker_frame_dispatch.rs"]
 mod worker_frame_dispatch;
 #[path = "worker_frame_ordering.rs"]

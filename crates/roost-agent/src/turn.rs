@@ -123,8 +123,7 @@ pub(crate) async fn take_turn(
     let thinking = resolve_thinking(runtime, &record, &model, &entries, memory).await;
     let depth = depth_of(runtime, &record).await;
     let find_available = find::available(runtime, &model.info).await;
-    let web_search_available = runtime.inner.llm.has_web_search().await;
-    let toolset = toolset_for(&record, depth, find_available, web_search_available);
+    let toolset = toolset_for(&record, depth, find_available);
     let files = context_files::context_files(runtime, &record, cancel).await;
     let child_context = entries
         .iter()

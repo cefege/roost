@@ -1,13 +1,14 @@
 //! The scripted model of the harness tests: replies queued per session id
 //! (with a shared fallback queue), judgments queued in order, and every
-//! request, judgment and rotation recorded for assertions.
+//! request, judgment, rotation and web search recorded for assertions.
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
-use roost_agent::{AccountUsage, FetchedPage, Llm, SearchHit};
+use roost_agent::{AccountUsage, FetchedPage, Llm};
+use roost_llm::web_search::{ParsedQuery, SearchQuery, SearchResponse};
 use roost_llm::{
     Answer, Catalog, ChatRequest, LlmError, ModelInfo, Question, ResolvedAuth, StreamEvent,
 };
@@ -15,6 +16,7 @@ use tokio_util::sync::CancellationToken;
 
 pub type Script = Result<Vec<StreamEvent>, LlmError>;
 pub type JudgeScript = Result<BTreeMap<String, Answer>, LlmError>;
+pub type SearchScript = Result<SearchResponse, LlmError>;
 
 /// Replies for any session whose own queue is empty (children with fresh ids).
 pub const ANY_SESSION: &str = "*";
@@ -31,7 +33,11 @@ pub struct ScriptedLlm {
     pub rotations: Mutex<Vec<i64>>,
     pub usage_rows: Mutex<Vec<AccountUsage>>,
     pub pages: Mutex<HashMap<String, FetchedPage>>,
-    pub search_hits: Mutex<HashMap<String, Vec<SearchHit>>>,
+    pub engine_results: Mutex<HashMap<String, VecDeque<SearchScript>>>,
+    pub hosted_results: Mutex<VecDeque<SearchScript>>,
+    pub search_calls: Mutex<Vec<String>>,
+    pub search_base_urls: Mutex<Vec<Option<String>>>,
+    pub hosted_models: Mutex<Vec<String>>,
 }
 
 impl ScriptedLlm {
@@ -75,11 +81,17 @@ impl ScriptedLlm {
         self.pages.lock().unwrap().insert(url.to_owned(), page);
     }
 
-    pub fn search(&self, query: &str, hits: Vec<SearchHit>) {
-        self.search_hits
+    pub fn engine(&self, engine_id: &str, reply: SearchScript) {
+        self.engine_results
             .lock()
             .unwrap()
-            .insert(query.to_owned(), hits);
+            .entry(engine_id.to_owned())
+            .or_default()
+            .push_back(reply);
+    }
+
+    pub fn hosted(&self, reply: SearchScript) {
+        self.hosted_results.lock().unwrap().push_back(reply);
     }
 }
 
@@ -194,24 +206,60 @@ impl Llm for ScriptedLlm {
         })
     }
 
-    fn web_search<'a>(
+    fn search_engine<'a>(
         &'a self,
-        query: &'a str,
-        _limit: u32,
-    ) -> BoxFuture<'a, Result<Vec<SearchHit>, LlmError>> {
-        let hits = self.search_hits.lock().unwrap().get(query).cloned();
+        engine_id: &'a str,
+        base_url: Option<&'a str>,
+        _query: &'a SearchQuery,
+        _parsed: &'a ParsedQuery,
+        _cancel: CancellationToken,
+    ) -> BoxFuture<'a, Result<SearchResponse, LlmError>> {
+        self.search_calls.lock().unwrap().push(engine_id.to_owned());
+        self.search_base_urls
+            .lock()
+            .unwrap()
+            .push(base_url.map(str::to_owned));
+        let next = self
+            .engine_results
+            .lock()
+            .unwrap()
+            .get_mut(engine_id)
+            .and_then(VecDeque::pop_front);
         Box::pin(async move {
-            hits.ok_or_else(|| LlmError::Decode(format!("no search scripted for {query}")))
+            next.unwrap_or_else(|| {
+                Err(LlmError::Decode(format!(
+                    "no search scripted for {engine_id}"
+                )))
+            })
         })
     }
 
-    fn has_web_search(&self) -> BoxFuture<'_, bool> {
-        let available = self
+    fn engine_configured<'a>(&'a self, engine_id: &'a str) -> BoxFuture<'a, bool> {
+        let configured = self
             .providers
             .lock()
             .unwrap()
             .iter()
-            .any(|provider| provider == "exa");
-        Box::pin(async move { available })
+            .any(|provider| provider == engine_id);
+        Box::pin(async move { configured })
+    }
+
+    fn hosted_search<'a>(
+        &'a self,
+        model: &'a ModelInfo,
+        _conversation_id: &'a str,
+        _query: &'a SearchQuery,
+        _parsed: &'a ParsedQuery,
+        _cancel: CancellationToken,
+    ) -> BoxFuture<'a, Result<SearchResponse, LlmError>> {
+        self.hosted_models
+            .lock()
+            .unwrap()
+            .push(format!("{}/{}", model.provider, model.id));
+        self.search_calls.lock().unwrap().push("hosted".into());
+        let next = self.hosted_results.lock().unwrap().pop_front();
+        Box::pin(async move {
+            next.unwrap_or_else(|| Err(LlmError::Decode("no hosted search scripted".into())))
+        })
     }
 }

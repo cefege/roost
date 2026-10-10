@@ -17,6 +17,7 @@ pub mod pool;
 pub mod providers;
 pub mod rotation;
 pub mod usage;
+pub mod web_search;
 pub use providers::{HeaderObserver, stream_chat};
 
 pub use auth::ResolvedAuth;

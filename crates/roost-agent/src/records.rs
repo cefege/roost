@@ -45,10 +45,11 @@ pub enum Role {
     Tiny,
     Judge,
     Advisor,
+    Web,
 }
 
 impl Role {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Default,
         Self::Smol,
         Self::Slow,
@@ -57,6 +58,7 @@ impl Role {
         Self::Tiny,
         Self::Judge,
         Self::Advisor,
+        Self::Web,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -69,6 +71,7 @@ impl Role {
             Self::Tiny => "tiny",
             Self::Judge => "judge",
             Self::Advisor => "advisor",
+            Self::Web => "web",
         }
     }
 
@@ -236,6 +239,8 @@ pub struct AgentSettings {
     pub default_model: Option<ModelRef>,
     #[serde(default)]
     pub advisor_enabled: bool,
+    #[serde(default)]
+    pub searxng_url: Option<String>,
 }
 
 pub fn model_ref(provider: &str, model_id: &str) -> ModelRef {

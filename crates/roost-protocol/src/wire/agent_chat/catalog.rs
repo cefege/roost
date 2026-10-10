@@ -28,9 +28,16 @@ pub struct ProviderEntry {
     pub id: String,
     pub name: String,
     pub configured: bool,
+    /// Identifies the settings section that owns this provider.
+    #[serde(default = "default_provider_category")]
+    pub category: String,
     /// Every connected account of this provider, in sign-in order.
     pub accounts: Vec<AccountBrief>,
     pub supports_oauth: bool,
+}
+
+fn default_provider_category() -> String {
+    "model".to_owned()
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AccountBrief {
@@ -68,7 +75,7 @@ pub struct AccountUsageWindow {
     pub resets_at_ms: Option<i64>,
 }
 /// `AgentSettingsGet` / `AgentSettingsSet`: role → selector, keyed by role
-/// name (`default`, `smol`, `slow`, `plan`, `task`, `tiny`, `judge`, `advisor`).
+/// name (`default`, `smol`, `slow`, `plan`, `task`, `tiny`, `judge`, `advisor`, `web`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentSettingsView {
     #[serde(default)]
@@ -77,6 +84,8 @@ pub struct AgentSettingsView {
     pub default_model: Option<ModelRef>,
     #[serde(default)]
     pub advisor_enabled: bool,
+    #[serde(default)]
+    pub searxng_url: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LoginState {

@@ -9,8 +9,8 @@ use crate::pump::{Pump, use_store};
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::client::rpc::calls::agent_chat::{GetAgentSettings, SetAgentSettings};
 
-const ROLES: [&str; 8] = [
-    "default", "smol", "slow", "plan", "task", "tiny", "judge", "advisor",
+const ROLES: [&str; 9] = [
+    "default", "smol", "slow", "plan", "task", "tiny", "judge", "advisor", "web",
 ];
 
 /// Edits the saved model selector for each harness role.
@@ -54,26 +54,61 @@ fn role_row(
     let selected = settings.model_roles.get(role).cloned();
     let mut items = vec![ToolbarMenuItem::choice(
         "__default",
-        "Use default",
+        if role == "web" {
+            "Use default chain"
+        } else {
+            "Use default"
+        },
         selected.is_none(),
     )];
-    items.extend(
-        catalog
-            .models
-            .iter()
-            .filter(|model| model.available && (!model.classifier || role == "judge"))
-            .map(|model| {
-                let selector = format!("{}/{}", model.provider, model.model_id);
-                let mut item = ToolbarMenuItem::choice(
-                    selector.clone(),
-                    model.name.clone(),
-                    selected.as_deref() == Some(&selector),
-                );
-                item.detail = Some(model.provider.clone());
-                item
-            }),
-    );
-    let label = selected.as_deref().unwrap_or("Use default").to_owned();
+    if role == "web" {
+        for (selector, name) in [
+            ("web/hosted", "Hosted search"),
+            ("web/exa", "Exa"),
+            ("web/parallel", "Parallel"),
+            ("web/firecrawl", "Firecrawl"),
+            ("web/brave", "Brave"),
+            ("web/tavily", "Tavily"),
+            ("web/perplexity", "Perplexity"),
+            ("web/jina", "Jina"),
+            ("web/kagi", "Kagi"),
+            ("web/searxng", "SearXNG"),
+            ("web/duckduckgo", "DuckDuckGo"),
+            ("web/startpage", "Startpage"),
+            ("web/google", "Google"),
+            ("web/ecosia", "Ecosia"),
+            ("web/mojeek", "Mojeek"),
+            ("web/public", "Public"),
+        ] {
+            items.push(ToolbarMenuItem::choice(
+                selector,
+                name,
+                selected.as_deref() == Some(selector),
+            ));
+        }
+    } else {
+        items.extend(
+            catalog
+                .models
+                .iter()
+                .filter(|model| model.available && (!model.classifier || role == "judge"))
+                .map(|model| {
+                    let selector = format!("{}/{}", model.provider, model.model_id);
+                    let mut item = ToolbarMenuItem::choice(
+                        selector.clone(),
+                        model.name.clone(),
+                        selected.as_deref() == Some(&selector),
+                    );
+                    item.detail = Some(model.provider.clone());
+                    item
+                }),
+        );
+    }
+    let label = if role == "web" && selected.is_none() {
+        "Use default chain".to_owned()
+    } else {
+        selected.as_deref().unwrap_or("Use default").to_owned()
+    };
     rsx! {
         div { class: "agent-settings__role-row", key: "{role}",
             span { class: "agent-settings__provider-name", "{role}" }

@@ -139,40 +139,106 @@ impl Llm for RoostLlm {
         Box::pin(crate::web_adapter::fetch(url))
     }
 
-    fn web_search<'a>(
+    fn search_engine<'a>(
         &'a self,
-        query: &'a str,
-        limit: u32,
-    ) -> BoxFuture<'a, Result<Vec<crate::SearchHit>, LlmError>> {
+        engine_id: &'a str,
+        base_url: Option<&'a str>,
+        query: &'a roost_llm::web_search::SearchQuery,
+        parsed: &'a roost_llm::web_search::ParsedQuery,
+        cancel: CancellationToken,
+    ) -> BoxFuture<'a, Result<roost_llm::web_search::SearchResponse, LlmError>> {
         Box::pin(async move {
             use roost_llm::credentials::CredentialKind;
-            let credentials = self.pool.store().list("exa").await;
-            let key = credentials
-                .into_iter()
-                .filter(|credential| credential.disabled_cause.is_none())
-                .find_map(|credential| match credential.kind {
-                    CredentialKind::ApiKey { key } => Some(key),
-                    CredentialKind::OAuth { .. } => None,
-                })
-                .ok_or_else(|| LlmError::NoCredential {
-                    provider: "exa".into(),
-                })?;
-            crate::web_adapter::search(&self.http, &self.endpoints, &key, query, limit).await
+            let credential: Option<String> = if engine_id == "searxng" {
+                base_url.map(str::to_owned)
+            } else if roost_llm::web_search::engine_needs_key(engine_id) {
+                let credentials = self.pool.store().list(engine_id).await;
+                credentials
+                    .into_iter()
+                    .filter(|credential| credential.disabled_cause.is_none())
+                    .find_map(|credential| match credential.kind {
+                        CredentialKind::ApiKey { key } => Some(key),
+                        CredentialKind::OAuth { .. } => None,
+                    })
+            } else {
+                None
+            };
+            let credential_ref = credential.as_deref();
+            roost_llm::web_search::search_engine(
+                &self.http,
+                &self.endpoints,
+                engine_id,
+                credential_ref,
+                query,
+                parsed,
+                cancel,
+            )
+            .await
         })
     }
 
-    fn has_web_search(&self) -> BoxFuture<'_, bool> {
+    fn engine_configured<'a>(&'a self, engine_id: &'a str) -> BoxFuture<'a, bool> {
         Box::pin(async move {
+            if !roost_llm::web_search::ENGINE_IDS.contains(&engine_id) {
+                return false;
+            }
+            if !roost_llm::web_search::engine_needs_key(engine_id) {
+                return engine_id != "searxng";
+            }
             use roost_llm::credentials::CredentialKind;
             self.pool
                 .store()
-                .list("exa")
+                .list(engine_id)
                 .await
                 .iter()
                 .any(|credential| {
                     credential.disabled_cause.is_none()
                         && matches!(&credential.kind, CredentialKind::ApiKey { .. })
                 })
+        })
+    }
+
+    fn hosted_search<'a>(
+        &'a self,
+        model: &'a ModelInfo,
+        conversation_id: &'a str,
+        query: &'a roost_llm::web_search::SearchQuery,
+        parsed: &'a roost_llm::web_search::ParsedQuery,
+        cancel: CancellationToken,
+    ) -> BoxFuture<'a, Result<roost_llm::web_search::SearchResponse, LlmError>> {
+        Box::pin(async move {
+            let provider = model.provider.as_str();
+            let (credential_id, auth) = self.pool.resolve(provider, conversation_id).await?;
+            match roost_llm::web_search::hosted_search(
+                &self.http,
+                &self.endpoints,
+                model,
+                auth,
+                query,
+                parsed,
+                cancel.clone(),
+            )
+            .await
+            {
+                Err(error @ LlmError::RateLimited { .. }) => {
+                    let (next_credential_id, next_auth) = self
+                        .pool
+                        .rotate_after_rate_limit(credential_id, provider, conversation_id, &error)
+                        .await?;
+                    let _ = next_credential_id;
+                    roost_llm::web_search::hosted_search(
+                        &self.http,
+                        &self.endpoints,
+                        model,
+                        next_auth,
+                        query,
+                        parsed,
+                        cancel,
+                    )
+                    .await
+                }
+                result => result,
+            }
         })
     }
 }
