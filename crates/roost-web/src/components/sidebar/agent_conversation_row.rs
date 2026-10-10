@@ -12,7 +12,11 @@ use crate::router_state::use_navigate;
 
 /// A sidebar destination for one built-in agent conversation.
 #[component]
-pub fn AgentConversationRow(conversation_id: String, selected: bool) -> Element {
+pub fn AgentConversationRow(
+    conversation_id: String,
+    selected: bool,
+    #[props(default)] compact: bool,
+) -> Element {
     let pump = use_store();
     let navigate = use_navigate();
     let navigate_to_agent = EventHandler::new({
@@ -40,18 +44,18 @@ pub fn AgentConversationRow(conversation_id: String, selected: bool) -> Element 
         .as_ref()
         .map(|model| model.model_id.as_str())
         .unwrap_or("No model");
-    let support = format!("{model_name} · {}", conversation.worker_label);
     let (status, status_title) = match conversation.run_state {
         roost_protocol::wire::agent_chat::AgentRunState::Running => ("info", "Running"),
         roost_protocol::wire::agent_chat::AgentRunState::Failed => ("warn", "Failed"),
         roost_protocol::wire::agent_chat::AgentRunState::Idle => ("idle", "Idle"),
     };
-    let title = format!("{} · {}", conversation.title, conversation.cwd);
     rsx! {
         ListRow {
             leading_icon: "smart_toy",
-            headline: rsx! { span { title, {conversation.title.clone()} } },
-            support: rsx! { span { {support} } },
+            headline: rsx! { span { class: "workbench-sidebar-agent-conversation__title", "{conversation.title}" } },
+            // Under a folder the row is one line, like the session rows: the
+            // model is the chat's business, not the tree's.
+            support: (!compact).then(|| rsx! { span { class: "workbench-sidebar-agent-conversation__model", "{model_name}" } }),
             trailing: rsx! {
                 StatusDot {
                     status: status.to_owned(),
@@ -62,8 +66,9 @@ pub fn AgentConversationRow(conversation_id: String, selected: bool) -> Element 
             on_navigate: navigate_to_agent,
             selected,
             aria_current: selected.then_some("page".to_owned()),
+            dense: compact,
             test_id: "sidebar-agent-conversation-{conversation_id}",
-            class: Some("workbench-sidebar-agent-conversation".to_owned()),
+            class: compact.then(|| "workbench-sidebar-agent-conversation".to_owned()),
         }
     }
 }

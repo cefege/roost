@@ -112,6 +112,7 @@ pub fn FolderList(active: bool, query: String) -> Element {
                                     key: "{conversation_id}",
                                     conversation_id: conversation_id.clone(),
                                     selected: active_agent_id.as_deref() == Some(conversation_id.as_str()),
+                                    compact: true,
                                 }
                             }
                         }

@@ -9,7 +9,7 @@ use roost_client_core::client::rpc::calls::agent_chat::{
     CancelAgentLogin, PollAgentLogin, RespondAgentLogin,
 };
 
-use crate::components::md::{Button, ButtonVariant, Card, Dialog, Select, SelectOption, TextField};
+use crate::components::md::{Button, ButtonVariant, Dialog, TextField};
 use crate::pump::{Pump, use_store};
 use roost_protocol::wire::agent_chat::{LoginPromptType, LoginState, LoginStatus};
 
@@ -78,16 +78,6 @@ pub fn AgentLoginDialog(login_id: String, on_close: EventHandler<bool>) -> Eleme
 
     let current = state();
     let prompt = current.as_ref().and_then(|value| value.prompt.clone());
-    let prompt_options = prompt
-        .as_ref()
-        .map(|value| {
-            value
-                .options
-                .iter()
-                .map(|option| SelectOption::new(option, option))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
     let prompt_id = prompt
         .as_ref()
         .map(|value| value.id.clone())
@@ -114,25 +104,27 @@ pub fn AgentLoginDialog(login_id: String, on_close: EventHandler<bool>) -> Eleme
             headline: "Sign in to provider".to_owned(),
             test_id: "agent-login-dialog",
             on_close: move |_| cancel_login(cancel_pump.clone(), close_id.clone(), on_close, error),
-            div { class: "settings-pane",
+            div { class: "agent-settings__dialog-body",
                 if let Some(value) = current {
                     for notice in value.notices {
-                        Card {
+                        div {
                             key: "{notice.notice_type:?}-{notice.message}",
-                            supporting: notice.message.clone(),
+                            class: "agent-settings__notice-card",
+                            p { class: "md-body-m", "{notice.message}" }
                             if notice.notice_type == roost_protocol::wire::agent_chat::LoginNoticeType::AuthUrl {
                                 if let Some(url) = notice.url {
-                                    Button {
-                                        variant: ButtonVariant::Link,
-                                        icon: "open_in_new",
-                                        onclick: move |_| open_new_tab(url.clone()),
+                                    a {
+                                        class: "roost-button roost-button--link",
+                                        href: "{url}",
+                                        target: "_blank",
+                                        rel: "noopener noreferrer",
                                         "Open sign-in page"
                                     }
                                 }
                             }
                             if notice.notice_type == roost_protocol::wire::agent_chat::LoginNoticeType::DeviceCode {
                                 if let Some(code) = notice.code {
-                                    p { class: "md-body-m", code { style: "font-family: var(--font-mono);", {code} } }
+                                    p { class: "agent-settings__device-code", "{code}" }
                                 }
                             }
                         }
@@ -140,20 +132,37 @@ pub fn AgentLoginDialog(login_id: String, on_close: EventHandler<bool>) -> Eleme
                     if value.state == LoginStatus::Waiting { p { class: "md-body-s", "Waiting for the provider…" } }
                     if value.state == LoginStatus::Done { p { class: "md-body-s", "Sign-in complete." } }
                     if value.state == LoginStatus::Failed {
-                        p { class: "md-body-s", role: "alert", {value.error.unwrap_or_else(|| "Sign-in failed.".to_owned())} }
+                        p { class: "agent-settings__notice md-body-s", role: "alert", {value.error.unwrap_or_else(|| "Sign-in failed.".to_owned())} }
                     }
                 } else {
                     p { class: "md-body-s", "Connecting to provider…" }
                 }
-                if !error_message.is_empty() { p { class: "md-body-s", role: "alert", {error_message} } }
+                if !error_message.is_empty() {
+                    p { class: "agent-settings__notice md-body-s", role: "alert", {error_message} }
+                }
                 if let Some(prompt) = prompt {
+                    if prompt.prompt_type == LoginPromptType::ManualCode {
+                        p { class: "agent-settings__manual-instruction md-body-m",
+                            "Enter the code shown by the provider to finish signing in."
+                        }
+                    }
                     p { class: "md-body-s", {prompt.message} }
                     if prompt.prompt_type == LoginPromptType::Select {
-                        Select {
-                            label: "Choose an option",
-                            value: answer(),
-                            options: prompt_options,
-                            on_change: move |value| answer.set(value),
+                        div { class: "agent-settings__select-options", role: "group", "aria-label": "Choose an option",
+                            for option in prompt.options {
+                                {
+                                    let selected = answer() == option;
+                                    let option_answer = option.clone();
+                                    rsx! {
+                                        Button {
+                                            key: "{option}",
+                                            variant: if selected { ButtonVariant::Secondary } else { ButtonVariant::Outline },
+                                            onclick: move |_| answer.set(option_answer.clone()),
+                                            "{option}"
+                                        }
+                                    }
+                                }
+                            }
                         }
                     } else {
                         TextField {
@@ -236,13 +245,3 @@ async fn wait_one_second() {
     });
     let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
 }
-
-#[cfg(target_arch = "wasm32")]
-fn open_new_tab(url: String) {
-    if let Some(window) = web_sys::window() {
-        let _ = window.open_with_url_and_target(&url, "_blank");
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn open_new_tab(_url: String) {}
