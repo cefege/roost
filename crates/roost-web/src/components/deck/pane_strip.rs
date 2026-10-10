@@ -17,11 +17,12 @@ use super::pane_strip_gesture::{StripDragOutlets, StripGesture};
 use super::pane_tab::PaneTab;
 use super::pane_tab_hover_card::PaneTabHoverCard;
 use super::pane_tab_list::PaneTabList;
+use super::pane_tab_new_menu::PaneTabNewMenu;
 use crate::components::context_menu::AnchoredMenuPos;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::md::{IconButton, IconButtonSize};
 use crate::components::terminal::terminal_transport_indicator::TerminalTransportIndicator;
-
+use crate::pump::use_store;
 /// How long a pointer rests on a tab before its hover card opens, ms.
 const HOVER_DWELL_MS: u32 = 450;
 /// How long a closing tab animates out before the close lands, ms.
@@ -39,10 +40,19 @@ pub fn PaneStrip(
     on_close: EventHandler<String>,
     on_reorder: EventHandler<Vec<String>>,
     on_new_tab: EventHandler<()>,
+    #[props(default)] on_new_agent: Option<EventHandler<()>>,
     on_tab_drag_move: Option<EventHandler<(f64, f64)>>,
     on_tab_tile_drop: Option<Callback<(String, f64, f64), bool>>,
     on_tab_drag_end: Option<EventHandler<()>>,
 ) -> Element {
+    let pump = use_store();
+    let agent_enabled = pump
+        .core()
+        .borrow()
+        .store()
+        .coord_identity
+        .as_ref()
+        .is_some_and(|identity| identity.builtin_agent_enabled);
     let compact = use_is_compact();
     let gesture = StripGesture::use_strip_gesture();
     let closing = use_signal(BTreeSet::<String>::new);
@@ -185,14 +195,15 @@ pub fn PaneStrip(
                     }
                 }
             }
-            IconButton {
-                icon: "add",
-                label: "New terminal — same folder and server",
-                size: IconButtonSize::IconSm,
-                class: "df-tab-new workbench-pane-tab-control",
-                "data-testid": "tab-new",
-                title: "New terminal in this folder (or double-click the empty bar)",
-                onclick: move |_| on_new_tab.call(()),
+            PaneTabNewMenu {
+                pane_id: pane_id.clone(),
+                agent_enabled,
+                on_new_terminal: move |_| on_new_tab.call(()),
+                on_new_agent: move |_| {
+                    if let Some(on_new_agent) = on_new_agent {
+                        on_new_agent.call(());
+                    }
+                },
             }
             div {
                 class: "df-tab-filler workbench-pane-tab-strip__filler",
@@ -212,7 +223,9 @@ pub fn PaneStrip(
                     }
                 },
             }
-            TerminalTransportIndicator { session_id: selected_tab.clone() }
+            if !matches!(roost_client_core::deck::tab::DeckTab::parse(&selected_tab), Some(roost_client_core::deck::tab::DeckTab::Agent(_))) {
+                TerminalTransportIndicator { session_id: selected_tab.clone() }
+            }
             div { class: "workbench-pane-tab-strip__actions", role: "toolbar", "aria-label": "Terminal actions",
                 if overflowing() {
                     IconButton {

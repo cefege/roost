@@ -165,6 +165,11 @@ pub enum RpcResult {
         /// Whether the coordinator accepted it.
         accepted: bool,
     },
+    /// `AgentChatDelete` succeeded.
+    AgentChatDeleteAnswered {
+        call_id: u64,
+        conversation_id: String,
+    },
 }
 
 impl RpcResult {
@@ -185,7 +190,8 @@ impl RpcResult {
             | Self::DirectoryCreated { call_id, .. }
             | Self::SearchPage { call_id, .. }
             | Self::GlobalSearchCancelled { call_id, .. }
-            | Self::SessionKillAnswered { call_id, .. } => *call_id,
+            | Self::SessionKillAnswered { call_id, .. }
+            | Self::AgentChatDeleteAnswered { call_id, .. } => *call_id,
         }
     }
 
@@ -207,6 +213,7 @@ impl RpcResult {
             Self::SearchPage { .. } => "search_page",
             Self::GlobalSearchCancelled { .. } => "global_search_cancelled",
             Self::SessionKillAnswered { .. } => "session_kill_answered",
+            Self::AgentChatDeleteAnswered { .. } => "agent_chat_delete_answered",
         }
     }
 }

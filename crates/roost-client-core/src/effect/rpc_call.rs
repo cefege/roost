@@ -135,6 +135,11 @@ pub enum RpcCall {
     },
     /// `AgentChatList` — all conversations and host connectivity.
     AgentChatList { call_id: u64 },
+    /// `AgentChatDelete` — delete an agent conversation after its undo window.
+    AgentChatDelete {
+        call_id: u64,
+        conversation_id: String,
+    },
 }
 
 /// The bootstrap snapshot call one domain's hydrator makes for

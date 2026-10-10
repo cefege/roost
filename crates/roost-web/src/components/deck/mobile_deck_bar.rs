@@ -14,7 +14,7 @@ use roost_client_core::store::terminal_transport::session_terminal_transport_kin
 
 use super::pane_tab::direct_transport_label;
 use super::workspace_tabs_sheet::WorkspaceTabsSheet;
-use crate::components::md::IconButton;
+use crate::components::md::{Icon, IconButton, StatusDot};
 use crate::components::terminal::terminal_transport_indicator::TerminalTransportIndicator;
 use crate::pump::use_store;
 use crate::session_naming::session_title;
@@ -25,6 +25,7 @@ struct BarReading {
     title: String,
     native_title: String,
     active: bool,
+    agent_status: Option<&'static str>,
 }
 
 /// One bar.
@@ -42,12 +43,18 @@ pub fn MobileDeckBar(
         let core = pump.core();
         let core = core.borrow();
         let store = core.store();
-        let active = tab_ids
-            .iter()
-            .find(|id| **id == selected_tab)
-            .and_then(|id| session_by_id(store, id));
+        let active_id = tab_ids.iter().find(|id| **id == selected_tab);
+        let active = active_id.and_then(|id| session_by_id(store, id));
+        let agent = active_id
+            .and_then(|id| id.strip_prefix("agent:"))
+            .and_then(|id| store.agent_chat.conversations.get(id));
         let title = active.map_or_else(
-            || "Terminal".to_owned(),
+            || {
+                agent.map_or_else(
+                    || "Terminal".to_owned(),
+                    |conversation| conversation.title.clone(),
+                )
+            },
             |session| session_title(store, session),
         );
         let carrier = active.and_then(|_| {
@@ -58,6 +65,11 @@ pub fn MobileDeckBar(
                 .map_or_else(|| title.clone(), |carrier| format!("{title} — {carrier}")),
             title,
             active: active.is_some(),
+            agent_status: agent.map(|conversation| match conversation.run_state {
+                roost_protocol::wire::agent_chat::AgentRunState::Running => "info",
+                roost_protocol::wire::agent_chat::AgentRunState::Failed => "warn",
+                roost_protocol::wire::agent_chat::AgentRunState::Idle => "idle",
+            }),
         }
     };
     let badge = deck_tab_badge(
@@ -80,8 +92,14 @@ pub fn MobileDeckBar(
             div { style: "flex: 1 1 0; min-width: 0; position: relative; overflow: hidden; height: var(--md-space-9);",
                 span {
                     title: "{reading.native_title}",
-                    style: "font-size: var(--md-title-s-size); font-weight: var(--md-title-m-weight); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: var(--md-space-9); display: block; width: 100%;",
-                    "{reading.title}"
+                    style: "font-size: var(--md-title-s-size); font-weight: var(--md-title-m-weight); line-height: var(--md-space-9); display: flex; align-items: center; gap: var(--md-space-2); width: 100%; min-width: 0;",
+                    if reading.agent_status.is_some() {
+                        Icon { name: "smart_toy", size: crate::components::md::IconSize::Sm }
+                    }
+                    span { style: "flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;", "{reading.title}" }
+                    if let Some(status) = reading.agent_status.filter(|status| *status != "idle") {
+                        StatusDot { status: status.to_owned() }
+                    }
                 }
             }
             if reading.active {

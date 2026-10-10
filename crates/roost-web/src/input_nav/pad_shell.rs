@@ -19,7 +19,7 @@ use roost_client_core::store::sidebar::SidebarIntent;
 use roost_client_core::store::sidebar::folder_groups::build_folder_groups;
 use roost_client_core::store::terminal_nav_pad::terminal_nav_pad_open;
 
-use crate::components::deck::terminal_deck_model::deck_folder_for;
+use crate::components::deck::terminal_deck_model::{deck_folder_for, deck_folder_for_agent};
 use crate::input_nav::pad_folders::FolderLead;
 use crate::input_nav::pad_surfaces::{
     PadDictation, PadFolderCycle, PadPaneTarget, PadShellAction, PadSurfaceState, PadSurfaces,
@@ -90,6 +90,14 @@ impl ShellPadSurfaces {
         let core = core.borrow();
         let store = core.store();
         let path = (self.route.peek()).clone();
+        let route = crate::routes::Route::parse(&path);
+        if let crate::routes::Route::Agent { conversation_id } = route {
+            let conversation = store.agent_chat.conversations.get(&conversation_id)?;
+            return Some((
+                roost_client_core::deck::agent_tab_id(&conversation_id),
+                deck_folder_for_agent(store, &BrowserWorkerPaths, conversation),
+            ));
+        }
         let session = active_session_for_path(store, &BrowserWorkerPaths, &path)?;
         let folder = deck_folder_for(store, &BrowserWorkerPaths, session);
         Some((session.id.as_str().to_owned(), folder))

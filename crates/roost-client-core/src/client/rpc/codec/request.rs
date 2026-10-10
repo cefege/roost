@@ -108,5 +108,14 @@ pub fn encode_rpc_request(call: &RpcCall) -> Result<Vec<u8>, RpcCodecError> {
             force: *force,
         }
         .encode_request(),
+        RpcCall::AgentChatDelete {
+            conversation_id, ..
+        } => {
+            use super::super::calls::agent_chat::DeleteAgentChat;
+            DeleteAgentChat {
+                conversation_id: conversation_id.clone(),
+            }
+            .encode_request()
+        }
     }
 }

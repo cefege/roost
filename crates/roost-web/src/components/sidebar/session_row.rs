@@ -9,7 +9,7 @@ use roost_client_core::ClientEvent;
 use roost_client_core::deck::{DeckFolder, DeckIntent};
 use roost_client_core::store::navigation::worker_online;
 use roost_client_core::store::selectors::{
-    live_session_ids_for_folder, session_by_id, session_folder_key,
+    deck_tab_ids_for_folder, session_by_id, session_folder_key,
 };
 use roost_client_core::store::sidebar::SidebarIntent;
 use roost_client_core::store::sidebar::format::{avatar_background, short_server_label};
@@ -270,7 +270,7 @@ fn close_session(pump: &Pump, session_id: &str, path: &str) {
             return;
         };
         let folder_key = session_folder_key(store, &BrowserWorkerPaths, session);
-        let live_session_ids = live_session_ids_for_folder(store, &BrowserWorkerPaths, &folder_key);
+        let live_session_ids = deck_tab_ids_for_folder(store, &BrowserWorkerPaths, &folder_key);
         DeckIntent::CloseTab {
             folder: Some(DeckFolder {
                 folder_key,

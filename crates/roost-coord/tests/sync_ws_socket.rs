@@ -214,3 +214,40 @@ async fn a_v1_socket_is_live_and_sequenced_only_with_flow() {
     send_client_frame(&mut sequenced, "a-v2-socket", Some(2), None).await;
     assert_eq!(close_code(&mut sequenced, EXPECT).await, Some(Some(1008)));
 }
+
+// The built-in agent's two buses reach a browser socket once the Agent domain
+// is ready, in publish order, tagged with the Agent domain.
+#[tokio::test]
+async fn agent_frames_flow_once_the_agent_domain_is_ready() {
+    let fixture = SyncFixture::start("agent").await;
+    let (_fp, token) = fixture.enroll_browser(10).await;
+    let mut socket = fixture.dial_sync("flow=1&sync_v=2", &token).await.socket();
+    let subscribed = read_subscribed(&mut socket).await;
+    let generation = generation_of(&subscribed, SyncDomain::Agent);
+    send_client_frame(
+        &mut socket,
+        &subscribed.socket_id,
+        None,
+        Some(domain_ready(SyncDomain::Agent, generation)),
+    )
+    .await;
+    tokio::time::sleep(QUIET).await;
+    fixture.publish_agent_chat("conversation-1", 4);
+    fixture.publish_agent_conversation_removed("conversation-2");
+
+    let events = next_firehose(&mut socket, EXPECT)
+        .await
+        .expect("an agent chat frame");
+    assert_eq!(events.domain.as_known(), Some(SyncDomain::Agent));
+    let Some(Frame::AgentChatEvents(batch)) = events.frame else {
+        panic!("expected agent chat events, got {:?}", events.frame);
+    };
+    assert_eq!(
+        (batch.conversation_id.as_str(), batch.seq),
+        ("conversation-1", 4)
+    );
+    let removal = next_firehose(&mut socket, EXPECT)
+        .await
+        .expect("an agent conversation frame");
+    assert!(matches!(&removal.frame, Some(Frame::AgentConversation(row)) if row.removed));
+}

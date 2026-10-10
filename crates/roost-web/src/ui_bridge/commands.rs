@@ -11,8 +11,9 @@
 //! arrangement, and a bug fixed for one is fixed for all three.
 
 use roost_client_core::client::ui_command::drain_ui_commands as drain_queued_commands;
+use roost_client_core::client::ui_command::folder_live_session_ids;
 use roost_client_core::client::ui_command::{
-    LayoutReshape, UiCommandAction, UiCommandScope, folder_live_session_ids, reshape_folder_layout,
+    LayoutReshape, UiCommandAction, UiCommandScope, reshape_folder_layout,
 };
 use roost_client_core::deck::{DeckFolder, DeckIntent};
 use roost_client_core::store::layout::{LAYOUT_STORAGE_KEY, find_leaf_of_tab};
@@ -111,7 +112,21 @@ fn deck_folder(pump: &Pump, folder_key: &str) -> Option<DeckFolder> {
     let core = core.borrow();
     Some(DeckFolder {
         folder_key: folder_key.to_owned(),
-        live_session_ids: folder_live_session_ids(core.store(), &BrowserWorkerPaths, folder_key),
+        live_session_ids: {
+            let mut ids = roost_client_core::store::selectors::deck_tab_ids_for_folder(
+                core.store(),
+                &BrowserWorkerPaths,
+                folder_key,
+            );
+            ids.extend(folder_live_session_ids(
+                core.store(),
+                &BrowserWorkerPaths,
+                folder_key,
+            ));
+            ids.sort();
+            ids.dedup();
+            ids
+        },
     })
 }
 

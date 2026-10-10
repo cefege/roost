@@ -31,3 +31,32 @@ pub fn close_labels_for(store: &Store, session: &Session) -> CloseLabels {
         server: short_server_label(&label),
     }
 }
+
+/// The undo card's labels for closing an agent conversation.
+pub fn close_labels_for_agent(
+    store: &Store,
+    conversation: &roost_protocol::wire::agent_chat::ConversationSummary,
+) -> CloseLabels {
+    let label = store
+        .workers
+        .get(&conversation.worker_fp)
+        .map(|worker| worker.label.clone())
+        .filter(|label| !label.is_empty())
+        .unwrap_or_else(|| {
+            conversation
+                .worker_fp
+                .chars()
+                .take(FP_LABEL_CHARS)
+                .collect()
+        });
+    CloseLabels {
+        terminal_name: conversation.title.clone(),
+        folder: conversation
+            .cwd
+            .rsplit(['/', '\\'])
+            .find(|part| !part.is_empty())
+            .unwrap_or(&conversation.cwd)
+            .to_owned(),
+        server: short_server_label(&label),
+    }
+}

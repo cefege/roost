@@ -8,7 +8,14 @@ use super::pane_handle::PaneHandle;
 use crate::components::context_menu::terminal_menu::{
     TerminalActionSheet, TerminalFloatingMenu, should_open_terminal_context_menu, uses_action_sheet,
 };
+use crate::components::deck::terminal_deck_model::deck_folder_for;
+use crate::components::deck::terminal_deck_spawn::{SpawnAnchor, start_deck_agent};
 use crate::components::layout::portal::Portal;
+use crate::pump::{Pump, use_store};
+use roost_client_core::deck::DeckSpawn;
+use roost_client_core::store::layout::find_leaf_of_tab;
+use roost_client_core::store::selectors::session_by_id;
+use roost_client_core::store::sidebar::folder_groups::folder_path_of;
 
 #[derive(Debug, Clone)]
 struct MenuTarget {
@@ -28,7 +35,24 @@ pub fn TerminalContextMenu(
     handle: PaneHandle,
     on_display_mounted: EventHandler<MountedEvent>,
 ) -> Element {
+    let pump = use_store();
+    let agent_enabled = pump
+        .core()
+        .borrow()
+        .store()
+        .coord_identity
+        .as_ref()
+        .is_some_and(|identity| identity.builtin_agent_enabled);
     let mut target = use_signal(|| None::<MenuTarget>);
+    let agent_pump = pump.clone();
+    let agent_session_id = session_id.clone();
+    let mut agent_target = target;
+    let on_start_agent = agent_enabled.then(|| {
+        EventHandler::new(move |()| {
+            start_agent_for_session(&agent_pump, &agent_session_id, compact);
+            agent_target.set(None);
+        })
+    });
     let on_context_menu = move |event: MouseEvent| {
         event.prevent_default();
         let (shift_held, button, trusted) = context_event_modifiers(&event);
@@ -81,6 +105,7 @@ pub fn TerminalContextMenu(
                                 target.set(None);
                             }
                         },
+                        on_start_agent,
                         on_cancel: move |_| target.set(None),
                     }
                 } else {
@@ -114,12 +139,45 @@ pub fn TerminalContextMenu(
                                 target.set(None);
                             }
                         },
+                        on_start_agent,
                         on_close: move |_| target.set(None),
                     }
                 }
             }
         }
     }
+}
+
+fn start_agent_for_session(pump: &Pump, session_id: &str, compact: bool) {
+    let launch = {
+        let core = pump.core();
+        let core = core.borrow();
+        let store = core.store();
+        if !store
+            .coord_identity
+            .as_ref()
+            .is_some_and(|identity| identity.builtin_agent_enabled)
+        {
+            return;
+        }
+        let Some(session) = session_by_id(store, session_id) else {
+            return;
+        };
+        let folder = deck_folder_for(store, &crate::platform::BrowserWorkerPaths, session);
+        let layout = store.deck.resolve_layout(&folder);
+        let pane_id = find_leaf_of_tab(&layout.root, session_id)
+            .map(|leaf| leaf.pane_id.clone())
+            .unwrap_or_else(|| layout.focused_pane_id.clone());
+        (
+            DeckSpawn::NewTab { pane_id },
+            SpawnAnchor {
+                tab_id: session.id.as_str().to_owned(),
+                worker_fp: session.worker_fp.as_str().to_owned(),
+                folder: folder_path_of(session).to_owned(),
+            },
+        )
+    };
+    start_deck_agent(pump.clone(), launch.0, launch.1, compact);
 }
 
 #[cfg(target_arch = "wasm32")]

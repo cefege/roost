@@ -4,6 +4,7 @@
 //! Ports `apps/web/src/components/deck/*`.
 
 pub mod arrange_menu;
+pub mod close_agent_tab;
 pub mod deck_dom;
 pub mod deck_swipe;
 pub mod deck_swipe_style;
@@ -18,6 +19,7 @@ pub mod pane_strip_gesture;
 pub mod pane_tab;
 pub mod pane_tab_hover_card;
 pub mod pane_tab_list;
+pub mod pane_tab_new_menu;
 pub mod terminal_deck;
 pub mod terminal_deck_chords;
 pub mod terminal_deck_chrome;

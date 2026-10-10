@@ -59,6 +59,7 @@ pub fn connect_method(call: &RpcCall) -> &'static str {
         RpcCall::SessionsSearchGlobal { .. } => "SessionsSearchGlobal",
         RpcCall::SessionsCancelGlobalSearch { .. } => "SessionsCancelGlobalSearch",
         RpcCall::SessionsKill { .. } => "SessionsKill",
+        RpcCall::AgentChatDelete { .. } => "AgentChatDelete",
     }
 }
 
@@ -78,6 +79,7 @@ pub fn connect_call_id(call: &RpcCall) -> u64 {
         | RpcCall::SessionsSearchGlobal { call_id, .. }
         | RpcCall::SessionsCancelGlobalSearch { call_id, .. }
         | RpcCall::SessionsKill { call_id, .. }
+        | RpcCall::AgentChatDelete { call_id, .. }
         | RpcCall::AgentChatList { call_id } => *call_id,
     }
 }

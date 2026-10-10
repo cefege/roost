@@ -194,6 +194,16 @@ pub fn decode_rpc_response(call: &RpcCall, body: &[u8]) -> Result<RpcResult, Rpc
             force: *force,
             accepted: KillSession::decode_response(body)?,
         },
+        RpcCall::AgentChatDelete {
+            call_id,
+            conversation_id,
+        } => {
+            let _: roost_proto::AgentChatDeleteResponse = decode(method, body)?;
+            RpcResult::AgentChatDeleteAnswered {
+                call_id: *call_id,
+                conversation_id: conversation_id.clone(),
+            }
+        }
     })
 }
 

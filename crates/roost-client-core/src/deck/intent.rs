@@ -133,8 +133,10 @@ impl DeckIntent {
     }
 }
 
-fn session_path(session_id: &str) -> String {
-    format!("/s/{session_id}")
+pub fn deck_tab_path(tab_id: &str) -> String {
+    super::tab::DeckTab::parse(tab_id)
+        .map(|tab| tab.path())
+        .unwrap_or_else(|| format!("/s/{tab_id}"))
 }
 
 /// Apply one intent to the store.
@@ -186,7 +188,7 @@ pub(crate) fn apply_deck_intent(
             };
             commit(store, folder, focus_pane(&current, pane_id), storage);
             if !selected.is_empty() {
-                store.deck.request_navigation(session_path(&selected));
+                store.deck.request_navigation(deck_tab_path(&selected));
             }
         }
         DeckIntent::OpenSpawned {
@@ -213,7 +215,7 @@ pub(crate) fn apply_deck_intent(
             {
                 commit(store, &before, focus_pane(&current, pane_id), storage);
             }
-            store.deck.request_navigation(session_path(session_id));
+            store.deck.request_navigation(deck_tab_path(session_id));
             store.note_change();
         }
         DeckIntent::ReorderTabs {
@@ -241,7 +243,7 @@ pub(crate) fn apply_deck_intent(
                 move_tab(&current, tab_id, to_pane_id, None),
                 storage,
             );
-            store.deck.request_navigation(session_path(tab_id));
+            store.deck.request_navigation(deck_tab_path(tab_id));
         }
         DeckIntent::SplitPane {
             folder,
@@ -260,7 +262,7 @@ pub(crate) fn apply_deck_intent(
                 &mut store.deck.pane_ids,
             );
             commit(store, folder, next, storage);
-            store.deck.request_navigation(session_path(tab_id));
+            store.deck.request_navigation(deck_tab_path(tab_id));
         }
         DeckIntent::SetRatio {
             folder,

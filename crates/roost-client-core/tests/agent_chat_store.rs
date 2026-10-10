@@ -51,6 +51,25 @@ fn hydration_and_frames_replace_snapshots_and_enforce_sequence() {
 }
 
 #[test]
+fn only_the_host_status_frame_changes_host_connectivity() {
+    let mut state = AgentChatState::default();
+    state.hydrate(vec![conversation("a", "/repo", 4)], true);
+    // A conversation upsert carries no host state; its zero flag is not "offline".
+    state.apply_conversation_frame(
+        "a".into(),
+        false,
+        Some(conversation("a", "/repo", 9)),
+        false,
+    );
+    assert!(state.host_connected);
+    assert_eq!(state.conversations["a"].updated_ms, 9);
+    state.apply_conversation_frame(String::new(), false, None, false);
+    assert!(!state.host_connected);
+    state.apply_conversation_frame(String::new(), false, None, true);
+    assert!(state.host_connected);
+}
+
+#[test]
 fn snapshot_loaded_transcript_accepts_chat_events_only_when_loaded() {
     let mut state = AgentChatState::default();
     state.apply_events(

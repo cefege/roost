@@ -3,14 +3,16 @@
 //! close and hover state; this maps it onto the stable tab DOM. Ports
 //! `apps/web/src/components/deck/PaneTab.tsx`.
 
+use crate::components::agents::agent_status_indicator::AgentStatusIndicator;
+use crate::pump::use_store;
+use crate::session_naming::session_title;
 use dioxus::prelude::*;
 use roost_client_core::TerminalTransport;
 use roost_client_core::store::terminal_transport::session_terminal_transport_kind;
 
-use crate::components::agents::agent_status_indicator::AgentStatusIndicator;
-use crate::components::md::{Button, ButtonVariant, Icon, IconButton, IconButtonSize, IconSize};
-use crate::pump::use_store;
-use crate::session_naming::session_title;
+use crate::components::md::{
+    Button, ButtonVariant, Icon, IconButton, IconButtonSize, IconSize, StatusDot,
+};
 
 /// v2 `sessionTerminalTransportLabel`: the tooltip for a DIRECT carrier, and
 /// nothing for the coordinator or an unconfirmed one.
@@ -43,14 +45,31 @@ pub fn PaneTab(
     on_close: EventHandler<MouseEvent>,
 ) -> Element {
     let pump = use_store();
-    let (title, kind) = {
+    let (title, kind, agent_status) = {
         let core = pump.core();
         let core = core.borrow();
         let store = core.store();
-        let title = roost_client_core::store::selectors::session_by_id(store, &session_id)
-            .map(|session| session_title(store, session))
-            .unwrap_or_default();
-        (title, session_terminal_transport_kind(store, &session_id))
+        if let Some(conversation_id) = session_id.strip_prefix("agent:") {
+            let conversation = store.agent_chat.conversations.get(conversation_id);
+            (
+                conversation.map_or_else(String::new, |conversation| conversation.title.clone()),
+                None,
+                conversation.map(|conversation| match conversation.run_state {
+                    roost_protocol::wire::agent_chat::AgentRunState::Running => "info",
+                    roost_protocol::wire::agent_chat::AgentRunState::Failed => "warn",
+                    roost_protocol::wire::agent_chat::AgentRunState::Idle => "idle",
+                }),
+            )
+        } else {
+            let title = roost_client_core::store::selectors::session_by_id(store, &session_id)
+                .map(|session| session_title(store, session))
+                .unwrap_or_default();
+            (
+                title,
+                session_terminal_transport_kind(store, &session_id),
+                None,
+            )
+        }
     };
     let direct = direct_transport_label(kind);
     let mut element = use_signal(|| None::<std::rc::Rc<MountedData>>);
@@ -100,22 +119,30 @@ pub fn PaneTab(
                 title: native_tooltip,
                 onpointerdown: move |event| on_pointer_down.call(event),
                 onclick: move |_| on_select.call(()),
-                Icon { name: "terminal", size: IconSize::Sm, class: "workbench-pane-tab__icon" }
+                Icon {
+                    name: if agent_status.is_some() { "smart_toy" } else { "terminal" },
+                    size: IconSize::Sm,
+                    class: "workbench-pane-tab__icon",
+                }
                 if direct.is_some() {
                     Icon { name: "bolt", size: IconSize::Sm, class: "workbench-pane-tab__local" }
                 }
                 span { class: "df-tab-label workbench-pane-tab__label", "{title}" }
-                AgentStatusIndicator {
-                    session_id: session_id.clone(),
-                    compact: true,
-                    suppress_tooltip: hover_card_available,
+                if let Some(status) = agent_status {
+                    StatusDot { status: status.to_owned() }
+                } else {
+                    AgentStatusIndicator {
+                        session_id: session_id.clone(),
+                        compact: true,
+                        suppress_tooltip: hover_card_available,
+                    }
+                    crate::components::terminal_bell_mark::TerminalBellMark { session_id: session_id.clone() }
+                    crate::components::terminal_signal_marks::TerminalProgressMark { session_id: session_id.clone() }
                 }
-                crate::components::terminal_bell_mark::TerminalBellMark { session_id: session_id.clone() }
-                crate::components::terminal_signal_marks::TerminalProgressMark { session_id: session_id.clone() }
             }
             IconButton {
                 icon: "close",
-                label: "Close terminal",
+                label: if agent_status.is_some() { "Close agent" } else { "Close terminal" },
                 size: IconButtonSize::IconSm,
                 class: "df-tab-close workbench-pane-tab__close",
                 "data-testid": "tab-close-{session_id}",
