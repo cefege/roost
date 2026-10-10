@@ -96,33 +96,33 @@ pub fn worker_tool_specs(plan_mode: bool) -> Vec<WorkerToolSpec> {
     let mut specs = vec![
         spec(
             TOOL_READ,
-            "Read a file or list a directory. Output uses hashline references.",
+            "Read a file or list a directory. A file comes back as a `[PATH#TAG]` header, then `N:<line>` rows; copy the header and line numbers into `edit`. `offset` is the 1-based first line, `limit` the line count; output stops at 2000 lines or 50 KiB with a note telling you the next offset. Read the ranges you need rather than whole large files.",
             json!({"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer"},"limit":{"type":"integer"}},"required":["path"],"additionalProperties":false}),
         ),
         spec(
             TOOL_BASH,
-            "Run a shell command in the conversation directory.",
+            "Run a shell command with `bash -lc` in the conversation directory on the user's machine. `timeout` is in seconds (default 120, max 3600). Output streams live; the result keeps the last 50 KiB and names a file holding the full output. A nonzero exit is reported as `exit N`. Use it for builds, tests, git and real binaries, not for reading, searching or editing files.",
             json!({"type":"object","properties":{"command":{"type":"string"},"timeout":{"type":"integer","description":"Timeout in seconds"}},"required":["command"],"additionalProperties":false}),
         ),
         spec(
             TOOL_GREP,
-            "Search files for a regular expression.",
+            "Search file contents for a regular expression (Rust regex syntax), respecting .gitignore. `path`: file or directory (default: the conversation directory); `glob`: limit to matching file names; `context`: lines shown around each match. Results are `[PATH#TAG]` headers with `N:<line>` rows usable by `edit`, capped at 200 matches.",
             json!({"type":"object","properties":{"pattern":{"type":"string"},"path":{"type":"string"},"glob":{"type":"string"},"case_insensitive":{"type":"boolean"},"context":{"type":"integer"}},"required":["pattern"],"additionalProperties":false}),
         ),
         spec(
             TOOL_GLOB,
-            "Find files matching a glob pattern.",
+            "List files matching a glob pattern (e.g. `**/*.rs`, `src/*.ts`) under `path` (default: the conversation directory), respecting .gitignore, newest first, at most 500 paths.",
             json!({"type":"object","properties":{"pattern":{"type":"string"},"path":{"type":"string"}},"required":["pattern"],"additionalProperties":false}),
         ),
         spec(
             TOOL_LSP,
-            "Query language-server diagnostics or symbols.",
+            "Ask the project's language server. `diagnostics` for `file` (or `file: \"*\"` to run the workspace checkers: cargo check, tsc, ruff); `definition`, `references` and `hover` at `line` of `file`, with `symbol` naming the identifier on that line; `symbols` outlines `file`; `rename` plans (or with `apply: true` applies) renaming `symbol` to `new_name`; `status` lists running servers.",
             lsp_schema(plan_mode),
         ),
     ];
     if !plan_mode {
         specs.push(spec(TOOL_EDIT, include_str!("prompts/hashline.md"), json!({"type":"object","properties":{"input":{"type":"string","description":"Hashline edit instructions"}},"required":["input"],"additionalProperties":false})));
-        specs.push(spec(TOOL_WRITE, "Write a complete file, creating parent directories.", json!({"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false})));
+        specs.push(spec(TOOL_WRITE, "Create a file or replace its entire content, creating parent directories. Returns the new `[PATH#TAG]` header and language-server diagnostics. Use `edit` for changes to an existing file.", json!({"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false})));
     }
     specs
 }
