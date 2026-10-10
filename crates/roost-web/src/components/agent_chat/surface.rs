@@ -156,7 +156,7 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
                 },
                 onclick: move |event: MouseEvent| copy_code_block(&event),
                 div { class: "agent-chat__column",
-                    super::transcript::AgentTranscriptView { transcript }
+                    super::transcript::AgentTranscriptView { transcript, conversation_id: conversation_id.clone() }
                 }
             }
             div { class: "agent-chat__dock",

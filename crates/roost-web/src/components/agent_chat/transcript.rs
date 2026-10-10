@@ -8,8 +8,11 @@ use roost_protocol::wire::agent_chat::{
     AgentRunState, Transcript, TranscriptBlock, TranscriptItem,
 };
 
+use super::advisory_card::AdvisoryCard;
+use super::notice_card::NoticeCard;
+use super::plan_card::PlanCard;
 use super::tool_card::ToolCard;
-use crate::components::md::{ButtonVariant, Card, Icon, IconButton, IconButtonSize, IconSize};
+use crate::components::md::{ButtonVariant, Icon, IconButton, IconButtonSize, IconSize};
 
 enum Segment<'transcript> {
     User(&'transcript TranscriptItem),
@@ -21,7 +24,7 @@ enum Segment<'transcript> {
 }
 
 #[component]
-pub fn AgentTranscriptView(transcript: Transcript) -> Element {
+pub fn AgentTranscriptView(transcript: Transcript, conversation_id: String) -> Element {
     let segments = segments(&transcript);
     let streaming = assistant_is_streaming(&transcript);
     let running = transcript.run_state == AgentRunState::Running;
@@ -38,7 +41,7 @@ pub fn AgentTranscriptView(transcript: Transcript) -> Element {
                     Segment::Steps(steps) => rsx! {
                         div { key: "{step_group_key(&steps)}", class: "agent-chat__steps",
                             for step in steps {
-                                if let TranscriptItem::Tool { id, tool_name, args_json, output, is_error, running, .. } = step {
+                                if let TranscriptItem::Tool { id, tool_name, args_json, output, is_error, running, children, .. } = step {
                                     ToolCard {
                                         key: "{id}",
                                         tool_name: tool_name.clone(),
@@ -46,19 +49,20 @@ pub fn AgentTranscriptView(transcript: Transcript) -> Element {
                                         output: output.clone(),
                                         is_error: *is_error,
                                         running: *running,
+                                        child_ids: children.clone(),
                                     }
                                 }
                             }
                         }
                     },
-                    Segment::Notice(TranscriptItem::Notice { id, title, body, .. }) => rsx! {
-                        Card { key: "{id}", title: Some(title.clone()), children: rsx! { p { "{body}" } } }
+                    Segment::Notice(TranscriptItem::Notice { id, level, title, body }) => rsx! {
+                        NoticeCard { key: "{id}", id: id.clone(), level: level.clone(), title: title.clone(), body: body.clone() }
                     },
-                    Segment::Plan(TranscriptItem::Plan { id, title, content, .. }) => rsx! {
-                        Card { key: "{id}", title: Some(title.clone()), children: rsx! { p { "{content}" } } }
+                    Segment::Plan(TranscriptItem::Plan { id, title, content, state }) => rsx! {
+                        PlanCard { key: "{id}", id: id.clone(), title: title.clone(), content: content.clone(), state: state.clone(), conversation_id: conversation_id.clone() }
                     },
-                    Segment::Advisory(TranscriptItem::Advisory { id, note, .. }) => rsx! {
-                        Card { key: "{id}", title: Some("Advisor note".to_owned()), children: rsx! { p { "{note}" } } }
+                    Segment::Advisory(TranscriptItem::Advisory { id, severity, note, delivered }) => rsx! {
+                        AdvisoryCard { key: "{id}", id: id.clone(), severity: severity.clone(), note: note.clone(), delivered: *delivered }
                     },
                     _ => rsx! {},
                 }
