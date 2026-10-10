@@ -43,6 +43,8 @@ const UPSTREAM_FIELD_NUMBERS: &[(&str, u32)] = &[
     ("update-progress", 30),
     ("agent-tunnel-state", 31),
     ("agent-tunnel-output", 32),
+    ("agent-tool-output", 33),
+    ("agent-tool-result", 34),
 ];
 
 /// `CoordWorkerDown`'s oneof arms. Field 11 is `reserved`, so a peer that
@@ -83,6 +85,9 @@ const DOWNSTREAM_FIELD_NUMBERS: &[(&str, u32)] = &[
     ("agent-tunnel-input", 34),
     ("agent-tunnel-daemon-chunk", 35),
     ("agent-tunnel-close", 36),
+    ("agent-tool-call", 37),
+    ("agent-tool-cancel", 38),
+    ("agent-conversation-closed", 39),
 ];
 
 /// The field number of a length-delimited protobuf field, read off the wire.

@@ -179,6 +179,10 @@ message AgentConversation {
   string error = 10;
   int64 created_ms = 11;
   int64 updated_ms = 12;
+  string mode = 13;
+  string parent_id = 14;
+  string agent = 15;
+  bool advisor = 16;
 }
 
 

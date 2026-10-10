@@ -1,7 +1,6 @@
-//! One fixture per arm of both worker-link oneofs, so the round-trip and
-//! field-number tests assert against every arm rather than a sample. Included
-//! by both codec test binaries through `#[path]`, so the two share one list
-//! instead of restating 55 fixtures.
+//! One fixture per worker-link oneof arm, keeping round-trip and field-number tests exhaustive.
+//! Both codec test binaries include this through `#[path]` so the fixtures have one owner.
+//! Shared fixtures prevent either codec test binary from missing an arm.
 #![allow(dead_code)]
 
 use super::fixtures::{FINGERPRINT, SESSION, STREAM, channel, hello, session};
@@ -13,8 +12,11 @@ use roost_protocol::wire::coord_worker::{
     TerminalStreamResult, TerminalStreamStatus, TerminalWritePhase, UpdateProgress,
 };
 
+#[path = "agent_tool_arms.rs"]
+mod agent_tool_arms;
+
 pub fn upstream_arms() -> Vec<(&'static str, CoordWorkerUpstream)> {
-    vec![
+    let mut arms = vec![
         ("hello", hello()),
         (
             "pong",
@@ -219,12 +221,14 @@ pub fn upstream_arms() -> Vec<(&'static str, CoordWorkerUpstream)> {
                 data: vec![1, 2],
             }),
         ),
-    ]
+    ];
+    arms.extend(agent_tool_arms::upstream_arms());
+    arms
 }
 
 /// Every downstream arm, one fixture each, for the same reason.
 pub fn downstream_arms() -> Vec<(&'static str, CoordWorkerDownstream)> {
-    vec![
+    let mut arms = vec![
         (
             "hello-ack",
             CoordWorkerDownstream::HelloAck {
@@ -389,5 +393,7 @@ pub fn downstream_arms() -> Vec<(&'static str, CoordWorkerDownstream)> {
             "agent-tunnel-close",
             CoordWorkerDownstream::AgentTunnelClose(Default::default()),
         ),
-    ]
+    ];
+    arms.extend(agent_tool_arms::downstream_arms());
+    arms
 }

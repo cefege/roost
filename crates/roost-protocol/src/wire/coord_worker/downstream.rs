@@ -156,6 +156,12 @@ pub enum CoordWorkerDownstream {
     AgentTunnelDaemonChunk(DAgentTunnelDaemonChunk),
     #[serde(rename = "agent-tunnel-close")]
     AgentTunnelClose(DAgentTunnelClose),
+    #[serde(rename = "agent-tool-call")]
+    AgentToolCall(roost_proto::DAgentToolCall),
+    #[serde(rename = "agent-tool-cancel")]
+    AgentToolCancel(roost_proto::DAgentToolCancel),
+    #[serde(rename = "agent-conversation-closed")]
+    AgentConversationClosed(roost_proto::DAgentConversationClosed),
 }
 
 impl CoordWorkerDownstream {
@@ -197,6 +203,9 @@ impl CoordWorkerDownstream {
             Self::AgentTunnelInput(_) => "agent-tunnel-input",
             Self::AgentTunnelDaemonChunk(_) => "agent-tunnel-daemon-chunk",
             Self::AgentTunnelClose(_) => "agent-tunnel-close",
+            Self::AgentToolCall(_) => "agent-tool-call",
+            Self::AgentToolCancel(_) => "agent-tool-cancel",
+            Self::AgentConversationClosed(_) => "agent-conversation-closed",
         }
     }
 

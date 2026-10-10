@@ -82,7 +82,7 @@ impl AgentHostRuntime {
                 .publish(AgentConversationUpdate {
                     conversation_id: conversation.id.clone(),
                     removed: false,
-                    conversation: Some(conversation),
+                    conversation: Some(*conversation),
                     host_connected: None,
                 }),
             AgentChatUpdate::ConversationRemoved { id } => services

@@ -12,6 +12,10 @@ fn conversation(id: &str, cwd: &str, updated_ms: i64) -> ConversationSummary {
         worker_fp: "worker".into(),
         worker_label: "worker".into(),
         cwd: cwd.into(),
+        mode: "normal".into(),
+        parent_id: None,
+        agent: None,
+        advisor: false,
         model: None,
         thinking_level: None,
         run_state: AgentRunState::Idle,
@@ -27,6 +31,7 @@ fn transcript() -> Transcript {
         error: None,
         model: None,
         thinking_level: None,
+        mode: None,
         usage: UsageTotals::default(),
     }
 }

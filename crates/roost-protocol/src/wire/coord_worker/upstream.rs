@@ -144,6 +144,10 @@ pub enum CoordWorkerUpstream {
     AgentTunnelState(AgentTunnelStateFrame),
     #[serde(rename = "agent-tunnel-output")]
     AgentTunnelOutput(AgentTunnelOutput),
+    #[serde(rename = "agent-tool-output")]
+    AgentToolOutput(roost_proto::WAgentToolOutput),
+    #[serde(rename = "agent-tool-result")]
+    AgentToolResult(roost_proto::WAgentToolResult),
 }
 
 impl CoordWorkerUpstream {
@@ -176,6 +180,8 @@ impl CoordWorkerUpstream {
             Self::TerminalPipelineSnapshot(_) => "terminal-pipeline-snapshot",
             Self::AgentTunnelState(_) => "agent-tunnel-state",
             Self::AgentTunnelOutput(_) => "agent-tunnel-output",
+            Self::AgentToolOutput(_) => "agent-tool-output",
+            Self::AgentToolResult(_) => "agent-tool-result",
         }
     }
 

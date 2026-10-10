@@ -16,7 +16,7 @@ pub enum AgentChatUpdate {
         conversations: Vec<ConversationSummary>,
     },
     Conversation {
-        conversation: ConversationSummary,
+        conversation: Box<ConversationSummary>,
     },
     ConversationRemoved {
         id: String,
@@ -68,7 +68,7 @@ impl ChatCache {
             }
             HostStreamLine::Conversation { conversation } => {
                 self.conversations
-                    .insert(conversation.id.clone(), conversation.clone());
+                    .insert(conversation.id.clone(), conversation.as_ref().clone());
                 vec![AgentChatUpdate::Conversation {
                     conversation: conversation.clone(),
                 }]
@@ -132,6 +132,7 @@ fn empty_transcript() -> Transcript {
         error: None,
         model: None,
         thinking_level: None,
+        mode: None,
         usage: Default::default(),
     }
 }
@@ -184,6 +185,10 @@ mod tests {
             title: String::new(),
             worker_fp: String::new(),
             worker_label: String::new(),
+            mode: "normal".into(),
+            parent_id: None,
+            agent: None,
+            advisor: false,
             cwd: String::new(),
             model: None,
             thinking_level: None,

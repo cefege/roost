@@ -30,6 +30,7 @@
 //! the one thing the boot-facts rule exists to prevent.
 use std::sync::Arc;
 
+use crate::agent::tool_calls::ToolCallRegistry;
 use crate::agent_host::AgentHostRuntime;
 use crate::agents::AgentsRuntime;
 use crate::attachments::AttachmentsRuntime;
@@ -128,6 +129,8 @@ pub struct CoordServices {
     pub agents: AgentsRuntime,
     /// Agent host runtime and the internal worker-tool tunnel registry.
     pub agent_host: Arc<AgentHostRuntime>,
+    /// Native worker tool calls and their generation-bound completions.
+    pub agent_tools: Arc<ToolCallRegistry>,
     /// File RPCs, the chunk relay, direct grants, and peer negotiations.
     pub attachments: AttachmentsRuntime,
     /// Global session search across every worker, and its cancellations.
@@ -272,6 +275,7 @@ impl CoordServices {
         );
         let deploy = DeployRuntime::new();
         let agent_host = Arc::new(AgentHostRuntime::new());
+        let agent_tools = Arc::new(ToolCallRegistry::new(Arc::clone(&workers), db.clone()));
         let catch_up_on_ready = Arc::new(crate::deploy::catchup_on_ready::CatchUpOnReady::new(
             deploy.clone(),
             db.clone(),
@@ -290,6 +294,8 @@ impl CoordServices {
                 as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
             Arc::clone(&agent_host)
                 as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
+            Arc::clone(&agent_tools)
+                as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
         ]);
         Self {
             db,
@@ -300,6 +306,7 @@ impl CoordServices {
             pending_publications,
             worker_lifecycle,
             agent_host,
+            agent_tools,
             diag_pipelines: WorkerTerminalPipelineSnapshotCache::new(scrollback.clone()),
             terminal_capture,
             scrollback,
