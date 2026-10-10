@@ -119,5 +119,4 @@ mod tests {
         assert_eq!(image_tag("v3.0.0-rc.9"), "3.0.0-rc.9");
         assert_eq!(image_tag("3.0.0"), "3.0.0");
     }
-
 }

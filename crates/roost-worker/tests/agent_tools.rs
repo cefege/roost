@@ -11,7 +11,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use roost_proto::{DAgentToolCall, DAgentToolCancel};
+use roost_proto::DAgentToolCall;
+#[cfg(unix)]
+use roost_proto::DAgentToolCancel;
 use roost_protocol::wire::coord_worker::{CoordWorkerDownstream, CoordWorkerUpstream};
 use roost_worker::browser_commands::Command;
 use roost_worker::link_ports::{AgentToolsPort, DownstreamOwners, LinkPipelineState};
