@@ -10,8 +10,8 @@ of the filesystem.
 **This is the `v3` branch: Roost in Rust, with a Dioxus web client.** `main`
 holds v2 (Bun + TypeScript + SolidJS); it is frozen and kept for reference only
 — no fix lands there and nothing merges from it. The v3 checkout is
-`~/repos/roost-v3` on `v3`. Only Rust lives in this repository, except
-`agent-host/` (the Node built-in agent host).
+`~/repos/roost-v3` on `v3`. This repository contains the Rust v3 product and
+the Dioxus web client.
 
 ---
 
@@ -252,7 +252,10 @@ from the default branch, not from `v3`; v3 installs through `install.sh`
 conversation-reference pipeline that only it read (the `agent.reference`
 report method, the installed `roost-omp-agent-reference.ts` extension, the
 `agent_reference` session event, `SessionsListResponse.recovery_metadata`,
-`ROOST_AGENT_CONVERSATION_RESTORE`); OMP's own `omp --resume` covers it.
+`ROOST_AGENT_CONVERSATION_RESTORE`); OMP's own `omp --resume` covers it; the
+Node agent-host sidecar (`agent-host/`, its image, Helm container and PVC),
+the pi-env tool tunnel, and Pi conversations and the agent-host's stored
+provider logins (not migrated; operators sign in again).
 
 ---
 
@@ -321,7 +324,6 @@ export KUBECONFIG=~/.kube/ovh1.yaml
 kubectl -n roost get pods                         # coordinator, postgres, backups
 curl -s https://mike.roosttt.com/readyz           # 200 = database answers
 kubectl -n roost logs deploy/roost-coordinator --since=1h   # the JSON log
-kubectl -n roost logs deploy/roost-coordinator -c agent-host --since=1h  # host JSON log
 kubectl -n roost exec deploy/roost-coordinator -- roost doctor --since 24h
 kubectl -n roost exec roost-coordinator-postgres-0 -- sh -c \
   'psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-roost}" -Atc

@@ -147,13 +147,10 @@ wins.
   input and output but does not interpret its transcript, tools, or approval
   prompts. The built-in agent is a separate Roost-owned conversation type.
 
-- **built-in agent** — Roost's pi-durable coding agent hosted by `agent-host/`.
-  It owns durable conversations and provider credentials; its coding tools
-  execute on the selected worker, starting in the chosen folder.
-
-- **agent tunnel** — the authenticated internal WebSocket and worker-link
-  relay carrying opaque pi-env daemon bytes between the agent host and a
-  worker. Roost does not interpret the daemon protocol.
+- **built-in agent** — the Rust coding-agent harness in the coordinator.
+  `roost-agent` drives conversations and `roost-llm` handles provider access;
+  tools execute on the selected worker through `agent_tools_v1` frames using
+  `roost-agent-tools`.
 
 - **agent runtime state** — what a coding agent inside a shell PTY is doing:
   `working`, `blocked` (waiting on the user), or `idle`. Volatile metadata on a

@@ -66,7 +66,7 @@ container image built from `Dockerfile` and the Helm chart in
 | CLI | `roost-cli` (binary `roost`) | Service entry points (`coord`, `worker`, `keeper`), `quickstart`, `join`, `add-machine`, `add-browser`, `status`, `doctor`, `logs`, `update`, `deploy`, `push` (journaled fleet rollout), `api` (28 headless verbs incl. `agent-*`, `ui`, `tasks`), `skill` (prints the embedded agent skill), `db-to-postgres`, `db-to-sqlite`, `import-v2`. |
 | Protocol | `roost-proto`, `roost-protocol` | `roost-proto`: protobuf messages and Connect stubs generated from `protocol/proto/roost/v1/` (the only protobuf runtime). `roost-protocol`: I/O-free wire logic — the one event fold, cell model, chunk assembly, viewport geometry, view registry, peer packet framing, layout documents. Builds for wasm32 and native. |
 | Host/platform | `roost-host`, `roost-platform`, `roost-observability` | `ROOST_*` config and service names; path/shell conventions; the JSON log line `roost status`/`roost doctor` parse. |
-| Built-in agent host | `agent-host/` | The Roost-owned pi-durable conversation runtime and provider credentials. Its tool processes run on a selected worker through the coordinator's opaque agent tunnel; its SQLite state and durable conversation store share an agent-host PVC. |
+| Agent harness | `roost-agent`, `roost-llm`, `roost-coord::agent` | The coordinator owns conversations, provider accounts and the Rust harness. `ROOST_AGENT_ENDPOINT_OVERRIDES` configures provider endpoint bases; worker tools run in `roost-agent-tools` over `agent_tools_v1` worker-link frames. |
 
 `roost-client-core` is UI-free: no DOM type, no async runtime I/O, no timer.
 `roost-web` calls `ClientCore::handle` from exactly one place
@@ -202,9 +202,9 @@ Normative detail lives in `protocol/spec/terminal-stream.md` and
   Alternate-screen occupancy alone never captures the mouse.
 
 Every terminal session is a shell PTY. Agent CLIs (`omp`, Claude Code, Codex)
-still run inside it. Separately, Roost's one built-in agent is hosted by
-`agent-host/`: it owns durable conversations and tool calls, while the tools
-execute on a selected worker through the agent tunnel.
+still run inside it. Separately, the built-in Rust harness runs in the
+coordinator (`roost-agent` and `roost-llm`), with tools executed by
+`roost-agent-tools` on workers over `agent_tools_v1` worker-link frames.
 
 ## Terminal fidelity
 

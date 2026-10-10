@@ -174,6 +174,11 @@ through `ROOST_LOG_FILE_DIR`, so `kubectl -n roost exec deploy/roost-coordinator
 -- roost doctor --since 24h` reads across rollouts; doctor reads the audit log
 from the Postgres the pod's `ROOST_COORDINATOR_DATABASE_URL` names.
 
+The Rust agent harness runs in the coordinator; worker-side tools are dispatched
+over the worker link. For a proxy or alternate provider endpoint, set
+`ROOST_AGENT_ENDPOINT_OVERRIDES` to a JSON object mapping provider names to base
+URLs, for example `{"anthropic":"https://gateway.example"}`.
+
 When the front door is a TCP proxy on another machine rather than an ingress
 (for example a Caddy host forwarding over a tailnet), expose the coordinator
 with `service.type=NodePort`, `service.externalTrafficPolicy=Local` so the

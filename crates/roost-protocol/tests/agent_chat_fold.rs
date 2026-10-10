@@ -1,4 +1,4 @@
-//! Agent-host chat events form one canonical transcript through the shared fold.
+//! Agent chat events form one canonical transcript through the shared fold.
 
 use roost_protocol::wire::agent_chat::{
     AgentRunState, ChatEvent, Transcript, TranscriptBlock, TranscriptItem, UsageTotals,
