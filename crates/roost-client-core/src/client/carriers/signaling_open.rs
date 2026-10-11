@@ -1,5 +1,6 @@
 //! The opening half of a peer attempt: opening the transport, reading its
-//! offer, and adopting a grant minted while it gathered. An `impl Signalling`
+//! offer, and adopting a grant minted while it gathered — and, when `start`
+//! parks instead, the hold it logs once per reason. An `impl Signalling`
 //! block beside `super::signaling`, whose `start` and `step` call it; the
 //! grantless open exists so ICE gathering overlaps the mint's round trip, and
 //! the offer is held here until the worker has the grant installed.
@@ -11,6 +12,53 @@ use crate::client::carriers::grant::DirectGrant;
 use crate::client::carriers::signaling::Signalling;
 use crate::client::carriers::{CarrierEffect, CarrierFault, PeerAttempt, PeerPhase};
 use crate::terminal::token::TerminalTransport;
+
+/// Why `start` parked instead of opening a peer, as the carrier log names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AttemptHold {
+    NoView,
+    PeerHeld,
+    LoopbackProbePending,
+    SameHostLoopback,
+    RetryBackoff,
+    AwaitingGrant,
+    HoldDown,
+}
+
+impl AttemptHold {
+    /// The stable carrier-log spelling for this hold.
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::NoView => "no_view",
+            Self::PeerHeld => "peer_held",
+            Self::LoopbackProbePending => "loopback_probe_pending",
+            Self::SameHostLoopback => "same_host_loopback",
+            Self::RetryBackoff => "retry_backoff",
+            Self::AwaitingGrant => "awaiting_grant",
+            Self::HoldDown => "hold_down",
+        }
+    }
+}
+
+impl Signalling {
+    /// Record a changed hold without repeating the same state on every start.
+    pub(crate) fn note_hold(&mut self, hold: AttemptHold, retry_at: Option<u64>) {
+        if self.last_logged_hold == Some(hold) {
+            return;
+        }
+        self.last_logged_hold = Some(hold);
+        let retry_in_ms = retry_at.map(|at_ms| at_ms.saturating_sub(self.now_ms));
+        tracing::info!(
+            target: "carriers",
+            worker_fp = %self.worker_fp,
+            hold = hold.as_str(),
+            phase = ?self.phase,
+            grant_phase = ?self.grant.phase(),
+            retry_in_ms,
+            "direct peer attempt held"
+        );
+    }
+}
 
 impl Signalling {
     /// Mint a peer attempt and ask the host to open it: from the live grant
@@ -46,6 +94,14 @@ impl Signalling {
             adopt_grant_fields(&mut attempt, grant);
         }
         self.attempt = Some(attempt.clone());
+        self.last_logged_hold = None;
+        tracing::info!(
+            target: "carriers",
+            worker_fp = %self.worker_fp,
+            attempt_id = attempt.attempt_id,
+            failure_count = self.faults.failure_count,
+            "direct peer attempt started"
+        );
         self.held_offer = None;
         self.attempt_started_ms = now_ms;
         self.set_phase(PeerPhase::Gathering, None);

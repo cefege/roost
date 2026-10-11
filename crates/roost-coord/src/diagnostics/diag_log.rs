@@ -17,7 +17,8 @@
 //! THE ENTRY'S OWN `evt` SURVIVES ITS `kv`. `spa.uncaught` carries the error
 //! text in `kv.msg`, which would otherwise clobber the structural message and
 //! leave `roost doctor` grouping a day's failures under a browser's own words.
-//! `roost doctor` groups by `evt`, so the `evt` is written last and flat.
+//! `kv` is a string holding compact JSON with un-prefixed keys. Each line also
+//! carries the caller's fingerprint and tab id; `evt` remains last and flat.
 
 use connectrpc::ServiceResult;
 use roost_observability::diag::is_diag_enabled;
@@ -52,7 +53,7 @@ pub async fn handle_diag_debug_log_batch(
         if !entry.signal && !firehose_on {
             continue;
         }
-        emit(entry);
+        emit(entry, caller);
         accepted = accepted.saturating_add(1);
     }
     ok_response(proto::DiagDebugLogBatchResponse {
@@ -63,48 +64,51 @@ pub async fn handle_diag_debug_log_batch(
 
 /// Re-emit one entry under the target its tier names.
 ///
-/// A malformed `kv_json` is dropped rather than failing the batch: one bad
-/// entry from one browser must not cost the other sixty-three, and the entry's
-/// own `evt`, `sid` and trace id are what an investigation actually reads.
-fn emit(entry: &proto::DiagDebugLogEntry) {
+/// A malformed `kv_json` becomes an empty object rather than failing the batch:
+/// one bad entry from one browser must not cost the other sixty-three, and the
+/// entry's own `evt`, `sid` and trace id are what an investigation actually reads.
+fn emit(entry: &proto::DiagDebugLogEntry, caller: &Caller) {
     let fields = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&entry.kv_json)
         .unwrap_or_default();
+    let kv = serde_json::Value::Object(fields).to_string();
     let empty = String::new();
     let sid = non_empty(&entry.sid).unwrap_or(&empty);
     let viewer_key = non_empty(&entry.viewer_key).unwrap_or(&empty);
     let trace_id = non_empty(&entry.trace_id).unwrap_or(&empty);
     let session_trace_id = non_empty(&entry.session_trace_id).unwrap_or(&empty);
+    let device = caller.fingerprint();
+    let tab_id = caller.tab_id.as_deref().unwrap_or("");
     // `evt` is the last field, so a `kv` of the same name cannot displace it.
-    let kv = fields
-        .into_iter()
-        .map(|(key, value)| (format!("kv_{key}"), tracing::field::debug(value)))
-        .collect::<Vec<_>>();
     if entry.signal {
         error!(
             target: SIGNAL_TARGET,
-            evt = %entry.evt,
             ts_spa = entry.ts_ms,
             mono_ns = entry.mono_ns,
             %trace_id,
             %session_trace_id,
             %sid,
             %viewer_key,
+            %device,
+            %tab_id,
             src = SOURCE,
-            ?kv,
+            kv = %kv,
+            evt = %entry.evt,
             "spa diagnostic signal"
         );
     } else {
         info!(
             target: DIAG_TARGET,
-            evt = %entry.evt,
             ts_spa = entry.ts_ms,
             mono_ns = entry.mono_ns,
             %trace_id,
             %session_trace_id,
             %sid,
             %viewer_key,
+            %device,
+            %tab_id,
             src = SOURCE,
-            ?kv,
+            kv = %kv,
+            evt = %entry.evt,
             "spa diagnostic"
         );
     }

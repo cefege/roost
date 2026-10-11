@@ -10,6 +10,7 @@
 //! door, workers — is `roost status`'s job, not this one's.
 
 use crate::doctor::audit::{self, AuditSummary};
+use crate::doctor::browser_carriers;
 use crate::doctor::digest::{Digest, SignalGroup, is_error_signal};
 use crate::utc_clock::format_utc_minute;
 
@@ -69,6 +70,13 @@ pub fn render_digest(
         }
     }
     lines.push(String::new());
+    lines.extend(browser_carriers::render_section(
+        &digest.browser_carriers,
+        digest.latest_ms,
+    ));
+    if !digest.browser_carriers.is_empty() {
+        lines.push(String::new());
+    }
 
     lines.push("## infra warnings (reconnect / rate-limit / external)".to_string());
     if digest.infra.is_empty() {
@@ -146,7 +154,13 @@ pub fn render_digest(
 /// make a nightly job red.
 fn reviewable_exit_code(digest: &Digest, audit: &AuditSummary) -> u8 {
     let reviewable = digest.total_signals() - digest.operator_signal_count();
-    if reviewable > 0 || digest.error_lines > 0 || audit.server_error_count > 0 {
+    let carrier_anomalies =
+        browser_carriers::anomaly_count(&digest.browser_carriers, digest.latest_ms);
+    if reviewable > 0
+        || carrier_anomalies > 0
+        || digest.error_lines > 0
+        || audit.server_error_count > 0
+    {
         1
     } else {
         0

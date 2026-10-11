@@ -19,6 +19,7 @@ use crate::client::carriers::faults::{
 use crate::client::carriers::grant::{GrantInput, GrantLifecycle, GrantPhase, GrantSweep};
 use crate::client::carriers::loopback::LoopbackProbe;
 use crate::client::carriers::signaling_demand::DirectWait;
+use crate::client::carriers::signaling_open::AttemptHold;
 use crate::client::carriers::signaling_snapshot::PeerTelemetry;
 use crate::client::carriers::{
     CarrierEffect, CarrierEnvironment, CarrierFault, PeerAnswer, PeerAttempt, PeerPhase,
@@ -64,6 +65,7 @@ pub struct Signalling {
     pub(crate) now_ms: u64,
     pub(crate) next_attempt_id: u64,
     pub(crate) retired: bool,
+    pub(crate) last_logged_hold: Option<AttemptHold>,
 }
 
 impl Signalling {
@@ -91,6 +93,7 @@ impl Signalling {
             direct_wait: None,
             time_to_direct_ms: None,
             retired: false,
+            last_logged_hold: None,
         }
     }
 
@@ -163,7 +166,15 @@ impl Signalling {
     /// worker's own machine must not allocate a peer.
     pub(crate) fn start(&mut self, now_ms: u64) -> Vec<CarrierEffect> {
         let wanted = self.active_views > 0 || !self.prewarm_sessions.is_empty();
-        if !wanted || self.peer_held || self.retired || self.attempt.is_some() {
+        if self.retired || self.attempt.is_some() {
+            return Vec::new();
+        }
+        if !wanted {
+            self.note_hold(AttemptHold::NoView, None);
+            return Vec::new();
+        }
+        if self.peer_held {
+            self.note_hold(AttemptHold::PeerHeld, None);
             return Vec::new();
         }
         if !self.loopback.permits_peer() {
@@ -174,13 +185,23 @@ impl Signalling {
             //
             self.park_keeping_terminal_reason(PeerPhase::Idle);
             return match self.loopback.recheck_after_ms() {
-                Some(wait) => vec![CarrierEffect::RetryAt {
-                    at_ms: now_ms.saturating_add(wait),
-                }],
-                None => Vec::new(),
+                Some(wait) => {
+                    self.note_hold(
+                        AttemptHold::LoopbackProbePending,
+                        Some(now_ms.saturating_add(wait)),
+                    );
+                    vec![CarrierEffect::RetryAt {
+                        at_ms: now_ms.saturating_add(wait),
+                    }]
+                }
+                None => {
+                    self.note_hold(AttemptHold::SameHostLoopback, None);
+                    Vec::new()
+                }
             };
         }
         if self.faults.retry_at_ms > now_ms {
+            self.note_hold(AttemptHold::RetryBackoff, Some(self.faults.retry_at_ms));
             return Vec::new();
         }
         if !self.env.peer_transport_available {
@@ -199,9 +220,11 @@ impl Signalling {
             // Parking here is not a stall: the grant lifecycle armed its own
             // retry the moment it last refused.
             self.park_keeping_terminal_reason(PeerPhase::AwaitingGrant);
+            self.note_hold(AttemptHold::AwaitingGrant, None);
             return Vec::new();
         }
         if self.faults.hold_down_until_ms > now_ms {
+            self.note_hold(AttemptHold::HoldDown, Some(self.faults.hold_down_until_ms));
             return self.faults.schedule(self.faults.hold_down_until_ms);
         }
         if self.env.peers_allocated >= TERMINAL_PEER_MAX_CONNECTIONS_PER_BROWSER_DOCUMENT as u32 {

@@ -849,7 +849,15 @@ startup line: `spa source: disk` with `web_dist_path`, or
 `spa source missing: every page request answers 404`.
 `roost doctor --since <window>` summarizes local logs from that window and
 reports anomalies such as uncaught errors, sequence gaps, queue overflows,
-degraded keepers, and failed backups/readiness.
+degraded keepers, and failed backups/readiness. Its `Browser direct routes`
+section reads the carrier decisions every browser uploads through
+`DiagDebugLogBatch`: per device, promotions, fallbacks by reason, peer
+attempts, grant drops, and the latest decision; a device whose latest decision
+is a held attempt (`awaiting_grant`, `retry_backoff`, `hold_down`,
+`loopback_probe_pending`) for 5 minutes or more is marked STUCK. Fallbacks and
+stuck devices count as anomalies. On the coordinator the raw lines are
+`target=signal src=spa`, keyed by `device` and `tab_id`, with the browser's
+fields in `kv`.
 
 During an ordinary worker or coordinator-link disconnect, keeper processes
 continue owning the PTYs. Crash-safe lifecycle events replay before the worker

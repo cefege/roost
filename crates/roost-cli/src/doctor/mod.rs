@@ -15,6 +15,7 @@
 //! diagnoses the coordinator and worker already made.
 
 pub mod audit;
+pub mod browser_carriers;
 pub mod digest;
 pub mod digest_render;
 pub mod log_sources;

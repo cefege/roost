@@ -10,6 +10,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::diag_upload::DiagUploadQueue;
 use dioxus::prelude::*;
 use roost_client_core::client::rpc::{CallError, ConnectCode};
 use roost_client_core::{ClientCore, ClientEvent, RpcCall, RpcResult};
@@ -25,15 +26,19 @@ use crate::platform::self_label::current_browser_self_label;
 ///
 /// The core and the coordinator client start with no tab id: the document has
 /// none until `boot` claims one, and nothing transports before that.
-pub fn start_pump(core: Rc<RefCell<ClientCore>>, revision: Signal<u64>) -> Pump {
+pub fn start_pump(
+    core: Rc<RefCell<ClientCore>>,
+    revision: Signal<u64>,
+    diag_upload: Option<DiagUploadQueue>,
+) -> Pump {
     let rpc = Rc::new(CoordRpc::new(coordinator_origin(), ""));
     let pump = Pump::new(core, revision, rpc);
     let booting = pump.clone();
-    wasm_bindgen_futures::spawn_local(async move { boot(booting).await });
+    wasm_bindgen_futures::spawn_local(async move { boot(booting, diag_upload).await });
     pump
 }
 
-async fn boot(pump: Pump) {
+async fn boot(pump: Pump, diag_upload: Option<DiagUploadQueue>) {
     // Independent waits: the claim answers over a BroadcastChannel and the key
     // comes out of IndexedDB, and neither reads the other.
     let ((), key) = futures_util::join!(claim_tab_id(&pump), WebDeviceKey::load_or_generate());
@@ -47,6 +52,12 @@ async fn boot(pump: Pump) {
     if redeem_captured_pair_token(&pump).await {
         return;
     }
+    #[cfg(target_arch = "wasm32")]
+    if let Some(queue) = diag_upload {
+        crate::diag_upload::flush::install(&pump, queue);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = diag_upload;
     #[cfg(target_arch = "wasm32")]
     {
         super::browser::install(&pump);

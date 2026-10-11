@@ -19,6 +19,7 @@
 pub mod app;
 pub mod components;
 pub mod dead_route_safety_net;
+pub mod diag_upload;
 pub mod display_format;
 pub mod input_nav;
 pub mod keyboard_shortcuts;
@@ -62,7 +63,14 @@ use roost_client_core::ClientCore;
 /// formatted and dropped, which is a log line that looks present and is not.
 /// `roost_observability::init()` is the shared owner of this and should replace
 /// it as soon as `xtask/src/crate_dag.rs` allows `roost-web → roost-observability`.
-pub fn install_tracing() {
+///
+/// A second layer, with its own filter, queues every warn/error and every
+/// `carriers` info event for `DiagDebugLogBatch` (`diag_upload`); the returned
+/// queue is what the pump flushes once the tab is authenticated, so a carrier
+/// decision reaches the coordinator log without anyone opening the console.
+pub fn install_tracing() -> diag_upload::DiagUploadQueue {
+    use tracing_subscriber::prelude::*;
+    let queue = diag_upload::DiagUploadQueue::default();
     struct BrowserConsole;
 
     impl std::io::Write for BrowserConsole {
@@ -92,12 +100,16 @@ pub fn install_tracing() {
     // `without_time`: the default timer reads `SystemTime::now()`, which panics
     // on wasm32-unknown-unknown, so the first event that passed the filter
     // aborted the tab (`RuntimeError: unreachable`). The console stamps lines.
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(filter)
+    let console = tracing_subscriber::fmt::layer()
         .without_time()
         .json()
         .with_writer(std::sync::Mutex::new(BrowserConsole))
-        .try_init();
+        .with_filter(filter);
+    let subscriber = tracing_subscriber::registry()
+        .with(console)
+        .with(diag_upload::DiagUploadLayer::new(queue.clone()).with_filter(diag_upload::filter()));
+    let _ = subscriber.try_init();
+    queue
 }
 
 pub use app::{Gate, Surface, surface_for};
@@ -127,7 +139,8 @@ pub fn App() -> Element {
     // The persisted palette lands before the first component paints (v2
     // `main.tsx` applies it before `render`).
     use_hook(theme::apply_stored_theme);
-    let pump = use_hook(|| pump::start_pump(Rc::new(RefCell::new(build_core())), revision));
+    let queue = try_consume_context::<diag_upload::DiagUploadQueue>();
+    let pump = use_hook(|| pump::start_pump(Rc::new(RefCell::new(build_core())), revision, queue));
     use_context_provider(|| pump.core());
     use_context_provider(|| pump.clone());
     use_context_provider(components::terminal::pane_registry::PaneRegistry::default);

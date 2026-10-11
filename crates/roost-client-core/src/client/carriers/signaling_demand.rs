@@ -3,7 +3,7 @@
 //! how long that asking waited for a direct route. An `impl Signalling` block
 //! beside `super::signaling`, called from its `step` and from the teardown
 //! paths in `super::faults`; it owns the one measurement the route diagnostic
-//! and the `terminal` log report as `time_to_direct_ms`.
+//! and the `carriers` log report as `time_to_direct_ms`.
 
 use std::collections::BTreeSet;
 
@@ -134,7 +134,7 @@ impl Signalling {
         self.time_to_direct_ms = wait.map(|wait| self.now_ms.saturating_sub(wait.started_ms));
         let phases = self.direct_phase_timings();
         tracing::info!(
-            target: "terminal",
+            target: "carriers",
             worker_fp = %self.worker_fp,
             transport = token.transport.as_str(),
             time_to_direct_ms = self.time_to_direct_ms,
@@ -171,7 +171,7 @@ impl Signalling {
             FaultFallback::Sync => "sync",
         };
         tracing::info!(
-            target: "terminal",
+            target: "carriers",
             worker_fp = %self.worker_fp,
             reason = fault.as_str(),
             fallback,

@@ -67,6 +67,8 @@ pub struct Digest {
     /// insertion order, which made two runs of one window print two different
     /// digests and taught operators to distrust the ordering.
     pub signals: BTreeMap<String, SignalGroup>,
+    /// Always-on SPA carrier decisions folded per browser device.
+    pub browser_carriers: BTreeMap<String, super::browser_carriers::BrowserCarrier>,
     /// `"<target> / <message>"` → how many times. This is the infra channel:
     /// reconnects, rate limits, external failures.
     pub infra: BTreeMap<String, u64>,
@@ -127,6 +129,10 @@ pub fn classify(digest: &mut Digest, line: &Value, cutoff_ms: i64, source_app: &
         Some(latest) => latest.max(timestamp),
         None => timestamp,
     });
+    if super::browser_carriers::is_carrier_signal(line) {
+        super::browser_carriers::record(&mut digest.browser_carriers, line);
+        return;
+    }
     if level == "error" {
         digest.error_lines += 1;
     }

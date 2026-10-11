@@ -331,6 +331,10 @@ impl Pump {
     pub fn rpc(&self) -> Rc<CoordRpc> {
         Rc::clone(&self.inner.rpc)
     }
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn hold_browser_listener(&self, listener: Box<dyn std::any::Any>) {
+        self.inner.listeners.borrow_mut().push(listener);
+    }
 
     /// How many Sync sockets this document has dialled (v2 `syncWsGeneration`).
     pub fn sync_dial_count(&self) -> u64 {

@@ -18,7 +18,7 @@ use roost_web::platform::browser::phase_marks::{PhaseName, mark_phase};
 use roost_web::platform::{FragmentCredential, capture_and_scrub};
 
 fn main() {
-    roost_web::install_tracing();
+    let queue = roost_web::install_tracing();
     mark_phase(PhaseName::ModuleStart, &[]);
     #[cfg(target_arch = "wasm32")]
     roost_web::platform::browser::perf_counters::install_long_task_watch();
@@ -41,6 +41,8 @@ fn main() {
     // queue, which is what lets the probe's own await complete first.
     wasm_bindgen_futures::spawn_local(async move {
         roost_web::platform::door_probe::prime_serving_bootstrap().await;
-        dioxus::launch(roost_web::App);
+        dioxus::LaunchBuilder::new()
+            .with_context(queue)
+            .launch(roost_web::App);
     });
 }
