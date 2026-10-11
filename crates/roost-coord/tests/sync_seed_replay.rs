@@ -72,15 +72,30 @@ fn a_v2_recovery_holds_live_events_and_releases_only_the_tail() {
     for event_id in 6..=8 {
         assert!(replay.admit_recovered(event_id));
     }
-    let tail: Vec<Option<u64>> = replay
-        .finish_recovery(8)
-        .into_iter()
+    let tail: Vec<Option<u64>> = std::iter::from_fn(|| replay.pop_recovery_tail(8))
         .map(|message| message.event_id)
         .collect();
     assert_eq!(tail, vec![Some(9), Some(12)]);
     assert_eq!(replay.admit_live(&live(12)), LiveVerdict::Duplicate);
     assert_eq!(replay.admit_live(&live(8)), LiveVerdict::Duplicate);
     assert_eq!(replay.admit_live(&live(13)), LiveVerdict::Emit);
+}
+
+#[test]
+fn live_events_wait_for_the_paced_tail_and_repeated_held_events_are_not_delivered_twice() {
+    let mut replay = SessionReplay::new(5, true);
+    for event_id in [8, 9] {
+        assert_eq!(replay.admit_live(&live(event_id)), LiveVerdict::Held);
+    }
+    assert!(replay.admit_recovered(6));
+    assert_eq!(replay.pop_recovery_tail(6).unwrap().event_id, Some(8));
+    assert_eq!(replay.admit_live(&live(8)), LiveVerdict::Held);
+    assert_eq!(replay.admit_live(&live(10)), LiveVerdict::Held);
+    assert_eq!(replay.pop_recovery_tail(6).unwrap().event_id, Some(9));
+    assert_eq!(replay.pop_recovery_tail(6).unwrap().event_id, Some(10));
+    assert!(replay.pop_recovery_tail(6).is_none());
+    assert_eq!(replay.admit_live(&live(10)), LiveVerdict::Duplicate);
+    assert_eq!(replay.admit_live(&live(11)), LiveVerdict::Emit);
 }
 
 // sync-feed.ts:138-145: an unstamped live event cannot be ordered against the

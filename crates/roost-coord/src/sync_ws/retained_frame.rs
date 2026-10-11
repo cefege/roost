@@ -88,10 +88,13 @@ impl OwnedFrame {
     /// and generation that socket is currently admitting for.
     #[must_use]
     pub fn of_copy(frame: &FirehoseFrame, domain: SyncDomain, generation: u64) -> Self {
-        let mut owned = frame.clone();
-        stamp_envelope(&mut owned, domain, generation, 0);
+        Self::of_frame(frame.clone(), domain, generation)
+    }
+
+    pub(super) fn of_frame(mut frame: FirehoseFrame, domain: SyncDomain, generation: u64) -> Self {
+        stamp_envelope(&mut frame, domain, generation, 0);
         Self {
-            payload: OwnedPayload::Copy(owned),
+            payload: OwnedPayload::Copy(frame),
             domain,
             generation,
         }

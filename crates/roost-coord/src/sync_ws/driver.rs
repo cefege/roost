@@ -20,7 +20,7 @@
 //! ACK window still bounds what is in flight, exactly as v2's did.
 
 use std::collections::VecDeque;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::Mutex;
 
 use roost_proto::FirehoseFrame;
 use roost_proto::buffa::Message;
@@ -348,46 +348,9 @@ impl LinkState {
 /// The link one socket's listeners and task share.
 #[derive(Debug)]
 pub struct SyncLink {
-    state: Mutex<LinkState>,
-    wake: Notify,
-}
-
-impl SyncLink {
-    /// A link over freshly built state.
-    #[must_use]
-    pub fn new(state: LinkState) -> Self {
-        Self {
-            state: Mutex::new(state),
-            wake: Notify::new(),
-        }
-    }
-
-    /// The shared state. Never held across an await, and never held while
-    /// publishing to a bus: this socket's own listeners take the same lock.
-    pub fn lock(&self) -> MutexGuard<'_, LinkState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    /// Route one bus message under the lock, deliver the frame it produced,
-    /// and wake the socket task.
-    pub fn deliver_with(&self, route: impl FnOnce(&mut LinkState) -> Option<FeedFrame>) {
-        {
-            let mut state = self.lock();
-            if state.close.is_some() {
-                return;
-            }
-            if let Some(frame) = route(&mut state) {
-                state.deliver(frame, now_ms());
-            }
-        }
-        self.wake.notify_one();
-    }
-
-    /// Resolve when a listener has handed this socket work. A wake that
-    /// arrives while the task is writing is kept, not lost.
-    pub async fn woken(&self) {
-        self.wake.notified().await;
-    }
+    pub(in crate::sync_ws) state: Mutex<LinkState>,
+    pub(in crate::sync_ws) wake: Notify,
+    pub(in crate::sync_ws) recovery_progress: Notify,
 }
 
 /// The wall clock as the unsigned milliseconds the session counts in.

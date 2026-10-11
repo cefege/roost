@@ -3,6 +3,7 @@
 //! terminal fence, and the reset a cursor ahead of the log gets), and the v2
 //! retained replay each `domain_ready` asks for, ahead of the live frames the
 //! domain buffered.
+//! and the pacing of a v2 backlog wider than the terminal queue.
 //!
 //! Ports the behaviour of `apps/coord/src/sync/sync-feed.ts` (`backfill`),
 //! `sync-feed-seed.ts` (`seedDomain`) and `sync-ws-v2-commands.ts:106-135`;
@@ -10,6 +11,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod db_support;
+#[path = "sync_seed_socket/recovery_limits.rs"]
+mod recovery_limits;
 mod sync_seed_support;
 mod sync_ws_socket_support;
 mod ws_client_support;
@@ -23,7 +26,8 @@ use roost_proto::__buffa::oneof::sync_client_frame::Command;
 use roost_proto::{FirehoseFrame, SyncDomain, SyncDomainReadyCommand};
 
 use sync_seed_support::{
-    closed_message, closed_of, insert_closed_row, insert_session, insert_worker,
+    closed_message, closed_of, insert_closed_rows, insert_session, insert_worker,
+    read_closed_frames,
 };
 use sync_ws_socket_support::{
     EXPECT, QUIET, SyncFixture, domain_ready, generation_of, next_firehose, read_subscribed,
@@ -34,17 +38,28 @@ const WORKER: &str = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 const SESSION: &str = "0d7c9a52-3f4e-4d6a-9b1c-2e8f7a6d5c41";
 const OTHER: &str = "0d7c9a52-3f4e-4d6a-9b1c-2e8f7a6d5c42";
 
-/// An install with one session and five durable `closed` rows for it.
-async fn logged_install(label: &str) -> (SyncFixture, String, String, Vec<u64>) {
+// Wider than the 512-frame terminal queue: the replay cannot be admitted until
+// the terminal domain is ready.
+const BACKLOG_ROWS: usize = 1100;
+// The v2 ACK window: 512 unacknowledged application frames.
+const ACK_WINDOW_FRAMES: usize = 512;
+
+/// An install with one session and `rows` durable `closed` rows for it.
+async fn closed_backlog_install(
+    label: &str,
+    rows: usize,
+) -> (SyncFixture, String, String, Vec<u64>) {
     let fixture = SyncFixture::start(label).await;
     let (fingerprint, token) = fixture.enroll_browser(61).await;
     insert_worker(&fixture, WORKER).await;
     insert_session(&fixture, SESSION, WORKER).await;
-    let mut ids = Vec::new();
-    for ts in 1..=5 {
-        ids.push(insert_closed_row(&fixture, SESSION, ts).await);
-    }
+    let ids = insert_closed_rows(&fixture, SESSION, rows).await;
     (fixture, fingerprint, token, ids)
+}
+
+/// An install with one session and five durable `closed` rows for it.
+async fn logged_install(label: &str) -> (SyncFixture, String, String, Vec<u64>) {
+    closed_backlog_install(label, 5).await
 }
 
 fn terminal_ready(generation: u64, token: &str) -> Command {
@@ -62,6 +77,21 @@ async fn expect_closed(socket: &mut ws_client_support::WsClient, event_id: u64) 
         .expect("a session frame");
     assert_eq!(closed_of(&frame), Some((event_id, SESSION.to_owned())));
     frame
+}
+
+/// The session snapshot token a browser names in its `domain_ready`.
+fn bind_terminal_snapshot(fixture: &SyncFixture, socket_id: &str, fingerprint: &str) -> String {
+    fixture
+        .services
+        .feed
+        .bind_session_snapshot(socket_id, fingerprint, BTreeSet::from([SESSION.to_owned()]))
+        .expect("the live socket binds")
+}
+
+/// Nothing arrives on `socket` inside QUIET: no data frame and no close.
+async fn expect_quiet(socket: &mut ws_client_support::WsClient, reason: &str) {
+    let stray = ws_client_support::next_frame(socket, QUIET).await;
+    assert!(stray.is_none(), "{reason}: got {stray:?}");
 }
 
 // sync-feed.ts:356-372: a v1 socket resuming from `since` gets its retained
@@ -260,4 +290,87 @@ async fn domain_ready_replays_retained_state_ahead_of_the_buffered_live_segment(
         "retained title and activity precede the live activity; OTHER was not admitted"
     );
     assert!(next_firehose(&mut socket, QUIET).await.is_none());
+}
+
+// Wider than the terminal queue, so the replay is admitted only once
+// `domain_ready` names the terminal snapshot. A live row past the cutoff is
+// held behind the recovery; the replayed rows then arrive once each, in order,
+// followed by that live row.
+#[tokio::test]
+async fn a_v2_resume_over_the_queue_bound_drains_in_order_after_terminal_ready() {
+    let (fixture, fingerprint, token, ids) =
+        closed_backlog_install("v2-delayed-hydration", BACKLOG_ROWS).await;
+    let mut socket = fixture
+        .dial_sync(&format!("flow=1&sync_v=2&tab=t1&since={}", ids[0]), &token)
+        .await
+        .socket();
+    let subscribed = read_subscribed(&mut socket).await;
+    let socket_id = subscribed.socket_id.clone();
+    expect_quiet(&mut socket, "nothing is sent before domain_ready").await;
+    let live_id = ids[BACKLOG_ROWS - 1] + 1;
+    let bus = &fixture.services.buses.session_bus;
+    bus.publish(closed_message(SESSION, live_id));
+    let snapshot = bind_terminal_snapshot(&fixture, &socket_id, &fingerprint);
+    let generation = generation_of(&subscribed, SyncDomain::Terminal);
+    send_client_frame(
+        &mut socket,
+        &socket_id,
+        None,
+        Some(terminal_ready(generation, &snapshot)),
+    )
+    .await;
+    read_closed_frames(&mut socket, &socket_id, SESSION, &ids[1..], 1, Some(256)).await;
+    let live = expect_closed(&mut socket, live_id).await;
+    assert_eq!(live.delivery_seq, BACKLOG_ROWS as u64);
+    expect_quiet(&mut socket, "the held live row is delivered once").await;
+}
+
+// The v2 window holds at most 512 unacknowledged application frames: a full
+// window puts nothing more on the wire, and the client's acknowledgement
+// releases the rest of the backlog in order.
+#[tokio::test]
+async fn a_v2_resume_over_the_queue_bound_pauses_at_the_full_ack_window() {
+    let (fixture, fingerprint, token, ids) =
+        closed_backlog_install("v2-ack-window", BACKLOG_ROWS).await;
+    let mut socket = fixture
+        .dial_sync(&format!("flow=1&sync_v=2&tab=t1&since={}", ids[0]), &token)
+        .await
+        .socket();
+    let subscribed = read_subscribed(&mut socket).await;
+    let socket_id = subscribed.socket_id.clone();
+    let snapshot = bind_terminal_snapshot(&fixture, &socket_id, &fingerprint);
+    let generation = generation_of(&subscribed, SyncDomain::Terminal);
+    send_client_frame(
+        &mut socket,
+        &socket_id,
+        None,
+        Some(terminal_ready(generation, &snapshot)),
+    )
+    .await;
+    read_closed_frames(
+        &mut socket,
+        &socket_id,
+        SESSION,
+        &ids[1..=ACK_WINDOW_FRAMES],
+        1,
+        None,
+    )
+    .await;
+    expect_quiet(&mut socket, "a full ack window sends nothing more").await;
+    send_client_frame(
+        &mut socket,
+        &socket_id,
+        Some(ACK_WINDOW_FRAMES as u64),
+        None,
+    )
+    .await;
+    read_closed_frames(
+        &mut socket,
+        &socket_id,
+        SESSION,
+        &ids[ACK_WINDOW_FRAMES + 1..],
+        ACK_WINDOW_FRAMES as u64 + 1,
+        Some(256),
+    )
+    .await;
 }

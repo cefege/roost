@@ -12,7 +12,8 @@ use roost_proto::FirehoseFrame;
 use roost_protocol::wire::{SessionEvent, SessionId};
 use sqlx::AssertSqlSafe;
 
-use super::sync_ws_socket_support::SyncFixture;
+use super::sync_ws_socket_support::{EXPECT, SyncFixture, next_firehose, send_client_frame};
+use super::ws_client_support::WsClient;
 use super::ws_credential_support::{mint_coordinator_jwt, now_secs};
 
 /// Run one statement against the fixture's database.
@@ -123,6 +124,17 @@ pub async fn insert_closed_row(fixture: &SyncFixture, session_id: &str, ts: i64)
     u64::try_from(id).unwrap()
 }
 
+/// `count` durable `closed` rows for `session_id`, stamped 1..=count, and their
+/// ids in commit order.
+pub async fn insert_closed_rows(fixture: &SyncFixture, session_id: &str, count: usize) -> Vec<u64> {
+    let mut ids = Vec::with_capacity(count);
+    for ts in 1..=count {
+        let ts = i64::try_from(ts).unwrap();
+        ids.push(insert_closed_row(fixture, session_id, ts).await);
+    }
+    ids
+}
+
 /// A live `closed` message stamped with `event_id`.
 pub fn closed_message(session_id: &str, event_id: u64) -> SessionBusMessage {
     SessionBusMessage::committed(closed_event(session_id, 1), event_id)
@@ -136,5 +148,29 @@ pub fn closed_of(frame: &FirehoseFrame) -> Option<(u64, String)> {
             _ => None,
         },
         _ => None,
+    }
+}
+
+/// Read one replayed run of `closed` frames from `socket`: each must be the
+/// expected durable row at its sequence, and the client acknowledges every
+/// `ack_every` frames when asked to.
+pub async fn read_closed_frames(
+    socket: &mut WsClient,
+    socket_id: &str,
+    session_id: &str,
+    expected_ids: &[u64],
+    first_sequence: u64,
+    ack_every: Option<usize>,
+) {
+    for (offset, event_id) in expected_ids.iter().enumerate() {
+        let frame = next_firehose(socket, EXPECT)
+            .await
+            .expect("a session frame");
+        let sequence = first_sequence + offset as u64;
+        assert_eq!(closed_of(&frame), Some((*event_id, session_id.to_owned())));
+        assert_eq!(frame.delivery_seq, sequence);
+        if ack_every.is_some_and(|every| (offset + 1).is_multiple_of(every)) {
+            send_client_frame(socket, socket_id, Some(sequence), None).await;
+        }
     }
 }

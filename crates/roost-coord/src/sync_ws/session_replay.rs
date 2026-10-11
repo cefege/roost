@@ -135,16 +135,8 @@ impl SessionReplay {
         self.aborted
     }
 
-    /// Stop recovering and HAND BACK what was held, for a recovery that failed
-    /// or a live event that overflowed it.
-    ///
-    /// The events are live traffic this client has not seen, so the caller
-    /// emits them. Returning rather than clearing is the whole fix: a client
-    /// that connects mid-recovery and then loses it would otherwise never learn
-    /// that its session opened, while its terminal — admitted off the same feed —
-    /// keeps painting. What the durable log already covers stays dropped, because
-    /// `finish_recovery` and `live_now` are what decide that, and neither runs
-    /// here.
+    /// Stop recovery and return held live traffic to the caller.
+    /// A reset must not strand a session's live announcement behind its cells.
     pub fn abort(&mut self) -> Vec<SessionBusMessage> {
         let held = std::mem::take(&mut self.held);
         tracing::warn!(
@@ -168,21 +160,18 @@ impl SessionReplay {
         self.cutoff = self.cutoff.min(log_end);
     }
 
-    /// The v2 recovery reached `cutoff`: hand back the held events above it,
-    /// in id order, remembering each as the boundary so a repeat of it is
-    /// dropped (`sync-feed.ts:334-345`).
-    pub fn finish_recovery(&mut self, cutoff: u64) -> Vec<SessionBusMessage> {
+    /// Release one held event above the durable cutoff, keeping newer live
+    /// traffic held until the paced tail has drained.
+    pub fn pop_recovery_tail(&mut self, cutoff: u64) -> Option<SessionBusMessage> {
         self.cutoff = cutoff;
-        let held = std::mem::take(&mut self.held);
-        self.held_bytes = 0;
+        while let Some((event_id, (message, bytes))) = self.held.pop_first() {
+            self.held_bytes -= bytes;
+            if event_id > cutoff && self.boundary.insert(event_id) {
+                return Some(message);
+            }
+        }
         self.recovering = false;
-        held.into_iter()
-            .filter(|(event_id, _)| *event_id > cutoff)
-            .map(|(event_id, (message, _))| {
-                self.boundary.insert(event_id);
-                message
-            })
-            .collect()
+        None
     }
 
     /// The v1 backfill is over: later live events are no longer remembered

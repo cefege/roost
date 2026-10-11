@@ -106,6 +106,7 @@ async fn serve_until_closed(
                 state.ack_deadline_in_ms(now),
             )
         };
+        link.signal_recovery_progress();
         if let Err(cause) = write_batch(socket, frames).await {
             let mut state = link.lock();
             state.decide_close(LinkClose::BACKPRESSURE, cause, "write", now_ms());

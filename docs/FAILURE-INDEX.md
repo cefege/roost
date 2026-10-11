@@ -4083,3 +4083,30 @@ names (`roost_agent::toolset::toolset_for`); a first-seen name guard, as OMP's
 
 **Guard** — `crates/roost-agent/tests/quality_tools.rs` —
 `every_agent_kind_and_mode_offers_each_tool_name_once`.
+
+### An authorized browser stays on "Checking access…" while Sync closes `1013 byte_limit`
+
+**Symptom** — the access probe succeeds, but a resuming Sync socket logs `backfill_started`
+followed by `close_decided code=1013 reason=byte_limit frame=session_event` with zero
+unacknowledged frames. A large durable backlog can overflow the 512-frame terminal queue
+before `domain_ready`; `byte_limit` is also the queue's semantic frame-count refusal.
+
+**Wrong** — clear browser identity, delete history, raise queue limits, or rely on
+`yield_now` between database pages. A terminal domain waiting for hydration cannot drain,
+and a full ACK window cannot drain merely because the replay task yielded.
+
+**Right** — `sync_ws::recovery_delivery` retains one prepared event until terminal hydration
+and `admission::enqueue_recovery_frame` permit it. The existing queue admission predicate
+governs both live and durable traffic. `sync_ws::link` separates socket flush wakes from
+recovery progress; the producer registers before checking capacity, and socket flushes/ACKs
+wake it without polling. `backfill` advances only admitted rows and paces the held live tail;
+`session_replay::pop_recovery_tail` keeps newer live events behind that tail. Unqueueable
+oversized events reset recovery rather than waiting forever. History and limits remain intact.
+
+**Guard** — `crates/roost-coord/tests/sync_seed_socket.rs`:
+`a_v2_resume_over_the_queue_bound_drains_in_order_after_terminal_ready`,
+`a_v2_resume_over_the_queue_bound_pauses_at_the_full_ack_window`;
+`crates/roost-coord/tests/sync_seed_replay.rs`:
+`live_events_wait_for_the_paced_tail_and_repeated_held_events_are_not_delivered_twice`.
+`crates/roost-coord/tests/sync_seed_socket/recovery_limits.rs`:
+`an_unqueueable_replay_resets_then_accepts_hydration_and_live_events`.

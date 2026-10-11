@@ -157,6 +157,10 @@ impl FeedFrame {
         self.frame
     }
 
+    pub(in crate::sync_ws) fn into_parts(self) -> (FirehoseFrame, SyncFrameMeta) {
+        (self.frame, self.meta)
+    }
+
     /// The metadata the queue places, fences and ages this frame by.
     #[must_use]
     pub fn meta(&self) -> &SyncFrameMeta {

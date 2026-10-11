@@ -1,18 +1,6 @@
-//! Bounded queue admission: whether one frame may join a domain's queue, where
-//! it lands in that queue, and what an overflow means for that domain.
-//!
-//! Owned by the Sync session, and split from `egress.rs` by concept rather than
-//! only by the line cap: admission answers "may this frame be held", the flush
-//! turn answers "which held frame goes out next", and the two are separately
-//! testable. v2 had both in `sync-ws-v2-egress.ts` (396 lines), which is exactly
-//! the file that does not survive a 400-line cap as a transliteration.
-//!
-//! EVERY REFUSAL IS DECIDED BEFORE THE FRAME IS CONSUMED. A lane that cannot
-//! queue its next view-state has to keep holding it -- v2 leaves the frame in
-//! `pendingStates` and retries on the next turn, and a port that consumed it
-//! would drop a state the client is waiting an answer to. So the refusal is a
-//! value computed from an immutable read, and only a frame that passed is
-//! charged and moved.
+//! Bounded queue admission and domain-specific overflow recovery.
+//! The Sync session owns every charge; egress releases admitted frames.
+//! Durable replay retains refused frames until hydration or capacity returns.
 
 use roost_proto::{FirehoseFrame, SyncDomain};
 
@@ -102,6 +90,24 @@ impl SyncV2Session {
             Some(refusal) => self.act_on_refusal(refusal, meta, now_ms, hub),
             None => self.admit(owned, meta, estimated_bytes, now_ms),
         }
+    }
+
+    pub(super) fn enqueue_recovery_frame(
+        &mut self,
+        frame: OwnedFrame,
+        meta: &SyncFrameMeta,
+        estimated_bytes: u64,
+        now_ms: u64,
+    ) -> Result<(), OwnedFrame> {
+        if !self.terminal_domain_ready()
+            || self
+                .queue_refusal(&frame, meta, estimated_bytes, true)
+                .is_some()
+        {
+            return Err(frame);
+        }
+        self.admit(frame, meta, estimated_bytes, now_ms);
+        Ok(())
     }
 
     /// Queue a frame the terminal lane already charged, or hand it back.

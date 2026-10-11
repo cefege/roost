@@ -29,6 +29,7 @@ use crate::events::event_query::{
 use crate::sync_ws::admission::EnqueueOutcome;
 use crate::sync_ws::driver::{Delivery, LinkState, SyncLink, now_ms};
 use crate::sync_ws::live_feed::emit_session_frame;
+use crate::sync_ws::recovery_delivery::deliver_recovery_frame;
 
 /// Replayed events delivered between two yields, so a live publisher on the
 /// same runtime is never held behind a whole page (`sync-feed.ts:361-363`).
@@ -148,35 +149,47 @@ async fn recover_through_cutoff(link: &SyncLink, pool: &AnyPool, since: u64) {
         });
         return stop_recovery(link, SYNC_RESET_CURSOR_AHEAD_OF_LOG);
     }
+    let generation = {
+        let state = link.lock();
+        let Delivery::V2(session) = &state.delivery else {
+            return;
+        };
+        session
+            .domain_generation(SyncDomain::Terminal)
+            .unwrap_or_default()
+    };
     let mut cursor = since;
     while cursor < cutoff {
         let rows = match get_events_through(pool, cursor, cutoff, None).await {
             Ok(rows) => rows,
             Err(error) => return fail_recovery(link, since, &error),
         };
-        let mut paged = false;
-        link.deliver_with(|state| {
-            paged = replay_page(state, &rows, &mut cursor, cutoff);
-            None
-        });
-        if !paged {
+        if !replay_page(link, rows, &mut cursor, cutoff, generation).await {
             return;
         }
-        tokio::task::yield_now().await;
     }
     let mut released = 0;
-    link.deliver_with(|state| {
-        if state.replay.is_aborted() {
-            return None;
-        }
-        for message in state.replay.finish_recovery(cutoff) {
-            released += 1;
-            if let Some(frame) = emit_session_frame(state, &message) {
-                state.deliver(frame, now_ms());
+    loop {
+        let frame = {
+            let mut state = link.lock();
+            if state.close.is_some() || state.replay.is_aborted() {
+                return;
             }
+            let Some(message) = state.replay.pop_recovery_tail(cutoff) else {
+                break;
+            };
+            released += 1;
+            emit_session_frame(&mut state, &message)
+        };
+        if let Some(frame) = frame
+            && !deliver_recovery_frame(link, frame, generation).await
+        {
+            return stop_recovery(link, "recovery_failed");
         }
-        None
-    });
+        if released % REPLAY_BATCH_EVENTS == 0 {
+            tokio::task::yield_now().await;
+        }
+    }
     tracing::info!(
         event = "sync-ws",
         action = "recovery_done",
@@ -187,23 +200,42 @@ async fn recover_through_cutoff(link: &SyncLink, pool: &AnyPool, since: u64) {
     );
 }
 
-/// Deliver one recovery page under the link, or reset for the gap or the
-/// disorder it found. `false` stops the recovery.
-fn replay_page(state: &mut LinkState, rows: &[StoredEvent], cursor: &mut u64, cutoff: u64) -> bool {
-    if state.replay.is_aborted() {
-        return false;
-    }
+/// Advance the cursor only after admission; a full queue is a wait, not a fault.
+async fn replay_page(
+    link: &SyncLink,
+    rows: Vec<StoredEvent>,
+    cursor: &mut u64,
+    cutoff: u64,
+    generation: u64,
+) -> bool {
     if rows.is_empty() {
-        abort_recovery(state, "recovery_gap");
+        stop_recovery(link, "recovery_gap");
         return false;
     }
-    for row in rows {
+    for (index, row) in rows.into_iter().enumerate() {
         if row.id <= *cursor || row.id > cutoff {
-            abort_recovery(state, "recovery_order");
+            stop_recovery(link, "recovery_order");
             return false;
         }
-        deliver_recovered(state, row);
+        let frame = {
+            let mut state = link.lock();
+            if state.close.is_some() || state.replay.is_aborted() {
+                return false;
+            }
+            let message = SessionBusMessage::committed(row.event, row.id);
+            emit_session_frame(&mut state, &message)
+        };
+        if let Some(frame) = frame
+            && !deliver_recovery_frame(link, frame, generation).await
+        {
+            stop_recovery(link, "recovery_failed");
+            return false;
+        }
+        link.lock().replay.admit_recovered(row.id);
         *cursor = row.id;
+        if (index + 1) % REPLAY_BATCH_EVENTS == 0 {
+            tokio::task::yield_now().await;
+        }
     }
     true
 }
