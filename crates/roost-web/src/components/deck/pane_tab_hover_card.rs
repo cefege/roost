@@ -9,7 +9,7 @@ use dioxus::prelude::*;
 use roost_client_core::store::selectors::session_by_id;
 use roost_client_core::store::terminal_transport::session_terminal_transport_kind;
 
-use super::deck_dom::ClientBox;
+use super::deck_dom::{ClientBox, DeckContainer};
 use super::inline_style::px;
 use super::pane_tab::direct_transport_label;
 use crate::components::agents::agent_status_indicator::AgentStatusIndicator;
@@ -32,6 +32,7 @@ struct HoverCardReading {
 #[component]
 pub fn PaneTabHoverCard(session_id: String, anchor: ClientBox) -> Element {
     let pump = use_store();
+    let container = try_use_context::<DeckContainer>();
     let reading = {
         let core = pump.core();
         let core = core.borrow();
@@ -52,11 +53,26 @@ pub fn PaneTabHoverCard(session_id: String, anchor: ClientBox) -> Element {
     let Some(reading) = reading else {
         return rsx! {};
     };
+    // The deck's transform makes it the containing block of this fixed card,
+    // so the tab's viewport box is moved into the deck's coordinates and the
+    // right-edge clamp is the deck's width, not the viewport's.
+    let origin = container
+        .map(|container| container.origin())
+        .filter(|origin| origin.width > 0.0)
+        .unwrap_or_default();
+    let room = if origin.width > 0.0 {
+        px(origin.width)
+    } else {
+        "100vw".to_owned()
+    };
     let left = format!(
-        "max(var(--md-space-2), min({}, calc(100vw - var(--workbench-tab-hovercard-width) - var(--md-space-2))))",
-        px(anchor.left)
+        "max(var(--md-space-2), min({}, calc({room} - var(--workbench-tab-hovercard-width) - var(--md-space-2))))",
+        px(anchor.left - origin.left)
     );
-    let top = format!("calc({} + var(--md-space-2))", px(anchor.bottom()));
+    let top = format!(
+        "calc({} + var(--md-space-2))",
+        px(anchor.bottom() - origin.top)
+    );
     rsx! {
         Surface {
             level: 3,

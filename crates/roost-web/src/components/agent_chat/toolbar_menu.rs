@@ -6,11 +6,12 @@
 use dioxus::prelude::*;
 
 use crate::components::context_menu::{
-    ANCHOR_DROP_PX, AnchoredMenuPos, CtxMenuItem, MenuFocusEdge, anchored_menu_pos,
-    anchored_menu_surface_style, use_floating_menu_dismiss,
+    AnchoredMenuPos, CtxMenuItem, MenuFocusEdge, anchored_menu_surface_style,
+    use_floating_menu_dismiss,
 };
-use crate::components::deck::deck_dom::{self, DeckContainer};
+use crate::components::deck::deck_dom::{self, ClientBox, DeckContainer};
 use crate::components::md::{Button, ButtonSize, ButtonVariant, Icon, IconButton, IconButtonSize};
+use crate::components::menu_placement::{MenuPlacement, place_menu};
 
 /// One choice in a toolbar menu.
 #[derive(Debug, Clone, PartialEq)]
@@ -51,14 +52,12 @@ pub fn ToolbarMenu(
     aria_label: String,
     items: Vec<ToolbarMenuItem>,
     on_choose: EventHandler<String>,
-    /// Open above the trigger, for a trigger at the bottom of the pane.
+    /// Prefer opening above the trigger, for a trigger at the bottom of the
+    /// pane; the menu still drops when there is more room below.
     #[props(default)]
     opens_up: bool,
 ) -> Element {
-    let mut open = use_signal(|| None::<AnchoredMenuPos>);
-    // Distance from the containing block's bottom edge to the trigger's top,
-    // when the menu rises instead of drops.
-    let mut rise_px = use_signal(|| None::<f64>);
+    let mut open = use_signal(|| None::<MenuPlacement>);
     let mut anchor = use_signal(|| None::<std::rc::Rc<MountedData>>);
     let container = try_use_context::<DeckContainer>();
     let trigger_id = format!("agent-chat-{menu_key}-trigger");
@@ -66,23 +65,22 @@ pub fn ToolbarMenu(
     let open_menu = {
         let menu_id = menu_id.clone();
         move |edge: MenuFocusEdge| {
-            let Some(box_) = anchor.peek().as_deref().and_then(deck_dom::client_box) else {
+            let Some(trigger) = anchor.peek().as_deref().and_then(deck_dom::client_box) else {
                 return;
             };
-            let width = deck_dom::viewport_width();
-            let position = anchored_menu_pos(box_.left + box_.width, box_.bottom(), width);
-            let origin = container
+            let viewport = ClientBox {
+                left: 0.0,
+                top: 0.0,
+                width: deck_dom::viewport_width(),
+                height: viewport_height(),
+            };
+            // Outside a deck the viewport is both the bounds and the
+            // containing block of a fixed popup.
+            let deck = container
                 .map(|container| container.origin())
-                .unwrap_or_default();
-            rise_px.set(opens_up.then(|| {
-                let floor = if origin.height > 0.0 {
-                    origin.top + origin.height
-                } else {
-                    viewport_height()
-                };
-                (floor - box_.top + ANCHOR_DROP_PX).max(0.0)
-            }));
-            open.set(Some(deck_dom::menu_pos_in(position, origin, width)));
+                .filter(|origin| origin.width > 0.0)
+                .unwrap_or(viewport);
+            open.set(Some(place_menu(trigger, deck, deck, opens_up)));
             deck_dom::focus_menu(&menu_id, edge);
         }
     };
@@ -162,10 +160,9 @@ pub fn ToolbarMenu(
     };
     rsx! {
         {trigger_element}
-        if let Some(position) = *open.read() {
+        if let Some(placement) = *open.read() {
             ToolbarMenuSurface {
-                position,
-                rise_px: *rise_px.read(),
+                placement,
                 trigger_id,
                 menu_id,
                 items,
@@ -184,21 +181,17 @@ pub fn ToolbarMenu(
 
 #[component]
 fn ToolbarMenuSurface(
-    position: AnchoredMenuPos,
-    rise_px: Option<f64>,
+    placement: MenuPlacement,
     trigger_id: String,
     menu_id: String,
     items: Vec<ToolbarMenuItem>,
     on_choose: EventHandler<String>,
     on_close: EventHandler<bool>,
 ) -> Element {
-    // A long model list scrolls inside the menu rather than off the pane.
-    let placement = match rise_px {
-        Some(rise) => format!(
-            "top: auto; bottom: {rise}px; max-height: calc(var(--md-space-9) * 8); overflow-y: auto;"
-        ),
-        None => "max-height: calc(var(--md-space-9) * 8); overflow-y: auto;".to_owned(),
-    };
+    // The placement names every edge and the height cap, so the anchored
+    // position is overridden and only the surface chrome is kept.
+    let placement_style = placement.style();
+    let chrome_origin = AnchoredMenuPos { right: 0.0, y: 0.0 };
     use_floating_menu_dismiss(
         EventHandler::new(move |()| on_close.call(false)),
         None,
@@ -211,7 +204,7 @@ fn ToolbarMenuSurface(
             role: "menu",
             "aria-labelledby": trigger_id,
             class: "df-menu-enter agent-chat__menu",
-            style: anchored_menu_surface_style(position, "calc(var(--md-space-7) * 7)", None, &placement),
+            style: anchored_menu_surface_style(chrome_origin, "calc(var(--md-space-7) * 7)", None, &placement_style),
             onkeydown: move |event: KeyboardEvent| {
                 deck_dom::run_menu_keys(&event, &keys_menu_id, move || on_close.call(true), move || on_close.call(false));
             },
