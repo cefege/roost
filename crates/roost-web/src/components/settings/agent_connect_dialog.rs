@@ -25,11 +25,24 @@ pub fn AgentConnectDialog(
     let error = use_signal(String::new);
     let login_id = use_signal(|| None::<String>);
 
-    if let Some(id) = login_id() {
+    if login_id().is_some() {
+        let restart_pump = pump.clone();
+        let restart_provider = provider.id.clone();
         return rsx! {
-            AgentLoginDialog {
-                login_id: id,
-                on_close: move |completed| on_close.call(completed),
+            // Rendered through an iterator so the key takes effect: a restart
+            // then mounts a fresh dialog whose state and poll loop belong to
+            // the new login, instead of re-rendering the old one.
+            for id in login_id() {
+                AgentLoginDialog {
+                    key: "{id}",
+                    login_id: id.clone(),
+                    on_close: move |completed| on_close.call(completed),
+                    on_restart: {
+                        let restart_pump = restart_pump.clone();
+                        let restart_provider = restart_provider.clone();
+                        move |()| begin_oauth(restart_pump.clone(), restart_provider.clone(), login_id, error)
+                    },
+                }
             }
         };
     }

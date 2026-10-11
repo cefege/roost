@@ -9,17 +9,24 @@ use roost_client_core::client::rpc::calls::agent_chat::{
     CancelAgentLogin, PollAgentLogin, RespondAgentLogin,
 };
 
-use crate::components::md::{Button, ButtonVariant, Dialog, TextField};
+use crate::components::md::{Button, ButtonVariant, Dialog, IconButton, IconButtonSize, TextField};
 use crate::pump::{Pump, use_store};
 use roost_protocol::wire::agent_chat::{LoginPromptType, LoginState, LoginStatus};
 
 /// Login ceremony identified by the host's opaque id.
 #[component]
-pub fn AgentLoginDialog(login_id: String, on_close: EventHandler<bool>) -> Element {
+pub fn AgentLoginDialog(
+    login_id: String,
+    on_close: EventHandler<bool>,
+    /// Begin a fresh login, replacing this one; a failed or expired code is
+    /// never retried against the same login.
+    on_restart: EventHandler<()>,
+) -> Element {
     let pump = use_store();
     let state = use_signal(|| None::<LoginState>);
     let mut answer = use_signal(String::new);
     let error = use_signal(String::new);
+    let submitting = use_signal(|| false);
     let mut alive = use_signal(|| true);
     use_drop(move || alive.set(false));
 
@@ -77,7 +84,14 @@ pub fn AgentLoginDialog(login_id: String, on_close: EventHandler<bool>) -> Eleme
     });
 
     let current = state();
-    let prompt = current.as_ref().and_then(|value| value.prompt.clone());
+    let status = current.as_ref().map(|value| value.state);
+    let ended = matches!(status, Some(LoginStatus::Failed | LoginStatus::Done));
+    // A finished login takes no more answers: its prompt would only collect a
+    // code the coordinator then refuses.
+    let prompt = current
+        .as_ref()
+        .and_then(|value| value.prompt.clone())
+        .filter(|_| !ended);
     let prompt_id = prompt
         .as_ref()
         .map(|value| value.id.clone())
@@ -89,14 +103,9 @@ pub fn AgentLoginDialog(login_id: String, on_close: EventHandler<bool>) -> Eleme
     let close_id = login_id.clone();
     let submit_id = login_id.clone();
     let cancel_id = login_id.clone();
-    let error_message = if !error().is_empty() {
-        error()
-    } else {
-        current
-            .as_ref()
-            .and_then(|value| value.error.clone())
-            .unwrap_or_default()
-    };
+    // The login's own failure is drawn once, in its Failed block; this line is
+    // only for the calls this dialog makes.
+    let error_message = if ended { String::new() } else { error() };
 
     rsx! {
         Dialog {
@@ -113,13 +122,7 @@ pub fn AgentLoginDialog(login_id: String, on_close: EventHandler<bool>) -> Eleme
                             p { class: "md-body-m", "{notice.message}" }
                             if notice.notice_type == roost_protocol::wire::agent_chat::LoginNoticeType::AuthUrl {
                                 if let Some(url) = notice.url {
-                                    a {
-                                        class: "roost-button roost-button--link",
-                                        href: "{url}",
-                                        target: "_blank",
-                                        rel: "noopener noreferrer",
-                                        "Open sign-in page"
-                                    }
+                                    SignInUrl { url }
                                 }
                             }
                             if notice.notice_type == roost_protocol::wire::agent_chat::LoginNoticeType::DeviceCode {
@@ -132,7 +135,18 @@ pub fn AgentLoginDialog(login_id: String, on_close: EventHandler<bool>) -> Eleme
                     if value.state == LoginStatus::Waiting { p { class: "md-body-s", "Waiting for the provider…" } }
                     if value.state == LoginStatus::Done { p { class: "md-body-s", "Sign-in complete." } }
                     if value.state == LoginStatus::Failed {
-                        p { class: "agent-settings__notice md-body-s", role: "alert", {value.error.unwrap_or_else(|| "Sign-in failed.".to_owned())} }
+                        div { class: "agent-settings__login-failed", role: "alert",
+                            p { class: "agent-settings__notice md-body-s", {value.error.unwrap_or_else(|| "Sign-in failed.".to_owned())} }
+                            p { class: "md-body-s",
+                                "A code works once, and only for the most recent sign-in link. Start over for a fresh link."
+                            }
+                            Button {
+                                icon: "refresh",
+                                "data-testid": "agent-login-restart",
+                                onclick: move |_| on_restart.call(()),
+                                "Start over"
+                            }
+                        }
                     }
                 } else {
                     p { class: "md-body-s", "Connecting to provider…" }
@@ -173,16 +187,54 @@ pub fn AgentLoginDialog(login_id: String, on_close: EventHandler<bool>) -> Eleme
                         }
                     }
                     Button {
-                        disabled: answer().is_empty(),
-                        onclick: move |_| respond_login(submit_pump.clone(), submit_id.clone(), prompt_id.clone(), answer(), error),
-                        "Submit"
+                        disabled: answer().trim().is_empty() || submitting(),
+                        onclick: move |_| respond_login(submit_pump.clone(), submit_id.clone(), prompt_id.clone(), answer(), error, submitting),
+                        if submitting() { "Submitting…" } else { "Submit" }
                     }
                 }
                 Button {
                     variant: ButtonVariant::Outline,
-                    onclick: move |_| cancel_login(cancel_button_pump.clone(), cancel_id.clone(), on_close, error),
-                    "Cancel"
+                    onclick: move |_| {
+                        if ended {
+                            on_close.call(status == Some(LoginStatus::Done));
+                        } else {
+                            cancel_login(cancel_button_pump.clone(), cancel_id.clone(), on_close, error);
+                        }
+                    },
+                    if ended { "Close" } else { "Cancel" }
                 }
+            }
+        }
+    }
+}
+
+/// The provider's sign-in address in full, as a link, with a copy button for
+/// opening it in another browser or on another device.
+#[component]
+fn SignInUrl(url: String) -> Element {
+    let mut copied = use_signal(|| false);
+    rsx! {
+        div { class: "agent-settings__auth-url",
+            a {
+                class: "agent-settings__auth-url-link",
+                href: "{url}",
+                target: "_blank",
+                rel: "noopener noreferrer",
+                "data-testid": "agent-login-url",
+                "{url}"
+            }
+            IconButton {
+                icon: if copied() { "check" } else { "content_copy" },
+                label: "Copy sign-in link",
+                title: if copied() { "Copied" } else { "Copy link" },
+                size: IconButtonSize::IconSm,
+                "data-testid": "agent-login-url-copy",
+                onclick: {
+                    let url = url.clone();
+                    move |_| {
+                        crate::components::notifications::clipboard::copy_text_then(&url, move |written| copied.set(written));
+                    }
+                },
             }
         }
     }
@@ -194,26 +246,31 @@ fn respond_login(
     prompt_id: String,
     value: String,
     error: Signal<String>,
+    submitting: Signal<bool>,
 ) {
+    let mut submitting = submitting;
+    submitting.set(true);
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_futures::spawn_local(async move {
         let mut error = error;
-        if let Err(failure) = pump
+        let result = pump
             .rpc()
             .call(&RespondAgentLogin {
                 login_id,
                 prompt_id,
-                value,
+                value: value.trim().to_owned(),
             })
-            .await
-        {
-            error.set(format!("Could not submit sign-in response: {failure}"));
-        } else {
-            error.set(String::new());
+            .await;
+        match result {
+            Ok(()) => error.set(String::new()),
+            Err(failure) => error.set(format!("Could not submit the code: {failure}")),
+        }
+        if let Ok(mut busy) = submitting.try_write() {
+            *busy = false;
         }
     });
     #[cfg(not(target_arch = "wasm32"))]
-    let _ = (pump, login_id, prompt_id, value, error);
+    let _ = (pump, login_id, prompt_id, value, error, submitting);
 }
 
 fn cancel_login(pump: Pump, login_id: String, on_close: EventHandler<bool>, error: Signal<String>) {
