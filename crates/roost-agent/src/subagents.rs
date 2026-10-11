@@ -12,8 +12,7 @@ use tokio::sync::{Semaphore, mpsc};
 
 use crate::error::AgentError;
 use crate::projection::tool_item_id;
-use crate::records::{ConversationRecord, Entry, Mode, Role, model_ref};
-use crate::roles;
+use crate::records::{ConversationRecord, Entry, Mode};
 use crate::runtime::{AgentRuntime, RunEnd, now_ms, random_id};
 use crate::tool_round::{CallResult, CallScope};
 use crate::toolset::{MAX_DEPTH, SubagentKind};
@@ -163,22 +162,7 @@ async fn create_child(
     context: &str,
 ) -> Result<ConversationRecord, AgentError> {
     let runtime = scope.runtime;
-    let settings = runtime.settings().await?;
-    let role = match kind {
-        SubagentKind::Scout => Some(Role::Smol),
-        SubagentKind::Reviewer => Some(Role::Slow),
-        SubagentKind::Task => settings
-            .model_roles
-            .contains_key(&Role::Task)
-            .then_some(Role::Task),
-    };
-    let role_model = match role {
-        Some(role) => roles::resolve_role(runtime.inner.llm.as_ref(), &settings, role).await,
-        None => None,
-    };
-    let model = role_model
-        .map(|resolved| model_ref(&resolved.info.provider, &resolved.info.id))
-        .or_else(|| scope.record.model.clone());
+    let model = scope.record.model.clone();
     let now = now_ms();
     let title: String = format!("{name}: {task}")
         .chars()
@@ -213,6 +197,7 @@ async fn create_child(
             &Entry::SubagentContext {
                 context: context.to_owned(),
             },
+            &[],
         )
         .await?;
     runtime

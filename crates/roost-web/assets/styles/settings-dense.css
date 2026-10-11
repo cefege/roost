@@ -1,17 +1,11 @@
-/* "Dense Pro" layout — Direction B (Linear/Raycast DNA). THE Settings layout
-   now (the spacious default + the toggle were dropped 2026-06-24 — Author: "keep
-   it compact, we won't look back"). `data-density="dense"` is hardcoded on
-   <html> in index.html. Restyles the EXISTING Settings markup + md-dialog — no
-   JSX rewrite. Reuses the M3 tokens only.
+/* Settings uses compact navigation, searchable sections and aligned controls.
+   Layout and interaction states share the Material token and primitive roles. */
 
-   Hairlines instead of cards · tighter rhythm · narrow rail · compact dialogs. */
-
-/* ── Topbar: shorter, smaller title ─────────────────────────────────────────── */
-[data-density="dense"] .settings-topbar { height: 48px; }
+[data-density="dense"] .settings-topbar { min-block-size: calc(var(--md-space-6) * 2); block-size: auto; }
 [data-density="dense"] .settings-topbar__title {
   font-size: var(--md-title-m-size);
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-weight: var(--md-title-m-weight);
+  margin: 0;
 }
 
 /* ── Desktop workbench Settings rail ───────────────────────────────────────── */
@@ -70,9 +64,9 @@
   font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);
 }
 [data-density="dense"] .settings-rail__item[data-selected="true"] {
-  border-inline-start-color: var(--workbench-active);
-  background: var(--workbench-sidebar-selected);
-  color: var(--workbench-sidebar-selected-text);
+  border-inline-start-color: var(--md-sys-color-primary);
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
 }
 [data-density="dense"] .settings-rail__item[data-selected="true"] .md-list-row__headline {
   font-weight: var(--md-label-l-weight);
@@ -83,8 +77,8 @@
     color: var(--text-hi);
   }
   [data-density="dense"] .settings-rail__item[data-selected="true"]:hover {
-    background: var(--workbench-sidebar-selected);
-    color: var(--workbench-sidebar-selected-text);
+    background: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container);
   }
 }
 [data-density="dense"] .settings-rail__item:focus-visible {
@@ -95,3 +89,31 @@
 [data-density="dense"] .settings-content {
   background: var(--workbench-editor);
 }
+
+.settings-search { padding: var(--md-space-2) var(--md-space-3); }
+.settings-search .roost-text-field__control { min-inline-size: 0; inline-size: 100%; }
+.settings-search__empty {
+  margin: var(--md-space-3);
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);
+}
+.settings-pane-lead {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-body-m-weight) var(--md-body-m-size)/var(--md-body-m-line) var(--md-font);
+}
+.settings-search--mobile { padding: var(--md-space-3) var(--md-space-4); }
+.settings-mobile__group-label { margin: 0; }
+.settings-mobile__row.md-list-row { padding-block: var(--md-space-3); }
+.settings-mobile__row .md-list-row__support {
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);
+}
+.settings-tabs { display: flex; flex-wrap: wrap; gap: var(--md-space-2); margin-block-end: var(--md-space-5); }
+.settings-tabs .roost-button[aria-selected="true"] {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+.settings-tabpanel > .agent-settings__section:first-child { margin-block-start: 0; }
+.settings-search-save { display: flex; align-items: end; flex-wrap: wrap; gap: var(--md-space-3); }
+.settings-search-save .roost-text-field { flex: 1; min-inline-size: 0; }

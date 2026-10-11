@@ -258,3 +258,29 @@ async fn destructive_advice_absent_from_the_delta_is_quarantined() {
         "{entries:#?}"
     );
 }
+
+#[tokio::test]
+async fn toggling_the_advisor_sets_state_without_a_transcript_notice() {
+    let harness = Harness::new();
+    let id = harness.conversation().await;
+    for (command, enabled) in [
+        ("/advisor on", true),
+        ("/advisor off", false),
+        ("/advisor", true),
+    ] {
+        harness
+            .runtime
+            .submit(&id, command.to_owned())
+            .await
+            .unwrap();
+        let summary = harness.runtime.conversation(&id).await.unwrap();
+        assert_eq!(summary.advisor, enabled, "after {command}");
+    }
+    let entries = harness.store.entries(&id).await.unwrap();
+    assert!(
+        !entries
+            .iter()
+            .any(|(_, entry)| matches!(entry, Entry::Notice { .. })),
+        "{entries:#?}"
+    );
+}

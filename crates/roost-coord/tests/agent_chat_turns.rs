@@ -54,6 +54,7 @@ async fn fork_returns_new_id_and_copies_transcript() {
             &Entry::User {
                 text: "copied".into(),
             },
+            &[],
         )
         .await
         .expect("append source transcript");

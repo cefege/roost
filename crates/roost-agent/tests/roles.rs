@@ -4,7 +4,9 @@
 #[path = "support/mod.rs"]
 mod support;
 
-use roost_agent::roles::{SelectorCandidate, judge_candidates, parse_selector, resolve_role};
+use roost_agent::roles::{
+    SelectorCandidate, judge_candidates, parse_selector, resolve_role, role_chain,
+};
 use roost_agent::{AgentSettings, Role};
 use support::ScriptedLlm;
 
@@ -69,6 +71,30 @@ async fn unconfigured_smol_falls_back_to_the_default_role() {
             .await
             .is_none(),
         "an unavailable configured advisor does not fall back"
+    );
+}
+
+#[tokio::test]
+async fn configured_side_task_chain_keeps_quick_and_default_failover() {
+    let llm = ScriptedLlm::new(&["anthropic"]);
+    let mut settings = AgentSettings::default();
+    settings
+        .model_roles
+        .insert(Role::Default, "anthropic/claude-opus-5".into());
+    settings
+        .model_roles
+        .insert(Role::Smol, "anthropic/claude-sonnet-5".into());
+    settings
+        .model_roles
+        .insert(Role::Tiny, "anthropic/claude-haiku-4-5".into());
+    let ids: Vec<_> = role_chain(llm.as_ref(), &settings, Role::Tiny)
+        .await
+        .into_iter()
+        .map(|model| model.info.id)
+        .collect();
+    assert_eq!(
+        ids,
+        ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5"]
     );
 }
 

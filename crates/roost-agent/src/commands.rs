@@ -36,6 +36,7 @@ pub(crate) async fn execute(
             Ok(())
         }
         "advisor" => advisor::command(runtime, record, args).await,
+        "loop" => runtime.run_loop_command(&record.id, args).await,
         other => Err(AgentError::InvalidArgument(format!(
             "/{other} runs in the browser"
         ))),
@@ -101,7 +102,7 @@ async fn set_model(
             "/model needs a selector such as anthropic/claude-sonnet-5 or @smol".into(),
         ));
     }
-    let settings = runtime.settings().await?;
+    let settings = runtime.settings_for(record).await?;
     let Some(resolved) =
         roles::resolve_selector(runtime.inner.llm.as_ref(), &settings, args).await?
     else {
@@ -223,15 +224,13 @@ async fn compact(
             "wait for the current run to finish before compacting".into(),
         ));
     }
-    let model = turn::conversation_model(runtime, record).await?;
+    let models = turn::side_task_models(runtime, record).await?;
     let runtime = runtime.clone();
     let record = record.clone();
     let instructions = args.to_owned();
     tokio::spawn(async move {
         let cancel = CancellationToken::new();
-        match compaction::compact(&runtime, &record, &model.info, Some(&instructions), &cancel)
-            .await
-        {
+        match compaction::compact(&runtime, &record, &models, Some(&instructions), &cancel).await {
             Ok(true) => {}
             Ok(false) => {
                 runtime

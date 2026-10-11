@@ -48,17 +48,19 @@ struct ShellListeners {
 }
 
 /// The toggle-sidebar chord and the page-show reset, for the shell's lifetime.
-pub(super) fn use_shell_listeners(pump: Pump, compact: bool) {
-    let mut compact_now = use_signal(|| compact);
-    if *compact_now.peek() != compact {
-        compact_now.set(compact);
+pub(super) fn use_shell_listeners(pump: Pump, compact: bool, sidebar_enabled: bool) {
+    let mut sidebar_now = use_signal(|| (compact, sidebar_enabled));
+    if *sidebar_now.peek() != (compact, sidebar_enabled) {
+        sidebar_now.set((compact, sidebar_enabled));
     }
     let drag = use_resize_drag();
     let listeners = use_hook(move || {
         let keydown = Closure::<dyn FnMut(web_sys::KeyboardEvent)>::new(
             move |event: web_sys::KeyboardEvent| {
                 let key = shortcut_key(&event);
+                let (compact, enabled) = *sidebar_now.peek();
                 if event.default_prevented()
+                    || !enabled
                     || !matches_platform_shortcut(
                         &key,
                         PlatformShortcut::ToggleSidebar,
@@ -68,7 +70,7 @@ pub(super) fn use_shell_listeners(pump: Pump, compact: bool) {
                     return;
                 }
                 event.prevent_default();
-                super::app_shell::toggle_desktop_sidebar(&pump, *compact_now.peek());
+                super::app_shell::toggle_desktop_sidebar(&pump, compact);
             },
         );
         let pageshow = Closure::<dyn FnMut()>::new(move || drag.reset());

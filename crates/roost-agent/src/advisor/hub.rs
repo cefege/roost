@@ -66,7 +66,7 @@ impl AdvisorHub {
         let queue = lock(&runtime.inner.advisors.conversations)
             .get(&record.id)
             .map(|queue| queue.state.clone());
-        let settings = runtime.inner.store.settings().await.unwrap_or_default();
+        let settings = runtime.settings_for(record).await.unwrap_or_default();
         let enabled =
             record.parent_id.is_none() && record.advisor.unwrap_or(settings.advisor_enabled);
         let model = crate::roles::resolve_role(

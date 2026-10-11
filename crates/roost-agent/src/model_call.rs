@@ -3,15 +3,16 @@
 //! backoff, and stream events into the conversation's live assistant item.
 
 use futures::StreamExt;
-use roost_llm::{AssistantBlock, BlockKind, ChatRequest, LlmError, StopReason, StreamEvent, Usage};
-use roost_protocol::wire::agent_chat::{ChatEvent, TranscriptBlock, TranscriptItem};
+use roost_llm::{AssistantBlock, ChatRequest, LlmError, StopReason, StreamEvent, Usage};
+use roost_protocol::wire::agent_chat::{ChatEvent, TranscriptItem};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::error::AgentError;
+use crate::live_item::LiveItem;
 use crate::projection::transcript_blocks;
 use crate::records::{Entry, model_ref};
-use crate::runtime::{AgentRuntime, random_id};
+use crate::runtime::AgentRuntime;
 
 const MAX_ROTATIONS: usize = 3;
 
@@ -55,6 +56,11 @@ pub(crate) trait StreamObserver: Send {
     /// A retry starts the response over.
     fn restart(&mut self);
     fn event(&mut self, event: &StreamEvent);
+    /// Whether the response has reached the transcript. A committed response
+    /// is never handed to another model.
+    fn committed(&self) -> bool {
+        false
+    }
 }
 
 /// Discards events: judgments, compaction and advisor reviews.
@@ -65,15 +71,61 @@ impl StreamObserver for Silent {
     fn event(&mut self, _event: &StreamEvent) {}
 }
 
-/// Calls the model for `account_key` (the conversation whose accounts and
-/// sticky selection apply) with rotation and retries.
-pub(crate) async fn call_model(
+/// Tries the candidates in order and reports the index of the one whose outcome
+/// is returned. A candidate that fails with an error another model may answer
+/// falls over to the next only while nothing has reached the transcript: a
+/// response that streamed visible output is never replayed.
+pub(crate) async fn call_chain(
+    runtime: &AgentRuntime,
+    account_key: &str,
+    attempts: &[ChatRequest],
+    cancel: &CancellationToken,
+    observer: &mut dyn StreamObserver,
+) -> (usize, Result<ModelOutput, AgentError>) {
+    let mut index = 0;
+    loop {
+        let Some(request) = attempts.get(index) else {
+            let error = AgentError::FailedPrecondition("no model candidates".to_owned());
+            return (index, Err(error));
+        };
+        match call_candidate(runtime, account_key, request, cancel, observer).await {
+            Ok(output) => return (index, Ok(output)),
+            Err(error)
+                if index + 1 < attempts.len() && falls_over(&error) && !observer.committed() =>
+            {
+                let next = &attempts[index + 1];
+                tracing::warn!(
+                    account_key,
+                    from_provider = %request.model.provider,
+                    from_model = %request.model.id,
+                    to_provider = %next.model.provider,
+                    to_model = %next.model.id,
+                    %error,
+                    "candidate failed before output; falling over to the next candidate"
+                );
+                observer.restart();
+                index += 1;
+            }
+            Err(error) => return (index, Err(error.into())),
+        }
+    }
+}
+
+/// Errors another model may answer where this one could not: a rate limit that
+/// rotation did not clear, or a transport failure that retries did not.
+pub(crate) fn falls_over(error: &LlmError) -> bool {
+    matches!(error, LlmError::RateLimited { .. }) || error.is_transient()
+}
+
+/// One candidate's call: resolves its account, rotates on rate limits and
+/// retries transient failures.
+async fn call_candidate(
     runtime: &AgentRuntime,
     account_key: &str,
     request: &ChatRequest,
     cancel: &CancellationToken,
     observer: &mut dyn StreamObserver,
-) -> Result<ModelOutput, AgentError> {
+) -> Result<ModelOutput, LlmError> {
     let llm = &runtime.inner.llm;
     let provider = request.model.provider.clone();
     let (mut credential_id, mut auth) = llm.resolve(&provider, account_key).await?;
@@ -81,7 +133,7 @@ pub(crate) async fn call_model(
     let mut transient_retries = 0;
     loop {
         if cancel.is_cancelled() {
-            return Err(AgentError::Cancelled);
+            return Err(LlmError::Cancelled);
         }
         let stream = llm.stream(credential_id, request.clone(), auth.clone(), cancel.clone());
         match collect(stream, cancel, observer).await {
@@ -108,11 +160,11 @@ pub(crate) async fn call_model(
                 tracing::warn!(account_key, %error, attempt = transient_retries, "transient provider failure; retrying");
                 observer.restart();
                 tokio::select! {
-                    () = cancel.cancelled() => return Err(AgentError::Cancelled),
+                    () = cancel.cancelled() => return Err(LlmError::Cancelled),
                     () = tokio::time::sleep(wait) => {}
                 }
             }
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(error),
         }
     }
 }
@@ -160,180 +212,15 @@ fn merge_usage(total: &mut Usage, update: &Usage) {
     total.cache_write = total.cache_write.max(update.cache_write);
 }
 
-/// Streams a conversation's assistant response into its live transcript
-/// item. Events go through a channel to one forwarding task, which keeps
-/// their order without blocking the stream on delivery.
-pub(crate) struct LiveItem {
-    events: mpsc::UnboundedSender<Vec<ChatEvent>>,
-    pub item_id: String,
-    /// Provider block index → transcript block index.
-    positions: Vec<(usize, usize)>,
-    /// Partial blocks, kept so an aborted response still records its text.
-    partial: Vec<AssistantBlock>,
-}
-
-impl LiveItem {
-    fn new(events: mpsc::UnboundedSender<Vec<ChatEvent>>) -> Self {
-        let mut item = Self {
-            events,
-            item_id: random_id("a-"),
-            positions: Vec::new(),
-            partial: Vec::new(),
-        };
-        item.restart();
-        item
-    }
-
-    fn send(&self, event: ChatEvent) {
-        let _ = self.events.send(vec![event]);
-    }
-
-    fn position(&mut self, index: usize) -> usize {
-        if let Some((_, position)) = self.positions.iter().find(|(known, _)| *known == index) {
-            return *position;
-        }
-        let position = self.partial.len();
-        self.positions.push((index, position));
-        self.partial.push(AssistantBlock::Text {
-            text: String::new(),
-        });
-        position
-    }
-
-    fn partial_text(&self) -> Vec<AssistantBlock> {
-        self.partial
-            .iter()
-            .filter(|block| match block {
-                AssistantBlock::Text { text } | AssistantBlock::Thinking { text, .. } => {
-                    !text.is_empty()
-                }
-                AssistantBlock::ToolCall { .. } => false,
-            })
-            .cloned()
-            .collect()
-    }
-}
-
-impl StreamObserver for LiveItem {
-    fn restart(&mut self) {
-        self.positions.clear();
-        self.partial.clear();
-        self.send(ChatEvent::Item {
-            item: TranscriptItem::Assistant {
-                id: self.item_id.clone(),
-                blocks: Vec::new(),
-                streaming: true,
-                error: None,
-            },
-        });
-    }
-
-    fn event(&mut self, event: &StreamEvent) {
-        let item_id = self.item_id.clone();
-        match event {
-            StreamEvent::BlockStart { index, kind } => {
-                let position = self.position(*index);
-                let (block, value) = match kind {
-                    BlockKind::Thinking => (
-                        AssistantBlock::Thinking {
-                            text: String::new(),
-                            provider_data: None,
-                        },
-                        Some(TranscriptBlock::Thinking {
-                            text: String::new(),
-                        }),
-                    ),
-                    BlockKind::Text => (
-                        AssistantBlock::Text {
-                            text: String::new(),
-                        },
-                        Some(TranscriptBlock::Text {
-                            text: String::new(),
-                        }),
-                    ),
-                    BlockKind::ToolCall => (
-                        AssistantBlock::Text {
-                            text: String::new(),
-                        },
-                        None,
-                    ),
-                };
-                self.partial[position] = block;
-                if let Some(value) = value {
-                    self.send(ChatEvent::BlockSet {
-                        item_id,
-                        block: position,
-                        value,
-                    });
-                }
-            }
-            StreamEvent::TextDelta { index, text } | StreamEvent::ThinkingDelta { index, text } => {
-                let position = self.position(*index);
-                if let AssistantBlock::Text { text: buffer }
-                | AssistantBlock::Thinking { text: buffer, .. } = &mut self.partial[position]
-                {
-                    buffer.push_str(text);
-                }
-                let delta = text.clone();
-                self.send(if matches!(event, StreamEvent::ThinkingDelta { .. }) {
-                    ChatEvent::ThinkingDelta {
-                        item_id,
-                        block: position,
-                        delta,
-                    }
-                } else {
-                    ChatEvent::TextDelta {
-                        item_id,
-                        block: position,
-                        delta,
-                    }
-                });
-            }
-            StreamEvent::ToolCallStart {
-                index,
-                call_id,
-                name,
-            } => {
-                let position = self.position(*index);
-                self.partial[position] = AssistantBlock::ToolCall {
-                    call_id: call_id.clone(),
-                    name: name.clone(),
-                    args_json: String::new(),
-                };
-                self.send(ChatEvent::BlockSet {
-                    item_id,
-                    block: position,
-                    value: TranscriptBlock::ToolCall {
-                        call_id: call_id.clone(),
-                        tool_name: name.clone(),
-                        args_json: String::new(),
-                    },
-                });
-            }
-            StreamEvent::BlockEnd { index, block } => {
-                let position = self.position(*index);
-                self.partial[position] = block.clone();
-                if let Some(value) = transcript_blocks(std::slice::from_ref(block)).pop() {
-                    self.send(ChatEvent::BlockSet {
-                        item_id,
-                        block: position,
-                        value,
-                    });
-                }
-            }
-            StreamEvent::ToolArgsDelta { .. } | StreamEvent::Usage(_) | StreamEvent::Stop(_) => {}
-        }
-    }
-}
-
 /// The primary call of a turn: streams into the transcript and records the
-/// assistant entry. An aborted response records whatever text had arrived.
+/// assistant entry, attributed to the candidate that answered. An aborted
+/// response records whatever text had arrived.
 pub(crate) async fn primary_call(
     runtime: &AgentRuntime,
     conversation_id: &str,
-    request: &ChatRequest,
+    attempts: &[ChatRequest],
     cancel: &CancellationToken,
-) -> Result<(u64, ModelOutput), AgentError> {
+) -> Result<(u64, ModelOutput, usize), AgentError> {
     let (events, mut events_rx) = mpsc::unbounded_channel::<Vec<ChatEvent>>();
     let forwarder = {
         let runtime = runtime.clone();
@@ -345,12 +232,14 @@ pub(crate) async fn primary_call(
         })
     };
     let mut live = LiveItem::new(events);
-    let result = call_model(runtime, conversation_id, request, cancel, &mut live).await;
+    let (used, result) = call_chain(runtime, conversation_id, attempts, cancel, &mut live).await;
     let item_id = live.item_id.clone();
     let partial = live.partial_text();
     drop(live);
     let _ = forwarder.await;
-    let reference = model_ref(&request.model.provider, &request.model.id);
+    let reference = attempts
+        .get(used)
+        .map(|request| model_ref(&request.model.provider, &request.model.id));
     let (blocks, usage) = match &result {
         Ok(output) => (output.blocks.clone(), output.usage),
         Err(_) => (partial, Usage::default()),
@@ -359,12 +248,12 @@ pub(crate) async fn primary_call(
         item_id: item_id.clone(),
         blocks: blocks.clone(),
         usage,
-        model: Some(reference),
+        model: reference,
     };
     let seq = runtime
         .inner
         .store
-        .append_entry(conversation_id, &entry)
+        .append_entry(conversation_id, &entry, &[])
         .await?;
     let error_text = result.as_ref().err().and_then(|error| match error {
         AgentError::Cancelled => None,
@@ -388,5 +277,5 @@ pub(crate) async fn primary_call(
             .emit(conversation_id, vec![ChatEvent::Usage { usage: totals }])
             .await;
     }
-    result.map(|output| (seq, output))
+    result.map(|output| (seq, output, used))
 }

@@ -228,6 +228,7 @@ pub async fn handle_agent_settings_get(
         default_model: settings.default_model,
         advisor_enabled: settings.advisor_enabled,
         searxng_url: settings.searxng_url,
+        folder_model_roles: settings.folder_model_roles,
     };
     let settings_json =
         serde_json::to_string(&view).map_err(|_| internal("settings did not serialize"))?;
@@ -264,6 +265,7 @@ pub async fn handle_agent_settings_set(
         default_model: view.default_model,
         advisor_enabled: view.advisor_enabled,
         searxng_url: view.searxng_url,
+        folder_model_roles: view.folder_model_roles,
     };
     core.services
         .agent

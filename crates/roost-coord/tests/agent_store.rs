@@ -16,7 +16,8 @@ use roost_coord::agent::credentials::CoordCredentialStore;
 use roost_coord::agent::store::CoordAgentStore;
 use roost_llm::credentials::{CredentialKind, CredentialStore};
 use roost_llm::{AccountPool, Endpoints};
-use roost_protocol::wire::agent_chat::{AgentRunState, ModelRef};
+use roost_protocol::wire::agent_chat::{AgentRunState, FolderModelRoles, ModelRef};
+use tokio_util::sync::CancellationToken;
 
 fn scratch_root() -> std::path::PathBuf {
     let stamp = SystemTime::now()
@@ -74,6 +75,7 @@ async fn conversation_entries_settings_and_credentials_round_trip() {
             &Entry::User {
                 text: "child entry".to_owned(),
             },
+            &[],
         )
         .await
         .expect("append child entry");
@@ -95,11 +97,17 @@ async fn conversation_entries_settings_and_credentials_round_trip() {
         body: "ready".to_owned(),
     };
     assert_eq!(
-        store.append_entry("parent", &first).await.expect("append"),
+        store
+            .append_entry("parent", &first, &[])
+            .await
+            .expect("append"),
         1
     );
     assert_eq!(
-        store.append_entry("parent", &second).await.expect("append"),
+        store
+            .append_entry("parent", &second, &[])
+            .await
+            .expect("append"),
         2
     );
     assert_eq!(
@@ -132,6 +140,13 @@ async fn conversation_entries_settings_and_credentials_round_trip() {
         }),
         advisor_enabled: true,
         searxng_url: Some("https://search.example".to_owned()),
+        folder_model_roles: vec![FolderModelRoles {
+            worker_fp: "worker-a".to_owned(),
+            cwd: "/work/app".to_owned(),
+            model_roles: [("default".to_owned(), "anthropic/claude".to_owned())]
+                .into_iter()
+                .collect(),
+        }],
     };
     store.save_settings(&settings).await.expect("save settings");
     assert_eq!(store.settings().await.expect("load settings"), settings);
@@ -246,5 +261,42 @@ async fn conversation_entries_settings_and_credentials_round_trip() {
             .is_empty()
     );
     // Windows keeps the SQLite file locked until the pool drops; cleanup is best-effort.
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn cancelled_entry_rolls_back_without_spending_a_sequence_number() {
+    let root = scratch_root();
+    let db = db_support::open_test_database(&root)
+        .await
+        .expect("open database");
+    let store = CoordAgentStore::new(db.clone());
+    store
+        .save_conversation(&conversation("cancelled", None))
+        .await
+        .expect("save");
+    let cancel = CancellationToken::new();
+    cancel.cancel();
+    let entry = Entry::User {
+        text: "repeat".into(),
+    };
+    let result = store.append_entry("cancelled", &entry, &[&cancel]).await;
+    assert!(matches!(result, Err(roost_agent::AgentError::Cancelled)));
+    assert_eq!(
+        store.entries("cancelled").await.expect("entries"),
+        Vec::new()
+    );
+    assert_eq!(
+        store
+            .append_entry("cancelled", &entry, &[])
+            .await
+            .expect("append"),
+        1
+    );
+    assert_eq!(
+        store.entries("cancelled").await.expect("entries"),
+        vec![(1, entry)]
+    );
+    db.pool().close().await;
     let _ = std::fs::remove_dir_all(root);
 }

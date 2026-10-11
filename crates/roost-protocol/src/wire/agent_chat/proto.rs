@@ -19,6 +19,14 @@ pub fn conversation_to_proto(summary: &ConversationSummary) -> PbAgentConversati
             .model
             .as_ref()
             .map_or_else(String::new, |model| model.model_id.clone()),
+        effective_model_provider: summary
+            .effective_model
+            .as_ref()
+            .map_or_else(String::new, |model| model.provider.clone()),
+        effective_model_id: summary
+            .effective_model
+            .as_ref()
+            .map_or_else(String::new, |model| model.model_id.clone()),
         thinking_level: summary.thinking_level.clone().unwrap_or_default(),
         run_state: summary.run_state.as_str().to_owned(),
         error: summary.error.clone().unwrap_or_default(),
@@ -55,6 +63,12 @@ pub fn conversation_from_proto(message: &PbAgentConversation) -> ConversationSum
                 model_id: message.model_id.clone(),
             })
         },
+        effective_model: (!message.effective_model_provider.is_empty()
+            && !message.effective_model_id.is_empty())
+        .then(|| ModelRef {
+            provider: message.effective_model_provider.clone(),
+            model_id: message.effective_model_id.clone(),
+        }),
         thinking_level: (!message.thinking_level.is_empty())
             .then(|| message.thinking_level.clone()),
         run_state: AgentRunState::from_wire(&message.run_state),

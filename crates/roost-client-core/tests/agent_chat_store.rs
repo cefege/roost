@@ -17,6 +17,7 @@ fn conversation(id: &str, cwd: &str, updated_ms: i64) -> ConversationSummary {
         agent: None,
         advisor: false,
         model: None,
+        effective_model: None,
         thinking_level: None,
         run_state: AgentRunState::Idle,
         error: None,

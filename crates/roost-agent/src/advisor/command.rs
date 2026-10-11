@@ -39,18 +39,6 @@ async fn set_enabled(
         .update_record(&record.id, |row| row.advisor = Some(enabled))
         .await?;
     AdvisorHub::reset(runtime, &record.id);
-    runtime
-        .notice(
-            &record.id,
-            "info",
-            if enabled {
-                "Advisor enabled"
-            } else {
-                "Advisor disabled"
-            },
-            "",
-        )
-        .await;
     Ok(())
 }
 

@@ -51,6 +51,7 @@ pub fn transcript_to_markdown(title: &str, transcript: &Transcript) -> String {
                 }
             }
             TranscriptItem::Todo { .. } => {}
+            TranscriptItem::LoopStatus { .. } => {}
             TranscriptItem::Ask {
                 questions, answers, ..
             } => {

@@ -41,6 +41,7 @@ pub(crate) async fn classify(
     let question = Question::choice("level", INSTRUCTIONS, &CRITERIA);
     let level = match judging::judge(
         runtime,
+        conversation_id,
         Some(model),
         json!({"request": request}),
         vec![question],

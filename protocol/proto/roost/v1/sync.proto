@@ -183,6 +183,8 @@ message AgentConversation {
   string parent_id = 14;
   string agent = 15;
   bool advisor = 16;
+  string effective_model_provider = 17;
+  string effective_model_id = 18;
 }
 
 

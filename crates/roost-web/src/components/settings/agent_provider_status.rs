@@ -1,10 +1,10 @@
-//! What the Models pane says about each provider and account: whether it can
-//! serve a turn right now, and the counts the overview tiles show. Pure, so the
+//! Provider and account readiness shown in the Models and accounts pane.
+//! Pure status policy, shared by account rows and provider lists; the
 //! precedence between "disabled", "rate-limited" and "near its limit" is pinned
 //! by tests rather than by whichever branch a row happened to check first.
 //! Read by `agent_models`, `agent_accounts` and `agent_provider_list`.
 
-use roost_protocol::wire::agent_chat::{AccountEntry, AccountKind, ModelsCatalog, ProviderEntry};
+use roost_protocol::wire::agent_chat::{AccountEntry, ModelsCatalog, ProviderEntry};
 
 /// A usage window at or above this fraction reads as "near its limit".
 pub const NEAR_LIMIT_FRACTION: f64 = 0.9;
@@ -53,10 +53,6 @@ impl AccountHealth {
             Self::RateLimited { .. } | Self::NearLimit { .. } => "warn",
             Self::Ready => "ok",
         }
-    }
-
-    pub fn needs_attention(&self) -> bool {
-        !matches!(self, Self::Ready)
     }
 
     fn rank(&self) -> u8 {
@@ -141,58 +137,10 @@ pub fn provider_summaries(
     summaries
 }
 
-/// The overview tiles' numbers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct ModelsOverview {
-    pub signed_in_providers: usize,
-    pub total_providers: usize,
-    pub oauth_accounts: usize,
-    pub api_key_accounts: usize,
-    pub ready_models: usize,
-    pub total_models: usize,
-    pub accounts_needing_attention: usize,
-}
-
-pub fn models_overview(
-    catalog: &ModelsCatalog,
-    providers: &[ProviderSummary],
-    now_ms: u64,
-) -> ModelsOverview {
-    let accounts = providers.iter().flat_map(|summary| &summary.accounts);
-    ModelsOverview {
-        signed_in_providers: providers
-            .iter()
-            .filter(|summary| summary.provider.configured)
-            .count(),
-        total_providers: providers.len(),
-        oauth_accounts: accounts
-            .clone()
-            .filter(|account| account.kind == AccountKind::Oauth)
-            .count(),
-        api_key_accounts: accounts
-            .clone()
-            .filter(|account| account.kind == AccountKind::ApiKey)
-            .count(),
-        ready_models: catalog
-            .models
-            .iter()
-            .filter(|model| model.available && !model.classifier)
-            .count(),
-        total_models: catalog
-            .models
-            .iter()
-            .filter(|model| !model.classifier)
-            .count(),
-        accounts_needing_attention: accounts
-            .filter(|account| AccountHealth::of(account, now_ms).needs_attention())
-            .count(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use roost_protocol::wire::agent_chat::{AccountUsage, AccountUsageWindow};
+    use roost_protocol::wire::agent_chat::{AccountKind, AccountUsage, AccountUsageWindow};
 
     fn account(credential_id: i64) -> AccountEntry {
         AccountEntry {

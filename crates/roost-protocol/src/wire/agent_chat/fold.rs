@@ -133,6 +133,7 @@ impl TranscriptItem {
             | Self::Plan { id, .. }
             | Self::Advisory { id, .. }
             | Self::Todo { id, .. }
+            | Self::LoopStatus { id, .. }
             | Self::Ask { id, .. }
             | Self::Btw { id, .. } => id,
         }

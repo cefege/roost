@@ -19,6 +19,7 @@ use roost_client_core::store::sidebar::SidebarIntent;
 use super::activity_bar::ActivityBar;
 use super::mobile_bar::MobileTopBar;
 use super::mobile_sidebar_drawer::MobileSidebarDrawer;
+use super::shell_metrics::Destination;
 use super::shell_style::{
     ComposerGeometry, drawer_intent_for_route, editor_style, is_terminal_path, keyboard_shift,
     reserves_terminal_composer, shell_style, shows_mobile_top_bar,
@@ -93,6 +94,9 @@ pub fn AppShell(children: Element) -> Element {
     let compact = use_is_compact();
     let tv = super::window_size::use_tv_layout();
     let reading = read_shell(pump.core().borrow().store(), &path);
+    let settings_view = Destination::Settings.is_active(&path);
+    // Settings owns its navigation without changing the saved session sidebar.
+    let sidebar_collapsed = reading.collapsed || settings_view;
     // Re-read every render, because the dock publishes on a ResizeObserver and
     // a composer that grew does not otherwise bump the store.
     let composer = composer_geometry();
@@ -127,10 +131,14 @@ pub fn AppShell(children: Element) -> Element {
         // so the editor's left edge never moves for it.
         super::app_shell_dom::use_main_left(
             compact,
-            reading.collapsed || tv,
+            sidebar_collapsed || tv,
             reading.sidebar_width,
         );
-        super::app_shell_dom::use_shell_listeners(pump.clone(), compact);
+        super::app_shell_dom::use_shell_listeners(
+            pump.clone(),
+            compact,
+            !compact && !settings_view,
+        );
         super::keyboard_offset::use_keyboard_offset();
     }
     let toggle_pump = pump.clone();
@@ -140,11 +148,11 @@ pub fn AppShell(children: Element) -> Element {
         div {
             class: "workbench-shell",
             "data-compact": if compact { "true" } else { "false" },
-            style: shell_style(reading.keyboard_resize, composer.active, reading.sidebar_width, reading.collapsed),
+            style: shell_style(reading.keyboard_resize, composer.active, reading.sidebar_width, sidebar_collapsed),
             if !compact {
                 TitleBar { path: path.clone(), session_title: title.clone(), session_folder: folder.clone() }
                 ActivityBar { on_toggle_sidebar }
-                SidebarRegion { collapsed: reading.collapsed, SidebarRoot {} }
+                SidebarRegion { collapsed: sidebar_collapsed, SidebarRoot {} }
             }
             main {
                 class: "workbench-editor-region",

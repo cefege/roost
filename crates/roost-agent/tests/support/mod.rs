@@ -20,8 +20,10 @@ use roost_protocol::wire::agent_chat::{
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+mod gated;
 mod llm;
 
+pub use gated::{ArmOnCheckSink, GatedStore};
 pub use llm::{ANY_SESSION, JudgeScript, Script, ScriptedLlm};
 
 /// A worker that answers each tool with a fixed outcome and records calls.
@@ -158,19 +160,53 @@ pub const MODEL: &str = "claude-sonnet-5";
 impl Harness {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
+        let store = Arc::new(InMemoryAgentStore::default());
+        let sink = Arc::new(RecordingSink::default());
+        Self::from_parts(
+            store.clone() as Arc<dyn AgentStore>,
+            sink.clone() as Arc<dyn ChatSink>,
+            sink,
+            store,
+        )
+    }
+
+    /// A harness whose store parks the loop's record lookup and repeat appends
+    /// on request. The sink arms the lookup park when the loop announces its
+    /// condition check.
+    pub fn gated() -> (Self, Arc<GatedStore>) {
+        let inner = Arc::new(InMemoryAgentStore::default());
+        let gate = Arc::new(GatedStore::new(inner.clone()));
+        let sink = Arc::new(RecordingSink::default());
+        let runtime_sink = ArmOnCheckSink {
+            inner: sink.clone(),
+            gate: gate.clone(),
+        };
+        let harness = Self::from_parts(
+            gate.clone() as Arc<dyn AgentStore>,
+            Arc::new(runtime_sink) as Arc<dyn ChatSink>,
+            sink,
+            inner,
+        );
+        (harness, gate)
+    }
+
+    fn from_parts(
+        runtime_store: Arc<dyn AgentStore>,
+        runtime_sink: Arc<dyn ChatSink>,
+        sink: Arc<RecordingSink>,
+        store: Arc<InMemoryAgentStore>,
+    ) -> Self {
         let llm = ScriptedLlm::new(&[PROVIDER]);
         let tools = Arc::new(FakeTools::default());
-        let sink = Arc::new(RecordingSink::default());
-        let store = Arc::new(InMemoryAgentStore::default());
         let config = RuntimeConfig {
             retry_backoff: vec![Duration::from_millis(1); 3],
             advisor_backoff: vec![Duration::from_millis(1); 3],
             find_timeout: Duration::from_secs(5),
         };
         let runtime = AgentRuntime::new(
-            store.clone() as Arc<dyn AgentStore>,
+            runtime_store,
             tools.clone() as Arc<dyn ToolExecutor>,
-            sink.clone() as Arc<dyn ChatSink>,
+            runtime_sink,
             llm.clone() as Arc<dyn Llm>,
             config,
         );

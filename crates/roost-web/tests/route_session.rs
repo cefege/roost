@@ -156,6 +156,7 @@ fn an_agent_route_selects_its_agent_deck_tab() {
             agent: None,
             advisor: false,
             model: None,
+            effective_model: None,
             thinking_level: None,
             run_state: AgentRunState::Idle,
             error: None,

@@ -108,7 +108,7 @@ async fn run_search(scope: &CallScope<'_>, input: &str) -> CallResult {
         num_search_results: args.num_search_results,
     };
     let parsed = parse_query(&query.query);
-    let settings = match scope.runtime.inner.store.settings().await {
+    let settings = match scope.runtime.settings_for(scope.record).await {
         Ok(settings) => settings,
         Err(error) => return CallResult::failure(error.to_string()),
     };

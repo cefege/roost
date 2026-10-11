@@ -2,13 +2,14 @@
 //! resolution, request assembly, the streamed model call, then the tool round
 //! its tool calls ask for. The run loop repeats turns until one ends the run.
 
-use roost_llm::ChatRequest;
+use roost_llm::{ChatRequest, ModelInfo};
+use roost_protocol::wire::agent_chat::ModelRef;
 use tokio_util::sync::CancellationToken;
 
 use crate::error::AgentError;
 use crate::model_call::{self, ModelOutput};
 use crate::prompts::{self, SubagentPrompt};
-use crate::records::{ConversationRecord, Entry, Role};
+use crate::records::{ConversationRecord, Entry, Mode, Role};
 use crate::roles::{self, ResolvedModel};
 use crate::runtime::{AgentRuntime, RunEnd};
 use crate::toolset::{SubagentKind, toolset_for};
@@ -43,42 +44,125 @@ pub(crate) enum TurnOutcome {
     Tools { end: Option<RunEnd> },
 }
 
-/// The model a conversation calls: its own, else the `default` role.
+/// The model a turn calls first: the head of its candidate chain.
 pub(crate) async fn conversation_model(
     runtime: &AgentRuntime,
     record: &ConversationRecord,
 ) -> Result<ResolvedModel, AgentError> {
-    let llm = runtime.inner.llm.as_ref();
-    if let Some(reference) = &record.model {
-        let info = llm
-            .catalog()
-            .get(&reference.provider, &reference.model_id)
-            .cloned()
-            .ok_or_else(|| {
-                AgentError::FailedPrecondition(format!(
-                    "model {}/{} is not in the catalog",
-                    reference.provider, reference.model_id
-                ))
-            })?;
-        if !llm.has_credential(&info.provider).await {
-            return Err(AgentError::FailedPrecondition(format!(
-                "no account is connected for {}; sign in under Settings → Models",
-                info.provider
-            )));
-        }
-        return Ok(ResolvedModel {
-            info,
-            thinking: None,
-        });
+    conversation_chain(runtime, record)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(no_model_available)
+}
+
+/// Side questions and compaction use the scoped lightweight role when set;
+/// otherwise they keep the conversation's model and ordered fallbacks.
+pub(crate) async fn side_task_models(
+    runtime: &AgentRuntime,
+    record: &ConversationRecord,
+) -> Result<Vec<ModelInfo>, AgentError> {
+    let settings = runtime.settings_for(record).await?;
+    let configured = settings.model_roles.contains_key(&Role::Tiny)
+        || settings.model_roles.contains_key(&Role::Smol);
+    let chain = if configured {
+        roles::role_chain(runtime.inner.llm.as_ref(), &settings, Role::Tiny).await
+    } else {
+        conversation_chain_with_settings(runtime, record, &settings).await?
+    };
+    if chain.is_empty() {
+        return Err(no_model_available());
     }
-    let settings = runtime.inner.store.settings().await?;
-    roles::resolve_role(llm, &settings, Role::Default)
-        .await
+    Ok(chain.into_iter().map(|candidate| candidate.info).collect())
+}
+
+/// The candidates a turn tries in order. In plan mode an explicit session model
+/// answers alone, then the Planning chain, then the model saved when plan mode
+/// began. A subagent's configured role chain beats the parent pin it inherited.
+/// Otherwise an explicit session model answers alone, then the folder's
+/// `default` chain. Chains come from the conversation's folder-merged settings.
+pub(crate) async fn conversation_chain(
+    runtime: &AgentRuntime,
+    record: &ConversationRecord,
+) -> Result<Vec<ResolvedModel>, AgentError> {
+    let settings = runtime.settings_for(record).await?;
+    conversation_chain_with_settings(runtime, record, &settings).await
+}
+
+pub(crate) async fn conversation_chain_with_settings(
+    runtime: &AgentRuntime,
+    record: &ConversationRecord,
+    settings: &crate::records::AgentSettings,
+) -> Result<Vec<ResolvedModel>, AgentError> {
+    let llm = runtime.inner.llm.as_ref();
+    if record.mode == Mode::Plan {
+        if let Some(reference) = &record.model {
+            return Ok(vec![session_candidate(runtime, reference).await?]);
+        }
+        let chain = roles::role_chain(llm, settings, Role::Plan).await;
+        if !chain.is_empty() {
+            return Ok(chain);
+        }
+        if let Some(reference) = &record.pre_plan_model {
+            return Ok(vec![session_candidate(runtime, reference).await?]);
+        }
+    } else if let Some(role) = subagent_role(record) {
+        let chain = roles::role_chain(llm, settings, role).await;
+        if !chain.is_empty() {
+            return Ok(chain);
+        }
+    }
+    if let Some(reference) = &record.model {
+        return Ok(vec![session_candidate(runtime, reference).await?]);
+    }
+    let chain = roles::role_chain(llm, settings, Role::Default).await;
+    if chain.is_empty() {
+        return Err(no_model_available());
+    }
+    Ok(chain)
+}
+
+/// The role a subagent's turns draw from. Main and plan-mode turns have none.
+fn subagent_role(record: &ConversationRecord) -> Option<Role> {
+    match record.agent.as_deref().and_then(SubagentKind::from_name)? {
+        SubagentKind::Scout => Some(Role::Smol),
+        SubagentKind::Reviewer => Some(Role::Slow),
+        SubagentKind::Task => Some(Role::Task),
+    }
+}
+
+/// An explicit session model, checked against the catalog and credentials.
+async fn session_candidate(
+    runtime: &AgentRuntime,
+    reference: &ModelRef,
+) -> Result<ResolvedModel, AgentError> {
+    let llm = runtime.inner.llm.as_ref();
+    let info = llm
+        .catalog()
+        .get(&reference.provider, &reference.model_id)
+        .cloned()
         .ok_or_else(|| {
-            AgentError::FailedPrecondition(
-                "no model is available; connect a provider under Settings → Models".into(),
-            )
-        })
+            AgentError::FailedPrecondition(format!(
+                "model {}/{} is not in the catalog",
+                reference.provider, reference.model_id
+            ))
+        })?;
+    if !llm.has_credential(&info.provider).await {
+        return Err(AgentError::FailedPrecondition(format!(
+            "no account is connected for {}; sign in under Settings → Models",
+            info.provider
+        )));
+    }
+    Ok(ResolvedModel {
+        info,
+        thinking: None,
+    })
+}
+
+fn no_model_available() -> AgentError {
+    AgentError::FailedPrecondition(
+        "no model is available; connect a provider under Settings → Models".into(),
+    )
 }
 
 /// Nesting depth: 0 for a top-level conversation, +1 per parent.
@@ -117,12 +201,18 @@ pub(crate) async fn take_turn(
     cancel: &CancellationToken,
 ) -> Result<TurnOutcome, AgentError> {
     let record = runtime.record(id).await?;
-    let model = conversation_model(runtime, &record).await?;
-    compaction::compact_if_needed(runtime, &record, &model.info, cancel).await?;
+    let chain = conversation_chain(runtime, &record).await?;
+    if chain.is_empty() {
+        return Err(no_model_available());
+    }
+    let models: Vec<ModelInfo> = chain
+        .iter()
+        .map(|candidate| candidate.info.clone())
+        .collect();
+    compaction::compact_if_needed(runtime, &record, &models, cancel).await?;
     let entries = runtime.inner.store.entries(id).await?;
-    let thinking = resolve_thinking(runtime, &record, &model, &entries, memory).await;
     let depth = depth_of(runtime, &record).await;
-    let find_available = find::available(runtime, &model.info).await;
+    let find_available = find::available(runtime, id).await;
     let toolset = toolset_for(&record, depth, find_available);
     let files = context_files::context_files(runtime, &record, cancel).await;
     let child_context = entries
@@ -140,19 +230,25 @@ pub(crate) async fn take_turn(
             agent_prompt: kind.prompt(),
             context: &child_context,
         });
-    let request = ChatRequest {
-        system: prompts::system_blocks(&record, &toolset.names(), &files.context, subagent),
-        messages: history::build_messages(&entries, &model.info.provider),
-        tools: toolset.specs.clone(),
-        thinking: thinking.to_owned(),
-        session_id: record.id.clone(),
-        max_tokens: None,
-        model: model.info.clone(),
-    };
-    let (_, output) = model_call::primary_call(runtime, id, &request, cancel).await?;
+    let system = prompts::system_blocks(&record, &toolset.names(), &files.context, subagent);
+    let mut attempts = Vec::with_capacity(chain.len());
+    for candidate in &chain {
+        let thinking = resolve_thinking(runtime, &record, candidate, &entries, memory).await;
+        attempts.push(ChatRequest {
+            system: system.clone(),
+            messages: history::build_messages(&entries, &candidate.info.provider),
+            tools: toolset.specs.clone(),
+            thinking: thinking.to_owned(),
+            session_id: record.id.clone(),
+            max_tokens: None,
+            model: candidate.info.clone(),
+        });
+    }
+    let (_, output, used) = model_call::primary_call(runtime, id, &attempts, cancel).await?;
     let calls = output.tool_calls();
     runtime.advisor_turn_ended(id, !calls.is_empty());
     if calls.is_empty() {
+        let model = chain.into_iter().nth(used).ok_or_else(no_model_available)?;
         return Ok(TurnOutcome::Text {
             output: Box::new(output),
             model: Box::new(model),

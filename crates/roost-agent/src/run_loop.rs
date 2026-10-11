@@ -74,6 +74,9 @@ async fn drive(
                     }
                     continue;
                 }
+                if cancel.is_cancelled() {
+                    return RunEnd::Aborted;
+                }
                 if !memory.continued
                     && unexpected_stop::stopped_unexpectedly(runtime, id, &model.info, &output)
                         .await

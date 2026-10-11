@@ -10,6 +10,10 @@ mod advisor;
 mod agent_loop;
 #[path = "find.rs"]
 mod find;
+#[path = "loop_mode.rs"]
+mod loop_mode;
+#[path = "model_scope.rs"]
+mod model_scope;
 #[path = "plan_and_tasks.rs"]
 mod plan_and_tasks;
 #[path = "quality_tools.rs"]

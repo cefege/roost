@@ -74,6 +74,15 @@ pub struct AccountUsageWindow {
     pub used_fraction: f64,
     pub resets_at_ms: Option<i64>,
 }
+/// One folder's role overrides, keyed by the exact worker and working directory.
+/// Values are comma-separated selector chains, like the global `model_roles`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FolderModelRoles {
+    pub worker_fp: String,
+    pub cwd: String,
+    #[serde(default)]
+    pub model_roles: std::collections::BTreeMap<String, String>,
+}
 /// `AgentSettingsGet` / `AgentSettingsSet`: role → selector, keyed by role
 /// name (`default`, `smol`, `slow`, `plan`, `task`, `tiny`, `judge`, `advisor`, `web`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -86,6 +95,9 @@ pub struct AgentSettingsView {
     pub advisor_enabled: bool,
     #[serde(default)]
     pub searxng_url: Option<String>,
+    /// A role absent from a folder's row inherits the global value.
+    #[serde(default)]
+    pub folder_model_roles: Vec<FolderModelRoles>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LoginState {

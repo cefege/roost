@@ -12,7 +12,7 @@ use roost_protocol::wire::agent_chat::{
 use super::{AgentRuntime, Steer, now_ms, random_id};
 use crate::error::AgentError;
 use crate::records::{AgentSettings, ConversationRecord, Entry, Mode, Role, model_ref};
-use crate::{commands, judging, projection, roles};
+use crate::{commands, folder_roles, judging, projection, roles};
 
 const TITLE_CHARS: usize = 60;
 const DEFAULT_THINKING: &str = "medium";
@@ -38,10 +38,7 @@ impl AgentRuntime {
         &self,
         new: NewConversation,
     ) -> Result<ConversationSummary, AgentError> {
-        let model = match new.model {
-            Some(model) => Some(model),
-            None => self.default_model().await,
-        };
+        let model = new.model;
         let thinking_level = new
             .thinking_level
             .unwrap_or_else(|| DEFAULT_THINKING.to_owned());
@@ -110,7 +107,9 @@ impl AgentRuntime {
         let record = self.record(id).await?;
         let entries = self.inner.store.entries(id).await?;
         let usage = self.usage_totals(id).await?;
-        Ok(projection::transcript(&record, &entries, usage))
+        let mut transcript = projection::transcript(&record, &entries, usage);
+        transcript.items.extend(self.loop_status_item(id));
+        Ok(transcript)
     }
 
     /// Aborts the conversation and its children, releases their worker
@@ -135,6 +134,7 @@ impl AgentRuntime {
                 .close_conversation(&record.worker_fp, &record.id)
                 .await;
             self.advisor_forget(&record.id);
+            self.forget_loop(&record.id);
         }
         self.inner.store.delete_conversation(id).await?;
         for record in &doomed {
@@ -158,11 +158,24 @@ impl AgentRuntime {
         if text.trim().is_empty() {
             return Err(AgentError::InvalidArgument("message is empty".into()));
         }
+        self.deliver_user_text(&record, text).await
+    }
+
+    /// The single path a user message takes into a conversation, typed or
+    /// inlined after `/loop`. A prompt that arrives while a loop is waiting
+    /// becomes that loop's body before the message is steered in.
+    pub(crate) async fn deliver_user_text(
+        &self,
+        record: &ConversationRecord,
+        text: String,
+    ) -> Result<(), AgentError> {
+        let id = record.id.as_str();
         if record.title.trim().is_empty() {
             let title: String = text.trim().chars().take(TITLE_CHARS).collect();
             self.update_record(id, |row| row.title = title).await?;
         }
         self.deliver_pending_advisories(id).await?;
+        self.capture_loop_prompt(id, &text).await;
         self.steer(id, Steer::User(text)).await
     }
 
@@ -217,6 +230,14 @@ impl AgentRuntime {
         let record = self
             .update_record(id, |row| row.model = Some(model))
             .await?;
+        self.emit_agent(&record).await;
+        Ok(())
+    }
+
+    /// Clears the session model so the conversation follows its folder's
+    /// default again. Stored folder and global roles are not touched.
+    pub async fn clear_model(&self, id: &str) -> Result<(), AgentError> {
+        let record = self.update_record(id, |row| row.model = None).await?;
         self.emit_agent(&record).await;
         Ok(())
     }
@@ -281,16 +302,32 @@ impl AgentRuntime {
         self.inner.store.settings().await
     }
 
-    /// Saves settings after checking every role selector's syntax.
-    pub async fn set_settings(&self, settings: AgentSettings) -> Result<(), AgentError> {
+    /// The settings a conversation resolves against: the saved document with
+    /// the matching folder's role overrides applied.
+    pub async fn settings_for(
+        &self,
+        record: &ConversationRecord,
+    ) -> Result<AgentSettings, AgentError> {
+        Ok(self
+            .settings()
+            .await?
+            .for_folder(&record.worker_fp, &record.cwd))
+    }
+
+    /// Saves settings after checking every role selector's syntax, folder rows
+    /// included.
+    pub async fn set_settings(&self, mut settings: AgentSettings) -> Result<(), AgentError> {
         for (role, selector) in &settings.model_roles {
             roles::validate_role_selector(*role, selector).map_err(|error| {
                 AgentError::InvalidArgument(format!("role {}: {error}", role.as_str()))
             })?;
         }
+        settings.folder_model_roles =
+            folder_roles::prepare_folder_rows(&settings.folder_model_roles)?;
         self.inner.store.save_settings(&settings).await?;
         tracing::info!(
             roles = settings.model_roles.len(),
+            folder_overrides = settings.folder_model_roles.len(),
             advisor_enabled = settings.advisor_enabled,
             "agent settings saved"
         );

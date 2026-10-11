@@ -82,6 +82,30 @@ pub fn restore_focus(opener: &FocusOpener) {
     match *opener {}
 }
 
+/// Honor a visible autofocus control before the dialog's ordinary first control.
+#[cfg(target_arch = "wasm32")]
+pub fn focus_initial(mounted: &MountedData) {
+    use dioxus::web::WebEventExt as _;
+    use wasm_bindgen::JsCast as _;
+
+    if let Some(container) = mounted.try_as_web_event()
+        && let Ok(Some(target)) = container.query_selector("[autofocus]")
+        && target.matches(FOCUSABLE_SELECTOR).unwrap_or(false)
+        && !target.has_attribute(FOCUS_TRAP_ATTRIBUTE)
+        && is_in_tab_order(target.get_attribute("tabindex").as_deref())
+        && target.get_client_rects().length() > 0
+        && let Ok(target) = target.dyn_into::<web_sys::HtmlElement>()
+    {
+        focus_without_scrolling(&target);
+        return;
+    }
+    focus_edge(mounted, FocusEdge::First);
+}
+
+/// There is no document to focus on the native target.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn focus_initial(_mounted: &MountedData) {}
+
 /// Focus one end of the container's tabbable elements, or the container itself
 /// when it has none — the mount auto-focus and the sentinel wrap both land here.
 #[cfg(target_arch = "wasm32")]

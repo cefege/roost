@@ -17,6 +17,7 @@ use tokio_util::sync::CancellationToken;
 pub type Script = Result<Vec<StreamEvent>, LlmError>;
 pub type JudgeScript = Result<BTreeMap<String, Answer>, LlmError>;
 pub type SearchScript = Result<SearchResponse, LlmError>;
+pub type PartialScript = (Vec<StreamEvent>, LlmError);
 
 /// Replies for any session whose own queue is empty (children with fresh ids).
 pub const ANY_SESSION: &str = "*";
@@ -27,6 +28,7 @@ pub struct ScriptedLlm {
     pub catalog: Option<Catalog>,
     pub providers: Mutex<Vec<String>>,
     pub scripts: Mutex<HashMap<String, VecDeque<Script>>>,
+    pub partials: Mutex<HashMap<String, VecDeque<PartialScript>>>,
     pub judgments: Mutex<VecDeque<JudgeScript>>,
     pub requests: Mutex<Vec<ChatRequest>>,
     pub judge_requests: Mutex<Vec<(String, serde_json::Value, Vec<Question>)>>,
@@ -61,6 +63,17 @@ impl ScriptedLlm {
             .entry(session_id.to_owned())
             .or_default()
             .push_back(reply);
+    }
+
+    /// A reply that streams `events` and then fails, so the response has
+    /// visible output by the time the error arrives.
+    pub fn partial_then_fail(&self, session_id: &str, events: Vec<StreamEvent>, error: LlmError) {
+        self.partials
+            .lock()
+            .unwrap()
+            .entry(session_id.to_owned())
+            .or_default()
+            .push_back((events, error));
     }
 
     pub fn judgment(&self, reply: JudgeScript) {
@@ -162,6 +175,18 @@ impl Llm for ScriptedLlm {
     ) -> BoxStream<'static, Result<StreamEvent, LlmError>> {
         let session = request.session_id.clone();
         self.requests.lock().unwrap().push(request);
+        let partial = self
+            .partials
+            .lock()
+            .unwrap()
+            .get_mut(&session)
+            .and_then(VecDeque::pop_front);
+        if let Some((events, error)) = partial {
+            let mut items: Vec<Result<StreamEvent, LlmError>> =
+                events.into_iter().map(Ok).collect();
+            items.push(Err(error));
+            return Box::pin(futures::stream::iter(items));
+        }
         let next = {
             let mut scripts = self.scripts.lock().unwrap();
             let own = scripts.get_mut(&session).and_then(VecDeque::pop_front);

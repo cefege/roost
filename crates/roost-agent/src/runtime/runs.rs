@@ -111,13 +111,24 @@ impl AgentRuntime {
         let runtime = self.clone();
         let conversation_id = id.to_owned();
         tokio::spawn(async move {
-            let (end, steer_rx) = run_loop::run_conversation(
-                runtime.clone(),
-                conversation_id.clone(),
-                cancel,
-                steer_rx,
-            )
-            .await;
+            let mut steer_rx = steer_rx;
+            let end = loop {
+                let (end, returned_rx) = run_loop::run_conversation(
+                    runtime.clone(),
+                    conversation_id.clone(),
+                    cancel.clone(),
+                    steer_rx,
+                )
+                .await;
+                steer_rx = returned_rx;
+                let aborted = user_aborted.load(Ordering::SeqCst);
+                if !runtime
+                    .next_loop_iteration(&conversation_id, &end, aborted, &cancel)
+                    .await
+                {
+                    break end;
+                }
+            };
             let aborted = user_aborted.load(Ordering::SeqCst);
             runtime
                 .settle_run(&conversation_id, &end, aborted, steer_rx)
@@ -164,6 +175,13 @@ impl AgentRuntime {
                 tracing::warn!(conversation_id = id, %error, "late steer message was not recorded");
                 return;
             }
+        }
+        if user_aborted || matches!(end, RunEnd::Aborted) {
+            tracing::info!(
+                conversation_id = id,
+                "late steer messages kept without restarting after abort"
+            );
+            return;
         }
         if let Err(error) = self.start_run(id, None).await {
             tracing::warn!(conversation_id = id, %error, "run for a late steer message did not start");

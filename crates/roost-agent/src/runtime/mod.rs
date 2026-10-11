@@ -16,6 +16,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::advisor::AdvisorHub;
 use crate::error::AgentError;
+use crate::loop_mode::LoopState;
 use crate::projection;
 use crate::records::{ConversationRecord, Entry};
 use crate::traits::{AgentStore, ChatSink, Llm, ToolExecutor};
@@ -79,6 +80,9 @@ pub(crate) struct RuntimeInner {
     context_cache:
         Mutex<HashMap<String, (Instant, roost_protocol::wire::agent_chat::ContextFiles)>>,
     pub(crate) advisors: AdvisorHub,
+    /// Per-conversation `/loop` state. In memory only: a coordinator restart
+    /// drops active loops, as the repeat driver lives inside a run task.
+    pub(crate) loops: Mutex<HashMap<String, LoopState>>,
 }
 
 pub(crate) struct RunHandle {
@@ -129,6 +133,7 @@ impl AgentRuntime {
                 record_locks: Mutex::new(HashMap::new()),
                 context_cache: Mutex::new(HashMap::new()),
                 advisors: AdvisorHub::default(),
+                loops: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -161,13 +166,26 @@ impl AgentRuntime {
     }
 
     pub(crate) async fn summary(&self, record: &ConversationRecord) -> ConversationSummary {
-        let advisor_default = self
-            .inner
-            .store
-            .settings()
+        let settings = self.inner.store.settings().await.ok();
+        let advisor_default = settings
+            .as_ref()
+            .is_some_and(|settings| settings.advisor_enabled);
+        let effective_model = if let Some(settings) = settings {
+            crate::turn::conversation_chain_with_settings(
+                self,
+                record,
+                &settings.for_folder(&record.worker_fp, &record.cwd),
+            )
             .await
-            .map(|settings| settings.advisor_enabled)
-            .unwrap_or(false);
+            .ok()
+            .and_then(|chain| chain.into_iter().next())
+            .map(|candidate| roost_protocol::wire::agent_chat::ModelRef {
+                provider: candidate.info.provider,
+                model_id: candidate.info.id,
+            })
+        } else {
+            None
+        };
         ConversationSummary {
             id: record.id.clone(),
             title: record.title.clone(),
@@ -175,6 +193,7 @@ impl AgentRuntime {
             worker_label: record.worker_label.clone(),
             cwd: record.cwd.clone(),
             model: record.model.clone(),
+            effective_model,
             thinking_level: Some(record.thinking_level.clone()),
             mode: record.mode.as_str().to_owned(),
             parent_id: record.parent_id.clone(),
@@ -198,7 +217,20 @@ impl AgentRuntime {
 
     /// Appends an entry and emits the transcript item it projects to.
     pub(crate) async fn append(&self, id: &str, entry: Entry) -> Result<u64, AgentError> {
-        let seq = self.inner.store.append_entry(id, &entry).await?;
+        self.append_guarded(id, entry, &[]).await
+    }
+
+    pub(crate) async fn append_guarded(
+        &self,
+        id: &str,
+        entry: Entry,
+        cancellation: &[&CancellationToken],
+    ) -> Result<u64, AgentError> {
+        let seq = self
+            .inner
+            .store
+            .append_entry(id, &entry, cancellation)
+            .await?;
         let tools = if matches!(entry, Entry::ToolResult { .. }) {
             projection::index_tool_calls(&self.inner.store.entries(id).await?)
         } else {
@@ -234,7 +266,7 @@ impl AgentRuntime {
             model_id: model_id.to_owned(),
             usage: *usage,
         };
-        if let Err(error) = self.inner.store.append_entry(id, &entry).await {
+        if let Err(error) = self.inner.store.append_entry(id, &entry, &[]).await {
             tracing::warn!(conversation_id = id, %error, "out-of-turn usage was not recorded");
         }
         if let Ok(totals) = self.usage_totals(id).await {

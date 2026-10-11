@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use roost_llm::{Answer, ModelInfo, Question};
+use roost_llm::{Answer, Question};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, mpsc};
@@ -50,8 +50,8 @@ struct Hit {
     snippet: String,
 }
 
-pub(crate) async fn available(runtime: &AgentRuntime, _model: &ModelInfo) -> bool {
-    crate::judging::has_native_judge(runtime).await
+pub(crate) async fn available(runtime: &AgentRuntime, conversation_id: &str) -> bool {
+    crate::judging::has_native_judge(runtime, conversation_id).await
 }
 
 pub(crate) async fn run_find(
@@ -124,7 +124,7 @@ async fn cascade(
                 "The file is unrelated by name and location; generated executable implementation can still be relevant.")
         }).collect();
         let state = json!({"search":args.query,"project":scope.record.cwd,"files":batch,"task":"Semantic grep over a source tree: locate files whose content matches the search description."});
-        match crate::judging::judge(scope.runtime, None, state, questions).await {
+        match crate::judging::judge(scope.runtime, &scope.record.id, None, state, questions).await {
             Ok(answers) => name_scores.extend(
                 batch
                     .iter()
@@ -191,7 +191,7 @@ async fn cascade(
                 "Unrelated code; mere mentions, declarations, call sites, tests or configuration without implementation.")
         }).collect();
         let state = json!({"criteria":{"no":"Unrelated code; mere mentions without implementation.","yes":"Substantive implementation or explanation."},"search":args.query,"cards":batch.iter().map(|(file_idx,_,text)| json!({"file":plans[*file_idx].path,"sketch":text})).collect::<Vec<_>>()});
-        match crate::judging::judge(scope.runtime, None, state, questions).await {
+        match crate::judging::judge(scope.runtime, &scope.record.id, None, state, questions).await {
             Ok(answers) => {
                 for (idx, (file_idx, passage_idx, _)) in batch.iter().enumerate() {
                     let score = probability(&answers, &format!("p{idx:02}")).unwrap_or(1.0);
@@ -229,7 +229,9 @@ async fn cascade(
             "This passage only mentions, calls, imports, tests, or configures the subject, or contains unrelated code sharing keywords.",
         );
         let state = json!({"criteria":{"no":"Only mentions, calls, tests, imports, or config.","yes":"Substantive implementation, definition, or explanation."},"file":plan.path,"search":args.query,"passages":{"p00":passage.text}});
-        let answer = crate::judging::judge(scope.runtime, None, state, vec![question]).await;
+        let answer =
+            crate::judging::judge(scope.runtime, &scope.record.id, None, state, vec![question])
+                .await;
         let score = match answer {
             Ok(answers) => probability(&answers, key).unwrap_or(0.0),
             Err(error) => {

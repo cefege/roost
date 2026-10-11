@@ -7,7 +7,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::error::AgentError;
 use crate::history::{active_window, estimate_tokens, render_for_summary};
-use crate::model_call::{Silent, call_model};
+use crate::model_call::{Silent, call_chain};
 use crate::prompts;
 use crate::records::{ConversationRecord, Entry};
 use crate::runtime::AgentRuntime;
@@ -17,12 +17,18 @@ const HEADROOM_TOKENS: u64 = 16_384;
 /// Recent history kept verbatim after a compaction.
 const KEEP_TOKENS: u64 = 20_000;
 
+/// `models` is the conversation's candidate chain; its head sets the window.
 pub(crate) async fn compact_if_needed(
     runtime: &AgentRuntime,
     record: &ConversationRecord,
-    model: &ModelInfo,
+    models: &[ModelInfo],
     cancel: &CancellationToken,
 ) -> Result<(), AgentError> {
+    let Some(head) = models.first() else {
+        return Err(AgentError::FailedPrecondition(
+            "no model is available; connect a provider under Settings → Models".into(),
+        ));
+    };
     let entries =
         crate::journal::effective_entries(&runtime.inner.store.entries(&record.id).await?);
     let (_, window) = active_window(&entries);
@@ -32,10 +38,11 @@ pub(crate) async fn compact_if_needed(
         }
         _ => None,
     });
-    let limit = model.context_window.saturating_sub(HEADROOM_TOKENS);
-    if last_tokens.is_some_and(|tokens| model.context_window > 0 && tokens > limit) {
+    let limit = head.context_window.saturating_sub(HEADROOM_TOKENS);
+    if last_tokens.is_some_and(|tokens| head.context_window > 0 && tokens > limit) {
         tracing::info!(conversation_id = %record.id, ?last_tokens, limit, "auto-compacting conversation");
-        compact(runtime, record, model, None, cancel).await?;
+        let summary_models = crate::turn::side_task_models(runtime, record).await?;
+        compact(runtime, record, &summary_models, None, cancel).await?;
     }
     Ok(())
 }
@@ -44,7 +51,7 @@ pub(crate) async fn compact_if_needed(
 pub(crate) async fn compact(
     runtime: &AgentRuntime,
     record: &ConversationRecord,
-    model: &ModelInfo,
+    models: &[ModelInfo],
     instructions: Option<&str>,
     cancel: &CancellationToken,
 ) -> Result<bool, AgentError> {
@@ -64,21 +71,27 @@ pub(crate) async fn compact(
         .filter(|text| !text.trim().is_empty())
         .map(|text| format!("Additional instructions: {text}"))
         .unwrap_or_default();
-    let request = ChatRequest {
-        model: model.clone(),
-        system: vec!["You summarise coding-agent conversations precisely.".into()],
-        messages: vec![Message::user_text(prompts::render(
-            prompts::COMPACTION,
-            &[("instructions", &extra), ("conversation", &conversation)],
-        ))],
-        tools: Vec::new(),
-        thinking: model.clamp_thinking_level("off").to_owned(),
-        session_id: record.id.clone(),
-        max_tokens: Some(8192),
-    };
-    let output = call_model(runtime, &record.id, &request, cancel, &mut Silent).await?;
+    let prompt = prompts::render(
+        prompts::COMPACTION,
+        &[("instructions", &extra), ("conversation", &conversation)],
+    );
+    let attempts: Vec<ChatRequest> = models
+        .iter()
+        .map(|model| ChatRequest {
+            model: model.clone(),
+            system: vec!["You summarise coding-agent conversations precisely.".into()],
+            messages: vec![Message::user_text(prompt.clone())],
+            tools: Vec::new(),
+            thinking: model.clamp_thinking_level("off").to_owned(),
+            session_id: record.id.clone(),
+            max_tokens: Some(8192),
+        })
+        .collect();
+    let (used, result) = call_chain(runtime, &record.id, &attempts, cancel, &mut Silent).await;
+    let output = result?;
+    let answered = &attempts[used].model;
     runtime
-        .add_extra_usage(&record.id, &model.provider, &model.id, &output.usage)
+        .add_extra_usage(&record.id, &answered.provider, &answered.id, &output.usage)
         .await;
     let summary = output
         .blocks

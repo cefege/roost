@@ -9,9 +9,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::context_files;
 use crate::error::AgentError;
-use crate::model_call::{Silent, call_model};
+use crate::model_call::{Silent, call_chain};
 use crate::records::{AdvisorySeverity, ConversationRecord, Role};
-use crate::roles::{ResolvedModel, resolve_role};
+use crate::roles::{ResolvedModel, role_chain};
 use crate::runtime::AgentRuntime;
 use crate::traits::{ToolCall, ToolOutcome};
 
@@ -113,9 +113,9 @@ async fn review_once(
     state: &mut ReviewState,
     ended_with_tool_calls: bool,
 ) -> Result<bool, AgentError> {
-    let settings = runtime.inner.store.settings().await?;
-    let Some(resolved) = resolve_role(runtime.inner.llm.as_ref(), &settings, Role::Advisor).await
-    else {
+    let settings = runtime.settings_for(record).await?;
+    let chain = role_chain(runtime.inner.llm.as_ref(), &settings, Role::Advisor).await;
+    if chain.is_empty() {
         if !state.no_model_noticed {
             runtime
                 .notice(
@@ -128,7 +128,7 @@ async fn review_once(
             state.no_model_noticed = true;
         }
         return Ok(false);
-    };
+    }
     state.no_model_noticed = false;
     state.guard.begin_review();
     let cancel = CancellationToken::new();
@@ -146,25 +146,31 @@ async fn review_once(
     let tools = advisor_specs();
     let mut generated = Vec::new();
     let mut notes = Vec::new();
+    let session_id = format!("{}-advisor", record.id);
     for _round in 0..MAX_TOOL_ROUNDS {
-        let request = ChatRequest {
-            model: resolved.info.clone(),
-            system: vec![system.clone()],
-            messages: transcript.clone(),
-            tools: tools.clone(),
-            thinking: thinking_level(&resolved),
-            session_id: format!("{}-advisor", record.id),
-            max_tokens: None,
-        };
-        let output =
-            call_model(runtime, &request.session_id, &request, &cancel, &mut Silent).await?;
+        let attempts: Vec<ChatRequest> = chain
+            .iter()
+            .map(|candidate| ChatRequest {
+                model: candidate.info.clone(),
+                system: vec![system.clone()],
+                messages: transcript.clone(),
+                tools: tools.clone(),
+                thinking: thinking_level(candidate),
+                session_id: session_id.clone(),
+                max_tokens: None,
+            })
+            .collect();
+        let (used, result) =
+            call_chain(runtime, &session_id, &attempts, &cancel, &mut Silent).await;
+        let output = result?;
+        let answered = &chain[used];
         state.input_tokens = state.input_tokens.saturating_add(output.usage.input);
         state.output_tokens = state.output_tokens.saturating_add(output.usage.output);
         runtime
             .add_extra_usage(
                 &record.id,
-                &resolved.info.provider,
-                &resolved.info.id,
+                &answered.info.provider,
+                &answered.info.id,
                 &output.usage,
             )
             .await;

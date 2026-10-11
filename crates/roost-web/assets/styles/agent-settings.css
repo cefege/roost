@@ -1,4 +1,4 @@
-/* The Models pane: overview tiles, provider cards, account rows, roles. */
+/* Focused model settings, provider account rows, role chains and pickers. */
 .agent-settings__filter { margin-block-end: var(--md-space-3); }
 .agent-settings__section + .agent-settings__section { margin-block-start: var(--md-space-7); }
 .agent-settings__section-head {
@@ -15,12 +15,6 @@
   font: var(--md-title-s-weight) var(--md-title-s-size)/var(--md-title-s-line) var(--md-font);
 }
 .agent-settings__muted { margin: 0 0 var(--md-space-3); color: var(--text-lo); }
-.agent-settings__overview {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(calc(var(--md-space-9) * 3), 1fr));
-  gap: var(--md-space-3);
-  margin-block-end: var(--md-space-6);
-}
 .agent-settings__skeleton-tile { block-size: calc(var(--md-space-9) * 2); border-radius: var(--md-shape-m); }
 .agent-settings__provider-cards {
   display: flex;
@@ -76,7 +70,8 @@
   gap: var(--md-space-2);
 }
 .agent-settings__role-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.4fr);
   align-items: center;
   gap: var(--md-space-3);
   min-block-size: var(--md-space-9);
@@ -84,6 +79,12 @@
   border-block-end: var(--workbench-border-width) solid var(--workbench-sidebar-border);
 }
 .agent-settings__role-row .agent-settings__provider-id { white-space: normal; }
+.agent-settings__role-reset { grid-column: 3; justify-self: start; }
+.workbench-shell[data-compact="true"] .agent-settings__role-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.workbench-shell[data-compact="true"] .agent-settings__role-row .model-chain,
+.workbench-shell[data-compact="true"] .agent-settings__role-reset { grid-column: 1 / -1; }
 .agent-settings__notice {
   margin-block: var(--md-space-2);
   color: var(--md-error);
@@ -128,3 +129,34 @@
   gap: var(--md-space-2);
 }
 .agent-settings__login-failed > p { margin: 0; }
+.agent-settings__scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--md-space-2);
+}
+.agent-settings__scope-help {
+  margin: var(--md-space-1) 0 0;
+  color: var(--text-lo);
+  font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);
+}
+.model-chain {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-1);
+  min-inline-size: 0;
+}
+.model-chain__inherit {
+  margin: 0;
+  color: var(--text-lo);
+  font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);
+}
+.model-chain__add { align-self: flex-start; }
+.model-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-2);
+  min-inline-size: 0;
+}
+.model-picker__empty { margin: 0; padding: var(--md-space-2) 0; color: var(--text-lo); }
+.model-picker__results { max-block-size: min(50dvh, calc(var(--md-space-9) * 8)); overflow-y: auto; overscroll-behavior: contain; }

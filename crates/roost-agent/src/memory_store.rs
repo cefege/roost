@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use futures::future::BoxFuture;
+use tokio_util::sync::CancellationToken;
 
 use crate::error::AgentError;
 use crate::records::{AgentSettings, ConversationRecord, Entry};
@@ -89,14 +90,18 @@ impl AgentStore for InMemoryAgentStore {
         &'a self,
         id: &'a str,
         entry: &'a Entry,
+        cancellation: &'a [&'a CancellationToken],
     ) -> BoxFuture<'a, Result<u64, AgentError>> {
         Box::pin(async move {
             self.with_state(|state| {
+                if cancellation.iter().any(|token| token.is_cancelled()) {
+                    return Err(AgentError::Cancelled);
+                }
                 let journal = state.entries.entry(id.to_owned()).or_default();
                 let seq = journal.last().map_or(1, |(last, _)| last + 1);
                 journal.push((seq, entry.clone()));
-                seq
-            })
+                Ok(seq)
+            })?
         })
     }
 

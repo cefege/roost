@@ -224,7 +224,7 @@ fn segments(transcript: &Transcript) -> Vec<Segment<'_>> {
             },
             TranscriptItem::Notice { .. } => segments.push(Segment::Notice(item)),
             TranscriptItem::Plan { .. } => segments.push(Segment::Plan(item)),
-            TranscriptItem::Todo { .. } => {}
+            TranscriptItem::Todo { .. } | TranscriptItem::LoopStatus { .. } => {}
             TranscriptItem::Ask { .. } => segments.push(Segment::Ask(item)),
             TranscriptItem::Btw { .. } => segments.push(Segment::Btw(item)),
             TranscriptItem::Advisory { .. } => segments.push(Segment::Advisory(item)),

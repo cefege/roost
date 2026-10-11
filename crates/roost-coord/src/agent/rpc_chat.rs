@@ -43,19 +43,27 @@ async fn live_worker(
     Ok((worker.fp, worker.label, worker.os))
 }
 
-fn model_pair(
+/// What a configure or create request asks for the session model: leave it,
+/// reset it to the inherited folder/global default, or pin an explicit selection.
+enum ModelUpdate {
+    Unchanged,
+    Clear,
+    Set(ModelRef),
+}
+
+fn model_update(
     provider: Option<&str>,
     model_id: Option<&str>,
-) -> Result<Option<ModelRef>, ConnectError> {
-    match (
-        provider.filter(|value| !value.is_empty()),
-        model_id.filter(|value| !value.is_empty()),
-    ) {
-        (Some(provider), Some(model_id)) => Ok(Some(ModelRef {
-            provider: provider.to_owned(),
-            model_id: model_id.to_owned(),
-        })),
-        (None, None) => Ok(None),
+) -> Result<ModelUpdate, ConnectError> {
+    match (provider, model_id) {
+        (None, None) => Ok(ModelUpdate::Unchanged),
+        (Some(""), Some("")) => Ok(ModelUpdate::Clear),
+        (Some(provider), Some(model_id)) if !provider.is_empty() && !model_id.is_empty() => {
+            Ok(ModelUpdate::Set(ModelRef {
+                provider: provider.to_owned(),
+                model_id: model_id.to_owned(),
+            }))
+        }
         _ => Err(ConnectError::new(
             ErrorCode::InvalidArgument,
             "model_provider and model_id must be set together",
@@ -70,7 +78,10 @@ pub async fn handle_agent_chat_create(
 ) -> ServiceResult<proto::AgentConversation> {
     require_account_device(caller)?;
     let (worker_fp, worker_label, worker_os) = live_worker(core, &request.worker_fp).await?;
-    let model = model_pair(Some(&request.model_provider), Some(&request.model_id))?;
+    let model = match model_update(Some(&request.model_provider), Some(&request.model_id))? {
+        ModelUpdate::Set(model) => Some(model),
+        ModelUpdate::Unchanged | ModelUpdate::Clear => None,
+    };
     let summary = core
         .services
         .agent
@@ -122,11 +133,13 @@ pub async fn handle_agent_chat_configure(
     require_account_device(caller)?;
     let runtime = &core.services.agent.runtime;
     let id = &request.conversation_id;
-    if let Some(model) = model_pair(
+    match model_update(
         request.model_provider.as_deref(),
         request.model_id.as_deref(),
     )? {
-        runtime.set_model(id, model).await.map_err(agent_status)?;
+        ModelUpdate::Unchanged => {}
+        ModelUpdate::Clear => runtime.clear_model(id).await.map_err(agent_status)?,
+        ModelUpdate::Set(model) => runtime.set_model(id, model).await.map_err(agent_status)?,
     }
     if let Some(level) = request.thinking_level {
         runtime

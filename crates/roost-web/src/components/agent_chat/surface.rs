@@ -5,12 +5,14 @@
 //! code-block Copy delegation. Mounted by the deck's `AgentSlot`.
 
 use dioxus::prelude::*;
-use roost_protocol::wire::agent_chat::{AgentRunState, ModelsCatalog, TodoPhase, Transcript};
+use roost_protocol::wire::agent_chat::{AgentRunState, ModelsCatalog, Transcript};
 
 use super::composer::AgentComposer;
 use super::header::{AgentChatHeader, short_path};
 use super::interaction_cards::TodoCard;
+use super::loop_controls::LoopControls;
 use super::model_controls::{ModelSetup, ModelSetupCard};
+use super::surface_state::{is_blank, latest_todo, loop_status};
 use super::welcome::AgentWelcome;
 use crate::components::md::{ButtonVariant, EmptyState, IconButton, IconButtonSize, Skeleton};
 use crate::pump::use_store;
@@ -123,6 +125,9 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
     let setup = ModelSetup::from_catalog(catalog.read().as_ref(), catalog_failed());
     let retry_catalog = move |()| catalog_attempt += 1;
     let composer = rsx! {
+        if let Some(status) = loop_status(&transcript) {
+            LoopControls { status: status.to_owned(), conversation_id: conversation_id.clone(), pump: pump.clone() }
+        }
         AgentComposer {
             conversation: conversation.clone(),
             catalog: catalog(),
@@ -250,19 +255,6 @@ fn read_store(pump: &crate::pump::Pump, conversation_id: &str) -> StoreReading {
         store.agent_chat.host_connected,
         online,
     )
-}
-
-fn latest_todo(transcript: &Transcript) -> Option<Vec<TodoPhase>> {
-    transcript.items.iter().rev().find_map(|item| match item {
-        roost_protocol::wire::agent_chat::TranscriptItem::Todo { phases, .. } => {
-            Some(phases.clone())
-        }
-        _ => None,
-    })
-}
-/// Nothing said and nothing running: the welcome, not an empty log.
-fn is_blank(transcript: &Transcript) -> bool {
-    transcript.items.is_empty() && transcript.run_state != AgentRunState::Running
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]

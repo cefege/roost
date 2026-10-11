@@ -215,7 +215,8 @@ pub fn item_id(item: &TranscriptItem) -> &str {
         | TranscriptItem::Advisory { id, .. }
         | TranscriptItem::Todo { id, .. }
         | TranscriptItem::Ask { id, .. }
-        | TranscriptItem::Btw { id, .. } => id,
+        | TranscriptItem::Btw { id, .. }
+        | TranscriptItem::LoopStatus { id, .. } => id,
     }
 }
 

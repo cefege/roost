@@ -27,6 +27,9 @@ pub struct ConversationSummary {
     pub worker_label: String,
     pub cwd: String,
     pub model: Option<ModelRef>,
+    /// First available candidate for the current scope; `model` is the session pin.
+    #[serde(default)]
+    pub effective_model: Option<ModelRef>,
     pub thinking_level: Option<String>,
     /// `normal` or `plan`.
     #[serde(default = "normal_mode")]
@@ -123,6 +126,10 @@ pub enum TranscriptItem {
         answer: Option<String>,
         error: Option<String>,
     },
+    /// The compact status of an active `/loop`. Ephemeral: upserted while the
+    /// loop is enabled, dropped by a transcript reset, and never journaled.
+    #[serde(rename = "loop_status")]
+    LoopStatus { id: String, status: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -23,6 +23,7 @@ fn agent_tab_selects_agent_route_and_undo_restores_its_tab() {
         agent: None,
         advisor: false,
         model: None,
+        effective_model: None,
         thinking_level: None,
         run_state: AgentRunState::Idle,
         error: None,

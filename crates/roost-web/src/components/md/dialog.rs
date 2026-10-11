@@ -21,9 +21,10 @@ use dioxus::prelude::*;
 
 use super::class_list::class_list;
 use super::dom::{
-    FocusOpener, came_from_first_tabbable, focus_edge, focused_element, restore_focus,
+    FocusOpener, came_from_first_tabbable, focus_edge, focus_initial, focused_element,
+    restore_focus,
 };
-use super::focus_scope::{AutoFocusRequest, FocusEdge, VISUALLY_HIDDEN_STYLE, sentinel_focus_edge};
+use super::focus_scope::{AutoFocusRequest, VISUALLY_HIDDEN_STYLE, sentinel_focus_edge};
 use super::form_field::scoped_element_id;
 use super::icon::Icon;
 use super::stylesheet::{OVERLAYS_STYLESHEET_HREF, use_md_stylesheet};
@@ -155,7 +156,7 @@ fn DialogContent(
                     handler.call(request.clone());
                 }
                 if !request.default_prevented() {
-                    focus_edge(&mounted, FocusEdge::First);
+                    focus_initial(&mounted);
                 }
             },
             onkeydown: move |event: KeyboardEvent| {

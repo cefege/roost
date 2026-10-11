@@ -114,13 +114,21 @@ pub async fn bash_tool(
         return ToolOutcome::failure(format!("command cancelled\n{content}"));
     }
     match status {
-        Some(status) if status.success() => ToolOutcome::success(content),
-        Some(status) => ToolOutcome::failure(format!(
-            "exit {}\n{content}",
-            status
-                .code()
-                .map_or_else(|| "signal".to_owned(), |code| code.to_string())
-        )),
+        Some(status) => {
+            // Loop conditions branch on the exit status, so it travels as
+            // structured details rather than being parsed out of the text.
+            let code = status.code();
+            let details = serde_json::json!({ "exit_code": code });
+            if status.success() {
+                ToolOutcome::success(content).with_details(details)
+            } else {
+                ToolOutcome::failure(format!(
+                    "exit {}\n{content}",
+                    code.map_or_else(|| "signal".to_owned(), |code| code.to_string())
+                ))
+                .with_details(details)
+            }
+        }
         None => ToolOutcome::failure(format!("command failed\n{content}")),
     }
 }

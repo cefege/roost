@@ -147,18 +147,27 @@ pub async fn resolve_selector(
     text: &str,
 ) -> Result<Option<ResolvedModel>, AgentError> {
     let candidates = parse_selector(text)?;
-    let mut visited = Vec::new();
-    Ok(first_available(llm, settings, &candidates, &mut visited).await)
+    let mut chain = Vec::new();
+    expand_candidates(llm, settings, &candidates, &mut Vec::new(), &mut chain).await;
+    Ok(chain.into_iter().next())
 }
 
-/// Resolves a role to a model, following the role's fallback.
+/// Resolves a role to its first available model, following the role's fallback.
 pub async fn resolve_role(
     llm: &dyn Llm,
     settings: &AgentSettings,
     role: Role,
 ) -> Option<ResolvedModel> {
-    let mut visited = Vec::new();
-    resolve_role_inner(llm, settings, role, &mut visited).await
+    role_chain(llm, settings, role).await.into_iter().next()
+}
+
+/// Every available model of a role in failover order. Quick, side and review
+/// chains end with their parent role's models; Default and Advisor chains are
+/// exclusive once configured. Empty when nothing resolves.
+pub async fn role_chain(llm: &dyn Llm, settings: &AgentSettings, role: Role) -> Vec<ResolvedModel> {
+    let mut chain = Vec::new();
+    expand_role(llm, settings, role, &mut Vec::new(), &mut chain).await;
+    chain
 }
 
 /// The judge candidates in attempt order. From the first native candidate on
@@ -175,26 +184,16 @@ pub async fn judge_candidates(
     let Ok(candidates) = parse_selector(selector) else {
         return Vec::new();
     };
-    let mut chain: Vec<ModelInfo> = Vec::new();
-    for candidate in &candidates {
-        let mut visited = vec![Role::Judge];
-        let resolved = match candidate {
-            SelectorCandidate::Model { .. } => available_model(llm, candidate)
-                .await
-                .map(|model| model.info),
-            SelectorCandidate::Role(role) => {
-                Box::pin(resolve_role_inner(llm, settings, *role, &mut visited))
-                    .await
-                    .map(|model| model.info)
-            }
-            SelectorCandidate::WebHosted | SelectorCandidate::WebEngine(_) => None,
-        };
-        if let Some(model) = resolved
-            && !chain.iter().any(|known| same_model(known, &model))
-        {
-            chain.push(model);
-        }
-    }
+    let mut found = Vec::new();
+    expand_candidates(
+        llm,
+        settings,
+        &candidates,
+        &mut vec![Role::Judge],
+        &mut found,
+    )
+    .await;
+    let mut chain: Vec<ModelInfo> = found.into_iter().map(|model| model.info).collect();
     if let Some(first_native) = chain.iter().position(is_native_judge) {
         let mut index = 0;
         chain.retain(|model| {
@@ -212,55 +211,106 @@ pub async fn judge_candidates(
     chain
 }
 
-async fn resolve_role_inner(
+/// Appends the available models of `role` to `out`. `visited` breaks role
+/// cycles (`@a` → `@b` → `@a`): a role already on the walk contributes nothing.
+async fn expand_role(
     llm: &dyn Llm,
     settings: &AgentSettings,
     role: Role,
     visited: &mut Vec<Role>,
-) -> Option<ResolvedModel> {
+    out: &mut Vec<ResolvedModel>,
+) {
     if visited.contains(&role) {
-        return None;
+        return;
     }
     visited.push(role);
     if role == Role::Judge {
-        return judge_candidates(llm, settings, None)
-            .await
-            .into_iter()
-            .next()
-            .map(|info| ResolvedModel {
-                info,
-                thinking: None,
-            });
-    }
-    if let Some(configured) = settings.model_roles.get(&role) {
-        let parsed = parse_selector(configured);
-        if let Ok(candidates) = &parsed
-            && let Some(found) = Box::pin(first_available(llm, settings, candidates, visited)).await
-        {
-            return Some(found);
+        for info in judge_candidates(llm, settings, None).await {
+            push_unique(
+                out,
+                ResolvedModel {
+                    info,
+                    thinking: None,
+                },
+            );
         }
-        // An explicitly configured advisor that cannot resolve stays off
-        // rather than silently reviewing with a different model.
-        if role == Role::Advisor {
-            return None;
+        return;
+    }
+    if let Some(configured) = settings.model_roles.get(&role)
+        && let Ok(candidates) = parse_selector(configured)
+    {
+        let mut own = Vec::new();
+        Box::pin(expand_candidates(
+            llm,
+            settings,
+            &candidates,
+            visited,
+            &mut own,
+        ))
+        .await;
+        if !own.is_empty() {
+            for model in own {
+                push_unique(out, model);
+            }
+            if !matches!(role, Role::Tiny | Role::Smol | Role::Slow) {
+                return;
+            }
+        } else if role == Role::Advisor {
+            // An explicitly configured advisor that cannot resolve stays off
+            // rather than silently reviewing with a different model.
+            return;
         }
     }
     match role {
-        Role::Tiny => Box::pin(resolve_role_inner(llm, settings, Role::Smol, visited)).await,
+        Role::Tiny => Box::pin(expand_role(llm, settings, Role::Smol, visited, out)).await,
         Role::Smol | Role::Slow => {
-            Box::pin(resolve_role_inner(llm, settings, Role::Default, visited)).await
+            Box::pin(expand_role(llm, settings, Role::Default, visited, out)).await
         }
         Role::Advisor => {
-            if settings.model_roles.contains_key(&Role::Slow)
-                && let Some(found) =
-                    Box::pin(resolve_role_inner(llm, settings, Role::Slow, visited)).await
-            {
-                return Some(found);
+            if settings.model_roles.contains_key(&Role::Slow) {
+                Box::pin(expand_role(llm, settings, Role::Slow, visited, out)).await;
             }
-            Box::pin(resolve_role_inner(llm, settings, Role::Default, visited)).await
+            Box::pin(expand_role(llm, settings, Role::Default, visited, out)).await;
         }
-        Role::Default => default_model(llm, settings).await,
-        Role::Plan | Role::Task | Role::Judge | Role::Web => None,
+        Role::Default => {
+            if let Some(found) = default_model(llm, settings).await {
+                push_unique(out, found);
+            }
+        }
+        Role::Plan | Role::Task | Role::Judge | Role::Web => {}
+    }
+}
+
+/// Appends each candidate's available models to `out` in selector order.
+async fn expand_candidates(
+    llm: &dyn Llm,
+    settings: &AgentSettings,
+    candidates: &[SelectorCandidate],
+    visited: &mut Vec<Role>,
+    out: &mut Vec<ResolvedModel>,
+) {
+    for candidate in candidates {
+        match candidate {
+            SelectorCandidate::Model { .. } => {
+                if let Some(found) = available_model(llm, candidate).await {
+                    push_unique(out, found);
+                }
+            }
+            SelectorCandidate::Role(role) => {
+                Box::pin(expand_role(llm, settings, *role, visited, out)).await;
+            }
+            SelectorCandidate::WebHosted | SelectorCandidate::WebEngine(_) => {}
+        }
+    }
+}
+
+/// Appends `model` unless the chain already holds that model; the first pin wins.
+fn push_unique(chain: &mut Vec<ResolvedModel>, model: ResolvedModel) {
+    if !chain
+        .iter()
+        .any(|known| same_model(&known.info, &model.info))
+    {
+        chain.push(model);
     }
 }
 
@@ -291,27 +341,6 @@ async fn default_model(llm: &dyn Llm, settings: &AgentSettings) -> Option<Resolv
                 info: model.clone(),
                 thinking: None,
             });
-        }
-    }
-    None
-}
-
-async fn first_available(
-    llm: &dyn Llm,
-    settings: &AgentSettings,
-    candidates: &[SelectorCandidate],
-    visited: &mut Vec<Role>,
-) -> Option<ResolvedModel> {
-    for candidate in candidates {
-        let found = match candidate {
-            SelectorCandidate::Model { .. } => available_model(llm, candidate).await,
-            SelectorCandidate::Role(role) => {
-                Box::pin(resolve_role_inner(llm, settings, *role, visited)).await
-            }
-            SelectorCandidate::WebHosted | SelectorCandidate::WebEngine(_) => None,
-        };
-        if found.is_some() {
-            return found;
         }
     }
     None

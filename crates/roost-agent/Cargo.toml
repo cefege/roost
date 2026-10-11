@@ -29,6 +29,7 @@ tracing = { workspace = true }
 unicode-normalization = { workspace = true }
 
 [dev-dependencies]
+parking_lot = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "sync", "time", "test-util"] }
 
 [[test]]

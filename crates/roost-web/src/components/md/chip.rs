@@ -26,6 +26,12 @@ pub fn Chip(
     title: Option<String>,
     test_id: Option<String>,
     #[props(default)] small: bool,
+    /// Blocks the action while a command it started is in flight.
+    #[props(default)]
+    disabled: bool,
+    /// Marks an action as in flight for assistive technology.
+    #[props(default)]
+    busy: bool,
 ) -> Element {
     let size = small.then_some("sm");
     let content = rsx! {
@@ -42,8 +48,10 @@ pub fn Chip(
                 "data-size": size,
                 "data-selected": chip_selected_attribute(selected),
                 "aria-pressed": selected.map(|selected| selected.to_string()),
+                "aria-busy": busy.then_some("true"),
                 "data-testid": test_id,
                 title,
+                disabled,
                 onclick: move |_| handler.call(()),
                 {content}
             }

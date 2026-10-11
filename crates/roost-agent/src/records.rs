@@ -5,7 +5,9 @@
 use std::collections::BTreeMap;
 
 use roost_llm::{AssistantBlock, Usage};
-use roost_protocol::wire::agent_chat::{AgentRunState, AskQuestion, ModelRef, TodoPhase};
+use roost_protocol::wire::agent_chat::{
+    AgentRunState, AskQuestion, FolderModelRoles, ModelRef, TodoPhase,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -241,6 +243,41 @@ pub struct AgentSettings {
     pub advisor_enabled: bool,
     #[serde(default)]
     pub searxng_url: Option<String>,
+    #[serde(default)]
+    pub folder_model_roles: Vec<FolderModelRoles>,
+}
+
+impl AgentSettings {
+    /// The settings one conversation resolves against: the row for this exact
+    /// worker and directory replaces the global value of each role it names.
+    /// Blank values and unknown role names are skipped, so a row can only
+    /// override a role it actually sets.
+    pub fn for_folder(&self, worker_fp: &str, cwd: &str) -> AgentSettings {
+        let mut effective = AgentSettings {
+            model_roles: self.model_roles.clone(),
+            default_model: self.default_model.clone(),
+            advisor_enabled: self.advisor_enabled,
+            searxng_url: self.searxng_url.clone(),
+            folder_model_roles: Vec::new(),
+        };
+        let Some(row) = self
+            .folder_model_roles
+            .iter()
+            .find(|row| row.worker_fp == worker_fp && row.cwd == cwd)
+        else {
+            return effective;
+        };
+        for (name, chain) in &row.model_roles {
+            let Some(role) = Role::from_name(name) else {
+                continue;
+            };
+            if chain.trim().is_empty() {
+                continue;
+            }
+            effective.model_roles.insert(role, chain.clone());
+        }
+        effective
+    }
 }
 
 pub fn model_ref(provider: &str, model_id: &str) -> ModelRef {

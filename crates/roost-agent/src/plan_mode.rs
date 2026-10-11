@@ -7,8 +7,7 @@ use roost_protocol::wire::agent_chat::parse_slash_command;
 
 use crate::error::AgentError;
 use crate::prompts;
-use crate::records::{ConversationRecord, Entry, Mode, PlanState, Role, model_ref};
-use crate::roles;
+use crate::records::{ConversationRecord, Entry, Mode, PlanState};
 use crate::runtime::{AgentRuntime, NewConversation, RunEnd, Steer, random_id};
 use crate::tool_round::{CallResult, CallScope};
 use crate::traits::ToolOutcome;
@@ -35,19 +34,10 @@ pub(crate) async fn toggle(
 }
 
 async fn enter(runtime: &AgentRuntime, record: &ConversationRecord) -> Result<(), AgentError> {
-    let settings = runtime.settings().await?;
-    let plan_model = if settings.model_roles.contains_key(&Role::Plan) {
-        roles::resolve_role(runtime.inner.llm.as_ref(), &settings, Role::Plan).await
-    } else {
-        None
-    };
     let updated = runtime
         .update_record(&record.id, |row| {
             row.mode = Mode::Plan;
-            row.pre_plan_model = row.model.clone();
-            if let Some(model) = &plan_model {
-                row.model = Some(model_ref(&model.info.provider, &model.info.id));
-            }
+            row.pre_plan_model = row.model.take();
         })
         .await?;
     runtime
@@ -73,9 +63,7 @@ async fn exit(
     let updated = runtime
         .update_record(id, |row| {
             row.mode = Mode::Normal;
-            if let Some(model) = row.pre_plan_model.take() {
-                row.model = Some(model);
-            }
+            row.model = row.pre_plan_model.take();
         })
         .await?;
     runtime

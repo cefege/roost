@@ -5338,6 +5338,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hex",
  "html2text",
+ "parking_lot",
  "regex",
  "reqwest 0.13.5",
  "roost-llm",

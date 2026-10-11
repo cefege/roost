@@ -50,6 +50,11 @@ pub fn ListRow(
     #[props(default)] dense: bool,
     aria_current: Option<String>,
     test_id: Option<String>,
+    /// Option-row wiring for a listbox: the row's id, role and `aria-selected`.
+    id: Option<String>,
+    role: Option<String>,
+    aria_selected: Option<String>,
+    tabindex: Option<i32>,
     class: Option<String>,
 ) -> Element {
     let row_class = list_row_class(dense, class.as_deref());
@@ -104,6 +109,10 @@ pub fn ListRow(
                 class: row_class,
                 "data-selected": data_selected,
                 "data-testid": test_id,
+                id,
+                role,
+                "aria-selected": aria_selected,
+                tabindex,
                 onclick: move |_| handler.call(()),
                 {inner}
             }

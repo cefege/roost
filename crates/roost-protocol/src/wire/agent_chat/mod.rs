@@ -9,7 +9,7 @@ mod model;
 mod model_order;
 mod proto;
 mod tools;
-pub use commands::{AGENT_SLASH_COMMANDS, SlashCommand, parse_slash_command};
+pub use commands::{AGENT_SLASH_COMMANDS, SlashArgument, SlashCommand, parse_slash_command};
 pub use tools::*;
 
 pub use catalog::*;

@@ -41,6 +41,7 @@ pub(crate) async fn stopped_unexpectedly(
     let question = Question::boolean("stopped", INSTRUCTIONS, WHEN_TRUE, WHEN_FALSE);
     match judging::judge(
         runtime,
+        conversation_id,
         Some(model),
         json!({"message": output.text()}),
         vec![question],

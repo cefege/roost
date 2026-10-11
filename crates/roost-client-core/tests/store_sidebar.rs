@@ -282,6 +282,7 @@ fn agent_conversations_join_and_create_folder_groups() {
         agent: None,
         advisor: false,
         model: None,
+        effective_model: None,
         thinking_level: None,
         run_state: AgentRunState::Idle,
         error: None,

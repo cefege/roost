@@ -145,7 +145,7 @@ impl AgentRuntime {
             ) {
                 continue;
             }
-            if let Err(error) = self.inner.store.append_entry(&child.id, &entry).await {
+            if let Err(error) = self.inner.store.append_entry(&child.id, &entry, &[]).await {
                 let _ = self.inner.store.delete_conversation(&child.id).await;
                 return Err(error);
             }

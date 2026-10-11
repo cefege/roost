@@ -8,9 +8,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use roost_agent::{
-    AgentRuntime, AgentSettings, AgentStore, ChatSink, Entry, Llm, RuntimeConfig, ToolExecutor,
+    AgentRuntime, AgentSettings, AgentStore, ChatSink, Entry, Llm, Role, RuntimeConfig,
+    ToolExecutor,
 };
-use roost_protocol::wire::agent_chat::{AgentRunState, TodoStatus, TranscriptItem};
+use roost_protocol::wire::agent_chat::{
+    AgentRunState, FolderModelRoles, TodoStatus, TranscriptItem,
+};
 use support::{Harness, text_reply, tool_reply, user_texts};
 
 #[tokio::test]
@@ -104,6 +107,20 @@ async fn ask_ends_its_run_and_answer_restarts_with_answers_context() {
 async fn btw_is_toolless_and_private_while_a_run_is_active_and_rename_updates_title() {
     let harness = Harness::new();
     let id = harness.conversation().await;
+    let conversation = harness.runtime.conversation(&id).await.unwrap();
+    harness
+        .runtime
+        .set_settings(AgentSettings {
+            model_roles: BTreeMap::from([(Role::Tiny, "anthropic/claude-opus-5".into())]),
+            folder_model_roles: vec![FolderModelRoles {
+                worker_fp: conversation.worker_fp,
+                cwd: conversation.cwd,
+                model_roles: BTreeMap::from([("tiny".into(), "anthropic/claude-haiku-4-5".into())]),
+            }],
+            ..AgentSettings::default()
+        })
+        .await
+        .unwrap();
     *harness.tools.delay.lock().unwrap() = Some(Duration::from_millis(120));
     harness.llm.script(
         &id,
@@ -134,6 +151,21 @@ async fn btw_is_toolless_and_private_while_a_run_is_active_and_rename_updates_ti
             if question == "what is the current design?" && answer == "The side answer is private.")));
     let side = harness.llm.requests_for(&format!("{id}-btw"));
     assert_eq!(side.len(), 1);
+    assert_eq!(side[0].model.id, "claude-haiku-4-5");
+    assert_ne!(
+        side[0].thinking, "auto",
+        "provider requests must resolve automatic effort"
+    );
+    assert!(
+        !side[0].messages.iter().any(|message| match message {
+            roost_llm::Message::ToolResult { .. } => true,
+            roost_llm::Message::Assistant { blocks } => blocks
+                .iter()
+                .any(|block| { matches!(block, roost_llm::AssistantBlock::ToolCall { .. }) }),
+            roost_llm::Message::User { .. } => false,
+        }),
+        "a toolless side question must not replay executable tool history"
+    );
     assert!(side[0].tools.is_empty());
     let normal = harness.llm.requests_for(&id);
     assert!(normal.iter().all(|request| {

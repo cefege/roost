@@ -629,11 +629,25 @@
   right: 0;
   bottom: calc(100% + var(--md-space-2));
   left: 0;
-  max-height: calc(var(--md-space-9) * 7);
+  max-height: min(calc(var(--md-space-9) * 7), 50dvh);
   overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--md-sys-color-surface-container-high);
   box-shadow: var(--md-elev-3);
 }
+.agent-chat__command-help {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-1);
+  padding: var(--md-space-3) var(--md-space-4) var(--md-space-2);
+  border-block-end: var(--md-space-1) solid var(--md-sys-color-outline-variant);
+}
+.agent-chat__command-usage { font-family: var(--font-mono); color: var(--md-sys-color-on-surface); }
+.agent-chat__command-summary,
+.agent-chat__command-hint { color: var(--md-sys-color-on-surface-variant); font-size: var(--md-body-s-size); }
+.agent-chat__command-examples { display: flex; flex-wrap: wrap; gap: var(--md-space-2); }
+.agent-chat__command-example { color: var(--md-sys-color-primary); font-size: var(--md-body-s-size); }
+.agent-chat__command-hint { padding: var(--md-space-2) var(--md-space-4); }
 .agent-chat__notice-card,
 .agent-chat__plan-card,
 .agent-chat__advisory-card { border-inline-start: var(--md-space-1) solid var(--md-sys-color-outline-variant); }
@@ -676,3 +690,12 @@
 }
 
 .agent-chat__rewind-confirm { display: flex; flex-direction: column; gap: var(--md-space-3); }
+
+.agent-chat__loop-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--md-space-2);
+  margin-block-end: var(--md-space-2);
+}
+.agent-chat__loop-controls > [role="alert"] { flex-basis: 100%; }

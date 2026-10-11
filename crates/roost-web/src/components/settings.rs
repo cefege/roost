@@ -1,12 +1,6 @@
-//! The Settings shell: the rail of groups, the pane top bar, and the compact
-//! list/detail pair. Ported from `apps/web/src/components/Settings/SettingsRoot.tsx`,
-//! `MobileSettingsList.tsx` and `MobileSettingsDetail.tsx`; `app::surface_for`
-//! mounts [`SettingsSurface`] for `Route::Settings`.
-//!
-//! The rail's contents are `settings_navigation::SETTINGS_GROUPS`, the same
-//! definition the `/design` specimen reads, so navigation order has one owner.
-//! One module per pane below, each keeping its own data and mutations, exactly
-//! as v2's `SettingsPane.tsx` switch did.
+//! The searchable Settings rail and compact list/detail layout.
+//! `settings_navigation` owns destinations and descriptions for this shell
+//! and the `/design` specimen. Each pane owns its data and mutations.
 
 pub mod agent_accounts;
 pub mod agent_connect_dialog;
@@ -26,6 +20,9 @@ pub mod format;
 pub mod machines;
 pub mod mcp;
 pub mod metrics;
+pub mod model_chain;
+pub mod model_chain_editor;
+pub mod model_scope;
 pub mod notifications;
 pub mod terminal;
 pub mod theme;
@@ -37,7 +34,7 @@ mod pane;
 use dioxus::prelude::*;
 
 use crate::components::layout::window_size::use_is_compact;
-use crate::components::md::{Icon, IconButton, List, ListRow};
+use crate::components::md::{EmptyState, Icon, IconButton, List, ListRow, TextField};
 use crate::components::settings_navigation::{SETTINGS_GROUPS, SettingsPaneSpec, settings_pane};
 use crate::router_state::use_navigate;
 use crate::routes::Route;
@@ -92,6 +89,8 @@ pub fn SettingsSurface(route: Route) -> Element {
 #[component]
 fn SettingsEditor(active: Option<SettingsPaneSpec>) -> Element {
     let navigate = use_navigate();
+    let mut query = use_signal(String::new);
+    let groups = search_groups(&query());
     let Some(active) = active else {
         return rsx! {};
     };
@@ -99,10 +98,20 @@ fn SettingsEditor(active: Option<SettingsPaneSpec>) -> Element {
         div { class: "settings-shell",
             aside { class: "settings-rail", "aria-label": "Settings sections",
                 h1 { class: "settings-rail__title", "Settings" }
-                for group in SETTINGS_GROUPS {
+                div { class: "settings-search",
+                    TextField {
+                        value: query(),
+                        on_input: move |value| query.set(value),
+                        input_type: "search",
+                        placeholder: "Search settings…",
+                        aria_label: "Search settings",
+                        test_id: "settings-search",
+                    }
+                }
+                for (label, panes) in &groups {
                     section { class: "settings-rail__group",
-                        h2 { class: "settings-rail__group-label", {group.label} }
-                        for pane in group.panes {
+                        h2 { class: "settings-rail__group-label", "{label}" }
+                        for pane in panes {
                             ListRow {
                                 class: "settings-rail__item",
                                 href: Route::Settings { pane: Some(pane.id.to_string()) }.to_path(),
@@ -111,10 +120,13 @@ fn SettingsEditor(active: Option<SettingsPaneSpec>) -> Element {
                                 aria_current: (pane.id == active.id).then(|| "page".to_string()),
                                 test_id: Some(format!("rail-{}", pane.id)),
                                 leading: rsx! { Icon { name: pane.icon.to_string() } },
-                                headline: rsx! { {pane.label} },
+                                headline: rsx! { span { title: pane.description, {pane.label} } },
                             }
                         }
                     }
+                }
+                if groups.is_empty() {
+                    p { class: "settings-search__empty", role: "status", "No matching settings" }
                 }
             }
             main { class: "settings-main",
@@ -130,6 +142,7 @@ fn SettingsEditor(active: Option<SettingsPaneSpec>) -> Element {
                 }
                 div { class: "settings-content",
                     div { class: "settings-content__inner",
+                        p { class: "settings-pane-lead", {active.description} }
                         pane::SettingsPane { id: active.id }
                     }
                 }
@@ -142,6 +155,8 @@ fn SettingsEditor(active: Option<SettingsPaneSpec>) -> Element {
 #[component]
 fn MobileSettingsList() -> Element {
     let navigate = use_navigate();
+    let mut query = use_signal(String::new);
+    let groups = search_groups(&query());
     rsx! {
         div { class: "settings-mobile__main",
             header { class: "settings-topbar",
@@ -154,11 +169,21 @@ fn MobileSettingsList() -> Element {
                 }
                 h1 { class: "settings-topbar__title", "Settings" }
             }
+            div { class: "settings-search settings-search--mobile",
+                TextField {
+                    value: query(),
+                    on_input: move |value| query.set(value),
+                    input_type: "search",
+                    placeholder: "Search settings…",
+                    aria_label: "Search settings",
+                    test_id: "settings-search",
+                }
+            }
             List { class: "settings-mobile__list",
-                for group in SETTINGS_GROUPS {
+                for (label, panes) in &groups {
                     div { class: "settings-mobile__group",
-                        div { class: "settings-mobile__group-label", {group.label} }
-                        for pane in group.panes {
+                        h2 { class: "settings-mobile__group-label", "{label}" }
+                        for pane in panes {
                             {
                                 let href = Route::Settings { pane: Some(pane.id.to_string()) }.to_path();
                                 rsx! {
@@ -168,11 +193,19 @@ fn MobileSettingsList() -> Element {
                                         onclick: move |_| navigate.call(href.clone()),
                                         leading: rsx! { Icon { name: pane.icon.to_string(), class: "settings-mobile__icon" } },
                                         headline: rsx! { span { class: "settings-mobile__label", {pane.label} } },
+                                        support: rsx! { span { {pane.description} } },
                                         trailing: rsx! { Icon { name: "chevron_right", class: "settings-mobile__chev" } },
                                     }
                                 }
                             }
                         }
+                    }
+                }
+                if groups.is_empty() {
+                    EmptyState {
+                        icon: "search",
+                        title: "No matching settings",
+                        supporting: "Try a section name, model, account or connection.",
                     }
                 }
             }
@@ -201,9 +234,66 @@ fn MobileSettingsDetail(spec: Option<SettingsPaneSpec>) -> Element {
             }
             div { class: "settings-content",
                 div { class: "settings-content__inner",
+                    p { class: "settings-pane-lead", {spec.description} }
                     pane::SettingsPane { id: spec.id }
                 }
             }
+        }
+    }
+}
+
+fn search_groups(query: &str) -> Vec<(&'static str, Vec<SettingsPaneSpec>)> {
+    let query = query.trim().as_bytes();
+    SETTINGS_GROUPS
+        .iter()
+        .filter_map(|group| {
+            let panes: Vec<_> = group
+                .panes
+                .iter()
+                .copied()
+                .filter(|pane| {
+                    query.is_empty()
+                        || [
+                            group.label,
+                            pane.id,
+                            pane.label,
+                            pane.title,
+                            pane.description,
+                            pane.search_terms,
+                        ]
+                        .into_iter()
+                        .any(|text| {
+                            text.as_bytes()
+                                .windows(query.len())
+                                .any(|window| window.eq_ignore_ascii_case(query))
+                        })
+                })
+                .collect();
+            (!panes.is_empty()).then_some((group.label, panes))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::search_groups;
+
+    #[test]
+    fn find_model_controls_by_work_name_or_command() {
+        for query in [
+            "advisor",
+            "Adviser",
+            "planning",
+            "side tasks",
+            "btw",
+            "fallback",
+        ] {
+            let matches: Vec<_> = search_groups(query)
+                .into_iter()
+                .flat_map(|(_, panes)| panes)
+                .map(|pane| pane.id)
+                .collect();
+            assert_eq!(matches, ["models"], "search: {query}");
         }
     }
 }

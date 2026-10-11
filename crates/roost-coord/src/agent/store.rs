@@ -8,6 +8,7 @@ use roost_agent::error::AgentError;
 use roost_agent::records::{AgentSettings, ConversationRecord, Entry};
 use roost_agent::traits::AgentStore;
 use sqlx::Row as _;
+use tokio_util::sync::CancellationToken;
 
 use crate::db::CoordDb;
 
@@ -102,6 +103,7 @@ impl AgentStore for CoordAgentStore {
         &'a self,
         id: &'a str,
         entry: &'a Entry,
+        cancellation: &'a [&'a CancellationToken],
     ) -> BoxFuture<'a, Result<u64, AgentError>> {
         Box::pin(async move {
             let json = serde_json::to_string(entry).map_err(serialize_error)?;
@@ -127,6 +129,10 @@ impl AgentStore for CoordAgentStore {
                 .ok_or_else(|| AgentError::Store("entry sequence overflow".to_owned()))?;
             sqlx::query("INSERT INTO agent_entries (conversation_id,seq,entry_json,created_ms) VALUES ($1,$2,$3,$4)")
                 .bind(id).bind(seq).bind(json).bind(now_ms()).execute(&mut *tx).await.map_err(store_error)?;
+            if cancellation.iter().any(|token| token.is_cancelled()) {
+                tx.rollback().await.map_err(store_error)?;
+                return Err(AgentError::Cancelled);
+            }
             tx.commit().await.map_err(store_error)?;
             u64::try_from(seq).map_err(|error| AgentError::Store(error.to_string()))
         })

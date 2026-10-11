@@ -1,22 +1,21 @@
 //! The composer's model and thinking pickers, and the setup card shown while
 //! no model can run. The current model always shows, whether or not the
-//! catalog has loaded or still offers it; choosing sends `AgentChatConfigure`.
-//! Mounted by `agent_chat::composer` and `agent_chat::surface`; the menus
-//! open upward because the composer sits at the bottom of its pane.
+//! catalog has loaded or still offers it. Choosing sends `AgentChatConfigure`;
+//! "Use folder default" sends empty ids, which clears the session override.
+//! Mounted by `agent_chat::composer` and `agent_chat::surface`; the thinking
+//! menu opens upward because the composer sits at the bottom of its pane.
 
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{ConversationSummary, ModelsCatalog};
 
+use super::model_picker::{ModelPicker, PickerOption};
 use super::toolbar_menu::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
-use crate::components::md::{Button, ButtonSize, ButtonVariant, Card, CardVariant};
+use crate::components::md::{Button, ButtonSize, ButtonVariant, Card, CardVariant, Dialog};
 use crate::pump::Pump;
 use crate::router_state::use_navigate;
 
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::client::rpc::calls::agent_chat::ConfigureAgentChat;
-
-/// The model menu's last row, which opens Settings → Agents → Models.
-const MANAGE_MODELS: &str = "manage-models";
 
 /// Where the model catalog stands, as the chat surface fetched it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,7 +31,14 @@ pub enum ModelSetup {
 impl ModelSetup {
     pub fn from_catalog(catalog: Option<&ModelsCatalog>, failed: bool) -> Self {
         match catalog {
-            Some(catalog) if catalog.models.iter().any(|model| model.available) => Self::Ready,
+            Some(catalog)
+                if catalog
+                    .models
+                    .iter()
+                    .any(|model| model.available && !model.classifier) =>
+            {
+                Self::Ready
+            }
             Some(_) => Self::NoProvider,
             None if failed => Self::CatalogFailed,
             None => Self::Ready,
@@ -50,6 +56,7 @@ pub fn AgentModelControls(
     let navigate = use_navigate();
     let open_settings = move || navigate.call(crate::routes::settings_pane_href("models"));
     let setup = ModelSetup::from_catalog(catalog.as_ref(), catalog_failed);
+    let mut picker_open = use_signal(|| false);
     // Nothing to pick from: a button that says why, never an empty menu. The
     // id is the picker's, so `/model` lands here too.
     let placeholder = match (conversation.model.is_some(), catalog.is_some(), setup) {
@@ -77,30 +84,14 @@ pub fn AgentModelControls(
             }
         };
     }
-    let current = conversation
-        .model
-        .as_ref()
-        .map(|model| format!("{}/{}", model.provider, model.model_id));
-    let mut model_items = model_menu_items(catalog.as_ref(), &conversation);
-    model_items.push(ToolbarMenuItem::choice(
-        MANAGE_MODELS,
-        if setup == ModelSetup::Ready {
-            "Manage models…"
-        } else {
-            "Connect a model provider…"
-        },
-        false,
-    ));
     let model_label = current_model_label(catalog.as_ref(), &conversation);
-    let reasoning = catalog.as_ref().is_some_and(|catalog| {
-        conversation.model.as_ref().is_some_and(|model| {
-            catalog.models.iter().any(|entry| {
-                entry.provider == model.provider
-                    && entry.model_id == model.model_id
-                    && entry.reasoning
-            })
-        })
-    });
+    let selected_selector = conversation
+        .effective_model
+        .as_ref()
+        .or(conversation.model.as_ref())
+        .map(|model| format!("{}/{}", model.provider, model.model_id));
+    let picker_options = model_picker_options(catalog.as_ref(), &conversation);
+    let reasoning = supports_reasoning(&conversation, catalog.as_ref());
     let thinking = conversation
         .thinking_level
         .clone()
@@ -121,25 +112,60 @@ pub fn AgentModelControls(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let model_pump = pump.clone();
-    let model_id = conversation.id.clone();
+    let choose_pump = pump.clone();
+    let clear_pump = pump.clone();
     let thinking_pump = pump;
+    let model_id = conversation.id.clone();
+    let clear_id = conversation.id.clone();
     let thinking_id = conversation.id.clone();
     rsx! {
         div { class: "agent-chat__model-controls",
-            ToolbarMenu {
-                menu_key: "model",
-                trigger: ToolbarTrigger::Picker { label: model_label },
-                aria_label: "Model",
-                items: model_items,
-                opens_up: true,
-                on_choose: move |value: String| {
-                    if value == MANAGE_MODELS {
-                        open_settings();
-                    } else if Some(&value) != current.as_ref() {
-                        configure(model_pump.clone(), model_id.clone(), Configure::Model(value));
+            Button {
+                variant: ButtonVariant::Ghost,
+                size: ButtonSize::Sm,
+                class: "agent-chat__picker",
+                id: "agent-chat-model-trigger",
+                "aria-haspopup": "dialog",
+                "data-testid": "agent-chat-model-trigger",
+                title: format!("{model_label}. Choose a session-only model; folder and task defaults stay unchanged."),
+                onclick: move |_| picker_open.set(true),
+                span { class: "agent-chat__picker-label", "{model_label}" }
+            }
+            Dialog {
+                open: picker_open(),
+                on_close: move |_| picker_open.set(false),
+                headline: "Model for this session".to_string(),
+                description: rsx! { "This session only. Folder and global model roles stay unchanged." },
+                test_id: "agent-chat-model-dialog".to_string(),
+                actions: rsx! {
+                    Button {
+                        variant: ButtonVariant::Outline,
+                        size: ButtonSize::Sm,
+                        "data-testid": "agent-chat-model-use-folder-default",
+                        onclick: move |_| {
+                            configure(clear_pump.clone(), clear_id.clone(), Configure::Model(None));
+                            picker_open.set(false);
+                        },
+                        if conversation.mode == "plan" { "Use planning default" } else { "Use folder default" }
+                    }
+                    Button {
+                        variant: ButtonVariant::Link,
+                        size: ButtonSize::Sm,
+                        "data-testid": "agent-chat-model-manage",
+                        onclick: move |_| open_settings(),
+                        "Manage models…"
                     }
                 },
+                ModelPicker {
+                    options: picker_options,
+                    selected: selected_selector,
+                    placeholder: "Search models",
+                    test_id: "agent-chat-model-picker",
+                    on_choose: move |selector: String| {
+                        configure(choose_pump.clone(), model_id.clone(), Configure::Model(Some(selector)));
+                        picker_open.set(false);
+                    },
+                }
             }
             if reasoning && !thinking_items.is_empty() {
                 ToolbarMenu {
@@ -205,7 +231,7 @@ pub fn ModelSetupCard(setup: ModelSetup, on_retry: EventHandler<()>) -> Element 
 
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 enum Configure {
-    Model(String),
+    Model(Option<String>),
     Thinking(String),
 }
 
@@ -217,64 +243,90 @@ fn thinking_label(level: &str) -> String {
         .unwrap_or_default()
 }
 
-/// Available models, plus the conversation's own when the catalog no longer
-/// lists it as available, so the picker can always show what is in use.
-fn model_menu_items(
+/// Every available model, grouped under its provider's name, plus the session's
+/// own model when the catalog no longer lists it as available, so the picker
+/// can always show what is in use.
+fn model_picker_options(
     catalog: Option<&ModelsCatalog>,
     conversation: &ConversationSummary,
-) -> Vec<ToolbarMenuItem> {
-    let current = conversation.model.as_ref();
-    let mut items: Vec<ToolbarMenuItem> = catalog
+) -> Vec<PickerOption> {
+    let mut options: Vec<PickerOption> = catalog
         .map(|catalog| {
             catalog
                 .models
                 .iter()
-                .filter(|model| model.available)
-                .map(|model| ToolbarMenuItem {
-                    detail: Some(model.provider.clone()),
-                    ..ToolbarMenuItem::choice(
-                        format!("{}/{}", model.provider, model.model_id),
-                        model.name.clone(),
-                        current.is_some_and(|current| {
-                            current.provider == model.provider && current.model_id == model.model_id
-                        }),
-                    )
+                .filter(|model| model.available && !model.classifier)
+                .map(|model| PickerOption {
+                    selector: format!("{}/{}", model.provider, model.model_id),
+                    name: model.name.clone(),
+                    group: provider_display_name(catalog, &model.provider),
+                    detail: Some(model.model_id.clone()),
                 })
                 .collect()
         })
         .unwrap_or_default();
-    if let Some(current) = current
-        && !items.iter().any(|item| item.selected)
+    if let Some(current) = conversation.model.as_ref()
+        && !catalog.is_some_and(|catalog| {
+            catalog.models.iter().any(|entry| {
+                entry.classifier
+                    && entry.provider == current.provider
+                    && entry.model_id == current.model_id
+            })
+        })
     {
-        items.insert(
-            0,
-            ToolbarMenuItem {
-                detail: Some(current.provider.clone()),
-                ..ToolbarMenuItem::choice(
-                    format!("{}/{}", current.provider, current.model_id),
-                    current.model_id.clone(),
-                    true,
-                )
-            },
-        );
+        let selector = format!("{}/{}", current.provider, current.model_id);
+        if !options.iter().any(|option| option.selector == selector) {
+            options.insert(
+                0,
+                PickerOption {
+                    selector,
+                    name: current.model_id.clone(),
+                    group: "Current".to_string(),
+                    detail: None,
+                },
+            );
+        }
     }
-    items
+    options
+}
+
+fn provider_display_name(catalog: &ModelsCatalog, provider_id: &str) -> String {
+    catalog
+        .providers
+        .iter()
+        .find(|provider| provider.id == provider_id)
+        .map_or_else(|| provider_id.to_string(), |provider| provider.name.clone())
 }
 
 fn current_model_label(
     catalog: Option<&ModelsCatalog>,
     conversation: &ConversationSummary,
 ) -> String {
-    let Some(current) = conversation.model.as_ref() else {
-        return "Choose model".to_string();
+    let inherited = conversation.model.is_none();
+    let Some(current) = conversation
+        .effective_model
+        .as_ref()
+        .or(conversation.model.as_ref())
+    else {
+        return if conversation.mode == "plan" {
+            "Planning default"
+        } else {
+            "Folder default"
+        }
+        .to_string();
     };
-    catalog
+    let name = catalog
         .and_then(|catalog| {
             catalog.models.iter().find(|model| {
                 model.provider == current.provider && model.model_id == current.model_id
             })
         })
-        .map_or_else(|| current.model_id.clone(), |model| model.name.clone())
+        .map_or_else(|| current.model_id.clone(), |model| model.name.clone());
+    if inherited {
+        format!("{name} · Default")
+    } else {
+        name
+    }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
@@ -282,8 +334,14 @@ fn configure(pump: Pump, conversation_id: String, change: Configure) {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_futures::spawn_local(async move {
         let call = match change {
-            Configure::Model(value) => {
-                let Some((provider, model_id)) = value.split_once('/') else {
+            Configure::Model(None) => ConfigureAgentChat {
+                conversation_id,
+                model_provider: Some(String::new()),
+                model_id: Some(String::new()),
+                ..Default::default()
+            },
+            Configure::Model(Some(selector)) => {
+                let Some((provider, model_id)) = selector.split_once('/') else {
                     return;
                 };
                 ConfigureAgentChat {
@@ -304,3 +362,26 @@ fn configure(pump: Pump, conversation_id: String, change: Configure) {
         }
     });
 }
+
+pub(super) fn supports_reasoning(
+    conversation: &ConversationSummary,
+    catalog: Option<&ModelsCatalog>,
+) -> bool {
+    catalog.is_some_and(|catalog| {
+        conversation
+            .effective_model
+            .as_ref()
+            .or(conversation.model.as_ref())
+            .is_some_and(|model| {
+                catalog.models.iter().any(|entry| {
+                    entry.provider == model.provider
+                        && entry.model_id == model.model_id
+                        && entry.reasoning
+                })
+            })
+    })
+}
+
+#[cfg(test)]
+#[path = "model_controls_tests.rs"]
+mod tests;

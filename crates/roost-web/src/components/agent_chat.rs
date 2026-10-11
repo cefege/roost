@@ -6,16 +6,20 @@
 
 mod advisory_card;
 mod composer;
+mod composer_commands;
 mod header;
 mod interaction_cards;
 mod launch;
+mod loop_controls;
 mod markdown;
 mod message_actions;
 mod model_controls;
+pub mod model_picker;
 mod notice_card;
 mod plan_card;
 mod slash_menu;
 mod surface;
+mod surface_state;
 mod tool_card;
 mod toolbar_menu;
 mod transcript;

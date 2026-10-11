@@ -31,10 +31,13 @@ pub trait AgentStore: Send + Sync {
     /// Deletes the conversation, its entries and every descendant conversation.
     fn delete_conversation<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<(), AgentError>>;
     /// Appends an entry and returns its sequence number (strictly increasing per conversation).
+    /// Checks cancellation before committing. Once commit starts, callers must
+    /// await its result: dropping the future cannot undo a database commit.
     fn append_entry<'a>(
         &'a self,
         id: &'a str,
         entry: &'a Entry,
+        cancellation: &'a [&'a CancellationToken],
     ) -> BoxFuture<'a, Result<u64, AgentError>>;
     fn entries<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Vec<(u64, Entry)>, AgentError>>;
     fn settings(&self) -> BoxFuture<'_, Result<AgentSettings, AgentError>>;
