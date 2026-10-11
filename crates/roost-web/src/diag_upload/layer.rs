@@ -2,21 +2,31 @@
 //!
 //! The layer is filtered independently from console output: carrier decisions
 //! and warnings/errors are always retained, while ordinary info stays local.
+//! Nothing emitted inside the upload's own `diag_send` span is captured.
 
 use serde_json::{Map, Value};
 use tracing::field::{Field, Visit};
 use tracing::{Event, Subscriber};
 use tracing_subscriber::filter::{LevelFilter, Targets};
 use tracing_subscriber::layer::{Context, Layer};
+use tracing_subscriber::registry::LookupSpan;
 
 use super::queue::DiagUploadQueue;
 use roost_client_core::client::rpc::calls::diag_debug_log_batch::DiagDebugLogEntry;
+
+/// The target of the span every upload call runs in. A warning the upload
+/// itself causes — an unauthenticated dispatch, a refused call — would
+/// otherwise be queued for the next upload, which fails the same way: a
+/// signed-out tab would fill its queue with its own failures and evict the
+/// evidence it holds.
+pub(crate) const SEND_SPAN_TARGET: &str = "diag_send";
 
 pub(crate) fn filter() -> Targets {
     Targets::new()
         .with_default(LevelFilter::WARN)
         .with_target("carriers", LevelFilter::INFO)
         .with_target("diag_upload", LevelFilter::OFF)
+        .with_target(SEND_SPAN_TARGET, LevelFilter::TRACE)
 }
 
 pub(crate) struct DiagUploadLayer {
@@ -31,9 +41,15 @@ impl DiagUploadLayer {
 
 impl<S> Layer<S> for DiagUploadLayer
 where
-    S: Subscriber,
+    S: Subscriber + for<'lookup> LookupSpan<'lookup>,
 {
-    fn on_event(&self, event: &Event<'_>, _context: Context<'_, S>) {
+    fn on_event(&self, event: &Event<'_>, context: Context<'_, S>) {
+        let inside_upload = context.event_scope(event).is_some_and(|mut scope| {
+            scope.any(|span| span.metadata().target() == SEND_SPAN_TARGET)
+        });
+        if inside_upload {
+            return;
+        }
         let metadata = event.metadata();
         let mut visitor = EventFields::default();
         event.record(&mut visitor);
@@ -168,5 +184,22 @@ mod tests {
         assert_eq!(entries[1].sid, "sid-2");
         assert_eq!(warning["level"], "warn");
         assert_eq!(warning["target"], "other");
+    }
+
+    #[test]
+    fn an_event_inside_the_upload_span_is_not_queued() {
+        let queue = DiagUploadQueue::default();
+        let subscriber = tracing_subscriber::registry()
+            .with(DiagUploadLayer::new(queue.clone()).with_filter(filter()));
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::info_span!(target: SEND_SPAN_TARGET, "diagnostic upload");
+            span.in_scope(|| {
+                tracing::warn!(target: "rpc", "device credential unavailable");
+            });
+            tracing::warn!(target: "rpc", "outside the upload");
+        });
+        let entries = queue.drain(8);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].evt, "outside the upload");
     }
 }
