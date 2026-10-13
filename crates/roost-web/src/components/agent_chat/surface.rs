@@ -31,11 +31,13 @@ const STICK_THRESHOLD_PX: i32 = 80;
 pub fn AgentChatSurface(conversation_id: String) -> Element {
     let pump = use_store();
     let _revision = pump.revision()();
+    #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
     let (conversation, transcript, _stale, loaded_seq, host_connected, online) =
         read_store(&pump, &conversation_id);
     let not_found = use_signal(|| false);
     #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
     let fetch_attempt = use_signal(|| 0_u32);
+    #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
     let snapshot_generation = use_signal(|| 0_u64);
     #[allow(unused_mut)]
     let mut catalog = use_signal(|| None::<ModelsCatalog>);
