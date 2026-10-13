@@ -109,7 +109,7 @@ pub(crate) async fn create_workspace(
     dashboard_id: &str,
     now_ms: i64,
 ) -> Result<CreatedWorkspace, WorkspaceError> {
-    let mut transaction = database.pool().begin().await?;
+    let mut transaction = database.begin_write().await?;
     let Some(os) = sqlx::query_scalar::<_, String>(
         "SELECT os FROM workers WHERE fp = $1 AND deleted_at_ms IS NULL",
     )

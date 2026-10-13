@@ -54,7 +54,15 @@ impl Llm for RoostLlm {
     }
 
     fn has_credential<'a>(&'a self, provider: &'a str) -> BoxFuture<'a, bool> {
-        Box::pin(self.pool.has_enabled_credential(provider))
+        Box::pin(async move {
+            match self.pool.has_enabled_credential(provider).await {
+                Ok(available) => available,
+                Err(error) => {
+                    tracing::warn!(provider, %error, "credential availability lookup failed");
+                    false
+                }
+            }
+        })
     }
 
     fn resolve<'a>(
@@ -102,19 +110,46 @@ impl Llm for RoostLlm {
         Box::pin(async move {
             let mut rows = Vec::new();
             for provider in self.catalog.providers() {
-                let credentials = self.pool.store().list(provider).await;
+                let credentials = match self.pool.store().list(provider).await {
+                    Ok(credentials) => credentials,
+                    Err(error) => {
+                        tracing::warn!(provider, %error, "credential account listing failed");
+                        rows.push(AccountUsage {
+                            provider: provider.to_owned(),
+                            label: "Credential storage unavailable".to_owned(),
+                            windows: Vec::new(),
+                            note: Some(error.to_string()),
+                            blocked_until_ms: None,
+                            disabled_cause: None,
+                        });
+                        continue;
+                    }
+                };
                 if credentials.is_empty() {
                     continue;
                 }
-                let blocks: BTreeMap<i64, i64> = self
-                    .pool
-                    .store()
-                    .blocks(provider)
-                    .await
-                    .into_iter()
-                    .collect();
+                let (blocks, block_error): (BTreeMap<i64, i64>, Option<String>) =
+                    match self.pool.store().blocks(provider).await {
+                        Ok(blocks) => (blocks.into_iter().collect(), None),
+                        Err(error) => {
+                            tracing::warn!(provider, %error, "credential block lookup failed");
+                            (BTreeMap::new(), Some(error.to_string()))
+                        }
+                    };
                 for credential in credentials {
-                    let report = self.pool.refresh_usage(credential.id, provider).await;
+                    let (report, usage_error) =
+                        match self.pool.refresh_usage(credential.id, provider).await {
+                            Ok(report) => (report, None),
+                            Err(error) => {
+                                tracing::warn!(
+                                    provider,
+                                    credential_id = credential.id,
+                                    %error,
+                                    "credential usage lookup failed"
+                                );
+                                (None, Some(error.to_string()))
+                            }
+                        };
                     rows.push(AccountUsage {
                         provider: provider.to_owned(),
                         label: credential.label.clone(),
@@ -122,7 +157,10 @@ impl Llm for RoostLlm {
                             .as_ref()
                             .map(|usage| usage.windows.clone())
                             .unwrap_or_default(),
-                        note: report.and_then(|usage| usage.note),
+                        note: report
+                            .and_then(|usage| usage.note)
+                            .or(usage_error)
+                            .or_else(|| block_error.clone()),
                         blocked_until_ms: blocks.get(&credential.id).copied(),
                         disabled_cause: credential.disabled_cause.clone(),
                     });
@@ -152,7 +190,7 @@ impl Llm for RoostLlm {
             let credential: Option<String> = if engine_id == "searxng" {
                 base_url.map(str::to_owned)
             } else if roost_llm::web_search::engine_needs_key(engine_id) {
-                let credentials = self.pool.store().list(engine_id).await;
+                let credentials = self.pool.store().list(engine_id).await?;
                 credentials
                     .into_iter()
                     .filter(|credential| credential.disabled_cause.is_none())
@@ -186,15 +224,16 @@ impl Llm for RoostLlm {
                 return engine_id != "searxng";
             }
             use roost_llm::credentials::CredentialKind;
-            self.pool
-                .store()
-                .list(engine_id)
-                .await
-                .iter()
-                .any(|credential| {
+            match self.pool.store().list(engine_id).await {
+                Ok(credentials) => credentials.iter().any(|credential| {
                     credential.disabled_cause.is_none()
                         && matches!(&credential.kind, CredentialKind::ApiKey { .. })
-                })
+                }),
+                Err(error) => {
+                    tracing::warn!(engine_id, %error, "search engine credential lookup failed");
+                    false
+                }
+            }
         })
     }
 

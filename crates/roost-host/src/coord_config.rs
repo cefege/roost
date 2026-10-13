@@ -13,6 +13,9 @@ use roost_protocol::{ProtocolError, ProtocolResult};
 
 use crate::database_location::DatabaseLocation;
 
+mod secret_key;
+pub use secret_key::CoordinatorSecretKey;
+
 /// The bind an unset `ROOST_COORDINATOR_BIND` resolves to.
 ///
 /// Loopback, because the coordinator serves plaintext and must never expose the
@@ -46,6 +49,8 @@ pub struct CoordConfig {
     pub bind: String,
     /// The database the coordinator keeps its durable state in.
     pub database: DatabaseLocation,
+    /// The key encrypting provider credentials stored in `agent_credentials`.
+    pub credential_secret_key: Option<CoordinatorSecretKey>,
     /// The file listing the Ed25519 keys allowed to pair.
     pub authorized_keys_path: PathBuf,
     /// The SPA build output served on the same listener.
@@ -89,6 +94,10 @@ pub struct CoordConfig {
     pub terminal_peer_enabled: bool,
     /// The STUN servers the direct carrier resolves its candidates against.
     pub terminal_peer_stun_urls: Vec<String>,
+    /// HTTP address peers splice to when this process owns cluster links.
+    pub internal_url: Option<String>,
+    /// Optional listener exposing only this replica's health and readiness.
+    pub probe_bind: Option<String>,
 }
 
 /// The same settings before defaults and shape checks, one `Option` per field
@@ -97,6 +106,8 @@ pub struct CoordConfig {
 pub struct CoordConfigInput {
     pub bind: Option<String>,
     pub database: Option<DatabaseLocation>,
+    pub credential_secret_key: Option<CoordinatorSecretKey>,
+
     pub authorized_keys_path: Option<PathBuf>,
     pub web_dist_path: Option<PathBuf>,
     pub jwt_max_age_secs: Option<i64>,
@@ -114,6 +125,8 @@ pub struct CoordConfigInput {
     pub terminal_memory_budget_bytes: Option<i64>,
     pub agent_endpoint_overrides: Option<std::collections::BTreeMap<String, String>>,
     pub terminal_peer_enabled: Option<bool>,
+    pub internal_url: Option<String>,
+    pub probe_bind: Option<String>,
     pub terminal_peer_stun_urls: Option<Vec<String>>,
 }
 
@@ -129,6 +142,13 @@ impl CoordConfig {
         let database = input
             .database
             .ok_or_else(|| ProtocolError::new("config.database", "is required"))?;
+        let credential_secret_key = input.credential_secret_key;
+        if matches!(&database, DatabaseLocation::Postgres(_)) && credential_secret_key.is_none() {
+            return Err(ProtocolError::new(
+                "ROOST_COORDINATOR_SECRET_KEY",
+                "is required when ROOST_COORDINATOR_DATABASE_URL selects Postgres",
+            ));
+        }
         let authorized_keys_path =
             require(input.authorized_keys_path, "config.authorized_keys_path")?;
         let cf_access_team_domain = match input.cf_access_team_domain {
@@ -150,6 +170,7 @@ impl CoordConfig {
                 .bind
                 .unwrap_or_else(|| DEFAULT_COORDINATOR_BIND.to_string()),
             database,
+            credential_secret_key,
             authorized_keys_path,
             web_dist_path: input.web_dist_path,
             jwt_max_age_secs: positive_or(
@@ -185,6 +206,8 @@ impl CoordConfig {
             },
             terminal_peer_enabled: input.terminal_peer_enabled.unwrap_or(true),
             terminal_peer_stun_urls: input.terminal_peer_stun_urls.unwrap_or_default(),
+            internal_url: input.internal_url,
+            probe_bind: input.probe_bind,
         })
     }
 }
@@ -277,6 +300,8 @@ mod tests {
         assert_eq!(config.web_public_url, None);
         assert_eq!(config.public_url, None);
         assert_eq!(config.terminal_memory_budget_bytes, None);
+        assert_eq!(config.internal_url, None);
+        assert_eq!(config.probe_bind, None);
     }
 
     #[test]

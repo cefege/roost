@@ -11,6 +11,7 @@ impl std::fmt::Debug for CoordConfig {
             .debug_struct("CoordConfig")
             .field("bind", &self.bind)
             .field("database", &self.database)
+            .field("credential_secret_key", &self.credential_secret_key)
             .field("authorized_keys_path", &self.authorized_keys_path)
             .field("web_dist_path", &self.web_dist_path)
             .field("jwt_max_age_secs", &self.jwt_max_age_secs)

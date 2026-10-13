@@ -77,6 +77,8 @@ pub struct CoordServices {
     pub instance_id: String,
     /// Cross-replica notices; in-process only on SQLite.
     pub cluster: Arc<crate::cluster::notify::ClusterNotifier>,
+    /// Cluster-wide link-owner lease status and the owner's current address.
+    pub ownership: Arc<crate::cluster::ownership::OwnershipState>,
     /// The exclusive keeper-update drain every durable mutation leases from.
     pub write_gate: WriteGate,
     /// Cached authorized keys and their revocation generations.
@@ -217,6 +219,7 @@ impl CoordServices {
     /// of them would ever be published to.
     #[must_use]
     pub fn booted(db: CoordDb, boot: BootFacts) -> Self {
+        let instance_id = crate::agent::random_hex("coord-");
         let workers = Arc::new(WorkerRegistry::new());
         // ONE store, shared by clone. A second `PendingPublicationStore` would
         // be two answers to "what is pending publication" -- the same defect as
@@ -279,7 +282,6 @@ impl CoordServices {
         );
         let deploy = DeployRuntime::new();
         let agent_tools = Arc::new(ToolCallRegistry::new(Arc::clone(&workers), db.clone()));
-        let instance_id = crate::agent::random_hex("coord-");
         let cluster = crate::cluster::notify::ClusterNotifier::new(db.clone());
         let agent = crate::agent::AgentService::new(
             db.clone(),
@@ -293,6 +295,10 @@ impl CoordServices {
                 instance_id: instance_id.clone(),
                 notifier: Arc::clone(&cluster),
             },
+            boot.config
+                .as_deref()
+                .and_then(|config| config.credential_secret_key.as_ref())
+                .map(|key| *key.as_bytes()),
         );
         let catch_up_on_ready = Arc::new(crate::deploy::catchup_on_ready::CatchUpOnReady::new(
             deploy.clone(),
@@ -318,6 +324,7 @@ impl CoordServices {
             boot,
             instance_id,
             cluster,
+            ownership: Arc::default(),
             write_gate: WriteGate::new(),
             jwt_keys: JwtKeyCache::new(),
             buses,

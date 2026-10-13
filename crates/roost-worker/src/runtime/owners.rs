@@ -238,6 +238,9 @@ impl WorkerOwners {
                     Arc::new(cadence.clone()),
                 )) as Arc<dyn LinkLifecyclePort>,
                 Arc::new(agents.clone()) as Arc<dyn LinkLifecyclePort>,
+                Arc::new(crate::runtime::agent_tools::AgentToolsLinkLifecycle(
+                    Arc::clone(&agent_tools),
+                )) as Arc<dyn LinkLifecyclePort>,
             ])) as Arc<dyn LinkLifecyclePort>,
             // v2 `wiring.revokeDevice`: the door's routes and grants, then the
             // device's peers.

@@ -6,6 +6,7 @@
     "release": "roost-coordinator",
     "chart": "deploy/helm/roost-coordinator",
     "values": "deploy/helm/fleet-ovh1.values.yaml",
+    "replicas": 2,
     "image": "ghcr.io/cefege/roost-coordinator"
   },
   "hosts": [

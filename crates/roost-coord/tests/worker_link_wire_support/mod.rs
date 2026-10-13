@@ -56,6 +56,7 @@ impl WireFixture {
         let config = CoordConfig::parse(CoordConfigInput {
             bind: Some("127.0.0.1:0".to_owned()),
             database: Some(database_location),
+            credential_secret_key: super::db_support::test_secret_key(),
             authorized_keys_path: Some(root.join("authorized_keys")),
             log_dir: Some(root.join("logs")),
             ..CoordConfigInput::default()

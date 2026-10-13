@@ -106,8 +106,8 @@ impl AgentRuntime {
     }
 
     /// Hands every run this replica owns to the others: each local run stops
-    /// without settling, and its lease is freed for immediate adoption.
-    /// Returns how many leases were released.
+    /// without settling, its lease is freed, and the replica that takes over
+    /// is woken to adopt it. Returns how many leases were released.
     pub async fn release_all_leases(&self) -> usize {
         let held: Vec<String> = lock(&self.inner.leases).keys().cloned().collect();
         for id in &held {
@@ -118,6 +118,7 @@ impl AgentRuntime {
         }
         for id in &held {
             self.release_lease(id).await;
+            self.inner.signal.conversation_changed(id).await;
         }
         held.len()
     }

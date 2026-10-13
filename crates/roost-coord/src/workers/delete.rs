@@ -63,7 +63,7 @@ pub async fn delete_worker(
     revoked_by_fp: &str,
     now_ms: i64,
 ) -> Result<WorkerDeletion, WorkerDeleteError> {
-    let mut transaction = database.pool().begin().await?;
+    let mut transaction = database.begin_write().await?;
     let committed =
         commit_deletion(&mut transaction, worker_fp.as_str(), revoked_by_fp, now_ms).await;
     let deletion = match committed {

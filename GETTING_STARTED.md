@@ -58,6 +58,7 @@ The fresh local coordinator service uses this profile:
 
 ```text
 ROOST_COORDINATOR_BIND=127.0.0.1:4113
+ROOST_COORDINATOR_SECRET_KEY=
 ROOST_TRUST_PROXY=0
 ROOST_WEB_PUBLIC_URL=
 ROOST_COORDINATOR_PUBLIC_URL=
@@ -106,8 +107,19 @@ and the coordinator keeps no durable state on its own disk: it runs on a
 read-only root filesystem, can be rescheduled freely, and its backups are the
 Postgres operator's. Without that variable it uses its SQLite file under
 `/var/lib/roost`, which must then be a volume. Setting both it and
-`ROOST_COORDINATOR_DB` is refused. Run exactly one coordinator: live terminal
-fan-out is in-process.
+`ROOST_COORDINATOR_DB` is refused.
+
+Postgres requires `ROOST_COORDINATOR_SECRET_KEY`, a base64-encoded 32-byte key
+used to encrypt provider credentials in the shared database. SQLite may omit
+the key, in which case credentials remain plaintext.
+
+For a multi-replica Postgres deployment, set `ROOST_COORDINATOR_INTERNAL_URL`
+to this pod's peer-reachable HTTP address (for example
+`http://$(POD_IP):4113`). Replicas heartbeat their address and elect one link
+owner; followers transparently proxy worker links, browser Sync sockets, RPC
+and SPA traffic to it. `ROOST_COORDINATOR_PROBE_BIND` optionally binds a
+separate `host:port` listener exposing only `/healthz` and `/readyz` for that
+replica. Without it, the main listener retains its normal readiness behavior.
 
 An existing SQLite install moves onto Postgres with `roost db-to-postgres`:
 stop the coordinator, then
@@ -157,17 +169,21 @@ kubectl -n roost exec deploy/roost-coordinator -- roost add-browser
 kubectl -n roost exec deploy/roost-coordinator -- roost add-machine --platform linux
 ```
 
-`roost-db` is a Secret with the key `ROOST_COORDINATOR_DATABASE_URL`. Or run
-the chart's own single Postgres: `--set postgres.enabled=true --set
-postgres.password=…`, plus `--set postgres.backup.enabled=true` for a daily
-`pg_dump` CronJob that keeps 14 archives on its own PVC (restore with
+`roost-db` is a Secret with the keys `ROOST_COORDINATOR_DATABASE_URL` and
+`ROOST_COORDINATOR_SECRET_KEY` (base64-encoded 32-byte key). Changing the
+secret key makes stored provider credentials unreadable; keep it stable and
+backed up. Or run the chart's own single Postgres: `--set postgres.enabled=true
+--set postgres.password=…`, plus
+`--set postgres.backup.enabled=true` for a daily `pg_dump` CronJob that keeps
+14 archives on its own PVC (restore with
 `pg_restore --clean --if-exists -d roost <archive>`). On a multi-node cluster
 pin the coordinator, Postgres and its backups to one node with `nodeSelector`.
 `--set replicas=0` stops the coordinator for maintenance such as a
-`roost db-to-postgres --replace` through `kubectl port-forward`; the chart
-refuses any count but 0 or 1. The pod is probed on `/readyz` (the database
-answers and the process is not draining) and `/healthz`; on `SIGTERM` it
-withdraws readiness and gives open connections 20 s before exiting.
+`roost db-to-postgres --replace` through `kubectl port-forward`; any count >= 1
+is supported when sharing Postgres. One replica owns worker links while others
+proxy connections to it. The probe port serves `/readyz` (database and
+cluster-state readiness) and `/healthz`; on `SIGTERM` the coordinator releases
+ownership and gives open connections 20 s before exiting.
 `--set logs.persistence.enabled=true` keeps the coordinator's warn/error log
 (`main.err.log`, rotated at 32 MiB with one previous file) on its own PVC
 through `ROOST_LOG_FILE_DIR`, so `kubectl -n roost exec deploy/roost-coordinator

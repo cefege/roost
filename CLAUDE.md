@@ -315,7 +315,10 @@ k3s on ovh1, the same host as the public edge (namespace `roost`, Deployment
 `roost-coordinator`, StatefulSet `roost-coordinator-postgres`, a daily
 `pg_dump` CronJob keeping 14 archives), so on every fleet host `roost status`
 reports the coordinator service and listener as absent and the worker roster as
-"not on this host"; that is expected. The
+"not on this host"; that is expected. The Deployment runs `replicas` pods
+(`xtask/fleet.json`, default 2): one holds the `cluster:links` lease and serves
+every worker link, browser socket and agent run, and the others splice their
+connections to it (`crates/roost-coord/src/cluster/`). The
 k3s API answers on ovh1's tailnet address to desktop-pc only; desktop-pc's
 kubeconfig for it is `~/.kube/ovh1.yaml`. Check it with:
 
@@ -458,7 +461,7 @@ upgrades the coordinator, which runs on ovh1's k3s against an in-chart
 Postgres (`fleet.json` `coordinator`, values in
 `deploy/helm/fleet-ovh1.values.yaml`): it refuses until
 `.github/workflows/container.yml` has published the tag's image to ghcr, then
-`helm upgrade`s and checks the pod reports the tag and sha. It then copies the
+`helm upgrade`s and checks every coordinator pod reports the tag and sha. It then copies the
 tag into each host's `versions/<tag>/`, repoints the systemd units or the
 LaunchAgent at it, restarts them, and fails a host whose binary reports
 another commit or whose keeper pid changed. The public door is unchanged:

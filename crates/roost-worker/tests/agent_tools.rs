@@ -194,3 +194,50 @@ async fn cancelling_agent_bash_returns_error_within_one_second() {
     .expect("cancelled bash settles within one second");
     assert!(result.is_error);
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_detached_coordinator_link_cancels_running_tool_calls() {
+    use roost_worker::link_ports::LinkLifecyclePort;
+    use roost_worker::runtime::agent_tools::AgentToolsLinkLifecycle;
+
+    let scratch = Scratch::new();
+    let (uplink, mut frames) = uplink::channel();
+    let owner = Arc::new(AgentToolsOwner::new(scratch.0.clone(), uplink.clone()));
+    let lifecycle = AgentToolsLinkLifecycle(Arc::clone(&owner) as Arc<dyn AgentToolsPort>);
+    let dispatcher = dispatcher(uplink, owner);
+    let marker = scratch.0.join("finished.txt");
+    dispatcher.dispatch(
+        CoordWorkerDownstream::AgentToolCall(DAgentToolCall {
+            call_id: "bash-detach".into(),
+            conversation_id: "conversation-1".into(),
+            cwd: scratch.0.to_string_lossy().into_owned(),
+            tool: "bash".into(),
+            args_json: format!(
+                r#"{{"command":"sleep 2 && touch {}"}}"#,
+                marker.to_string_lossy()
+            ),
+            timeout_ms: 60_000,
+            ..Default::default()
+        }),
+        Instant::now(),
+        &mut TestLink,
+    );
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    lifecycle.on_detach();
+    let result = timeout(Duration::from_secs(1), async {
+        loop {
+            if let Some(CoordWorkerUpstream::AgentToolResult(result)) = frames.recv().await {
+                break result;
+            }
+        }
+    })
+    .await
+    .expect("the detached call settles within one second");
+    assert!(result.is_error);
+    tokio::time::sleep(Duration::from_millis(2_500)).await;
+    assert!(
+        !marker.exists(),
+        "the cancelled command did not run to completion"
+    );
+}

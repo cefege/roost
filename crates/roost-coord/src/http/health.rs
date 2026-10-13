@@ -37,6 +37,50 @@ pub fn health_routes() -> Router<Arc<ListenerState>> {
         .route(READYZ_PATH, get(readyz))
 }
 
+/// State for the optional per-replica probe listener.
+#[derive(Debug, Clone)]
+pub struct ProbeState {
+    /// The database and notifier owned by this coordinator process.
+    pub services: Arc<crate::services::CoordServices>,
+}
+
+/// Routes that intentionally expose no RPC, SPA or WebSocket surface.
+pub fn probe_routes() -> Router<Arc<ProbeState>> {
+    Router::new()
+        .route(HEALTHZ_PATH, get(probe_healthz))
+        .route(READYZ_PATH, get(probe_readyz))
+}
+
+async fn probe_healthz() -> Response {
+    plain(StatusCode::OK, "ok")
+}
+
+async fn probe_readyz(State(state): State<Arc<ProbeState>>) -> Response {
+    let ownership = &state.services.ownership;
+    let now_ms = crate::serve::now_ms();
+    if !state.services.cluster.connected()
+        || !ownership.heartbeat_fresh(now_ms)
+        || (!ownership.is_owner() && ownership.owner_internal_url().is_none())
+    {
+        return plain(StatusCode::SERVICE_UNAVAILABLE, "cluster unavailable");
+    }
+    let probe = sqlx::query("SELECT 1").execute(state.services.db.pool());
+    match tokio::time::timeout(READINESS_DATABASE_TIMEOUT, probe).await {
+        Ok(Ok(_)) => plain(StatusCode::OK, "ready"),
+        Ok(Err(error)) => {
+            tracing::warn!(%error, "replica readiness probe: database check failed");
+            plain(StatusCode::SERVICE_UNAVAILABLE, "database unavailable")
+        }
+        Err(_) => {
+            tracing::warn!(
+                timeout_ms = READINESS_DATABASE_TIMEOUT.as_millis(),
+                "replica readiness probe: database check timed out"
+            );
+            plain(StatusCode::SERVICE_UNAVAILABLE, "database unavailable")
+        }
+    }
+}
+
 async fn healthz() -> Response {
     plain(StatusCode::OK, "ok")
 }

@@ -70,6 +70,12 @@ pub fn running_on_postgres() -> bool {
     std::env::var(TEST_DATABASE_URL_ENV).is_ok_and(|url| !url.trim().is_empty())
 }
 
+/// The credential-encryption key a test coordinator config carries: a
+/// Postgres-backed coordinator refuses to start without one.
+pub fn test_secret_key() -> Option<roost_host::CoordinatorSecretKey> {
+    Some(roost_host::CoordinatorSecretKey::new([7; 32]))
+}
+
 /// Take every connection the pool may open, so no statement can start until
 /// the returned guards drop — a stalled store, on either backend (SQLite's
 /// pool is one connection, Postgres' several).

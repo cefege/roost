@@ -55,8 +55,7 @@ pub(crate) fn fault(step: &'static str, detail: &impl std::fmt::Display) -> Conn
 
 pub(crate) async fn begin(database: &CoordDb) -> Result<Transaction<'_, Any>, ConnectError> {
     database
-        .pool()
-        .begin()
+        .begin_write()
         .await
         .map_err(|error| internal("begin", &error))
 }

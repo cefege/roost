@@ -230,6 +230,42 @@ async fn two_concurrent_subscribes_for_one_device_cannot_both_land_past_the_cap(
 }
 
 #[tokio::test]
+async fn two_coordinator_pools_cannot_both_take_the_last_subscription_slot() {
+    let fixture = PushFixture::new("two-pool-cap-race").await;
+    let fp = fixture.fp();
+    for index in 0..3 {
+        handle_push_subscribe(
+            &fixture.core,
+            &fixture.caller,
+            subscribe_request(&format!("{PUSH_ORIGIN}/two-pool-held-{index}")),
+        )
+        .await
+        .expect("within cap");
+    }
+    let second_db = fixture.reopen_database().await;
+    let second_services = std::sync::Arc::new(roost_coord::services::CoordServices::new(second_db));
+    let second_core =
+        roost_coord::coord_core::CoordCore::with_push(second_services, fixture.push.clone());
+    let (left, right) = tokio::join!(
+        handle_push_subscribe(
+            &fixture.core,
+            &fixture.caller,
+            subscribe_request(&format!("{PUSH_ORIGIN}/two-pool-left")),
+        ),
+        handle_push_subscribe(
+            &second_core,
+            &fixture.caller,
+            subscribe_request(&format!("{PUSH_ORIGIN}/two-pool-right")),
+        ),
+    );
+    assert_eq!(usize::from(left.is_ok()) + usize::from(right.is_ok()), 1);
+    assert_eq!(
+        fixture.endpoints_for(&fp).await.len(),
+        MAX_SUBSCRIPTIONS_PER_DEVICE
+    );
+}
+
+#[tokio::test]
 async fn a_concurrent_race_at_every_slot_still_lands_exactly_the_cap() {
     let fixture = PushFixture::new("cap-race-all").await;
     let fp = fixture.fp();

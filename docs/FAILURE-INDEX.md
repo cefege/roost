@@ -2385,17 +2385,16 @@ job runs the whole `roost-coord` suite against a real server with `ROOST_TEST_DA
 slot" fails with `left: 2, right: 1` (`push_subscription_cap`); two concurrent writes both pass a
 count-then-insert guard that SQLite never lets both through.
 
-**Wrong** — a Postgres connection pool larger than one. The guards are single statements (`INSERT …
-SELECT … WHERE (SELECT COUNT(*) …) < $n`) that are correct only because no other write interleaves; under
-READ COMMITTED two connections each see the old count. Also wrong: adding a lock at the one call site the
-test caught — every other cap and single-use check has the same shape.
+**Wrong** — relying on `POSTGRES_POOL_SIZE = 1` to serialize independent replicas. A one-statement cap still
+allows two READ COMMITTED transactions to observe the same count and both write.
 
-**Right** — `db::POSTGRES_POOL_SIZE = 1`: one connection, as on SQLite, so every statement is ordered as
-the code assumes. Raising it needs every count-then-write moved under `CoordDb::begin_write` first.
+**Right** — put the entire decision and its writes inside `CoordDb::begin_write`, whose transaction-scoped
+Postgres advisory lock serializes writers across every replica. Keep the pool at one connection per replica;
+pool size alone is not a cross-replica lock.
 
-**Guard** — `crates/roost-coord/tests/push_subscription_cap.rs`:
-`two_concurrent_subscribes_for_one_device_cannot_both_land_past_the_cap`, run against Postgres by the CI
-`postgres` job.
+**Guard** — `crates/roost-coord/tests/push_subscription_cap.rs` —
+`two_coordinator_pools_cannot_both_take_the_last_subscription_slot` races two `CoordDb` pools over the
+same database on SQLite and Postgres.
 
 ### Two coordinator replicas run one agent conversation
 
@@ -2415,6 +2414,24 @@ journal. A replica that stops renewing loses the run when its lease expires.
 
 **Guard** — `crates/roost-coord/tests/agent_two_instances.rs` (every case, against Postgres in the CI
 `postgres` job), `crates/roost-coord/tests/agent_store_execution.rs`.
+
+### A second coordinator replica cannot reach the worker another replica holds
+
+**Symptom** — with two coordinator pods, a terminal, scrollback page, file read or agent tool call fails
+`worker offline` / `machine … is offline` while the machine shows online in another tab; it works again
+after a reload that happened to land on the other pod.
+
+**Wrong** — let every replica accept worker links and browser sockets. Every reply path (`PendingRpcs`,
+input lanes, grant and peer tables, the terminal view owner transport, the agent tool registry) correlates
+in process memory, so a request on one replica never sees a worker linked to another.
+
+**Right** — one replica holds the `coord_leases` row `cluster:links` and serves every worker link, Sync
+socket, RPC and agent run; the others splice each accepted TCP connection to its
+`ROOST_COORDINATOR_INTERNAL_URL` unread (`crates/roost-coord/src/cluster/`). An owner that loses the lease
+ends `serve` with an error and restarts as a follower; on `SIGTERM` it releases the lease before draining.
+
+**Guard** — `crates/roost-coord/tests/cluster_link_owner.rs` (election, release and takeover, loss
+detection on Postgres; HTTP and WebSocket byte-transparency through a follower).
 
 ---
 
@@ -2765,14 +2782,17 @@ brotli at runtime.
 
 ## Product boundaries and process
 
-### Roost never owns the agent session
+### Roost never owns an external CLI agent's session
 
 **Symptom** — "omp launcher stops opening in a normal terminal"
 
-**Wrong** — spawn the agent CLI as a headless child, vendor its runtime, or import an agent browser UI.
+**Wrong** — spawn an external agent CLI (omp, Claude Code, Codex) as a headless child, vendor its
+runtime, or import its browser UI.
 
-**Right** — the agent CLI runs as an ordinary command in a normal shell PTY; Roost transports that terminal and
-never spawns, supervises, or owns the agent session.
+**Right** — an external agent CLI runs as an ordinary command in a normal shell PTY; Roost transports
+that terminal and never spawns, supervises, or owns its session. This scope is external CLI agents in
+PTYs only: the built-in agent (`roost-agent`, `/a/:conversationId`) is Roost's own harness, and its
+conversations, runs and tool calls are owned by the coordinator by design.
 
 **Guard** — `none`.
 

@@ -5,6 +5,28 @@
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 
+use crate::error::LlmError;
+
+pub type RefreshOperation<'a> = Box<
+    dyn FnOnce(StoredCredential) -> BoxFuture<'a, Result<CredentialKind, LlmError>> + Send + 'a,
+>;
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum CredentialStoreError {
+    #[error("credential storage failed: {0}")]
+    Storage(String),
+    #[error("credential data could not be serialized: {0}")]
+    Serialization(String),
+    #[error("encrypted credential requires ROOST_COORDINATOR_SECRET_KEY")]
+    EncryptionKeyMissing,
+    #[error("credential could not be decrypted with the configured key")]
+    WrongEncryptionKey,
+    #[error("credential encryption failed: {0}")]
+    Encryption(String),
+    #[error("encrypted credential data is malformed: {0}")]
+    MalformedEncryptedData(String),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StoredCredential {
     pub id: i64,
@@ -31,30 +53,56 @@ pub enum CredentialKind {
 }
 
 pub trait CredentialStore: Send + Sync {
-    fn list<'a>(&'a self, provider: &'a str) -> BoxFuture<'a, Vec<StoredCredential>>;
+    fn list<'a>(
+        &'a self,
+        provider: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<StoredCredential>, CredentialStoreError>>;
     fn upsert<'a>(
         &'a self,
         provider: &'a str,
         kind: CredentialKind,
         identity_key: &'a str,
         label: &'a str,
-    ) -> BoxFuture<'a, i64>;
-    fn update_kind<'a>(&'a self, id: i64, kind: CredentialKind) -> BoxFuture<'a, ()>;
-    fn disable<'a>(&'a self, id: i64, cause: &'a str) -> BoxFuture<'a, ()>;
-    fn clear_sticky<'a>(&'a self, conversation_id: &'a str, provider: &'a str)
-    -> BoxFuture<'a, ()>;
-    fn delete<'a>(&'a self, id: i64) -> BoxFuture<'a, ()>;
-    fn blocks<'a>(&'a self, provider: &'a str) -> BoxFuture<'a, Vec<(i64, i64)>>;
-    fn set_block<'a>(&'a self, id: i64, until_ms: i64) -> BoxFuture<'a, ()>;
+    ) -> BoxFuture<'a, Result<i64, CredentialStoreError>>;
+    fn update_kind<'a>(
+        &'a self,
+        id: i64,
+        kind: CredentialKind,
+    ) -> BoxFuture<'a, Result<(), CredentialStoreError>>;
+    fn disable<'a>(
+        &'a self,
+        id: i64,
+        cause: &'a str,
+    ) -> BoxFuture<'a, Result<(), CredentialStoreError>>;
+    fn clear_sticky<'a>(
+        &'a self,
+        conversation_id: &'a str,
+        provider: &'a str,
+    ) -> BoxFuture<'a, Result<(), CredentialStoreError>>;
+    fn delete<'a>(&'a self, id: i64) -> BoxFuture<'a, Result<(), CredentialStoreError>>;
+    fn blocks<'a>(
+        &'a self,
+        provider: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<(i64, i64)>, CredentialStoreError>>;
+    fn set_block<'a>(
+        &'a self,
+        id: i64,
+        until_ms: i64,
+    ) -> BoxFuture<'a, Result<(), CredentialStoreError>>;
     fn sticky<'a>(
         &'a self,
         conversation_id: &'a str,
         provider: &'a str,
-    ) -> BoxFuture<'a, Option<i64>>;
+    ) -> BoxFuture<'a, Result<Option<i64>, CredentialStoreError>>;
     fn set_sticky<'a>(
         &'a self,
         conversation_id: &'a str,
         provider: &'a str,
         id: i64,
-    ) -> BoxFuture<'a, ()>;
+    ) -> BoxFuture<'a, Result<(), CredentialStoreError>>;
+    fn refresh_locked<'a>(
+        &'a self,
+        id: i64,
+        refresh: RefreshOperation<'a>,
+    ) -> BoxFuture<'a, Result<StoredCredential, LlmError>>;
 }

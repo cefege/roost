@@ -18,17 +18,9 @@ use crate::components::md::{ButtonVariant, EmptyState, IconButton, IconButtonSiz
 use crate::pump::use_store;
 
 #[cfg(target_arch = "wasm32")]
-use roost_client_core::ClientEvent;
+use super::surface_fetch::{fetch_events_or_snapshot, fetch_snapshot};
 #[cfg(target_arch = "wasm32")]
-use roost_client_core::client::agent_chat::AgentChatIntent;
-#[cfg(target_arch = "wasm32")]
-use roost_client_core::client::rpc::ConnectCode;
-#[cfg(target_arch = "wasm32")]
-use roost_client_core::client::rpc::calls::agent_chat::{GetAgentChatSnapshot, ListAgentModels};
-
-/// How long a failed snapshot fetch waits before it is tried again.
-#[cfg(target_arch = "wasm32")]
-const SNAPSHOT_RETRY_MS: u64 = 2_000;
+use roost_client_core::client::rpc::calls::agent_chat::ListAgentModels;
 
 /// Scrolled further than this from the bottom, the reader is reading history
 /// and new output must not pull the view down.
@@ -39,11 +31,12 @@ const STICK_THRESHOLD_PX: i32 = 80;
 pub fn AgentChatSurface(conversation_id: String) -> Element {
     let pump = use_store();
     let _revision = pump.revision()();
-    let (conversation, transcript, _stale, host_connected, online) =
+    let (conversation, transcript, _stale, loaded_seq, host_connected, online) =
         read_store(&pump, &conversation_id);
     let not_found = use_signal(|| false);
     #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
     let fetch_attempt = use_signal(|| 0_u32);
+    let snapshot_generation = use_signal(|| 0_u64);
     #[allow(unused_mut)]
     let mut catalog = use_signal(|| None::<ModelsCatalog>);
     #[allow(unused_mut)]
@@ -58,17 +51,35 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
     #[cfg(target_arch = "wasm32")]
     {
         let fetch_needed = transcript.is_none() || _stale;
+        let has_transcript = transcript.is_some();
         let snapshot_pump = pump.clone();
         use_effect(use_reactive(
-            (&conversation_id, &fetch_needed, &fetch_attempt()),
-            move |(conversation_id, fetch_needed, _attempt)| {
+            (
+                &conversation_id,
+                &fetch_needed,
+                &fetch_attempt(),
+                &loaded_seq,
+            ),
+            move |(conversation_id, fetch_needed, _attempt, loaded_seq)| {
                 if fetch_needed {
-                    fetch_snapshot(
-                        snapshot_pump.clone(),
-                        conversation_id,
-                        not_found,
-                        fetch_attempt,
-                    );
+                    if has_transcript {
+                        fetch_events_or_snapshot(
+                            snapshot_pump.clone(),
+                            conversation_id,
+                            loaded_seq,
+                            not_found,
+                            fetch_attempt,
+                            snapshot_generation,
+                        );
+                    } else {
+                        fetch_snapshot(
+                            snapshot_pump.clone(),
+                            conversation_id,
+                            not_found,
+                            fetch_attempt,
+                            snapshot_generation,
+                        );
+                    }
                 }
             },
         ));
@@ -226,6 +237,7 @@ type StoreReading = (
     Option<roost_protocol::wire::agent_chat::ConversationSummary>,
     Option<Transcript>,
     bool,
+    u64,
     bool,
     bool,
 );
@@ -252,6 +264,7 @@ fn read_store(pump: &crate::pump::Pump, conversation_id: &str) -> StoreReading {
         conversation,
         loaded.map(|loaded| loaded.transcript.clone()),
         loaded.is_some_and(|loaded| loaded.stale),
+        loaded.map(|loaded| loaded.seq).unwrap_or_default(),
         store.agent_chat.host_connected,
         online,
     )
@@ -265,46 +278,6 @@ fn focus(field: Option<std::rc::Rc<MountedData>>) {
             let _ = field.set_focus(true).await;
         });
     }
-}
-
-#[cfg(target_arch = "wasm32")]
-fn fetch_snapshot(
-    pump: crate::pump::Pump,
-    conversation_id: String,
-    mut not_found: Signal<bool>,
-    mut fetch_attempt: Signal<u32>,
-) {
-    not_found.set(false);
-    wasm_bindgen_futures::spawn_local(async move {
-        match pump
-            .rpc()
-            .call(&GetAgentChatSnapshot {
-                conversation_id: conversation_id.clone(),
-            })
-            .await
-        {
-            Ok((seq, transcript)) => {
-                pump.dispatch(ClientEvent::AgentChat(AgentChatIntent::SnapshotLoaded {
-                    conversation_id,
-                    seq,
-                    transcript,
-                }))
-            }
-            // The surface may have unmounted while the call was in flight.
-            Err(error) if error.code() == Some(&ConnectCode::NotFound) => {
-                if let Ok(mut gone) = not_found.try_write() {
-                    *gone = true;
-                }
-            }
-            Err(error) => {
-                tracing::warn!(target: "agent_chat", %error, "transcript snapshot failed; retrying");
-                crate::components::terminal::dom::sleep_ms(SNAPSHOT_RETRY_MS).await;
-                if let Ok(mut attempt) = fetch_attempt.try_write() {
-                    *attempt = attempt.wrapping_add(1);
-                }
-            }
-        }
-    });
 }
 
 /// A click on a code block's Copy button copies that block and says so.

@@ -5,9 +5,10 @@
 use std::{collections::HashMap, sync::Arc};
 
 use futures::future::BoxFuture;
+
 use tokio::sync::Mutex;
 
-use crate::credentials::{CredentialKind, CredentialStore, StoredCredential};
+use crate::credentials::{CredentialKind, CredentialStore, CredentialStoreError, StoredCredential};
 
 #[derive(Debug, Default)]
 struct State {
@@ -23,25 +24,30 @@ pub struct InMemoryCredentialStore {
 }
 
 impl CredentialStore for InMemoryCredentialStore {
-    fn list<'a>(&'a self, provider: &'a str) -> BoxFuture<'a, Vec<StoredCredential>> {
+    fn list<'a>(
+        &'a self,
+        provider: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<StoredCredential>, CredentialStoreError>> {
         Box::pin(async move {
-            self.state
+            Ok(self
+                .state
                 .lock()
                 .await
                 .credentials
                 .iter()
                 .filter(|row| row.provider == provider)
                 .cloned()
-                .collect()
+                .collect())
         })
     }
+
     fn upsert<'a>(
         &'a self,
         provider: &'a str,
         kind: CredentialKind,
         identity_key: &'a str,
         label: &'a str,
-    ) -> BoxFuture<'a, i64> {
+    ) -> BoxFuture<'a, Result<i64, CredentialStoreError>> {
         Box::pin(async move {
             let mut state = self.state.lock().await;
             if let Some(row) = state
@@ -52,7 +58,7 @@ impl CredentialStore for InMemoryCredentialStore {
                 row.kind = kind;
                 row.label = label.to_owned();
                 row.disabled_cause = None;
-                return row.id;
+                return Ok(row.id);
             }
             state.next_id += 1;
             let id = state.next_id;
@@ -64,10 +70,15 @@ impl CredentialStore for InMemoryCredentialStore {
                 label: label.to_owned(),
                 disabled_cause: None,
             });
-            id
+            Ok(id)
         })
     }
-    fn update_kind<'a>(&'a self, id: i64, kind: CredentialKind) -> BoxFuture<'a, ()> {
+
+    fn update_kind<'a>(
+        &'a self,
+        id: i64,
+        kind: CredentialKind,
+    ) -> BoxFuture<'a, Result<(), CredentialStoreError>> {
         Box::pin(async move {
             if let Some(row) = self
                 .state
@@ -79,9 +90,15 @@ impl CredentialStore for InMemoryCredentialStore {
             {
                 row.kind = kind;
             }
+            Ok(())
         })
     }
-    fn disable<'a>(&'a self, id: i64, cause: &'a str) -> BoxFuture<'a, ()> {
+
+    fn disable<'a>(
+        &'a self,
+        id: i64,
+        cause: &'a str,
+    ) -> BoxFuture<'a, Result<(), CredentialStoreError>> {
         Box::pin(async move {
             if let Some(row) = self
                 .state
@@ -93,71 +110,116 @@ impl CredentialStore for InMemoryCredentialStore {
             {
                 row.disabled_cause = Some(cause.to_owned());
             }
+            Ok(())
         })
     }
-    fn delete<'a>(&'a self, id: i64) -> BoxFuture<'a, ()> {
-        Box::pin(async move {
-            let mut state = self.state.lock().await;
-            state.credentials.retain(|row| row.id != id);
-            state.blocks.remove(&id);
-            state.sticky.retain(|_, value| *value != id);
-        })
-    }
-    fn blocks<'a>(&'a self, provider: &'a str) -> BoxFuture<'a, Vec<(i64, i64)>> {
-        Box::pin(async move {
-            let state = self.state.lock().await;
-            state
-                .credentials
-                .iter()
-                .filter(|row| row.provider == provider)
-                .filter_map(|row| state.blocks.get(&row.id).map(|until| (row.id, *until)))
-                .collect()
-        })
-    }
-    fn set_block<'a>(&'a self, id: i64, until_ms: i64) -> BoxFuture<'a, ()> {
-        Box::pin(async move {
-            self.state.lock().await.blocks.insert(id, until_ms);
-        })
-    }
-    fn sticky<'a>(
-        &'a self,
-        conversation_id: &'a str,
-        provider: &'a str,
-    ) -> BoxFuture<'a, Option<i64>> {
-        Box::pin(async move {
-            self.state
-                .lock()
-                .await
-                .sticky
-                .get(&(conversation_id.to_owned(), provider.to_owned()))
-                .copied()
-        })
-    }
-    fn set_sticky<'a>(
-        &'a self,
-        conversation_id: &'a str,
-        provider: &'a str,
-        id: i64,
-    ) -> BoxFuture<'a, ()> {
-        Box::pin(async move {
-            self.state
-                .lock()
-                .await
-                .sticky
-                .insert((conversation_id.to_owned(), provider.to_owned()), id);
-        })
-    }
+
     fn clear_sticky<'a>(
         &'a self,
         conversation_id: &'a str,
         provider: &'a str,
-    ) -> BoxFuture<'a, ()> {
+    ) -> BoxFuture<'a, Result<(), CredentialStoreError>> {
         Box::pin(async move {
             self.state
                 .lock()
                 .await
                 .sticky
                 .remove(&(conversation_id.to_owned(), provider.to_owned()));
+            Ok(())
+        })
+    }
+
+    fn delete<'a>(&'a self, id: i64) -> BoxFuture<'a, Result<(), CredentialStoreError>> {
+        Box::pin(async move {
+            let mut state = self.state.lock().await;
+            state.credentials.retain(|row| row.id != id);
+            state.blocks.remove(&id);
+            state.sticky.retain(|_, value| *value != id);
+            Ok(())
+        })
+    }
+
+    fn blocks<'a>(
+        &'a self,
+        provider: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<(i64, i64)>, CredentialStoreError>> {
+        Box::pin(async move {
+            let state = self.state.lock().await;
+            Ok(state
+                .credentials
+                .iter()
+                .filter(|row| row.provider == provider)
+                .filter_map(|row| state.blocks.get(&row.id).map(|until| (row.id, *until)))
+                .collect())
+        })
+    }
+
+    fn set_block<'a>(
+        &'a self,
+        id: i64,
+        until_ms: i64,
+    ) -> BoxFuture<'a, Result<(), CredentialStoreError>> {
+        Box::pin(async move {
+            self.state.lock().await.blocks.insert(id, until_ms);
+            Ok(())
+        })
+    }
+
+    fn sticky<'a>(
+        &'a self,
+        conversation_id: &'a str,
+        provider: &'a str,
+    ) -> BoxFuture<'a, Result<Option<i64>, CredentialStoreError>> {
+        Box::pin(async move {
+            Ok(self
+                .state
+                .lock()
+                .await
+                .sticky
+                .get(&(conversation_id.to_owned(), provider.to_owned()))
+                .copied())
+        })
+    }
+
+    fn set_sticky<'a>(
+        &'a self,
+        conversation_id: &'a str,
+        provider: &'a str,
+        id: i64,
+    ) -> BoxFuture<'a, Result<(), CredentialStoreError>> {
+        Box::pin(async move {
+            self.state
+                .lock()
+                .await
+                .sticky
+                .insert((conversation_id.to_owned(), provider.to_owned()), id);
+            Ok(())
+        })
+    }
+
+    fn refresh_locked<'a>(
+        &'a self,
+        id: i64,
+        refresh: crate::credentials::RefreshOperation<'a>,
+    ) -> BoxFuture<'a, Result<StoredCredential, crate::error::LlmError>> {
+        Box::pin(async move {
+            let mut state = self.state.lock().await;
+            let row = state
+                .credentials
+                .iter()
+                .find(|row| row.id == id)
+                .cloned()
+                .ok_or_else(|| crate::error::LlmError::Auth("credential was removed".into()))?;
+            let updated_kind = refresh(row).await?;
+            let stored = state
+                .credentials
+                .iter_mut()
+                .find(|row| row.id == id)
+                .ok_or_else(|| crate::error::LlmError::Auth("credential was removed".into()))?;
+            if stored.kind != updated_kind {
+                stored.kind = updated_kind;
+            }
+            Ok(stored.clone())
         })
     }
 }

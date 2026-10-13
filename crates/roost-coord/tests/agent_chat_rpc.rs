@@ -176,6 +176,18 @@ async fn setup(label: &str) -> Setup {
             notifier: Arc::clone(&services.cluster),
         },
     );
+    // A replica relays its run's transcript events to the Sync bus only once
+    // it owns the cluster's links, which a lone coordinator always does; on
+    // Postgres the relay hears its own `pg_notify` through the listener.
+    tokio::spawn(Arc::clone(&services.cluster).listen());
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !services.cluster.connected() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the notice listener connects");
+    services.agent.join_cluster();
     Setup {
         fixture,
         fake,
@@ -308,12 +320,20 @@ async fn a_submitted_message_runs_a_tool_round_and_publishes_the_transcript() {
     assert_eq!(reads.len(), 1);
     assert_eq!(reads[0].cwd, "/repo");
 
-    let mut bus_text = String::new();
-    while let Ok(update) = published_rx.try_recv() {
-        if update.conversation_id == id {
-            bus_text.push_str(&update.events_json);
+    let bus_text = tokio::time::timeout(Duration::from_secs(5), async {
+        let mut bus_text = String::new();
+        while let Some(update) = published_rx.recv().await {
+            if update.conversation_id == id {
+                bus_text.push_str(&update.events_json);
+            }
+            if bus_text.contains("The README says hello.") {
+                break;
+            }
         }
-    }
+        bus_text
+    })
+    .await
+    .expect("the relay publishes the run's events");
     assert!(
         bus_text.contains("The README says hello."),
         "the Sync bus carried the answer"

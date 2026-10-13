@@ -13,15 +13,16 @@ use roost_platform::HostPlatform;
 use roost_protocol::terminal_peer::peer::parse_terminal_peer_stun_urls;
 use roost_protocol::{ProtocolError, ProtocolResult};
 
-use crate::coord_config::{
-    AUTHORIZED_KEYS_FILE_NAME, COORD_DB_FILE_NAME, CoordConfig, CoordConfigInput,
-};
+use crate::coord_config::{AUTHORIZED_KEYS_FILE_NAME, CoordConfig, CoordConfigInput};
+
 use crate::coord_config_origin::{
     normalize_https_origin, validate_bare_http_origin, validate_bare_https_origin,
 };
-use crate::database_location::DatabaseLocation;
 use crate::env::EnvSource;
 use crate::paths::{coord_data_dir, coord_log_dir};
+
+mod sources;
+use sources::{agent_endpoint_overrides, coordinator_database, parse_credential_secret_key};
 
 /// The listen address, defaulting to loopback.
 pub const ENV_COORDINATOR_BIND: &str = "ROOST_COORDINATOR_BIND";
@@ -32,6 +33,9 @@ pub const ENV_COORDINATOR_DB: &str = "ROOST_COORDINATOR_DB";
 /// A `postgres://` URL. Set, it replaces the SQLite file entirely: the
 /// coordinator keeps no durable state on its own disk.
 pub const ENV_COORDINATOR_DATABASE_URL: &str = "ROOST_COORDINATOR_DATABASE_URL";
+
+/// Base64 encoding of the 32-byte key used to encrypt provider credentials.
+pub const ENV_COORDINATOR_SECRET_KEY: &str = "ROOST_COORDINATOR_SECRET_KEY";
 
 /// The authorized-keys file, defaulting to the coordinator data directory.
 pub const ENV_COORDINATOR_AUTHORIZED_KEYS: &str = "ROOST_COORDINATOR_AUTHORIZED_KEYS";
@@ -92,6 +96,11 @@ pub const ENV_AGENT_ENDPOINT_OVERRIDES: &str = "ROOST_AGENT_ENDPOINT_OVERRIDES";
 
 /// A comma-separated list of operator-declared `stun:` URLs.
 pub const ENV_TERMINAL_PEER_STUN_URLS: &str = "ROOST_TERMINAL_PEER_STUN_URLS";
+/// The peer-reachable HTTP address of this replica.
+pub const ENV_COORDINATOR_INTERNAL_URL: &str = "ROOST_COORDINATOR_INTERNAL_URL";
+
+/// Optional bind for per-replica liveness and readiness probes.
+pub const ENV_COORDINATOR_PROBE_BIND: &str = "ROOST_COORDINATOR_PROBE_BIND";
 
 /// The loopback host a trusted-proxy bind must stay on.
 const TRUSTED_PROXY_BIND_HOST: &str = "127.0.0.1";
@@ -120,13 +129,16 @@ pub fn load_coord_config(
         ));
     }
     let data_dir = coord_data_dir(env, platform)?;
+    let database = coordinator_database(env, &data_dir)?;
+    let credential_secret_key = parse_credential_secret_key(env)?;
     let log_dir = match env.get(ENV_COORDINATOR_LOG_DIR) {
         Some(declared) => PathBuf::from(declared),
         None => coord_log_dir(env, platform)?,
     };
     let config = CoordConfig::parse(CoordConfigInput {
         bind: env.get(ENV_COORDINATOR_BIND),
-        database: Some(coordinator_database(env, &data_dir)?),
+        database: Some(database),
+        credential_secret_key,
         authorized_keys_path: Some(
             env.get(ENV_COORDINATOR_AUTHORIZED_KEYS)
                 .map_or_else(|| data_dir.join(AUTHORIZED_KEYS_FILE_NAME), PathBuf::from),
@@ -158,65 +170,11 @@ pub fn load_coord_config(
         terminal_peer_stun_urls: Some(parse_terminal_peer_stun_urls(
             env.get(ENV_TERMINAL_PEER_STUN_URLS).as_deref(),
         )?),
+        internal_url: declared_or_absent(env, ENV_COORDINATOR_INTERNAL_URL),
+        probe_bind: declared_or_absent(env, ENV_COORDINATOR_PROBE_BIND),
     })?;
     apply_listener_policy(&config)?;
     Ok(config)
-}
-
-/// Parse `ROOST_AGENT_ENDPOINT_OVERRIDES`; malformed JSON or a non-HTTP URL
-/// fails boot rather than silently sending provider traffic to the default.
-fn agent_endpoint_overrides(
-    env: &dyn EnvSource,
-) -> ProtocolResult<std::collections::BTreeMap<String, String>> {
-    let Some(raw) = declared_or_absent(env, ENV_AGENT_ENDPOINT_OVERRIDES) else {
-        return Ok(std::collections::BTreeMap::new());
-    };
-    let overrides: std::collections::BTreeMap<String, String> = serde_json::from_str(&raw)
-        .map_err(|error| {
-            ProtocolError::new(
-                ENV_AGENT_ENDPOINT_OVERRIDES,
-                format!("must be a JSON object of provider to URL: {error}"),
-            )
-        })?;
-    for (provider, url) in &overrides {
-        if !(url.starts_with("http://") || url.starts_with("https://")) {
-            return Err(ProtocolError::new(
-                ENV_AGENT_ENDPOINT_OVERRIDES,
-                format!("{provider}: {url:?} is not an http(s) URL"),
-            ));
-        }
-    }
-    Ok(overrides)
-}
-
-/// The Postgres URL when one is declared, else the SQLite file.
-///
-/// Both at once is refused rather than ranked: an operator who set both meant
-/// one of them, and silently picking a file over the URL (or the reverse) would
-/// boot a coordinator on an empty database that looks healthy.
-fn coordinator_database(
-    env: &dyn EnvSource,
-    data_dir: &std::path::Path,
-) -> ProtocolResult<DatabaseLocation> {
-    let sqlite_file = env.get(ENV_COORDINATOR_DB);
-    let Some(url) = declared_or_absent(env, ENV_COORDINATOR_DATABASE_URL) else {
-        return Ok(DatabaseLocation::SqliteFile(
-            sqlite_file.map_or_else(|| data_dir.join(COORD_DB_FILE_NAME), PathBuf::from),
-        ));
-    };
-    if sqlite_file.is_some() {
-        return Err(ProtocolError::new(
-            ENV_COORDINATOR_DATABASE_URL,
-            format!("set either {ENV_COORDINATOR_DATABASE_URL} or {ENV_COORDINATOR_DB}, not both"),
-        ));
-    }
-    if !DatabaseLocation::is_postgres_url(&url) {
-        return Err(ProtocolError::new(
-            ENV_COORDINATOR_DATABASE_URL,
-            "must be a postgres:// URL",
-        ));
-    }
-    Ok(DatabaseLocation::Postgres(url))
 }
 
 /// `ROOST_TRUSTED_PROXY_CIDRS`, each entry a CIDR. Blank entries are skipped;
@@ -262,6 +220,44 @@ fn apply_listener_policy(config: &CoordConfig) -> ProtocolResult<()> {
     }
     for origin in &config.push_allowed_origins {
         validate_bare_https_origin(origin, ENV_PUSH_ALLOWED_ORIGINS)?;
+    }
+    validate_replica_settings(config)?;
+    Ok(())
+}
+
+fn validate_replica_settings(config: &CoordConfig) -> ProtocolResult<()> {
+    if let Some(bind) = &config.probe_bind
+        && bind.parse::<std::net::SocketAddr>().is_err()
+    {
+        return Err(ProtocolError::new(
+            ENV_COORDINATOR_PROBE_BIND,
+            format!("{ENV_COORDINATOR_PROBE_BIND} must be a host:port address"),
+        ));
+    }
+    if let Some(url) = &config.internal_url {
+        let Some(authority) = url.strip_prefix("http://") else {
+            return Err(ProtocolError::new(
+                ENV_COORDINATOR_INTERNAL_URL,
+                format!("{ENV_COORDINATOR_INTERNAL_URL} must use http://"),
+            ));
+        };
+        let valid_authority = authority.parse::<std::net::SocketAddr>().is_ok()
+            || authority.rsplit_once(':').is_some_and(|(host, port)| {
+                !host.is_empty()
+                    && !host.contains(':')
+                    && is_port_text(port)
+                    && port.parse::<u16>().is_ok()
+            });
+        if !valid_authority
+            || authority
+                .chars()
+                .any(|character| matches!(character, '/' | '?' | '#' | '@'))
+        {
+            return Err(ProtocolError::new(
+                ENV_COORDINATOR_INTERNAL_URL,
+                format!("{ENV_COORDINATOR_INTERNAL_URL} must be an http://host:port URL"),
+            ));
+        }
     }
     Ok(())
 }

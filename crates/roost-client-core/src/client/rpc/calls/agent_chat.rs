@@ -3,7 +3,9 @@
 use crate::client::rpc::codec::{RpcCodecError, decode_message, encode_message};
 use crate::client::rpc::unary::UnaryMethod;
 use roost_proto::*;
-use roost_protocol::wire::agent_chat::{LoginState, ModelRef, ModelsCatalog, Transcript};
+use roost_protocol::wire::agent_chat::{
+    ChatEvent, LoginState, ModelRef, ModelsCatalog, Transcript,
+};
 
 macro_rules! simple_call {
  ($name:ident,$req:ty,$wire:ty,$out:ty,$method:literal,$convert:expr; $($field:ident:$field_type:ty),* $(,)?) => {
@@ -131,6 +133,39 @@ impl UnaryMethod for GetAgentChatSnapshot {
             response.seq,
             decode_json(Self::METHOD, response.transcript_json)?,
         ))
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct GetAgentChatEvents {
+    pub conversation_id: String,
+    pub after_cursor: u64,
+    pub limit: u32,
+}
+impl UnaryMethod for GetAgentChatEvents {
+    const METHOD: &'static str = "AgentChatEvents";
+    type Response = (Vec<(u64, Vec<ChatEvent>)>, bool);
+
+    fn encode_request(&self) -> Result<Vec<u8>, RpcCodecError> {
+        encode_message(
+            Self::METHOD,
+            &AgentChatEventsRequest {
+                conversation_id: self.conversation_id.clone(),
+                after_cursor: self.after_cursor,
+                limit: self.limit,
+                ..Default::default()
+            },
+        )
+    }
+
+    fn decode_response(body: &[u8]) -> Result<Self::Response, RpcCodecError> {
+        let response: AgentChatEventsResponse = decode_message(Self::METHOD, body)?;
+        let batches = response
+            .batches
+            .into_iter()
+            .map(|batch| Ok((batch.cursor, decode_json(Self::METHOD, batch.events_json)?)))
+            .collect::<Result<Vec<_>, RpcCodecError>>()?;
+        Ok((batches, response.truncated))
     }
 }
 

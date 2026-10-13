@@ -161,14 +161,14 @@ async fn conversation_entries_settings_and_credentials_round_trip() {
     store.save_settings(&settings).await.expect("save settings");
     assert_eq!(store.settings().await.expect("load settings"), settings);
 
-    let credentials = CoordCredentialStore::new(db);
+    let credentials = CoordCredentialStore::new(db.clone(), None);
     let original = CredentialKind::ApiKey {
         key: "secret-first".to_owned(),
     };
     let id = credentials
         .upsert("openrouter", original, "identity", "first")
-        .await;
-    assert!(id > 0);
+        .await
+        .expect("store first credential");
     let same_id = credentials
         .upsert(
             "openrouter",
@@ -178,9 +178,13 @@ async fn conversation_entries_settings_and_credentials_round_trip() {
             "identity",
             "updated",
         )
-        .await;
+        .await
+        .expect("update credential");
     assert_eq!(same_id, id);
-    let rows = credentials.list("openrouter").await;
+    let rows = credentials
+        .list("openrouter")
+        .await
+        .expect("list credentials");
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].label, "updated");
     assert_eq!(
@@ -198,7 +202,8 @@ async fn conversation_entries_settings_and_credentials_round_trip() {
             "identity-second",
             "second",
         )
-        .await;
+        .await
+        .expect("store second credential");
     assert_ne!(second_id, id);
 
     let block_until = i64::try_from(
@@ -209,15 +214,36 @@ async fn conversation_entries_settings_and_credentials_round_trip() {
     )
     .expect("millisecond timestamp fits")
         + 60_000;
-    credentials.set_block(id, block_until).await;
+    credentials
+        .set_block(id, block_until)
+        .await
+        .expect("set block");
     assert_eq!(
-        credentials.blocks("openrouter").await,
+        credentials.blocks("openrouter").await.expect("list blocks"),
         vec![(id, block_until)]
     );
-    credentials.set_sticky("parent", "openrouter", id).await;
-    assert_eq!(credentials.sticky("parent", "openrouter").await, Some(id));
-    credentials.clear_sticky("parent", "openrouter").await;
-    assert_eq!(credentials.sticky("parent", "openrouter").await, None);
+    credentials
+        .set_sticky("parent", "openrouter", id)
+        .await
+        .expect("set sticky");
+    assert_eq!(
+        credentials
+            .sticky("parent", "openrouter")
+            .await
+            .expect("read sticky"),
+        Some(id)
+    );
+    credentials
+        .clear_sticky("parent", "openrouter")
+        .await
+        .expect("clear sticky");
+    assert_eq!(
+        credentials
+            .sticky("parent", "openrouter")
+            .await
+            .expect("read cleared sticky"),
+        None
+    );
     let pool = AccountPool::new(
         Arc::new(credentials.clone()) as Arc<dyn CredentialStore>,
         reqwest::Client::new(),

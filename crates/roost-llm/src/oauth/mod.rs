@@ -63,6 +63,16 @@ pub struct LoginSession {
     device_auth_id: Option<String>,
     user_code: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoginSessionState {
+    provider: String,
+    view: LoginView,
+    verifier: Option<String>,
+    state_token: Option<String>,
+    device_auth_id: Option<String>,
+    user_code: Option<String>,
+}
 impl LoginSession {
     pub async fn start(
         provider: &str,
@@ -97,6 +107,29 @@ impl LoginSession {
     }
     pub fn state(&self) -> LoginView {
         self.view.clone()
+    }
+    pub fn snapshot(&self) -> LoginSessionState {
+        LoginSessionState {
+            provider: self.provider.clone(),
+            view: self.view.clone(),
+            verifier: self.verifier.clone(),
+            state_token: self.state_token.clone(),
+            device_auth_id: self.device_auth_id.clone(),
+            user_code: self.user_code.clone(),
+        }
+    }
+
+    pub fn restore(state: LoginSessionState, http: reqwest::Client, endpoints: Endpoints) -> Self {
+        Self {
+            provider: state.provider,
+            http,
+            endpoints,
+            view: state.view,
+            verifier: state.verifier,
+            state_token: state.state_token,
+            device_auth_id: state.device_auth_id,
+            user_code: state.user_code,
+        }
     }
     pub async fn respond(
         &mut self,

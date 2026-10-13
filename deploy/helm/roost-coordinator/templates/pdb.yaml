@@ -1,0 +1,13 @@
+{{- if gt (int .Values.replicas) 1 }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "roost.fullname" . }}
+  labels:
+    {{- include "roost.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "roost.selectorLabels" . | nindent 6 }}
+{{- end }}

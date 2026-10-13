@@ -24,6 +24,8 @@ mod plan_card;
 mod request_ids;
 mod slash_menu;
 mod surface;
+#[cfg(target_arch = "wasm32")]
+mod surface_fetch;
 mod surface_state;
 mod thinking_block;
 mod tool_card;

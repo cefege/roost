@@ -69,6 +69,7 @@ impl DirectCore {
         }
         let config = CoordConfig::parse(CoordConfigInput {
             database: Some(super::db_support::test_database_location(&root).await),
+            credential_secret_key: super::db_support::test_secret_key(),
             authorized_keys_path: Some(root.join("authorized_keys.roost")),
             log_dir: Some(root.clone()),
             terminal_peer_enabled: Some(peer_enabled),

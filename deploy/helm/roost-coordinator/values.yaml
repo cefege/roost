@@ -6,10 +6,14 @@ image:
 
 database:
   # A postgres:// URL, stored in a Secret this chart creates. Set this OR
-  # existingSecret (a Secret with the key ROOST_COORDINATOR_DATABASE_URL), or
-  # enable the in-chart postgres below.
+  # existingSecret (a Secret with ROOST_COORDINATOR_DATABASE_URL and
+  # ROOST_COORDINATOR_SECRET_KEY), or enable the in-chart postgres below.
   url: ""
   existingSecret: ""
+
+# Base64-encoded 32-byte key for stored provider credentials. Changing it
+# makes existing credentials unreadable. Set explicitly when using GitOps.
+secretKey: ""
 
 # The HTTPS origin browsers and workers reach the coordinator at. Becomes
 # ROOST_WEB_PUBLIC_URL and the CORS allowlist; `roost add-browser` and
@@ -27,9 +31,9 @@ trustedProxyCidrs:
 # Extra non-secret ROOST_* settings, as name: value.
 env: {}
 
-# 1, or 0 to stop the coordinator for maintenance (a `roost db-to-postgres
-# --replace` into its database). Never more than one: see the Deployment.
-replicas: 1
+# Any count >= 1: one replica owns worker links and others proxy to it.
+# 0 stops the coordinator for maintenance (such as db-to-postgres --replace).
+replicas: 2
 
 service:
   # ClusterIP behind an Ingress; NodePort when the front door is a TCP proxy

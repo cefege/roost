@@ -271,6 +271,7 @@ pub fn method_audit_skips_success(method: &str) -> bool {
             | "TranscriptionGetConfig"
             | "AgentChatList"
             | "AgentChatSnapshot"
+            | "AgentChatEvents"
             | "AgentModelsList"
             | "AgentAuthLoginPoll"
     )

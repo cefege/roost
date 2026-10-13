@@ -18,6 +18,7 @@ pub struct AgentChatState {
     pub host_connected: bool,
     pub conversations: BTreeMap<String, ConversationSummary>,
     pub transcripts: HashMap<String, LoadedTranscript>,
+    snapshot_generations: HashMap<String, u64>,
 }
 
 impl AgentChatState {
@@ -48,6 +49,7 @@ impl AgentChatState {
         if removed {
             self.conversations.remove(&id);
             self.transcripts.remove(&id);
+            self.snapshot_generations.remove(&id);
         } else if let Some(conversation) = conversation {
             self.conversations.insert(id, conversation);
         }
@@ -70,7 +72,25 @@ impl AgentChatState {
         loaded.seq = seq;
     }
 
-    pub fn load_snapshot(&mut self, id: String, seq: u64, transcript: Transcript) {
+    pub fn request_snapshot(&mut self, id: &str, generation: u64) {
+        self.snapshot_generations.insert(id.to_owned(), generation);
+    }
+
+    pub fn load_snapshot(&mut self, id: String, generation: u64, seq: u64, transcript: Transcript) {
+        if self
+            .snapshot_generations
+            .get(&id)
+            .is_some_and(|latest| generation < *latest)
+        {
+            return;
+        }
+        if self
+            .transcripts
+            .get(&id)
+            .is_some_and(|loaded| !loaded.stale && seq < loaded.seq)
+        {
+            return;
+        }
         self.transcripts.insert(
             id,
             LoadedTranscript {
@@ -79,6 +99,38 @@ impl AgentChatState {
                 stale: false,
             },
         );
+    }
+
+    pub fn apply_event_batches(
+        &mut self,
+        id: &str,
+        batches: &[(u64, Vec<ChatEvent>)],
+        truncated: bool,
+    ) {
+        let Some(loaded) = self.transcripts.get_mut(id) else {
+            return;
+        };
+        if truncated {
+            loaded.stale = true;
+            return;
+        }
+        let was_stale = loaded.stale;
+        let mut applied = false;
+        for (seq, events) in batches {
+            if *seq <= loaded.seq {
+                continue;
+            }
+            if loaded.seq.checked_add(1) != Some(*seq) {
+                loaded.stale = true;
+                return;
+            }
+            for event in events {
+                fold_chat_event(&mut loaded.transcript, event);
+            }
+            loaded.seq = *seq;
+            applied = true;
+        }
+        loaded.stale = was_stale && !applied;
     }
     pub fn conversations_in_folder(
         &self,
@@ -111,5 +163,6 @@ impl AgentChatState {
 
     pub fn forget(&mut self, id: &str) {
         self.transcripts.remove(id);
+        self.snapshot_generations.remove(id);
     }
 }

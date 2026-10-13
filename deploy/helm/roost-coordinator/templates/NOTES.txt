@@ -1,4 +1,5 @@
-The Roost coordinator is starting as {{ include "roost.fullname" . }} ({{ int .Values.replicas }} replica).
+The Roost coordinator is starting as {{ include "roost.fullname" . }} ({{ int .Values.replicas }} replicas).
+One replica owns worker links; other replicas proxy connections to that owner.
 
 Pair the first browser — prints a one-shot URL on {{ .Values.publicUrl | default "the coordinator's own port" }}:
 
@@ -32,4 +33,4 @@ Moving a SQLite install here: stop the coordinator (--set replicas=0), then
   ROOST_COORDINATOR_DATABASE_URL=postgres://roost:<password>@127.0.0.1:15432/roost \
     roost db-to-postgres --from coordinator_v3.db --replace
 
-and start it again (--set replicas=1).
+and start it again with the desired replica count (default 2).

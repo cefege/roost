@@ -127,12 +127,15 @@ pub async fn fetch_usage(
     endpoints: &Endpoints,
     credential_id: i64,
     provider: &str,
-) -> Option<UsageReport> {
-    let row = store
+) -> Result<Option<UsageReport>, crate::error::LlmError> {
+    let Some(row) = store
         .list(provider)
-        .await
+        .await?
         .into_iter()
-        .find(|row| row.id == credential_id)?;
+        .find(|row| row.id == credential_id)
+    else {
+        return Ok(None);
+    };
     let result = match (&row.kind, provider) {
         (CredentialKind::OAuth { access, .. }, "anthropic") => {
             fetch_anthropic(http, endpoints, access).await
@@ -149,14 +152,14 @@ pub async fn fetch_usage(
         _ => Ok((Vec::new(), Some("usage not reported".into()))),
     };
     let (windows, note) = result.unwrap_or_else(|error| (Vec::new(), Some(error)));
-    Some(UsageReport {
+    Ok(Some(UsageReport {
         credential_id,
         provider: provider.into(),
         label: row.label,
         windows,
         note,
         fetched_ms: now_ms(),
-    })
+    }))
 }
 
 const ANTHROPIC_USAGE_BETAS: &str = "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,redact-thinking-2026-02-12,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,advanced-tool-use-2025-11-20,effort-2025-11-24,extended-cache-ttl-2025-04-11";

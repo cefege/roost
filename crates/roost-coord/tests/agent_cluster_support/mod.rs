@@ -154,6 +154,7 @@ pub struct Replica {
     pub fake: FakeAnthropic,
     pub worker: Arc<FakeWorker>,
     pub db: CoordDb,
+    pub buses: Arc<Buses>,
 }
 
 /// Opens a replica over the database `root` names. On SQLite the replicas
@@ -178,9 +179,10 @@ pub async fn replica(
     };
     let endpoint = serve_fake(fake.clone()).await;
     let worker = Arc::new(FakeWorker::default());
+    let buses = Buses::shared();
     let service = AgentService::with_config(
         db.clone(),
-        Buses::shared(),
+        Arc::clone(&buses),
         Arc::clone(&worker) as Arc<dyn ToolExecutor>,
         BTreeMap::from([("anthropic".to_owned(), endpoint)]),
         ClusterMembership {
@@ -195,7 +197,9 @@ pub async fn replica(
             lease_renew: Duration::from_millis(300),
             ..RuntimeConfig::default()
         },
+        None,
     );
+    tokio::spawn(Arc::clone(&service.cluster.notifier).listen());
     service.join_cluster();
     tokio::time::timeout(Duration::from_secs(10), async {
         while !service.cluster.notifier.connected() {
@@ -209,6 +213,7 @@ pub async fn replica(
         fake,
         worker,
         db,
+        buses,
     }
 }
 
@@ -225,7 +230,8 @@ pub async fn add_key(replica: &Replica) {
             "cluster-key",
             "cluster key",
         )
-        .await;
+        .await
+        .expect("the fixture credential is stored");
 }
 
 /// Waits until `id` has no running state on `replica`'s view of the store.

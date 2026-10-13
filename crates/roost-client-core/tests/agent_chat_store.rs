@@ -43,7 +43,7 @@ fn hydration_and_frames_replace_snapshots_and_enforce_sequence() {
     state.hydrate(vec![conversation("a", "/repo", 4)], true);
     assert!(state.host_connected);
     assert!(state.conversations.contains_key("a"));
-    state.load_snapshot("a".into(), 3, transcript());
+    state.load_snapshot("a".into(), 0, 3, transcript());
     state.apply_events("a", 4, &[]);
     assert_eq!(state.transcripts["a"].seq, 4);
     state.apply_events("a", 4, &[]);
@@ -86,7 +86,34 @@ fn snapshot_loaded_transcript_accepts_chat_events_only_when_loaded() {
             error: None,
         }],
     );
-    state.load_snapshot("known".into(), 0, transcript());
+    state.load_snapshot("known".into(), 0, 0, transcript());
     state.apply_events("known", 1, &[]);
     assert!(!state.transcripts["known"].stale);
+}
+
+#[test]
+fn event_repair_applies_only_contiguous_batches_and_rejects_stale_snapshots() {
+    let mut state = AgentChatState::default();
+    state.load_snapshot("chat".into(), 1, 5, transcript());
+    state.request_snapshot("chat", 3);
+    state.apply_event_batches(
+        "chat",
+        &[(
+            6,
+            vec![ChatEvent::RunState {
+                run_state: AgentRunState::Running,
+                error: None,
+            }],
+        )],
+        false,
+    );
+    assert_eq!(state.transcripts["chat"].seq, 6);
+    assert!(!state.transcripts["chat"].stale);
+
+    state.load_snapshot("chat".into(), 2, 4, transcript());
+    assert_eq!(state.transcripts["chat"].seq, 6);
+    state.apply_event_batches("chat", &[(8, vec![])], false);
+    assert!(state.transcripts["chat"].stale);
+    state.apply_event_batches("chat", &[], true);
+    assert!(state.transcripts["chat"].stale);
 }

@@ -7,7 +7,7 @@ use roost_agent::NewConversation;
 use roost_proto as proto;
 use roost_protocol::wire::agent_chat::{ModelRef, conversation_to_proto};
 
-use super::rpc_errors::{agent_status, internal};
+use super::rpc_errors::{agent_status, credential_status, internal};
 use crate::auth::principal::require_account_device;
 use crate::coord_core::{Caller, CoordCore};
 use crate::rpc::service::ok_response;
@@ -220,13 +220,48 @@ pub async fn handle_agent_chat_snapshot(
     })
 }
 
+pub async fn handle_agent_chat_events(
+    core: &CoordCore,
+    caller: &Caller,
+    request: proto::AgentChatEventsRequest,
+) -> ServiceResult<proto::AgentChatEventsResponse> {
+    require_account_device(caller)?;
+    let limit = if request.limit == 0 {
+        500
+    } else {
+        request.limit.min(500)
+    };
+    let (rows, truncated) = super::chat_events::read_after(
+        &core.services.db,
+        &request.conversation_id,
+        request.after_cursor,
+        limit,
+    )
+    .await
+    .map_err(|error| internal(&format!("chat event read failed: {error}")))?;
+    ok_response(proto::AgentChatEventsResponse {
+        batches: rows
+            .into_iter()
+            .map(|row| proto::AgentChatEventBatch {
+                cursor: row.cursor,
+                events_json: row.events_json,
+                ..Default::default()
+            })
+            .collect(),
+        truncated,
+        ..Default::default()
+    })
+}
+
 pub async fn handle_agent_models_list(
     core: &CoordCore,
     caller: &Caller,
     _request: proto::AgentModelsListRequest,
 ) -> ServiceResult<proto::AgentModelsListResponse> {
     require_account_device(caller)?;
-    let catalog = super::rpc_accounts::models_catalog(&core.services.agent).await;
+    let catalog = super::rpc_accounts::models_catalog(&core.services.agent)
+        .await
+        .map_err(credential_status)?;
     let catalog_json =
         serde_json::to_string(&catalog).map_err(|_| internal("catalog did not serialize"))?;
     ok_response(proto::AgentModelsListResponse {
@@ -290,6 +325,10 @@ pub const METHOD_HANDLERS: &[(&str, &str)] = &[
     (
         "AgentChatSnapshot",
         "agent::rpc_chat::handle_agent_chat_snapshot",
+    ),
+    (
+        "AgentChatEvents",
+        "agent::rpc_chat::handle_agent_chat_events",
     ),
     (
         "AgentModelsList",

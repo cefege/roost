@@ -7,11 +7,12 @@ use std::path::Path;
 
 use roost_host::{
     COORD_DB_FILE_NAME, DatabaseLocation, ENV_COORDINATOR_DATABASE_URL, ENV_COORDINATOR_DB,
-    HostPlatform, MapEnv, load_coord_config,
+    ENV_COORDINATOR_SECRET_KEY, HostPlatform, MapEnv, load_coord_config,
 };
 
 const LINUX_HOME: &str = "/home/operator";
 const POSTGRES_URL: &str = "postgres://roost:secret@db.internal:5432/roost";
+const SECRET_KEY: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 
 fn with_home() -> MapEnv {
     MapEnv::new().with("HOME", LINUX_HOME)
@@ -27,13 +28,47 @@ fn refused(env: MapEnv) -> String {
 fn a_declared_postgres_url_replaces_the_sqlite_file() {
     for url in [POSTGRES_URL, "postgresql://db/roost?sslmode=require"] {
         let config = load_coord_config(
-            &with_home().with(ENV_COORDINATOR_DATABASE_URL, url),
+            &with_home()
+                .with(ENV_COORDINATOR_DATABASE_URL, url)
+                .with(ENV_COORDINATOR_SECRET_KEY, SECRET_KEY),
             HostPlatform::Linux,
         )
         .unwrap();
         assert_eq!(config.database, DatabaseLocation::Postgres(url.to_owned()));
         assert_eq!(config.database.sqlite_file(), None);
+        assert_eq!(
+            config
+                .credential_secret_key
+                .as_ref()
+                .expect("the Postgres key is loaded")
+                .as_bytes(),
+            &[0_u8; 32]
+        );
     }
+}
+
+#[test]
+fn postgres_requires_a_base64_encoded_32_byte_credential_key() {
+    assert!(
+        refused(with_home().with(ENV_COORDINATOR_DATABASE_URL, POSTGRES_URL))
+            .contains("is required")
+    );
+    for value in ["not-base64", "AQ=="] {
+        assert!(
+            refused(
+                with_home()
+                    .with(ENV_COORDINATOR_DATABASE_URL, POSTGRES_URL)
+                    .with(ENV_COORDINATOR_SECRET_KEY, value)
+            )
+            .contains("must")
+        );
+    }
+}
+
+#[test]
+fn sqlite_does_not_require_a_credential_encryption_key() {
+    let config = load_coord_config(&with_home(), HostPlatform::Linux).unwrap();
+    assert!(config.credential_secret_key.is_none());
 }
 
 #[test]

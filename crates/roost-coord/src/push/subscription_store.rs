@@ -14,6 +14,8 @@
 
 use sqlx::{AnyPool, Row};
 
+use crate::db::CoordDb;
+
 use crate::push::endpoint_policy::PushInputError;
 
 /// How many distinct endpoints one account device may hold.
@@ -73,7 +75,7 @@ const UPSERT_SUBSCRIPTION: &str = "\
 /// the behaviour that lets a device recover after the operator raises the cap
 /// or after the device drops a stale endpoint.
 pub async fn store_subscription(
-    pool: &AnyPool,
+    database: &CoordDb,
     dashboard_id: &str,
     viewer_fp: &str,
     endpoint: &str,
@@ -81,6 +83,10 @@ pub async fn store_subscription(
     auth: &str,
     now_ms: i64,
 ) -> Result<(), PushInputError> {
+    let mut transaction = database
+        .begin_write()
+        .await
+        .map_err(|error| PushInputError::Store(error.to_string()))?;
     let written = sqlx::query(UPSERT_SUBSCRIPTION)
         .bind(dashboard_id)
         .bind(viewer_fp)
@@ -89,10 +95,14 @@ pub async fn store_subscription(
         .bind(auth)
         .bind(now_ms)
         .bind(i64::try_from(MAX_SUBSCRIPTIONS_PER_DEVICE).unwrap_or(i64::MAX))
-        .execute(pool)
+        .execute(&mut *transaction)
         .await
         .map_err(|error| PushInputError::Store(error.to_string()))?;
     if written.rows_affected() == 1 {
+        transaction
+            .commit()
+            .await
+            .map_err(|error| PushInputError::Store(error.to_string()))?;
         Ok(())
     } else {
         Err(PushInputError::DeviceCapReached)

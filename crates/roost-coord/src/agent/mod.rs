@@ -2,6 +2,7 @@
 //! the coordinator's database, worker links, Sync buses and provider accounts.
 //! RPC handlers live in `rpc_*`; `tool_calls` carries tool frames to workers.
 
+mod chat_events;
 pub mod credentials;
 mod executor;
 mod logins;
@@ -69,9 +70,22 @@ impl AgentService {
         tool_calls: Arc<ToolCallRegistry>,
         endpoint_overrides: BTreeMap<String, String>,
         cluster: ClusterMembership,
+        credential_key: Option<[u8; 32]>,
     ) -> Arc<Self> {
         let tools = Arc::new(executor::WorkerToolExecutor::new(tool_calls));
-        Self::with_tools(db, buses, tools, endpoint_overrides, cluster)
+        let config = RuntimeConfig {
+            instance_id: cluster.instance_id.clone(),
+            ..RuntimeConfig::default()
+        };
+        Self::with_config(
+            db,
+            buses,
+            tools,
+            endpoint_overrides,
+            cluster,
+            config,
+            credential_key,
+        )
     }
 
     /// The harness over any tool executor; tests answer tool calls directly.
@@ -82,17 +96,11 @@ impl AgentService {
         endpoint_overrides: BTreeMap<String, String>,
         cluster: ClusterMembership,
     ) -> Arc<Self> {
-        Self::with_config(
-            db,
-            buses,
-            tools,
-            endpoint_overrides,
-            cluster.clone(),
-            RuntimeConfig {
-                instance_id: cluster.instance_id,
-                ..RuntimeConfig::default()
-            },
-        )
+        let config = RuntimeConfig {
+            instance_id: cluster.instance_id.clone(),
+            ..RuntimeConfig::default()
+        };
+        Self::with_config(db, buses, tools, endpoint_overrides, cluster, config, None)
     }
 
     /// [`Self::with_tools`] with the runtime's tunables; `config.instance_id`
@@ -104,6 +112,7 @@ impl AgentService {
         endpoint_overrides: BTreeMap<String, String>,
         cluster: ClusterMembership,
         config: RuntimeConfig,
+        credential_key: Option<[u8; 32]>,
     ) -> Arc<Self> {
         let endpoints = if endpoint_overrides.is_empty() {
             Endpoints::production()
@@ -111,15 +120,32 @@ impl AgentService {
             Endpoints::with_overrides(endpoint_overrides)
         };
         let http = reqwest::Client::new();
-        let credentials = Arc::new(credentials::CoordCredentialStore::new(db.clone()))
-            as Arc<dyn CredentialStore>;
+        let credentials = Arc::new(credentials::CoordCredentialStore::new(
+            db.clone(),
+            credential_key,
+        )) as Arc<dyn CredentialStore>;
         let pool = Arc::new(AccountPool::new(
             credentials,
             http.clone(),
             endpoints.clone(),
         ));
-        let llm = Arc::new(RoostLlm::new(http.clone(), pool, endpoints.clone()));
-        let sink = Arc::new(CoordChatSink::new(buses));
+        let logins = LoginRegistry::new(
+            db.clone(),
+            cluster.instance_id.clone(),
+            http.clone(),
+            endpoints.clone(),
+            Arc::clone(&pool),
+        );
+        let llm = Arc::new(RoostLlm::new(
+            http.clone(),
+            Arc::clone(&pool),
+            endpoints.clone(),
+        ));
+        let sink = Arc::new(CoordChatSink::new(
+            db.clone(),
+            Arc::clone(&cluster.notifier),
+            Arc::clone(&buses),
+        ));
         let runtime = AgentRuntime::clustered(
             Arc::new(store::CoordAgentStore::new(db)),
             tools,
@@ -133,7 +159,7 @@ impl AgentService {
             runtime,
             llm,
             sink,
-            logins: LoginRegistry::default(),
+            logins,
             http,
             endpoints,
             cluster,
@@ -176,9 +202,24 @@ impl AgentService {
     /// Joins the replica set: listens for other replicas' notices, applies
     /// agent commands they admitted, and adopts runs whose owner vanished.
     pub fn join_cluster(&self) {
-        let notifier = Arc::clone(&self.cluster.notifier);
-        self.spawn_background(notifier.listen());
         let mut notices = self.cluster.notifier.subscribe();
+        let notifier = Arc::clone(&self.cluster.notifier);
+        let db = self.sink.database();
+        let buses = self.sink.buses();
+        self.spawn_background(chat_events::relay(notifier, db.clone(), buses));
+        self.spawn_background(async move {
+            let mut prune = tokio::time::interval(Duration::from_secs(10 * 60));
+            loop {
+                prune.tick().await;
+                match chat_events::prune(&db).await {
+                    Ok(deleted) if deleted > 0 => {
+                        tracing::info!(deleted, "expired agent chat event batches pruned")
+                    }
+                    Ok(_) => {}
+                    Err(error) => tracing::warn!(%error, "agent chat event pruning failed"),
+                }
+            }
+        });
         let runtime = self.runtime.clone();
         self.spawn_background(async move {
             loop {

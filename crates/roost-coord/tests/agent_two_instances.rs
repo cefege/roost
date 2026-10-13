@@ -14,9 +14,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use agent_cluster_support::{
     MODEL, Replica, add_key, replica, settled, text_sse, tool_sse, user_texts,
 };
-use roost_agent::{AgentError, AgentStore, Entry, LeaseFence, NewConversation};
+use roost_agent::{AgentError, AgentStore, ChatSink, Entry, LeaseFence, NewConversation};
 use roost_coord::agent::store::CoordAgentStore;
-use roost_protocol::wire::agent_chat::{AgentRunState, ModelRef};
+use roost_protocol::wire::agent_chat::{AgentRunState, ChatEvent, ModelRef, UsageTotals};
 
 fn scratch(label: &str) -> std::path::PathBuf {
     let stamp = SystemTime::now()
@@ -312,4 +312,68 @@ async fn a_retried_submit_is_admitted_once() {
         .count();
     assert_eq!(users, 1);
     assert_eq!(primary_requests(&a) + primary_requests(&b), 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn durable_chat_events_relay_across_replicas_and_continue_after_restart() {
+    let (a, b, root) = pair("chat-cursors").await;
+    let conversation_id = create(&a).await;
+    let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+    let _subscription = b.buses.agent_chat_bus.subscribe(move |update| {
+        let _ = sender.send(update.clone());
+    });
+    let (snapshot_cursor, _) = b.service.sink.snapshot(&conversation_id).await.unwrap();
+
+    a.fake.replies.lock().push(text_sse("Cursor stream."));
+    a.service
+        .runtime
+        .submit_request(&conversation_id, "chat-run", "hello".into())
+        .await
+        .unwrap();
+    settled(&a, &conversation_id, Duration::from_secs(10)).await;
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    let (finished_cursor, _) = a.service.sink.snapshot(&conversation_id).await.unwrap();
+    let mut cursors = Vec::new();
+    while cursors.last().copied().unwrap_or(snapshot_cursor) < finished_cursor {
+        let update = tokio::time::timeout(Duration::from_secs(5), receiver.recv())
+            .await
+            .unwrap()
+            .expect("replica B receives chat batch");
+        assert_eq!(update.conversation_id, conversation_id);
+        cursors.push(update.seq);
+    }
+    assert_eq!(cursors.first().copied(), Some(snapshot_cursor + 1));
+    assert!(cursors.windows(2).all(|window| window[1] == window[0] + 1));
+
+    a.service.leave_cluster().await;
+    let restarted = replica(
+        &root,
+        "coord-a-restarted",
+        Arc::default(),
+        Some(Arc::clone(&b.service.cluster.notifier)),
+    )
+    .await;
+    let (before_restart_event, _) = restarted
+        .service
+        .sink
+        .snapshot(&conversation_id)
+        .await
+        .unwrap();
+    restarted
+        .service
+        .sink
+        .events(
+            &conversation_id,
+            vec![ChatEvent::Usage {
+                usage: UsageTotals::default(),
+            }],
+        )
+        .await;
+    let update = tokio::time::timeout(Duration::from_secs(5), receiver.recv())
+        .await
+        .unwrap()
+        .expect("restarted replica chat batch reaches B");
+    assert_eq!(update.seq, before_restart_event + 1);
+    restarted.service.leave_cluster().await;
+    b.service.leave_cluster().await;
 }

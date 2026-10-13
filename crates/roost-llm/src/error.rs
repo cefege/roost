@@ -2,6 +2,8 @@
 //! per failure the caller acts on differently: rotate on `RateLimited`,
 //! disable the credential on `Auth`, stop on `Cancelled`.
 
+use crate::credentials::CredentialStoreError;
+
 /// A provider, network or credential failure.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum LlmError {
@@ -20,6 +22,8 @@ pub enum LlmError {
     Cancelled,
     #[error("network error: {0}")]
     Network(String),
+    #[error(transparent)]
+    Storage(#[from] CredentialStoreError),
     #[error("no credential for provider {provider}")]
     NoCredential { provider: String },
 }

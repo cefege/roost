@@ -46,7 +46,6 @@ use crate::push::dispatch::ActiveTerminalViewers;
 use crate::push::transport::WebPushTransport;
 use crate::rpc::service::CoordinatorServiceImpl;
 use crate::services::CoordServices;
-use crate::shutdown::{SHUTDOWN_DRAIN_TIMEOUT, ShutdownDrain, shutdown_signal};
 
 /// The resolved, validated configuration a coordinator daemon boots from.
 #[derive(Debug, Clone)]
@@ -189,6 +188,18 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
     // backup scheduled before the port is accepting would compete with the very
     // startup it protects.
     let mounted = build_router(Arc::clone(&state));
+    let probe_listener = match boot.config.probe_bind.as_deref() {
+        Some(probe_bind) => {
+            let address = crate::http::bind::resolve_bind(probe_bind)
+                .with_context(|| format!("coordinator probe bind {probe_bind}"))?;
+            Some(
+                tokio::net::TcpListener::bind(address)
+                    .await
+                    .with_context(|| format!("coordinator probe listen on {address}"))?,
+            )
+        }
+        None => None,
+    };
     let listener = tokio::net::TcpListener::bind(bind)
         .await
         .with_context(|| format!("coordinator listen on {bind}"))?;
@@ -202,6 +213,18 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
     // the instant between the two.
     mounted.publish_bound_port(local.port());
     tracing::info!(bind = %local, uptime_ms = now_ms().saturating_sub(boot_ms), "coordinator listening");
+    if let Some(probe_listener) = probe_listener {
+        let probe_router = crate::http::health::probe_routes().with_state(Arc::new(
+            crate::http::health::ProbeState {
+                services: Arc::clone(&state.services),
+            },
+        ));
+        tokio::spawn(async move {
+            if let Err(error) = axum::serve(probe_listener, probe_router).await {
+                tracing::error!(%error, "coordinator probe listener stopped");
+            }
+        });
+    }
 
     // Boot step 9 (contract §1.1): maintenance, scheduled AFTER the listener.
     // v2's ordering note is "the listeners must start before maintenance and
@@ -245,33 +268,18 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
         Arc::clone(&state.services),
         pair_stopped,
     );
-    state.services.agent.join_cluster();
-    state.services.agent.recover().await;
-
-    // Nagle holds a small write for the peer's delayed ACK (~40 ms), clumping a
-    // keystroke's echo frame behind later acknowledgements on every socket.
-    let listener = axum::serve::ListenerExt::tap_io(listener, |tcp| {
-        if let Err(error) = tcp.set_nodelay(true) {
-            tracing::warn!(%error, "an accepted coordinator socket refused TCP_NODELAY");
-        }
-    });
-    let drain = ShutdownDrain::new(Arc::clone(&state.draining), SHUTDOWN_DRAIN_TIMEOUT);
-    let served = axum::serve(
+    let served = crate::cluster::runtime::serve(
         listener,
-        mounted
-            .router
-            .into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        mounted,
+        Arc::clone(&state.services),
+        boot.config.internal_url.clone().unwrap_or_default(),
+        Arc::clone(&state.draining),
     )
-    .with_graceful_shutdown(drain.requested(shutdown_signal()));
-    let served = drain.bound(served.into_future()).await;
+    .await;
 
     drop(pair_shutdown);
     pair_retention.stop().await;
-    state.services.agent.leave_cluster().await;
-
-    // A drain the bound cut short is a clean exit: the open sockets belong to
-    // workers and browsers that redial.
-    served.map_or(Ok(()), |outcome| outcome.context("coordinator listener"))
+    served
 }
 
 /// Boot steps 2-7 (contract §1.1): everything that must hold before a listener
@@ -383,10 +391,5 @@ pub fn process_epoch() -> String {
     format!("{nanos:08x}-{:04x}", std::process::id())
 }
 
-/// The interval between the scheduled maintenance sweeps.
-///
-/// A day, matching v2's `DAY_MS` for backups and audit retention
-/// (`apps/coord/src/db/backup.ts:113`,
-/// `apps/coord/src/db/audit-retention.ts:178-180`). Exposed so a test can assert
-/// the three sweeps agree on one interval rather than three.
+/// The maintenance schedulers' daily interval.
 pub const MAINTENANCE_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);

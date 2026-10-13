@@ -1004,6 +1004,20 @@ message AgentChatSnapshotResponse {
   uint64 seq = 1;
   string transcript_json = 2;
 }
+
+message AgentChatEventsRequest {
+  string conversation_id = 1;
+  uint64 after_cursor = 2;
+  uint32 limit = 3;
+}
+message AgentChatEventBatch {
+  uint64 cursor = 1;
+  string events_json = 2;
+}
+message AgentChatEventsResponse {
+  repeated AgentChatEventBatch batches = 1;
+  bool truncated = 2;
+}
 message AgentModelsListRequest {}
 message AgentModelsListResponse { string catalog_json = 1; }
 message AgentAuthLoginStartRequest { string provider = 1; }
@@ -1117,6 +1131,7 @@ service CoordinatorService {
   rpc AgentChatConfigure(AgentChatConfigureRequest) returns (AgentConversation);
   rpc AgentChatDelete(AgentChatDeleteRequest) returns (AgentChatDeleteResponse);
   rpc AgentChatSnapshot(AgentChatSnapshotRequest) returns (AgentChatSnapshotResponse);
+  rpc AgentChatEvents(AgentChatEventsRequest) returns (AgentChatEventsResponse);
   rpc AgentModelsList(AgentModelsListRequest) returns (AgentModelsListResponse);
   rpc AgentAuthLoginStart(AgentAuthLoginStartRequest) returns (AgentAuthLoginStartResponse);
   rpc AgentAuthLoginPoll(AgentAuthLoginPollRequest) returns (AgentAuthLoginPollResponse);

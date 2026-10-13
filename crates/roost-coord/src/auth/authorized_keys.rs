@@ -269,7 +269,7 @@ async fn upsert_imported_key(
     browser_account_id: Option<&str>,
     now_ms: i64,
 ) -> Result<(), sqlx::Error> {
-    let mut transaction = database.pool().begin().await?;
+    let mut transaction = database.begin_write().await?;
     sqlx::query(
         "INSERT INTO authorized_keys (fingerprint, public_key, label, added_at) \
          VALUES ($1, $2, $3, $4) \

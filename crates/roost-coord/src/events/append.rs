@@ -299,7 +299,7 @@ pub async fn append_event(
     let event = prepare_event(event)?;
     reserve_publication_slot(options, caller)?;
 
-    let mut transaction = database.pool().begin().await?;
+    let mut transaction = database.begin_write().await?;
     let committed = match run_in_transaction(&mut transaction, event, caller, options).await {
         Ok(committed) => committed,
         Err(error) => {

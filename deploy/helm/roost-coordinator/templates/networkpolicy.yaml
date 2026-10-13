@@ -11,6 +11,13 @@ spec:
       {{- include "roost.selectorLabels" . | nindent 6 }}
   policyTypes: [Ingress]
   ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "roost.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: http
+        - port: probe
     # Only the front door reaches the coordinator; kubelet probes are not
     # subject to NetworkPolicy.
     {{- if or (kindIs "map" .Values.networkPolicy.fromNamespaceSelector) .Values.networkPolicy.fromCidrs }}

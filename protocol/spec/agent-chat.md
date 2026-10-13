@@ -36,8 +36,12 @@ transaction. A slash command records its request row first and then runs.
 
 ## Run ownership
 
-A conversation's run is executed by exactly one coordinator replica, the
-holder of its row in `agent_run_leases`:
+Agent work runs only on the coordinator replica that owns the cluster's links
+(the `coord_leases` row `cluster:links`, see `crates/roost-coord/src/cluster/`);
+every other replica proxies client connections to it unread. Within that, a
+conversation's run is executed by exactly one replica, the holder of its row
+in `agent_run_leases` — the guard that keeps a run single across an ownership
+handover, when the old owner is still draining:
 
 - **Claim.** A replica claims the lease before it writes anything for a run
   (start, recovery, adoption). A lease is free when absent, released
@@ -64,3 +68,19 @@ or cancels the run when an aborted intent was written after the run started.
 Notices are best-effort: the listener resynchronizes every live run after it
 reconnects, and the adoption sweep covers a lost owner. On SQLite the
 coordinator is the only replica and notices stay in process.
+
+## Transcript events and cursors
+
+`AgentChatSnapshot` returns the current transcript projection and its durable
+event cursor. `AgentChatEvents(conversation_id, after_cursor, limit)` returns
+event batches strictly after that cursor, in ascending cursor order. A limit
+of zero means 500; larger limits are capped at 500. Each batch has one cursor
+and a JSON array of `ChatEvent` values.
+
+Clients apply a batch only when its cursor is exactly one greater than the
+loaded cursor. A gap marks the transcript stale; clients first request the
+missing batches and fall back to a snapshot if batches were pruned or the gap
+remains. `truncated` means the requested cursor predates retained history.
+Event batches older than 24 hours may be pruned, except that every
+conversation's newest batch is retained so its cursor continues after restart.
+The cursor and retained batches are read from one database snapshot.

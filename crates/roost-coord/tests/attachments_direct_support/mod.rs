@@ -311,6 +311,7 @@ impl DirectHarness {
         }
         let config = roost_host::CoordConfig::parse(roost_host::CoordConfigInput {
             database: Some(super::db_support::test_database_location(&root).await),
+            credential_secret_key: super::db_support::test_secret_key(),
             authorized_keys_path: Some(root.join("authorized_keys")),
             log_dir: Some(root.join("logs")),
             terminal_peer_enabled: Some(true),

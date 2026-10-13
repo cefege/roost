@@ -38,7 +38,8 @@ async fn pool_skips_blocked_credential_and_returns_earliest_unblock() {
             "one",
             "one",
         )
-        .await;
+        .await
+        .expect("first credential");
     let second = store
         .upsert(
             "typesafe",
@@ -48,7 +49,8 @@ async fn pool_skips_blocked_credential_and_returns_earliest_unblock() {
             "two",
             "two",
         )
-        .await;
+        .await
+        .expect("second credential");
     let pool = AccountPool::new(
         store.clone(),
         reqwest::Client::new(),
@@ -59,15 +61,27 @@ async fn pool_skips_blocked_credential_and_returns_earliest_unblock() {
         .unwrap()
         .as_millis() as i64;
     let reset = now + 120_000;
-    store.set_block(first, reset + 20_000).await;
+    store
+        .set_block(first, reset + 20_000)
+        .await
+        .expect("block first account");
     let (selected, auth) = pool.resolve("typesafe", "conversation").await.unwrap();
     assert_eq!(selected, second);
     assert_eq!(auth.secret(), "second");
-    store.set_block(first, now - 1).await;
+    store
+        .set_block(first, now - 1)
+        .await
+        .expect("unblock first account");
     let (sticky_id, _) = pool.resolve("typesafe", "conversation").await.unwrap();
     assert_eq!(sticky_id, second);
-    store.set_block(first, reset + 20_000).await;
-    store.set_block(second, reset).await;
+    store
+        .set_block(first, reset + 20_000)
+        .await
+        .expect("reblock first account");
+    store
+        .set_block(second, reset)
+        .await
+        .expect("block second account");
     let error = pool
         .rotate_after_rate_limit(
             first,
@@ -142,7 +156,8 @@ async fn judge_translates_noul_and_retries_service_unavailable() {
             "key",
             "test",
         )
-        .await;
+        .await
+        .expect("credential stored");
     let pool = Arc::new(AccountPool::new(
         store,
         reqwest::Client::new(),
@@ -212,7 +227,8 @@ async fn refresh_is_single_flight_and_failed_credential_is_disabled() {
             "account",
             "account",
         )
-        .await;
+        .await
+        .expect("credential stored");
     let mut overrides = BTreeMap::new();
     overrides.insert("openai-auth".into(), base);
     let pool = Arc::new(AccountPool::new(
@@ -228,7 +244,10 @@ async fn refresh_is_single_flight_and_failed_credential_is_disabled() {
     assert!(second.is_err());
     assert_eq!(count.load(Ordering::SeqCst), 1);
     assert_eq!(
-        store.list("openai-codex").await[0]
+        store
+            .list("openai-codex")
+            .await
+            .expect("credentials listed")[0]
             .disabled_cause
             .as_deref(),
         Some("refresh_failed")

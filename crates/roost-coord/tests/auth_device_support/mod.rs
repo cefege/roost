@@ -194,6 +194,7 @@ async fn open_core(
         .expect("the self-hosted tenant");
     let mut input = CoordConfigInput {
         database: Some(database_location.clone()),
+        credential_secret_key: super::db_support::test_secret_key(),
         authorized_keys_path: Some(root.join("authorized_keys")),
         log_dir: Some(root.join("logs")),
         ..CoordConfigInput::default()

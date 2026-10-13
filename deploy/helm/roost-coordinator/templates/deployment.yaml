@@ -5,9 +5,6 @@
 {{- else if .Values.trustProxy }}
 {{- fail "trustProxy without trustedProxyCidrs pins the coordinator to a loopback bind no Service can reach; set trustedProxyCidrs" }}
 {{- end }}
-{{- if not (has (int .Values.replicas) (list 0 1)) }}
-{{- fail "replicas must be 1, or 0 for maintenance: two coordinators would split sockets and fan-out" }}
-{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,12 +12,12 @@ metadata:
   labels:
     {{- include "roost.labels" . | nindent 4 }}
 spec:
-  # One replica is the contract, not a default: sockets, terminal replicas and
-  # the bus are in-process, and two coordinators would split them. Recreate,
-  # so a rollout never runs two at once.
   replicas: {{ int .Values.replicas }}
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       {{- include "roost.selectorLabels" . | nindent 6 }}
@@ -60,10 +57,20 @@ spec:
           ports:
             - name: http
               containerPort: 4113
+            - name: probe
+              containerPort: 4115
           envFrom:
             - secretRef:
                 name: {{ include "roost.databaseSecret" . }}
           env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: ROOST_COORDINATOR_INTERNAL_URL
+              value: "http://$(POD_IP):4113"
+            - name: ROOST_COORDINATOR_PROBE_BIND
+              value: "0.0.0.0:4115"
             - name: ROOST_COORDINATOR_BIND
               value: "0.0.0.0:4113"
             - name: ROOST_TRUST_PROXY
@@ -93,19 +100,18 @@ spec:
           startupProbe:
             httpGet:
               path: /readyz
-              port: http
-            periodSeconds: 5
+              port: probe
             failureThreshold: 60
           readinessProbe:
             httpGet:
               path: /readyz
-              port: http
+              port: probe
             periodSeconds: 5
             timeoutSeconds: 3
           livenessProbe:
             httpGet:
               path: /healthz
-              port: http
+              port: probe
             periodSeconds: 10
             timeoutSeconds: 3
           lifecycle:

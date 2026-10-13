@@ -75,7 +75,7 @@ pub async fn handle_push_subscribe(
     validate_key("auth", &request.auth).map_err(refuse_input)?;
 
     store_subscription(
-        core.services.db.pool(),
+        &core.services.db,
         push.dashboard_id(),
         viewer_fp,
         &request.endpoint,

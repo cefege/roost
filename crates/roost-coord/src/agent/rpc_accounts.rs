@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use connectrpc::{ConnectError, ErrorCode, ServiceResult};
 use roost_agent::{AgentSettings, Role};
-use roost_llm::{CredentialKind, ModelKind, StoredCredential};
+use roost_llm::{CredentialKind, CredentialStoreError, ModelKind, StoredCredential};
 use roost_proto as proto;
 use roost_protocol::wire::agent_chat::{
     AccountBrief, AccountEntry, AccountKind, AccountUsage, AccountUsageWindow, AgentSettingsView,
@@ -13,7 +13,7 @@ use roost_protocol::wire::agent_chat::{
 };
 
 use super::AgentService;
-use super::rpc_errors::{agent_status, internal};
+use super::rpc_errors::{agent_status, credential_status, internal, llm_status};
 use crate::auth::principal::require_account_device;
 use crate::coord_core::{Caller, CoordCore};
 use crate::rpc::service::ok_response;
@@ -38,16 +38,13 @@ fn account_kind(credential: &StoredCredential) -> AccountKind {
 }
 
 /// The catalog with availability, accounts per provider, and thinking levels.
-pub async fn models_catalog(agent: &AgentService) -> ModelsCatalog {
+pub async fn models_catalog(agent: &AgentService) -> Result<ModelsCatalog, CredentialStoreError> {
     let catalog = agent.runtime.catalog();
     let mut providers = Vec::new();
     let mut connected = Vec::new();
     for provider in catalog.providers() {
-        let accounts: Vec<AccountBrief> = agent
-            .pool()
-            .store()
-            .list(provider)
-            .await
+        let credentials = agent.pool().store().list(provider).await?;
+        let accounts: Vec<AccountBrief> = credentials
             .iter()
             .map(|credential| AccountBrief {
                 credential_id: credential.id,
@@ -69,7 +66,7 @@ pub async fn models_catalog(agent: &AgentService) -> ModelsCatalog {
     }
     for engine in roost_llm::web_search::ENGINE_IDS.iter().copied() {
         let label = roost_llm::web_search::engine_label(engine);
-        let accounts = agent.pool().store().list(engine).await;
+        let accounts = agent.pool().store().list(engine).await?;
         let configured = !accounts.is_empty();
         if configured {
             connected.push(engine.to_owned());
@@ -103,15 +100,18 @@ pub async fn models_catalog(agent: &AgentService) -> ModelsCatalog {
         })
         .collect();
     models.sort_by(compare_models_newest_first);
-    ModelsCatalog {
+    Ok(ModelsCatalog {
         models,
         providers,
         thinking_levels: agent.runtime.thinking_levels().await,
         default_model: agent.runtime.default_model().await,
-    }
+    })
 }
 
-async fn account_entries(agent: &AgentService, with_usage: bool) -> Vec<AccountEntry> {
+async fn account_entries(
+    agent: &AgentService,
+    with_usage: bool,
+) -> Result<Vec<AccountEntry>, ConnectError> {
     let mut entries = Vec::new();
     let store = agent.pool().store();
     for provider in agent.runtime.catalog().providers().into_iter().chain(
@@ -120,10 +120,19 @@ async fn account_entries(agent: &AgentService, with_usage: bool) -> Vec<AccountE
             .copied()
             .filter(|engine| roost_llm::web_search::engine_needs_key(engine)),
     ) {
-        let blocks: BTreeMap<i64, i64> = store.blocks(provider).await.into_iter().collect();
-        for credential in store.list(provider).await {
+        let blocks: BTreeMap<i64, i64> = store
+            .blocks(provider)
+            .await
+            .map_err(credential_status)?
+            .into_iter()
+            .collect();
+        for credential in store.list(provider).await.map_err(credential_status)? {
             let report = if with_usage {
-                agent.pool().refresh_usage(credential.id, provider).await
+                agent
+                    .pool()
+                    .refresh_usage(credential.id, provider)
+                    .await
+                    .map_err(llm_status)?
             } else {
                 agent
                     .pool()
@@ -154,7 +163,7 @@ async fn account_entries(agent: &AgentService, with_usage: bool) -> Vec<AccountE
             });
         }
     }
-    entries
+    Ok(entries)
 }
 
 pub async fn handle_agent_accounts_list(
@@ -163,7 +172,7 @@ pub async fn handle_agent_accounts_list(
     _request: proto::AgentAccountsListRequest,
 ) -> ServiceResult<proto::AgentAccountsListResponse> {
     require_account_device(caller)?;
-    let entries = account_entries(&core.services.agent, false).await;
+    let entries = account_entries(&core.services.agent, false).await?;
     let accounts_json =
         serde_json::to_string(&entries).map_err(|_| internal("accounts did not serialize"))?;
     ok_response(proto::AgentAccountsListResponse {
@@ -183,7 +192,8 @@ pub async fn handle_agent_account_remove(
         .pool()
         .store()
         .delete(request.credential_id)
-        .await;
+        .await
+        .map_err(credential_status)?;
     tracing::info!(
         credential_id = request.credential_id,
         "agent provider account removed"
@@ -197,7 +207,7 @@ pub async fn handle_agent_usage_get(
     _request: proto::AgentUsageGetRequest,
 ) -> ServiceResult<proto::AgentUsageGetResponse> {
     require_account_device(caller)?;
-    let entries = account_entries(&core.services.agent, true).await;
+    let entries = account_entries(&core.services.agent, true).await?;
     let usage_json =
         serde_json::to_string(&entries).map_err(|_| internal("usage did not serialize"))?;
     ok_response(proto::AgentUsageGetResponse {

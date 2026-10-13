@@ -9,7 +9,7 @@ metadata:
     # The log outlives an uninstall; deleting it is a separate decision.
     helm.sh/resource-policy: keep
 spec:
-  # One writer: the Deployment is Recreate with at most one replica.
+  # The node-local log volume is shared by pods pinned to the same node.
   accessModes: [ReadWriteOnce]
   resources:
     requests:

@@ -339,8 +339,7 @@ pub async fn ensure_self_hosted_tenant(
     now_ms: i64,
 ) -> ProtocolResult<SelfHostedTenant> {
     let mut transaction = database
-        .pool()
-        .begin()
+        .begin_write()
         .await
         .map_err(|error| refuse(&format!("begin: {error}")))?;
     let tenant = inspect_or_create(&mut transaction, now_ms).await?;

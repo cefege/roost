@@ -131,6 +131,13 @@ impl PushFixture {
         &self.core.services.db
     }
 
+    /// Open an independent pool over this fixture's database.
+    pub async fn reopen_database(&self) -> CoordDb {
+        super::db_support::open_test_database(&self.root)
+            .await
+            .expect("an independent pool over the fixture database")
+    }
+
     /// The fingerprint the tests authenticate as.
     pub fn fp(&self) -> String {
         viewer_fp('a')

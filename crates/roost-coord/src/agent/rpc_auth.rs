@@ -6,7 +6,7 @@ use connectrpc::{ConnectError, ErrorCode, ServiceResult};
 use roost_llm::{CredentialKind, oauth::api_key_identity};
 use roost_proto as proto;
 
-use super::rpc_errors::{internal, login_status};
+use super::rpc_errors::{credential_status, internal, login_status};
 use crate::auth::principal::require_account_device;
 use crate::coord_core::{Caller, CoordCore};
 use crate::rpc::service::ok_response;
@@ -35,12 +35,7 @@ pub async fn handle_agent_auth_login_start(
     let agent = &core.services.agent;
     let login_id = agent
         .logins
-        .start(
-            &request.provider,
-            agent.http.clone(),
-            agent.endpoints.clone(),
-            agent.pool().clone(),
-        )
+        .start(&request.provider)
         .await
         .map_err(login_status)?;
     ok_response(proto::AgentAuthLoginStartResponse {
@@ -60,6 +55,7 @@ pub async fn handle_agent_auth_login_poll(
         .agent
         .logins
         .state(&request.login_id)
+        .await
         .map_err(login_status)?;
     let state_json =
         serde_json::to_string(&state).map_err(|_| internal("login state did not serialize"))?;
@@ -78,12 +74,7 @@ pub async fn handle_agent_auth_login_respond(
     let agent = &core.services.agent;
     agent
         .logins
-        .respond(
-            &request.login_id,
-            &request.prompt_id,
-            &request.value,
-            agent.pool(),
-        )
+        .respond(&request.login_id, &request.prompt_id, &request.value)
         .await
         .map_err(login_status)?;
     ok_response(proto::AgentAuthLoginRespondResponse::default())
@@ -95,7 +86,12 @@ pub async fn handle_agent_auth_login_cancel(
     request: proto::AgentAuthLoginCancelRequest,
 ) -> ServiceResult<proto::AgentAuthLoginCancelResponse> {
     require_account_device(caller)?;
-    core.services.agent.logins.cancel(&request.login_id);
+    core.services
+        .agent
+        .logins
+        .cancel(&request.login_id)
+        .await
+        .map_err(login_status)?;
     ok_response(proto::AgentAuthLoginCancelResponse::default())
 }
 
@@ -132,7 +128,8 @@ pub async fn handle_agent_auth_set_api_key(
             &identity_key,
             &label,
         )
-        .await;
+        .await
+        .map_err(credential_status)?;
     tracing::info!(provider = %request.provider, credential_id, "agent provider API key stored");
     ok_response(proto::AgentAuthSetApiKeyResponse::default())
 }

@@ -4,6 +4,7 @@
 
 use connectrpc::{ConnectError, ErrorCode};
 use roost_agent::AgentError;
+use roost_llm::{CredentialStoreError, LlmError};
 
 use super::LoginError;
 
@@ -29,6 +30,25 @@ pub fn login_status(error: LoginError) -> ConnectError {
         LoginError::NotFound(_) => ConnectError::new(ErrorCode::NotFound, error.to_string()),
         LoginError::Provider(_) => {
             ConnectError::new(ErrorCode::FailedPrecondition, error.to_string())
+        }
+        LoginError::Storage(_) => {
+            tracing::error!(%error, "agent login storage failure");
+            ConnectError::new(ErrorCode::Internal, "agent login storage failed")
+        }
+    }
+}
+
+pub fn credential_status(error: CredentialStoreError) -> ConnectError {
+    tracing::error!(%error, "agent credential storage failure");
+    ConnectError::new(ErrorCode::Internal, "agent credential storage failed")
+}
+
+pub fn llm_status(error: LlmError) -> ConnectError {
+    match error {
+        LlmError::Storage(error) => credential_status(error),
+        other => {
+            tracing::error!(error = %other, "agent provider operation failed");
+            ConnectError::new(ErrorCode::Unavailable, "agent provider operation failed")
         }
     }
 }

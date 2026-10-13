@@ -1,12 +1,6 @@
-//! `fleet install` for a coordinator that runs on Kubernetes rather than as a
-//! host service: the tag's image is checked on its registry, the Helm release
-//! is upgraded to it, and the rolled-out pod must report the tag and the build
-//! sha. Called by `fleet::install_command` before any host, because the
-//! coordinator restarts first.
-//!
-//! The image is built by `.github/workflows/container.yml` from the pushed tag,
-//! not here; the release is refused until that image exists, since the
-//! Deployment is `Recreate` and a missing image would leave no coordinator.
+//! `fleet install` upgrades the Kubernetes coordinator to a published image
+//! and verifies the tag and build sha from every pod after rollout. It runs
+//! before host upgrades because the coordinator restarts first.
 
 use std::process::Command;
 use std::time::Instant;
@@ -28,8 +22,15 @@ pub struct KubeCoordinator {
     pub chart: String,
     /// The fleet's values file, relative to the repository root.
     pub values: String,
+    /// The number of coordinator replicas to keep available.
+    #[serde(default = "default_replicas")]
+    pub replicas: u32,
     /// The image repository, `ghcr.io/<owner>/<name>`.
     pub image: String,
+}
+
+fn default_replicas() -> u32 {
+    2
 }
 
 /// Upgrade the release to `release`'s tag and prove the pod runs it.
@@ -46,19 +47,35 @@ pub fn install_coordinator(
         &script,
     )
     .map_err(|error| format!("{}: {error}", coordinator.name))?;
-    let mut lines = output.lines().rev().map(str::trim);
-    let build_sha = lines.next().unwrap_or_default();
-    let version = lines.next().unwrap_or_default();
-    if version != release.tag() || !build_sha.starts_with(&release.sha()[..8]) {
+    let pod_reports = output
+        .lines()
+        .filter_map(|line| line.strip_prefix("ROOST_POD_REPORT "))
+        .collect::<Vec<_>>();
+    if pod_reports.len() != coordinator.replicas as usize {
         return Err(format!(
-            "{}: the rolled-out pod reports {version} {build_sha}, not {} {}",
+            "{}: expected {} coordinator pod reports, received {}",
             coordinator.name,
-            release.tag(),
-            &release.sha()[..8]
+            coordinator.replicas,
+            pod_reports.len()
         ));
     }
+    for report in pod_reports {
+        let Some((pod, report)) = report.split_once(' ') else {
+            return Err(format!("{}: malformed coordinator pod report", coordinator.name));
+        };
+        let Some((version, build_sha)) = report.split_once(' ') else {
+            return Err(format!("{pod}: malformed coordinator version report"));
+        };
+        if version != release.tag() || !build_sha.starts_with(&release.sha()[..8]) {
+            return Err(format!(
+                "{pod}: reports {version} {build_sha}, not {} {}",
+                release.tag(),
+                &release.sha()[..8]
+            ));
+        }
+    }
     println!(
-        "{}: {} rolled out in {}s",
+        "{}: {} replicas rolled out in {}s",
         coordinator.name,
         release.tag(),
         started.elapsed().as_secs()
@@ -72,10 +89,8 @@ fn image_tag(release_tag: &str) -> &str {
     release_tag.strip_prefix('v').unwrap_or(release_tag)
 }
 
-/// `--reset-then-reuse-values`, not `--reuse-values`: the release keeps the
-/// values it was installed with (the generated Postgres password among them),
-/// and a key the chart added since still gets the chart's default instead of
-/// rendering as empty.
+/// `--reset-then-reuse-values` preserves the generated Postgres and encryption
+/// secrets while applying the new image and configured replica count.
 fn upgrade_script(coordinator: &KubeCoordinator, tag: &str, sha: &str) -> Result<String, String> {
     let repository = coordinator
         .image
@@ -88,6 +103,7 @@ fn upgrade_script(coordinator: &KubeCoordinator, tag: &str, sha: &str) -> Result
         release,
         chart,
         values,
+        replicas,
         image,
         ..
     } = coordinator;
@@ -103,20 +119,46 @@ fn upgrade_script(coordinator: &KubeCoordinator, tag: &str, sha: &str) -> Result
            exit 1\n\
          fi\n\
          helm upgrade --install \"{release}\" \"{chart}\" -n \"{namespace}\" --reset-then-reuse-values \
-           -f \"{values}\" --set image.tag=\"{image_tag}\" --set replicas=1 --wait --timeout 10m >&2\n\
+           -f \"{values}\" --set image.tag=\"{image_tag}\" --set replicas=\"{replicas}\" --wait --timeout 10m >&2\n\
          kubectl -n \"{namespace}\" rollout status \"deploy/{release}\" --timeout=300s >&2\n\
-         kubectl -n \"{namespace}\" exec \"deploy/{release}\" -- roost --version\n\
-         kubectl -n \"{namespace}\" exec \"deploy/{release}\" -- roost version --build\n"
+         selector=\"app.kubernetes.io/instance={release},app.kubernetes.io/component=coordinator\"\n\
+         mapfile -t pods < <(kubectl -n \"{namespace}\" get pods -l \"$selector\" -o name)\n\
+         test \"${{#pods[@]}}\" -eq \"{replicas}\"\n\
+         for pod in \"${{pods[@]}}\"; do\n\
+           version=$(kubectl -n \"{namespace}\" exec \"$pod\" -- roost --version)\n\
+           build=$(kubectl -n \"{namespace}\" exec \"$pod\" -- roost version --build)\n\
+           printf 'ROOST_POD_REPORT %s %s %s\\n' \"$pod\" \"$version\" \"$build\"\n\
+         done\n"
     ))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::image_tag;
+    use super::{image_tag, upgrade_script, KubeCoordinator};
 
     #[test]
     fn the_image_tag_is_the_release_tag_without_its_v() {
         assert_eq!(image_tag("v3.0.0-rc.9"), "3.0.0-rc.9");
         assert_eq!(image_tag("3.0.0"), "3.0.0");
+    }
+
+    #[test]
+    fn upgrade_uses_replica_count_and_checks_every_coordinator_pod() {
+        let coordinator = KubeCoordinator {
+            name: "test".into(),
+            kubeconfig: "/tmp/kubeconfig".into(),
+            namespace: "roost".into(),
+            release: "roost-coordinator".into(),
+            chart: "deploy/helm/roost-coordinator".into(),
+            values: "deploy/helm/fleet-ovh1.values.yaml".into(),
+            replicas: 3,
+            image: "ghcr.io/cefege/roost-coordinator".into(),
+        };
+        let script = upgrade_script(&coordinator, "v3.2.1", "0123456789abcdef").unwrap();
+        assert!(script.contains("--set replicas=\"3\""));
+        assert!(script.contains("get pods -l \"$selector\" -o name"));
+        assert!(script.contains("for pod in \"${pods[@]}\""));
+        assert!(script.contains("kubectl -n \"roost\" exec \"$pod\" -- roost --version"));
+        assert!(!script.contains("--set replicas=1"));
     }
 }

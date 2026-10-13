@@ -115,14 +115,36 @@ pub fn handle_event(
             handle_rpc_result(store, result, host_now_ms, out)
         }
         ClientEvent::AgentChat(intent) => match intent {
-            crate::client::agent_chat::AgentChatIntent::SnapshotLoaded {
+            crate::client::agent_chat::AgentChatIntent::SnapshotRequested {
                 conversation_id,
-                seq,
-                transcript,
+                generation,
             } => {
                 store
                     .agent_chat
-                    .load_snapshot(conversation_id.clone(), *seq, transcript.clone());
+                    .request_snapshot(conversation_id, *generation);
+            }
+            crate::client::agent_chat::AgentChatIntent::SnapshotLoaded {
+                conversation_id,
+                generation,
+                seq,
+                transcript,
+            } => {
+                store.agent_chat.load_snapshot(
+                    conversation_id.clone(),
+                    *generation,
+                    *seq,
+                    transcript.clone(),
+                );
+                store.note_change();
+            }
+            crate::client::agent_chat::AgentChatIntent::EventsLoaded {
+                conversation_id,
+                batches,
+                truncated,
+            } => {
+                store
+                    .agent_chat
+                    .apply_event_batches(conversation_id, batches, *truncated);
                 store.note_change();
             }
             crate::client::agent_chat::AgentChatIntent::Forget { conversation_id } => {

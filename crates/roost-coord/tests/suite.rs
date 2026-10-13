@@ -10,6 +10,8 @@ mod agent_chat_rpc;
 mod agent_chat_turns;
 #[path = "agent_config_rpc.rs"]
 mod agent_config_rpc;
+#[path = "agent_credentials.rs"]
+mod agent_credentials;
 #[path = "agent_prompt_handlers.rs"]
 mod agent_prompt_handlers;
 #[path = "agent_prompt_status_wait.rs"]
@@ -66,6 +68,8 @@ mod cf_access_keyring;
 mod client_seq_cursor;
 #[path = "clipboard_history.rs"]
 mod clipboard_history;
+#[path = "cluster_link_owner.rs"]
+mod cluster_link_owner;
 #[path = "db_export_snapshots.rs"]
 mod db_export_snapshots;
 #[path = "deploy_catchup.rs"]

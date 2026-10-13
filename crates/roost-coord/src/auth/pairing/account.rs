@@ -101,8 +101,7 @@ pub async fn create_pair_request(
     input: &PairRequestCreate<'_>,
 ) -> PairingResult<CreateOutcome> {
     let mut transaction = database
-        .pool()
-        .begin()
+        .begin_write()
         .await
         .map_err(|error| super::sqlx_error("pairing.create", error))?;
     let outcome = match read_pair_request(&mut *transaction, input.ephemeral_id).await? {

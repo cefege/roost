@@ -174,6 +174,7 @@ impl ListenerFixture {
         let resolved = CoordConfig::parse(CoordConfigInput {
             bind: Some(bind),
             database: Some(database_location),
+            credential_secret_key: super::db_support::test_secret_key(),
             authorized_keys_path: Some(root.join("authorized_keys")),
             log_dir: Some(root.join("logs")),
             trust_proxy: Some(config.trust_proxy),

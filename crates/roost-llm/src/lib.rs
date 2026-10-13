@@ -22,7 +22,9 @@ pub use providers::{HeaderObserver, stream_chat};
 
 pub use auth::ResolvedAuth;
 pub use catalog::{Catalog, Cost, ModelInfo, ModelKind, THINKING_LEVELS, WireApi};
-pub use credentials::{CredentialKind, CredentialStore, StoredCredential};
+pub use credentials::{
+    CredentialKind, CredentialStore, CredentialStoreError, RefreshOperation, StoredCredential,
+};
 pub use endpoints::Endpoints;
 pub use error::LlmError;
 pub use judge::{Answer, Judge, Question, QuestionKind};

@@ -49,13 +49,15 @@ impl AccountPool {
     pub fn store(&self) -> &Arc<dyn CredentialStore> {
         &self.store
     }
-    pub async fn has_enabled_credential(&self, provider: &str) -> bool {
-        self.store
+    pub async fn has_enabled_credential(&self, provider: &str) -> Result<bool, LlmError> {
+        Ok(self
+            .store
             .list(provider)
-            .await
+            .await?
             .iter()
-            .any(|row| row.disabled_cause.is_none())
+            .any(|row| row.disabled_cause.is_none()))
     }
+
     pub fn usage_reports(&self) -> Vec<UsageReport> {
         self.usage.reports()
     }
@@ -70,22 +72,29 @@ impl AccountPool {
             report.map_or_else(String::new, |item| item.label),
         )
     }
-    pub async fn refresh_usage(&self, credential_id: i64, provider: &str) -> Option<UsageReport> {
+    pub async fn refresh_usage(
+        &self,
+        credential_id: i64,
+        provider: &str,
+    ) -> Result<Option<UsageReport>, LlmError> {
         if let Some(report) = self
             .usage
             .get(credential_id)
             .filter(|report| now_ms().saturating_sub(report.fetched_ms) < 60_000)
         {
-            return Some(report);
+            return Ok(Some(report));
         }
-        let fetched = crate::usage::fetch_usage(
+        let Some(fetched) = crate::usage::fetch_usage(
             self.store.as_ref(),
             &self.http,
             &self.endpoints,
             credential_id,
             provider,
         )
-        .await?;
+        .await?
+        else {
+            return Ok(None);
+        };
         let report = if fetched.note.is_some() {
             self.usage
                 .get(credential_id)
@@ -99,7 +108,7 @@ impl AccountPool {
             fetched
         };
         self.usage.insert(report.clone());
-        Some(report)
+        Ok(Some(report))
     }
 
     pub async fn resolve(
@@ -107,8 +116,9 @@ impl AccountPool {
         provider: &str,
         conversation_id: &str,
     ) -> Result<(i64, ResolvedAuth), LlmError> {
-        let rows = self.store.list(provider).await;
-        let blocked: HashMap<i64, i64> = self.store.blocks(provider).await.into_iter().collect();
+        let rows = self.store.list(provider).await?;
+        let blocked: HashMap<i64, i64> = self.store.blocks(provider).await?.into_iter().collect();
+
         let now = now_ms();
         let candidates: Vec<_> = rows
             .iter()
@@ -117,7 +127,7 @@ impl AccountPool {
         let sticky_row = self
             .store
             .sticky(conversation_id, provider)
-            .await
+            .await?
             .and_then(|sticky_id| {
                 candidates
                     .iter()
@@ -131,13 +141,15 @@ impl AccountPool {
         if let Some(row) = sticky_row {
             match self.resolve_auth(row).await {
                 Ok(auth) => return Ok((row.id, auth)),
+                Err(error @ LlmError::Storage(_)) => return Err(error),
                 Err(error) => {
                     tracing::warn!(credential_id = row.id, %error, "sticky credential refresh failed; disabling account");
-                    self.store.disable(row.id, "refresh_failed").await;
+                    self.store.disable(row.id, "refresh_failed").await?;
                     failed_sticky_id = Some(row.id);
                 }
             }
         }
+
         let enabled_count = candidates.len();
         let mut eligible: Vec<_> = candidates
             .into_iter()
@@ -168,12 +180,13 @@ impl AccountPool {
                 Ok(auth) => {
                     self.store
                         .set_sticky(conversation_id, provider, row.id)
-                        .await;
+                        .await?;
                     return Ok((row.id, auth));
                 }
+                Err(error @ LlmError::Storage(_)) => return Err(error),
                 Err(error) => {
                     tracing::warn!(credential_id = row.id, %error, "credential refresh failed; disabling account");
-                    self.store.disable(row.id, "refresh_failed").await;
+                    self.store.disable(row.id, "refresh_failed").await?;
                 }
             }
         }
@@ -183,77 +196,63 @@ impl AccountPool {
     }
 
     async fn resolve_auth(&self, row: &StoredCredential) -> Result<ResolvedAuth, LlmError> {
-        match &row.kind {
-            CredentialKind::ApiKey { key } => Ok(ResolvedAuth::ApiKey { key: key.clone() }),
-            CredentialKind::OAuth {
-                access,
-                expires_ms,
-                account_id,
-                ..
-            } => {
-                if *expires_ms > now_ms() + 60_000 {
-                    return Ok(ResolvedAuth::OAuth {
-                        access_token: access.clone(),
-                        account_id: account_id.clone(),
-                    });
-                }
-                let lock = {
-                    let mut locks = self.refresh_locks.lock().await;
-                    locks
-                        .entry(row.id)
-                        .or_insert_with(|| Arc::new(Mutex::new(())))
-                        .clone()
-                };
-                let _guard = lock.lock().await;
-                let latest = self
-                    .store
-                    .list(&row.provider)
-                    .await
-                    .into_iter()
-                    .find(|credential| credential.id == row.id)
-                    .ok_or_else(|| LlmError::Auth("credential was removed".into()))?;
-                if latest.disabled_cause.is_some() {
-                    return Err(LlmError::Auth("credential is disabled".into()));
-                }
-                let CredentialKind::OAuth {
-                    access,
-                    refresh,
-                    expires_ms,
-                    account_id,
-                    email,
-                } = latest.kind
-                else {
-                    return Err(LlmError::Auth(
-                        "credential kind changed during refresh".into(),
-                    ));
-                };
-                if expires_ms > now_ms() + 60_000 {
-                    return Ok(ResolvedAuth::OAuth {
-                        access_token: access,
-                        account_id,
-                    });
-                }
-                let updated = self
-                    .refresh(&row.provider, &refresh, account_id, email)
-                    .await?;
-                let auth = match &updated {
-                    CredentialKind::OAuth {
-                        access, account_id, ..
-                    } => ResolvedAuth::OAuth {
-                        access_token: access.clone(),
-                        account_id: account_id.clone(),
-                    },
-                    CredentialKind::ApiKey { .. } => {
-                        return Err(LlmError::Auth(
-                            "refresh returned a non-OAuth credential".into(),
-                        ));
-                    }
-                };
-                self.store.update_kind(row.id, updated).await;
-                tracing::info!(credential_id = row.id, provider = %row.provider, "OAuth credential refreshed");
-                Ok(auth)
-            }
+        if let CredentialKind::ApiKey { key } = &row.kind {
+            return Ok(ResolvedAuth::ApiKey { key: key.clone() });
         }
+        if matches!(
+            row.kind,
+            CredentialKind::OAuth { expires_ms, .. } if expires_ms > now_ms() + 60_000
+        ) {
+            return oauth_auth(&row.kind);
+        }
+
+        let lock = {
+            let mut locks = self.refresh_locks.lock().await;
+            locks
+                .entry(row.id)
+                .or_insert_with(|| Arc::new(Mutex::new(())))
+                .clone()
+        };
+        let _guard = lock.lock().await;
+        let refreshed_by_this_call = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let refresh_flag = Arc::clone(&refreshed_by_this_call);
+        let provider = row.provider.clone();
+        let latest = self
+            .store
+            .refresh_locked(
+                row.id,
+                Box::new(move |latest| {
+                    Box::pin(async move {
+                        if latest.disabled_cause.is_some() {
+                            return Err(LlmError::Auth("credential is disabled".into()));
+                        }
+                        let CredentialKind::OAuth {
+                            refresh,
+                            expires_ms,
+                            account_id,
+                            email,
+                            ..
+                        } = latest.kind.clone()
+                        else {
+                            return Err(LlmError::Auth(
+                                "credential kind changed during refresh".into(),
+                            ));
+                        };
+                        if expires_ms > now_ms() + 60_000 {
+                            return Ok(latest.kind);
+                        }
+                        let refreshed =
+                            self.refresh(&provider, &refresh, account_id, email).await?;
+                        refresh_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                        Ok(refreshed)
+                    })
+                }),
+            )
+            .await?;
+        if refreshed_by_this_call.load(std::sync::atomic::Ordering::Relaxed) {
+            tracing::info!(credential_id = row.id, provider = %row.provider, "OAuth credential refreshed");
+        }
+        oauth_auth(&latest.kind)
     }
 
     async fn refresh(
@@ -327,6 +326,19 @@ impl AccountPool {
             account_id,
             email,
         })
+    }
+}
+fn oauth_auth(kind: &CredentialKind) -> Result<ResolvedAuth, LlmError> {
+    match kind {
+        CredentialKind::OAuth {
+            access, account_id, ..
+        } => Ok(ResolvedAuth::OAuth {
+            access_token: access.clone(),
+            account_id: account_id.clone(),
+        }),
+        CredentialKind::ApiKey { .. } => Err(LlmError::Auth(
+            "credential kind changed during refresh".into(),
+        )),
     }
 }
 

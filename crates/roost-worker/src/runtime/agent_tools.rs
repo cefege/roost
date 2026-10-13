@@ -16,7 +16,7 @@ use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::link_ports::AgentToolsPort;
+use crate::link_ports::{AgentToolsPort, LinkLifecyclePort};
 use crate::uplink::Uplink;
 
 const LIVE_FRAME_BYTES: usize = 16 * 1024;
@@ -204,6 +204,22 @@ impl AgentToolsPort for AgentToolsOwner {
     fn close_all(&self) {
         self.cancel_all();
     }
+}
+
+/// Cancels every running tool call when the coordinator link detaches. The
+/// coordinator that dispatched them has recorded their outcome as unknown, so
+/// a call left running would keep changing files nobody is waiting on.
+#[derive(Debug)]
+pub struct AgentToolsLinkLifecycle(pub Arc<dyn AgentToolsPort>);
+
+impl LinkLifecyclePort for AgentToolsLinkLifecycle {
+    fn on_open(&self) {}
+    fn on_hello_ack(&self, _terminal_metadata_negotiated: bool) {}
+    fn on_detach(&self) {
+        self.0.close_all();
+    }
+    fn on_writable(&self) {}
+    fn on_snapshot_ready(&self) {}
 }
 
 fn bounded_result(mut outcome: ToolOutcome) -> ToolOutcome {

@@ -16,9 +16,13 @@ use crate::db::{CoordDb, DbBackend};
 
 /// The conversation an agent command, abort or deletion touched.
 pub const AGENT_CHANNEL: &str = "roost_agent";
+/// Durable chat batches persisted by the agent runtime.
+pub const CHAT_CHANNEL: &str = "roost_chat";
+/// Cross-replica control-plane state changes.
+pub const CLUSTER_CHANNEL: &str = "roost_cluster";
 
 /// Every channel this process listens on.
-pub const CHANNELS: &[&str] = &[AGENT_CHANNEL];
+pub const CHANNELS: &[&str] = &[AGENT_CHANNEL, CHAT_CHANNEL, CLUSTER_CHANNEL];
 
 /// Notices buffered per subscriber before a slow one starts missing them.
 const NOTICE_BUFFER: usize = 1024;

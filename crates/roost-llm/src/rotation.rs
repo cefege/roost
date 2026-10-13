@@ -25,8 +25,9 @@ impl AccountPool {
             }),
             _ => now_ms().saturating_add(60_000),
         };
-        self.store().set_block(credential_id, reset).await;
-        self.store().clear_sticky(conversation_id, provider).await;
+        self.store().set_block(credential_id, reset).await?;
+        self.store().clear_sticky(conversation_id, provider).await?;
+
         tracing::info!(
             credential_id,
             provider,
@@ -35,8 +36,9 @@ impl AccountPool {
         );
         match self.resolve(provider, conversation_id).await {
             Ok(result) => Ok(result),
+            Err(error @ LlmError::Storage(_)) => Err(error),
             Err(_) => {
-                let blocked = self.store().blocks(provider).await;
+                let blocked = self.store().blocks(provider).await?;
                 let earliest = blocked
                     .iter()
                     .map(|(_, until)| *until)

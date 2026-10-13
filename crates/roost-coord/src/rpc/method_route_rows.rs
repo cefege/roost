@@ -135,6 +135,7 @@ pub const ROWS_AGENT_CHAT: &[MethodRoute] = &[
     route("AgentChatConfigure", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
     route("AgentChatDelete", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
     route("AgentChatSnapshot", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
+    route("AgentChatEvents", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
     route("AgentModelsList", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
     route("AgentAuthLoginStart", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
     route("AgentAuthLoginPoll", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
