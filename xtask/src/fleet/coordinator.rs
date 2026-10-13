@@ -61,7 +61,10 @@ pub fn install_coordinator(
     }
     for report in pod_reports {
         let Some((pod, report)) = report.split_once(' ') else {
-            return Err(format!("{}: malformed coordinator pod report", coordinator.name));
+            return Err(format!(
+                "{}: malformed coordinator pod report",
+                coordinator.name
+            ));
         };
         let Some((version, build_sha)) = report.split_once(' ') else {
             return Err(format!("{pod}: malformed coordinator version report"));
@@ -134,7 +137,7 @@ fn upgrade_script(coordinator: &KubeCoordinator, tag: &str, sha: &str) -> Result
 
 #[cfg(test)]
 mod tests {
-    use super::{image_tag, upgrade_script, KubeCoordinator};
+    use super::{KubeCoordinator, image_tag, upgrade_script};
 
     #[test]
     fn the_image_tag_is_the_release_tag_without_its_v() {
