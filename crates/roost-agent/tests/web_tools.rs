@@ -170,6 +170,7 @@ async fn unconfigured_engines_are_skipped_silently() {
         &id,
         tool_reply(&[("search1", "web_search", r#"{"query":"release"}"#)]),
     );
+    harness.llm.script(&id, text_reply("Search completed."));
     harness.submit(&id, "Search release").await;
     harness.settle(&id).await;
 
@@ -207,6 +208,9 @@ async fn all_provider_failures_are_listed_in_chain_order() {
         &id,
         tool_reply(&[("search1", "web_search", r#"{"query":"release"}"#)]),
     );
+    harness
+        .llm
+        .script(&id, text_reply("The search providers are unavailable."));
     harness.submit(&id, "Search release").await;
     harness.settle(&id).await;
 
@@ -239,6 +243,10 @@ async fn query_constraint_relaxes_when_it_would_remove_every_source() {
             "web_search",
             r#"{"query":"site:docs.example topic"}"#,
         )]),
+    );
+    harness.llm.script(
+        &id,
+        text_reply("Search completed with relaxed constraints."),
     );
     harness.submit(&id, "Search docs").await;
     harness.settle(&id).await;
