@@ -32,7 +32,12 @@ pub(super) fn focus_field(field: Signal<Option<Rc<MountedData>>>) {
 #[cfg(target_arch = "wasm32")]
 pub(super) fn abort_run(pump: Pump, conversation_id: String) {
     wasm_bindgen_futures::spawn_local(async move {
-        if let Err(error) = pump.rpc().call(&AbortAgentChat { conversation_id }).await {
+        let request_id = super::request_ids::new_request_id();
+        let abort = AbortAgentChat {
+            conversation_id,
+            request_id,
+        };
+        if let Err(error) = pump.rpc().call(&abort).await {
             tracing::warn!(target: "agent_chat", %error, "agent abort failed");
         }
     });

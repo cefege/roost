@@ -170,7 +170,7 @@ async fn create_child(
         .chars()
         .take(TITLE_CHARS)
         .collect();
-    let child = ConversationRecord {
+    let mut child = ConversationRecord {
         id: random_id("c-"),
         title,
         worker_fp: scope.record.worker_fp.clone(),
@@ -188,8 +188,9 @@ async fn create_child(
         error: None,
         created_ms: now,
         updated_ms: now,
+        revision: 0,
     };
-    runtime.inner.store.save_conversation(&child).await?;
+    child.revision = runtime.inner.store.save_conversation(&child, 0).await?;
     runtime.publish_summary(&child).await;
     runtime
         .inner
@@ -200,6 +201,7 @@ async fn create_child(
                 context: context.to_owned(),
             },
             &[],
+            None,
         )
         .await?;
     runtime

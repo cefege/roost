@@ -145,6 +145,7 @@ async fn a_failed_user_append_does_not_commit_loop_capture() {
             retry_backoff: vec![std::time::Duration::from_millis(1); 3],
             advisor_backoff: vec![std::time::Duration::from_millis(1); 3],
             find_timeout: std::time::Duration::from_secs(5),
+            ..RuntimeConfig::default()
         },
     );
     runtime.submit(&id, "/loop 3".to_owned()).await.unwrap();

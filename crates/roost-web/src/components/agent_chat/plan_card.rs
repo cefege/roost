@@ -93,6 +93,7 @@ fn decide(
                 item_id,
                 decision: decision.to_string(),
                 feedback,
+                request_id: super::request_ids::new_request_id(),
             })
             .await
         {
@@ -119,6 +120,7 @@ fn approve_new(
                 item_id,
                 decision: "approve_new".to_string(),
                 feedback: String::new(),
+                request_id: super::request_ids::new_request_id(),
             })
             .await
         {

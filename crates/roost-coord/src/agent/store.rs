@@ -2,16 +2,19 @@
 //!
 //! The runtime calls this through `roost_agent::AgentStore`; rows stay private
 //! to the coordinator and JSON payloads use the shared harness record types.
+//! Admission, leases and fenced appends live in `store_execution.rs`.
 
 use futures::future::BoxFuture;
 use roost_agent::error::AgentError;
 use roost_agent::records::{AgentSettings, ConversationRecord, Entry};
-use roost_agent::traits::AgentStore;
+use roost_agent::traits::{AdmitOutcome, AgentStore, CommandAdmission, LeaseFence};
 use sqlx::Row as _;
 use tokio_util::sync::CancellationToken;
 
 use crate::db::CoordDb;
 
+#[path = "store_execution.rs"]
+mod store_execution;
 #[path = "store_rows.rs"]
 mod store_rows;
 use store_rows::decode_record;
@@ -61,7 +64,8 @@ impl AgentStore for CoordAgentStore {
     fn save_conversation<'a>(
         &'a self,
         record: &'a ConversationRecord,
-    ) -> BoxFuture<'a, Result<(), AgentError>> {
+        expected_revision: u64,
+    ) -> BoxFuture<'a, Result<u64, AgentError>> {
         Box::pin(async move {
             let (provider, model_id) = record
                 .model
@@ -74,17 +78,56 @@ impl AgentStore for CoordAgentStore {
                 .map(serde_json::to_string)
                 .transpose()
                 .map_err(serialize_error)?;
-            sqlx::query("INSERT INTO agent_conversations \
-                (id,title,worker_fp,worker_label,worker_os,cwd,model_provider,model_id,thinking_level,mode,pre_plan_model,parent_id,agent,advisor,run_state,error,created_ms,updated_ms) \
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) \
-                ON CONFLICT(id) DO UPDATE SET title=excluded.title,worker_fp=excluded.worker_fp,worker_label=excluded.worker_label,worker_os=excluded.worker_os,cwd=excluded.cwd,model_provider=excluded.model_provider,model_id=excluded.model_id,thinking_level=excluded.thinking_level,mode=excluded.mode,pre_plan_model=excluded.pre_plan_model,parent_id=excluded.parent_id,agent=excluded.agent,advisor=excluded.advisor,run_state=excluded.run_state,error=excluded.error,created_ms=excluded.created_ms,updated_ms=excluded.updated_ms")
-                .bind(&record.id).bind(&record.title).bind(&record.worker_fp).bind(&record.worker_label)
-                .bind(&record.worker_os).bind(&record.cwd).bind(provider).bind(model_id)
-                .bind(&record.thinking_level).bind(record.mode.as_str()).bind(pre_plan)
-                .bind(&record.parent_id).bind(&record.agent).bind(record.advisor)
-                .bind(record.run_state.as_str()).bind(&record.error).bind(record.created_ms).bind(record.updated_ms)
-                .execute(self.db.pool()).await.map_err(store_error)?;
-            Ok(())
+            let next = expected_revision.saturating_add(1);
+            let next_i64 = i64::try_from(next).map_err(serialize_error)?;
+            let expected_i64 = i64::try_from(expected_revision).map_err(serialize_error)?;
+            let statement = if expected_revision == 0 {
+                sqlx::query(
+                    "INSERT INTO agent_conversations \
+                    (id,title,worker_fp,worker_label,worker_os,cwd,model_provider,model_id,thinking_level,mode,pre_plan_model,parent_id,agent,advisor,run_state,error,created_ms,updated_ms,revision) \
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) \
+                    ON CONFLICT(id) DO NOTHING",
+                )
+            } else {
+                sqlx::query(
+                    "UPDATE agent_conversations SET \
+                    title=$2,worker_fp=$3,worker_label=$4,worker_os=$5,cwd=$6,model_provider=$7,model_id=$8,thinking_level=$9,mode=$10,pre_plan_model=$11,parent_id=$12,agent=$13,advisor=$14,run_state=$15,error=$16,created_ms=$17,updated_ms=$18,revision=$19 \
+                    WHERE id=$1 AND revision=$20",
+                )
+            };
+            let written = statement
+                .bind(&record.id)
+                .bind(&record.title)
+                .bind(&record.worker_fp)
+                .bind(&record.worker_label)
+                .bind(&record.worker_os)
+                .bind(&record.cwd)
+                .bind(provider)
+                .bind(model_id)
+                .bind(&record.thinking_level)
+                .bind(record.mode.as_str())
+                .bind(pre_plan)
+                .bind(&record.parent_id)
+                .bind(&record.agent)
+                .bind(record.advisor)
+                .bind(record.run_state.as_str())
+                .bind(&record.error)
+                .bind(record.created_ms)
+                .bind(record.updated_ms)
+                .bind(next_i64);
+            let written = if expected_revision == 0 {
+                written
+            } else {
+                written.bind(expected_i64)
+            };
+            let outcome = written.execute(self.db.pool()).await.map_err(store_error)?;
+            if outcome.rows_affected() == 1 {
+                return Ok(next);
+            }
+            if expected_revision != 0 && self.conversation(&record.id).await?.is_none() {
+                return Err(AgentError::NotFound(record.id.clone()));
+            }
+            Err(AgentError::Conflict(record.id.clone()))
         })
     }
 
@@ -104,38 +147,67 @@ impl AgentStore for CoordAgentStore {
         id: &'a str,
         entry: &'a Entry,
         cancellation: &'a [&'a CancellationToken],
+        fence: Option<&'a LeaseFence>,
     ) -> BoxFuture<'a, Result<u64, AgentError>> {
-        Box::pin(async move {
-            let json = serde_json::to_string(entry).map_err(serialize_error)?;
-            let mut tx = self.db.begin_write().await.map_err(store_error)?;
-            let conversation_count: i64 =
-                sqlx::query_scalar("SELECT COUNT(*) FROM agent_conversations WHERE id=$1")
-                    .bind(id)
-                    .fetch_one(&mut *tx)
-                    .await
-                    .map_err(store_error)?;
-            if conversation_count == 0 {
-                return Err(AgentError::NotFound(id.to_owned()));
-            }
-            let previous: i64 = sqlx::query_scalar(
-                "SELECT COALESCE(MAX(seq), 0) FROM agent_entries WHERE conversation_id=$1",
-            )
-            .bind(id)
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(store_error)?;
-            let seq = previous
-                .checked_add(1)
-                .ok_or_else(|| AgentError::Store("entry sequence overflow".to_owned()))?;
-            sqlx::query("INSERT INTO agent_entries (conversation_id,seq,entry_json,created_ms) VALUES ($1,$2,$3,$4)")
-                .bind(id).bind(seq).bind(json).bind(now_ms()).execute(&mut *tx).await.map_err(store_error)?;
-            if cancellation.iter().any(|token| token.is_cancelled()) {
-                tx.rollback().await.map_err(store_error)?;
-                return Err(AgentError::Cancelled);
-            }
-            tx.commit().await.map_err(store_error)?;
-            u64::try_from(seq).map_err(|error| AgentError::Store(error.to_string()))
-        })
+        Box::pin(store_execution::append_entry(
+            &self.db,
+            id,
+            entry,
+            cancellation,
+            fence,
+        ))
+    }
+
+    fn admit_command<'a>(
+        &'a self,
+        id: &'a str,
+        admission: CommandAdmission,
+    ) -> BoxFuture<'a, Result<AdmitOutcome, AgentError>> {
+        Box::pin(store_execution::admit_command(&self.db, id, admission))
+    }
+
+    fn complete_command<'a>(
+        &'a self,
+        id: &'a str,
+        request_id: &'a str,
+        result_json: &'a str,
+    ) -> BoxFuture<'a, Result<(), AgentError>> {
+        Box::pin(store_execution::complete_command(
+            &self.db,
+            id,
+            request_id,
+            result_json,
+        ))
+    }
+
+    fn acquire_lease<'a>(
+        &'a self,
+        id: &'a str,
+        owner: &'a str,
+        ttl_ms: u64,
+    ) -> BoxFuture<'a, Result<Option<u64>, AgentError>> {
+        Box::pin(store_execution::acquire_lease(&self.db, id, owner, ttl_ms))
+    }
+
+    fn renew_lease<'a>(
+        &'a self,
+        id: &'a str,
+        fence: &'a LeaseFence,
+        ttl_ms: u64,
+    ) -> BoxFuture<'a, Result<bool, AgentError>> {
+        Box::pin(store_execution::renew_lease(&self.db, id, fence, ttl_ms))
+    }
+
+    fn release_lease<'a>(
+        &'a self,
+        id: &'a str,
+        fence: &'a LeaseFence,
+    ) -> BoxFuture<'a, Result<(), AgentError>> {
+        Box::pin(store_execution::release_lease(&self.db, id, fence))
+    }
+
+    fn orphaned_runs(&self, now_ms: i64) -> BoxFuture<'_, Result<Vec<String>, AgentError>> {
+        Box::pin(store_execution::orphaned_runs(&self.db, now_ms))
     }
 
     fn entries<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Vec<(u64, Entry)>, AgentError>> {
@@ -219,7 +291,7 @@ impl AgentStore for CoordAgentStore {
     }
 }
 
-fn now_ms() -> i64 {
+pub(super) fn now_ms() -> i64 {
     i64::try_from(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

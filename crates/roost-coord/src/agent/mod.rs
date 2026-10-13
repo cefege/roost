@@ -15,17 +15,29 @@ pub mod store;
 pub mod tool_calls;
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use roost_agent::{AgentRuntime, RoostLlm, RuntimeConfig};
 use roost_llm::{AccountPool, CredentialStore, Endpoints};
 
+use crate::cluster::notify::{AGENT_CHANNEL, AgentClusterSignal, ClusterNotifier};
 use crate::db::CoordDb;
 use crate::events::bus_domains::Buses;
 
 pub use logins::{LoginError, LoginRegistry};
 pub use sink::CoordChatSink;
 use tool_calls::ToolCallRegistry;
+
+/// How often a replica looks for runs whose owner stopped renewing.
+const ORPHAN_SWEEP: Duration = Duration::from_secs(15);
+
+/// This replica's identity among coordinators sharing one database.
+#[derive(Debug, Clone)]
+pub struct ClusterMembership {
+    pub instance_id: String,
+    pub notifier: Arc<ClusterNotifier>,
+}
 
 /// The harness and everything its RPCs need.
 pub struct AgentService {
@@ -35,6 +47,8 @@ pub struct AgentService {
     pub logins: LoginRegistry,
     pub http: reqwest::Client,
     pub endpoints: Endpoints,
+    pub cluster: ClusterMembership,
+    background: Mutex<Vec<tokio::task::AbortHandle>>,
 }
 
 impl std::fmt::Debug for AgentService {
@@ -54,9 +68,10 @@ impl AgentService {
         buses: Arc<Buses>,
         tool_calls: Arc<ToolCallRegistry>,
         endpoint_overrides: BTreeMap<String, String>,
+        cluster: ClusterMembership,
     ) -> Arc<Self> {
         let tools = Arc::new(executor::WorkerToolExecutor::new(tool_calls));
-        Self::with_tools(db, buses, tools, endpoint_overrides)
+        Self::with_tools(db, buses, tools, endpoint_overrides, cluster)
     }
 
     /// The harness over any tool executor; tests answer tool calls directly.
@@ -65,6 +80,30 @@ impl AgentService {
         buses: Arc<Buses>,
         tools: Arc<dyn roost_agent::ToolExecutor>,
         endpoint_overrides: BTreeMap<String, String>,
+        cluster: ClusterMembership,
+    ) -> Arc<Self> {
+        Self::with_config(
+            db,
+            buses,
+            tools,
+            endpoint_overrides,
+            cluster.clone(),
+            RuntimeConfig {
+                instance_id: cluster.instance_id,
+                ..RuntimeConfig::default()
+            },
+        )
+    }
+
+    /// [`Self::with_tools`] with the runtime's tunables; `config.instance_id`
+    /// must be `cluster.instance_id`.
+    pub fn with_config(
+        db: CoordDb,
+        buses: Arc<Buses>,
+        tools: Arc<dyn roost_agent::ToolExecutor>,
+        endpoint_overrides: BTreeMap<String, String>,
+        cluster: ClusterMembership,
+        config: RuntimeConfig,
     ) -> Arc<Self> {
         let endpoints = if endpoint_overrides.is_empty() {
             Endpoints::production()
@@ -81,12 +120,13 @@ impl AgentService {
         ));
         let llm = Arc::new(RoostLlm::new(http.clone(), pool, endpoints.clone()));
         let sink = Arc::new(CoordChatSink::new(buses));
-        let runtime = AgentRuntime::new(
+        let runtime = AgentRuntime::clustered(
             Arc::new(store::CoordAgentStore::new(db)),
             tools,
             Arc::clone(&sink) as Arc<dyn roost_agent::ChatSink>,
             Arc::clone(&llm) as Arc<dyn roost_agent::Llm>,
-            RuntimeConfig::default(),
+            Arc::new(AgentClusterSignal(Arc::clone(&cluster.notifier))),
+            config,
         );
         sink.bind(runtime.clone());
         Arc::new(Self {
@@ -96,6 +136,8 @@ impl AgentService {
             logins: LoginRegistry::default(),
             http,
             endpoints,
+            cluster,
+            background: Mutex::new(Vec::new()),
         })
     }
 
@@ -111,8 +153,8 @@ impl AgentService {
             Err(error) => {
                 tracing::error!(%error, "agent run recovery failed; retry scheduled");
                 let runtime = self.runtime.clone();
-                tokio::spawn(async move {
-                    let mut delay = std::time::Duration::from_secs(2);
+                self.spawn_background(async move {
+                    let mut delay = Duration::from_secs(2);
                     loop {
                         tokio::time::sleep(delay).await;
                         match runtime.recover_interrupted_runs().await {
@@ -122,13 +164,77 @@ impl AgentService {
                             }
                             Err(error) => {
                                 tracing::error!(%error, "agent run recovery failed; retry scheduled");
-                                delay = (delay * 2).min(std::time::Duration::from_secs(60));
+                                delay = (delay * 2).min(Duration::from_secs(60));
                             }
                         }
                     }
                 });
             }
         }
+    }
+
+    /// Joins the replica set: listens for other replicas' notices, applies
+    /// agent commands they admitted, and adopts runs whose owner vanished.
+    pub fn join_cluster(&self) {
+        let notifier = Arc::clone(&self.cluster.notifier);
+        self.spawn_background(notifier.listen());
+        let mut notices = self.cluster.notifier.subscribe();
+        let runtime = self.runtime.clone();
+        self.spawn_background(async move {
+            loop {
+                match notices.recv().await {
+                    Ok(notice) if notice.channel == AGENT_CHANNEL && notice.resync => {
+                        runtime.resync_local_runs().await;
+                    }
+                    Ok(notice) if notice.channel == AGENT_CHANNEL => {
+                        let runtime = runtime.clone();
+                        tokio::spawn(async move {
+                            runtime.apply_remote_change(&notice.payload).await;
+                        });
+                    }
+                    Ok(_) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => {
+                        tracing::warn!(missed, "agent cluster notices lagged; resynchronizing");
+                        runtime.resync_local_runs().await;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+        let runtime = self.runtime.clone();
+        self.spawn_background(async move {
+            let mut sweep = tokio::time::interval(ORPHAN_SWEEP);
+            loop {
+                sweep.tick().await;
+                if let Err(error) = runtime.recover_orphaned_runs().await {
+                    tracing::warn!(%error, "orphaned agent run sweep failed");
+                }
+            }
+        });
+        tracing::info!(instance_id = %self.cluster.instance_id, "agent harness joined the coordinator cluster");
+    }
+
+    /// Stops this replica's background tasks and hands its runs to the other
+    /// replicas: local runs stop without settling and their leases are freed.
+    pub async fn leave_cluster(&self) {
+        for task in self
+            .background
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .drain(..)
+        {
+            task.abort();
+        }
+        let released = self.runtime.release_all_leases().await;
+        tracing::info!(released, instance_id = %self.cluster.instance_id, "agent harness left the coordinator cluster");
+    }
+
+    fn spawn_background(&self, task: impl Future<Output = ()> + Send + 'static) {
+        let handle = tokio::spawn(task).abort_handle();
+        self.background
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(handle);
     }
 }
 

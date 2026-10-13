@@ -6,6 +6,7 @@
 mod web_types;
 pub use web_types::FetchedPage;
 
+pub mod admission;
 mod advisor;
 mod ask;
 mod auto_thinking;
@@ -48,4 +49,7 @@ pub use llm_adapter::RoostLlm;
 pub use memory_store::InMemoryAgentStore;
 pub use records::{AgentSettings, ConversationRecord, Entry, Mode, Role};
 pub use runtime::{AgentRuntime, NewConversation, RuntimeConfig};
-pub use traits::{AccountUsage, AgentStore, ChatSink, Llm, ToolCall, ToolExecutor, ToolOutcome};
+pub use traits::{
+    AccountUsage, AdmitOutcome, AgentStore, ChatSink, ClusterSignal, CommandAdmission,
+    IntentChange, LeaseFence, Llm, NoClusterSignal, ToolCall, ToolExecutor, ToolOutcome,
+};

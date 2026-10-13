@@ -19,10 +19,11 @@ registry, `Session` is the user-facing row, `Channel` is a PTY connection,
 | `roost-keeper` | The keeper daemon: PTY ownership, per-channel byte rings, the framed keeper socket protocol. | `roost-keeper` |
 | `roost-worker` | Sessions, keeper client, durable outbox, coordinator link, local door, WebRTC peer, agent tracking. | — |
 | `roost-coord` | SQLite or Postgres state, auth, Connect RPC handlers, Sync and worker WebSocket links, terminal hubs, server-side web push (no browser subscribes yet). | — |
-| `roost-coord::agent` | The agent harness wired to the coordinator: database stores, provider sign-ins and accounts, chat/settings RPCs, the transcript event cache, and worker tool calls. | — |
+| `roost-coord::agent` | The agent harness wired to the coordinator: database stores (command admission, run leases), provider sign-ins and accounts, chat/settings RPCs, the transcript event cache, and worker tool calls. | — |
+| `roost-coord::cluster` | What lets coordinator replicas share one Postgres database: the cross-replica notice channel (`pg_notify`/`LISTEN`; in-process on SQLite). | — |
 | `roost-client-core` | The UI-free client: Connect client, Sync state machine, store fold, terminal-stream replica and route election, input lanes, encoders, find paging. | — |
 | `roost-llm` | The agent harness's provider layer: model catalog, Anthropic / OpenAI Codex / OpenRouter / TypeSafe wire clients, OAuth logins, the multi-account credential pool and rotation, usage reports, the judge. | — |
-| `roost-agent` | The agent harness: conversation loop and durable recovery, goal lifecycle/budget/progress policy, prompts, model roles, plan mode, subagents, semantic find, the advisor, slash commands. The coordinator drives it through store, tool-executor and sink traits. | — |
+| `roost-agent` | The agent harness: conversation loop and durable recovery, run leases and cross-replica command delivery, goal lifecycle/budget/progress policy, prompts, model roles, plan mode, subagents, semantic find, the advisor, slash commands. The coordinator drives it through store, tool-executor, sink and cluster-signal traits. | — |
 | `roost-agent-tools` | The worker-side agent tools: hashline read/edit, write, bash, grep, glob, LSP client and on-demand language-server installer. | — |
 | `roost-web-terminal` | The imperative `web-sys` terminal renderer and its input, IME, mouse, selection and link controllers. | — |
 | `roost-web` | The Dioxus 0.7 web application: routes, components, static assets. | — |

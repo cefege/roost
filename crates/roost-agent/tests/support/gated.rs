@@ -7,7 +7,8 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use parking_lot::Mutex;
 use roost_agent::{
-    AgentError, AgentSettings, AgentStore, ChatSink, ConversationRecord, Entry, InMemoryAgentStore,
+    AdmitOutcome, AgentError, AgentSettings, AgentStore, ChatSink, CommandAdmission,
+    ConversationRecord, Entry, InMemoryAgentStore, LeaseFence,
 };
 use roost_protocol::wire::agent_chat::{ChatEvent, ConversationSummary, TranscriptItem};
 use tokio::sync::Notify;
@@ -117,8 +118,9 @@ impl AgentStore for GatedStore {
     fn save_conversation<'a>(
         &'a self,
         record: &'a ConversationRecord,
-    ) -> BoxFuture<'a, Result<(), AgentError>> {
-        self.inner.save_conversation(record)
+        expected_revision: u64,
+    ) -> BoxFuture<'a, Result<u64, AgentError>> {
+        self.inner.save_conversation(record, expected_revision)
     }
 
     fn delete_conversation<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<(), AgentError>> {
@@ -130,6 +132,7 @@ impl AgentStore for GatedStore {
         id: &'a str,
         entry: &'a Entry,
         cancellation: &'a [&'a CancellationToken],
+        fence: Option<&'a LeaseFence>,
     ) -> BoxFuture<'a, Result<u64, AgentError>> {
         Box::pin(async move {
             let held = matches!(entry, Entry::User { .. })
@@ -139,13 +142,80 @@ impl AgentStore for GatedStore {
                 self.user_append_parked.notify_one();
                 self.user_append_resume.notified().await;
             }
-            let result = self.inner.append_entry(id, entry, cancellation).await;
+            let result = self
+                .inner
+                .append_entry(id, entry, cancellation, fence)
+                .await;
             if held == Some(true) {
                 self.user_append_parked.notify_one();
                 self.user_append_resume.notified().await;
             }
             result
         })
+    }
+
+    fn admit_command<'a>(
+        &'a self,
+        id: &'a str,
+        admission: CommandAdmission,
+    ) -> BoxFuture<'a, Result<AdmitOutcome, AgentError>> {
+        Box::pin(async move {
+            let held = admission
+                .entries
+                .iter()
+                .any(|entry| matches!(entry, Entry::User { .. }))
+                .then(|| self.take_user_append_hold())
+                .flatten();
+            if held == Some(false) {
+                self.user_append_parked.notify_one();
+                self.user_append_resume.notified().await;
+            }
+            let result = self.inner.admit_command(id, admission).await;
+            if held == Some(true) {
+                self.user_append_parked.notify_one();
+                self.user_append_resume.notified().await;
+            }
+            result
+        })
+    }
+
+    fn complete_command<'a>(
+        &'a self,
+        id: &'a str,
+        request_id: &'a str,
+        result_json: &'a str,
+    ) -> BoxFuture<'a, Result<(), AgentError>> {
+        self.inner.complete_command(id, request_id, result_json)
+    }
+
+    fn acquire_lease<'a>(
+        &'a self,
+        id: &'a str,
+        owner: &'a str,
+        ttl_ms: u64,
+    ) -> BoxFuture<'a, Result<Option<u64>, AgentError>> {
+        self.inner.acquire_lease(id, owner, ttl_ms)
+    }
+
+    fn renew_lease<'a>(
+        &'a self,
+        id: &'a str,
+        fence: &'a LeaseFence,
+        ttl_ms: u64,
+    ) -> BoxFuture<'a, Result<bool, AgentError>> {
+        self.inner.renew_lease(id, fence, ttl_ms)
+    }
+
+    fn release_lease<'a>(
+        &'a self,
+        id: &'a str,
+        fence: &'a LeaseFence,
+    ) -> BoxFuture<'a, Result<(), AgentError>> {
+        self.inner.release_lease(id, fence)
+    }
+
+    fn orphaned_runs(&self, now_ms: i64) -> BoxFuture<'_, Result<Vec<String>, AgentError>> {
+        self.inner.orphaned_runs(now_ms)
     }
 
     fn entries<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Vec<(u64, Entry)>, AgentError>> {

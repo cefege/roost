@@ -9,7 +9,7 @@ use roost_protocol::wire::agent_chat::{
     AgentRunState, ChatEvent, ConversationSummary, ModelRef, Transcript, parse_slash_command,
 };
 
-use super::{AgentRuntime, Steer, now_ms, random_id};
+use super::{AgentRuntime, CommandKey, Steer, now_ms, random_id};
 use crate::error::AgentError;
 use crate::records::{AgentSettings, ConversationRecord, Entry, Mode, Role, model_ref};
 use crate::{commands, folder_roles, judging, projection, roles};
@@ -44,7 +44,7 @@ impl AgentRuntime {
             .unwrap_or_else(|| DEFAULT_THINKING.to_owned());
         validate_thinking(&thinking_level)?;
         let now = now_ms();
-        let record = ConversationRecord {
+        let mut record = ConversationRecord {
             id: random_id("c-"),
             title: new.title.unwrap_or_default(),
             worker_fp: new.worker_fp,
@@ -62,8 +62,9 @@ impl AgentRuntime {
             error: None,
             created_ms: now,
             updated_ms: now,
+            revision: 0,
         };
-        self.inner.store.save_conversation(&record).await?;
+        record.revision = self.inner.store.save_conversation(&record, 0).await?;
         tracing::info!(conversation_id = %record.id, worker_fp = %record.worker_fp, "agent conversation created");
         self.publish_summary(&record).await;
         Ok(self.summary(&record).await)
@@ -148,17 +149,38 @@ impl AgentRuntime {
         Ok(())
     }
 
-    /// Submits user text: a slash command runs on the coordinator; other text
-    /// steers a running conversation or starts a run.
+    /// Submits user text from an in-process caller, which has no retries to
+    /// deduplicate.
     pub async fn submit(&self, id: &str, text: String) -> Result<(), AgentError> {
+        self.submit_request(id, &random_id("submit-"), text).await
+    }
+
+    /// Submits a client's user text: a slash command runs on the coordinator;
+    /// other text steers a running conversation or starts a run. A retried
+    /// `request_id` is applied once.
+    pub async fn submit_request(
+        &self,
+        id: &str,
+        request_id: &str,
+        text: String,
+    ) -> Result<(), AgentError> {
+        if request_id.trim().is_empty() {
+            return Err(AgentError::InvalidArgument("request_id is required".into()));
+        }
         let record = self.record(id).await?;
         if let Some((command, args)) = parse_slash_command(&text) {
-            return commands::execute(self, &record, command, args).await;
+            self.deduplicated(id, request_id, "command", || async {
+                commands::execute(self, &record, command, args).await?;
+                Ok(String::new())
+            })
+            .await?;
+            return Ok(());
         }
         if text.trim().is_empty() {
             return Err(AgentError::InvalidArgument("message is empty".into()));
         }
-        self.deliver_user_text(&record, text).await
+        self.deliver_user_text(&record, text, Some(request_id))
+            .await
     }
 
     /// The single path a user message takes into a conversation, typed or
@@ -167,15 +189,33 @@ impl AgentRuntime {
         &self,
         record: &ConversationRecord,
         text: String,
+        request_id: Option<&str>,
     ) -> Result<(), AgentError> {
         let id = record.id.as_str();
         self.note_goal_user_input(id).await?;
         if record.title.trim().is_empty() {
             let title: String = text.trim().chars().take(TITLE_CHARS).collect();
-            self.update_record(id, |row| row.title = title).await?;
+            self.update_record(id, |row| row.title.clone_from(&title))
+                .await?;
         }
         self.deliver_pending_advisories(id).await?;
-        self.steer(id, Steer::User(text)).await
+        let minted;
+        let request_id = if let Some(request_id) = request_id {
+            request_id
+        } else {
+            minted = random_id("submit-");
+            &minted
+        };
+        self.steer_command(
+            id,
+            CommandKey {
+                request_id,
+                kind: "submit",
+            },
+            Vec::new(),
+            Steer::User(text),
+        )
+        .await
     }
 
     /// Marks every advisory card still waiting as delivered, so it joins the
@@ -227,7 +267,7 @@ impl AgentRuntime {
             )));
         }
         let record = self
-            .update_record(id, |row| row.model = Some(model))
+            .update_record(id, |row| row.model = Some(model.clone()))
             .await?;
         self.emit_agent(&record).await;
         Ok(())
@@ -254,16 +294,16 @@ impl AgentRuntime {
         let moved = worker.is_some() || cwd.is_some();
         let record = self
             .update_record(id, |row| {
-                if let Some(title) = title {
-                    row.title = title;
+                if let Some(title) = &title {
+                    row.title.clone_from(title);
                 }
-                if let Some((fp, label, os)) = worker {
-                    row.worker_fp = fp;
-                    row.worker_label = label;
-                    row.worker_os = os;
+                if let Some((fp, label, os)) = &worker {
+                    row.worker_fp.clone_from(fp);
+                    row.worker_label.clone_from(label);
+                    row.worker_os.clone_from(os);
                 }
-                if let Some(cwd) = cwd {
-                    row.cwd = cwd;
+                if let Some(cwd) = &cwd {
+                    row.cwd.clone_from(cwd);
                 }
             })
             .await?;
@@ -279,7 +319,7 @@ impl AgentRuntime {
     pub async fn set_thinking_level(&self, id: &str, level: String) -> Result<(), AgentError> {
         validate_thinking(&level)?;
         let record = self
-            .update_record(id, |row| row.thinking_level = level)
+            .update_record(id, |row| row.thinking_level.clone_from(&level))
             .await?;
         self.emit_agent(&record).await;
         Ok(())

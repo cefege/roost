@@ -9,7 +9,11 @@ use roost_llm::{AssistantBlock, StopReason, Usage};
 use super::{Harness, LIMIT_REACHED, loop_status, notice_bodies, text_reply, user_texts};
 
 async fn append_recovery_entry(harness: &Harness, id: &str, entry: Entry) -> u64 {
-    harness.store.append_entry(id, &entry, &[]).await.unwrap()
+    harness
+        .store
+        .append_entry(id, &entry, &[], None)
+        .await
+        .unwrap()
 }
 
 #[tokio::test]

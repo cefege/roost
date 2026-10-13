@@ -132,7 +132,11 @@ async fn recovery_resumes_current_and_legacy_interrupted_work_once() {
         .unwrap()
         .unwrap();
     record.run_state = AgentRunState::Running;
-    harness.store.save_conversation(&record).await.unwrap();
+    harness
+        .store
+        .save_conversation(&record, record.revision)
+        .await
+        .unwrap();
     let entries = [
         Entry::User {
             text: "prior request".into(),
@@ -199,7 +203,7 @@ async fn recovery_resumes_current_and_legacy_interrupted_work_once() {
     for entry in entries {
         harness
             .store
-            .append_entry(&interrupted_id, &entry, &[])
+            .append_entry(&interrupted_id, &entry, &[], None)
             .await
             .unwrap();
     }
@@ -237,7 +241,7 @@ async fn recovery_resumes_current_and_legacy_interrupted_work_once() {
     for entry in legacy_entries {
         harness
             .store
-            .append_entry(&legacy_id, &entry, &[])
+            .append_entry(&legacy_id, &entry, &[], None)
             .await
             .unwrap();
     }
@@ -250,7 +254,7 @@ async fn recovery_resumes_current_and_legacy_interrupted_work_once() {
     failed_record.run_state = AgentRunState::Failed;
     harness
         .store
-        .save_conversation(&failed_record)
+        .save_conversation(&failed_record, failed_record.revision)
         .await
         .unwrap();
     for entry in [
@@ -284,7 +288,7 @@ async fn recovery_resumes_current_and_legacy_interrupted_work_once() {
     ] {
         harness
             .store
-            .append_entry(&failed_id, &entry, &[])
+            .append_entry(&failed_id, &entry, &[], None)
             .await
             .unwrap();
     }

@@ -118,7 +118,7 @@ impl AgentRuntime {
             u64::MAX
         };
         let now = now_ms();
-        let child = ConversationRecord {
+        let mut child = ConversationRecord {
             id: random_id("c-"),
             title: format!("{} (fork)", source.title),
             worker_fp: source.worker_fp,
@@ -136,8 +136,9 @@ impl AgentRuntime {
             error: None,
             created_ms: now,
             updated_ms: now,
+            revision: 0,
         };
-        self.inner.store.save_conversation(&child).await?;
+        child.revision = self.inner.store.save_conversation(&child, 0).await?;
         for (_, entry) in effective.into_iter().filter(|(seq, _)| *seq <= through_seq) {
             if matches!(
                 entry,
@@ -145,7 +146,12 @@ impl AgentRuntime {
             ) {
                 continue;
             }
-            if let Err(error) = self.inner.store.append_entry(&child.id, &entry, &[]).await {
+            if let Err(error) = self
+                .inner
+                .store
+                .append_entry(&child.id, &entry, &[], None)
+                .await
+            {
                 let _ = self.inner.store.delete_conversation(&child.id).await;
                 return Err(error);
             }

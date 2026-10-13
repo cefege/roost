@@ -120,6 +120,7 @@ async fn committed_repeat_prompt_is_reconciled_once_by_journal_sequence() {
                 state_json: Some(snapshot),
             },
             &[],
+            None,
         )
         .await
         .unwrap();
@@ -132,6 +133,7 @@ async fn committed_repeat_prompt_is_reconciled_once_by_journal_sequence() {
                 loop_repeat: true,
             },
             &[],
+            None,
         )
         .await
         .unwrap();
@@ -183,6 +185,7 @@ async fn prompt_capture_is_spent_only_when_its_user_entry_committed() {
                     state_json: Some(snapshot),
                 },
                 &[],
+                None,
             )
             .await
             .unwrap();
@@ -196,6 +199,7 @@ async fn prompt_capture_is_spent_only_when_its_user_entry_committed() {
                         loop_repeat: false,
                     },
                     &[],
+                    None,
                 )
                 .await
                 .unwrap();
@@ -266,6 +270,7 @@ async fn an_uncommitted_repeat_marker_survives_recovery() {
                 state_json: Some(snapshot),
             },
             &[],
+            None,
         )
         .await
         .unwrap();
@@ -313,6 +318,7 @@ async fn ambiguous_condition_check_is_not_replayed_after_restart() {
                 state_json: Some(snapshot),
             },
             &[],
+            None,
         )
         .await
         .unwrap();
@@ -325,6 +331,7 @@ async fn ambiguous_condition_check_is_not_replayed_after_restart() {
                 loop_repeat: false,
             },
             &[],
+            None,
         )
         .await
         .unwrap();

@@ -26,8 +26,12 @@ mod agent_status_rpc;
 mod agent_status_wait;
 #[path = "agent_store.rs"]
 mod agent_store;
+#[path = "agent_store_execution.rs"]
+mod agent_store_execution;
 #[path = "agent_tool_calls.rs"]
 mod agent_tool_calls;
+#[path = "agent_two_instances.rs"]
+mod agent_two_instances;
 #[path = "announced_barrier.rs"]
 mod announced_barrier;
 #[path = "announced_retention.rs"]

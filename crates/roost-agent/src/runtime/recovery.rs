@@ -4,18 +4,19 @@
 
 use std::collections::{HashMap, HashSet};
 
-use roost_llm::AssistantBlock;
 use roost_protocol::wire::agent_chat::AgentRunState;
 use tokio_util::sync::CancellationToken;
 
 use super::AgentRuntime;
+use super::recovered_turn::recovered_run;
 use crate::error::AgentError;
-use crate::model_call::ModelOutput;
 use crate::records::{ConversationRecord, Entry};
-use crate::roles::ResolvedModel;
 
 impl AgentRuntime {
-    /// Reconciles uncertain tools and starts a durable interrupted intent once.
+    /// Claims the run lease, then reconciles uncertain tools and starts a
+    /// durable interrupted intent once. A lease another replica holds means
+    /// that replica is running it; a claimed lease with nothing to recover is
+    /// released again.
     pub(crate) async fn recover_run(
         &self,
         id: &str,
@@ -26,9 +27,33 @@ impl AgentRuntime {
         if self.is_running(id) {
             return Ok(false);
         }
+        if self.claim_lease(id).await?.is_none() {
+            return Ok(false);
+        }
+        let resumed = self.recover_claimed_run(id, parent).await;
+        if !matches!(resumed, Ok(true)) && !self.is_running(id) {
+            self.release_lease(id).await;
+        }
+        resumed
+    }
+
+    async fn recover_claimed_run(
+        &self,
+        id: &str,
+        parent: Option<&CancellationToken>,
+    ) -> Result<bool, AgentError> {
         let record = self.record(id).await?;
         let entries = self.inner.store.entries(id).await?;
         if !needs_recovery(&record, &entries) {
+            if record.run_state == AgentRunState::Running
+                && latest_run_intent(&entries).is_some_and(|(active, _, _)| !active)
+            {
+                self.update_record(id, |row| {
+                    row.run_state = AgentRunState::Idle;
+                    row.error = None;
+                })
+                .await?;
+            }
             return Ok(false);
         }
         let recovered_run = recovered_run(self, id, &entries);
@@ -231,116 +256,6 @@ pub(crate) fn latest_submission_seq(entries: &[(u64, Entry)]) -> Option<u64> {
         })
 }
 
-pub(super) fn recovered_run(
-    runtime: &AgentRuntime,
-    id: &str,
-    entries: &[(u64, Entry)],
-) -> Option<crate::run_loop::RecoveredRun> {
-    let effective = crate::journal::effective_entries(entries);
-    let (assistant_seq, entry) = effective.iter().rev().find_map(|(sequence, entry)| {
-        matches!(entry, Entry::Assistant { .. }).then_some((*sequence, entry))
-    })?;
-    let active_before = entries.iter().rev().find_map(|(sequence, entry)| {
-        if *sequence >= assistant_seq {
-            return None;
-        }
-        match entry {
-            Entry::RunIntent { active, .. } => Some(*active),
-            _ => None,
-        }
-    })?;
-    if !active_before
-        || entries.iter().any(|(sequence, entry)| {
-            *sequence > assistant_seq && matches!(entry, Entry::RunIntent { active: false, .. })
-        })
-    {
-        return None;
-    }
-    let Entry::Assistant {
-        blocks,
-        usage,
-        model,
-        metadata: Some(metadata),
-        ..
-    } = entry
-    else {
-        return None;
-    };
-    let has_late_submission = latest_submission_seq(entries)
-        .is_some_and(|sequence| sequence > metadata.input_through_seq);
-    let has_late_user = effective.iter().any(|(sequence, entry)| {
-        *sequence > metadata.input_through_seq && matches!(entry, Entry::User { .. })
-    });
-    let loop_body = runtime
-        .inner
-        .loops
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .get(id)
-        .and_then(|state| state.body.clone());
-    let mut continued = metadata.continued && !has_late_user;
-    let mut yield_reminders = metadata.yield_reminders;
-    for (sequence, entry) in effective
-        .iter()
-        .filter(|(sequence, _)| *sequence > assistant_seq)
-    {
-        let Entry::User { text, .. } = entry else {
-            continue;
-        };
-        let steered_user = entries.iter().any(|(intent_seq, entry)| {
-            matches!(
-                entry,
-                Entry::RunIntent {
-                    active: true,
-                    through_seq,
-                    ..
-                } if through_seq == sequence && intent_seq > sequence
-            )
-        });
-        if steered_user {
-            continued = false;
-        } else if text == crate::prompts::UNEXPECTED_STOP {
-            continued = true;
-        } else if let Some(attempt) = crate::run_loop::yield_reminder_attempt(text) {
-            yield_reminders = yield_reminders.max(attempt);
-        } else if loop_body.as_deref() != Some(text.as_str()) {
-            continued = false;
-        }
-    }
-    let pending_text = if metadata.completed
-        && !has_late_submission
-        && metadata.stop_reason.is_some()
-        && !blocks
-            .iter()
-            .any(|block| matches!(block, AssistantBlock::ToolCall { .. }))
-    {
-        let model = model.as_ref().and_then(|reference| {
-            runtime
-                .catalog()
-                .get(&reference.provider, &reference.model_id)
-                .cloned()
-        });
-        Some(crate::run_loop::RecoveredTextTurn {
-            output: ModelOutput {
-                blocks: blocks.clone(),
-                usage: *usage,
-                stop: metadata.stop_reason.clone()?,
-            },
-            model: model.map(|info| ResolvedModel {
-                info,
-                thinking: None,
-            }),
-        })
-    } else {
-        None
-    };
-    Some(crate::run_loop::RecoveredRun {
-        continued,
-        yield_reminders,
-        pending_text,
-    })
-}
-
 fn has_legacy_interruption(entries: &[(u64, Entry)]) -> bool {
     let entries = crate::journal::effective_entries(entries);
     entries.iter().rev().any(|(notice_seq, entry)| {
@@ -360,7 +275,7 @@ fn has_legacy_interruption(entries: &[(u64, Entry)]) -> bool {
             })
     })
 }
-fn recovery_depth(
+pub(super) fn recovery_depth(
     record: &ConversationRecord,
     records: &HashMap<String, ConversationRecord>,
 ) -> usize {

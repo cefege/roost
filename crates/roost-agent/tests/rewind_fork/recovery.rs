@@ -21,6 +21,7 @@ async fn recovery_replays_unexpected_stop_policy_once_for_completed_output() {
                 loop_repeat: false,
             },
             &[],
+            None,
         )
         .await
         .unwrap();
@@ -34,6 +35,7 @@ async fn recovery_replays_unexpected_stop_policy_once_for_completed_output() {
                 aborted: false,
             },
             &[],
+            None,
         )
         .await
         .unwrap();
@@ -58,6 +60,7 @@ async fn recovery_replays_unexpected_stop_policy_once_for_completed_output() {
                 }),
             },
             &[],
+            None,
         )
         .await
         .unwrap();

@@ -106,10 +106,11 @@ pub async fn handle_agent_chat_submit(
     request: proto::AgentChatSubmitRequest,
 ) -> ServiceResult<proto::AgentChatSubmitResponse> {
     require_account_device(caller)?;
+    require_request_id(&request.request_id)?;
     core.services
         .agent
         .runtime
-        .submit(&request.conversation_id, request.text)
+        .submit_request(&request.conversation_id, &request.request_id, request.text)
         .await
         .map_err(agent_status)?;
     ok_response(proto::AgentChatSubmitResponse::default())
@@ -121,13 +122,32 @@ pub async fn handle_agent_chat_abort(
     request: proto::AgentChatAbortRequest,
 ) -> ServiceResult<proto::AgentChatAbortResponse> {
     require_account_device(caller)?;
-    core.services
-        .agent
-        .runtime
-        .abort(&request.conversation_id)
+    require_request_id(&request.request_id)?;
+    let runtime = &core.services.agent.runtime;
+    runtime
+        .deduplicated(
+            &request.conversation_id,
+            &request.request_id,
+            "abort",
+            || async {
+                runtime.abort(&request.conversation_id).await?;
+                Ok(String::new())
+            },
+        )
         .await
         .map_err(agent_status)?;
     ok_response(proto::AgentChatAbortResponse::default())
+}
+
+/// Every agent command carries a client-minted id so a retry is applied once.
+pub(super) fn require_request_id(request_id: &str) -> Result<(), ConnectError> {
+    if request_id.trim().is_empty() {
+        return Err(ConnectError::new(
+            ErrorCode::InvalidArgument,
+            "request_id is required",
+        ));
+    }
+    Ok(())
 }
 
 pub async fn handle_agent_chat_configure(
@@ -221,15 +241,24 @@ pub async fn handle_agent_chat_plan_decide(
     request: proto::AgentChatPlanDecideRequest,
 ) -> ServiceResult<proto::AgentChatPlanDecideResponse> {
     require_account_device(caller)?;
-    let created = core
-        .services
-        .agent
-        .runtime
-        .plan_decide(
+    require_request_id(&request.request_id)?;
+    let runtime = &core.services.agent.runtime;
+    let created = runtime
+        .deduplicated(
             &request.conversation_id,
-            &request.item_id,
-            &request.decision,
-            &request.feedback,
+            &request.request_id,
+            "plan_decide",
+            || async {
+                let created = runtime
+                    .plan_decide(
+                        &request.conversation_id,
+                        &request.item_id,
+                        &request.decision,
+                        &request.feedback,
+                    )
+                    .await?;
+                Ok(created.unwrap_or_default())
+            },
         )
         .await
         .map_err(agent_status)?;

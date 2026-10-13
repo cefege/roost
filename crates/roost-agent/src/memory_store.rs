@@ -6,11 +6,13 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use futures::future::BoxFuture;
+use roost_protocol::wire::agent_chat::AgentRunState;
 use tokio_util::sync::CancellationToken;
 
+use crate::admission::{LeaseRow, intent_entry, lease_expiry, next_lease_epoch};
 use crate::error::AgentError;
 use crate::records::{AgentSettings, ConversationRecord, Entry};
-use crate::traits::AgentStore;
+use crate::traits::{AdmitOutcome, AgentStore, CommandAdmission, LeaseFence};
 
 #[derive(Debug, Default)]
 pub struct InMemoryAgentStore {
@@ -23,6 +25,30 @@ struct MemoryState {
     entries: BTreeMap<String, Vec<(u64, Entry)>>,
     settings: AgentSettings,
     advisor_states: BTreeMap<String, String>,
+    commands: BTreeMap<(String, String), Option<String>>,
+    leases: BTreeMap<String, LeaseRow>,
+}
+
+impl MemoryState {
+    fn append(&mut self, id: &str, entry: Entry) -> u64 {
+        let journal = self.entries.entry(id.to_owned()).or_default();
+        let seq = journal.last().map_or(1, |(last, _)| last + 1);
+        journal.push((seq, entry));
+        seq
+    }
+
+    fn last_seq(&self, id: &str) -> u64 {
+        self.entries
+            .get(id)
+            .and_then(|journal| journal.last())
+            .map_or(0, |(seq, _)| *seq)
+    }
+
+    fn holds(&self, id: &str, fence: &LeaseFence) -> bool {
+        self.leases
+            .get(id)
+            .is_some_and(|row| row.owner == fence.owner && row.epoch == fence.epoch)
+    }
 }
 
 impl InMemoryAgentStore {
@@ -52,13 +78,23 @@ impl AgentStore for InMemoryAgentStore {
     fn save_conversation<'a>(
         &'a self,
         record: &'a ConversationRecord,
-    ) -> BoxFuture<'a, Result<(), AgentError>> {
+        expected_revision: u64,
+    ) -> BoxFuture<'a, Result<u64, AgentError>> {
         Box::pin(async move {
             self.with_state(|state| {
-                state
-                    .conversations
-                    .insert(record.id.clone(), record.clone());
-            })
+                let stored = state.conversations.get(&record.id).map(|row| row.revision);
+                let matches = match stored {
+                    None => expected_revision == 0,
+                    Some(revision) => revision == expected_revision && expected_revision != 0,
+                };
+                if !matches {
+                    return Err(AgentError::Conflict(record.id.clone()));
+                }
+                let mut saved = record.clone();
+                saved.revision = expected_revision + 1;
+                state.conversations.insert(record.id.clone(), saved);
+                Ok(expected_revision + 1)
+            })?
         })
     }
 
@@ -81,6 +117,10 @@ impl AgentStore for InMemoryAgentStore {
                     state.conversations.remove(&conversation_id);
                     state.entries.remove(&conversation_id);
                     state.advisor_states.remove(&conversation_id);
+                    state.leases.remove(&conversation_id);
+                    state
+                        .commands
+                        .retain(|(conversation, _), _| *conversation != conversation_id);
                 }
             })
         })
@@ -91,17 +131,150 @@ impl AgentStore for InMemoryAgentStore {
         id: &'a str,
         entry: &'a Entry,
         cancellation: &'a [&'a CancellationToken],
+        fence: Option<&'a LeaseFence>,
     ) -> BoxFuture<'a, Result<u64, AgentError>> {
         Box::pin(async move {
             self.with_state(|state| {
                 if cancellation.iter().any(|token| token.is_cancelled()) {
                     return Err(AgentError::Cancelled);
                 }
-                let journal = state.entries.entry(id.to_owned()).or_default();
-                let seq = journal.last().map_or(1, |(last, _)| last + 1);
-                journal.push((seq, entry.clone()));
-                Ok(seq)
+                if fence.is_some_and(|fence| !state.holds(id, fence)) {
+                    return Err(AgentError::Fenced(id.to_owned()));
+                }
+                Ok(state.append(id, entry.clone()))
             })?
+        })
+    }
+
+    fn admit_command<'a>(
+        &'a self,
+        id: &'a str,
+        admission: CommandAdmission,
+    ) -> BoxFuture<'a, Result<AdmitOutcome, AgentError>> {
+        Box::pin(async move {
+            self.with_state(|state| {
+                if !state.conversations.contains_key(id) {
+                    return Err(AgentError::NotFound(id.to_owned()));
+                }
+                let key = (id.to_owned(), admission.request_id.clone());
+                if let Some(result_json) = state.commands.get(&key) {
+                    return Ok(AdmitOutcome::Duplicate {
+                        result_json: result_json.clone(),
+                    });
+                }
+                let last_before = state.last_seq(id);
+                let mut seqs: Vec<u64> = admission
+                    .entries
+                    .into_iter()
+                    .map(|entry| state.append(id, entry))
+                    .collect();
+                if let Some(intent) =
+                    intent_entry(admission.intent, last_before, seqs.last().copied())
+                {
+                    seqs.push(state.append(id, intent));
+                }
+                state.commands.insert(key, None);
+                Ok(AdmitOutcome::Admitted { seqs })
+            })?
+        })
+    }
+
+    fn complete_command<'a>(
+        &'a self,
+        id: &'a str,
+        request_id: &'a str,
+        result_json: &'a str,
+    ) -> BoxFuture<'a, Result<(), AgentError>> {
+        Box::pin(async move {
+            self.with_state(|state| {
+                state.commands.insert(
+                    (id.to_owned(), request_id.to_owned()),
+                    Some(result_json.to_owned()),
+                );
+            })
+        })
+    }
+
+    fn acquire_lease<'a>(
+        &'a self,
+        id: &'a str,
+        owner: &'a str,
+        ttl_ms: u64,
+    ) -> BoxFuture<'a, Result<Option<u64>, AgentError>> {
+        Box::pin(async move {
+            let now = crate::runtime::now_ms();
+            self.with_state(|state| {
+                if !state.conversations.contains_key(id) {
+                    return Err(AgentError::NotFound(id.to_owned()));
+                }
+                let Some(epoch) = next_lease_epoch(state.leases.get(id), owner, now) else {
+                    return Ok(None);
+                };
+                state.leases.insert(
+                    id.to_owned(),
+                    LeaseRow {
+                        owner: owner.to_owned(),
+                        epoch,
+                        expires_ms: lease_expiry(now, ttl_ms),
+                    },
+                );
+                Ok(Some(epoch))
+            })?
+        })
+    }
+
+    fn renew_lease<'a>(
+        &'a self,
+        id: &'a str,
+        fence: &'a LeaseFence,
+        ttl_ms: u64,
+    ) -> BoxFuture<'a, Result<bool, AgentError>> {
+        Box::pin(async move {
+            let now = crate::runtime::now_ms();
+            self.with_state(|state| {
+                if !state.holds(id, fence) {
+                    return false;
+                }
+                if let Some(row) = state.leases.get_mut(id) {
+                    row.expires_ms = lease_expiry(now, ttl_ms);
+                }
+                true
+            })
+        })
+    }
+
+    fn release_lease<'a>(
+        &'a self,
+        id: &'a str,
+        fence: &'a LeaseFence,
+    ) -> BoxFuture<'a, Result<(), AgentError>> {
+        Box::pin(async move {
+            self.with_state(|state| {
+                if state.holds(id, fence)
+                    && let Some(row) = state.leases.get_mut(id)
+                {
+                    row.expires_ms = 0;
+                }
+            })
+        })
+    }
+
+    fn orphaned_runs(&self, now_ms: i64) -> BoxFuture<'_, Result<Vec<String>, AgentError>> {
+        Box::pin(async move {
+            self.with_state(|state| {
+                state
+                    .conversations
+                    .values()
+                    .filter(|record| {
+                        let lease = state.leases.get(&record.id);
+                        let crashed =
+                            lease.is_some_and(|row| row.expires_ms > 0 && row.expires_ms <= now_ms);
+                        let unowned = lease.is_none_or(|row| row.expires_ms <= now_ms);
+                        crashed || (record.run_state == AgentRunState::Running && unowned)
+                    })
+                    .map(|record| record.id.clone())
+                    .collect()
+            })
         })
     }
 

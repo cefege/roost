@@ -28,7 +28,7 @@ fn decode_json<T: serde::de::DeserializeOwned>(
 }
 
 simple_call!(SubmitAgentChat,AgentChatSubmitRequest,AgentChatSubmitResponse,(),"AgentChatSubmit",empty; conversation_id:String,text:String,request_id:String);
-simple_call!(AbortAgentChat,AgentChatAbortRequest,AgentChatAbortResponse,(),"AgentChatAbort",empty; conversation_id:String);
+simple_call!(AbortAgentChat,AgentChatAbortRequest,AgentChatAbortResponse,(),"AgentChatAbort",empty; conversation_id:String,request_id:String);
 simple_call!(DeleteAgentChat,AgentChatDeleteRequest,AgentChatDeleteResponse,(),"AgentChatDelete",empty; conversation_id:String);
 simple_call!(StartAgentLogin,AgentAuthLoginStartRequest,AgentAuthLoginStartResponse,String,"AgentAuthLoginStart",|response:AgentAuthLoginStartResponse| Ok(response.login_id); provider:String);
 simple_call!(RespondAgentLogin,AgentAuthLoginRespondRequest,AgentAuthLoginRespondResponse,(),"AgentAuthLoginRespond",empty; login_id:String,prompt_id:String,value:String);
@@ -39,10 +39,10 @@ simple_call!(ListAgentAccounts,AgentAccountsListRequest,AgentAccountsListRespons
 simple_call!(GetAgentUsage,AgentUsageGetRequest,AgentUsageGetResponse,String,"AgentUsageGet",|response:AgentUsageGetResponse| Ok(response.usage_json););
 simple_call!(GetAgentSettings,AgentSettingsGetRequest,AgentSettingsGetResponse,String,"AgentSettingsGet",|response:AgentSettingsGetResponse| Ok(response.settings_json););
 simple_call!(SetAgentSettings,AgentSettingsSetRequest,AgentSettingsSetResponse,(),"AgentSettingsSet",empty; settings_json:String);
-simple_call!(DecideAgentPlan,AgentChatPlanDecideRequest,AgentChatPlanDecideResponse,String,"AgentChatPlanDecide",|response:AgentChatPlanDecideResponse| Ok(response.new_conversation_id); conversation_id:String,item_id:String,decision:String,feedback:String);
-simple_call!(AnswerAgentQuestion,AgentChatAnswerRequest,AgentChatAnswerResponse,(),"AgentChatAnswer",empty; conversation_id:String,item_id:String,answers_json:String);
-simple_call!(RewindAgentChat,AgentChatRewindRequest,AgentChatRewindResponse,String,"AgentChatRewind",|response:AgentChatRewindResponse| Ok(response.text); conversation_id:String,item_id:String,restore_files:bool);
-simple_call!(ForkAgentChat,AgentChatForkRequest,AgentConversation,AgentConversation,"AgentChatFork",|response:AgentConversation| Ok(response); conversation_id:String,item_id:String);
+simple_call!(DecideAgentPlan,AgentChatPlanDecideRequest,AgentChatPlanDecideResponse,String,"AgentChatPlanDecide",|response:AgentChatPlanDecideResponse| Ok(response.new_conversation_id); conversation_id:String,item_id:String,decision:String,feedback:String,request_id:String);
+simple_call!(AnswerAgentQuestion,AgentChatAnswerRequest,AgentChatAnswerResponse,(),"AgentChatAnswer",empty; conversation_id:String,item_id:String,answers_json:String,request_id:String);
+simple_call!(RewindAgentChat,AgentChatRewindRequest,AgentChatRewindResponse,String,"AgentChatRewind",|response:AgentChatRewindResponse| Ok(response.text); conversation_id:String,item_id:String,restore_files:bool,request_id:String);
+simple_call!(ForkAgentChat,AgentChatForkRequest,AgentConversation,AgentConversation,"AgentChatFork",|response:AgentConversation| Ok(response); conversation_id:String,item_id:String,request_id:String);
 
 #[derive(Debug, Clone, Default)]
 pub struct CreateAgentChat {

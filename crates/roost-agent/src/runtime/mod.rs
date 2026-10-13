@@ -1,11 +1,16 @@
 //! The harness runtime: shared state behind a cheap-to-clone handle. It owns
-//! the per-conversation run registry and record locks; `api` holds the
-//! coordinator-facing operations and `runs` the run lifecycle.
+//! the per-conversation run registry, run leases and record locks; `api`
+//! holds the coordinator-facing operations and `runs` the run lifecycle.
 
 mod abort;
 mod api;
+mod dedup;
+mod lease;
+mod publishing;
 mod readmission;
+mod recovered_turn;
 mod recovery;
+mod remote;
 mod runs;
 mod steering;
 mod supervision;
@@ -16,20 +21,21 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use roost_protocol::wire::agent_chat::{ChatEvent, ConversationSummary, UsageTotals};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::advisor::AdvisorHub;
 use crate::error::AgentError;
 use crate::loop_mode::LoopState;
-use crate::projection;
-use crate::records::{ConversationRecord, Entry};
-use crate::traits::{AgentStore, ChatSink, Llm, ToolExecutor};
+use crate::records::ConversationRecord;
+use crate::traits::{
+    AgentStore, ChatSink, ClusterSignal, LeaseFence, Llm, NoClusterSignal, ToolExecutor,
+};
 
 pub use api::NewConversation;
 pub(crate) use recovery::latest_submission_seq;
 pub(crate) use runs::{RunEnd, Steer};
+pub(crate) use steering::CommandKey;
 
 /// Tunables; tests shorten the waits.
 #[derive(Debug, Clone)]
@@ -40,6 +46,12 @@ pub struct RuntimeConfig {
     pub advisor_backoff: Vec<Duration>,
     /// Upper bound on the semantic `find` cascade.
     pub find_timeout: Duration,
+    /// This replica's run-lease owner name; unique per process.
+    pub instance_id: String,
+    /// How long a run lease lives without renewal.
+    pub lease_ttl: Duration,
+    /// How often a running conversation renews its lease.
+    pub lease_renew: Duration,
 }
 
 impl Default for RuntimeConfig {
@@ -56,6 +68,9 @@ impl Default for RuntimeConfig {
                 Duration::from_secs(30),
             ],
             find_timeout: Duration::from_secs(20),
+            instance_id: random_id("coord-"),
+            lease_ttl: Duration::from_secs(30),
+            lease_renew: Duration::from_secs(10),
         }
     }
 }
@@ -79,8 +94,13 @@ pub(crate) struct RuntimeInner {
     pub(crate) tools: Arc<dyn ToolExecutor>,
     pub(crate) sink: Arc<dyn ChatSink>,
     pub(crate) llm: Arc<dyn Llm>,
+    pub(crate) signal: Arc<dyn ClusterSignal>,
     pub(crate) config: RuntimeConfig,
     runs: Mutex<HashMap<String, RunHandle>>,
+    /// The run leases this replica holds, by conversation. A fence stays here
+    /// after another replica takes the lease, so the run's later writes keep
+    /// failing until it settles.
+    leases: Mutex<HashMap<String, LeaseFence>>,
     /// Whether each conversation's latest run ended by a user abort.
     aborted_last: Mutex<HashMap<String, bool>>,
     record_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
@@ -101,6 +121,14 @@ pub(crate) struct RunHandle {
     pub(crate) user_aborted: Arc<AtomicBool>,
     pub(crate) processed_seq: Arc<AtomicU64>,
     pub(crate) abort_seq: Arc<AtomicU64>,
+    /// The highest input sequence handed to `steer`.
+    pub(crate) queued_seq: Arc<AtomicU64>,
+    /// The active intent this run started under; a later aborted intent
+    /// written by another replica stops it.
+    pub(crate) start_intent_seq: Arc<AtomicU64>,
+    /// Set when another replica took the lease: the run stops without
+    /// writing a settlement.
+    pub(crate) fenced: Arc<AtomicBool>,
 }
 
 pub(crate) fn now_ms() -> i64 {
@@ -126,6 +154,7 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 impl AgentRuntime {
+    /// A runtime that is the only replica over its store.
     pub fn new(
         store: Arc<dyn AgentStore>,
         tools: Arc<dyn ToolExecutor>,
@@ -133,14 +162,30 @@ impl AgentRuntime {
         llm: Arc<dyn Llm>,
         config: RuntimeConfig,
     ) -> Self {
+        Self::clustered(store, tools, sink, llm, Arc::new(NoClusterSignal), config)
+    }
+
+    /// A runtime that shares its store with other replicas and wakes them
+    /// through `signal`.
+    pub fn clustered(
+        store: Arc<dyn AgentStore>,
+        tools: Arc<dyn ToolExecutor>,
+        sink: Arc<dyn ChatSink>,
+        llm: Arc<dyn Llm>,
+        signal: Arc<dyn ClusterSignal>,
+        config: RuntimeConfig,
+    ) -> Self {
+        tracing::info!(instance_id = %config.instance_id, "agent runtime started");
         Self {
             inner: Arc::new(RuntimeInner {
                 store,
                 tools,
                 sink,
                 llm,
+                signal,
                 config,
                 runs: Mutex::new(HashMap::new()),
+                leases: Mutex::new(HashMap::new()),
                 aborted_last: Mutex::new(HashMap::new()),
                 record_locks: Mutex::new(HashMap::new()),
                 lifecycle_locks: Mutex::new(HashMap::new()),
@@ -162,142 +207,47 @@ impl AgentRuntime {
     }
 
     /// Read-modify-write of a conversation row under its lock, then publish.
+    /// A concurrent write from another replica is re-read and `change`
+    /// applied again, so neither writer's fields are lost.
     pub(crate) async fn update_record(
         &self,
         id: &str,
-        change: impl FnOnce(&mut ConversationRecord),
+        mut change: impl FnMut(&mut ConversationRecord),
     ) -> Result<ConversationRecord, AgentError> {
         let record_lock = {
             let mut locks = lock(&self.inner.record_locks);
             Arc::clone(locks.entry(id.to_owned()).or_default())
         };
         let _guard = record_lock.lock().await;
-        let mut record = self.record(id).await?;
-        change(&mut record);
-        record.updated_ms = now_ms();
-        self.inner.store.save_conversation(&record).await?;
-        self.publish_summary(&record).await;
-        Ok(record)
-    }
-
-    pub(crate) async fn summary(&self, record: &ConversationRecord) -> ConversationSummary {
-        let settings = self.inner.store.settings().await.ok();
-        let advisor_default = settings
-            .as_ref()
-            .is_some_and(|settings| settings.advisor_enabled);
-        let effective_model = if let Some(settings) = settings {
-            crate::turn::conversation_chain_with_settings(
-                self,
-                record,
-                &settings.for_folder(&record.worker_fp, &record.cwd),
-            )
-            .await
-            .ok()
-            .and_then(|chain| chain.into_iter().next())
-            .map(|candidate| roost_protocol::wire::agent_chat::ModelRef {
-                provider: candidate.info.provider,
-                model_id: candidate.info.id,
-            })
-        } else {
-            None
-        };
-        ConversationSummary {
-            id: record.id.clone(),
-            title: record.title.clone(),
-            worker_fp: record.worker_fp.clone(),
-            worker_label: record.worker_label.clone(),
-            cwd: record.cwd.clone(),
-            model: record.model.clone(),
-            effective_model,
-            thinking_level: Some(record.thinking_level.clone()),
-            mode: record.mode.as_str().to_owned(),
-            parent_id: record.parent_id.clone(),
-            agent: record.agent.clone(),
-            advisor: record.parent_id.is_none() && record.advisor.unwrap_or(advisor_default),
-            run_state: record.run_state,
-            error: record.error.clone(),
-            created_ms: record.created_ms,
-            updated_ms: record.updated_ms,
+        let mut attempts = 0_u32;
+        loop {
+            let mut record = self.record(id).await?;
+            change(&mut record);
+            record.updated_ms = now_ms();
+            match self
+                .inner
+                .store
+                .save_conversation(&record, record.revision)
+                .await
+            {
+                Ok(revision) => {
+                    record.revision = revision;
+                    self.publish_summary(&record).await;
+                    return Ok(record);
+                }
+                Err(AgentError::Conflict(_)) if attempts < 8 => {
+                    attempts += 1;
+                    tracing::debug!(
+                        conversation_id = id,
+                        attempts,
+                        "conversation row changed concurrently; retrying"
+                    );
+                }
+                Err(error) => return Err(error),
+            }
         }
     }
 
-    pub(crate) async fn publish_summary(&self, record: &ConversationRecord) {
-        let summary = self.summary(record).await;
-        self.inner.sink.conversation(&summary).await;
-    }
-
-    pub(crate) async fn emit(&self, id: &str, events: Vec<ChatEvent>) {
-        self.inner.sink.events(id, events).await;
-    }
-
-    /// Appends an entry and emits the transcript item it projects to.
-    pub(crate) async fn append(&self, id: &str, entry: Entry) -> Result<u64, AgentError> {
-        self.append_guarded(id, entry, &[]).await
-    }
-
-    pub(crate) async fn append_guarded(
-        &self,
-        id: &str,
-        entry: Entry,
-        cancellation: &[&CancellationToken],
-    ) -> Result<u64, AgentError> {
-        let seq = self
-            .inner
-            .store
-            .append_entry(id, &entry, cancellation)
-            .await?;
-        let tools = if matches!(entry, Entry::ToolResult { .. }) {
-            projection::index_tool_calls(&self.inner.store.entries(id).await?)
-        } else {
-            projection::ToolCallIndex::new()
-        };
-        if let Some(item) = projection::entry_item(seq, &entry, &tools) {
-            self.emit(id, vec![ChatEvent::Item { item }]).await;
-        }
-        Ok(seq)
-    }
-
-    pub(crate) async fn notice(&self, id: &str, level: &str, title: &str, body: &str) {
-        let entry = Entry::Notice {
-            level: level.to_owned(),
-            title: title.to_owned(),
-            body: body.to_owned(),
-        };
-        if let Err(error) = self.append(id, entry).await {
-            tracing::warn!(conversation_id = id, %error, "agent notice was not recorded");
-        }
-    }
-
-    /// Adds usage from a model call that has no assistant entry of its own.
-    pub(crate) async fn add_extra_usage(
-        &self,
-        id: &str,
-        provider: &str,
-        model_id: &str,
-        usage: &roost_llm::Usage,
-    ) {
-        let entry = Entry::ExtraUsage {
-            provider: provider.to_owned(),
-            model_id: model_id.to_owned(),
-            usage: *usage,
-        };
-        if let Err(error) = self.inner.store.append_entry(id, &entry, &[]).await {
-            tracing::warn!(conversation_id = id, %error, "out-of-turn usage was not recorded");
-        }
-        if let Ok(totals) = self.usage_totals(id).await {
-            self.emit(id, vec![ChatEvent::Usage { usage: totals }])
-                .await;
-        }
-    }
-
-    pub(crate) async fn usage_totals(&self, id: &str) -> Result<UsageTotals, AgentError> {
-        let entries = self.inner.store.entries(id).await?;
-        Ok(projection::usage_totals(
-            self.inner.llm.catalog(),
-            &entries,
-            &UsageTotals::default(),
-        ))
-    }
     pub(crate) fn lifecycle_lock(&self, id: &str) -> Arc<tokio::sync::Mutex<()>> {
         Arc::clone(
             lock(&self.inner.lifecycle_locks)

@@ -159,7 +159,11 @@ async fn a_depth_two_child_is_not_offered_the_task_tool() {
 }
 
 async fn append_journal_entry(harness: &Harness, id: &str, entry: Entry) -> u64 {
-    harness.store.append_entry(id, &entry, &[]).await.unwrap()
+    harness
+        .store
+        .append_entry(id, &entry, &[], None)
+        .await
+        .unwrap()
 }
 
 fn assistant_entry(item_id: &str, text: &str, metadata: Option<AssistantMetadata>) -> Entry {

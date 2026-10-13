@@ -58,6 +58,8 @@ pub(super) fn decode_record(
         error: row.try_get("error").map_err(store_error)?,
         created_ms: row.try_get("created_ms").map_err(store_error)?,
         updated_ms: row.try_get("updated_ms").map_err(store_error)?,
+        revision: u64::try_from(row.try_get::<i64, _>("revision").map_err(store_error)?)
+            .map_err(|error| AgentError::Store(error.to_string()))?,
     })
 }
 

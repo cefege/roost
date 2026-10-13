@@ -268,6 +268,7 @@ fn submit_answers(
                 conversation_id,
                 item_id,
                 answers_json,
+                request_id: super::request_ids::new_request_id(),
             })
             .await
         {

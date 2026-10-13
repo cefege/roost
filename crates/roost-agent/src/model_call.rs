@@ -255,11 +255,7 @@ pub(crate) async fn primary_call(
         model: reference,
         metadata,
     };
-    let seq = runtime
-        .inner
-        .store
-        .append_entry(conversation_id, &entry, &[])
-        .await?;
+    let seq = runtime.append_fenced(conversation_id, &entry, &[]).await?;
     let error_text = result.as_ref().err().and_then(|error| match error {
         AgentError::Cancelled => None,
         other => Some(other.to_string()),

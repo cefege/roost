@@ -8,6 +8,8 @@ use crate::pump::Pump;
 use crate::router_state::use_navigate;
 
 #[cfg(target_arch = "wasm32")]
+use super::request_ids::new_request_id;
+#[cfg(target_arch = "wasm32")]
 use roost_client_core::client::rpc::calls::agent_chat::{
     ForkAgentChat, RewindAgentChat, SubmitAgentChat,
 };
@@ -72,6 +74,7 @@ fn retry_message(pump: Pump, conversation_id: String, item_id: String, text: Str
                 conversation_id: conversation_id.clone(),
                 item_id,
                 restore_files: false,
+                request_id: new_request_id(),
             })
             .await
         {
@@ -99,6 +102,7 @@ fn rewind_to(
                 conversation_id,
                 item_id,
                 restore_files,
+                request_id: new_request_id(),
             })
             .await
         {
@@ -118,6 +122,7 @@ fn fork_from(pump: Pump, conversation_id: String, item_id: String, navigate: Eve
             .call(&ForkAgentChat {
                 conversation_id,
                 item_id,
+                request_id: new_request_id(),
             })
             .await
         {
@@ -139,7 +144,7 @@ fn submit_message(pump: Pump, conversation_id: String, text: String) {
             .call(&SubmitAgentChat {
                 conversation_id,
                 text,
-                request_id: request_id(),
+                request_id: new_request_id(),
                 ..Default::default()
             })
             .await
@@ -147,13 +152,4 @@ fn submit_message(pump: Pump, conversation_id: String, text: String) {
             tracing::warn!(target: "agent_chat", %error, "agent retry submit failed");
         }
     });
-}
-
-#[cfg(target_arch = "wasm32")]
-fn request_id() -> String {
-    let mut bytes = [0_u8; 16];
-    if let Some(crypto) = web_sys::window().and_then(|window| window.crypto().ok()) {
-        let _ = crypto.get_random_values_with_u8_array(&mut bytes);
-    }
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }

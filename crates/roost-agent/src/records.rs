@@ -104,6 +104,9 @@ pub struct ConversationRecord {
     pub error: Option<String>,
     pub created_ms: i64,
     pub updated_ms: i64,
+    /// The stored row's compare-and-set revision; 0 before the first save.
+    #[serde(default)]
+    pub revision: u64,
 }
 
 /// One journal entry. The journal is append-only: a plan proposal or an

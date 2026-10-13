@@ -982,7 +982,11 @@ message AgentChatSubmitRequest {
   string request_id = 3;
 }
 message AgentChatSubmitResponse {}
-message AgentChatAbortRequest { string conversation_id = 1; }
+message AgentChatAbortRequest {
+  string conversation_id = 1;
+  // Client-minted; a retry with the same id is applied once.
+  string request_id = 2;
+}
 message AgentChatAbortResponse {}
 message AgentChatConfigureRequest {
   string conversation_id = 1;
@@ -1038,6 +1042,7 @@ message AgentChatPlanDecideRequest {
   // approve | approve_new | refine
   string decision = 3;
   string feedback = 4;
+  string request_id = 5;
 }
 message AgentChatPlanDecideResponse { string new_conversation_id = 1; }
 message AgentChatAnswerRequest {
@@ -1046,6 +1051,7 @@ message AgentChatAnswerRequest {
   string item_id = 2;
   // JSON object: question id -> array of chosen labels (or one typed answer).
   string answers_json = 3;
+  string request_id = 4;
 }
 message AgentChatAnswerResponse {}
 message AgentChatRewindRequest {
@@ -1054,6 +1060,7 @@ message AgentChatRewindRequest {
   string item_id = 2;
   // Also restore the files the rewound turns changed.
   bool restore_files = 3;
+  string request_id = 4;
 }
 // The rewound user message, for the composer to offer again.
 message AgentChatRewindResponse { string text = 1; }
@@ -1061,6 +1068,7 @@ message AgentChatForkRequest {
   string conversation_id = 1;
   // Copy up to and including this transcript item; empty copies everything.
   string item_id = 2;
+  string request_id = 3;
 }
 
 // ─── service ──────────────────────────────────────────────────────────────

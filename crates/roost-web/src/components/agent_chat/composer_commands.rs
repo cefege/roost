@@ -57,14 +57,7 @@ pub(super) fn submit_message(
     text: String,
     outcome: EventHandler<Result<(), String>>,
 ) {
-    let mut bytes = [0_u8; 16];
-    if let Some(crypto) = web_sys::window().and_then(|window| window.crypto().ok()) {
-        let _ = crypto.get_random_values_with_u8_array(&mut bytes);
-    }
-    let request_id = bytes
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
+    let request_id = super::request_ids::new_request_id();
     let label = text.clone();
     wasm_bindgen_futures::spawn_local(async move {
         match pump

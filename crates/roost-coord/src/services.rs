@@ -72,6 +72,11 @@ pub struct CoordServices {
     /// carry is told the coordinator booted without it, rather than being
     /// handed a default it would read as a fact.
     pub boot: BootFacts,
+    /// This replica's name among coordinators sharing the database, minted
+    /// per process; run leases and pending-RPC ids carry it.
+    pub instance_id: String,
+    /// Cross-replica notices; in-process only on SQLite.
+    pub cluster: Arc<crate::cluster::notify::ClusterNotifier>,
     /// The exclusive keeper-update drain every durable mutation leases from.
     pub write_gate: WriteGate,
     /// Cached authorized keys and their revocation generations.
@@ -274,6 +279,8 @@ impl CoordServices {
         );
         let deploy = DeployRuntime::new();
         let agent_tools = Arc::new(ToolCallRegistry::new(Arc::clone(&workers), db.clone()));
+        let instance_id = crate::agent::random_hex("coord-");
+        let cluster = crate::cluster::notify::ClusterNotifier::new(db.clone());
         let agent = crate::agent::AgentService::new(
             db.clone(),
             Arc::clone(&buses),
@@ -282,6 +289,10 @@ impl CoordServices {
                 .as_deref()
                 .map(|config| config.agent_endpoint_overrides.clone())
                 .unwrap_or_default(),
+            crate::agent::ClusterMembership {
+                instance_id: instance_id.clone(),
+                notifier: Arc::clone(&cluster),
+            },
         );
         let catch_up_on_ready = Arc::new(crate::deploy::catchup_on_ready::CatchUpOnReady::new(
             deploy.clone(),
@@ -305,6 +316,8 @@ impl CoordServices {
         Self {
             db,
             boot,
+            instance_id,
+            cluster,
             write_gate: WriteGate::new(),
             jwt_keys: JwtKeyCache::new(),
             buses,

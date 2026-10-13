@@ -9,13 +9,9 @@ mod support;
 mod recovery;
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
 use std::time::Duration;
 
-use roost_agent::{
-    AgentRuntime, AgentSettings, AgentStore, ChatSink, Entry, Llm, Role, RuntimeConfig,
-    ToolExecutor,
-};
+use roost_agent::{AgentSettings, AgentStore, Entry, Role};
 use roost_protocol::wire::agent_chat::{
     AgentRunState, FolderModelRoles, TodoStatus, TranscriptItem,
 };
@@ -220,17 +216,7 @@ async fn advisor_cursor_and_counters_survive_a_new_runtime() {
     let saved_cursor = saved["cursor"].as_u64().unwrap();
     assert!(saved_cursor > 0);
 
-    let runtime = AgentRuntime::new(
-        harness.store.clone() as Arc<dyn AgentStore>,
-        harness.tools.clone() as Arc<dyn ToolExecutor>,
-        harness.sink.clone() as Arc<dyn ChatSink>,
-        harness.llm.clone() as Arc<dyn Llm>,
-        RuntimeConfig {
-            retry_backoff: vec![Duration::from_millis(1); 3],
-            advisor_backoff: vec![Duration::from_millis(1); 3],
-            find_timeout: Duration::from_secs(5),
-        },
-    );
+    let runtime = harness.restart_runtime();
     harness.llm.script(&id, text_reply("Second result."));
     harness
         .llm

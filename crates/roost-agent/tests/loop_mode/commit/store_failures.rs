@@ -4,7 +4,8 @@
 
 use futures::future::BoxFuture;
 use roost_agent::{
-    AgentError, AgentSettings, AgentStore, ConversationRecord, Entry, InMemoryAgentStore,
+    AdmitOutcome, AgentError, AgentSettings, AgentStore, CommandAdmission, ConversationRecord,
+    Entry, InMemoryAgentStore, LeaseFence,
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -31,25 +32,71 @@ impl AgentStore for FailAppendStore {
     fn save_conversation<'a>(
         &'a self,
         record: &'a ConversationRecord,
-    ) -> BoxFuture<'a, Result<(), AgentError>> {
-        self.inner.save_conversation(record)
+        expected_revision: u64,
+    ) -> BoxFuture<'a, Result<u64, AgentError>> {
+        self.inner.save_conversation(record, expected_revision)
     }
     fn delete_conversation<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<(), AgentError>> {
         self.inner.delete_conversation(id)
     }
-    fn append_entry<'a>(
+    fn admit_command<'a>(
         &'a self,
         id: &'a str,
-        entry: &'a Entry,
-        cancellation: &'a [&'a CancellationToken],
-    ) -> BoxFuture<'a, Result<u64, AgentError>> {
-        if matches!(entry, Entry::User { text, .. } if text == "unaccepted")
+        admission: CommandAdmission,
+    ) -> BoxFuture<'a, Result<AdmitOutcome, AgentError>> {
+        if admission
+            .entries
+            .iter()
+            .any(|entry| matches!(entry, Entry::User { text, .. } if text == "unaccepted"))
             && self.fail_next.swap(false, Ordering::SeqCst)
         {
             return Box::pin(async {
                 Err(AgentError::Store("injected User append failure".into()))
             });
         }
+        self.inner.admit_command(id, admission)
+    }
+    fn complete_command<'a>(
+        &'a self,
+        id: &'a str,
+        request_id: &'a str,
+        result_json: &'a str,
+    ) -> BoxFuture<'a, Result<(), AgentError>> {
+        self.inner.complete_command(id, request_id, result_json)
+    }
+    fn acquire_lease<'a>(
+        &'a self,
+        id: &'a str,
+        owner: &'a str,
+        ttl_ms: u64,
+    ) -> BoxFuture<'a, Result<Option<u64>, AgentError>> {
+        self.inner.acquire_lease(id, owner, ttl_ms)
+    }
+    fn renew_lease<'a>(
+        &'a self,
+        id: &'a str,
+        fence: &'a LeaseFence,
+        ttl_ms: u64,
+    ) -> BoxFuture<'a, Result<bool, AgentError>> {
+        self.inner.renew_lease(id, fence, ttl_ms)
+    }
+    fn release_lease<'a>(
+        &'a self,
+        id: &'a str,
+        fence: &'a LeaseFence,
+    ) -> BoxFuture<'a, Result<(), AgentError>> {
+        self.inner.release_lease(id, fence)
+    }
+    fn orphaned_runs(&self, now_ms: i64) -> BoxFuture<'_, Result<Vec<String>, AgentError>> {
+        self.inner.orphaned_runs(now_ms)
+    }
+    fn append_entry<'a>(
+        &'a self,
+        id: &'a str,
+        entry: &'a Entry,
+        cancellation: &'a [&'a CancellationToken],
+        fence: Option<&'a LeaseFence>,
+    ) -> BoxFuture<'a, Result<u64, AgentError>> {
         if matches!(entry, Entry::RunIntent { active, aborted: false, .. } if *active == self.fail_active)
             && spend_failure(&self.intent_failures)
         {
@@ -64,7 +111,7 @@ impl AgentStore for FailAppendStore {
                 Err(AgentError::Store("injected repeat-admission outage".into()))
             });
         }
-        self.inner.append_entry(id, entry, cancellation)
+        self.inner.append_entry(id, entry, cancellation, fence)
     }
     fn entries<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Vec<(u64, Entry)>, AgentError>> {
         self.inner.entries(id)

@@ -3,7 +3,8 @@
 //! remains unfinished across failures, cancellation and process restart.
 
 use std::panic::AssertUnwindSafe;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -92,23 +93,40 @@ impl AgentRuntime {
         parent: Option<&CancellationToken>,
         mut recovered: Option<run_loop::RecoveredRun>,
     ) -> Result<Option<oneshot::Receiver<RunEnd>>, AgentError> {
-        let entries = self.inner.store.entries(id).await?;
+        if self.is_running(id) {
+            return Ok(None);
+        }
+        if self.claim_lease(id).await?.is_none() {
+            return Ok(None);
+        }
+        let entries = match self.inner.store.entries(id).await {
+            Ok(entries) => entries,
+            Err(error) => {
+                self.release_lease(id).await;
+                return Err(error);
+            }
+        };
         let through_seq = entries.last().map_or(0, |(sequence, _)| *sequence);
         let cancel = parent.map_or_else(CancellationToken::new, CancellationToken::child_token);
         let (steer, steer_rx) = mpsc::unbounded_channel();
         let user_aborted = new_abort_flag();
-        let processed_seq = std::sync::Arc::new(AtomicU64::new(through_seq));
+        let fenced = Arc::new(AtomicBool::new(false));
+        let processed_seq = Arc::new(AtomicU64::new(through_seq));
+        let start_intent_seq = Arc::new(AtomicU64::new(u64::MAX));
         let handle = RunHandle {
             cancel: cancel.clone(),
             steer,
             user_aborted: user_aborted.clone(),
             processed_seq,
-            abort_seq: std::sync::Arc::new(AtomicU64::new(0)),
+            abort_seq: Arc::new(AtomicU64::new(0)),
+            queued_seq: Arc::new(AtomicU64::new(through_seq)),
+            start_intent_seq: Arc::clone(&start_intent_seq),
+            fenced: Arc::clone(&fenced),
         };
         if !self.insert_run(id, handle) {
             return Ok(None);
         }
-        if let Err(error) = self
+        match self
             .append(
                 id,
                 Entry::RunIntent {
@@ -119,8 +137,12 @@ impl AgentRuntime {
             )
             .await
         {
-            let _ = self.take_run(id);
-            return Err(error);
+            Ok(sequence) => start_intent_seq.store(sequence, Ordering::SeqCst),
+            Err(error) => {
+                let _ = self.take_run(id);
+                self.release_lease(id).await;
+                return Err(error);
+            }
         }
         self.mark_aborted(id, false);
         if let Err(error) = self
@@ -131,6 +153,7 @@ impl AgentRuntime {
             .await
         {
             let _ = self.take_run(id);
+            self.release_lease(id).await;
             return Err(error);
         }
         self.emit(
@@ -141,7 +164,7 @@ impl AgentRuntime {
             }],
         )
         .await;
-        tracing::info!(conversation_id = id, "agent run started");
+        tracing::info!(conversation_id = id, instance_id = %self.inner.config.instance_id, "agent run started");
         if let Err(error) = self.start_goal_clock(id).await {
             tracing::warn!(conversation_id = id, %error, "goal execution clock could not start");
         }
@@ -149,13 +172,22 @@ impl AgentRuntime {
         let clock_id = id.to_owned();
         let clock_cancel = cancel.child_token();
         let checkpoint_cancel = clock_cancel.clone();
+        let renew_every = self.inner.config.lease_renew;
         tokio::spawn(async move {
             let mut checkpoint = tokio::time::interval(std::time::Duration::from_secs(5));
+            let mut renewal = tokio::time::interval(renew_every);
+            renewal.reset();
             loop {
                 tokio::select! {
                     () = checkpoint_cancel.cancelled() => {
                         let _ = clock_runtime.checkpoint_goal_clock(&clock_id).await;
                         break;
+                    }
+                    _ = renewal.tick() => {
+                        if !clock_runtime.is_running(&clock_id) {
+                            break;
+                        }
+                        clock_runtime.renew_lease(&clock_id).await;
                     }
                     _ = checkpoint.tick() => {
                         if !clock_runtime.is_running(&clock_id) {
@@ -211,6 +243,9 @@ impl AgentRuntime {
                     }
                 };
                 if let RunEnd::Failed(error) = &end {
+                    if fenced.load(Ordering::SeqCst) {
+                        break RunEnd::Aborted;
+                    }
                     runtime
                         .record_attempt_failure(&conversation_id, error)
                         .await;
@@ -250,6 +285,11 @@ impl AgentRuntime {
             };
             clock_cancel.cancel();
             let aborted = user_aborted.load(Ordering::SeqCst);
+            if fenced.load(Ordering::SeqCst) {
+                runtime.abandon_fenced_run(&conversation_id).await;
+                let _ = done.send(RunEnd::Aborted);
+                return;
+            }
             runtime
                 .settle_run(&conversation_id, &end, aborted, steer_rx)
                 .await;
@@ -308,6 +348,14 @@ impl AgentRuntime {
             )
             .await
             .err();
+        if matches!(intent_error, Some(AgentError::Fenced(_))) {
+            drop(_guard);
+            self.abandon_fenced_run(id).await;
+            return;
+        }
+        if intent_error.is_none() {
+            self.release_lease(id).await;
+        }
         let (run_state, error) = if let Some(error) = &intent_error {
             (AgentRunState::Failed, Some(error.to_string()))
         } else {

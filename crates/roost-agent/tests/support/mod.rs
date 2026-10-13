@@ -215,6 +215,7 @@ impl Harness {
             retry_backoff: vec![Duration::from_millis(1); 3],
             advisor_backoff: vec![Duration::from_millis(1); 3],
             find_timeout: Duration::from_secs(5),
+            ..RuntimeConfig::default()
         };
         let runtime = AgentRuntime::new(
             runtime_store,
@@ -232,6 +233,8 @@ impl Harness {
         }
     }
 
+    /// A new runtime over the same store, as a restarted coordinator on the
+    /// same host: it keeps the instance id, so it adopts its own leases.
     pub fn restart_runtime(&self) -> AgentRuntime {
         AgentRuntime::new(
             self.store.clone() as Arc<dyn AgentStore>,
@@ -242,6 +245,8 @@ impl Harness {
                 retry_backoff: vec![Duration::from_millis(1); 3],
                 advisor_backoff: vec![Duration::from_millis(1); 3],
                 find_timeout: Duration::from_secs(5),
+                instance_id: self.runtime.instance_id().to_owned(),
+                ..RuntimeConfig::default()
             },
         )
     }

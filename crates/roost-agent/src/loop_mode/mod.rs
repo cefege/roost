@@ -119,7 +119,7 @@ impl AgentRuntime {
         drop(lifecycle_guard);
         if has_prompt {
             let record = self.record(id).await?;
-            self.deliver_user_text(&record, parsed.prompt).await
+            self.deliver_user_text(&record, parsed.prompt, None).await
         } else {
             self.emit_loop_status(id).await;
             Ok(())

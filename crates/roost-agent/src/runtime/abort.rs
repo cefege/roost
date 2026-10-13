@@ -6,7 +6,8 @@ use std::collections::{HashMap, HashSet};
 
 use crate::error::AgentError;
 use crate::records::{ConversationRecord, Entry};
-use crate::runtime::AgentRuntime;
+use crate::runtime::{AgentRuntime, random_id};
+use crate::traits::{AdmitOutcome, CommandAdmission, IntentChange};
 use roost_protocol::wire::agent_chat::AgentRunState;
 
 impl AgentRuntime {
@@ -47,36 +48,35 @@ impl AgentRuntime {
         let mut first_error = None;
         let mut abort_sequences = HashMap::new();
         for record in &doomed {
-            match self.inner.store.entries(&record.id).await {
-                Ok(entries) => {
-                    let through_seq = entries.last().map_or(0, |(sequence, _)| *sequence);
-                    match self
-                        .append(
-                            &record.id,
-                            Entry::RunIntent {
-                                active: false,
-                                through_seq,
-                                aborted: true,
-                            },
-                        )
-                        .await
-                    {
-                        Ok(sequence) => {
-                            abort_sequences.insert(record.id.clone(), sequence);
-                        }
-                        Err(error) => {
-                            first_error.get_or_insert(error);
-                        }
+            let admitted = self
+                .inner
+                .store
+                .admit_command(
+                    &record.id,
+                    CommandAdmission {
+                        request_id: random_id("abort-"),
+                        kind: "abort".into(),
+                        entries: Vec::new(),
+                        intent: IntentChange::Abort,
+                    },
+                )
+                .await;
+            match admitted {
+                Ok(AdmitOutcome::Admitted { seqs }) => {
+                    if let Some(sequence) = seqs.last() {
+                        abort_sequences.insert(record.id.clone(), *sequence);
                     }
                 }
+                Ok(AdmitOutcome::Duplicate { .. }) => {}
                 Err(error) => {
                     first_error.get_or_insert(error);
                 }
             }
         }
+        let mut remote = Vec::new();
         for record in &doomed {
             self.mark_aborted(&record.id, true);
-            let _ = self.with_run(&record.id, |run| {
+            let local = self.with_run(&record.id, |run| {
                 if let Some(sequence) = abort_sequences.get(&record.id) {
                     run.abort_seq
                         .store(*sequence, std::sync::atomic::Ordering::SeqCst);
@@ -85,6 +85,9 @@ impl AgentRuntime {
                     .store(true, std::sync::atomic::Ordering::SeqCst);
                 run.cancel.cancel();
             });
+            if local.is_none() {
+                remote.push(record.id.clone());
+            }
         }
         for record in &doomed {
             if let Err(error) = self.pause_loop(&record.id).await {
@@ -93,6 +96,12 @@ impl AgentRuntime {
             if let Err(error) = self.pause_goal_for_abort(&record.id).await {
                 first_error.get_or_insert(error);
             }
+        }
+        for conversation_id in &remote {
+            self.inner
+                .signal
+                .conversation_changed(conversation_id)
+                .await;
         }
         tracing::info!(
             conversation_id = id,

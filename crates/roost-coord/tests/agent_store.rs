@@ -55,6 +55,7 @@ fn conversation(id: &str, parent_id: Option<&str>) -> ConversationRecord {
         error: Some("test error".to_owned()),
         created_ms: 11,
         updated_ms: 22,
+        revision: 0,
     }
 }
 
@@ -65,10 +66,16 @@ async fn conversation_entries_settings_and_credentials_round_trip() {
         .await
         .expect("open database");
     let store = CoordAgentStore::new(db.clone());
-    let parent = conversation("parent", None);
-    let child = conversation("child", Some("parent"));
-    store.save_conversation(&parent).await.expect("save parent");
-    store.save_conversation(&child).await.expect("save child");
+    let mut parent = conversation("parent", None);
+    let mut child = conversation("child", Some("parent"));
+    parent.revision = store
+        .save_conversation(&parent, 0)
+        .await
+        .expect("save parent");
+    child.revision = store
+        .save_conversation(&child, 0)
+        .await
+        .expect("save child");
     store
         .append_entry(
             "child",
@@ -77,6 +84,7 @@ async fn conversation_entries_settings_and_credentials_round_trip() {
                 loop_repeat: false,
             },
             &[],
+            None,
         )
         .await
         .expect("append child entry");
@@ -100,14 +108,14 @@ async fn conversation_entries_settings_and_credentials_round_trip() {
     };
     assert_eq!(
         store
-            .append_entry("parent", &first, &[])
+            .append_entry("parent", &first, &[], None)
             .await
             .expect("append"),
         1
     );
     assert_eq!(
         store
-            .append_entry("parent", &second, &[])
+            .append_entry("parent", &second, &[], None)
             .await
             .expect("append"),
         2
@@ -274,7 +282,7 @@ async fn cancelled_entry_rolls_back_without_spending_a_sequence_number() {
         .expect("open database");
     let store = CoordAgentStore::new(db.clone());
     store
-        .save_conversation(&conversation("cancelled", None))
+        .save_conversation(&conversation("cancelled", None), 0)
         .await
         .expect("save");
     let cancel = CancellationToken::new();
@@ -283,7 +291,9 @@ async fn cancelled_entry_rolls_back_without_spending_a_sequence_number() {
         text: "repeat".into(),
         loop_repeat: false,
     };
-    let result = store.append_entry("cancelled", &entry, &[&cancel]).await;
+    let result = store
+        .append_entry("cancelled", &entry, &[&cancel], None)
+        .await;
     assert!(matches!(result, Err(roost_agent::AgentError::Cancelled)));
     assert_eq!(
         store.entries("cancelled").await.expect("entries"),
@@ -291,7 +301,7 @@ async fn cancelled_entry_rolls_back_without_spending_a_sequence_number() {
     );
     assert_eq!(
         store
-            .append_entry("cancelled", &entry, &[])
+            .append_entry("cancelled", &entry, &[], None)
             .await
             .expect("append"),
         1

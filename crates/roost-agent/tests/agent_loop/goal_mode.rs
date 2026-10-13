@@ -33,6 +33,7 @@ pub(super) async fn persist_goal(harness: &Harness, conversation_id: &str, state
             conversation_id,
             &Entry::Goal { state },
             &[] as &[&CancellationToken],
+            None,
         )
         .await
         .unwrap();
@@ -157,6 +158,7 @@ async fn budget_exhaustion_schedules_one_hidden_wrap_up_turn() {
                 }),
             },
             &[] as &[&CancellationToken],
+            None,
         )
         .await
         .unwrap();
@@ -307,6 +309,7 @@ async fn blocked_only_todos_wait_without_completing_or_resuming_on_restart() {
                 }],
             },
             &[] as &[&CancellationToken],
+            None,
         )
         .await
         .unwrap();

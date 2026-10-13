@@ -89,7 +89,7 @@ impl AgentRuntime {
             let checkpoint: Result<_, AgentError> = async {
                 self.reconcile_interrupted_tools(id).await?;
                 let entries = self.inner.store.entries(id).await?;
-                Ok(super::recovery::recovered_run(self, id, &entries))
+                Ok(super::recovered_turn::recovered_run(self, id, &entries))
             }
             .await;
             match checkpoint {

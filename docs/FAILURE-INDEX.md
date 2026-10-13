@@ -2397,6 +2397,25 @@ the code assumes. Raising it needs every count-then-write moved under `CoordDb::
 `two_concurrent_subscribes_for_one_device_cannot_both_land_past_the_cap`, run against Postgres by the CI
 `postgres` job.
 
+### Two coordinator replicas run one agent conversation
+
+**Symptom** — after a restart or with two coordinator pods, one prompt produces two assistant replies,
+a tool runs twice, or a Stop pressed in one browser does nothing while another browser's replica keeps
+streaming.
+
+**Wrong** — treat the in-memory run registry (`RuntimeInner.runs`) as the owner of a conversation, start
+a run wherever a submit lands, or let boot recovery resume every unfinished journal it reads.
+
+**Right** — a run is owned by the `agent_run_leases` row (`owner_instance`, `epoch`, `expires_ms`).
+`start_run_now` and `recover_run` claim it before any write; every journal write of the run carries the
+fence and `append_entry` refuses a superseded epoch (`AgentError::Fenced`), after which the run stops
+without a settlement. Input and aborts are admitted with their run intent and request id in one
+transaction (`admit_command`), then the owner is woken (`pg_notify('roost_agent', id)`) and re-reads the
+journal. A replica that stops renewing loses the run when its lease expires.
+
+**Guard** — `crates/roost-coord/tests/agent_two_instances.rs` (every case, against Postgres in the CI
+`postgres` job), `crates/roost-coord/tests/agent_store_execution.rs`.
+
 ---
 
 ## Browser platform reality

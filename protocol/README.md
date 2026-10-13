@@ -35,7 +35,7 @@
 
 | Surface | Path / label | Transport / auth | Defined in | Spec |
 | --- | --- | --- | --- | --- |
-| Connect-RPC | `POST /roost.v1.CoordinatorService/<Method>` | HTTPS; account-device or legacy-self-hosted JWT for protected methods; bootstrap/pair entry methods are separately authorized. | `protocol/proto/roost/v1/coordinator.proto`; `crates/roost-coord/src/rpc/` | [`spec/coordinator-rpc.md`](spec/coordinator-rpc.md) |
+| Connect-RPC | `POST /roost.v1.CoordinatorService/<Method>` | HTTPS; account-device or legacy-self-hosted JWT for protected methods; bootstrap/pair entry methods are separately authorized. | `protocol/proto/roost/v1/coordinator.proto`; `crates/roost-coord/src/rpc/` | [`spec/coordinator-rpc.md`](spec/coordinator-rpc.md), [`spec/agent-chat.md`](spec/agent-chat.md) |
 | Sync WS | `/ws/coord-sync?tab=<id>&since=<id>&flow=1&sync_v=2` | WebSocket subprotocol `roost-auth`; account-device JWT; no `tab` means read-only. | `crates/roost-protocol/src/wire/sync_ws.rs`; `crates/roost-coord/src/sync_ws/upgrade_admission.rs` | [`spec/sync.md`](spec/sync.md) |
 | Worker link WS | `/ws/coord-worker/<64-hex fingerprint>` | Raw full-duplex WebSocket; worker JWT and exact worker identity; not a client surface. | `protocol/proto/roost/v1/worker_transport.proto`; `crates/roost-coord/src/worker_link/upgrade_admission.rs` | [`spec/worker-link.md`](spec/worker-link.md) |
 | DB export | `GET /api/db-export` | Operator HTTP surface; on-host/account-device gate. | `crates/roost-coord/src/http/db_export.rs` | [`spec/coordinator-rpc.md`](spec/coordinator-rpc.md) |

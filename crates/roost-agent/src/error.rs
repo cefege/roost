@@ -17,6 +17,12 @@ pub enum AgentError {
     Model(String),
     #[error("cancelled")]
     Cancelled,
+    /// A compare-and-set write lost to a concurrent writer.
+    #[error("conversation {0} was changed concurrently")]
+    Conflict(String),
+    /// The run lease this write carried was taken by another replica.
+    #[error("conversation {0} run is owned by another coordinator")]
+    Fenced(String),
 }
 
 impl From<roost_llm::LlmError> for AgentError {

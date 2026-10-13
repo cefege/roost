@@ -343,7 +343,10 @@ async fn an_unexpected_stop_is_continued_exactly_once() {
 impl Harness {
     async fn store_entry(&self, id: &str, entry: Entry) {
         use roost_agent::AgentStore;
-        self.store.append_entry(id, &entry, &[]).await.unwrap();
+        self.store
+            .append_entry(id, &entry, &[], None)
+            .await
+            .unwrap();
     }
 
     async fn runtime_entries(&self, id: &str) -> Vec<(u64, Entry)> {

@@ -171,6 +171,10 @@ async fn setup(label: &str) -> Setup {
         Arc::clone(&services.buses),
         Arc::clone(&worker) as Arc<dyn ToolExecutor>,
         BTreeMap::from([("anthropic".to_owned(), format!("http://{address}"))]),
+        roost_coord::agent::ClusterMembership {
+            instance_id: services.instance_id.clone(),
+            notifier: Arc::clone(&services.cluster),
+        },
     );
     Setup {
         fixture,
@@ -212,12 +216,17 @@ async fn create(setup: &Setup) -> String {
 }
 
 async fn submit(setup: &Setup, id: &str, text: &str) {
+    let request = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
     handle_agent_chat_submit(
         &setup.fixture.core,
         &setup.fixture.caller,
         proto::AgentChatSubmitRequest {
             conversation_id: id.into(),
             text: text.into(),
+            request_id: format!("submit-{request}"),
             ..Default::default()
         },
     )

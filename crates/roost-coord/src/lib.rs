@@ -24,6 +24,7 @@ pub mod agents;
 pub mod attachments;
 pub mod auth;
 pub mod clipboard;
+pub mod cluster;
 pub mod coord_core;
 pub mod db;
 pub mod deploy;

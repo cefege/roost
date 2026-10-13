@@ -14,6 +14,8 @@ pub fn agent_status(error: AgentError) -> ConnectError {
         AgentError::FailedPrecondition(_) => ErrorCode::FailedPrecondition,
         AgentError::Model(_) => ErrorCode::Unavailable,
         AgentError::Cancelled => ErrorCode::Canceled,
+        AgentError::Conflict(_) => ErrorCode::Aborted,
+        AgentError::Fenced(_) => ErrorCode::Unavailable,
         AgentError::Store(_) => {
             tracing::error!(%error, "agent store failure");
             return ConnectError::new(ErrorCode::Internal, "agent storage failed");

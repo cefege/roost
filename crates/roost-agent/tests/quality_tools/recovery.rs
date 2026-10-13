@@ -20,6 +20,7 @@ async fn late_run_intent_does_not_discard_already_consumed_output() {
                 loop_repeat: false,
             },
             &[],
+            None,
         )
         .await
         .unwrap();
@@ -33,6 +34,7 @@ async fn late_run_intent_does_not_discard_already_consumed_output() {
                 aborted: false,
             },
             &[],
+            None,
         )
         .await
         .unwrap();
@@ -45,6 +47,7 @@ async fn late_run_intent_does_not_discard_already_consumed_output() {
                 loop_repeat: false,
             },
             &[],
+            None,
         )
         .await
         .unwrap();
@@ -69,6 +72,7 @@ async fn late_run_intent_does_not_discard_already_consumed_output() {
                 }),
             },
             &[],
+            None,
         )
         .await
         .unwrap();
@@ -82,6 +86,7 @@ async fn late_run_intent_does_not_discard_already_consumed_output() {
                 aborted: false,
             },
             &[],
+            None,
         )
         .await
         .unwrap();

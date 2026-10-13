@@ -245,6 +245,7 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
         Arc::clone(&state.services),
         pair_stopped,
     );
+    state.services.agent.join_cluster();
     state.services.agent.recover().await;
 
     // Nagle holds a small write for the peer's delayed ACK (~40 ms), clumping a
@@ -266,6 +267,7 @@ pub async fn serve(boot: CoordBoot) -> anyhow::Result<()> {
 
     drop(pair_shutdown);
     pair_retention.stop().await;
+    state.services.agent.leave_cluster().await;
 
     // A drain the bound cut short is a clean exit: the open sockets belong to
     // workers and browsers that redial.

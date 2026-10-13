@@ -153,7 +153,7 @@ impl AgentRuntime {
                     return Ok(());
                 }
                 let state = self.set_goal(&record.id, objective, operation == Some("set"), None).await?;
-                self.deliver_user_text(record, objective.to_owned()).await?;
+                self.deliver_user_text(record, objective.to_owned(), None).await?;
                 self.notice(&record.id, "info", "Goal set", &state.objective).await;
                 Ok(())
             }

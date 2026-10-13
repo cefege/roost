@@ -23,6 +23,7 @@ async fn boot_resumes_durable_progress_without_replaying_unknown_tool_effects() 
                 loop_repeat: false,
             },
             &[],
+            None,
         )
         .await
         .unwrap();
@@ -51,6 +52,7 @@ async fn boot_resumes_durable_progress_without_replaying_unknown_tool_effects() 
                 metadata: None,
             },
             &[],
+            None,
         )
         .await
         .unwrap();
@@ -65,12 +67,16 @@ async fn boot_resumes_durable_progress_without_replaying_unknown_tool_effects() 
                 details_json: "{}".into(),
             },
             &[],
+            None,
         )
         .await
         .unwrap();
     let mut record = store.conversation(&id).await.unwrap().unwrap();
     record.run_state = AgentRunState::Running;
-    store.save_conversation(&record).await.unwrap();
+    store
+        .save_conversation(&record, record.revision)
+        .await
+        .unwrap();
     setup
         .fake
         .replies
