@@ -140,6 +140,7 @@ fn submit_message(pump: Pump, conversation_id: String, text: String) {
                 conversation_id,
                 text,
                 request_id: request_id(),
+                ..Default::default()
             })
             .await
         {

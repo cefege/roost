@@ -17,7 +17,7 @@ pub(crate) fn render_delta(entries: &[(u64, Entry)], cursor: u64) -> String {
 
 fn render_entry(entry: &Entry) -> Option<String> {
     match entry {
-        Entry::User { text } => Some(format!("## User\n{text}")),
+        Entry::User { text, .. } => Some(format!("## User\n{text}")),
         Entry::Assistant { blocks, .. } => {
             let blocks = blocks
                 .iter()
@@ -96,7 +96,12 @@ fn render_entry(entry: &Entry) -> Option<String> {
         Entry::Btw { .. }
         | Entry::Rewind { .. }
         | Entry::ExtraUsage { .. }
-        | Entry::SubagentContext { .. } => None,
+        | Entry::SubagentContext { .. }
+        | Entry::RunIntent { .. }
+        | Entry::LoopState { .. }
+        | Entry::Goal { .. }
+        | Entry::GoalContinuation { .. }
+        | Entry::GoalActivity { .. } => None,
     }
 }
 

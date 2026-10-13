@@ -206,6 +206,27 @@ still run inside it. Separately, the built-in Rust harness runs in the
 coordinator (`roost-agent` and `roost-llm`), with tools executed by
 `roost-agent-tools` on workers over `agent_tools_v1` worker-link frames.
 
+The harness journals accepted input and run intent in the coordinator database.
+Startup resumes unfinished work from the same conversation; explicit Stop and
+completed runs remain idle. Failed attempts and caught run-task panics retry
+with cancellation-aware backoff (2 s, 10 s, then 60 s) and durable transcript
+notices. Each finished tool result commits before the next mutating call starts.
+A tool call missing its durable result has an unknown outcome: recovery records
+that uncertainty instead of replaying its effects. Dispatch waits for an offline
+worker before starting the tool timeout; a lost dispatched call is not resent.
+
+Goals add durable objective/status/budget snapshots to that journal. Each
+primary request records the goal ID admitted with it, so usage cannot leak into
+a replacement or inactive goal. Hidden continuation markers, explicit re-arms
+and progress fingerprints survive restart without becoming accepted user
+prompts. Only the explicit completion tool marks success; blocked/no-progress
+states remain waiting. Pause and Stop have distinct continuation/abort semantics.
+
+The web harness renders semantic chat, not terminal cells: stable streamed
+prose/thinking blocks, compact tool disclosures with queued/executing states,
+phased todo progress, durable notices and composer-anchored error controls.
+Goal/model/settings actions use the same runtime/RPC paths as slash commands.
+
 ## Terminal fidelity
 
 Streaming raw bytes to a browser terminal corrupts in practice: the browser

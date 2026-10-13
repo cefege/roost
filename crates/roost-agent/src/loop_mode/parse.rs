@@ -20,8 +20,7 @@ pub(crate) enum Limit {
     Duration(Duration),
 }
 
-/// A shell command the worker runs after each run to decide whether to repeat.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Condition {
     pub(crate) command: String,
     /// `--until` repeats while the command fails; `--while` repeats while it passes.

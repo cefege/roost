@@ -35,6 +35,7 @@ pub(crate) async fn execute(
                 .await;
             Ok(())
         }
+        "goal" => runtime.goal_command(record, args).await,
         "advisor" => advisor::command(runtime, record, args).await,
         "loop" => runtime.run_loop_command(&record.id, args).await,
         other => Err(AgentError::InvalidArgument(format!(
@@ -86,7 +87,7 @@ async fn latest_user(
         .into_iter()
         .rev()
         .find_map(|(seq, entry)| match entry {
-            Entry::User { text } => Some((format!("u{seq}"), text)),
+            Entry::User { text, .. } => Some((format!("u{seq}"), text)),
             _ => None,
         })
         .ok_or_else(|| AgentError::InvalidArgument("no user turn to rewind".into()))

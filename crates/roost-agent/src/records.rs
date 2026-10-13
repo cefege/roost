@@ -4,9 +4,9 @@
 
 use std::collections::BTreeMap;
 
-use roost_llm::{AssistantBlock, Usage};
+use roost_llm::{AssistantBlock, StopReason, Usage};
 use roost_protocol::wire::agent_chat::{
-    AgentRunState, AskQuestion, FolderModelRoles, ModelRef, TodoPhase,
+    AgentRunState, AskQuestion, FolderModelRoles, GoalState, ModelRef, TodoPhase,
 };
 use serde::{Deserialize, Serialize};
 
@@ -114,12 +114,17 @@ pub struct ConversationRecord {
 pub enum Entry {
     User {
         text: String,
+        /// An identical user steer must not be charged as a committed repeat.
+        #[serde(default)]
+        loop_repeat: bool,
     },
     Assistant {
         item_id: String,
         blocks: Vec<AssistantBlock>,
         usage: Usage,
         model: Option<ModelRef>,
+        #[serde(default)]
+        metadata: Option<AssistantMetadata>,
     },
     ToolResult {
         call_id: String,
@@ -154,9 +159,7 @@ pub enum Entry {
         delivered: bool,
     },
     /// The agent's task list after a `todo` call; the latest copy is current.
-    Todo {
-        phases: Vec<TodoPhase>,
-    },
+    Todo { phases: Vec<TodoPhase> },
     /// Questions the `ask` tool put to the user; re-appended with `answers`.
     Ask {
         item_id: String,
@@ -172,9 +175,7 @@ pub enum Entry {
     },
     /// Every earlier entry with `seq >= to_seq` is undone: hidden from the
     /// transcript and the model history.
-    Rewind {
-        to_seq: u64,
-    },
+    Rewind { to_seq: u64 },
     /// Tokens spent outside the conversation's own turns (advisor reviews,
     /// compaction, `/btw`, judgments). Counted in usage totals only.
     ExtraUsage {
@@ -183,9 +184,50 @@ pub enum Entry {
         usage: Usage,
     },
     /// A subagent's shared `task` context, written once at creation.
-    SubagentContext {
-        context: String,
+    SubagentContext { context: String },
+    /// Durable intent for supervising accepted work across restarts.
+    /// `through_seq` is the last journal sequence included in this run.
+    RunIntent {
+        active: bool,
+        through_seq: u64,
+        aborted: bool,
     },
+    /// The durable `/loop` snapshot; the latest entry is authoritative.
+    LoopState { state_json: Option<String> },
+    /// The latest durable goal snapshot; each transition appends a replacement.
+    Goal { state: GoalState },
+    /// Hidden prompt provenance for one autonomous goal continuation.
+    GoalContinuation {
+        goal_id: String,
+        #[serde(default)]
+        budget_wrap_up: bool,
+        #[serde(default)]
+        input_through_seq: u64,
+    },
+    /// The last completed goal work unit, used to detect repeated activity.
+    GoalActivity {
+        goal_id: String,
+        fingerprint: String,
+    },
+}
+
+/// Durable request and run state for one assistant response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssistantMetadata {
+    #[serde(default)]
+    pub completed: bool,
+    #[serde(default)]
+    pub stop_reason: Option<StopReason>,
+    /// The last accepted submission represented in the model request.
+    #[serde(default)]
+    pub input_through_seq: u64,
+    #[serde(default)]
+    pub continued: bool,
+    #[serde(default)]
+    pub yield_reminders: u32,
+    /// The eligible goal when the provider request was admitted, even if it is paused later.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

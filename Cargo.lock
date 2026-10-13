@@ -5470,6 +5470,7 @@ dependencies = [
  "hex",
  "ipnet",
  "openssl",
+ "parking_lot",
  "reqwest 0.13.5",
  "roost-agent",
  "roost-host",

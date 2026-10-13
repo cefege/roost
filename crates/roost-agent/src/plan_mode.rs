@@ -34,6 +34,20 @@ pub(crate) async fn toggle(
 }
 
 async fn enter(runtime: &AgentRuntime, record: &ConversationRecord) -> Result<(), AgentError> {
+    let lifecycle = runtime.lifecycle_lock(&record.id);
+    let lifecycle_guard = lifecycle.lock().await;
+    if runtime.current_goal(&record.id).await?.is_some_and(|goal| {
+        matches!(
+            goal.status,
+            roost_protocol::wire::agent_chat::GoalStatus::Active
+                | roost_protocol::wire::agent_chat::GoalStatus::Paused
+                | roost_protocol::wire::agent_chat::GoalStatus::BudgetLimited
+        )
+    }) {
+        return Err(AgentError::FailedPrecondition(
+            "Plan mode cannot run while a goal is active or paused".into(),
+        ));
+    }
     let updated = runtime
         .update_record(&record.id, |row| {
             row.mode = Mode::Plan;
@@ -49,6 +63,7 @@ async fn enter(runtime: &AgentRuntime, record: &ConversationRecord) -> Result<()
             },
         )
         .await?;
+    drop(lifecycle_guard);
     runtime.emit_agent(&updated).await;
     tracing::info!(conversation_id = %record.id, "plan mode entered");
     Ok(())
@@ -60,6 +75,8 @@ async fn exit(
     id: &str,
     plan_title: Option<String>,
 ) -> Result<ConversationRecord, AgentError> {
+    let lifecycle = runtime.lifecycle_lock(id);
+    let lifecycle_guard = lifecycle.lock().await;
     let updated = runtime
         .update_record(id, |row| {
             row.mode = Mode::Normal;
@@ -75,6 +92,7 @@ async fn exit(
             },
         )
         .await?;
+    drop(lifecycle_guard);
     runtime.emit_agent(&updated).await;
     tracing::info!(conversation_id = id, "plan mode left");
     Ok(updated)

@@ -5,6 +5,7 @@
 #![allow(dead_code, unused_imports)]
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -32,6 +33,8 @@ pub struct FakeTools {
     pub answers: Mutex<HashMap<String, ToolOutcome>>,
     pub calls: Mutex<Vec<(String, ToolCall)>>,
     pub delay: Mutex<Option<Duration>>,
+    pub panic_next: AtomicBool,
+    pub hold_next: AtomicBool,
 }
 
 impl FakeTools {
@@ -70,8 +73,18 @@ impl ToolExecutor for FakeTools {
             .unwrap()
             .push((worker_fp.to_owned(), call.clone()));
         let answer = self.answers.lock().unwrap().get(&call.tool).cloned();
-        let delay = *self.delay.lock().unwrap();
+        let delay = if call.tool != "context_files" && self.hold_next.swap(false, Ordering::SeqCst)
+        {
+            Some(Duration::from_secs(3600))
+        } else {
+            *self.delay.lock().unwrap()
+        };
+        let panic_next =
+            call.tool != "context_files" && self.panic_next.swap(false, Ordering::SeqCst);
         Box::pin(async move {
+            if panic_next {
+                panic!("simulated worker tool panic");
+            }
             if call.tool == "context_files" {
                 return Ok(answer.unwrap_or(ToolOutcome {
                     is_error: false,
@@ -219,6 +232,20 @@ impl Harness {
         }
     }
 
+    pub fn restart_runtime(&self) -> AgentRuntime {
+        AgentRuntime::new(
+            self.store.clone() as Arc<dyn AgentStore>,
+            self.tools.clone() as Arc<dyn ToolExecutor>,
+            self.sink.clone() as Arc<dyn ChatSink>,
+            self.llm.clone() as Arc<dyn Llm>,
+            RuntimeConfig {
+                retry_backoff: vec![Duration::from_millis(1); 3],
+                advisor_backoff: vec![Duration::from_millis(1); 3],
+                find_timeout: Duration::from_secs(5),
+            },
+        )
+    }
+
     pub async fn conversation(&self) -> String {
         self.runtime
             .create_conversation(NewConversation {
@@ -240,12 +267,16 @@ impl Harness {
 
     /// Waits until the conversation (and anything it started) settles.
     pub async fn settle(&self, id: &str) -> Transcript {
+        self.settle_runtime(&self.runtime, id).await
+    }
+
+    pub async fn settle_runtime(&self, runtime: &AgentRuntime, id: &str) -> Transcript {
         for _ in 0..500 {
             tokio::time::sleep(Duration::from_millis(10)).await;
-            let transcript = self.runtime.transcript(id).await.unwrap();
+            let transcript = runtime.transcript(id).await.unwrap();
             if transcript.run_state != AgentRunState::Running {
                 tokio::time::sleep(Duration::from_millis(20)).await;
-                let settled = self.runtime.transcript(id).await.unwrap();
+                let settled = runtime.transcript(id).await.unwrap();
                 if settled.run_state != AgentRunState::Running {
                     return settled;
                 }

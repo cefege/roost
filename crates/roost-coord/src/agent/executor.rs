@@ -40,34 +40,14 @@ impl ToolExecutor for WorkerToolExecutor {
                 timeout_ms: call.timeout_ms,
                 checkpoint_id: call.checkpoint_id,
             };
-            let deadline = std::time::Duration::from_millis(u64::from(spec.timeout_ms));
-            // The deadline cancels rather than drops the call, so the registry
-            // still sends the worker its cancel frame and clears the pending entry.
-            let call_cancel = cancel.child_token();
-            let timer = {
-                let call_cancel = call_cancel.clone();
-                tokio::spawn(async move {
-                    tokio::time::sleep(deadline).await;
-                    call_cancel.cancel();
-                })
-            };
-            let result = self
-                .registry
-                .execute(worker_fp, spec, out, call_cancel.clone())
-                .await;
-            timer.abort();
-            match result {
-                Ok(outcome) => Ok(ToolOutcome {
+            self.registry
+                .execute(worker_fp, spec, out, cancel)
+                .await
+                .map(|outcome| ToolOutcome {
                     is_error: outcome.is_error,
                     content: outcome.content,
                     details_json: outcome.details_json,
-                }),
-                Err(_) if call_cancel.is_cancelled() && !cancel.is_cancelled() => Err(format!(
-                    "tool call timed out after {} s",
-                    deadline.as_secs()
-                )),
-                Err(error) => Err(error),
-            }
+                })
         })
     }
 

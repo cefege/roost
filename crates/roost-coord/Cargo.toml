@@ -64,6 +64,7 @@ tracing-subscriber.workspace = true
 tower-http.workspace = true
 
 [dev-dependencies]
+parking_lot.workspace = true
 roost-protocol.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

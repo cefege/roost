@@ -22,12 +22,19 @@ pub type PartialScript = (Vec<StreamEvent>, LlmError);
 /// Replies for any session whose own queue is empty (children with fresh ids).
 pub const ANY_SESSION: &str = "*";
 
+#[derive(Default)]
+pub struct ModelStreamGate {
+    pub entered: tokio::sync::Notify,
+    pub released: tokio::sync::Notify,
+}
+
 /// A model whose replies are queued per `ChatRequest::session_id`.
 #[derive(Default)]
 pub struct ScriptedLlm {
     pub catalog: Option<Catalog>,
     pub providers: Mutex<Vec<String>>,
     pub scripts: Mutex<HashMap<String, VecDeque<Script>>>,
+    pub stream_gates: Mutex<HashMap<(String, usize), Arc<ModelStreamGate>>>,
     pub partials: Mutex<HashMap<String, VecDeque<PartialScript>>>,
     pub judgments: Mutex<VecDeque<JudgeScript>>,
     pub requests: Mutex<Vec<ChatRequest>>,
@@ -63,6 +70,15 @@ impl ScriptedLlm {
             .entry(session_id.to_owned())
             .or_default()
             .push_back(reply);
+    }
+
+    pub fn hold_stream(&self, session_id: &str, request_number: usize) -> Arc<ModelStreamGate> {
+        let gate = Arc::new(ModelStreamGate::default());
+        self.stream_gates
+            .lock()
+            .unwrap()
+            .insert((session_id.to_owned(), request_number), gate.clone());
+        gate
     }
 
     /// A reply that streams `events` and then fails, so the response has
@@ -171,35 +187,63 @@ impl Llm for ScriptedLlm {
         _credential_id: i64,
         request: ChatRequest,
         _auth: ResolvedAuth,
-        _cancel: CancellationToken,
+        cancel: CancellationToken,
     ) -> BoxStream<'static, Result<StreamEvent, LlmError>> {
         let session = request.session_id.clone();
-        self.requests.lock().unwrap().push(request);
+        let request_number = {
+            let mut requests = self.requests.lock().unwrap();
+            requests.push(request);
+            requests
+                .iter()
+                .filter(|request| request.session_id == session)
+                .count()
+        };
         let partial = self
             .partials
             .lock()
             .unwrap()
             .get_mut(&session)
             .and_then(VecDeque::pop_front);
-        if let Some((events, error)) = partial {
+        let events = if let Some((events, error)) = partial {
             let mut items: Vec<Result<StreamEvent, LlmError>> =
                 events.into_iter().map(Ok).collect();
             items.push(Err(error));
-            return Box::pin(futures::stream::iter(items));
-        }
-        let next = {
-            let mut scripts = self.scripts.lock().unwrap();
-            let own = scripts.get_mut(&session).and_then(VecDeque::pop_front);
-            own.or_else(|| scripts.get_mut(ANY_SESSION).and_then(VecDeque::pop_front))
+            items
+        } else {
+            let next = {
+                let mut scripts = self.scripts.lock().unwrap();
+                let own = scripts.get_mut(&session).and_then(VecDeque::pop_front);
+                own.or_else(|| scripts.get_mut(ANY_SESSION).and_then(VecDeque::pop_front))
+            };
+            match next {
+                Some(Ok(events)) => events.into_iter().map(Ok).collect(),
+                Some(Err(error)) => vec![Err(error)],
+                None => vec![Err(LlmError::Decode(format!(
+                    "no script left for {session}"
+                )))],
+            }
         };
-        let events: Vec<Result<StreamEvent, LlmError>> = match next {
-            Some(Ok(events)) => events.into_iter().map(Ok).collect(),
-            Some(Err(error)) => vec![Err(error)],
-            None => vec![Err(LlmError::Decode(format!(
-                "no script left for {session}"
-            )))],
-        };
-        Box::pin(futures::stream::iter(events))
+        let gate = self
+            .stream_gates
+            .lock()
+            .unwrap()
+            .remove(&(session, request_number));
+        Box::pin(futures::stream::unfold(
+            (gate, events.into_iter()),
+            move |(gate, mut events)| {
+                let cancel = cancel.clone();
+                async move {
+                    if let Some(gate) = gate {
+                        gate.entered.notify_one();
+                        tokio::select! {
+                            () = gate.released.notified() => {}
+                            () = cancel.cancelled() => return None,
+                        }
+                    }
+                    events.next().map(|event| (event, (None, events)))
+                }
+            },
+        ))
     }
 
     fn judge<'a>(

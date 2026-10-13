@@ -1,7 +1,12 @@
 //! Coordinator harness tools, interactive answers, side questions, and durable advisor state.
+//! Scripted provider and worker seams exercise their visible conversation effects.
+//! Recovery assertions preserve completed output and durable advisor state.
 
 #[path = "support/mod.rs"]
 mod support;
+
+#[path = "quality_tools/recovery.rs"]
+mod recovery;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

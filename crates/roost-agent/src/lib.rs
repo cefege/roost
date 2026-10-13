@@ -16,6 +16,7 @@ mod context_files;
 pub mod error;
 mod find;
 mod folder_roles;
+mod goal_mode;
 pub mod history;
 pub mod journal;
 mod judging;

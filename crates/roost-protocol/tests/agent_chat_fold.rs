@@ -22,6 +22,8 @@ fn transcript() -> Transcript {
                 output: "old".into(),
                 is_error: false,
                 running: true,
+                queued: true,
+                details_json: String::new(),
                 children: Vec::new(),
             },
         ],

@@ -4110,3 +4110,104 @@ oversized events reset recovery rather than waiting forever. History and limits 
 `live_events_wait_for_the_paced_tail_and_repeated_held_events_are_not_delivered_twice`.
 `crates/roost-coord/tests/sync_seed_socket/recovery_limits.rs`:
 `an_unqueueable_replay_resets_then_accepts_hydration_and_live_events`.
+
+### A completed assistant answer is retried after a process restart
+
+**Symptom** — after a restart, the built-in harness sends another primary model request even though the
+previous answer was already durably written, or an accepted steer made during that request disappears.
+
+**Wrong** — infer completion from the last `Assistant` row or the active `RunIntent`, retry the primary model
+request whenever settlement has not yet written an inactive intent, or suppress recovery whenever any
+assistant answer exists. The answer can be durable while end-of-turn policy and run settlement are not.
+
+**Right** — persist success, stop reason, and the accepted-input sequence represented by each Assistant
+response. Resume post-turn policy from a completed text response without repeating its primary request;
+retry partial provider output, process any submission beyond the response's input-through sequence, and
+reconcile interrupted tool calls without replaying their side effects. A durable inactive intent ends the old
+run; only a later accepted submission re-admits work.
+
+**Guard** — `crates/roost-agent/tests/plan_and_tasks.rs`:
+`recovered_successful_output_finishes_without_repeating_its_primary_call`,
+`late_user_and_advisory_inputs_are_not_marked_consumed_by_prior_output`,
+`pending_advisory_card_does_not_restart_a_settled_run`;
+`crates/roost-agent/tests/plan_and_tasks/recovery.rs`:
+`recovered_partial_assistant_output_retries_the_primary_call`;
+`crates/roost-agent/tests/quality_tools/recovery.rs`:
+`late_run_intent_does_not_discard_already_consumed_output`;
+`crates/roost-agent/tests/rewind_fork/recovery.rs`:
+`recovery_replays_unexpected_stop_policy_once_for_completed_output`;
+`crates/roost-agent/tests/loop_mode/recovery/completion.rs`:
+`recovered_final_output_admits_the_next_loop_iteration`.
+
+### Interrupted provider output becomes an invalid continuation request
+
+**Symptom** — recovery repeatedly receives provider errors because the request ends with an assistant
+prefill, or an interrupted thinking block is sent back with an empty signature.
+
+**Wrong** — replay the unfinished assistant response as the final request message or treat any saved
+thinking metadata as a complete signed block. A dropped stream can persist content before its signature.
+
+**Right** — retain partial output as context and append a request-only user continuation when the history
+ends with an assistant message. Do not journal it as another accepted input or spend loop budget. Replay
+Anthropic thinking as a signed block only when its signature is nonempty; otherwise use text context.
+
+**Guard** — `crates/roost-agent/tests/plan_and_tasks/recovery.rs`:
+`recovered_partial_assistant_output_retries_the_primary_call`;
+`crates/roost-llm/tests/provider_stream.rs`:
+`unsigned_interrupted_thinking_becomes_context_without_an_invalid_signature`.
+
+### Goal usage snapshots hide progress and terminate useful continuation
+
+**Symptom** — a goal stops with “No tool activity” after a successful tool round.
+
+**Wrong** — use the latest goal counter snapshot as the start of its progress window.
+Counter updates move that window past the tools whose progress it should inspect.
+
+**Right** — anchor the window at the earliest snapshot for that goal ID and fingerprint
+only relevant tool progress. Persist waiting only for no/repeated progress or blockers.
+
+**Guard** — `crates/roost-agent/tests/agent_loop/goal_progress.rs`:
+`tool_progress_continues_after_usage_snapshots_until_explicit_completion`.
+
+### A live goal exhausting its budget skips the promised wrap-up
+
+**Symptom** — the request crossing the soft budget ends without a final wrap-up request.
+
+**Wrong** — finalize only goals whose status is still active after charging the request.
+
+**Right** — admit the single hidden wrap-up for the newly budget-limited live goal;
+subsequent turns remain limited unless the user explicitly re-arms it.
+
+**Guard** — `crates/roost-agent/tests/agent_loop/goal_progress.rs`:
+`a_live_turn_reaching_the_budget_gets_exactly_one_hidden_wrap_up`.
+
+### Goal counters absorb unrelated turns or overwrite an in-flight re-arm
+
+**Symptom** — paused/completed goals gain tokens, or clearing a budget/resuming during
+a request ends in a new no-progress wait instead of the requested continuation.
+
+**Wrong** — charge whichever goal exists at finalization; derive re-arm solely from
+transient active status that finalization can overwrite.
+
+**Right** — record the admitted goal ID in primary request metadata and charge only
+that identity. Journal budget/resume re-arm markers and consume each once at the next
+continuation, including when the current request has no tool progress.
+
+**Guard** — `crates/roost-agent/tests/agent_loop/goal_progress.rs`:
+`unrelated_turns_do_not_charge_paused_dropped_or_completed_goals`,
+`clearing_the_budget_during_wrap_up_rearms_after_that_request`,
+`resume_during_an_in_flight_request_survives_no_progress_finalization`.
+
+### Stopping a dispatched agent tool appears as a failed operation
+
+**Symptom** — Stop paints a dispatched tool as an error, or its deadline loses the
+distinction between timeout and cancellation.
+
+**Wrong** — return an untyped error for every interrupted worker-call wait.
+
+**Right** — return structured cancellation/timeout facts, remove the pending call and
+ignore late results. Cancellation is neutral; timeout is a warning. Neither proves
+the dispatched effect did not happen: persist and display its unknown final outcome.
+
+**Guard** — `crates/roost-coord/tests/agent_tool_calls.rs` cancellation and deadline
+cases exercise offline cancellation, dispatched cancellation and dispatched timeout.

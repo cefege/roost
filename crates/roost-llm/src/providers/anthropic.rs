@@ -344,7 +344,13 @@ fn anthropic_block(block: &AssistantBlock) -> Value {
             Some(data) if data.get("redacted_thinking").is_some() => {
                 json!({"type":"redacted_thinking","data":data["redacted_thinking"]})
             }
-            Some(data) if data.get("signature").is_some() => {
+            // A dropped stream can persist thinking before its signature arrives.
+            Some(data)
+                if data
+                    .get("signature")
+                    .and_then(Value::as_str)
+                    .is_some_and(|signature| !signature.is_empty()) =>
+            {
                 json!({"type":"thinking","thinking":text,"signature":data["signature"]})
             }
             _ => json!({"type":"text","text":text}),

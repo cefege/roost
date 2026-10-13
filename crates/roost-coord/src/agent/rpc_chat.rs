@@ -121,7 +121,12 @@ pub async fn handle_agent_chat_abort(
     request: proto::AgentChatAbortRequest,
 ) -> ServiceResult<proto::AgentChatAbortResponse> {
     require_account_device(caller)?;
-    core.services.agent.runtime.abort(&request.conversation_id);
+    core.services
+        .agent
+        .runtime
+        .abort(&request.conversation_id)
+        .await
+        .map_err(agent_status)?;
     ok_response(proto::AgentChatAbortResponse::default())
 }
 

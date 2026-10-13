@@ -5,6 +5,18 @@
 #[path = "support/mod.rs"]
 mod support;
 
+#[path = "agent_loop/tool_checkpoints.rs"]
+mod tool_checkpoints;
+
+#[path = "agent_loop/lifecycle.rs"]
+mod lifecycle;
+
+#[path = "agent_loop/goal_mode.rs"]
+mod goal_mode;
+
+#[path = "agent_loop/goal_progress.rs"]
+mod goal_progress;
+
 use std::collections::BTreeMap;
 use std::time::Duration;
 
@@ -80,7 +92,7 @@ async fn abort_cancels_a_running_tool_and_leaves_the_conversation_idle() {
     );
     harness.submit(&id, "wait").await;
     tokio::time::sleep(Duration::from_millis(100)).await;
-    assert!(harness.runtime.abort(&id));
+    assert!(harness.runtime.abort(&id).await.unwrap());
     let transcript = harness.settle(&id).await;
     assert_eq!(transcript.run_state, AgentRunState::Idle);
     assert_eq!(harness.llm.requests_for(&id).len(), 1);
@@ -111,7 +123,7 @@ async fn a_rate_limited_call_rotates_to_another_account_and_succeeds() {
 }
 
 #[tokio::test]
-async fn a_hard_provider_error_fails_the_run_with_its_message() {
+async fn a_hard_provider_error_is_supervised_until_a_retry_succeeds() {
     let harness = Harness::new();
     let id = harness.conversation().await;
     harness.llm.script(
@@ -121,10 +133,53 @@ async fn a_hard_provider_error_fails_the_run_with_its_message() {
             body: "bad request".into(),
         }),
     );
+    harness
+        .llm
+        .script(&id, text_reply("recovered after provider failure"));
     harness.submit(&id, "hi").await;
     let transcript = harness.settle(&id).await;
-    assert_eq!(transcript.run_state, AgentRunState::Failed);
-    assert!(transcript.error.unwrap_or_default().contains("bad request"));
+    assert_eq!(transcript.run_state, AgentRunState::Idle);
+    assert_eq!(
+        support::texts(&transcript).last().map(String::as_str),
+        Some("recovered after provider failure")
+    );
+    assert!(transcript.items.iter().any(|item| matches!(
+        item,
+        TranscriptItem::Notice { title, body, .. }
+            if title == "Run attempt failed" && body.contains("bad request")
+    )));
+}
+
+#[tokio::test]
+async fn a_panicking_tool_is_reconciled_before_the_run_retries() {
+    let harness = Harness::new();
+    let id = harness.conversation().await;
+    harness
+        .tools
+        .panic_next
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    harness.llm.script(
+        &id,
+        tool_reply(&[("panic-call", "bash", r#"{"command":"make"}"#)]),
+    );
+    harness
+        .llm
+        .script(&id, text_reply("recovered after a tool panic"));
+    harness.submit(&id, "build the project").await;
+    let transcript = harness.settle(&id).await;
+
+    assert_eq!(transcript.run_state, AgentRunState::Idle);
+    assert_eq!(harness.tools.calls_to("bash").len(), 1);
+    let retry = &harness.llm.requests_for(&id)[1];
+    assert!(retry.messages.iter().any(|message| matches!(
+        message,
+        roost_llm::Message::ToolResult { call_id, is_error: true, .. }
+            if call_id == "panic-call"
+    )));
+    assert_eq!(
+        support::texts(&transcript).last().map(String::as_str),
+        Some("recovered after a tool panic")
+    );
 }
 
 #[tokio::test]
@@ -144,6 +199,7 @@ async fn usage_near_the_context_window_compacts_before_the_next_call() {
                 &id,
                 Entry::User {
                     text: format!("question {turn} {}", "x".repeat(40_000)),
+                    loop_repeat: false,
                 },
             )
             .await;
@@ -165,6 +221,7 @@ async fn usage_near_the_context_window_compacts_before_the_next_call() {
                         support::PROVIDER,
                         support::MODEL,
                     )),
+                    metadata: None,
                 },
             )
             .await;

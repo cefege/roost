@@ -179,6 +179,59 @@ over the worker link. For a proxy or alternate provider endpoint, set
 `ROOST_AGENT_ENDPOINT_OVERRIDES` to a JSON object mapping provider names to base
 URLs, for example `{"anthropic":"https://gateway.example"}`.
 
+In the agent composer, click the model button to choose a session-only model,
+or the settings button to open **Models & accounts**. The commands button
+opens the command menu; bare `/model` (also `/models`) and `/settings`
+selections open HTML controls without sending a message. Settings have
+searchable groups and mobile list/detail navigation.
+
+The **Set goal / Goal** control opens an HTML objective, status and budget dialog.
+`/goal <objective>` (or `/goal set <objective>`) starts the same workflow.
+`/goal show`, `pause`, `resume`, `drop`, and `budget <positive integer|off>`
+manage it. Pause prevents future goal continuations, not the current accepted
+turn; **Stop** aborts that turn and pauses the goal, even with an unsent draft.
+Resume or drop a paused goal before replacing it. Dropping retains its history.
+Completion requires the model's explicit `goal complete` tool report; prose or
+closed todos alone do not prove completion.
+
+Goal budgets are soft: input, output and cache-write tokens count, cache-read
+tokens do not. Exhaustion admits one wrap-up; changing the budget re-arms it.
+Active execution time excludes paused/offline time and checkpoints every five
+seconds. Active goals recover automatically, except durable waiting states
+requiring user input. Blocked-only todos or no/repeated tool progress produce
+that waiting state rather than an endless empty loop. Goals do not overlap
+`/loop` or plan mode.
+
+Chat renders streamed prose, separately collapsible thinking, compact tool
+heads with bounded live previews, and a phased todo disclosure. Thinking
+visibility and thinking effort are separate controls. Tool arguments, transported
+output and execution facts remain reachable; truncated output/artifacts are not
+advertised as complete. Errors remain in history, with Details/Dismiss and
+session-local model switching in the composer. Cancellation is neutral; a
+dispatched call whose final result was not observed still warns that its outcome
+is unknown. These controls are clickable on desktop and mobile.
+
+Accepted unfinished harness work resumes automatically when the coordinator
+starts against the same database. Failed run attempts and run-task panics retry
+until completion or Stop; retry backoff reaches 60 s, and failures/recovery are
+recorded in the conversation and structured logs. An offline worker holds tool
+dispatch until it reconnects. If a dispatched tool's result was lost, recovery
+marks its outcome unknown rather than repeating a potentially completed effect.
+The coordinator service or pod must restart after a host failure, and its
+database must survive; nothing executes while that host is powered off.
+SQLite's WAL uses `synchronous=NORMAL`: process-crash recovery is supported,
+but OS crashes or power loss can lose recent commits. Use durable Postgres
+storage when those commits must survive power loss; preserve its normal
+durability settings and the coordinator's service/pod restart policy.
+
+Partial responses remain context for a fresh continuation request, not an
+assistant prefill. Unsigned interrupted thinking is retained as text context;
+the continuation does not add another accepted prompt or spend a loop iteration.
+
+`/loop` resumes with its remaining count or absolute deadline, so time spent
+offline counts toward a duration. An interrupted shell-condition outcome is
+not replayed; repetition stops so its effects can be inspected.
+
 When the front door is a TCP proxy on another machine rather than an ingress
 (for example a Caddy host forwarding over a tailnet), expose the coordinator
 with `service.type=NodePort`, `service.externalTrafficPolicy=Local` so the

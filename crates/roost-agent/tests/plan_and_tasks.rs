@@ -4,7 +4,12 @@
 #[path = "support/mod.rs"]
 mod support;
 
-use roost_agent::{AgentSettings, Role};
+#[path = "plan_and_tasks/recovery.rs"]
+mod recovery;
+
+use roost_agent::records::{AssistantMetadata, model_ref};
+use roost_agent::{AgentSettings, AgentStore, Entry, Role};
+use roost_llm::{AssistantBlock, StopReason, Usage};
 use roost_protocol::wire::agent_chat::TranscriptItem;
 use support::{Harness, text_reply, tool_reply, user_texts};
 
@@ -151,4 +156,195 @@ async fn a_depth_two_child_is_not_offered_the_task_tool() {
     assert!(toolset_for(&child, 1, false).offers("task"));
     assert!(!toolset_for(&child, 2, false).offers("task"));
     assert!(toolset_for(&child, 2, false).offers("yield"));
+}
+
+async fn append_journal_entry(harness: &Harness, id: &str, entry: Entry) -> u64 {
+    harness.store.append_entry(id, &entry, &[]).await.unwrap()
+}
+
+fn assistant_entry(item_id: &str, text: &str, metadata: Option<AssistantMetadata>) -> Entry {
+    Entry::Assistant {
+        item_id: item_id.to_owned(),
+        blocks: vec![AssistantBlock::Text {
+            text: text.to_owned(),
+        }],
+        usage: Usage::default(),
+        model: Some(model_ref(support::PROVIDER, support::MODEL)),
+        metadata,
+    }
+}
+
+#[tokio::test]
+async fn recovered_successful_output_finishes_without_repeating_its_primary_call() {
+    let harness = Harness::new();
+    let id = harness.conversation().await;
+    let input_seq = append_journal_entry(
+        &harness,
+        &id,
+        Entry::User {
+            text: "already answered".into(),
+            loop_repeat: false,
+        },
+    )
+    .await;
+    append_journal_entry(
+        &harness,
+        &id,
+        Entry::RunIntent {
+            active: true,
+            through_seq: input_seq,
+            aborted: false,
+        },
+    )
+    .await;
+    append_journal_entry(
+        &harness,
+        &id,
+        assistant_entry(
+            "completed-answer",
+            "The answer is durable.",
+            Some(AssistantMetadata {
+                completed: true,
+                stop_reason: Some(StopReason::MaxTokens),
+                input_through_seq: input_seq,
+                continued: false,
+                yield_reminders: 0,
+                goal_id: None,
+            }),
+        ),
+    )
+    .await;
+
+    let restarted = harness.restart_runtime();
+    assert_eq!(restarted.recover_interrupted_runs().await.unwrap(), 1);
+    harness.settle_runtime(&restarted, &id).await;
+
+    assert!(
+        harness.llm.requests_for(&id).is_empty(),
+        "the committed answer must not trigger another primary call"
+    );
+}
+
+#[tokio::test]
+async fn late_user_and_advisory_inputs_are_not_marked_consumed_by_prior_output() {
+    let harness = Harness::new();
+    let id = harness.conversation().await;
+    let input_seq = append_journal_entry(
+        &harness,
+        &id,
+        Entry::User {
+            text: "first request".into(),
+            loop_repeat: false,
+        },
+    )
+    .await;
+    append_journal_entry(
+        &harness,
+        &id,
+        Entry::RunIntent {
+            active: true,
+            through_seq: input_seq,
+            aborted: false,
+        },
+    )
+    .await;
+    append_journal_entry(
+        &harness,
+        &id,
+        assistant_entry(
+            "first-answer",
+            "First answer.",
+            Some(AssistantMetadata {
+                completed: true,
+                stop_reason: Some(StopReason::MaxTokens),
+                input_through_seq: input_seq,
+                continued: false,
+                yield_reminders: 0,
+                goal_id: None,
+            }),
+        ),
+    )
+    .await;
+    append_journal_entry(
+        &harness,
+        &id,
+        Entry::User {
+            text: "late steer".into(),
+            loop_repeat: false,
+        },
+    )
+    .await;
+    let late_seq = append_journal_entry(
+        &harness,
+        &id,
+        Entry::Advisory {
+            item_id: "late-advisory".into(),
+            severity: roost_agent::records::AdvisorySeverity::Concern,
+            note: "deadline changed".into(),
+            delivered: true,
+        },
+    )
+    .await;
+    append_journal_entry(
+        &harness,
+        &id,
+        Entry::RunIntent {
+            active: true,
+            through_seq: late_seq,
+            aborted: false,
+        },
+    )
+    .await;
+    harness.llm.script(&id, text_reply("handled both inputs"));
+
+    let restarted = harness.restart_runtime();
+    assert_eq!(restarted.recover_interrupted_runs().await.unwrap(), 1);
+    harness.settle_runtime(&restarted, &id).await;
+
+    let requests = harness.llm.requests_for(&id);
+    assert_eq!(
+        requests.len(),
+        1,
+        "only the late input needs a primary call"
+    );
+    let request_inputs = user_texts(&requests[0]);
+    assert!(request_inputs.iter().any(|text| text == "late steer"));
+    assert!(
+        request_inputs
+            .iter()
+            .any(|text| text.contains("deadline changed"))
+    );
+}
+
+#[test]
+fn historical_assistant_rows_default_to_no_completion_metadata() {
+    let mut row = serde_json::to_value(assistant_entry("old-row", "old answer", None)).unwrap();
+    row.as_object_mut().unwrap().remove("metadata");
+
+    let decoded: Entry = serde_json::from_value(row).unwrap();
+    assert!(matches!(decoded, Entry::Assistant { metadata: None, .. }));
+}
+
+#[tokio::test]
+async fn pending_advisory_card_does_not_restart_a_settled_run() {
+    let harness = Harness::new();
+    let id = harness.conversation().await;
+    harness.llm.script(&id, text_reply("finished"));
+    harness.submit(&id, "finish this").await;
+    harness.settle(&id).await;
+    append_journal_entry(
+        &harness,
+        &id,
+        Entry::Advisory {
+            item_id: "waiting-review".into(),
+            severity: roost_agent::records::AdvisorySeverity::Concern,
+            note: "pending review".into(),
+            delivered: false,
+        },
+    )
+    .await;
+
+    let restarted = harness.restart_runtime();
+    assert_eq!(restarted.recover_interrupted_runs().await.unwrap(), 0);
+    assert_eq!(harness.llm.requests_for(&id).len(), 1);
 }

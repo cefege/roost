@@ -34,14 +34,14 @@ impl AgentRuntime {
                 (*entry_seq == seq)
                     .then_some(entry)
                     .and_then(|entry| match entry {
-                        Entry::User { text } => Some(text.clone()),
+                        Entry::User { text, .. } => Some(text.clone()),
                         _ => None,
                     })
             })
             .ok_or_else(|| {
                 AgentError::InvalidArgument(format!("user item {user_item_id} not found"))
             })?;
-        if self.abort(id) {
+        if self.abort(id).await? {
             while self.is_running(id) {
                 tokio::time::sleep(Duration::from_millis(1)).await;
             }

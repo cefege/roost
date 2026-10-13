@@ -99,6 +99,8 @@ pub(crate) async fn run_task(
                     output: String::new(),
                     is_error: false,
                     running: true,
+                    queued: false,
+                    details_json: String::new(),
                     children: child_ids.clone(),
                 },
             }],
@@ -205,6 +207,7 @@ async fn create_child(
             &child.id,
             Entry::User {
                 text: task.to_owned(),
+                loop_repeat: false,
             },
         )
         .await?;

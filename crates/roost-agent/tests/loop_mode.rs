@@ -1,9 +1,11 @@
-//! `/loop` against scripted seams: count and condition budgets, the stop and
-//! pause transitions, the explicit-abort race, the stops that land on a
-//! condition check's lookup and on a repeat's prompt append, and argument errors.
+//! `/loop` against scripted seams: count and condition budgets, pause/off
+//! transitions, journal recovery across runtime reconstruction, and races at
+//! condition lookup and repeat-prompt commits.
 
 #[path = "loop_mode/commit.rs"]
 mod commit;
+#[path = "loop_mode/recovery.rs"]
+mod recovery;
 #[path = "support/mod.rs"]
 mod support;
 
@@ -98,7 +100,7 @@ async fn an_explicit_abort_pauses_the_loop_and_a_late_steer_does_not_restart_it(
     harness.submit(&id, "/loop 3 check the build").await;
     tokio::time::sleep(Duration::from_millis(100)).await;
     harness.submit(&id, "and also the tests").await;
-    assert!(harness.runtime.abort(&id));
+    assert!(harness.runtime.abort(&id).await.unwrap());
     let transcript = harness.settle(&id).await;
 
     assert_eq!(transcript.run_state, AgentRunState::Idle);
@@ -129,7 +131,7 @@ async fn a_prompt_after_an_abort_resumes_the_paused_loop() {
     );
     harness.submit(&id, "/loop 3 check the build").await;
     tokio::time::sleep(Duration::from_millis(100)).await;
-    assert!(harness.runtime.abort(&id));
+    assert!(harness.runtime.abort(&id).await.unwrap());
     harness.settle(&id).await;
 
     harness.llm.script(&id, text_reply("resumed"));
@@ -328,7 +330,7 @@ async fn stop_during_the_repeat_append_prevents_the_repeat() {
     harness.llm.script(&id, text_reply("first"));
     harness.submit(&id, "/loop 3 bump").await;
     parked(gate.user_append_held()).await;
-    assert!(harness.runtime.abort(&id));
+    assert!(harness.runtime.abort(&id).await.unwrap());
     gate.release_user_append();
     let transcript = harness.settle(&id).await;
 
@@ -353,7 +355,7 @@ async fn prevented_repeat_keeps_the_remaining_count() {
     harness.llm.script(&id, text_reply("third"));
     harness.submit(&id, "/loop 3 bump").await;
     parked(gate.user_append_held()).await;
-    assert!(harness.runtime.abort(&id));
+    assert!(harness.runtime.abort(&id).await.unwrap());
     gate.release_user_append();
     harness.settle(&id).await;
 

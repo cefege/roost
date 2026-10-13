@@ -3,9 +3,10 @@
 //! Uses the shared worker search path and bounds retained output in memory.
 
 use std::{
+    fmt::Write as _,
     path::{Path, PathBuf},
     process::Stdio,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use getrandom::fill;
@@ -43,6 +44,7 @@ pub async fn bash_tool(
                 Duration::from_millis(u64::from(timeout_ms))
             }
         });
+    let started = Instant::now();
     let mut command = shell_command(&args.command, cwd, data_dir);
     command
         .current_dir(cwd)
@@ -98,38 +100,44 @@ pub async fn bash_tool(
         let _ = out.send(String::from_utf8_lossy(&chunk).into_owned()).await;
     }
     let mut content = String::from_utf8_lossy(&retained).into_owned();
-    if let Some(spill_file) = spill {
-        content.push_str(&format!(
-            "\n[full output saved to {}]",
-            spill_file.path.display()
-        ));
+    let artifact_path = spill.as_ref().map(|file| file.path.display().to_string());
+    if let Some(path) = &artifact_path {
+        let _ = write!(content, "\n[earlier output saved to {path}]");
     }
+    let details = serde_json::json!({
+        "exit_code": status.as_ref().and_then(|status| status.code()),
+        "duration_ms": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        "timed_out": timed_out,
+        "cancelled": cancelled,
+        "truncated": artifact_path.is_some(),
+        "artifact_path": artifact_path,
+        "artifact_complete": false,
+    });
     if timed_out {
         return ToolOutcome::failure(format!(
             "command timed out after {} ms\n{content}",
             timeout.as_millis()
-        ));
+        ))
+        .with_details(details);
     }
     if cancelled {
-        return ToolOutcome::failure(format!("command cancelled\n{content}"));
+        return ToolOutcome::failure(format!("command cancelled\n{content}")).with_details(details);
     }
     match status {
         Some(status) => {
-            // Loop conditions branch on the exit status, so it travels as
-            // structured details rather than being parsed out of the text.
-            let code = status.code();
-            let details = serde_json::json!({ "exit_code": code });
             if status.success() {
                 ToolOutcome::success(content).with_details(details)
             } else {
                 ToolOutcome::failure(format!(
                     "exit {}\n{content}",
-                    code.map_or_else(|| "signal".to_owned(), |code| code.to_string())
+                    status
+                        .code()
+                        .map_or_else(|| "signal".to_owned(), |code| code.to_string())
                 ))
                 .with_details(details)
             }
         }
-        None => ToolOutcome::failure(format!("command failed\n{content}")),
+        None => ToolOutcome::failure(format!("command failed\n{content}")).with_details(details),
     }
 }
 
@@ -279,11 +287,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn streams_output_and_prefixes_nonzero_exit() {
+    async fn streams_output_and_preserves_nonzero_exit_status() {
         let (out, mut chunks) = mpsc::channel(4);
         let result = execute("printf streamed; exit 7", 0, CancellationToken::new(), &out).await;
         assert!(result.is_error);
-        assert!(result.content.starts_with("exit 7\n"));
+        let details: serde_json::Value = serde_json::from_str(&result.details_json).unwrap();
+        assert_eq!(details["exit_code"], 7);
         assert!(
             chunks
                 .recv()
@@ -298,7 +307,9 @@ mod tests {
         let (out, _) = mpsc::channel(4);
         let result = execute("sleep 5", 50, CancellationToken::new(), &out).await;
         assert!(result.is_error);
-        assert!(result.content.contains("timed out"));
+        let details: serde_json::Value = serde_json::from_str(&result.details_json).unwrap();
+        assert_eq!(details["timed_out"], true);
+        assert_eq!(details["cancelled"], false);
     }
 
     #[tokio::test]
@@ -311,6 +322,34 @@ mod tests {
         cancellation.cancel();
         let result = task.await.expect("bash task");
         assert!(result.is_error);
-        assert!(result.content.contains("cancelled"));
+        let details: serde_json::Value = serde_json::from_str(&result.details_json).unwrap();
+        assert_eq!(details["cancelled"], true);
+        assert_eq!(details["timed_out"], false);
+    }
+
+    #[tokio::test]
+    async fn spilled_prefix_is_not_advertised_as_complete_output() {
+        let directory = tempdir().unwrap();
+        let (out, _) = mpsc::channel(64);
+        let result = bash_tool(
+            directory.path(),
+            directory.path(),
+            BashArgs {
+                command: "printf '%60000s' ''; printf tail-marker".into(),
+                timeout: None,
+            },
+            0,
+            &out,
+            CancellationToken::new(),
+        )
+        .await;
+        let details: serde_json::Value = serde_json::from_str(&result.details_json).unwrap();
+        assert_eq!(details["truncated"], true);
+        assert_eq!(details["artifact_complete"], false);
+        let earlier = tokio::fs::read_to_string(details["artifact_path"].as_str().unwrap())
+            .await
+            .unwrap();
+        assert!(!earlier.contains("tail-marker"));
+        assert!(result.content.contains("tail-marker"));
     }
 }

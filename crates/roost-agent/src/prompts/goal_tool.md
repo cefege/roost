@@ -1,0 +1,1 @@
+Use this tool to manage the user's explicit durable goal. `complete` is the only completion operation: never infer completion from prose, completed/abandoned todos, a yielded turn, or reaching the token budget. Use `get` for current state. `resume` and `drop` require an existing goal. Creation and replacement apply only to the current conversation.

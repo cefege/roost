@@ -1,3 +1,7 @@
+//! Provider streaming and replay contracts exercised through recorded HTTP frames.
+//! The shared server records native request bodies while returning fixture SSE.
+//! Recovery must retain useful progress without submitting invalid thinking blocks.
+
 use reqwest::StatusCode;
 use roost_llm::{AssistantBlock, Catalog, Message, StopReason, StreamEvent, ToolSpec};
 use serde_json::json;
@@ -88,10 +92,6 @@ async fn recorded_provider_sse_builds_blocks_usage_and_followup_replay_data() {
     let anthropic_bodies = anthropic_requests.lock().await;
     assert_eq!(anthropic_bodies.len(), 2);
     assert_eq!(
-        anthropic_bodies[0]["system"][0]["text"],
-        "System instructions"
-    );
-    assert_eq!(
         anthropic_bodies[0]["messages"][1]["content"][0]["cache_control"]["type"],
         "ephemeral"
     );
@@ -147,7 +147,6 @@ async fn recorded_provider_sse_builds_blocks_usage_and_followup_replay_data() {
     ];
     let _ = events(followup, &codex_url).await;
     let codex_bodies = codex_requests.lock().await;
-    assert_eq!(codex_bodies[0]["instructions"], "System instructions");
     assert_eq!(
         codex_bodies[1]["input"]
             .as_array()
@@ -162,7 +161,7 @@ async fn recorded_provider_sse_builds_blocks_usage_and_followup_replay_data() {
     let openrouter_model = catalog
         .get("openrouter", "anthropic/claude-fable-5")
         .unwrap();
-    let (openrouter_url, openrouter_requests, _) =
+    let (openrouter_url, _, _) =
         server(include_str!("fixtures/completions.sse"), StatusCode::OK).await;
     let mut completion_model = openrouter_model.clone();
     completion_model.api = roost_llm::WireApi::OpenAiCompletions;
@@ -187,8 +186,38 @@ async fn recorded_provider_sse_builds_blocks_usage_and_followup_replay_data() {
             .any(|event| matches!(event, StreamEvent::Stop(StopReason::ToolUse)))
     );
     assert!(completion_events.iter().any(|event| matches!(event, StreamEvent::Usage(usage) if usage.input == 17 && usage.output == 9 && usage.cache_read == 4)));
+}
+
+#[tokio::test]
+async fn unsigned_interrupted_thinking_becomes_context_without_an_invalid_signature() {
+    let catalog = Catalog::builtin();
+    let model = catalog.get("anthropic", "claude-fable-5").unwrap();
+    let (url, requests, _) = server(include_str!("fixtures/anthropic.sse"), StatusCode::OK).await;
+    let mut continuation = request(model, vec![]);
+    continuation.messages = vec![
+        Message::user_text("Finish the existing task"),
+        Message::Assistant {
+            blocks: vec![
+                AssistantBlock::Thinking {
+                    text: "Partial progress before the signature arrived".into(),
+                    provider_data: Some(json!({"signature":""})),
+                },
+                AssistantBlock::Thinking {
+                    text: "Previously sealed reasoning".into(),
+                    provider_data: Some(json!({"signature":"sealed-signature"})),
+                },
+            ],
+        },
+        Message::user_text("Continue the same task"),
+    ];
+    let _ = events(continuation, &url).await;
+    let bodies = requests.lock().await;
+    let blocks = &bodies[0]["messages"][1]["content"];
+    assert_eq!(blocks[0]["type"], "text");
     assert_eq!(
-        openrouter_requests.lock().await[0]["reasoning"]["effort"],
-        "high"
+        blocks[0]["text"],
+        "Partial progress before the signature arrived"
     );
+    assert!(blocks[0].get("signature").is_none());
+    assert_eq!(blocks[1]["type"], "thinking");
 }

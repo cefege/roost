@@ -103,11 +103,31 @@ impl AgentService {
         self.llm.pool()
     }
 
-    /// Settles runs a restart interrupted. Called once at boot.
+    /// Resumes durable unfinished work at boot; a storage failure retries
+    /// without preventing the coordinator's worker listener from opening.
     pub async fn recover(&self) {
         match self.runtime.recover_interrupted_runs().await {
             Ok(recovered) => tracing::info!(recovered, "agent harness ready"),
-            Err(error) => tracing::error!(%error, "agent run recovery failed"),
+            Err(error) => {
+                tracing::error!(%error, "agent run recovery failed; retry scheduled");
+                let runtime = self.runtime.clone();
+                tokio::spawn(async move {
+                    let mut delay = std::time::Duration::from_secs(2);
+                    loop {
+                        tokio::time::sleep(delay).await;
+                        match runtime.recover_interrupted_runs().await {
+                            Ok(recovered) => {
+                                tracing::info!(recovered, "agent harness recovery completed");
+                                break;
+                            }
+                            Err(error) => {
+                                tracing::error!(%error, "agent run recovery failed; retry scheduled");
+                                delay = (delay * 2).min(std::time::Duration::from_secs(60));
+                            }
+                        }
+                    }
+                });
+            }
         }
     }
 }

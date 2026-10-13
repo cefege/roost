@@ -22,7 +22,7 @@ registry, `Session` is the user-facing row, `Channel` is a PTY connection,
 | `roost-coord::agent` | The agent harness wired to the coordinator: database stores, provider sign-ins and accounts, chat/settings RPCs, the transcript event cache, and worker tool calls. | — |
 | `roost-client-core` | The UI-free client: Connect client, Sync state machine, store fold, terminal-stream replica and route election, input lanes, encoders, find paging. | — |
 | `roost-llm` | The agent harness's provider layer: model catalog, Anthropic / OpenAI Codex / OpenRouter / TypeSafe wire clients, OAuth logins, the multi-account credential pool and rotation, usage reports, the judge. | — |
-| `roost-agent` | The agent harness: conversation loop, prompts, model roles, plan mode, subagents, semantic find, the advisor, slash commands. The coordinator drives it through store, tool-executor and sink traits. | — |
+| `roost-agent` | The agent harness: conversation loop and durable recovery, goal lifecycle/budget/progress policy, prompts, model roles, plan mode, subagents, semantic find, the advisor, slash commands. The coordinator drives it through store, tool-executor and sink traits. | — |
 | `roost-agent-tools` | The worker-side agent tools: hashline read/edit, write, bash, grep, glob, LSP client and on-demand language-server installer. | — |
 | `roost-web-terminal` | The imperative `web-sys` terminal renderer and its input, IME, mouse, selection and link controllers. | — |
 | `roost-web` | The Dioxus 0.7 web application: routes, components, static assets. | — |

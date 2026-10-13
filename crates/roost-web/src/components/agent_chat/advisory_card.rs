@@ -4,7 +4,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::md::{Card, CardVariant};
+use crate::components::md::{Card, CardVariant, Icon, IconSize};
 
 #[component]
 pub fn AdvisoryCard(id: String, severity: String, note: String, delivered: bool) -> Element {
@@ -20,6 +20,10 @@ pub fn AdvisoryCard(id: String, severity: String, note: String, delivered: bool)
             variant: CardVariant::Outlined,
             class: format!("agent-chat__advisory-card agent-chat__advisory-card--{tone}"),
             children: rsx! {
+                div { class: "agent-chat__advisory-heading", "data-tone": tone,
+                    Icon { name: if tone == "error" { "error" } else if tone == "warning" { "warning" } else { "info" }, size: IconSize::Sm }
+                    strong { "{label}" }
+                }
                 p { "{note}" }
                 if !delivered {
                     p { class: "agent-chat__advisory-pending", "Not delivered yet" }

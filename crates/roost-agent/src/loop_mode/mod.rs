@@ -1,11 +1,13 @@
 //! Native `/loop`: after each run ends, repeats the conversation's prompt until
 //! a count, a duration, a `--while`/`--until` shell gate, or the user stops it.
-//! State is per conversation and in memory; the repeat driver is the run task
-//! itself (see `iteration`), so a coordinator restart ends the loop.
+//! Its durable state lives in the conversation journal; the run task is the
+//! repeat driver while a coordinator is available (see `iteration`).
 
+mod capture;
 mod condition;
 mod iteration;
 mod parse;
+mod persistence;
 mod state;
 
 use std::collections::HashMap;
@@ -35,15 +37,15 @@ impl AgentRuntime {
     pub(crate) async fn run_loop_command(&self, id: &str, args: &str) -> Result<(), AgentError> {
         match args.trim() {
             "" => {
-                if self.loop_enabled(id) {
-                    self.end_loop(id, None).await;
+                if self.loop_is_enabled(id) {
+                    self.end_loop(id, None).await?;
                     Ok(())
                 } else {
                     self.enable_loop(id, ParsedLoop::default()).await
                 }
             }
             "off" => {
-                if !self.end_loop(id, None).await {
+                if !self.end_loop(id, None).await? {
                     self.notice(id, "info", LOOP_TITLE, LOOP_OFF).await;
                 }
                 Ok(())
@@ -65,13 +67,27 @@ impl AgentRuntime {
     /// Enables a loop, or reconfigures the one already enabled. Reconfiguring
     /// keeps the captured prompt unless a new one is given.
     async fn enable_loop(&self, id: &str, parsed: ParsedLoop) -> Result<(), AgentError> {
+        let lifecycle = self.lifecycle_lock(id);
+        let lifecycle_guard = lifecycle.lock().await;
+        if self.current_goal(id).await?.is_some_and(|goal| {
+            matches!(
+                goal.status,
+                roost_protocol::wire::agent_chat::GoalStatus::Active
+                    | roost_protocol::wire::agent_chat::GoalStatus::Paused
+                    | roost_protocol::wire::agent_chat::GoalStatus::BudgetLimited
+            )
+        }) {
+            return Err(AgentError::FailedPrecondition(
+                "/loop cannot run while a goal is active or paused".into(),
+            ));
+        }
         let has_prompt = !parsed.prompt.is_empty();
         if has_prompt && self.is_running(id) {
             return Err(AgentError::FailedPrecondition(PROMPT_NEEDS_IDLE.to_owned()));
         }
         let budget = Budget::new(parsed.limit, Instant::now())
             .map_err(|message| AgentError::InvalidArgument(message.to_owned()))?;
-        {
+        let expected = {
             let mut loops = self.loops();
             if loops.get(id).is_some_and(|state| state.checking.is_some()) {
                 return Err(AgentError::FailedPrecondition(CHECK_IN_FLIGHT.to_owned()));
@@ -82,13 +98,25 @@ impl AgentRuntime {
                     state.ended = CancellationToken::new();
                     state.budget = budget;
                     state.condition = parsed.condition;
+                    state.pending_repeat = None;
+                    state.pending_capture = None;
+                    state.condition_pending = false;
+                    state.condition_ready = false;
                 }
                 None => {
                     loops.insert(id.to_owned(), LoopState::new(budget, parsed.condition));
                 }
             }
+            loops.get(id).map(|state| state.ended.clone())
+        };
+        let Some(expected) = expected else {
+            return Ok(());
+        };
+        if !self.persist_loop_state(id, Some(&expected)).await? {
+            return Ok(());
         }
         tracing::info!(conversation_id = id, has_prompt, "loop mode configured");
+        drop(lifecycle_guard);
         if has_prompt {
             let record = self.record(id).await?;
             self.deliver_user_text(&record, parsed.prompt).await
@@ -100,9 +128,19 @@ impl AgentRuntime {
 
     /// Removes the loop and its status item without a notice, as the user's own
     /// `off` does. Returns whether a loop existed.
-    async fn end_loop(&self, id: &str, expected: Option<&CancellationToken>) -> bool {
+    async fn end_loop(
+        &self,
+        id: &str,
+        expected: Option<&CancellationToken>,
+    ) -> Result<bool, AgentError> {
+        if expected.is_some_and(CancellationToken::is_cancelled) || !self.loop_is_enabled(id) {
+            return Ok(false);
+        }
+        if !self.persist_loop_off(id, expected).await? {
+            return Ok(false);
+        }
         if !self.take_loop(id, expected) {
-            return false;
+            return Ok(false);
         }
         tracing::info!(conversation_id = id, "loop mode stopped");
         // A reset is the only way to remove an item the client has upserted.
@@ -112,7 +150,7 @@ impl AgentRuntime {
                 tracing::warn!(conversation_id = id, %error, "loop status was not cleared");
             }
         }
-        true
+        Ok(true)
     }
 
     /// Ends the loop because the loop itself reached an end (a halt, a failure
@@ -124,8 +162,12 @@ impl AgentRuntime {
         level: &str,
         message: &str,
     ) {
-        if self.end_loop(id, expected).await {
-            self.notice(id, level, LOOP_TITLE, message).await;
+        match self.end_loop(id, expected).await {
+            Ok(true) => self.notice(id, level, LOOP_TITLE, message).await,
+            Ok(false) => {}
+            Err(error) => {
+                tracing::warn!(conversation_id = id, %error, "loop stop was not persisted");
+            }
         }
     }
 
@@ -150,18 +192,25 @@ impl AgentRuntime {
 
     /// Stops the repeats of an aborted run but keeps the loop configured, so a
     /// later prompt resumes it.
-    pub(crate) async fn pause_loop(&self, id: &str) {
-        let paused = self.with_loop(id, |state| {
-            if let Some(check) = state.checking.take() {
-                check.token.cancel();
-            }
-            state.body = None;
-            state.paused = true;
-        });
-        if paused.is_some() {
+    pub(crate) async fn pause_loop(&self, id: &str) -> Result<(), AgentError> {
+        let Some(expected) = self.with_loop(id, |state| state.ended.clone()) else {
+            return Ok(());
+        };
+        if self
+            .update_loop_state(id, Some(&expected), |state| {
+                if let Some(check) = state.checking.take() {
+                    check.token.cancel();
+                }
+                state.body = None;
+                state.paused = true;
+                state.condition_ready = false;
+            })
+            .await?
+        {
             tracing::info!(conversation_id = id, "loop mode paused");
             self.emit_loop_status(id).await;
         }
+        Ok(())
     }
 
     /// Drops a deleted conversation's loop without emitting anything.
@@ -218,31 +267,6 @@ impl AgentRuntime {
         cleared
     }
 
-    /// A user prompt sent while the loop waits becomes the body of its repeats
-    /// and spends one run. A message sent during a run is a steer and never
-    /// changes the body.
-    pub(crate) async fn capture_loop_prompt(&self, id: &str, text: &str) {
-        if self.is_running(id) {
-            return;
-        }
-        let Some((budget, expected)) =
-            self.with_loop(id, |state| (state.budget, state.ended.clone()))
-        else {
-            return;
-        };
-        if let Some(message) = budget.exhausted(Instant::now()) {
-            self.stop_loop(id, Some(&expected), "info", message).await;
-            return;
-        }
-        self.with_loop_for(id, &expected, |state| {
-            state.body = Some(text.to_owned());
-            state.paused = false;
-            state.budget = state.budget.spend();
-        });
-        tracing::info!(conversation_id = id, "loop prompt captured");
-        self.emit_loop_status(id).await;
-    }
-
     /// The status item a transcript carries while a loop is enabled.
     pub(crate) fn loop_status_item(&self, id: &str) -> Option<TranscriptItem> {
         let status = self.with_loop(id, |state| state.status_text(Instant::now()))?;
@@ -258,7 +282,7 @@ impl AgentRuntime {
         }
     }
 
-    fn loop_enabled(&self, id: &str) -> bool {
+    pub(crate) fn loop_is_enabled(&self, id: &str) -> bool {
         self.loops().contains_key(id)
     }
 

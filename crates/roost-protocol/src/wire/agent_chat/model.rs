@@ -84,6 +84,11 @@ pub enum TranscriptItem {
         output: String,
         is_error: bool,
         running: bool,
+        /// Accepted calls wait here until their executor is entered.
+        #[serde(default)]
+        queued: bool,
+        #[serde(default)]
+        details_json: String,
         #[serde(default)]
         children: Vec<String>,
     },
@@ -126,10 +131,48 @@ pub enum TranscriptItem {
         answer: Option<String>,
         error: Option<String>,
     },
+    #[serde(rename = "goal")]
+    Goal { id: String, state: GoalState },
     /// The compact status of an active `/loop`. Ephemeral: upserted while the
     /// loop is enabled, dropped by a transcript reset, and never journaled.
     #[serde(rename = "loop_status")]
     LoopStatus { id: String, status: String },
+}
+/// Durable state for the session's OMP-compatible `/goal`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GoalStatus {
+    Active,
+    Paused,
+    BudgetLimited,
+    Complete,
+    Dropped,
+}
+
+impl GoalStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Paused => "paused",
+            Self::BudgetLimited => "budget_limited",
+            Self::Complete => "complete",
+            Self::Dropped => "dropped",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GoalState {
+    pub id: String,
+    pub objective: String,
+    pub status: GoalStatus,
+    pub token_budget: Option<u64>,
+    pub tokens_used: u64,
+    pub time_used_seconds: u64,
+    pub created_ms: i64,
+    pub updated_ms: i64,
+    pub report: Option<String>,
+    pub waiting_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -177,6 +220,9 @@ pub enum ChatEvent {
         item_id: String,
         block: usize,
         value: TranscriptBlock,
+    },
+    ToolStarted {
+        item_id: String,
     },
     ToolOutput {
         item_id: String,

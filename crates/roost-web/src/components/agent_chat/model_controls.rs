@@ -8,6 +8,7 @@
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{ConversationSummary, ModelsCatalog};
 
+use super::composer_commands::model_picker_trigger_id;
 use super::model_picker::{ModelPicker, PickerOption};
 use super::toolbar_menu::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
 use crate::components::md::{Button, ButtonSize, ButtonVariant, Card, CardVariant, Dialog};
@@ -57,6 +58,7 @@ pub fn AgentModelControls(
     let open_settings = move || navigate.call(crate::routes::settings_pane_href("models"));
     let setup = ModelSetup::from_catalog(catalog.as_ref(), catalog_failed);
     let mut picker_open = use_signal(|| false);
+    let trigger_id = model_picker_trigger_id(&conversation.id);
     // Nothing to pick from: a button that says why, never an empty menu. The
     // id is the picker's, so `/model` lands here too.
     let placeholder = match (conversation.model.is_some(), catalog.is_some(), setup) {
@@ -72,7 +74,7 @@ pub fn AgentModelControls(
                     variant: ButtonVariant::Ghost,
                     size: ButtonSize::Sm,
                     class: "agent-chat__picker",
-                    id: "agent-chat-model-trigger",
+                    id: "{trigger_id}",
                     icon: icon.to_string(),
                     disabled: waiting,
                     "aria-busy": waiting.then_some("true"),
@@ -124,7 +126,7 @@ pub fn AgentModelControls(
                 variant: ButtonVariant::Ghost,
                 size: ButtonSize::Sm,
                 class: "agent-chat__picker",
-                id: "agent-chat-model-trigger",
+                id: "{trigger_id}",
                 "aria-haspopup": "dialog",
                 "data-testid": "agent-chat-model-trigger",
                 title: format!("{model_label}. Choose a session-only model; folder and task defaults stay unchanged."),

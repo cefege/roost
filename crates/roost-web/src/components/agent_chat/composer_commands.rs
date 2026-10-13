@@ -73,6 +73,7 @@ pub(super) fn submit_message(
                 conversation_id,
                 text,
                 request_id,
+                ..Default::default()
             })
             .await
         {
@@ -112,7 +113,7 @@ pub(super) fn run_local_command(
     match name {
         "model" if client_bare && args.is_empty() => {
             #[cfg(target_arch = "wasm32")]
-            open_model_picker();
+            open_model_picker(&conversation.id);
             true
         }
         "settings" if client_bare => {
@@ -185,12 +186,16 @@ fn safe_download_title(title: &str) -> String {
     }
 }
 
+pub(super) fn model_picker_trigger_id(conversation_id: &str) -> String {
+    format!("agent-chat-model-trigger-{conversation_id}")
+}
+
 #[cfg(target_arch = "wasm32")]
-fn open_model_picker() {
+pub(super) fn open_model_picker(conversation_id: &str) {
     use wasm_bindgen::JsCast;
     if let Some(button) = web_sys::window()
         .and_then(|window| window.document())
-        .and_then(|document| document.get_element_by_id("agent-chat-model-trigger"))
+        .and_then(|document| document.get_element_by_id(&model_picker_trigger_id(conversation_id)))
         .and_then(|element| element.dyn_into::<web_sys::HtmlElement>().ok())
     {
         button.click();

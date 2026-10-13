@@ -8,96 +8,127 @@ use tokio_util::sync::CancellationToken;
 
 use super::condition::{self, Verdict};
 use super::parse::Condition;
+use crate::error::AgentError;
 use crate::records::Entry;
 use crate::runtime::{AgentRuntime, RunEnd};
 
 impl AgentRuntime {
-    /// Decides whether the run that just ended is followed by a repeat. Returns
-    /// `true` once the repeat's prompt is recorded, so the caller runs again.
+    /// Admits the next repeat after a completed run. Store failures retry under
+    /// run supervision; unknown shell-gate outcomes end repetition without replay.
     pub(crate) async fn next_loop_iteration(
         &self,
         id: &str,
         end: &RunEnd,
         user_aborted: bool,
         cancel: &CancellationToken,
-    ) -> bool {
+    ) -> Result<bool, AgentError> {
         if user_aborted || cancel.is_cancelled() || matches!(end, RunEnd::Aborted) {
-            self.pause_loop(id).await;
-            return false;
+            if let Err(error) = self.pause_loop(id).await {
+                tracing::warn!(conversation_id = id, %error, "loop pause was not persisted");
+            }
+            return Ok(false);
         }
-        if let RunEnd::Failed(error) = end {
-            self.stop_loop(
-                id,
-                None,
-                "error",
-                &format!("Loop stopped: the run failed. {error}"),
-            )
-            .await;
-            return false;
-        }
-        let Some((budget, has_body, condition, expected)) = self.with_loop(id, |state| {
-            (
-                state.budget,
-                state.body.is_some(),
-                state.condition.clone(),
-                state.ended.clone(),
-            )
-        }) else {
-            return false;
+        self.reconcile_pending_loop_repeat(id).await?;
+        let Some((budget, has_body, condition, condition_pending, condition_ready, expected)) =
+            self.with_loop(id, |state| {
+                (
+                    state.budget,
+                    state.body.is_some(),
+                    state.condition.clone(),
+                    state.condition_pending,
+                    state.condition_ready,
+                    state.ended.clone(),
+                )
+            })
+        else {
+            return Ok(false);
         };
         if !has_body {
-            return false;
+            return Ok(false);
+        }
+        if condition_pending {
+            self.stop_loop(
+                id,
+                Some(&expected),
+                "error",
+                super::state::CONDITION_INTERRUPTED,
+            )
+            .await;
+            return Ok(false);
         }
         if let Some(message) = budget.exhausted(Instant::now()) {
             self.stop_loop(id, Some(&expected), "info", message).await;
-            return false;
+            return Ok(false);
         }
-        let gated = match condition {
-            Some(condition) => self.gate_repeat(id, &condition, cancel, &expected).await,
-            None => true,
+        let gated = if condition_ready {
+            true
+        } else {
+            match condition {
+                Some(condition) => self.gate_repeat(id, &condition, cancel, &expected).await?,
+                None => true,
+            }
         };
         if !gated {
-            return false;
+            return Ok(false);
         }
         if cancel.is_cancelled() {
-            self.pause_loop(id).await;
-            return false;
+            self.pause_loop(id).await?;
+            return Ok(false);
         }
         self.arm_iteration(id, cancel, &expected).await
     }
 
-    /// Runs the `--while`/`--until` gate for the run that just ended. Returns
-    /// whether the loop repeats.
+    /// Runs the `--while`/`--until` gate only after its pending marker commits.
     async fn gate_repeat(
         &self,
         id: &str,
         condition: &Condition,
         cancel: &CancellationToken,
         expected: &CancellationToken,
-    ) -> bool {
+    ) -> Result<bool, AgentError> {
         let Some(check) = self.begin_check(id, cancel, expected) else {
-            return false;
+            return Ok(false);
         };
-        self.emit_loop_status(id).await;
-        // The shell call is dispatched only while this check still owns the
-        // slot, so a stop, pause or abort during the lookup never starts it.
-        let verdict = match self.record(id).await {
-            Ok(record) if !check.token.is_cancelled() && self.check_is_current(id, &check.id) => {
-                condition::evaluate(self, &record, condition, &check).await
+        match self
+            .update_loop_state(id, Some(expected), |state| state.condition_pending = true)
+            .await
+        {
+            Ok(true) => {}
+            Ok(false) => return Ok(false),
+            Err(error) => {
+                self.end_check(id, &check.id).await;
+                self.with_loop_for(id, expected, |state| state.condition_pending = false);
+                return Err(error);
             }
-            Ok(_) => Verdict::Cancelled,
-            Err(error) => Verdict::Error(error.to_string()),
+        }
+        self.emit_loop_status(id).await;
+        let record = match self.record(id).await {
+            Ok(record) => record,
+            Err(error) => {
+                self.end_check(id, &check.id).await;
+                self.with_loop_for(id, expected, |state| state.condition_pending = false);
+                return Err(error);
+            }
         };
-        // Once the check no longer owns the slot, the stopper already ended or
-        // paused the loop and emitted its state.
+        let verdict = if !check.token.is_cancelled() && self.check_is_current(id, &check.id) {
+            condition::evaluate(self, &record, condition, &check).await
+        } else {
+            Verdict::Cancelled
+        };
         if !self.end_check(id, &check.id).await {
-            return false;
+            return Ok(false);
         }
         match verdict {
-            Verdict::Continue => true,
+            Verdict::Continue => {
+                self.update_loop_state(id, Some(expected), |state| {
+                    state.condition_pending = false;
+                    state.condition_ready = true;
+                })
+                .await
+            }
             Verdict::Halt(message) => {
                 self.stop_loop(id, Some(expected), "info", &message).await;
-                false
+                Ok(false)
             }
             Verdict::Error(message) => {
                 self.stop_loop(
@@ -107,62 +138,76 @@ impl AgentRuntime {
                     &format!("Loop stopped: {message}"),
                 )
                 .await;
-                false
+                Ok(false)
             }
             Verdict::Cancelled => {
-                // A check cancelled by `/loop off` has no state left to pause;
-                // only a user abort of the run pauses the loop.
                 if cancel.is_cancelled() {
-                    self.pause_loop(id).await;
+                    self.pause_loop(id).await?;
                 }
-                false
+                Ok(false)
             }
         }
     }
 
-    /// Records the repeat's prompt before spending its run. The store checks
-    /// cancellation at its commit boundary; after that boundary an abort is a
-    /// started, interrupted repeat, not an unspent repeat.
+    /// A pending marker makes an accepted repeat count even when the store
+    /// loses its acknowledgement or the process exits before saving the budget.
     async fn arm_iteration(
         &self,
         id: &str,
         cancel: &CancellationToken,
         expected: &CancellationToken,
-    ) -> bool {
+    ) -> Result<bool, AgentError> {
         let Some(body) = self
             .with_loop_for(id, expected, |state| state.body.clone())
             .flatten()
         else {
-            return false;
+            return Ok(false);
         };
-        // Await the commit result even after cancellation: dropping a database
-        // future after COMMIT was sent can leave a prompt with an unspent run.
-        match self
-            .append_guarded(id, Entry::User { text: body }, &[cancel, expected])
+        let entries = self.inner.store.entries(id).await?;
+        let after_seq = entries.last().map_or(0, |(seq, _)| *seq);
+        if !self
+            .update_loop_state(id, Some(expected), |state| {
+                state.pending_repeat = Some(super::state::PendingRepeat {
+                    after_seq,
+                    body: body.clone(),
+                });
+            })
+            .await?
+        {
+            return Ok(false);
+        }
+        let user_seq = match self
+            .append_guarded(
+                id,
+                Entry::User {
+                    text: body,
+                    loop_repeat: true,
+                },
+                &[cancel, expected],
+            )
             .await
         {
-            Err(crate::error::AgentError::Cancelled) => {
+            Ok(sequence) => sequence,
+            Err(AgentError::Cancelled) => {
                 if cancel.is_cancelled() {
-                    self.pause_loop(id).await;
+                    self.pause_loop(id).await?;
                 }
-                false
+                return Ok(false);
             }
-            Err(error) => {
-                self.stop_loop(
-                    id,
-                    Some(expected),
-                    "error",
-                    &format!("Loop stopped: the repeat prompt was not recorded. {error}"),
-                )
-                .await;
-                false
-            }
-            Ok(_) => {
-                self.with_loop_for(id, expected, |state| state.budget = state.budget.spend());
-                tracing::info!(conversation_id = id, "loop repeat started");
-                self.emit_loop_status(id).await;
-                true
-            }
+            Err(error) => return Err(error),
+        };
+        if !self
+            .update_loop_state(id, Some(expected), |state| {
+                state.budget = state.budget.spend();
+                state.pending_repeat = None;
+                state.condition_ready = false;
+            })
+            .await?
+        {
+            return Ok(false);
         }
+        tracing::info!(conversation_id = id, user_seq, "loop repeat started");
+        self.emit_loop_status(id).await;
+        Ok(true)
     }
 }

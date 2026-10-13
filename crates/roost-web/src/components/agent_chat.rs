@@ -7,6 +7,10 @@
 mod advisory_card;
 mod composer;
 mod composer_commands;
+mod composer_helpers;
+mod composer_status;
+mod goal_controls;
+mod goal_dock;
 mod header;
 mod interaction_cards;
 mod launch;
@@ -20,6 +24,7 @@ mod plan_card;
 mod slash_menu;
 mod surface;
 mod surface_state;
+mod thinking_block;
 mod tool_card;
 mod toolbar_menu;
 mod transcript;

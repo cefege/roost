@@ -8,6 +8,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::error::AgentError;
+use crate::goal_mode::TOOL_GOAL;
 use crate::projection::tool_item_id;
 use crate::records::{ConversationRecord, Entry};
 use crate::runtime::{AgentRuntime, RunEnd};
@@ -51,19 +52,15 @@ pub(crate) struct CallScope<'a> {
     pub record: &'a ConversationRecord,
     pub toolset: &'a Toolset,
     pub depth: u32,
+    pub goal_id: Option<String>,
     /// The turn's user-entry seq; workers key file restore points by it.
     pub checkpoint_id: u64,
     pub cancel: &'a CancellationToken,
 }
 
 pub(crate) async fn execute_round(
-    runtime: &AgentRuntime,
-    record: &ConversationRecord,
-    toolset: &Toolset,
-    depth: u32,
-    checkpoint_id: u64,
+    scope: CallScope<'_>,
     calls: Vec<(String, String, String)>,
-    cancel: &CancellationToken,
 ) -> Result<Option<RunEnd>, AgentError> {
     let running: Vec<ChatEvent> = calls
         .iter()
@@ -77,58 +74,80 @@ pub(crate) async fn execute_round(
                 is_error: false,
                 running: true,
                 children: Vec::new(),
+                queued: true,
+                details_json: String::new(),
             },
         })
         .collect();
-    runtime.emit(&record.id, running).await;
-    let scope = CallScope {
-        runtime,
-        record,
-        toolset,
-        depth,
-        checkpoint_id,
-        cancel,
-    };
-    let results: Vec<CallResult> = if calls.iter().all(|(_, name, _)| is_read_only(name)) {
+    scope.runtime.emit(&scope.record.id, running).await;
+    let results = if calls.iter().all(|(_, name, _)| is_read_only(name)) {
         join_all(
             calls
                 .iter()
-                .map(|(call_id, name, args)| run_call(&scope, call_id, name, args)),
+                .map(|(call_id, name, args)| run_and_record(&scope, call_id, name, args)),
         )
         .await
     } else {
         let mut results = Vec::with_capacity(calls.len());
         for (call_id, name, args) in &calls {
-            results.push(run_call(&scope, call_id, name, args).await);
+            results.push(Ok(run_and_record(&scope, call_id, name, args).await?));
         }
         results
     };
     let mut end = None;
-    for ((call_id, name, _), result) in calls.into_iter().zip(results) {
-        tracing::debug!(conversation_id = %record.id, call_id, tool = name, is_error = result.outcome.is_error, "agent tool call finished");
-        runtime
-            .append(
-                &record.id,
-                Entry::ToolResult {
-                    call_id,
-                    tool_name: name,
-                    text: result.outcome.content,
-                    is_error: result.outcome.is_error,
-                    details_json: result.outcome.details_json,
-                },
-            )
-            .await?;
+    for result in results {
+        let call_end = result?;
         if end.is_none() {
-            end = result.end;
+            end = call_end;
         }
     }
     Ok(end)
 }
 
+async fn run_and_record(
+    scope: &CallScope<'_>,
+    call_id: &str,
+    name: &str,
+    args: &str,
+) -> Result<Option<RunEnd>, AgentError> {
+    let result = run_call(scope, call_id, name, args).await;
+    scope
+        .runtime
+        .append(
+            &scope.record.id,
+            Entry::ToolResult {
+                call_id: call_id.to_owned(),
+                tool_name: name.to_owned(),
+                text: result.outcome.content,
+                is_error: result.outcome.is_error,
+                details_json: result.outcome.details_json,
+            },
+        )
+        .await?;
+    tracing::debug!(conversation_id = %scope.record.id, call_id, tool = name, is_error = result.outcome.is_error, "agent tool call recorded");
+    Ok(result.end)
+}
+
 async fn run_call(scope: &CallScope<'_>, call_id: &str, name: &str, args: &str) -> CallResult {
+    if scope.cancel.is_cancelled() {
+        return CallResult::plain(ToolOutcome {
+            is_error: false,
+            content: "Cancelled before execution.".into(),
+            details_json: r#"{"cancelled":true}"#.into(),
+        });
+    }
     if !scope.toolset.offers(name) {
         return CallResult::failure(format!("Tool `{name}` is not available here."));
     }
+    scope
+        .runtime
+        .emit(
+            &scope.record.id,
+            vec![ChatEvent::ToolStarted {
+                item_id: tool_item_id(call_id),
+            }],
+        )
+        .await;
     let (out, out_rx) = mpsc::channel::<String>(64);
     let forwarder = tokio::spawn(forward_output(
         scope.runtime.clone(),
@@ -155,6 +174,10 @@ async fn run_call(scope: &CallScope<'_>, call_id: &str, name: &str, args: &str) 
             drop(out);
             plan_mode::propose(scope, args).await
         }
+        TOOL_GOAL => {
+            drop(out);
+            run_goal_tool(scope, args).await
+        }
         TOOL_YIELD => {
             drop(out);
             yield_result(args)
@@ -164,6 +187,61 @@ async fn run_call(scope: &CallScope<'_>, call_id: &str, name: &str, args: &str) 
     // Every sender is gone once the call returns, so the forwarder drains and ends.
     let _ = forwarder.await;
     result
+}
+
+async fn run_goal_tool(scope: &CallScope<'_>, args: &str) -> CallResult {
+    let parsed = serde_json::from_str::<serde_json::Value>(args);
+    let operation = parsed.as_ref().ok().and_then(|value| value["op"].as_str());
+    let objective = parsed
+        .as_ref()
+        .ok()
+        .and_then(|value| value["objective"].as_str());
+    let budget = parsed
+        .as_ref()
+        .ok()
+        .and_then(|value| value.get("token_budget"))
+        .map(|value| {
+            value
+                .as_u64()
+                .filter(|budget| *budget > 0)
+                .map(Some)
+                .ok_or_else(|| {
+                    AgentError::InvalidArgument(
+                        "goal token_budget must be a positive integer".into(),
+                    )
+                })
+        })
+        .unwrap_or(Ok(None));
+    let result = match (operation, budget) {
+        (_, Err(error)) => Err(error),
+        (Some(operation), Ok(budget)) => {
+            scope
+                .runtime
+                .goal_tool(
+                    &scope.record.id,
+                    scope.goal_id.as_deref(),
+                    operation,
+                    objective,
+                    budget,
+                )
+                .await
+        }
+        (None, Ok(_)) => Err(AgentError::InvalidArgument(
+            "goal requires an operation".into(),
+        )),
+    };
+    match result {
+        Ok(content) => CallResult::plain(ToolOutcome {
+            is_error: false,
+            content,
+            details_json: "{}".into(),
+        }),
+        Err(error) => CallResult::plain(ToolOutcome {
+            is_error: true,
+            content: error.to_string(),
+            details_json: "{}".into(),
+        }),
+    }
 }
 
 fn yield_result(args: &str) -> CallResult {

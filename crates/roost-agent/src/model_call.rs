@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 use crate::error::AgentError;
 use crate::live_item::LiveItem;
 use crate::projection::transcript_blocks;
-use crate::records::{Entry, model_ref};
+use crate::records::{AssistantMetadata, Entry, model_ref};
 use crate::runtime::AgentRuntime;
 
 const MAX_ROTATIONS: usize = 3;
@@ -220,6 +220,7 @@ pub(crate) async fn primary_call(
     conversation_id: &str,
     attempts: &[ChatRequest],
     cancel: &CancellationToken,
+    mut metadata: AssistantMetadata,
 ) -> Result<(u64, ModelOutput, usize), AgentError> {
     let (events, mut events_rx) = mpsc::unbounded_channel::<Vec<ChatEvent>>();
     let forwarder = {
@@ -240,6 +241,9 @@ pub(crate) async fn primary_call(
     let reference = attempts
         .get(used)
         .map(|request| model_ref(&request.model.provider, &request.model.id));
+    metadata.completed = result.is_ok();
+    metadata.stop_reason = result.as_ref().ok().map(|output| output.stop.clone());
+    let metadata = Some(metadata);
     let (blocks, usage) = match &result {
         Ok(output) => (output.blocks.clone(), output.usage),
         Err(_) => (partial, Usage::default()),
@@ -249,6 +253,7 @@ pub(crate) async fn primary_call(
         blocks: blocks.clone(),
         usage,
         model: reference,
+        metadata,
     };
     let seq = runtime
         .inner

@@ -44,6 +44,11 @@ pub fn fold_chat_event(transcript: &mut Transcript, event: &ChatEvent) {
                 }
             }
         }
+        ChatEvent::ToolStarted { item_id } => {
+            if let Some(TranscriptItem::Tool { queued, .. }) = item_mut(transcript, item_id) {
+                *queued = false;
+            }
+        }
         ChatEvent::ToolOutput {
             item_id,
             trim_start,
@@ -133,6 +138,7 @@ impl TranscriptItem {
             | Self::Plan { id, .. }
             | Self::Advisory { id, .. }
             | Self::Todo { id, .. }
+            | Self::Goal { id, .. }
             | Self::LoopStatus { id, .. }
             | Self::Ask { id, .. }
             | Self::Btw { id, .. } => id,

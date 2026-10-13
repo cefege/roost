@@ -79,7 +79,7 @@ pub fn children_from_details(details_json: &str) -> Vec<String> {
 /// The item one entry projects to, if it is user-visible.
 pub fn entry_item(seq: u64, entry: &Entry, tools: &ToolCallIndex) -> Option<TranscriptItem> {
     match entry {
-        Entry::User { text } => Some(TranscriptItem::User {
+        Entry::User { text, .. } => Some(TranscriptItem::User {
             id: format!("u{seq}"),
             text: text.clone(),
         }),
@@ -110,6 +110,8 @@ pub fn entry_item(seq: u64, entry: &Entry, tools: &ToolCallIndex) -> Option<Tran
                 is_error: *is_error,
                 running: false,
                 children: children_from_details(details_json),
+                queued: false,
+                details_json: details_json.clone(),
             })
         }
         Entry::Compaction { summary, .. } => Some(TranscriptItem::Notice {
@@ -179,7 +181,17 @@ pub fn entry_item(seq: u64, entry: &Entry, tools: &ToolCallIndex) -> Option<Tran
             answer: answer.clone(),
             error: error.clone(),
         }),
-        Entry::Rewind { .. } | Entry::ExtraUsage { .. } | Entry::SubagentContext { .. } => None,
+        Entry::Goal { state } => Some(TranscriptItem::Goal {
+            id: "goal-status".into(),
+            state: state.clone(),
+        }),
+        Entry::Rewind { .. }
+        | Entry::ExtraUsage { .. }
+        | Entry::SubagentContext { .. }
+        | Entry::RunIntent { .. }
+        | Entry::LoopState { .. }
+        | Entry::GoalContinuation { .. }
+        | Entry::GoalActivity { .. } => None,
     }
 }
 
@@ -212,6 +224,7 @@ pub fn item_id(item: &TranscriptItem) -> &str {
         | TranscriptItem::Tool { id, .. }
         | TranscriptItem::Notice { id, .. }
         | TranscriptItem::Plan { id, .. }
+        | TranscriptItem::Goal { id, .. }
         | TranscriptItem::Advisory { id, .. }
         | TranscriptItem::Todo { id, .. }
         | TranscriptItem::Ask { id, .. }

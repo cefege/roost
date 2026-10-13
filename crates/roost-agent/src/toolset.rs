@@ -8,6 +8,7 @@ use roost_protocol::wire::agent_chat::{
 };
 use serde_json::json;
 
+use crate::goal_mode::TOOL_GOAL;
 use crate::prompts;
 use crate::records::{ConversationRecord, Mode};
 
@@ -141,6 +142,8 @@ pub fn toolset_for(record: &ConversationRecord, depth: u32, find_available: bool
         specs.push(yield_spec());
     } else if plan_mode {
         specs.push(propose_plan_spec());
+    } else {
+        specs.push(goal_spec());
     }
     let specs = keep_first_tool_names(specs);
     Toolset {
@@ -291,6 +294,22 @@ pub fn yield_spec() -> ToolSpec {
             "type": "object",
             "properties": {"result": {"type": "string"}},
             "required": ["result"],
+            "additionalProperties": false
+        }),
+    }
+}
+pub fn goal_spec() -> ToolSpec {
+    ToolSpec {
+        name: TOOL_GOAL.into(),
+        description: prompts::GOAL_TOOL.into(),
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "op": {"type": "string", "enum": ["create", "get", "complete", "resume", "drop"]},
+                "objective": {"type": "string"},
+                "token_budget": {"type": "integer", "minimum": 1}
+            },
+            "required": ["op"],
             "additionalProperties": false
         }),
     }

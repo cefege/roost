@@ -58,7 +58,47 @@ const LOOP_SUBCOMMANDS: &[SlashArgument] = &[
     },
 ];
 
+const GOAL_SUBCOMMANDS: &[SlashArgument] = &[
+    SlashArgument {
+        name: "set",
+        summary: "Set or replace the objective",
+    },
+    SlashArgument {
+        name: "show",
+        summary: "Show goal status",
+    },
+    SlashArgument {
+        name: "pause",
+        summary: "Pause autonomous work",
+    },
+    SlashArgument {
+        name: "resume",
+        summary: "Resume the goal",
+    },
+    SlashArgument {
+        name: "drop",
+        summary: "Drop the goal",
+    },
+    SlashArgument {
+        name: "budget",
+        summary: "Set a token budget or off",
+    },
+];
+
 pub const AGENT_SLASH_COMMANDS: &[SlashCommand] = &[
+    SlashCommand {
+        name: "goal",
+        aliases: &[],
+        args: "[objective|command]",
+        summary: "Work toward a durable objective",
+        client_bare: false,
+        subcommands: GOAL_SUBCOMMANDS,
+        examples: &[
+            "/goal ship the settings page",
+            "/goal show",
+            "/goal budget 50000",
+        ],
+    },
     SlashCommand {
         name: "plan",
         aliases: &[],

@@ -13,8 +13,11 @@ use super::interaction_cards::{AskCard, BtwCard};
 use super::message_actions::{ForkMessageAction, UserMessageActions};
 use super::notice_card::NoticeCard;
 use super::plan_card::PlanCard;
+use super::thinking_block::ThinkingBlock;
 use super::tool_card::ToolCard;
-use crate::components::md::{ButtonVariant, Icon, IconButton, IconButtonSize, IconSize};
+use crate::components::md::{
+    Button, ButtonVariant, Icon, IconButton, IconButtonSize, IconSize, StatusDot,
+};
 use crate::pump::Pump;
 
 enum Segment<'transcript> {
@@ -38,20 +41,54 @@ pub fn AgentTranscriptView(
     let segments = segments(&transcript);
     let streaming = assistant_is_streaming(&transcript);
     let running = transcript.run_state == AgentRunState::Running;
+    let has_tools = transcript
+        .items
+        .iter()
+        .any(|item| matches!(item, TranscriptItem::Tool { .. }));
+    let has_thinking = transcript.items.iter().any(|item| matches!(
+        item,
+        TranscriptItem::Assistant { blocks, .. }
+            if blocks.iter().any(|block| matches!(block, TranscriptBlock::Thinking { text } if !text.is_empty()))
+    ));
+    let mut show_tools = use_signal(|| true);
+    let mut show_thinking = use_signal(|| true);
     rsx! {
         div { class: "agent-chat__items",
+            if has_tools || has_thinking {
+                div { class: "agent-chat__transcript-controls",
+                    if has_thinking {
+                        Button {
+                            variant: ButtonVariant::Link,
+                            aria_expanded: show_thinking().to_string(),
+                            onclick: move |_| show_thinking.set(!show_thinking()),
+                            Icon { name: if show_thinking() { "visibility" } else { "visibility_off" }, size: IconSize::Sm }
+                            if show_thinking() { "Hide thinking" } else { "Show thinking" }
+                        }
+                    }
+                    if has_tools {
+                        Button {
+                            variant: ButtonVariant::Link,
+                            aria_expanded: show_tools().to_string(),
+                            onclick: move |_| show_tools.set(!show_tools()),
+                            Icon { name: if show_tools() { "visibility" } else { "visibility_off" }, size: IconSize::Sm }
+                            if show_tools() { "Hide tool activity" } else { "Show tool activity" }
+                        }
+                    }
+                }
+            }
             for segment in segments {
                 match segment {
                     Segment::User(TranscriptItem::User { id, text }) => rsx! {
                         UserMessage { key: "{id}", id: id.clone(), text: text.clone(), conversation_id: conversation_id.clone(), draft, pump: pump.clone() }
                     },
                     Segment::Assistant(TranscriptItem::Assistant { id, blocks, streaming, error }) => rsx! {
-                        AssistantMessage { key: "{id}", id: id.clone(), blocks: blocks.clone(), streaming: *streaming, error: error.clone(), conversation_id: conversation_id.clone(), pump: pump.clone() }
+                        AssistantMessage { key: "{id}", id: id.clone(), blocks: blocks.clone(), streaming: *streaming, error: error.clone(), show_thinking: show_thinking(), conversation_id: conversation_id.clone(), pump: pump.clone() }
                     },
+                    Segment::Steps(_) if !show_tools() => rsx! {},
                     Segment::Steps(steps) => rsx! {
                         div { key: "{step_group_key(&steps)}", class: "agent-chat__steps",
                             for step in steps {
-                                if let TranscriptItem::Tool { id, tool_name, args_json, output, is_error, running, children, .. } = step {
+                                if let TranscriptItem::Tool { id, tool_name, args_json, output, is_error, running, queued, details_json, children, .. } = step {
                                     ToolCard {
                                         key: "{id}",
                                         tool_name: tool_name.clone(),
@@ -59,6 +96,8 @@ pub fn AgentTranscriptView(
                                         output: output.clone(),
                                         is_error: *is_error,
                                         running: *running,
+                                        queued: *queued,
+                                        details_json: details_json.clone(),
                                         child_ids: children.clone(),
                                     }
                                 }
@@ -121,12 +160,13 @@ fn AssistantMessage(
     blocks: Vec<TranscriptBlock>,
     streaming: bool,
     error: Option<String>,
+    show_thinking: bool,
     conversation_id: String,
     pump: Pump,
 ) -> Element {
     let last_thinking = blocks
         .iter()
-        .rposition(|block| matches!(block, TranscriptBlock::Thinking { .. }));
+        .rposition(|block| matches!(block, TranscriptBlock::Thinking { text } if !text.is_empty()));
     let copy_text = blocks
         .iter()
         .filter_map(|block| match block {
@@ -144,23 +184,21 @@ fn AssistantMessage(
                         div {
                             key: "text-{index}",
                             class: "agent-chat__markdown",
+                            "data-streaming": (streaming && index + 1 == blocks.len()).then_some("true"),
                             dangerous_inner_html: super::markdown::markdown_to_safe_html(text),
                         }
                     },
-                    TranscriptBlock::Thinking { text } => {
+                    TranscriptBlock::Thinking { text } if !text.is_empty() => {
                         let live = streaming && Some(index) == last_thinking && index + 1 == blocks.len();
-                        rsx! {
-                            details { key: "thinking-{index}", class: "agent-chat__thinking",
-                                summary {
-                                    Icon { name: "psychology", size: IconSize::Sm }
-                                    span { class: if live { "agent-chat__shimmer" } else { "" }, if live { "Thinking…" } else { "Thought process" } }
-                                    span { class: "agent-chat__thinking-chevron", Icon { name: "expand_more", size: IconSize::Sm } }
-                                }
-                                div { class: "agent-chat__thinking-text", "{text}" }
-                            }
-                        }
+                        rsx! { ThinkingBlock { key: "thinking-{index}", text: text.clone(), live, globally_visible: show_thinking } }
                     }
                     _ => rsx! {},
+                }
+            }
+            if streaming {
+                div { class: "agent-chat__live-tail", role: "status", "aria-label": "Assistant response is streaming",
+                    span { class: "agent-chat__live-dot", StatusDot { status: "running" } }
+                    "Generating response"
                 }
             }
             if let Some(error) = error {
@@ -224,7 +262,9 @@ fn segments(transcript: &Transcript) -> Vec<Segment<'_>> {
             },
             TranscriptItem::Notice { .. } => segments.push(Segment::Notice(item)),
             TranscriptItem::Plan { .. } => segments.push(Segment::Plan(item)),
-            TranscriptItem::Todo { .. } | TranscriptItem::LoopStatus { .. } => {}
+            TranscriptItem::Goal { .. }
+            | TranscriptItem::Todo { .. }
+            | TranscriptItem::LoopStatus { .. } => {}
             TranscriptItem::Ask { .. } => segments.push(Segment::Ask(item)),
             TranscriptItem::Btw { .. } => segments.push(Segment::Btw(item)),
             TranscriptItem::Advisory { .. } => segments.push(Segment::Advisory(item)),
@@ -240,14 +280,19 @@ fn step_group_key(steps: &[&TranscriptItem]) -> String {
     }
 }
 
-/// Whether the newest item is an assistant message still receiving text: it
-/// is then its own progress signal, and a second one would be noise.
+/// Whether the newest visible item is an assistant message still receiving
+/// text. Docked goal/status records are not transcript progress indicators.
 fn assistant_is_streaming(transcript: &Transcript) -> bool {
-    matches!(
-        transcript.items.last(),
-        Some(TranscriptItem::Assistant {
-            streaming: true,
-            ..
+    transcript
+        .items
+        .iter()
+        .rev()
+        .find_map(|item| match item {
+            TranscriptItem::Goal { .. }
+            | TranscriptItem::Todo { .. }
+            | TranscriptItem::LoopStatus { .. } => None,
+            TranscriptItem::Assistant { streaming, .. } => Some(*streaming),
+            _ => Some(false),
         })
-    )
+        .unwrap_or(false)
 }

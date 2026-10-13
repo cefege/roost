@@ -128,7 +128,7 @@ impl AgentRuntime {
             cursor += 1;
         }
         for record in &doomed {
-            self.abort(&record.id);
+            self.abort(&record.id).await?;
             self.inner
                 .tools
                 .close_conversation(&record.worker_fp, &record.id)
@@ -162,20 +162,19 @@ impl AgentRuntime {
     }
 
     /// The single path a user message takes into a conversation, typed or
-    /// inlined after `/loop`. A prompt that arrives while a loop is waiting
-    /// becomes that loop's body before the message is steered in.
+    /// inlined after `/loop`. An accepted idle prompt becomes the loop body.
     pub(crate) async fn deliver_user_text(
         &self,
         record: &ConversationRecord,
         text: String,
     ) -> Result<(), AgentError> {
         let id = record.id.as_str();
+        self.note_goal_user_input(id).await?;
         if record.title.trim().is_empty() {
             let title: String = text.trim().chars().take(TITLE_CHARS).collect();
             self.update_record(id, |row| row.title = title).await?;
         }
         self.deliver_pending_advisories(id).await?;
-        self.capture_loop_prompt(id, &text).await;
         self.steer(id, Steer::User(text)).await
     }
 
@@ -335,36 +334,6 @@ impl AgentRuntime {
             self.publish_summary(&record).await;
         }
         Ok(())
-    }
-
-    /// Settles runs a coordinator restart interrupted: the row goes idle and
-    /// the transcript says why.
-    pub async fn recover_interrupted_runs(&self) -> Result<usize, AgentError> {
-        let mut recovered = 0;
-        for record in self.inner.store.conversations().await? {
-            if record.run_state != AgentRunState::Running || self.is_running(&record.id) {
-                continue;
-            }
-            self.update_record(&record.id, |row| {
-                row.run_state = AgentRunState::Idle;
-                row.error = None;
-            })
-            .await?;
-            self.append(
-                &record.id,
-                Entry::Notice {
-                    level: "warn".into(),
-                    title: "Run interrupted".into(),
-                    body: "Run interrupted by a coordinator restart".into(),
-                },
-            )
-            .await?;
-            recovered += 1;
-        }
-        if recovered > 0 {
-            tracing::info!(recovered, "interrupted agent runs settled");
-        }
-        Ok(recovered)
     }
 }
 

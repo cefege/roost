@@ -74,6 +74,7 @@ async fn conversation_entries_settings_and_credentials_round_trip() {
             "child",
             &Entry::User {
                 text: "child entry".to_owned(),
+                loop_repeat: false,
             },
             &[],
         )
@@ -90,6 +91,7 @@ async fn conversation_entries_settings_and_credentials_round_trip() {
 
     let first = Entry::User {
         text: "hello".to_owned(),
+        loop_repeat: false,
     };
     let second = Entry::Notice {
         level: "info".to_owned(),
@@ -279,6 +281,7 @@ async fn cancelled_entry_rolls_back_without_spending_a_sequence_number() {
     cancel.cancel();
     let entry = Entry::User {
         text: "repeat".into(),
+        loop_repeat: false,
     };
     let result = store.append_entry("cancelled", &entry, &[&cancel]).await;
     assert!(matches!(result, Err(roost_agent::AgentError::Cancelled)));

@@ -1,15 +1,18 @@
 //! Agent chat RPCs over the coordinator's Rust harness, against a loopback
 //! fake Anthropic Messages server and a tool executor that answers for the
 //! worker: a full tool round reaches the Sync bus, a rate-limited account
-//! rotates to the next, settings are validated, and restarts settle runs.
+//! rotates to the next, settings are validated, and restarts resume runs.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod agent_fixture;
 mod db_support;
 
+#[path = "agent_chat_rpc/recovery.rs"]
+mod recovery;
+
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use agent_fixture::{AgentFixture, WORKER_A};
@@ -20,7 +23,8 @@ use axum::routing::post;
 use axum::{Json, Router};
 use connectrpc::ErrorCode;
 use futures::future::BoxFuture;
-use roost_agent::{AgentStore, Entry, ToolCall, ToolExecutor, ToolOutcome};
+use parking_lot::Mutex;
+use roost_agent::{ToolCall, ToolExecutor, ToolOutcome};
 use roost_coord::agent::AgentService;
 use roost_coord::agent::rpc_accounts::handle_agent_settings_set;
 use roost_coord::agent::rpc_auth::handle_agent_auth_set_api_key;
@@ -28,7 +32,6 @@ use roost_coord::agent::rpc_chat::{
     handle_agent_chat_create, handle_agent_chat_snapshot, handle_agent_chat_submit,
 };
 use roost_proto as proto;
-use roost_protocol::wire::agent_chat::AgentRunState;
 use serde_json::Value;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
@@ -43,20 +46,22 @@ struct FakeAnthropic {
     replies: Arc<Mutex<Vec<String>>>,
     limited_keys: Arc<Mutex<Vec<String>>>,
     seen_keys: Arc<Mutex<Vec<String>>>,
+    seen_bodies: Arc<Mutex<Vec<Value>>>,
 }
 
 async fn messages(
     State(fake): State<FakeAnthropic>,
     headers: HeaderMap,
-    Json(_body): Json<Value>,
+    Json(body): Json<Value>,
 ) -> Response {
     let key = headers
         .get("x-api-key")
         .and_then(|value| value.to_str().ok())
         .unwrap_or("")
         .to_owned();
-    fake.seen_keys.lock().unwrap().push(key.clone());
-    if fake.limited_keys.lock().unwrap().contains(&key) {
+    fake.seen_keys.lock().push(key.clone());
+    fake.seen_bodies.lock().push(body);
+    if fake.limited_keys.lock().contains(&key) {
         return (
             StatusCode::TOO_MANY_REQUESTS,
             [("retry-after", "30")],
@@ -65,7 +70,7 @@ async fn messages(
             .into_response();
     }
     let reply = {
-        let mut replies = fake.replies.lock().unwrap();
+        let mut replies = fake.replies.lock();
         if replies.is_empty() {
             text_sse("out of script")
         } else {
@@ -123,7 +128,7 @@ impl ToolExecutor for FakeWorker {
         } else {
             "[README.md#5BF9]\n1:hello".to_owned()
         };
-        self.calls.lock().unwrap().push(call);
+        self.calls.lock().push(call);
         Box::pin(async move {
             Ok(ToolOutcome {
                 is_error: false,
@@ -249,7 +254,7 @@ async fn settled_transcript(setup: &Setup, id: &str) -> Value {
 async fn a_submitted_message_runs_a_tool_round_and_publishes_the_transcript() {
     let setup = setup("agent-chat-tool-round").await;
     add_key(&setup, "sk-ant-first-key-0001").await;
-    setup.fake.replies.lock().unwrap().extend([
+    setup.fake.replies.lock().extend([
         tool_sse("call-1", "read", r#"{"path":"README.md"}"#),
         text_sse("The README says hello."),
     ]);
@@ -287,7 +292,6 @@ async fn a_submitted_message_runs_a_tool_round_and_publishes_the_transcript() {
         .worker
         .calls
         .lock()
-        .unwrap()
         .iter()
         .filter(|call| call.tool == "read")
         .cloned()
@@ -316,9 +320,8 @@ async fn a_rate_limited_account_rotates_to_the_next_one() {
         .fake
         .limited_keys
         .lock()
-        .unwrap()
         .push("sk-ant-first-key-0001".into());
-    setup.fake.replies.lock().unwrap().push(text_sse("served"));
+    setup.fake.replies.lock().push(text_sse("served"));
     let id = create(&setup).await;
     // Whichever account the pool tries first, the run must end on the second.
     submit(&setup, &id, "hi").await;
@@ -343,7 +346,6 @@ async fn a_rate_limited_account_rotates_to_the_next_one() {
             .fake
             .seen_keys
             .lock()
-            .unwrap()
             .iter()
             .any(|key| key == "sk-ant-second-key-0002")
     );
@@ -363,23 +365,4 @@ async fn an_invalid_role_selector_is_rejected() {
     .await
     .expect_err("an invalid selector was accepted");
     assert_eq!(error.code, ErrorCode::InvalidArgument);
-}
-
-#[tokio::test]
-async fn a_run_interrupted_by_a_restart_comes_back_idle_with_a_notice() {
-    let setup = setup("agent-restart-recovery").await;
-    let id = create(&setup).await;
-    let store =
-        roost_coord::agent::store::CoordAgentStore::new(setup.fixture.core.services.db.clone());
-    let mut record = store.conversation(&id).await.unwrap().unwrap();
-    record.run_state = AgentRunState::Running;
-    store.save_conversation(&record).await.unwrap();
-
-    setup.fixture.core.services.agent.recover().await;
-
-    let record = store.conversation(&id).await.unwrap().unwrap();
-    assert_eq!(record.run_state, AgentRunState::Idle);
-    let entries = store.entries(&id).await.unwrap();
-    assert!(entries.iter().any(|(_, entry)| matches!(entry,
-        Entry::Notice { body, .. } if body == "Run interrupted by a coordinator restart")));
 }

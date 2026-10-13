@@ -143,12 +143,6 @@ impl AgentRuntime {
             "agent ask answered"
         );
         let steer_text = "The user answered the outstanding questions. Continue using the recorded <answers> context.".to_owned();
-        let pending = self.with_run(id, |run| {
-            run.steer.send(Steer::User(steer_text.clone())).is_ok()
-        });
-        if pending != Some(true) {
-            self.start_run(id, None).await?;
-        }
-        Ok(())
+        self.steer(id, Steer::User(steer_text)).await
     }
 }

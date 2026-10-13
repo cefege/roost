@@ -1,10 +1,6 @@
-//! The chat composer: one rounded box holding the draft field and a bar with
-//! the model pickers and a single round action — Send, or Stop while a run is
-//! live and nothing is typed (typing while it runs steers the agent). Enter
-//! sends, Shift+Enter breaks the line. While the draft names a command, Enter
-//! and Tab complete the highlighted option from the command menu. The draft
-//! belongs to the surface, so a suggestion can fill it. Sends
-//! `AgentChatSubmit` and `AgentChatAbort`.
+//! HTML draft entry, slash completion and live agent controls.
+//! The surface keeps the draft; the pump submits input and explicit Stop.
+//! Model, settings and goal actions remain clickable while output streams.
 
 use std::rc::Rc;
 
@@ -13,6 +9,12 @@ use roost_protocol::wire::agent_chat::{
     ConversationSummary, ModelsCatalog, ProviderEntry, Transcript, parse_slash_command,
 };
 
+#[cfg(target_arch = "wasm32")]
+use super::composer_helpers::abort_run;
+use super::composer_helpers::{fill_draft, focus_field};
+use super::composer_status::ComposerErrorBanner;
+use super::goal_controls::GoalControls;
+use super::goal_dock::GoalDock;
 use super::model_controls::AgentModelControls;
 use super::slash_menu::{
     SlashMenu, effort_levels, initial_selection, listbox_id, option_id, scroll_option_into_view,
@@ -27,8 +29,6 @@ use super::composer_commands::{
     LocalCommandScope, advisor_title, report_command, run_local_command, submit_direct_command,
     submit_message,
 };
-#[cfg(target_arch = "wasm32")]
-use roost_client_core::client::rpc::calls::agent_chat::AbortAgentChat;
 
 #[component]
 pub fn AgentComposer(
@@ -52,6 +52,13 @@ pub fn AgentComposer(
     let mut connect_provider = use_signal(|| None::<ProviderEntry>);
     let mut command_error = use_signal(|| None::<String>);
     let mut advisor_pending = use_signal(|| false);
+    let mut goal_open = use_signal(|| false);
+    let mut goal_view_request = use_signal(String::new);
+    let mut goal_pending = use_signal(|| false);
+    let goal_result = EventHandler::new(move |result: Result<(), String>| {
+        goal_pending.set(false);
+        command_error.set(result.err());
+    });
     let report = report_command(command_error);
     let advisor_done = EventHandler::new(move |result: Result<(), String>| {
         advisor_pending.set(false);
@@ -68,6 +75,16 @@ pub fn AgentComposer(
         .and_then(|state| state.options.get(selected))
         .map(|option| option.text.clone());
     let listbox = listbox_id(&conversation_id);
+    let run_error = transcript.error.clone();
+    let goal = transcript.items.iter().rev().find_map(|item| match item {
+        roost_protocol::wire::agent_chat::TranscriptItem::Goal { state, .. } => Some(state.clone()),
+        _ => None,
+    });
+    let usage = format!(
+        "{} tokens · ${:.4}",
+        transcript.usage.input_tokens + transcript.usage.output_tokens,
+        transcript.usage.cost_usd
+    );
     let send = EventHandler::new({
         let pump = pump.clone();
         let conversation_id = conversation_id.clone();
@@ -76,6 +93,16 @@ pub fn AgentComposer(
         move |()| {
             let text = draft.peek().trim().to_string();
             if let Some((command, args)) = parse_slash_command(&text) {
+                if command.name == "goal"
+                    && (args.is_empty()
+                        || args.trim().eq_ignore_ascii_case("set")
+                        || args.trim().eq_ignore_ascii_case("budget"))
+                {
+                    goal_view_request.set(args.trim().to_ascii_lowercase());
+                    goal_open.set(true);
+                    draft.set(String::new());
+                    return;
+                }
                 if command.requires_argument() && !command.client_bare && args.is_empty() {
                     report.call(Err(format!("Usage: /{} {}", command.name, command.args)));
                     return;
@@ -113,19 +140,34 @@ pub fn AgentComposer(
                 send.call(());
             } else {
                 fill_draft(draft, selected_option, &option.text);
+                if (option.command.client_bare
+                    && option.text.trim_end().strip_prefix('/') == Some(option.command.name))
+                    || (option.command.name == "goal" && option.text.trim_end() == "/goal")
+                {
+                    send.call(());
+                }
             }
         }
     });
-    let stop = {
+    let stop = EventHandler::new({
         let pump = pump.clone();
         let conversation_id = conversation_id.clone();
-        move |_| {
+        move |()| {
             #[cfg(target_arch = "wasm32")]
             abort_run(pump.clone(), conversation_id.clone());
             #[cfg(not(target_arch = "wasm32"))]
             let _ = (&pump, &conversation_id);
         }
-    };
+    });
+    let switch_model = EventHandler::new({
+        let conversation_id = conversation_id.clone();
+        move |()| {
+            #[cfg(target_arch = "wasm32")]
+            super::composer_commands::open_model_picker(&conversation_id);
+            #[cfg(not(target_arch = "wasm32"))]
+            let _ = &conversation_id;
+        }
+    });
     let empty = draft().trim().is_empty();
     let placeholder = if disabled {
         "The agent host is offline"
@@ -149,6 +191,12 @@ pub fn AgentComposer(
                     selected,
                     on_choose: accept,
                 }
+            }
+            ComposerErrorBanner {
+                error: run_error,
+                running,
+                on_stop: stop,
+                on_switch_model: switch_model,
             }
             textarea {
                 class: "agent-chat__input",
@@ -222,9 +270,19 @@ pub fn AgentComposer(
                 }
             }
             div { class: "agent-chat__composer-bar",
+                AgentModelControls { conversation: conversation.clone(), catalog, catalog_failed, pump: pump.clone() }
+                span {
+                    class: "agent-chat__usage",
+                    "data-testid": "agent-chat-usage",
+                    title: "Session token usage and cost",
+                    "{usage}"
+                }
+                span { class: "agent-chat__status", "data-testid": "agent-chat-status",
+                    if disabled { "Offline" } else if running { "Running" } else { "Ready" }
+                }
                 IconButton {
-                    icon: "terminal",
-                    label: "Show slash commands",
+                    icon: "apps",
+                    label: "Show agent commands",
                     title: "Commands",
                     variant: ButtonVariant::Secondary,
                     size: IconButtonSize::Icon,
@@ -242,6 +300,11 @@ pub fn AgentComposer(
                         menu_dismissed.set(false);
                         focus_field(field);
                     },
+                }
+                GoalDock {
+                    goal: goal.clone(),
+                    view_request: goal_view_request,
+                    on_open: move |_| goal_open.set(true),
                 }
                 if conversation.mode == "plan" {
                     Chip { label: "Plan mode".to_string(), icon: Some("assignment".to_string()), selected: Some(true),
@@ -269,9 +332,17 @@ pub fn AgentComposer(
                         }
                     }))
                 }
-                AgentModelControls { conversation: conversation.clone(), catalog, catalog_failed, pump: pump.clone() }
+                IconButton {
+                    icon: "settings",
+                    label: "Agent settings",
+                    title: "Models, accounts and agent settings",
+                    variant: ButtonVariant::Ghost,
+                    size: IconButtonSize::Icon,
+                    "data-testid": "agent-chat-settings",
+                    onclick: move |_| navigate.call(crate::routes::settings_pane_href("models")),
+                }
                 span { class: "agent-chat__composer-spacer" }
-                if running && empty {
+                if running {
                     IconButton {
                         icon: "stop",
                         label: "Stop the agent",
@@ -280,9 +351,10 @@ pub fn AgentComposer(
                         size: IconButtonSize::Icon,
                         class: "agent-chat__action",
                         "data-testid": "agent-chat-stop",
-                        onclick: stop,
+                        onclick: move |_| stop.call(()),
                     }
-                } else {
+                }
+                if !running || !empty {
                     IconButton {
                         icon: "arrow_upward",
                         label: if running { "Steer the agent" } else { "Send message" },
@@ -296,6 +368,17 @@ pub fn AgentComposer(
                     }
                 }
             }
+            GoalControls {
+                goal,
+                open: goal_open,
+                view_request: goal_view_request,
+                pending: goal_pending,
+                command_error,
+                on_result: goal_result,
+                conversation_id: conversation_id.clone(),
+                pump: pump.clone(),
+                disabled,
+            }
             if let Some(provider) = connect_provider() {
                 AgentConnectDialog {
                     provider,
@@ -304,28 +387,4 @@ pub fn AgentComposer(
             }
         }
     }
-}
-
-/// Replaces the draft with a completion and puts the highlight back on the first option.
-fn fill_draft(mut draft: Signal<String>, mut selected_option: Signal<usize>, text: &str) {
-    draft.set(text.to_string());
-    selected_option.set(0);
-}
-
-fn focus_field(field: Signal<Option<Rc<MountedData>>>) {
-    let Some(handle) = field.peek().clone() else {
-        return;
-    };
-    spawn(async move {
-        let _ = handle.set_focus(true).await;
-    });
-}
-
-#[cfg(target_arch = "wasm32")]
-fn abort_run(pump: Pump, conversation_id: String) {
-    wasm_bindgen_futures::spawn_local(async move {
-        if let Err(error) = pump.rpc().call(&AbortAgentChat { conversation_id }).await {
-            tracing::warn!(target: "agent_chat", %error, "agent abort failed");
-        }
-    });
 }

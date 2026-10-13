@@ -53,6 +53,7 @@ async fn fork_returns_new_id_and_copies_transcript() {
             &created.id,
             &Entry::User {
                 text: "copied".into(),
+                loop_repeat: false,
             },
             &[],
         )
@@ -74,6 +75,6 @@ async fn fork_returns_new_id_and_copies_transcript() {
     assert!(
         entries
             .iter()
-            .any(|(_, entry)| matches!(entry, Entry::User { text } if text == "copied"))
+            .any(|(_, entry)| matches!(entry, Entry::User { text, .. } if text == "copied"))
     );
 }

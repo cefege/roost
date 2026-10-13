@@ -1,5 +1,6 @@
 //! Interactive agent transcript cards: the current task list, pending questions
 //! and side-question answers. RPC calls stay behind the browser host's pump.
+//! The task dock observes committed state; answers use canonical agent RPCs.
 
 use std::collections::BTreeMap;
 
@@ -7,7 +8,8 @@ use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{AskQuestion, TodoPhase, TodoStatus};
 
 use crate::components::md::{
-    Button, ButtonVariant, Card, CardVariant, Checkbox, Chip, Icon, IconSize, TextField,
+    Button, ButtonVariant, Card, CardVariant, Checkbox, Chip, Icon, IconSize, Surface,
+    SurfaceElement, SurfaceRadius, TextField,
 };
 use crate::pump::Pump;
 
@@ -16,20 +18,58 @@ use roost_client_core::client::rpc::calls::agent_chat::AnswerAgentQuestion;
 
 #[component]
 pub fn TodoCard(phases: Vec<TodoPhase>) -> Element {
-    let mut expanded = use_signal(|| true);
+    let mut expanded = use_signal(|| false);
+    let total = phases.iter().map(|phase| phase.tasks.len()).sum::<usize>();
+    let closed = phases
+        .iter()
+        .flat_map(|phase| &phase.tasks)
+        .filter(|task| matches!(task.status, TodoStatus::Completed | TodoStatus::Abandoned))
+        .count();
+    let preview = phases
+        .iter()
+        .flat_map(|phase| &phase.tasks)
+        .find(|task| task.status == TodoStatus::InProgress || task.status == TodoStatus::Blocked)
+        .or_else(|| {
+            phases
+                .iter()
+                .flat_map(|phase| &phase.tasks)
+                .find(|task| !matches!(task.status, TodoStatus::Completed | TodoStatus::Abandoned))
+        });
     rsx! {
-        Card { title: Some("To-do list".to_string()), variant: CardVariant::Outlined, class: Some("agent-chat__interaction-card".to_string()),
-            Button { variant: ButtonVariant::Ghost, icon: "checklist", onclick: move |_| expanded.set(!expanded()), "Show or hide tasks" }
+        Surface { element: SurfaceElement::Section, class: "agent-chat__todo-hud", test_id: "agent-chat-todo", level: 1, pad: Some(2), border: true, radius: SurfaceRadius::Lg,
+            Button {
+                variant: ButtonVariant::Link,
+                class: "agent-chat__todo-toggle",
+                aria_expanded: expanded().to_string(),
+                "data-testid": "agent-chat-todo-toggle",
+                onclick: move |_| expanded.set(!expanded()),
+                Icon { name: "checklist", size: IconSize::Sm }
+                strong { "To-do {closed}/{total}" }
+                if let Some(task) = preview {
+                    span { class: "agent-chat__todo-preview", "{task.content}" }
+                    if let Some(blocker) = &task.blocker { span { class: "agent-chat__todo-blocker-preview", "{blocker}" } }
+                } else if total == 0 {
+                    span { "No tasks" }
+                } else {
+                    span { "All tasks closed" }
+                }
+                Icon { name: if expanded() { "expand_less" } else { "expand_more" }, size: IconSize::Sm }
+            }
             if expanded() {
-                for phase in phases {
-                    div { class: "agent-chat__todo-phase", key: "{phase.name}",
-                        h3 { class: "md-title-s", "{phase.name}" }
-                        for (index, task) in phase.tasks.iter().enumerate() {
-                            div { class: "agent-chat__todo-task", key: "{phase.name}-{index}",
-                                Icon { name: task_icon(task.status), size: IconSize::Sm }
-                                span { "{task.content}" }
-                                Chip { label: status_label(task.status).to_string(), icon: None, selected: None, small: true }
-                                if let Some(blocker) = &task.blocker { span { class: "md-body-s", "{blocker}" } }
+                div { class: "agent-chat__todo-list", role: "list", "aria-label": "Phased task checklist",
+                    for phase in phases.iter() {
+                        details {
+                            class: "agent-chat__todo-phase",
+                            key: "{phase.name}",
+                            open: phase.tasks.iter().any(|task| !matches!(task.status, TodoStatus::Completed | TodoStatus::Abandoned)),
+                            summary { class: "agent-chat__todo-phase-title", "{phase.name}" }
+                            for (index, task) in phase.tasks.iter().enumerate() {
+                                div { class: "agent-chat__todo-task", role: "listitem", key: "{phase.name}-{index}",
+                                    Icon { name: task_icon(task.status), size: IconSize::Sm }
+                                    span { "{task.content}" }
+                                    span { class: "agent-chat__todo-status", "data-status": status_label(task.status).to_ascii_lowercase().replace(' ', "-"), "{status_label(task.status)}" }
+                                    if let Some(blocker) = &task.blocker { span { class: "agent-chat__todo-blocker", "{blocker}" } }
+                                }
                             }
                         }
                     }

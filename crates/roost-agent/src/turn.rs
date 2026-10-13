@@ -2,8 +2,9 @@
 //! resolution, request assembly, the streamed model call, then the tool round
 //! its tool calls ask for. The run loop repeats turns until one ends the run.
 
-use roost_llm::{ChatRequest, ModelInfo};
+use roost_llm::{ChatRequest, Message, ModelInfo};
 use roost_protocol::wire::agent_chat::ModelRef;
+use std::collections::VecDeque;
 use tokio_util::sync::CancellationToken;
 
 use crate::error::AgentError;
@@ -11,7 +12,7 @@ use crate::model_call::{self, ModelOutput};
 use crate::prompts::{self, SubagentPrompt};
 use crate::records::{ConversationRecord, Entry, Mode, Role};
 use crate::roles::{self, ResolvedModel};
-use crate::runtime::{AgentRuntime, RunEnd};
+use crate::runtime::{AgentRuntime, RunEnd, Steer, latest_submission_seq};
 use crate::toolset::{SubagentKind, toolset_for};
 use crate::{auto_thinking, compaction, context_files, find, history, tool_round};
 
@@ -24,6 +25,8 @@ pub(crate) struct RunMemory {
     pub continued: bool,
     /// Yield reminders sent to a subagent that stopped without yielding.
     pub yield_reminders: u32,
+    /// Accepted steers received during the goal idle window.
+    pub pending_steers: VecDeque<Steer>,
 }
 
 impl RunMemory {
@@ -188,7 +191,7 @@ pub(crate) fn latest_user_text(entries: &[(u64, Entry)]) -> String {
         .iter()
         .rev()
         .find_map(|(_, entry)| match entry {
-            Entry::User { text } => Some(text.clone()),
+            Entry::User { text, .. } => Some(text.clone()),
             _ => None,
         })
         .unwrap_or_default()
@@ -230,13 +233,51 @@ pub(crate) async fn take_turn(
             agent_prompt: kind.prompt(),
             context: &child_context,
         });
-    let system = prompts::system_blocks(&record, &toolset.names(), &files.context, subagent);
+    let mut system = prompts::system_blocks(&record, &toolset.names(), &files.context, subagent);
+    if let Some(goal_entry) = entries
+        .iter()
+        .rev()
+        .find_map(|(_, entry)| match entry {
+            Entry::Goal { state } => Some(state),
+            _ => None,
+        })
+        .filter(|state| {
+            matches!(
+                state.status,
+                roost_protocol::wire::agent_chat::GoalStatus::Active
+                    | roost_protocol::wire::agent_chat::GoalStatus::BudgetLimited
+                    | roost_protocol::wire::agent_chat::GoalStatus::Paused
+            )
+        })
+    {
+        let todo_context = entries
+            .iter()
+            .rev()
+            .find_map(|(_, entry)| match entry {
+                Entry::Todo { phases } => Some(history::todo_message(phases)),
+                _ => None,
+            })
+            .unwrap_or_default();
+        system.push(prompts::render(
+            prompts::GOAL_MODE,
+            &[
+                ("objective", &escape_goal_xml(&goal_entry.objective)),
+                ("status", goal_entry.status.as_str()),
+                ("todo_context", &escape_goal_xml(&todo_context)),
+            ],
+        ));
+    }
     let mut attempts = Vec::with_capacity(chain.len());
     for candidate in &chain {
         let thinking = resolve_thinking(runtime, &record, candidate, &entries, memory).await;
+        let mut messages = history::build_messages(&entries, &candidate.info.provider);
+        // Some providers reject assistant prefill, even when its partial output is durable.
+        if matches!(messages.last(), Some(Message::Assistant { .. })) {
+            messages.push(Message::user_text(prompts::RESUME_INTERRUPTED));
+        }
         attempts.push(ChatRequest {
             system: system.clone(),
-            messages: history::build_messages(&entries, &candidate.info.provider),
+            messages,
             tools: toolset.specs.clone(),
             thinking: thinking.to_owned(),
             session_id: record.id.clone(),
@@ -244,7 +285,31 @@ pub(crate) async fn take_turn(
             model: candidate.info.clone(),
         });
     }
-    let (_, output, used) = model_call::primary_call(runtime, id, &attempts, cancel).await?;
+    let input_through_seq = latest_submission_seq(&entries).unwrap_or(0);
+    let captured_goal = entries.iter().rev().find_map(|(_, entry)| match entry {
+        Entry::Goal { state } => Some(state),
+        _ => None,
+    });
+    let goal_id = captured_goal.map(|state| state.id.clone());
+    let metadata = crate::records::AssistantMetadata {
+        completed: false,
+        stop_reason: None,
+        input_through_seq,
+        continued: memory.continued,
+        yield_reminders: memory.yield_reminders,
+        goal_id: captured_goal
+            .filter(|state| {
+                matches!(
+                    state.status,
+                    roost_protocol::wire::agent_chat::GoalStatus::Active
+                        | roost_protocol::wire::agent_chat::GoalStatus::BudgetLimited
+                )
+            })
+            .map(|state| state.id.clone()),
+    };
+    let (_, output, used) =
+        model_call::primary_call(runtime, id, &attempts, cancel, metadata).await?;
+    runtime.note_processed_seq(id, input_through_seq);
     let calls = output.tool_calls();
     runtime.advisor_turn_ended(id, !calls.is_empty());
     if calls.is_empty() {
@@ -255,13 +320,16 @@ pub(crate) async fn take_turn(
         });
     }
     let end = tool_round::execute_round(
-        runtime,
-        &record,
-        &toolset,
-        depth,
-        crate::journal::current_checkpoint(&entries),
+        tool_round::CallScope {
+            runtime,
+            record: &record,
+            toolset: &toolset,
+            depth,
+            goal_id,
+            checkpoint_id: crate::journal::current_checkpoint(&entries),
+            cancel,
+        },
         calls,
-        cancel,
     )
     .await?;
     Ok(TurnOutcome::Tools { end })
@@ -288,4 +356,18 @@ async fn resolve_thinking(
     let level = auto_thinking::classify(runtime, &record.id, &model.info, &request).await;
     memory.auto_level = Some(level);
     model.info.clamp_thinking_level(level)
+}
+fn escape_goal_xml(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&apos;"),
+            character => escaped.push(character),
+        }
+    }
+    escaped
 }

@@ -2,11 +2,17 @@
 //! the per-conversation run registry and record locks; `api` holds the
 //! coordinator-facing operations and `runs` the run lifecycle.
 
+mod abort;
 mod api;
+mod readmission;
+mod recovery;
 mod runs;
+mod steering;
+mod supervision;
+mod tool_recovery;
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -22,6 +28,7 @@ use crate::records::{ConversationRecord, Entry};
 use crate::traits::{AgentStore, ChatSink, Llm, ToolExecutor};
 
 pub use api::NewConversation;
+pub(crate) use recovery::latest_submission_seq;
 pub(crate) use runs::{RunEnd, Steer};
 
 /// Tunables; tests shorten the waits.
@@ -77,11 +84,14 @@ pub(crate) struct RuntimeInner {
     /// Whether each conversation's latest run ended by a user abort.
     aborted_last: Mutex<HashMap<String, bool>>,
     record_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    lifecycle_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    goal_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    goal_clocks: Mutex<HashMap<String, (String, Instant)>>,
     context_cache:
         Mutex<HashMap<String, (Instant, roost_protocol::wire::agent_chat::ContextFiles)>>,
     pub(crate) advisors: AdvisorHub,
-    /// Per-conversation `/loop` state. In memory only: a coordinator restart
-    /// drops active loops, as the repeat driver lives inside a run task.
+    /// Per-conversation `/loop` state, restored from durable journal snapshots.
+    /// The map owns the active driver's state while the runtime is alive.
     pub(crate) loops: Mutex<HashMap<String, LoopState>>,
 }
 
@@ -89,6 +99,8 @@ pub(crate) struct RunHandle {
     pub(crate) cancel: CancellationToken,
     pub(crate) steer: mpsc::UnboundedSender<Steer>,
     pub(crate) user_aborted: Arc<AtomicBool>,
+    pub(crate) processed_seq: Arc<AtomicU64>,
+    pub(crate) abort_seq: Arc<AtomicU64>,
 }
 
 pub(crate) fn now_ms() -> i64 {
@@ -131,6 +143,9 @@ impl AgentRuntime {
                 runs: Mutex::new(HashMap::new()),
                 aborted_last: Mutex::new(HashMap::new()),
                 record_locks: Mutex::new(HashMap::new()),
+                lifecycle_locks: Mutex::new(HashMap::new()),
+                goal_locks: Mutex::new(HashMap::new()),
+                goal_clocks: Mutex::new(HashMap::new()),
                 context_cache: Mutex::new(HashMap::new()),
                 advisors: AdvisorHub::default(),
                 loops: Mutex::new(HashMap::new()),
@@ -283,6 +298,31 @@ impl AgentRuntime {
             &UsageTotals::default(),
         ))
     }
+    pub(crate) fn lifecycle_lock(&self, id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        Arc::clone(
+            lock(&self.inner.lifecycle_locks)
+                .entry(id.to_owned())
+                .or_default(),
+        )
+    }
+    pub(crate) fn goal_lock(&self, id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        Arc::clone(
+            lock(&self.inner.goal_locks)
+                .entry(id.to_owned())
+                .or_default(),
+        )
+    }
+    pub(crate) fn goal_clocks(
+        &self,
+    ) -> std::sync::MutexGuard<'_, HashMap<String, (String, Instant)>> {
+        lock(&self.inner.goal_clocks)
+    }
+
+    pub(crate) fn note_processed_seq(&self, id: &str, sequence: u64) {
+        let _ = self.with_run(id, |run| {
+            run.processed_seq.fetch_max(sequence, Ordering::SeqCst);
+        });
+    }
 
     pub(crate) fn is_running(&self, id: &str) -> bool {
         lock(&self.inner.runs).contains_key(id)
@@ -333,14 +373,6 @@ impl AgentRuntime {
 
     pub(crate) fn with_run<T>(&self, id: &str, read: impl FnOnce(&RunHandle) -> T) -> Option<T> {
         lock(&self.inner.runs).get(id).map(read)
-    }
-
-    fn user_abort(&self, id: &str) -> bool {
-        self.with_run(id, |run| {
-            run.user_aborted.store(true, Ordering::SeqCst);
-            run.cancel.cancel();
-        })
-        .is_some()
     }
 }
 

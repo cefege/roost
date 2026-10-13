@@ -6,11 +6,18 @@ use crate::records::Entry;
 
 /// The entries in effect: each `Rewind { to_seq }` drops every earlier entry
 /// with `seq >= to_seq`; the `Rewind` entries themselves are dropped too.
+/// Lifecycle and loop snapshots remain durable control state across rewinds.
 pub fn effective_entries(entries: &[(u64, Entry)]) -> Vec<(u64, Entry)> {
     let mut kept: Vec<(u64, Entry)> = Vec::with_capacity(entries.len());
     for (seq, entry) in entries {
         if let Entry::Rewind { to_seq } = entry {
-            kept.retain(|(kept_seq, _)| kept_seq < to_seq);
+            kept.retain(|(kept_seq, kept_entry)| {
+                kept_seq < to_seq
+                    || matches!(
+                        kept_entry,
+                        Entry::RunIntent { .. } | Entry::LoopState { .. } | Entry::Goal { .. }
+                    )
+            });
             continue;
         }
         kept.push((*seq, entry.clone()));
@@ -33,7 +40,10 @@ mod tests {
     use crate::records::Entry;
 
     fn user(text: &str) -> Entry {
-        Entry::User { text: text.into() }
+        Entry::User {
+            text: text.into(),
+            loop_repeat: false,
+        }
     }
 
     #[test]

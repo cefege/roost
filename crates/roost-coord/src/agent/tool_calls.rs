@@ -64,7 +64,8 @@ impl ToolCallRegistry {
         }
     }
 
-    /// Send one tool call and await its worker result.
+    /// Wait for the selected worker, then send one call and await its result.
+    /// A lost link after dispatch never automatically replays the call.
     pub async fn execute(
         &self,
         worker_fp: &str,
@@ -72,21 +73,24 @@ impl ToolCallRegistry {
         out: mpsc::Sender<String>,
         cancel: CancellationToken,
     ) -> Result<WorkerToolOutcome, String> {
-        let worker = self.workers.current_routable(
-            &roost_protocol::wire::WorkerFp::try_from(worker_fp.to_owned())
-                .map_err(|_| format!("machine {worker_fp} is offline"))?,
-        );
+        let fingerprint = roost_protocol::wire::WorkerFp::try_from(worker_fp.to_owned())
+            .map_err(|_| format!("invalid machine fingerprint {worker_fp}"))?;
         let label = self
             .worker_label(worker_fp)
             .await
             .unwrap_or_else(|| worker_fp.to_owned());
-        let Some(worker) = worker else {
-            return Err(format!("machine {label} is offline"));
+        let Some(worker) = self.await_worker(&fingerprint, &label, &cancel).await else {
+            return Ok(WorkerToolOutcome {
+                is_error: false,
+                content: "Cancelled before dispatch.".to_owned(),
+                details_json: r#"{"cancelled":true}"#.to_owned(),
+            });
         };
         if !worker.capabilities.contains(CAPABILITY_AGENT_TOOLS_V1) {
-            return Err(format!("machine {label} is offline"));
+            return Err(format!("machine {label} does not support agent tools"));
         }
-        let offline_message = format!("machine {label} is offline");
+        let offline_message = format!("machine {label} disconnected before dispatch");
+        let deadline = std::time::Duration::from_millis(u64::from(call.timeout_ms));
         let (completion, completed) = oneshot::channel();
         {
             let mut pending = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
@@ -119,18 +123,68 @@ impl ToolCallRegistry {
             self.remove_pending(&call.call_id);
             return Err(offline_message);
         }
-        tokio::select! {
+        let (interruption, cancelled) = tokio::select! {
             result = completed => {
                 self.remove_pending(&call.call_id);
-                result.unwrap_or_else(|_| Err("worker disconnected".to_owned()))
+                return result.unwrap_or_else(|_| Err("worker disconnected after dispatch; the tool outcome is unknown. Inspect current state before repeating the call.".to_owned()));
             }
-            () = cancel.cancelled() => {
-                worker.send(CoordWorkerDownstream::AgentToolCancel(roost_proto::DAgentToolCancel {
-                    call_id: call.call_id.clone(),
-                    ..Default::default()
-                }));
-                self.remove_pending(&call.call_id);
-                Err("agent tool call cancelled".to_owned())
+            () = cancel.cancelled() => (
+                "Cancellation requested; the final tool outcome is unknown. Inspect current state before repeating the call.".to_owned(),
+                true,
+            ),
+            () = tokio::time::sleep(deadline) => (
+                format!("tool call timed out after {} s; its outcome is unknown", deadline.as_secs()),
+                false,
+            ),
+        };
+        worker.send(CoordWorkerDownstream::AgentToolCancel(
+            roost_proto::DAgentToolCancel {
+                call_id: call.call_id.clone(),
+                ..Default::default()
+            },
+        ));
+        self.remove_pending(&call.call_id);
+        if cancelled {
+            tracing::info!(worker_fp, worker_label = %label, call_id = %call.call_id, "agent tool cancellation requested; final outcome unknown");
+        } else {
+            tracing::warn!(worker_fp, worker_label = %label, call_id = %call.call_id, "agent tool deadline elapsed; final outcome unknown");
+        }
+        Ok(WorkerToolOutcome {
+            is_error: !cancelled,
+            content: interruption,
+            details_json: serde_json::json!({
+                "cancelled": cancelled,
+                "timed_out": !cancelled,
+                "outcome_unknown": true,
+            })
+            .to_string(),
+        })
+    }
+
+    async fn await_worker(
+        &self,
+        fingerprint: &roost_protocol::wire::WorkerFp,
+        label: &str,
+        cancel: &CancellationToken,
+    ) -> Option<Arc<WorkerHandle>> {
+        let mut waiting = false;
+        loop {
+            if cancel.is_cancelled() {
+                return None;
+            }
+            if let Some(worker) = self.workers.current_routable(fingerprint) {
+                if waiting {
+                    tracing::info!(worker_fp = %fingerprint, worker_label = label, "agent tool resumed after worker reconnect");
+                }
+                return Some(worker);
+            }
+            if !waiting {
+                tracing::warn!(worker_fp = %fingerprint, worker_label = label, "agent tool waiting for offline worker");
+                waiting = true;
+            }
+            tokio::select! {
+                () = cancel.cancelled() => return None,
+                () = tokio::time::sleep(std::time::Duration::from_secs(2)) => {}
             }
         }
     }
@@ -228,7 +282,7 @@ impl ToolCallRegistry {
             if let Some(call) = pending.remove(&call_id) {
                 let _ = call
                     .completion
-                    .send(Err(format!("machine {} disconnected", call.worker_label)));
+                    .send(Err(format!("machine {} disconnected after dispatch; the tool outcome is unknown. Inspect current state before repeating the call.", call.worker_label)));
             }
         }
         if rejected > 0 {
