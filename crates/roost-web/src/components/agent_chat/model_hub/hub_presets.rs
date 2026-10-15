@@ -17,8 +17,9 @@ use crate::components::md::{
 use crate::components::settings::agent_roles::save_settings;
 use crate::pump::Pump;
 
-/// The preset name field's element id, focused after a preset is deleted.
-const NAME_FIELD_ID: &str = "agent-model-preset-name-field";
+/// The presets section's element id. A delete moves focus here: the row is
+/// gone, and a text field would raise a phone's keyboard unasked.
+const SECTION_ID: &str = "agent-model-presets-section";
 
 fn keep_id(preset: &str) -> String {
     format!("agent-model-preset-keep-{preset}")
@@ -82,7 +83,12 @@ pub(super) fn HubPresets(
     };
     let mut save_on_enter = save.clone();
     rsx! {
-        section { class: "model-hub__presets", "data-testid": "agent-model-presets",
+        section {
+            id: SECTION_ID,
+            class: "model-hub__presets",
+            tabindex: "-1",
+            "aria-label": "Presets",
+            "data-testid": "agent-model-presets",
             SectionTitle { "Presets" }
             if current.model_presets.is_empty() {
                 p { class: "model-hub__empty",
@@ -127,7 +133,7 @@ pub(super) fn HubPresets(
                                                     updated.model_presets.remove(&delete_name);
                                                     save_settings(delete_pump.clone(), updated, settings, error);
                                                     confirming.set(None);
-                                                    focus_after.set(Some(NAME_FIELD_ID.to_owned()));
+                                                    focus_after.set(Some(SECTION_ID.to_owned()));
                                                 },
                                                 "Delete"
                                             }
@@ -186,7 +192,6 @@ pub(super) fn HubPresets(
                     aria_label: "Preset name".to_owned(),
                     autocomplete: "off".to_owned(),
                     max_length: 64,
-                    id: NAME_FIELD_ID.to_owned(),
                     test_id: "agent-model-preset-name".to_owned(),
                     onkeydown: move |event: KeyboardEvent| {
                         if event.key() == Key::Enter && !event.is_composing() {
