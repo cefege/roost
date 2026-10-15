@@ -4281,3 +4281,20 @@ asynchronously and answers `bootstrap` with EIO until it is gone (about a second
 
 **Guard** — `services::service_control::tests::a_retried_command_succeeds_once_the_manager_accepts_it` and
 `a_command_still_refused_after_its_last_try_fails_the_action`.
+
+### `roost` on PATH dangles after an update
+
+**Symptom** — after a self-update or `roost deploy`, `~/.local/bin/roost` points at
+`versions/<previous tag>/bin/roost`, which no longer exists, and the shell runs whatever `roost` comes
+next on `PATH` (an older generation's binary) or none.
+
+**Wrong** — retire the replaced release on settlement and leave the operator's link to the installer that
+made it (`roost self-link`, `cargo xtask fleet install`), which a self-update never runs.
+
+**Right** — a settled apply moves the link onto the release now running when, and only when, it is this
+install's link: a symlink into the release root (`self_link::follow_release`, called from `deploy/apply.rs`).
+An absent link, a link into another install and a regular file are left alone.
+
+**Guard** — `crates/roost-cli/tests/self_link_repair.rs` —
+`a_settled_release_moves_this_installs_link_off_the_retired_release` and
+`a_settled_release_leaves_an_absent_or_foreign_link_and_a_file_alone`.

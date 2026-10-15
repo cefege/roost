@@ -232,7 +232,7 @@ fn linux_restart_script(tag: &str, services: &[String]) -> String {
         "set -euo pipefail\n\
          UNITS=\"$HOME/.config/systemd/user\"\n\
          for svc in {units}; do\n\
-           cp \"$UNITS/$svc.service\" \"$UNITS/$svc.service.bak-{tag}\"\n\
+           cp \"$UNITS/$svc.service\" \"/tmp/$svc.service.bak-{tag}\"\n\
            sed -i -E -e 's#/versions/[^/]+/#/versions/{tag}/#g' -e '/ROOST_BOOTSTRAP_TOKEN=/d' \"$UNITS/$svc.service\"\n\
          done\n\
          systemctl --user daemon-reload\n\

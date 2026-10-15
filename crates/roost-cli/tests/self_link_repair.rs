@@ -11,7 +11,7 @@
 
 use std::path::{Path, PathBuf};
 
-use roost_cli::quickstart::self_link::{LinkOutcome, write_link};
+use roost_cli::quickstart::self_link::{LinkOutcome, follow_release, write_link};
 
 /// A throwaway tree that removes itself. Each case gets its own, because two
 /// cases sharing one would see each other's link.
@@ -190,6 +190,58 @@ fn a_release_that_is_not_installed_is_refused_by_the_path_it_looked_for() {
     assert!(
         std::fs::symlink_metadata(&link).is_err(),
         "a refused run leaves no link behind"
+    );
+}
+
+#[test]
+fn a_settled_release_moves_this_installs_link_off_the_retired_release() {
+    let tree = TempTree::new("follow");
+    let retired = tree.release("v3.0.0-rc.39");
+    let running = tree.release("v3.0.0-rc.40");
+    let link = tree.link();
+    std::os::unix::fs::symlink(&retired, &link).expect("the link names the old release");
+    std::fs::remove_dir_all(
+        retired
+            .parent()
+            .and_then(Path::parent)
+            .expect("its release dir"),
+    )
+    .expect("the old release is retired");
+
+    let outcome = follow_release(&tree.root, &tree.root.join("versions"), &running)
+        .expect("a link into this install is followed")
+        .expect("the new release exists");
+
+    assert_eq!(outcome, LinkOutcome::Repaired { previous: None });
+    assert_eq!(std::fs::read_link(&link).expect("still a link"), running);
+}
+
+#[test]
+fn a_settled_release_leaves_an_absent_or_foreign_link_and_a_file_alone() {
+    let tree = TempTree::new("foreign");
+    let running = tree.release("v3.0.0-rc.40");
+    let link = tree.link();
+    let versions = tree.root.join("versions");
+
+    assert!(follow_release(&tree.root, &versions, &running).is_none());
+    assert!(
+        std::fs::symlink_metadata(&link).is_err(),
+        "no link is created"
+    );
+
+    let elsewhere = tree.root.join("other-install/roost");
+    std::fs::create_dir_all(elsewhere.parent().expect("a parent")).expect("dir");
+    std::fs::write(&elsewhere, b"#!/bin/sh\n").expect("program");
+    std::os::unix::fs::symlink(&elsewhere, &link).expect("a foreign link");
+    assert!(follow_release(&tree.root, &versions, &running).is_none());
+    assert_eq!(std::fs::read_link(&link).expect("a link"), elsewhere);
+
+    std::fs::remove_file(&link).expect("unlinked");
+    std::fs::write(&link, b"#!/bin/sh\necho mine\n").expect("an operator's script");
+    assert!(follow_release(&tree.root, &versions, &running).is_none());
+    assert_eq!(
+        std::fs::read(&link).expect("the script"),
+        b"#!/bin/sh\necho mine\n"
     );
 }
 

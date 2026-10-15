@@ -241,24 +241,28 @@ async fn apply(
         .map(|path| path.display().to_string());
     Ok(
         match deploy_service_definition(&spec, platform, &service_dir, manager) {
-            Ok(deployed) => settle_report(
-                ApplyReport {
-                    definition_changed: deployed.definition_changed,
-                    definition_path: deployed.definition_path.display().to_string(),
-                    release_dir: Some(release_dir.display().to_string()),
-                    prior_release_dir: prior_release_text,
-                    ..ApplyReport::new(
-                        if recovered {
-                            ApplyOutcome::Recovered
-                        } else {
-                            ApplyOutcome::Settled
-                        },
-                        format!("{} is running the staged release", spec.label),
-                    )
-                },
-                &release_root,
-                prior_release_dir.as_deref(),
-            ),
+            Ok(deployed) => {
+                let report = settle_report(
+                    ApplyReport {
+                        definition_changed: deployed.definition_changed,
+                        definition_path: deployed.definition_path.display().to_string(),
+                        release_dir: Some(release_dir.display().to_string()),
+                        prior_release_dir: prior_release_text,
+                        ..ApplyReport::new(
+                            if recovered {
+                                ApplyOutcome::Recovered
+                            } else {
+                                ApplyOutcome::Settled
+                            },
+                            format!("{} is running the staged release", spec.label),
+                        )
+                    },
+                    &release_root,
+                    prior_release_dir.as_deref(),
+                );
+                follow_cli_link(env, &release_root, &release_dir);
+                report
+            }
             Err(DeployError::Activation { rolled_back, .. })
             | Err(DeployError::Refused { rolled_back, .. }) => ApplyReport {
                 definition_path: definition_path_text,
@@ -330,4 +334,23 @@ fn settle_report(
         );
     }
     report
+}
+
+/// Keep `~/.local/bin/roost` on the release now running, since settling retired
+/// the one it named. Cleanup like retirement: a failure is said, not a failed
+/// deploy.
+fn follow_cli_link(env: &dyn EnvSource, release_root: &Path, release_dir: &Path) {
+    let Some(home) = env.home_dir() else {
+        return;
+    };
+    let program = release_dir.join(RELEASE_BIN_DIR).join(ROOST_PROGRAM_FILE);
+    match crate::quickstart::self_link::follow_release(&home, release_root, &program) {
+        None => {}
+        Some(Ok(outcome)) => {
+            info!(program = %program.display(), ?outcome, "the roost command follows the new release")
+        }
+        Some(Err(error)) => {
+            warn!(program = %program.display(), %error, "the roost command could not follow the new release")
+        }
+    }
 }

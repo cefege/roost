@@ -220,6 +220,24 @@ pub fn write_link(link: &Path, target: &Path) -> Result<LinkOutcome, CommandFail
     Ok(LinkOutcome::Repaired { previous })
 }
 
+/// Point an existing `~/.local/bin/roost` at `program` when it is this
+/// install's link: a symlink into `release_root`. A settled deploy calls this
+/// because it has just retired the release the link named. An absent link (the
+/// operator never ran `self-link`), a link into another install and a regular
+/// file are left alone, which is `None`.
+#[cfg(unix)]
+pub fn follow_release(
+    home: &Path,
+    release_root: &Path,
+    program: &Path,
+) -> Option<Result<LinkOutcome, CommandFailure>> {
+    let link = home.join(LOCAL_BIN[0]).join(LOCAL_BIN[1]).join(LINK_NAME);
+    let current = std::fs::read_link(&link).ok()?;
+    current
+        .starts_with(release_root)
+        .then(|| write_link(&link, program))
+}
+
 /// Write (or rewrite) the `roost.cmd` shim that runs `target` with every
 /// argument passed through, and report which of the three it was.
 #[cfg(windows)]
@@ -261,6 +279,16 @@ pub fn write_link(link: &Path, target: &Path) -> Result<LinkOutcome, CommandFail
         None => LinkOutcome::Created,
         Some(previous) => LinkOutcome::Repaired { previous },
     })
+}
+
+/// The Windows shim is rewritten by `install.ps1`, which owns its upgrades.
+#[cfg(windows)]
+pub fn follow_release(
+    _home: &Path,
+    _release_root: &Path,
+    _program: &Path,
+) -> Option<Result<LinkOutcome, CommandFailure>> {
+    None
 }
 
 /// Where the link lives: `~/.local/bin`.
