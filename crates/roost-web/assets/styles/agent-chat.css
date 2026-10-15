@@ -594,8 +594,9 @@
   .agent-chat__assistant > .agent-chat__markdown[data-streaming] > :last-child::after { animation: none; }
   .agent-chat__shimmer { color: var(--md-sys-color-on-surface-variant); background: none; }
 }
-/* Wide: one line per command, a name column every row shares, then the summary.
-   Phone: the row's own two-line stack, so the summary keeps the full width. */
+/* OMP's slash list, in HTML: a name column as wide as the widest visible name
+   (`--slash-name-chars`, set by the menu), then usage and summary wrapping to
+   at most two lines. Phones stack the two so the summary keeps the width. */
 .agent-chat__slash-menu {
   max-height: min(calc(var(--md-space-9) * 7), 40dvh);
   overflow-y: auto;
@@ -603,36 +604,49 @@
   border-top: var(--workbench-border-width) solid var(--md-sys-color-outline-variant);
   padding-top: var(--md-space-1);
 }
+/* The body's font is the names' font, so `ch` below is one name character. */
 .agent-chat__slash-row .md-list-row__body {
   display: grid;
-  grid-template-columns: minmax(8rem, 12rem) minmax(0, 1fr);
-  column-gap: var(--md-space-4);
+  grid-template-columns: calc(var(--slash-name-chars, 12) * 1ch) minmax(0, 1fr);
   align-items: baseline;
   min-inline-size: 0;
+  font-family: var(--font-mono);
+  font-size: var(--md-body-m-size);
 }
-.agent-chat__slash-row .md-list-row__headline,
-.agent-chat__slash-row .md-list-row__support {
+.agent-chat__slash-row .md-list-row__headline {
   min-inline-size: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.agent-chat__slash-name { font-family: var(--font-mono); }
+.agent-chat__slash-row .md-list-row__support {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  min-inline-size: 0;
+}
+.agent-chat__slash-name,
+.agent-chat__slash-args { font-family: var(--font-mono); }
+.agent-chat__slash-args { color: var(--md-sys-color-on-surface-variant); }
+.agent-chat__slash-usage {
+  margin: 0;
+  padding: var(--md-space-2) var(--md-space-3);
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);
+}
+/* The dense row's height is a touch target; a mouse needs no such floor, and
+   a compact list shows OMP's ten commands without scrolling. */
+@media (pointer: fine) {
+  .agent-chat__slash-row.md-list-row--dense {
+    min-block-size: var(--control-height-sm);
+    padding-block: var(--md-space-1);
+  }
+}
 @media (max-width: 48rem) {
   .agent-chat__slash-row .md-list-row__body { display: flex; align-items: stretch; }
 }
-.agent-chat__command-help {
-  display: flex;
-  flex-direction: column;
-  gap: var(--md-space-1);
-  padding: var(--md-space-3) var(--md-space-4) var(--md-space-2);
-}
-.agent-chat__command-usage { font-family: var(--font-mono); color: var(--md-sys-color-on-surface); }
-.agent-chat__command-summary,
-.agent-chat__command-hint { color: var(--md-sys-color-on-surface-variant); font-size: var(--md-body-s-size); }
-.agent-chat__command-examples { display: flex; flex-wrap: wrap; gap: var(--md-space-2); }
-.agent-chat__command-example { color: var(--md-sys-color-primary); font-size: var(--md-body-s-size); }
-.agent-chat__command-hint { padding: var(--md-space-2) var(--md-space-4); }
 .agent-chat__plan-actions,
 .agent-chat__plan-refine { display: flex; flex-wrap: wrap; align-items: center; gap: var(--md-space-2); }
 .agent-chat__plan-refine { margin-top: var(--md-space-3); }

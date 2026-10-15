@@ -18,8 +18,8 @@ use super::goal_controls::GoalControls;
 use super::goal_dock::GoalDock;
 use super::model_controls::AgentModelControls;
 use super::slash_menu::{
-    SlashMenu, initial_selection, listbox_id, option_id, scroll_option_into_view, slash_menu_state,
-    slash_sources,
+    SlashAccept, SlashMenu, accept_action, initial_selection, listbox_id, option_id,
+    scroll_option_into_view, slash_menu_state, slash_sources,
 };
 use crate::components::md::{ButtonVariant, Chip, IconButton, IconButtonSize, Surface};
 use crate::components::settings::agent_connect_dialog::AgentConnectDialog;
@@ -140,14 +140,10 @@ pub fn AgentComposer(
             else {
                 return;
             };
-            if option.text.trim_end() == current.trim() {
-                send.call(());
-            } else {
-                fill_draft(draft, selected_option, &option.text);
-                if (option.command.client_bare
-                    && option.text.trim_end().strip_prefix('/') == Some(option.command.name))
-                    || (option.command.name == "goal" && option.text.trim_end() == "/goal")
-                {
+            match accept_action(&option) {
+                SlashAccept::Fill(text) => fill_draft(draft, selected_option, &text),
+                SlashAccept::Submit(text) => {
+                    draft.set(text);
                     send.call(());
                 }
             }

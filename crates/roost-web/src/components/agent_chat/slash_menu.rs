@@ -1,8 +1,9 @@
-//! The slash-command menu above the agent composer. `slash_menu_state` decides
-//! what a draft can complete to, from the shared registry: command names while
-//! the draft is one word, then the subcommands or argument values of the single
-//! command it names. `SlashMenu` shows that as a listbox with the selected
-//! command's usage and examples. The composer owns the draft and the keys.
+//! The slash-command menu under the agent composer's field. `slash_menu_state`
+//! decides what a draft can complete to, from the shared registry: command
+//! names while the draft is one word, then the subcommands or argument values
+//! of the single command it names. `SlashMenu` renders that as OMP's list does:
+//! a name column sized to the widest visible name, then usage and summary.
+//! The composer owns the draft and the keys; `accept_action` decides Enter.
 
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{
@@ -16,13 +17,22 @@ use crate::components::md::{List, ListRow};
 #[cfg(target_arch = "wasm32")]
 use web_sys::{ScrollIntoViewOptions, ScrollLogicalPosition};
 
+/// The name column's bounds in characters, OMP's slash-list layout.
+const NAME_COLUMN_MIN_CHARS: usize = 12;
+const NAME_COLUMN_MAX_CHARS: usize = 32;
+/// Space between the widest name and the summary column.
+const NAME_COLUMN_GAP_CHARS: usize = 2;
+
 /// One completion the menu offers.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct SlashOption {
     pub(super) command: &'static SlashCommand,
     /// The draft this option produces. A trailing space means more input is expected.
     pub(super) text: String,
-    pub(super) headline: String,
+    /// What the name column shows: the command name, or the argument value.
+    pub(super) label: String,
+    /// The command's usage, shown ahead of the summary on name rows only.
+    pub(super) usage: &'static str,
     pub(super) summary: String,
 }
 
@@ -30,17 +40,18 @@ pub(super) struct SlashOption {
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct SlashMenuState {
     pub(super) options: Vec<SlashOption>,
-    /// The command the draft has named past its name. Its usage and examples
-    /// stay visible while the arguments are typed.
+    /// The command the draft has named past its name. With nothing left to
+    /// complete, its usage is the one line the menu shows.
     pub(super) argument_command: Option<&'static SlashCommand>,
 }
 
-impl SlashMenuState {
-    /// The command whose usage and examples the footer shows.
-    pub(super) fn help_command(&self, selected: usize) -> Option<&'static SlashCommand> {
-        self.argument_command
-            .or_else(|| self.options.get(selected).map(|option| option.command))
-    }
+/// What Enter on an option does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum SlashAccept {
+    /// Put the text in the field and keep typing: the command needs an argument.
+    Fill(String),
+    /// Run the text now.
+    Submit(String),
 }
 
 /// `None` when the draft is not a command, or names a command and has moved past
@@ -78,6 +89,28 @@ pub(super) fn initial_selection(state: &SlashMenuState, draft: &str) -> usize {
         .iter()
         .position(|option| option.text.trim_end() == typed)
         .unwrap_or(0)
+}
+
+/// Enter runs the chosen command, as OMP's does, unless it cannot run without
+/// an argument; then the name is completed and the argument is typed next.
+pub(super) fn accept_action(option: &SlashOption) -> SlashAccept {
+    let command = option.command;
+    if option.text.ends_with(' ') && command.requires_argument() && !command.client_bare {
+        SlashAccept::Fill(option.text.clone())
+    } else {
+        SlashAccept::Submit(option.text.trim_end().to_string())
+    }
+}
+
+/// The shared name-column width: the widest visible label plus a gap,
+/// clamped so one long model id cannot push the summaries off the row.
+pub(super) fn name_column_chars(options: &[SlashOption]) -> usize {
+    let widest = options
+        .iter()
+        .map(|option| option.label.chars().count())
+        .max()
+        .unwrap_or(0);
+    (widest + NAME_COLUMN_GAP_CHARS).clamp(NAME_COLUMN_MIN_CHARS, NAME_COLUMN_MAX_CHARS)
 }
 
 /// Argument values that come from the conversation rather than the registry.
@@ -123,32 +156,26 @@ fn name_options(partial: &str) -> Vec<SlashOption> {
         .iter()
         .filter_map(|command| name_rank(command, partial).map(|rank| (rank, command)))
         .collect();
+    // Stable: equal ranks keep the registry's order.
     ranked.sort_by_key(|(rank, _)| *rank);
     ranked
         .into_iter()
-        .map(|(_, command)| {
-            let headline = if command.args.is_empty() {
-                format!("/{}", command.name)
-            } else {
-                format!("/{} {}", command.name, command.args)
-            };
-            let text = if command.args.is_empty() {
+        .map(|(_, command)| SlashOption {
+            command,
+            text: if command.args.is_empty() {
                 format!("/{}", command.name)
             } else {
                 format!("/{} ", command.name)
-            };
-            SlashOption {
-                command,
-                text,
-                headline,
-                summary: command.summary.to_string(),
-            }
+            },
+            label: command.name.to_string(),
+            usage: command.args,
+            summary: command.summary.to_string(),
         })
         .collect()
 }
 
-/// Lower rank sorts first: exact name, name prefix, alias prefix, then a
-/// description match for words of two letters or more.
+/// Lower rank sorts first: exact name, name prefix, alias prefix, the letters
+/// in order anywhere in the name, then a summary match for two letters or more.
 fn name_rank(command: &SlashCommand, partial: &str) -> Option<u8> {
     if partial.is_empty() || command.name == partial {
         return Some(0);
@@ -163,7 +190,17 @@ fn name_rank(command: &SlashCommand, partial: &str) -> Option<u8> {
     {
         return Some(2);
     }
-    (partial.len() >= 2 && command.summary.to_ascii_lowercase().contains(partial)).then_some(3)
+    if is_subsequence(partial, command.name) {
+        return Some(3);
+    }
+    (partial.len() >= 2 && command.summary.to_ascii_lowercase().contains(partial)).then_some(4)
+}
+
+fn is_subsequence(needle: &str, haystack: &str) -> bool {
+    let mut remaining = haystack.chars();
+    needle
+        .chars()
+        .all(|wanted| remaining.any(|candidate| candidate == wanted))
 }
 
 fn argument_options(
@@ -192,7 +229,8 @@ fn argument_options(
         .map(|(value, summary)| SlashOption {
             command,
             text: format!("/{} {value}", command.name),
-            headline: value,
+            label: value,
+            usage: "",
             summary,
         })
         .collect()
@@ -228,33 +266,27 @@ pub fn SlashMenu(
     selected: usize,
     on_choose: EventHandler<usize>,
 ) -> Element {
-    let help = state.help_command(selected);
     let listbox = listbox_id(&conversation_id);
-    let has_options = !state.options.is_empty();
+    let name_chars = name_column_chars(&state.options);
+    // With nothing left to complete, the named command's usage is all there is
+    // to say; while a list is open its rows already carry it.
+    let usage_line = state.argument_command.filter(|_| state.options.is_empty());
     rsx! {
-        div { class: "agent-chat__slash-menu",
+        div { class: "agent-chat__slash-menu", "data-testid": "agent-chat-command-menu",
             onmousedown: move |event: MouseEvent| event.prevent_default(),
-            div { class: "agent-chat__slash-panel", "data-testid": "agent-chat-command-menu",
-            if let Some(command) = help {
-                div { class: "agent-chat__command-help", "data-testid": "agent-chat-command-help",
-                    div { class: "agent-chat__command-usage",
+            if let Some(command) = usage_line {
+                p { class: "agent-chat__slash-usage", "data-testid": "agent-chat-command-usage",
+                    span { class: "agent-chat__slash-args",
                         "/{command.name}"
                         if !command.args.is_empty() {
                             " {command.args}"
                         }
                     }
-                    span { class: "agent-chat__command-summary", "{command.summary}" }
-                    if !command.examples.is_empty() {
-                        div { class: "agent-chat__command-examples",
-                            for example in command.examples.iter() {
-                                code { class: "agent-chat__command-example", "{example}" }
-                            }
-                        }
-                    }
+                    " {command.summary}"
                 }
-            }
-            if has_options {
+            } else {
                 div { id: "{listbox}", role: "listbox", aria_label: "Commands",
+                    style: "--slash-name-chars: {name_chars}",
                     List {
                         for (idx, option) in state.options.iter().enumerate() {
                             ListRow {
@@ -265,8 +297,16 @@ pub fn SlashMenu(
                                 tabindex: Some(-1),
                                 test_id: Some(format!("agent-slash-option-{idx}")),
                                 class: Some("agent-chat__slash-row".to_string()),
-                                headline: rsx! { span { class: "agent-chat__slash-name", "{option.headline}" } },
-                                support: (!option.summary.is_empty()).then(|| rsx! { span { "{option.summary}" } }),
+                                headline: rsx! { span { class: "agent-chat__slash-name", "{option.label}" } },
+                                support: (!option.usage.is_empty() || !option.summary.is_empty()).then(|| rsx! {
+                                    span {
+                                        if !option.usage.is_empty() {
+                                            span { class: "agent-chat__slash-args", "{option.usage}" }
+                                            " "
+                                        }
+                                        "{option.summary}"
+                                    }
+                                }),
                                 selected: idx == selected,
                                 dense: true,
                                 onclick: EventHandler::new(move |_| on_choose.call(idx)),
@@ -274,8 +314,6 @@ pub fn SlashMenu(
                         }
                     }
                 }
-                div { class: "agent-chat__command-hint", "↑↓ move · Tab complete · Enter select · Esc close" }
-            }
             }
         }
     }
@@ -299,3 +337,7 @@ pub(super) fn scroll_option_into_view(conversation_id: &str, index: usize) {
     #[cfg(not(target_arch = "wasm32"))]
     let _ = (conversation_id, index);
 }
+
+#[cfg(test)]
+#[path = "slash_menu_tests.rs"]
+mod tests;
