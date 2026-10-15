@@ -55,7 +55,8 @@ pub fn group_options<'a>(options: Vec<&'a PickerOption>) -> Vec<(String, Vec<&'a
 
 /// The search field, then the matching options under their provider headings.
 /// `selected` marks the current choice; choosing a row calls `on_choose` with
-/// its selector.
+/// its selector. `autofocus` is off on a phone, where focusing the field would
+/// raise the soft keyboard over the list before the reader asked to type.
 #[component]
 pub fn ModelPicker(
     options: Vec<PickerOption>,
@@ -63,6 +64,7 @@ pub fn ModelPicker(
     on_choose: EventHandler<String>,
     placeholder: String,
     test_id: String,
+    #[props(default = true)] autofocus: bool,
 ) -> Element {
     let mut query = use_signal(String::new);
     let current_query = query();
@@ -95,7 +97,7 @@ pub fn ModelPicker(
                 placeholder: Some(placeholder),
                 input_type: Some("search".to_owned()),
                 autocomplete: Some("off".to_owned()),
-                autofocus: true,
+                autofocus,
                 class: Some("model-picker__search".to_owned()),
                 test_id: Some(format!("{test_id}-search")),
                 role: "combobox",
@@ -127,7 +129,10 @@ pub fn ModelPicker(
             }
             div { id: results_id, class: "model-picker__results", role: "listbox", "aria-label": "Models",
             for (group, rows) in groups {
-                SectionTitle { "{group}" }
+                // A blank group is one the surrounding view already names.
+                if !group.is_empty() {
+                    SectionTitle { "{group}" }
+                }
                 List { class: "model-picker__group",
                     for option in rows {
                         {

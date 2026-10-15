@@ -6,6 +6,7 @@
 use dioxus::prelude::*;
 
 use crate::components::agent_chat::model_picker::{ModelPicker, PickerOption};
+use crate::components::layout::window_size::use_is_compact;
 use crate::components::md::{
     Button, ButtonSize, ButtonVariant, Dialog, IconButton, IconButtonSize, List, ListRow, StatusDot,
 };
@@ -23,6 +24,13 @@ pub fn ModelChainEditor(
     on_change: EventHandler<Vec<String>>,
     test_id: String,
 ) -> Element {
+    let compact = use_is_compact();
+    // A phone gets the picker as a bottom sheet, within a thumb's reach.
+    let dialog_class = if compact {
+        "model-chain__dialog roost-sheet--bottom roost-sheet--kb"
+    } else {
+        "model-chain__dialog"
+    };
     let mut adding = use_signal(|| false);
     let mut editing = use_signal(|| None::<usize>);
     let selected_entry = editing()
@@ -148,13 +156,14 @@ pub fn ModelChainEditor(
                     open: true,
                     headline: Some(if editing().is_some() { format!("Change {role_title}") } else { format!("Choose {role_title}") }),
                     on_close: move |_| adding.set(false),
-                    class: "model-chain__dialog".to_owned(),
+                    class: dialog_class.to_owned(),
                     test_id: format!("{test_id}-dialog"),
                     ModelPicker {
                         options: addable.clone(),
                         selected: selected_entry.clone(),
                         placeholder: "Search models and engines".to_owned(),
                         test_id: format!("{test_id}-picker"),
+                        autofocus: !compact,
                         on_choose: move |selector: String| {
                             let mut next = chain.clone();
                             if let Some(index) = editing() {

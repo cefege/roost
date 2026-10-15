@@ -12,6 +12,7 @@ use super::composer_commands::model_picker_trigger_id;
 use super::model_hub::hub_logic::model_picker_options;
 use super::model_picker::ModelPicker;
 use super::toolbar_menu::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
+use crate::components::layout::window_size::use_is_compact;
 use crate::components::md::{Button, ButtonSize, ButtonVariant, Card, CardVariant, Dialog};
 use crate::pump::Pump;
 use crate::router_state::use_navigate;
@@ -56,6 +57,7 @@ pub fn AgentModelControls(
     pump: Pump,
 ) -> Element {
     let navigate = use_navigate();
+    let compact = use_is_compact();
     let open_settings = move || navigate.call(crate::routes::settings_pane_href("models"));
     let setup = ModelSetup::from_catalog(catalog.as_ref(), catalog_failed);
     let mut picker_open = use_signal(|| false);
@@ -140,6 +142,10 @@ pub fn AgentModelControls(
                 headline: "Model for this session".to_string(),
                 description: rsx! { "This session only. Folder and global model roles stay unchanged." },
                 test_id: "agent-chat-model-dialog".to_string(),
+                class: compact.then(|| "roost-sheet--bottom roost-sheet--kb".to_owned()),
+                // On a phone the header's Close takes first focus, so opening
+                // the sheet never raises the keyboard over the list.
+                show_close_button: compact.then_some(true),
                 actions: rsx! {
                     Button {
                         variant: ButtonVariant::Outline,
@@ -164,6 +170,7 @@ pub fn AgentModelControls(
                     selected: selected_selector,
                     placeholder: "Search models",
                     test_id: "agent-chat-model-picker",
+                    autofocus: !compact,
                     on_choose: move |selector: String| {
                         configure(choose_pump.clone(), model_id.clone(), Configure::Model(Some(selector)));
                         picker_open.set(false);

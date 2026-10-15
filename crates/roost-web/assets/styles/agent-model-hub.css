@@ -1,45 +1,132 @@
-/* The agent chat's models hub: view sidebar beside the picker or role editor. */
-.model-hub__layout {
-  display: grid;
-  grid-template-columns: minmax(10rem, 14rem) 1fr;
-  gap: var(--md-space-4);
-  min-block-size: min(70dvh, 40rem);
-}
-.model-hub__sidebar {
-  overflow-y: auto;
-  min-inline-size: 0;
-}
+/* The agent chat's models hub. Wide screens (`--split`): a dialog with the
+   view list as a sidebar beside the content. Phones (`--stacked`): a
+   full-height bottom sheet showing one screen at a time, the view list or one
+   view. In both, only the list inside a view scrolls, so the search field and
+   the view's heading stay in reach. */
+
+/* ── Shared ── */
 .model-hub__content {
   display: flex;
   flex-direction: column;
   gap: var(--md-space-3);
+  min-block-size: 0;
   min-inline-size: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
-.model-hub__locked { color: var(--text-lo); }
-.model-hub__count { color: var(--text-lo); }
-.model-hub .model-picker__results { max-block-size: none; }
-.model-hub__empty { margin: 0; color: var(--text-mid); }
-.model-hub__error { margin: var(--md-space-2) 0 0; color: var(--md-error); }
+/* A scrolling column keeps its children at their own height (the role editor
+   and presets scroll as a whole); only the picker fills what is left, and its
+   results scroll inside it. */
+.model-hub__content > * { flex-shrink: 0; }
+.model-hub__content > .model-picker { flex: 1 1 auto; min-block-size: 0; }
+.model-hub .model-picker__results { flex: 1 1 auto; min-block-size: 0; max-block-size: none; }
+.model-hub__count { color: var(--text-lo); font-variant-numeric: tabular-nums; }
+.model-hub__chevron { color: var(--text-lo); }
+.model-hub__locked .md-list-row__headline { color: var(--text-mid); }
+.model-hub__empty {
+  margin: 0;
+  color: var(--text-mid);
+  font: var(--md-body-m-weight) var(--md-body-m-size)/var(--md-body-m-line) var(--md-font);
+}
+.model-hub__error {
+  margin: var(--md-space-3) 0 0;
+  color: var(--md-error);
+  font: var(--md-body-m-weight) var(--md-body-m-size)/var(--md-body-m-line) var(--md-font);
+}
+.model-hub__loading { display: flex; flex-direction: column; gap: var(--md-space-2); }
+.model-hub__skeleton { display: block; block-size: var(--control-touch-target); border-radius: var(--md-shape-md); }
 .model-hub__presets {
   display: flex;
   flex-direction: column;
   gap: var(--md-space-2);
   margin-block-start: var(--md-space-4);
 }
+.model-hub__preset { cursor: default; }
 .model-hub__preset-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--md-space-2);
+}
+.model-hub__confirm {
+  color: var(--text-hi);
+  font: var(--md-label-l-weight) var(--md-label-l-size)/var(--md-label-l-line) var(--md-font);
 }
 .model-hub__preset-save {
   display: flex;
   align-items: center;
   gap: var(--md-space-2);
 }
-.model-hub__preset-save > :first-child { flex: 1 1 auto; }
-@media (max-width: 40rem) {
-  .model-hub__layout { grid-template-columns: 1fr; }
-  .model-hub__sidebar { overflow-x: auto; overflow-y: hidden; }
-  .model-hub__sidebar .md-list { display: flex; flex-direction: row; }
+.model-hub__preset-save > :first-child { flex: 1 1 auto; min-inline-size: 0; }
+
+/* ── Wide screens ── */
+/* The dialog's content has no intrinsic width, so take a fixed width rather
+   than fit-content's narrow rail; the role rows it embeds need more than the
+   wide dialog's 720 to keep their chains readable. */
+.roost-dialog.model-hub--split {
+  inline-size: min(
+    calc(var(--roost-dialog-wide-max-inline-size) * 1.4),
+    calc(100vw - 2 * var(--roost-dialog-viewport-margin))
+  );
+  max-inline-size: none;
 }
+.model-hub__layout {
+  display: grid;
+  grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr);
+  gap: var(--md-space-4);
+  block-size: min(60dvh, 40rem);
+}
+.model-hub__sidebar {
+  min-block-size: 0;
+  min-inline-size: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* ── Phones ── */
+/* Full height at once, so moving between the list and a view never resizes
+   the sheet; `roost-sheet--kb` keeps it above the soft keyboard. */
+.roost-sheet--bottom.model-hub--stacked {
+  block-size: calc(var(--roost-sheet-bottom-max-block-size) - var(--kb-offset));
+}
+.model-hub--stacked .roost-dialog__body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: var(--md-space-2) var(--md-space-4) var(--md-space-4);
+}
+.model-hub--stacked .model-hub__nav {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.model-hub__detail {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--md-space-2);
+  min-block-size: 0;
+}
+.model-hub__detail .model-hub__content { flex: 1 1 auto; }
+.model-hub__detail-head {
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-1);
+  margin-inline-start: calc(var(--md-space-2) * -1);
+}
+.model-hub__detail-title {
+  margin: 0;
+  color: var(--text-hi);
+  font: var(--md-title-m-weight) var(--md-title-m-size)/var(--md-title-m-line) var(--md-font);
+}
+.model-hub__detail-title:focus { outline: none; }
+.model-hub--stacked .roost-button,
+.model-hub--stacked .roost-icon-button { min-block-size: var(--control-touch-target); }
+.model-hub--stacked .roost-icon-button { min-inline-size: var(--control-touch-target); }
+/* A preset's actions get their own line under its name and roles. */
+.model-hub--stacked .model-hub__preset { flex-wrap: wrap; }
+.model-hub--stacked .model-hub__preset .md-list-row__body { flex: 1 1 100%; }
+.model-hub--stacked .model-hub__preset .md-list-row__trailing { flex: 1 1 100%; }
+.model-hub--stacked .model-hub__preset-save { flex-direction: column; align-items: stretch; }

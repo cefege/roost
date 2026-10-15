@@ -130,7 +130,9 @@ fn recent_rows_keep_reachable_models_and_name_their_roles() {
     let rows = hub_options(&catalog(), &HubView::Recent, &settings);
     let selectors: Vec<&str> = rows.iter().map(|row| row.selector.as_str()).collect();
     assert_eq!(selectors, ["anthropic/claude-sonnet-5"]);
-    assert_eq!(rows[0].group, "Recent");
+    assert_eq!(rows[0].group, "");
+    let all = hub_options(&catalog(), &HubView::All, &settings);
+    assert_eq!(all[0].group, "Anthropic");
     assert_eq!(
         rows[0].detail.as_deref(),
         Some("anthropic/claude-sonnet-5 · roles: default")

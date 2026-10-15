@@ -211,6 +211,14 @@
   transition: transform var(--md-sys-motion-duration-medium1) var(--md-sys-motion-easing-emphasized);
 }
 
+/* The translate makes this region the containing block of the fixed overlays
+   inside it, so a keyboard-aware bottom sheet here already rides up with the
+   region; lifting it again would push its top off the screen. It keeps the
+   shorter height `.roost-sheet--kb` gives it. */
+.workbench-editor-region[data-keyboard-shift="true"] .roost-sheet--bottom.roost-sheet--kb {
+  inset-block-end: 0;
+}
+
 /* A portal's wrappers generate no box, so a `position: fixed` child resolves
    against the viewport exactly as a `<body>` child does. */
 .roost-portal-root,

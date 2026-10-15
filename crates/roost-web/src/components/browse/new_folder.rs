@@ -43,7 +43,7 @@ pub fn NewFolderDialog(
             open,
             on_close,
             headline: Some(HEADLINE.to_owned()),
-            class: compact.then(|| "roost-sheet--bottom".to_owned()),
+            class: compact.then(|| "roost-sheet--bottom roost-sheet--kb".to_owned()),
             actions: rsx! {
                 Button { variant: ButtonVariant::Outline, onclick: move |_| on_close.call(()), "Cancel" }
                 Button {

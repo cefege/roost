@@ -145,7 +145,9 @@ pub fn initial_view(catalog: &ModelsCatalog) -> HubView {
     }
 }
 
-/// The picker rows of a view; Roles has none (it shows the role editor).
+/// The picker rows of a view; Roles has none (it shows the role editor). Only
+/// All models groups rows under provider names; Recent and a provider's view
+/// already name their one group, so their rows carry none.
 pub fn hub_options(
     catalog: &ModelsCatalog,
     view: &HubView,
@@ -175,10 +177,10 @@ pub fn hub_options(
                 detail.push_str(&format!(" · roles: {}", roles.join(", ")));
             }
             PickerOption {
-                group: if *view == HubView::Recent {
-                    "Recent".to_owned()
-                } else {
+                group: if *view == HubView::All {
                     provider_display_name(catalog, &entry.provider)
+                } else {
+                    String::new()
                 },
                 selector,
                 name: entry.name.clone(),

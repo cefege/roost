@@ -133,6 +133,15 @@
   padding: var(--md-space-4) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
+/* A bottom sheet holding a text field rides above the soft keyboard, which
+   `--kb-offset` measures, and drops the home-indicator inset the keyboard
+   already covers. */
+.roost-sheet--bottom.roost-sheet--kb {
+  inset-block-end: var(--kb-offset);
+  max-block-size: calc(var(--roost-sheet-bottom-max-block-size) - var(--kb-offset));
+  padding-block-end: max(0px, calc(env(safe-area-inset-bottom) - var(--kb-offset)));
+}
+
 .roost-dialog--command-palette .roost-dialog__header,
 .roost-dialog--browse .roost-dialog__header {
   border: 0;
