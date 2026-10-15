@@ -1,0 +1,53 @@
+# The production coordinator, as Flux deploys it from the `production` branch
+# (see ../bootstrap.yaml). It upgrades the Helm release `roost-coordinator`
+# that `cargo xtask fleet install` used to upgrade by hand, with the same
+# chart and the same values files, plus:
+#
+# - `deploy/helm/production.values.yaml`, which exists only on `production`
+#   and pins `image.tag` to the promoted release;
+# - the Secret `roost-coordinator-values` (namespace `roost`, created once by
+#   hand, never in git) holding `postgres.password`, which the chart requires
+#   and the database was initialised with.
+#
+# `reconcileStrategy: Revision` makes every new commit on `production` a new
+# chart artifact, so a changed image tag in a values file is an upgrade; the
+# default (`ChartVersion`) would only notice a bumped Chart.yaml version.
+# The chart's `lookup` of the existing coordinator Secret keeps
+# ROOST_COORDINATOR_SECRET_KEY across upgrades, as it did under the Helm CLI.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: roost-coordinator
+  namespace: roost
+spec:
+  interval: 10m
+  releaseName: roost-coordinator
+  chart:
+    spec:
+      chart: ./deploy/helm/roost-coordinator
+      reconcileStrategy: Revision
+      sourceRef:
+        kind: GitRepository
+        name: roost
+        namespace: flux-system
+      valuesFiles:
+        - ./deploy/helm/roost-coordinator/values.yaml
+        - ./deploy/helm/fleet-ovh1.values.yaml
+        - ./deploy/helm/production.values.yaml
+  valuesFrom:
+    - kind: Secret
+      name: roost-coordinator-values
+      valuesKey: values.yaml
+  timeout: 10m
+  # A failed upgrade is left failed, never remediated: an upgrade can run
+  # one-way migrations and re-encrypt stored credentials, so retrying or
+  # rolling back on its own could put an older image on a newer database.
+  # Recovery is a deliberate promote of another tag (plus a database restore
+  # when going back past a migration).
+  install:
+    remediation:
+      retries: 0
+  upgrade:
+    remediation:
+      retries: 0
+      remediateLastFailure: false

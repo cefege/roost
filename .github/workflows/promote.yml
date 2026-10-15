@@ -1,0 +1,121 @@
+name: promote
+
+# Puts a published release into production. Called by release.yml once a tag's
+# assets are published, and runnable by hand to roll back:
+#
+#   gh workflow run promote.yml --ref v3 -f tag=v3.0.0-rc.36
+#
+# The job runs in the `production` environment, so it waits for an approval
+# in GitHub before it changes anything. It never touches the cluster: it
+# points the `production` branch at the tag's commit plus one commit pinning
+# the coordinator image, and Flux on ovh1 (deploy/flux/) pulls that branch and
+# upgrades the Helm release. Workers follow the coordinator's `/version` on
+# their own, so this is the whole deploy.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to put in production (e.g. v3.0.0-rc.36)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    name: promote ${{ inputs.tag }}
+    runs-on: ubuntu-latest
+    # One promotion at a time; a second waits instead of racing the branch.
+    concurrency:
+      group: production
+      cancel-in-progress: false
+    environment:
+      name: production
+      url: https://mike.roosttt.com
+    env:
+      TAG: ${{ inputs.tag }}
+      IMAGE_REPOSITORY: cefege/roost-coordinator
+      PUBLIC_URL: https://mike.roosttt.com
+    steps:
+      - name: the tag is a v3 release
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$TAG" | grep -Eq '^v3\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::$TAG is not a v3 release tag"
+            exit 1
+          fi
+          echo "IMAGE_TAG=${TAG#v}" >> "$GITHUB_ENV"
+
+      - name: the release and its coordinator image are published
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" --json tagName > /dev/null
+          # container.yml builds the image from the same tag push, in parallel
+          # with the release; wait for it rather than racing it.
+          for _ in $(seq 90); do
+            token=$(curl -fsS "https://ghcr.io/token?scope=repository:${IMAGE_REPOSITORY}:pull" \
+              | sed -E 's/.*"token":"([^"]+)".*/\1/')
+            if curl -fsS -o /dev/null -H "Authorization: Bearer $token" \
+              -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json' \
+              "https://ghcr.io/v2/${IMAGE_REPOSITORY}/manifests/${IMAGE_TAG}"; then
+              echo "ghcr.io/${IMAGE_REPOSITORY}:${IMAGE_TAG} is published"
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "::error::ghcr.io/${IMAGE_REPOSITORY}:${IMAGE_TAG} was not published within 30 minutes"
+          exit 1
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 1
+
+      - name: point production at the tag
+        run: |
+          set -euo pipefail
+          git config user.name "roost-promote"
+          git config user.email "roost-promote@users.noreply.github.com"
+          cat > deploy/helm/production.values.yaml <<EOF
+          # Written by .github/workflows/promote.yml on the production branch
+          # only: the release Flux deploys (deploy/flux/production/).
+          image:
+            tag: "${IMAGE_TAG}"
+          EOF
+          git add deploy/helm/production.values.yaml
+          git commit -m "production: ${TAG}"
+          # The branch is a pointer, not a history: each promotion replaces it
+          # with the tag plus its pin, so a rollback is the same operation.
+          git push --force origin "HEAD:refs/heads/production"
+          echo "production -> ${TAG} ($(git rev-parse --short HEAD^))"
+
+      - name: the coordinator reports the release
+        run: |
+          set -euo pipefail
+          # Flux polls the branch every minute and the upgrade waits for the
+          # new pods to be ready; 20 minutes covers both with room to spare.
+          for _ in $(seq 120); do
+            body=$(curl -fsS --max-time 10 "${PUBLIC_URL}/version" || true)
+            version=$(printf '%s' "$body" | sed -nE 's/.*"version":"([^"]+)".*/\1/p')
+            if [ "$version" = "$TAG" ]; then
+              echo "${PUBLIC_URL} runs ${TAG}: ${body}"
+              exit 0
+            fi
+            sleep 10
+          done
+          if [ -z "${version:-}" ]; then
+            # Releases before /version existed cannot report themselves; the
+            # rollout is still Flux's, so say so instead of failing it.
+            echo "::warning::${PUBLIC_URL}/version did not answer; check the HelmRelease on ovh1"
+            exit 0
+          fi
+          echo "::error::${PUBLIC_URL} still reports ${version}, not ${TAG}"
+          exit 1

@@ -1,0 +1,42 @@
+# Flux's entry point into this repository, applied once by hand
+# (`kubectl apply -f deploy/flux/bootstrap.yaml` on ovh1's k3s, after Flux's own
+# install manifest). Everything else Flux runs is read from the `production`
+# branch: the Kustomization below applies `deploy/flux/production/`, whose
+# HelmRelease deploys the coordinator chart with that branch's values.
+#
+# `production` is written only by `.github/workflows/promote.yml`: a release
+# tag's commit plus one commit adding `deploy/helm/production.values.yaml`
+# (the image tag). Promoting a release, or rolling back to an older one, is
+# that workflow pointing the branch at another tag; nothing reaches the
+# cluster's API from outside, and no cluster credential lives outside the
+# cluster.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: roost
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: https://github.com/cefege/roost
+  ref:
+    branch: production
+  # Only the deploy tree is fetched into the artifact; the workspace is not
+  # needed to render the chart.
+  ignore: |
+    /*
+    !/deploy/
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: roost-production
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./deploy/flux/production
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: roost
+  timeout: 15m
+  wait: true

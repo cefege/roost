@@ -346,3 +346,11 @@ jobs:
               "${notes[@]}" --latest=false
           fi
           echo "published $TAG with ${notes[*]}"
+
+  # The release is published; putting it in production waits for an approval
+  # in the `production` environment (promote.yml).
+  promote:
+    needs: [publish]
+    uses: ./.github/workflows/promote.yml
+    with:
+      tag: ${{ inputs.tag || github.ref_name }}
