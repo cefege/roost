@@ -479,19 +479,20 @@ gh workflow run promote.yml -f tag=<older tag>   # roll back (see below)
    install exactly that release themselves (`roost __self-update`, log
    `self-update-<tag>.log` in the worker's log directory), so they follow a
    promotion and a rollback alike; a machine that was off catches up within a
-   minute of starting. ovh1, m5, m1-new and m1-old follow since rc.37.
-   desktop-pc (offline) and roost-win (Windows, never self-updates) still need
-   `cargo xtask fleet install --version <tag> --host <name>`; desktop-pc only
-   once, roost-win every release.
+   minute of starting. ovh1, m5, m1-new and m1-old follow since rc.39 (rc.37's
+   and rc.38's updater restarted the old unit on Linux and failed launchd's
+   bootstrap on macOS). desktop-pc (offline) and roost-win (Windows, never
+   self-updates) still need `cargo xtask fleet install --version <tag> --host
+   <name>`; desktop-pc only once, roost-win every release.
 
 **Rolling back** is promoting an older tag. Going back past a migration or
 the credential encryption also needs the database restored from a
 `pg_dump` taken before the newer release (the CronJob keeps 14 on the
 `roost-coordinator-postgres-backups` PVC; the dump taken minutes before
 rc.36 is in `ovh1:~/roost-backups/` and on m5 in `~/roost-backups/`). The
-floor is `v3.0.0-rc.37`: promote refuses an older tag, whose tree has no
-`deploy/flux/production/`, and a worker moved below it would lose
-`__self-update` and stop following.
+floor is `v3.0.0-rc.39`: promote refuses a tag before rc.37, whose tree has
+no `deploy/flux/production/`, and a worker sent to rc.37 or rc.38 would get
+the broken updater (moving it on again takes `fleet install`).
 
 **`cargo xtask fleet install --version <tag> [--host <name>]…`** remains for
 the Windows host, which cannot replace its own binary, and for moving a
