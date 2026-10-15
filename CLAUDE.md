@@ -254,8 +254,10 @@ report method, the installed `roost-omp-agent-reference.ts` extension, the
 `agent_reference` session event, `SessionsListResponse.recovery_metadata`,
 `ROOST_AGENT_CONVERSATION_RESTORE`); OMP's own `omp --resume` covers it; the
 Node agent-host sidecar (`agent-host/`, its image, Helm container and PVC),
-the pi-env tool tunnel, and Pi conversations and the agent-host's stored
-provider logins (not migrated; operators sign in again).
+the pi-env tool tunnel, Pi conversations and the agent-host's stored
+provider logins (not migrated; operators sign in again), and the terminal
+composer's strip of sent-image previews (the operator retired it; an upload
+still types its path and shows its transfer card).
 
 ---
 

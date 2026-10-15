@@ -1,7 +1,7 @@
 //! The chrome that belongs to a terminal pane rather than to the shell: the
 //! permanent composer, the file picker behind its attach action and the file
-//! drop that feeds the same upload, the preview strip, and the capture-consent
-//! confirmation the pane's context menu raises.
+//! drop that feeds the same upload, and the capture-consent confirmation the
+//! pane's context menu raises.
 //! Mounted from `CellTerminal` (or from the compact shell for the viewport
 //! placement) by whoever owns the pane. The only document-wide listeners here
 //! are the drag listeners of `file_drop_dom`; trusted key routing stays with
@@ -25,7 +25,6 @@ pub mod file_drop;
 pub mod file_drop_dom;
 pub mod pane_geometry;
 pub mod pane_geometry_dom;
-pub mod sent_image_strip;
 pub mod short_paths;
 pub mod terminal_upload;
 pub mod upload;
