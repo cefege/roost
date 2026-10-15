@@ -59,7 +59,12 @@ pub(super) fn submit_message(
 ) {
     let request_id = super::request_ids::new_request_id();
     let label = text.clone();
-    wasm_bindgen_futures::spawn_local(async move {
+    // Scoped to the component that sent it, not `spawn_local`: the first
+    // message of a chat swaps the welcome layout for the transcript, which
+    // remounts the composer while the call is in flight, and calling the old
+    // composer's dropped `outcome` would panic the whole app. A dropped task
+    // only forgets the answer; the request has already been sent.
+    spawn(async move {
         match pump
             .rpc()
             .call(&SubmitAgentChat {
