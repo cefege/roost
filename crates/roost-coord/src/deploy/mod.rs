@@ -1,7 +1,6 @@
 //! The deploy domain: the keeper-update preparation that replaces the binary
-//! every live PTY depends on, and the POSIX deploy jobs and their output stream.
-//! Workers follow the coordinator's release on their own (`roost __self-update`),
-//! so the coordinator does not push a deploy to a worker that attaches behind.
+//! every live PTY depends on, the POSIX deploy jobs and their output stream,
+//! and the catch-up a worker behind the fleet gets when it attaches.
 //!
 //! One field on `CoordServices`, reached as `core.services.deploy`. The
 //! exclusive drain it takes is the write gate's, and the journal the jobs write
@@ -12,6 +11,9 @@
 //! needs from configuration is read at call time from `core.services.boot` or
 //! the process environment, as v2 read `process.env` at call time.
 
+pub mod catchup;
+pub mod catchup_decision;
+pub mod catchup_on_ready;
 pub mod job_process;
 pub mod jobs;
 pub mod keeper_update;
@@ -22,15 +24,17 @@ pub mod update_progress;
 
 use std::sync::Arc;
 
+use crate::deploy::catchup::CatchUpDeploys;
 use crate::deploy::jobs::DeployJournal;
 
 /// The deploy state one coordinator process holds.
 ///
-/// A clone is another handle on the same journal, so a detached job watcher can
-/// outlive the call that started it.
+/// A clone is another handle on the same journal and catch-up state, which is
+/// what lets a detached catch-up watcher outlive the call that started it.
 #[derive(Debug, Clone, Default)]
 pub struct DeployRuntime {
     journal: Arc<DeployJournal>,
+    catch_up: Arc<CatchUpDeploys>,
 }
 
 impl DeployRuntime {
@@ -44,5 +48,11 @@ impl DeployRuntime {
     #[must_use]
     pub fn journal(&self) -> &Arc<DeployJournal> {
         &self.journal
+    }
+
+    /// The catch-up bookkeeping: in-flight hosts, cooldowns, keeper blocks.
+    #[must_use]
+    pub(crate) fn catch_up(&self) -> &CatchUpDeploys {
+        &self.catch_up
     }
 }

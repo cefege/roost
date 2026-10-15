@@ -1,6 +1,7 @@
 //! The one classifier for "is this machine on the fleet's current release?",
 //! and the one wording per state. Called by `roost-cli` `status/render.rs` (the
-//! status row), the v2 caller the web's MachineCard shares it with. Ported
+//! status row) and `roost-coord` `deploy/catchup_decision.rs` (catch-up
+//! admission), the two v2 callers the web's MachineCard shares it with. Ported
 //! from `packages/protocol/src/fleet-update.ts`; do not add a second copy.
 
 /// The fleet's desired release is the COORDINATOR's own SHA, and nothing else.
@@ -67,6 +68,18 @@ pub fn worker_update_label(state: WorkerUpdateState) -> &'static str {
         WorkerUpdateState::UpdateAvailable => "Update available",
         WorkerUpdateState::UpdateDeferred => "Update pending — offline",
     }
+}
+
+/// Whether `value` names a release the way a git tag does: `v` then letters,
+/// digits, `.`, `-` or `_`. `dev` and a bare commit SHA are not releases.
+/// Shared by the worker's self-update poller, the coordinator's catch-up skip
+/// and the release-tag check of `roost __self-update`.
+pub fn is_release_tag(value: &str) -> bool {
+    value.len() > 1
+        && value.starts_with('v')
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
 }
 
 #[cfg(test)]
@@ -146,5 +159,17 @@ mod tests {
                 "two states print the same wording: {label}"
             );
         }
+    }
+
+    #[test]
+    fn release_tags_are_v_prefixed_names_only() {
+        use super::is_release_tag;
+        assert!(is_release_tag("v3.0.0-rc.37"));
+        assert!(is_release_tag("v3_1"));
+        assert!(!is_release_tag("v"));
+        assert!(!is_release_tag("v3/../x"));
+        assert!(!is_release_tag("3.0.0"));
+        assert!(!is_release_tag("dev"));
+        assert!(!is_release_tag("b1d1836a9f4c2e1d7a0b5c6d8e9f0a1b2c3d4e5f"));
     }
 }

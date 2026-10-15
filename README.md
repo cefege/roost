@@ -267,9 +267,10 @@ cargo xtask lint
 ```
 
 Every release is built on GitHub: a `v3.*` tag runs
-`.github/workflows/release.yml`, and `cargo xtask fleet install --version <tag>`
-downloads that release onto our own hosts (`xtask/fleet.json`). Operating
-rules are in [`CLAUDE.md`](CLAUDE.md).
+`.github/workflows/release.yml`, whose approved promotion moves the
+`production` branch that Flux deploys the coordinator from; our workers then
+install the coordinator's release themselves. Operating rules are in
+[`CLAUDE.md`](CLAUDE.md).
 
 ## Built by
 

@@ -720,6 +720,27 @@ A machine running only a worker restarts only `roost3-worker` /
 containerized coordinator updates by image tag instead (`helm upgrade` with
 `--set image.tag=<tag>`; empty means the chart's `appVersion`).
 
+### Workers follow a released coordinator
+
+A macOS or Linux worker installed from a release keeps itself on the release
+its coordinator runs. A minute after it starts, and every 15 minutes after,
+it reads the coordinator's `GET /version`; when that names a different release
+tag, it starts `roost __self-update --to <tag>` outside its own service (a
+transient `systemd-run --user` unit on Linux, a detached process on macOS),
+which fetches exactly that tag, checks it against its `.sha256` and its own
+claim about its version, admits the running keeper against it, installs it
+under `versions/<tag>/`, repoints and restarts the worker, and rolls back a
+failed activation. It follows a downgrade too, so rolling the coordinator back
+rolls its workers back. Each run logs to `self-update-<tag>.log` in the
+worker's log directory, and starts are at least an hour apart
+(`self-update-attempt.json` in its data directory).
+
+`ROOST_AUTO_UPDATE=0` in the worker's environment turns this off. Windows
+workers and source builds never update themselves, and a worker on a release
+older than the first one carrying `__self-update` needs one manual update to
+start following. A coordinator built from a checkout reports a commit, not a
+tag, so its workers are converged by `roost push` and the catch-up below.
+
 ### Rolling a fleet from a source checkout: `roost push`
 
 To roll a source-installed coordinator and its registered fleet onto one
@@ -778,9 +799,8 @@ deploying to a host that has no prior install refuses the deploy rather than
 registering that host under this machine's name.
 
 Our own fleet's maintainer flow is: push a `v3.*` tag, let `release.yml` build
-it, then `cargo xtask fleet install --version <tag>`, which downloads that
-release and installs it on the hosts in `xtask/fleet.json`; see `CLAUDE.md`
-§ Release to the fleet.
+it, and approve its promotion; Flux deploys the coordinator and the workers
+follow it. See `CLAUDE.md` § Release to the fleet.
 
 ## Automatic terminal transport
 

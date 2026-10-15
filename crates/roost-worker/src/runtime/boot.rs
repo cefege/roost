@@ -180,7 +180,7 @@ impl WorkerBoot {
             fingerprint,
             coordinator_base,
             keeper_socket: resolve_path(env, ENV_KEEPER_SOCKET, support.join(KEEPER_SOCKET_NAME)),
-            keeper_pid_file: resolve_path(env, ENV_KEEPER_PID_FILE, support.join(KEEPER_PID_NAME)),
+            keeper_pid_file: keeper_pid_path(env, platform)?,
             keeper_capability_file: resolve_path(
                 env,
                 ENV_KEEPER_CAPABILITY_FILE,
@@ -260,6 +260,21 @@ fn resolve_path(env: &dyn EnvSource, name: &str, default: PathBuf) -> PathBuf {
         Some(value) if !value.is_empty() => PathBuf::from(value),
         _ => default,
     }
+}
+
+/// Where the keeper records its pid: the worker's override, else the data
+/// directory. The one rule the boot and `roost __self-update` both read.
+pub fn keeper_pid_path(
+    env: &dyn EnvSource,
+    platform: HostPlatform,
+) -> Result<PathBuf, BootConfigError> {
+    let support = worker_data_dir(env, platform)
+        .map_err(|error| BootConfigError::DataDir(error.to_string()))?;
+    Ok(resolve_path(
+        env,
+        ENV_KEEPER_PID_FILE,
+        support.join(KEEPER_PID_NAME),
+    ))
 }
 
 /// The fingerprint of the key at `key_path`, which is the whole of a worker's

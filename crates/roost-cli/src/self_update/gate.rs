@@ -15,20 +15,13 @@ use crate::command_error::CommandFailure;
 /// bare commit is not a release, so a worker asked for either would retry a
 /// download that cannot exist.
 pub fn check_tag(tag: &str) -> Result<(), String> {
-    if tag.len() < 2 || !tag.starts_with('v') {
-        return Err(format!(
+    if roost_protocol::fleet_update::is_release_tag(tag) {
+        Ok(())
+    } else {
+        Err(format!(
             "`{tag}` is not a release tag; expected a v-prefixed tag such as v3.0.0-rc.37"
-        ));
+        ))
     }
-    if !tag
-        .bytes()
-        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
-    {
-        return Err(format!(
-            "`{tag}` is not a release tag: it has characters a tag cannot"
-        ));
-    }
-    Ok(())
 }
 
 /// The staged `roost` binary's own account of itself: its artifact version and

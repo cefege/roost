@@ -13,21 +13,43 @@ use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use roost_host::{
+    HOME_ENV, SERVICE_DIR_ENV, VERSIONS_DIR_ENV, WORKER_DATA_DIR_ENV, WORKER_LABEL_ENV,
+    WORKER_LOG_DIR_ENV, WORKER_PLIST_ENV, WORKER_UNIT_ENV,
+};
 use roost_platform::HostPlatform;
-use roost_platform::worker_service_env::KEEPER_FORCE_LIVE_RETIRE_ENV;
 
-/// The bootstrap token is a one-shot authorization; the updater must not
-/// inherit it, or a later definition would carry it again.
-const BOOTSTRAP_TOKEN_ENV: &str = "ROOST_BOOTSTRAP_TOKEN";
+use super::boot::{ENV_COORDINATOR_URL, ENV_KEEPER_PID_FILE};
 
-/// Whether the updater inherits this environment variable: every `ROOST_*`
-/// variable the worker has, except the one-shot authorizations.
+/// The names the updater inherits, and nothing else: where the worker keeps its
+/// state and logs, its service definition names, the keeper's pid file, the
+/// release origin the download reads, and the coordinator. No credential is
+/// listed; the bootstrap token and the keeper's one-shot force flag never are.
+const FORWARDED_ENV: &[&str] = &[
+    WORKER_DATA_DIR_ENV,
+    WORKER_LOG_DIR_ENV,
+    SERVICE_DIR_ENV,
+    VERSIONS_DIR_ENV,
+    WORKER_LABEL_ENV,
+    WORKER_UNIT_ENV,
+    WORKER_PLIST_ENV,
+    ENV_KEEPER_PID_FILE,
+    ENV_COORDINATOR_URL,
+    // The release origin override read by the download (`roost-cli` `update::release`).
+    "ROOST_RELEASE_BASE_URL",
+    HOME_ENV,
+    "PATH",
+];
+
+/// Whether the updater inherits this environment variable: only the names in
+/// [`FORWARDED_ENV`].
 pub(super) fn is_forwarded(key: &str) -> bool {
-    key.starts_with("ROOST_") && key != BOOTSTRAP_TOKEN_ENV && key != KEEPER_FORCE_LIVE_RETIRE_ENV
+    FORWARDED_ENV.contains(&key)
 }
 
-/// The worker's `ROOST_*` environment that the updater must see, so its
-/// directories, unit names and release origin match the worker's.
+/// The worker's environment the updater must see, restricted to
+/// [`FORWARDED_ENV`], so its directories, unit names and release origin match
+/// the worker's.
 pub(super) fn forwarded_environment() -> Vec<(String, String)> {
     std::env::vars_os()
         .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
@@ -86,6 +108,8 @@ pub(super) fn detached_command(
     let mut command = Command::new(exe);
     command
         .args(updater_args(tag))
+        // Cleared first: `envs` alone would leave the whole worker environment in place.
+        .env_clear()
         .envs(forwarded.iter().map(|(key, value)| (key, value)))
         .stdin(Stdio::null())
         .stdout(Stdio::from(out))
@@ -157,6 +181,8 @@ fn reap_when_done(mut child: std::process::Child) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use roost_platform::BOOTSTRAP_TOKEN_ENV;
+    use roost_platform::worker_service_env::KEEPER_FORCE_LIVE_RETIRE_ENV;
     use std::ffi::OsStr;
 
     fn args_of(command: &Command) -> Vec<String> {
@@ -203,6 +229,8 @@ mod tests {
         );
     }
 
+    // `/dev/null` and the process-group launch are Unix-only.
+    #[cfg(unix)]
     #[test]
     fn the_macos_launch_runs_the_exe_directly_with_the_subcommand() {
         let exe = Path::new("/opt/roost/bin/roost");
@@ -219,12 +247,14 @@ mod tests {
     }
 
     #[test]
-    fn the_bootstrap_token_and_one_shot_authorizations_are_not_forwarded() {
-        assert!(is_forwarded("ROOST_WORKER_DATA_DIR"));
-        assert!(is_forwarded("ROOST_SERVICE_DIR"));
-        assert!(!is_forwarded("ROOST_BOOTSTRAP_TOKEN"));
+    fn only_the_listed_names_are_forwarded() {
+        assert!(is_forwarded(WORKER_DATA_DIR_ENV));
+        assert!(is_forwarded(HOME_ENV));
+        assert!(is_forwarded("PATH"));
+        assert!(!is_forwarded(BOOTSTRAP_TOKEN_ENV));
         assert!(!is_forwarded(KEEPER_FORCE_LIVE_RETIRE_ENV));
-        assert!(!is_forwarded("PATH"));
+        assert!(!is_forwarded("ROOST_SOMETHING_NEW"));
+        assert!(!is_forwarded("AWS_SECRET_ACCESS_KEY"));
     }
 
     #[test]

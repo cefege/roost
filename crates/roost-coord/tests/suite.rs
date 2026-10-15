@@ -72,6 +72,10 @@ mod clipboard_history;
 mod cluster_link_owner;
 #[path = "db_export_snapshots.rs"]
 mod db_export_snapshots;
+#[path = "deploy_catchup.rs"]
+mod deploy_catchup;
+#[path = "deploy_catchup_decision.rs"]
+mod deploy_catchup_decision;
 #[path = "deploy_jobs.rs"]
 mod deploy_jobs;
 #[path = "deploy_output_http.rs"]

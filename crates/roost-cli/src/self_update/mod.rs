@@ -17,7 +17,7 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use clap::Args;
-use roost_host::{EnvSource, HostPlatform, ProcessEnv, ROOST_PROGRAM_FILE, worker_data_dir};
+use roost_host::{EnvSource, HostPlatform, ProcessEnv, ROOST_PROGRAM_FILE};
 use tracing::{error, info, warn};
 
 use crate::command_error::CommandFailure;
@@ -62,9 +62,14 @@ pub async fn run(args: &SelfUpdateArgs) -> Result<ExitCode, CommandFailure> {
     }
 
     let env = process_environment();
-    let data_dir = worker_data_dir(env, platform)
+    let definition_path = ServiceRole::Worker
+        .definition_path(env, platform)
         .map_err(|error| CommandFailure::generic(error.to_string()))?;
-    let pid_file = keeper_pid::pid_file(env, &data_dir);
+    let installed = read_installed(&definition_path)
+        .map(|definition| parse_installed_environment(&definition, platform))
+        .unwrap_or_default();
+    let pid_file =
+        keeper_pid::pid_file(env, &installed, platform).map_err(CommandFailure::generic)?;
     let staged = fetch_release(env, &args.to, platform, std::env::consts::ARCH).await?;
     let staging = staged
         .local_dir

@@ -5,11 +5,14 @@
 //! self-update, so a changed or dead keeper afterwards means the update took it
 //! down with the worker. That is reported; it is not rolled back here.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use roost_host::EnvSource;
-use roost_worker::runtime::boot::{ENV_KEEPER_PID_FILE, KEEPER_PID_NAME};
+use roost_host::{EnvSource, HostPlatform};
+use roost_worker::runtime::boot::keeper_pid_path;
+
+use crate::overlay_env::OverlayEnv;
 
 /// What the keeper's pid file names, and whether that process runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,12 +32,20 @@ impl KeeperPid {
     }
 }
 
-/// Where the keeper records its pid: the worker's override, else the data directory.
-pub fn pid_file(env: &dyn EnvSource, data_dir: &Path) -> PathBuf {
-    match env.get(ENV_KEEPER_PID_FILE) {
-        Some(value) if !value.is_empty() => PathBuf::from(value),
-        _ => data_dir.join(KEEPER_PID_NAME),
+/// Where the installed keeper records its pid. The installed definition declares
+/// the worker's overrides, so its values are layered over the live environment
+/// (which supplies `HOME` and anything the definition omits), and the boot's own
+/// rule resolves the path from that.
+pub fn pid_file(
+    live: &dyn EnvSource,
+    installed: &BTreeMap<String, String>,
+    platform: HostPlatform,
+) -> Result<PathBuf, String> {
+    let mut overlay = OverlayEnv::new(live);
+    for (name, value) in installed {
+        overlay = overlay.with(name, Some(value.as_str()));
     }
+    keeper_pid_path(&overlay, platform).map_err(|error| error.to_string())
 }
 
 /// Read the keeper's pid file and probe the process it names.
@@ -52,7 +63,9 @@ pub fn read(pid_file: &Path) -> KeeperPid {
 }
 
 fn is_pid(text: &str) -> bool {
-    !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit())
+    !text.is_empty()
+        && text.bytes().all(|byte| byte.is_ascii_digit())
+        && text.parse::<u32>().is_ok_and(|pid| pid > 0)
 }
 
 /// `kill -0` through the shell, as fleet install probes it: `roost-cli` forbids
@@ -64,16 +77,18 @@ fn process_answers(pid: &str) -> bool {
         .is_ok_and(|status| status.success())
 }
 
-/// `Ok` when the keeper is running and is the same process it was before the update.
+/// `Ok` when the keeper was not running before the update (a fresh keeper started
+/// by the boot is a pass), or when the same running keeper is still running after.
 pub fn keeper_survived(before: &KeeperPid, after: &KeeperPid) -> Result<(), String> {
-    match after {
-        KeeperPid::Dead(_) => Err(format!(
+    match (before, after) {
+        (KeeperPid::Dead(_), _) => Ok(()),
+        (KeeperPid::Alive(_), KeeperPid::Dead(_)) => Err(format!(
             "the keeper did not survive the update: {} before, {} after",
             before.label(),
             after.label()
         )),
-        KeeperPid::Alive(_) if before == after => Ok(()),
-        KeeperPid::Alive(_) => Err(format!(
+        (KeeperPid::Alive(_), KeeperPid::Alive(_)) if before == after => Ok(()),
+        (KeeperPid::Alive(_), KeeperPid::Alive(_)) => Err(format!(
             "the keeper was replaced during the update: {} before, {} after",
             before.label(),
             after.label()
@@ -113,8 +128,16 @@ mod tests {
     }
 
     #[test]
-    fn a_dead_keeper_before_and_after_is_not_a_survivor() {
-        assert!(keeper_survived(&dead("none"), &dead("none")).is_err());
+    fn a_fresh_keeper_after_no_keeper_is_a_pass() {
+        assert_eq!(keeper_survived(&dead("none"), &alive("77")), Ok(()));
+        assert_eq!(keeper_survived(&dead("none"), &dead("none")), Ok(()));
+    }
+
+    #[test]
+    fn a_pid_of_zero_names_no_process() {
+        assert!(!is_pid("0"));
+        assert!(!is_pid("00"));
+        assert!(is_pid("1"));
     }
 
     #[test]
@@ -127,12 +150,47 @@ mod tests {
     }
 
     #[test]
+    fn the_installed_definition_names_the_pid_file_over_the_live_environment() {
+        let live = roost_host::MapEnv::new()
+            .with(roost_host::HOME_ENV, "/home/mike")
+            .with("ROOST_KEEPER_PID_FILE", "/live/keeper.pid");
+        let installed = BTreeMap::from([(
+            "ROOST_KEEPER_PID_FILE".to_owned(),
+            "/def/keeper.pid".to_owned(),
+        )]);
+        assert_eq!(
+            pid_file(&live, &installed, HostPlatform::Linux),
+            Ok(PathBuf::from("/def/keeper.pid"))
+        );
+    }
+
+    #[test]
+    fn an_installed_data_dir_places_the_pid_file_inside_it() {
+        let installed =
+            BTreeMap::from([("ROOST_WORKER_DATA_DIR".to_owned(), "/def/data".to_owned())]);
+        assert_eq!(
+            pid_file(&roost_host::MapEnv::new(), &installed, HostPlatform::Linux),
+            Ok(PathBuf::from("/def/data").join(roost_worker::runtime::boot::KEEPER_PID_NAME))
+        );
+    }
+
+    #[test]
+    fn with_no_definition_the_live_environment_decides() {
+        let live = roost_host::MapEnv::new().with("ROOST_WORKER_DATA_DIR", "/live/data");
+        assert_eq!(
+            pid_file(&live, &BTreeMap::new(), HostPlatform::Linux),
+            Ok(PathBuf::from("/live/data").join(roost_worker::runtime::boot::KEEPER_PID_NAME))
+        );
+    }
+
+    #[test]
     fn a_missing_pid_file_reads_as_dead_none() {
         let path =
             std::env::temp_dir().join(format!("roost-keeper-pid-missing-{}", std::process::id()));
         assert_eq!(read(&path), dead("none"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn the_running_test_process_reads_as_alive() {
         let path =

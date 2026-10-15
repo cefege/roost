@@ -15,6 +15,7 @@ use std::time::Duration;
 
 use roost_host::{EnvSource, ProcessEnv, build_identity, supported_host_platform};
 use roost_platform::HostPlatform;
+use roost_protocol::fleet_update::is_release_tag;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
@@ -53,8 +54,6 @@ pub enum Decision {
 pub struct Facts<'a> {
     pub running: &'a str,
     pub desired: &'a str,
-    pub is_compiled: bool,
-    pub opted_out: bool,
     pub last_attempt: Option<&'a Attempt>,
     pub now_ms: u64,
 }
@@ -62,12 +61,6 @@ pub struct Facts<'a> {
 /// The update policy. Downgrades are updates too: the fleet follows the
 /// coordinator, wherever it is.
 pub fn decide(facts: &Facts<'_>) -> Decision {
-    if !facts.is_compiled {
-        return Decision::Skip("this worker is a source build");
-    }
-    if facts.opted_out {
-        return Decision::Skip("ROOST_AUTO_UPDATE turns it off");
-    }
     if !is_release_tag(facts.desired) {
         return Decision::Skip("the coordinator reports no release tag");
     }
@@ -85,16 +78,6 @@ pub fn decide(facts: &Facts<'_>) -> Decision {
     }
 }
 
-/// Whether `value` names a release the way a git tag does: `v` then letters,
-/// digits, `.`, `-` or `_`. `dev` and a bare commit SHA are not releases.
-pub fn is_release_tag(value: &str) -> bool {
-    value.len() > 1
-        && value.starts_with('v')
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
-}
-
 /// `ROOST_AUTO_UPDATE=0|false|off` turns the poller off.
 pub fn opted_out(value: Option<&str>) -> bool {
     matches!(
@@ -105,14 +88,25 @@ pub fn opted_out(value: Option<&str>) -> bool {
     )
 }
 
+/// Why the poller must not run at all, decided once at startup: a source build
+/// has no release to follow, and an opt-out is the operator's word. `None` when
+/// the poller runs.
+fn poller_off(is_compiled: bool, opted_out: bool) -> Option<&'static str> {
+    if !is_compiled {
+        Some("this worker is a source build")
+    } else if opted_out {
+        Some("ROOST_AUTO_UPDATE turns it off")
+    } else {
+        None
+    }
+}
+
 /// Everything the poller needs, resolved once at startup.
 struct Site {
     coordinator_base: String,
     data_dir: PathBuf,
     log_dir: PathBuf,
     platform: HostPlatform,
-    is_compiled: bool,
-    opted_out: bool,
     running: String,
 }
 
@@ -130,12 +124,8 @@ pub fn spawn_poller(boot: &WorkerBoot) -> Option<JoinHandle<()>> {
     let env = ProcessEnv::new();
     let identity = build_identity(&env);
     let opted_out = opted_out(env.get(OPT_OUT_VARIABLE).as_deref());
-    if !identity.is_compiled || opted_out {
-        tracing::info!(
-            is_compiled = identity.is_compiled,
-            opted_out,
-            "worker self-update is off; not polling"
-        );
+    if let Some(reason) = poller_off(identity.is_compiled, opted_out) {
+        tracing::info!(reason, "worker self-update is off; not polling");
         return None;
     }
     let site = Site {
@@ -143,8 +133,6 @@ pub fn spawn_poller(boot: &WorkerBoot) -> Option<JoinHandle<()>> {
         data_dir: boot.data_dir.clone(),
         log_dir: boot.log_dir.clone(),
         platform,
-        is_compiled: identity.is_compiled,
-        opted_out,
         running: identity.artifact_version,
     };
     Some(tokio::spawn(run(site)))
@@ -196,8 +184,6 @@ async fn poll_once(client: &reqwest::Client, site: &Site) {
     let facts = Facts {
         running: &site.running,
         desired: &desired,
-        is_compiled: site.is_compiled,
-        opted_out: site.opted_out,
         last_attempt: last.as_ref(),
         now_ms,
     };
@@ -271,8 +257,6 @@ mod tests {
         Facts {
             running: RUNNING,
             desired,
-            is_compiled: true,
-            opted_out: false,
             last_attempt,
             now_ms,
         }
@@ -315,21 +299,20 @@ mod tests {
     }
 
     #[test]
-    fn a_source_build_never_updates_itself() {
-        let facts = Facts {
-            is_compiled: false,
-            ..facts(DESIRED, None, 1_000)
-        };
-        assert!(matches!(decide(&facts), Decision::Skip(_)));
-    }
-
-    #[test]
-    fn the_opt_out_wins_over_a_newer_release() {
-        let facts = Facts {
-            opted_out: true,
-            ..facts(DESIRED, None, 1_000)
-        };
-        assert!(matches!(decide(&facts), Decision::Skip(_)));
+    fn a_source_build_or_an_opt_out_turns_the_poller_off() {
+        assert_eq!(
+            poller_off(false, false),
+            Some("this worker is a source build")
+        );
+        assert_eq!(
+            poller_off(false, true),
+            Some("this worker is a source build")
+        );
+        assert_eq!(
+            poller_off(true, true),
+            Some("ROOST_AUTO_UPDATE turns it off")
+        );
+        assert_eq!(poller_off(true, false), None);
     }
 
     #[test]
@@ -369,14 +352,6 @@ mod tests {
             decide(&facts(DESIRED, Some(&last), 1_000)),
             Decision::Update { .. }
         ));
-    }
-
-    #[test]
-    fn only_v_prefixed_names_of_safe_characters_are_release_tags() {
-        assert!(is_release_tag("v3.0.0-rc.37"));
-        assert!(is_release_tag("v3_1"));
-        assert!(!is_release_tag("v3/../x"));
-        assert!(!is_release_tag("3.0.0"));
     }
 
     #[test]
