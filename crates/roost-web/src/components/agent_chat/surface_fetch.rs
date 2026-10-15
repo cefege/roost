@@ -20,7 +20,9 @@ pub(super) fn fetch_snapshot(
     mut snapshot_generation: Signal<u64>,
 ) {
     not_found.set(false);
-    let generation = snapshot_generation() + 1;
+    // `peek`: the surface calls this from inside an effect, and a tracked
+    // read there would re-run that effect on the write below, forever.
+    let generation = *snapshot_generation.peek() + 1;
     snapshot_generation.set(generation);
     pump.dispatch(ClientEvent::AgentChat(AgentChatIntent::SnapshotRequested {
         conversation_id: conversation_id.clone(),
