@@ -319,8 +319,9 @@ reports the coordinator service and listener as absent and the worker roster as
 (`xtask/fleet.json`, default 2): one holds the `cluster:links` lease and serves
 every worker link, browser socket and agent run, and the others splice their
 connections to it (`crates/roost-coord/src/cluster/`). The
-k3s API answers on ovh1's tailnet address to desktop-pc only; desktop-pc's
-kubeconfig for it is `~/.kube/ovh1.yaml`. Check it with:
+k3s API answers on ovh1's tailnet address only to desktop-pc and mini-pc
+(firewalld rich rules on ovh1's `public` zone, port 6443); each keeps its
+kubeconfig for it at `~/.kube/ovh1.yaml`. Check it with:
 
 ```
 export KUBECONFIG=~/.kube/ovh1.yaml
@@ -467,7 +468,13 @@ LaunchAgent at it, restarts them, and fails a host whose binary reports
 another commit or whose keeper pid changed. The public door is unchanged:
 `mike.roosttt.com` reaches ovh1's edge Caddy, whose `roost-saas-legacy-bridge`
 forwards to the coordinator's NodePort (30413) on ovh1's tailnet address.
-Needs `gh`, `helm` and `kubectl` on this machine.
+Needs `gh`, `helm` (3.x: the release's history was written by Helm 3) and
+`kubectl` on this machine. The deploy machine is mini-pc (`ssh mini-pc`, user
+`mike`, checkout `~/repos/roost-v3`), with desktop-pc as the other machine
+the k3s API accepts. mini-pc reaches the fleet hosts over its own key
+(`mike@mini-pc fleet deploy`) and the ssh-mesh aliases in its
+`~/.ssh/config`; it is not a fleet host, so every `fleet.json` host is
+reached over ssh.
 
 ---
 

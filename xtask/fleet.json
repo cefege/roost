@@ -20,7 +20,7 @@
     },
     {
       "name": "desktop-pc",
-      "ssh": null,
+      "ssh": "desktop",
       "platform": "linux",
       "services": [
         "roost3-worker"
