@@ -125,7 +125,12 @@ fn upgrade_script(coordinator: &KubeCoordinator, tag: &str, sha: &str) -> Result
            -f \"{values}\" --set image.tag=\"{image_tag}\" --set replicas=\"{replicas}\" --wait --timeout 10m >&2\n\
          kubectl -n \"{namespace}\" rollout status \"deploy/{release}\" --timeout=300s >&2\n\
          selector=\"app.kubernetes.io/instance={release},app.kubernetes.io/component=coordinator\"\n\
-         mapfile -t pods < <(kubectl -n \"{namespace}\" get pods -l \"$selector\" -o name)\n\
+         live='{{{{range .items}}}}{{{{if not .metadata.deletionTimestamp}}}}pod/{{{{.metadata.name}}}}{{{{\"\\n\"}}}}{{{{end}}}}{{{{end}}}}'\n\
+         for attempt in $(seq 60); do\n\
+           mapfile -t pods < <(kubectl -n \"{namespace}\" get pods -l \"$selector\" -o go-template=\"$live\")\n\
+           test \"${{#pods[@]}}\" -eq \"{replicas}\" && break\n\
+           sleep 2\n\
+         done\n\
          test \"${{#pods[@]}}\" -eq \"{replicas}\"\n\
          for pod in \"${{pods[@]}}\"; do\n\
            version=$(kubectl -n \"{namespace}\" exec \"$pod\" -- roost --version)\n\
@@ -159,7 +164,8 @@ mod tests {
         };
         let script = upgrade_script(&coordinator, "v3.2.1", "0123456789abcdef").unwrap();
         assert!(script.contains("--set replicas=\"3\""));
-        assert!(script.contains("get pods -l \"$selector\" -o name"));
+        assert!(script.contains("get pods -l \"$selector\" -o go-template=\"$live\""));
+        assert!(script.contains("{{if not .metadata.deletionTimestamp}}"));
         assert!(script.contains("for pod in \"${pods[@]}\""));
         assert!(script.contains("kubectl -n \"roost\" exec \"$pod\" -- roost --version"));
         assert!(!script.contains("--set replicas=1"));
