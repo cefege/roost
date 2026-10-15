@@ -476,9 +476,13 @@ gh workflow run promote.yml -f tag=<older tag>   # roll back (see below)
    manifests were installed once from its release `install.yaml`
    (`kubectl apply --server-side`), then `deploy/flux/bootstrap.yaml`.
 4. **Workers.** Linux and macOS workers poll the coordinator's `/version` and
-   install exactly that release themselves (`roost __self-update`), so they
-   follow a promotion and a rollback alike; a machine that was off catches up
-   when it starts.
+   install exactly that release themselves (`roost __self-update`, log
+   `self-update-<tag>.log` in the worker's log directory), so they follow a
+   promotion and a rollback alike; a machine that was off catches up within a
+   minute of starting. ovh1, m5, m1-new and m1-old follow since rc.37.
+   desktop-pc (offline) and roost-win (Windows, never self-updates) still need
+   `cargo xtask fleet install --version <tag> --host <name>`; desktop-pc only
+   once, roost-win every release.
 
 **Rolling back** is promoting an older tag. Going back past a migration or
 the credential encryption also needs the database restored from a
