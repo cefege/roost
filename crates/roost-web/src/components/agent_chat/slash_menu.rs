@@ -29,6 +29,8 @@ pub(super) struct SlashOption {
     pub(super) command: &'static SlashCommand,
     /// The draft this option produces. A trailing space means more input is expected.
     pub(super) text: String,
+    /// Enter cannot run `text` as it stands: a value must be typed after it.
+    pub(super) needs_value: bool,
     /// What the name column shows: the command name, or the argument value.
     pub(super) label: String,
     /// The command's usage, shown ahead of the summary on name rows only.
@@ -92,10 +94,9 @@ pub(super) fn initial_selection(state: &SlashMenuState, draft: &str) -> usize {
 }
 
 /// Enter runs the chosen command, as OMP's does, unless it cannot run without
-/// an argument; then the name is completed and the argument is typed next.
+/// a value; then the text is completed and the value is typed next.
 pub(super) fn accept_action(option: &SlashOption) -> SlashAccept {
-    let command = option.command;
-    if option.text.ends_with(' ') && command.requires_argument() && !command.client_bare {
+    if option.needs_value {
         SlashAccept::Fill(option.text.clone())
     } else {
         SlashAccept::Submit(option.text.trim_end().to_string())
@@ -167,6 +168,7 @@ fn name_options(partial: &str) -> Vec<SlashOption> {
             } else {
                 format!("/{} ", command.name)
             },
+            needs_value: command.requires_argument() && !command.client_bare,
             label: command.name.to_string(),
             usage: command.args,
             summary: command.summary.to_string(),
@@ -208,27 +210,41 @@ fn argument_options(
     partial: &str,
     sources: &SlashSources,
 ) -> Vec<SlashOption> {
-    let candidates: Vec<(String, String)> = match command.name {
+    let candidates: Vec<(String, String, bool)> = match command.name {
         "effort" => sources
             .effort_levels
             .iter()
             .filter(|level| level.starts_with(partial))
-            .map(|level| (level.clone(), String::new()))
+            .map(|level| (level.clone(), String::new(), false))
             .collect(),
         // Already filtered and ranked by the fuzzy model search.
-        "model" | "switch" => model_argument_values(&sources.models, partial),
+        "model" | "switch" => model_argument_values(&sources.models, partial)
+            .into_iter()
+            .map(|(value, summary)| (value, summary, false))
+            .collect(),
         _ => command
             .subcommands
             .iter()
             .filter(|argument| argument.name.starts_with(partial))
-            .map(|argument| (argument.name.to_string(), argument.summary.to_string()))
+            .map(|argument| {
+                (
+                    argument.name.to_string(),
+                    argument.summary.to_string(),
+                    argument.takes_value,
+                )
+            })
             .collect(),
     };
     candidates
         .into_iter()
-        .map(|(value, summary)| SlashOption {
+        .map(|(value, summary, needs_value)| SlashOption {
             command,
-            text: format!("/{} {value}", command.name),
+            text: if needs_value {
+                format!("/{} {value} ", command.name)
+            } else {
+                format!("/{} {value}", command.name)
+            },
+            needs_value,
             label: value,
             usage: "",
             summary,

@@ -88,6 +88,23 @@ fn enter_completes_a_command_that_cannot_run_without_an_argument() {
 }
 
 #[test]
+fn enter_completes_a_subcommand_that_needs_a_value_and_runs_one_that_does_not() {
+    for (draft, filled) in [
+        ("/modelpreset sa", "/modelpreset save "),
+        ("/modelpreset sw", "/modelpreset switch "),
+        ("/modelpreset d", "/modelpreset delete "),
+    ] {
+        assert_eq!(accept_first(draft), Some(SlashAccept::Fill(filled.into())));
+        // Typing the value closes the menu, so the next Enter sends the command.
+        assert_eq!(state(&format!("{filled}fast")), None);
+    }
+    assert_eq!(
+        accept_first("/modelpreset l"),
+        Some(SlashAccept::Submit("/modelpreset list".into()))
+    );
+}
+
+#[test]
 fn a_named_command_with_nothing_to_complete_offers_no_rows() {
     let named = state("/rename ");
     assert_eq!(named.as_ref().map(|state| state.options.len()), Some(0));
