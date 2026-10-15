@@ -59,13 +59,14 @@ pub(super) fn submit_message(
 ) {
     let request_id = super::request_ids::new_request_id();
     let label = text.clone();
-    // Scoped to the component that sent it, not `spawn_local`: the first
-    // message of a chat swaps the welcome layout for the transcript, which
-    // remounts the composer while the call is in flight, and calling the old
-    // composer's dropped `outcome` would panic the whole app. A dropped task
-    // only forgets the answer; the request has already been sent.
-    spawn(async move {
-        match pump
+    // The call and its report run apart. The call is unscoped, so it always
+    // completes. The report is scoped to the component that sent it: the
+    // first message of a chat swaps the welcome layout for the transcript,
+    // which remounts the composer while the call is in flight, and calling
+    // the old composer's dropped `outcome` would panic the whole app.
+    let (sent, answer) = futures::channel::oneshot::channel();
+    wasm_bindgen_futures::spawn_local(async move {
+        let result = match pump
             .rpc()
             .call(&SubmitAgentChat {
                 conversation_id,
@@ -75,11 +76,17 @@ pub(super) fn submit_message(
             })
             .await
         {
-            Ok(_) => outcome.call(Ok(())),
+            Ok(_) => Ok(()),
             Err(error) => {
                 tracing::warn!(target: "agent_chat", %error, "agent message submit failed");
-                outcome.call(Err(format!("Could not run {label}: {error}")));
+                Err(format!("Could not run {label}: {error}"))
             }
+        };
+        let _ = sent.send(result);
+    });
+    spawn(async move {
+        if let Ok(result) = answer.await {
+            outcome.call(result);
         }
     });
 }

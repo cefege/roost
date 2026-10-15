@@ -5689,6 +5689,7 @@ name = "roost-web"
 version = "3.0.0"
 dependencies = [
  "dioxus",
+ "futures",
  "futures-util",
  "js-sys",
  "pulldown-cmark",
