@@ -11,6 +11,7 @@
 
 mod gate;
 mod keeper_pid;
+mod running_release;
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -93,6 +94,13 @@ pub async fn run(args: &SelfUpdateArgs) -> Result<ExitCode, CommandFailure> {
     let keeper_after = keeper_pid::read(&pid_file);
     if let Err(detail) = keeper_pid::keeper_survived(&keeper_before, &keeper_after) {
         error!(%detail, "self-update left the keeper in a different state");
+        return Err(CommandFailure::generic(detail));
+    }
+    let label = ServiceRole::Worker
+        .service_label(env, platform)
+        .map_err(|error| CommandFailure::generic(error.to_string()))?;
+    if let Err(detail) = running_release::check(&label, platform, &args.to) {
+        error!(%detail, "self-update settled but the worker is not running the release");
         return Err(CommandFailure::generic(detail));
     }
     Ok(ExitCode::SUCCESS)

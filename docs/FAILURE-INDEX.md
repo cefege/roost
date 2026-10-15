@@ -4250,3 +4250,34 @@ the dispatched effect did not happen: persist and display its unknown final outc
 
 **Guard** — `crates/roost-coord/tests/agent_tool_calls.rs` cancellation and deadline
 cases exercise offline cancellation, dispatched cancellation and dispatched timeout.
+
+### A worker restart "settles" on the release it was moving away from (systemd)
+
+**Symptom** — `roost __self-update` (or `roost deploy`) reports `settled … is running the staged release`,
+its log starts with "The unit file … changed on disk. Run 'systemctl --user daemon-reload'", and the
+worker's own `the worker is starting` line still names the previous version.
+
+**Wrong** — restart a rewritten unit with `systemctl --user restart` alone: systemd keeps the unit it read
+before, so the old `ExecStart` comes back up, and an activation check that only asks "is it running"
+calls that success.
+
+**Right** — a start or restart is `daemon-reload` then the verb (`services/service_argv.rs`
+`systemd_commands`), and a self-update accepts only a worker whose main pid runs a program under
+`versions/<tag>/` (`self_update/running_release.rs`).
+
+**Guard** — `services::service_argv::tests::a_systemd_restart_reloads_the_unit_it_just_wrote_first`;
+`self_update::running_release::tests::only_the_tags_own_release_directory_counts`.
+
+### A macOS worker restart fails with "Bootstrap failed: 5: Input/output error"
+
+**Symptom** — a deploy or self-update on a Mac reports `the com.roost.worker-v3 service manager could not
+restart: launchctl exited 5`; the rollback's restart can fail the same way and leave no worker running.
+
+**Wrong** — `launchctl bootout` then `launchctl bootstrap` back to back. launchd unloads the old job
+asynchronously and answers `bootstrap` with EIO until it is gone (about a second for a worker).
+
+**Right** — `bootstrap` carries `BOOTSTRAP_ATTEMPTS` one-second tries (`services/service_argv.rs`), which
+`service_control::run_commands` honours for the deploy, the rollback and `roost deploy` alike.
+
+**Guard** — `services::service_control::tests::a_retried_command_succeeds_once_the_manager_accepts_it` and
+`a_command_still_refused_after_its_last_try_fails_the_action`.

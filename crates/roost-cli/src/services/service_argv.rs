@@ -60,7 +60,17 @@ pub struct ServiceCommand {
     pub argv: Vec<String>,
     /// Whether a non-zero exit is an answer rather than a failure.
     pub tolerate_failure: bool,
+    /// How many times the command is run before its failure counts, one second
+    /// apart. Only launchd's `bootstrap` needs more than one: see
+    /// [`launchd_commands`].
+    pub attempts: u32,
 }
+
+/// launchd unloads a booted-out job asynchronously and answers `bootstrap`
+/// with "5: Input/output error" until it is gone; a worker with live channels
+/// takes a few seconds. Fifteen one-second tries cover it with room to spare,
+/// and a definition launchd truly refuses still fails, fifteen seconds later.
+pub const BOOTSTRAP_ATTEMPTS: u32 = 15;
 
 impl ServiceCommand {
     fn required(argv: &[&str]) -> Self {
@@ -70,12 +80,20 @@ impl ServiceCommand {
                 .map(|argument| (*argument).to_string())
                 .collect(),
             tolerate_failure: false,
+            attempts: 1,
         }
     }
 
     fn tolerated(argv: &[&str]) -> Self {
         Self {
             tolerate_failure: true,
+            ..Self::required(argv)
+        }
+    }
+
+    fn retried(argv: &[&str], attempts: u32) -> Self {
+        Self {
+            attempts,
             ..Self::required(argv)
         }
     }
@@ -110,21 +128,24 @@ fn systemd_commands(action: ServiceAction, target: &ServiceTarget) -> Vec<Servic
         ServiceAction::Stop => "stop",
     };
     let unit = crate::status::service_probe::systemd_unit_name(&target.label);
-    vec![ServiceCommand::required(&[
-        "systemctl",
-        "--user",
-        verb,
-        unit.as_str(),
-    ])]
+    let act = ServiceCommand::required(&["systemctl", "--user", verb, unit.as_str()]);
+    if action == ServiceAction::Stop {
+        return vec![act];
+    }
+    // A start or restart runs the definition just written; without the reload
+    // systemd keeps the unit it read before and restarts the old release.
+    vec![
+        ServiceCommand::required(&["systemctl", "--user", "daemon-reload"]),
+        act,
+    ]
 }
 
 /// launchd has no reload: an agent is read once, at bootstrap. A restart is
-/// therefore bootout, bootstrap, enable, kickstart. The retry that a shell
-/// string used to carry belongs to the caller of [`action_commands`], because
-/// launchd refuses `bootstrap` while the prior job is still unloading and
-/// reports that as an input/output error rather than as "not yet" — which is
-/// exactly the case where retrying is right and a bare non-zero exit would
-/// lose a good deploy.
+/// therefore bootout, bootstrap, enable, kickstart. launchd refuses
+/// `bootstrap` while the prior job is still unloading and reports that as an
+/// input/output error rather than as "not yet", so `bootstrap` is retried
+/// ([`BOOTSTRAP_ATTEMPTS`]); run once, it fails every restart of a running
+/// worker and the rollback's restart with it.
 fn launchd_commands(action: ServiceAction, target: &ServiceTarget) -> Vec<ServiceCommand> {
     let job = format!("gui/{}/{}", current_uid(), target.label);
     let bootout = ServiceCommand::tolerated(&["launchctl", "bootout", job.as_str()]);
@@ -137,12 +158,15 @@ fn launchd_commands(action: ServiceAction, target: &ServiceTarget) -> Vec<Servic
     let domain = format!("gui/{}", current_uid());
     vec![
         bootout,
-        ServiceCommand::required(&[
-            "launchctl",
-            "bootstrap",
-            &domain,
-            &target.definition_path.display().to_string(),
-        ]),
+        ServiceCommand::retried(
+            &[
+                "launchctl",
+                "bootstrap",
+                &domain,
+                &target.definition_path.display().to_string(),
+            ],
+            BOOTSTRAP_ATTEMPTS,
+        ),
         ServiceCommand::required(&["launchctl", "enable", job.as_str()]),
         ServiceCommand::tolerated(&["launchctl", "kickstart", "-k", job.as_str()]),
     ]
@@ -155,6 +179,7 @@ fn scheduled_task_commands(action: ServiceAction, target: &ServiceTarget) -> Vec
     let as_command = |script: String, tolerate_failure: bool| ServiceCommand {
         argv: powershell_argv(&script),
         tolerate_failure,
+        attempts: 1,
     };
     let start = || {
         as_command(
@@ -188,16 +213,26 @@ mod tests {
     }
 
     #[test]
-    fn a_systemd_restart_is_one_argv_line_and_needs_no_shell() {
-        let commands = action_commands(ServiceAction::Restart, &target(), HostPlatform::Linux);
-        assert_eq!(commands.len(), 1);
+    fn a_systemd_restart_reloads_the_unit_it_just_wrote_first() {
+        let argv: Vec<Vec<String>> =
+            action_commands(ServiceAction::Restart, &target(), HostPlatform::Linux)
+                .into_iter()
+                .map(|command| command.argv)
+                .collect();
         assert_eq!(
-            commands[0].argv,
-            vec!["systemctl", "--user", "restart", "roost3-coord.service"]
+            argv,
+            vec![
+                vec!["systemctl", "--user", "daemon-reload"],
+                vec!["systemctl", "--user", "restart", "roost3-coord.service"],
+            ]
         );
-        assert!(!commands[0].tolerate_failure);
-        let reload = action_commands(ServiceAction::Reload, &target(), HostPlatform::Linux);
-        assert_eq!(reload[0].argv, vec!["systemctl", "--user", "daemon-reload"]);
+        let stop = action_commands(ServiceAction::Stop, &target(), HostPlatform::Linux);
+        assert_eq!(
+            stop.into_iter()
+                .map(|command| command.argv)
+                .collect::<Vec<_>>(),
+            vec![vec!["systemctl", "--user", "stop", "roost3-coord.service"]]
+        );
     }
 
     #[test]

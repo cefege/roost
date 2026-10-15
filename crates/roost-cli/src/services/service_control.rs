@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use roost_host::HostPlatform;
 
-use crate::services::service_argv::{ServiceAction, action_commands};
+use crate::services::service_argv::{ServiceAction, ServiceCommand, action_commands};
 use crate::services::service_spec::ServiceTarget;
 use crate::status::service_probe::service_is_loaded;
 
@@ -24,6 +24,10 @@ pub const ACTIVATION_DEADLINE: Duration = Duration::from_secs(10);
 
 /// How often a waiting deploy asks whether the service is up.
 const ACTIVATION_POLL: Duration = Duration::from_millis(250);
+
+/// The pause between two tries of a command that is retried
+/// ([`ServiceCommand::attempts`]).
+const RETRY_PAUSE: Duration = Duration::from_secs(1);
 
 /// Why a service manager could not do what it was asked.
 #[derive(Debug, thiserror::Error)]
@@ -88,20 +92,13 @@ impl ServiceManager for PlatformServiceManager {
         target: &ServiceTarget,
         action: ServiceAction,
     ) -> Result<(), ServiceControlError> {
-        for command in action_commands(action, target, self.platform) {
-            match spawn(&command.argv) {
-                Ok(()) => {}
-                Err(_) if command.tolerate_failure => {}
-                Err(cause) => {
-                    return Err(ServiceControlError {
-                        label: target.label.clone(),
-                        action,
-                        cause,
-                    });
-                }
-            }
-        }
-        Ok(())
+        run_commands(&action_commands(action, target, self.platform), RETRY_PAUSE).map_err(
+            |cause| ServiceControlError {
+                label: target.label.clone(),
+                action,
+                cause,
+            },
+        )
     }
 
     fn await_active(&mut self, target: &ServiceTarget) -> bool {
@@ -116,6 +113,27 @@ impl ServiceManager for PlatformServiceManager {
             std::thread::sleep(ACTIVATION_POLL);
         }
     }
+}
+
+/// Run `commands` in order: each up to its `attempts`, `pause` apart, and a
+/// failure after the last try ends the action unless the command tolerates it.
+fn run_commands(commands: &[ServiceCommand], pause: Duration) -> Result<(), String> {
+    for command in commands {
+        let mut outcome = spawn(&command.argv);
+        for _ in 1..command.attempts {
+            if outcome.is_ok() {
+                break;
+            }
+            std::thread::sleep(pause);
+            outcome = spawn(&command.argv);
+        }
+        match outcome {
+            Ok(()) => {}
+            Err(_) if command.tolerate_failure => {}
+            Err(cause) => return Err(cause),
+        }
+    }
+    Ok(())
 }
 
 fn spawn(argv: &[String]) -> Result<(), String> {
@@ -133,5 +151,57 @@ fn spawn(argv: &[String]) -> Result<(), String> {
     match status.code() {
         Some(code) => Err(format!("{program} exited {code}")),
         None => Err(format!("{program} was killed by a signal")),
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::path::{Path, PathBuf};
+    use std::time::Duration;
+
+    use super::{ServiceCommand, run_commands};
+
+    fn counter_file(case: &str) -> PathBuf {
+        let path =
+            std::env::temp_dir().join(format!("roost-service-retry-{case}-{}", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        path
+    }
+
+    /// How many times the command ran; the counter is removed.
+    fn tries(counter: &Path) -> String {
+        let text = std::fs::read_to_string(counter).unwrap_or_default();
+        let _ = std::fs::remove_file(counter);
+        text.trim().to_owned()
+    }
+
+    /// A command that fails until it has been run `succeed_on` times, as
+    /// launchd's `bootstrap` does while the previous job is still unloading.
+    fn flaky(counter: &Path, succeed_on: u32, attempts: u32) -> ServiceCommand {
+        let script = format!(
+            "n=$(($(cat '{path}' 2>/dev/null || echo 0) + 1)); echo $n > '{path}'; [ $n -ge {succeed_on} ]",
+            path = counter.display()
+        );
+        ServiceCommand {
+            argv: vec!["sh".into(), "-c".into(), script],
+            tolerate_failure: false,
+            attempts,
+        }
+    }
+
+    #[test]
+    fn a_retried_command_succeeds_once_the_manager_accepts_it() {
+        let counter = counter_file("accepts");
+        let outcome = run_commands(&[flaky(&counter, 3, 5)], Duration::ZERO);
+        assert_eq!(outcome, Ok(()));
+        assert_eq!(tries(&counter), "3");
+    }
+
+    #[test]
+    fn a_command_still_refused_after_its_last_try_fails_the_action() {
+        let counter = counter_file("refused");
+        let outcome = run_commands(&[flaky(&counter, 3, 2)], Duration::ZERO);
+        assert_eq!(outcome, Err("sh exited 1".to_string()));
+        assert_eq!(tries(&counter), "2");
     }
 }
