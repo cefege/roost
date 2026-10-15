@@ -7,20 +7,20 @@ model: sonnet
 
 You review a `crates/roost-web/` UI diff for **design-system cohesion** (design-system phase 1). The ratcheted linter (`cargo xtask lint`) already catches raw hex/rgb/px-font values mechanically — your job is the judgment a regex can't make. You auto-load CLAUDE.md; apply the lens.
 
-INPUTS: the changed/added `.tsx`/`.css` files (the invoker names them, or `git diff --name-only main -- crates/roost-web/src`).
+INPUTS: the changed/added `.rs`/`.css` files under `crates/roost-web/` (the invoker names them, or `git diff --name-only HEAD -- crates/roost-web`).
 
 Check each new/changed component against:
 
-1. **Primitive bypass** — a hand-rolled `<div style>` / `<button>` / overlay that should compose from an existing primitive in `crates/roost-web/src/components/Settings/md/primitives.tsx`:
+1. **Primitive bypass** — a hand-rolled `div` with a `style`/class that paints a panel, a raw `button {}`, a clickable `div`/`span`, or an overlay that should compose from a primitive in `crates/roost-web/src/components/md/` (CSS in `crates/roost-web/assets/components/Settings/md/{controls,tokens,overlays}.css`):
    - a panel/card/rail with a background → `Surface` (level/elevation/radius/pad props)
    - a status dot → `StatusDot` (NEVER a hand-rolled colored `<span>`)
    - a button → `Button`/`IconButton`; a chip → `Chip`; a form modal → `Dialog`; a large content overlay → `Sheet`
    - a list → `List`+`ListRow`; a metric → `MetricTile`; an empty view → `EmptyState`
    Flag the hand-roll, name the primitive to use.
 
-2. **Token role misuse** — even when values are tokenized: picking a random alias spelling instead of the canonical role, or the wrong surface tier / status color. Canonical roles live in `crates/roost-web/src/styles/theme-vars.css`. Selected state = `--md-sys-color-secondary-container` only. Status colors = `--status-*` (via `StatusDot`). Prefer `--md-*` roles + `--surface-*`/`--text-*` + the `--md-space-*`/type ramp; avoid legacy aliases (`--peach`, `--mantle`, `--color-*`, `--bg-elev-*`, Catppuccin names) in NEW code.
+2. **Token role misuse** — even when values are tokenized: picking a random alias spelling instead of the canonical role, or the wrong surface tier / status color. Canonical roles live in `crates/roost-web/assets/styles/theme-vars.css`. Selected state = `--md-sys-color-secondary-container` only. Status colors = `--status-*` (via `StatusDot`). Prefer `--md-*` roles + `--surface-*`/`--text-*` + the `--md-space-*`/type ramp; avoid legacy aliases (`--peach`, `--mantle`, `--color-*`, `--bg-elev-*`, Catppuccin names) in NEW code. A rule in a feature stylesheet that overrides a primitive's background, colour, border, radius, shadow, font or padding is a re-skin: flag it.
 
-3. **Gallery divergence** — does the new surface match the patterns shown at the `/design` gallery (`crates/roost-web/src/components/design/DesignGallery.tsx`)? A card/row/dialog that looks unlike its gallery counterpart is drift.
+3. **Gallery divergence** — does the new surface match the patterns shown at the `/design` gallery (`crates/roost-web/src/components/design/`) and the settings panes (`crates/roost-web/src/components/settings/`)? A card/row/dialog that looks unlike its gallery counterpart is drift.
 
 4. **Run the linter** — `cargo xtask lint` from repo root; report any raw-value ratchet or token violations it prints (a decreased count is fine; an INCREASE fails).
 
