@@ -490,9 +490,9 @@ the credential encryption also needs the database restored from a
 `pg_dump` taken before the newer release (the CronJob keeps 14 on the
 `roost-coordinator-postgres-backups` PVC; the dump taken minutes before
 rc.36 is in `ovh1:~/roost-backups/` and on m5 in `~/roost-backups/`). The
-floor is `v3.0.0-rc.39`: promote refuses a tag before rc.37, whose tree has
-no `deploy/flux/production/`, and a worker sent to rc.37 or rc.38 would get
-the broken updater (moving it on again takes `fleet install`).
+floor is `v3.0.0-rc.39`, and promote refuses a tag that does not contain its
+commit: a worker sent to rc.37 or rc.38 would apply the next release with
+their broken updater.
 
 **`cargo xtask fleet install --version <tag> [--host <name>]…`** remains for
 the Windows host, which cannot replace its own binary, and for moving a

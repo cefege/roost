@@ -1,7 +1,7 @@
 # The production coordinator, as Flux deploys it from the `production` branch
 # (see ../bootstrap.yaml). It upgrades the Helm release `roost-coordinator`
-# that `cargo xtask fleet install` used to upgrade by hand, with the same
-# chart and the same values files, plus:
+# with the chart, its values.yaml and `deploy/helm/fleet-ovh1.values.yaml`,
+# plus:
 #
 # - `deploy/helm/production.values.yaml`, which exists only on `production`
 #   and pins `image.tag` to the promoted release;

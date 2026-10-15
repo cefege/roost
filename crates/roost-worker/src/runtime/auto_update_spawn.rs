@@ -111,6 +111,8 @@ pub(super) fn detached_command(
         // Cleared first: `envs` alone would leave the whole worker environment in place.
         .env_clear()
         .envs(forwarded.iter().map(|(key, value)| (key, value)))
+        // Not the worker's directory: that is the release this update retires.
+        .current_dir("/")
         .stdin(Stdio::null())
         .stdout(Stdio::from(out))
         .stderr(Stdio::from(err));

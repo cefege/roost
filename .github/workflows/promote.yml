@@ -3,11 +3,12 @@ name: promote
 # Puts a published release into production. Called by release.yml once a tag's
 # assets are published, and runnable by hand to roll back:
 #
-#   gh workflow run promote.yml -f tag=v3.0.0-rc.37
+#   gh workflow run promote.yml -f tag=v3.0.0-rc.39
 #
-# Only a tag whose tree carries deploy/flux/production/ (v3.0.0-rc.37 on) can
-# be promoted: the production branch becomes that tree, and Flux reads its
-# HelmRelease from it.
+# The floor is v3.0.0-rc.39: the first release whose worker updater reloads
+# the systemd unit and retries launchd's bootstrap. Workers follow the
+# coordinator down as well as up, and a worker sent below the floor would
+# apply the next release with the broken updater, so an older tag is refused.
 #
 # The job runs in the `production` environment, so it waits for an approval
 # in GitHub before it changes anything. It never touches the cluster: it
@@ -24,7 +25,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag to put in production (e.g. v3.0.0-rc.36)'
+        description: 'Release tag to put in production (v3.0.0-rc.39 or later)'
         required: true
 
 permissions:
@@ -54,6 +55,23 @@ jobs:
             exit 1
           fi
           echo "IMAGE_TAG=${TAG#v}" >> "$GITHUB_ENV"
+
+      - name: the tag is at or after the floor
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          # v3.0.0-rc.39's commit; a tag that does not contain it is older.
+          FLOOR_SHA: 3e9be1b73347e2cef14744c08ca1b830431c8d76
+        run: |
+          set -euo pipefail
+          status=$(gh api "repos/${GH_REPO}/compare/${FLOOR_SHA}...${TAG}" --jq .status)
+          case "$status" in
+            ahead|identical) ;;
+            *)
+              echo "::error::$TAG does not contain v3.0.0-rc.39 (compare: $status); production cannot go below it"
+              exit 1
+              ;;
+          esac
 
       - name: the release and its coordinator image are published
         env:
