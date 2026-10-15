@@ -11,7 +11,7 @@ use roost_protocol::wire::agent_chat::{
 
 use super::model_controls::supports_reasoning;
 use super::model_hub::hub_logic::model_argument_values;
-use crate::components::md::{List, ListRow, Surface};
+use crate::components::md::{List, ListRow};
 
 #[cfg(target_arch = "wasm32")]
 use web_sys::{ScrollIntoViewOptions, ScrollLogicalPosition};
@@ -234,7 +234,7 @@ pub fn SlashMenu(
     rsx! {
         div { class: "agent-chat__slash-menu",
             onmousedown: move |event: MouseEvent| event.prevent_default(),
-            Surface { class: "agent-chat__slash-panel", test_id: "agent-chat-command-menu", level: 2, elevation: 2, border: true,
+            div { class: "agent-chat__slash-panel", "data-testid": "agent-chat-command-menu",
             if let Some(command) = help {
                 div { class: "agent-chat__command-help", "data-testid": "agent-chat-command-help",
                     div { class: "agent-chat__command-usage",
@@ -255,7 +255,7 @@ pub fn SlashMenu(
             }
             if has_options {
                 div { id: "{listbox}", role: "listbox", aria_label: "Commands",
-                    List { contained: true,
+                    List {
                         for (idx, option) in state.options.iter().enumerate() {
                             ListRow {
                                 key: "{idx}-{option.text}",
@@ -264,7 +264,8 @@ pub fn SlashMenu(
                                 aria_selected: Some(if idx == selected { "true" } else { "false" }.to_string()),
                                 tabindex: Some(-1),
                                 test_id: Some(format!("agent-slash-option-{idx}")),
-                                headline: rsx! { span { "{option.headline}" } },
+                                class: Some("agent-chat__slash-row".to_string()),
+                                headline: rsx! { span { class: "agent-chat__slash-name", "{option.headline}" } },
                                 support: (!option.summary.is_empty()).then(|| rsx! { span { "{option.summary}" } }),
                                 selected: idx == selected,
                                 dense: true,

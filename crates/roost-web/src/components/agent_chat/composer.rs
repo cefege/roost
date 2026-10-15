@@ -195,82 +195,6 @@ pub fn AgentComposer(
                     on_stop: stop,
                     on_switch_model: switch_model,
                 }
-                textarea {
-                    class: "agent-chat__input",
-                    "data-testid": "agent-chat-input",
-                    "aria-label": "Message the agent",
-                    role: "combobox",
-                    "aria-autocomplete": "list",
-                    "aria-expanded": if options_open { "true" } else { "false" },
-                    "aria-controls": options_open.then(|| listbox.clone()),
-                    "aria-activedescendant": options_open.then(|| option_id(&conversation_id, selected)),
-                    rows: "1",
-                    placeholder,
-                    disabled,
-                    value: "{draft}",
-                    onmounted: move |event: MountedEvent| {
-                        let data = event.data();
-                        field.set(Some(data.clone()));
-                        on_field_mounted.call(data);
-                    },
-                    oninput: move |event: FormEvent| {
-                        let value = event.value();
-                        let next = slash_menu_state(&value, &sources_for_input);
-                        selected_option.set(next.as_ref().map_or(0, |state| initial_selection(state, &value)));
-                        draft.set(value);
-                        menu_dismissed.set(false);
-                    },
-                    onkeydown: move |event: KeyboardEvent| {
-                        let key = event.key().to_string();
-                        if menu_open && key == "Escape" {
-                            event.prevent_default();
-                            menu_dismissed.set(true);
-                            return;
-                        }
-                        if options_open {
-                            match key.as_str() {
-                                "ArrowDown" | "ArrowUp" => {
-                                    event.prevent_default();
-                                    let next = if key == "ArrowDown" {
-                                        (selected + 1) % option_count
-                                    } else {
-                                        selected.checked_sub(1).unwrap_or(option_count - 1)
-                                    };
-                                    selected_option.set(next);
-                                    scroll_option_into_view(&key_conversation, next);
-                                    return;
-                                }
-                                "Tab" => {
-                                    event.prevent_default();
-                                    if let Some(text) = &selected_text {
-                                        fill_draft(draft, selected_option, text);
-                                    }
-                                    return;
-                                }
-                                _ => {}
-                            }
-                        }
-                        if key == "Enter" && !event.modifiers().contains(Modifiers::SHIFT) && !event.is_composing() {
-                            event.prevent_default();
-                            if options_open {
-                                accept.call(selected);
-                            } else {
-                                send.call(());
-                            }
-                        }
-                    },
-                }
-                if let Some(state) = menu.clone().filter(|_| menu_open) {
-                    SlashMenu {
-                        conversation_id: conversation_id.clone(),
-                        state,
-                        selected,
-                        on_choose: accept,
-                    }
-                }
-                if let Some(message) = command_error() {
-                    p { class: ERROR_TEXT_CLASS, role: "alert", "data-testid": "agent-command-error", "{message}" }
-                }
                 div { class: "agent-chat__composer-bar",
                     AgentModelControls { conversation: conversation.clone(), catalog, catalog_failed, pump: pump.clone() }
                     span {
@@ -343,7 +267,73 @@ pub fn AgentComposer(
                         "data-testid": "agent-chat-settings",
                         onclick: move |_| navigate.call(crate::routes::settings_pane_href("models")),
                     }
-                    span { class: "agent-chat__composer-spacer" }
+                }
+                div { class: "agent-chat__input-row",
+                textarea {
+                    class: "agent-chat__input",
+                    "data-testid": "agent-chat-input",
+                    "aria-label": "Message the agent",
+                    role: "combobox",
+                    "aria-autocomplete": "list",
+                    "aria-expanded": if options_open { "true" } else { "false" },
+                    "aria-controls": options_open.then(|| listbox.clone()),
+                    "aria-activedescendant": options_open.then(|| option_id(&conversation_id, selected)),
+                    rows: "1",
+                    placeholder,
+                    disabled,
+                    value: "{draft}",
+                    onmounted: move |event: MountedEvent| {
+                        let data = event.data();
+                        field.set(Some(data.clone()));
+                        on_field_mounted.call(data);
+                    },
+                    oninput: move |event: FormEvent| {
+                        let value = event.value();
+                        let next = slash_menu_state(&value, &sources_for_input);
+                        selected_option.set(next.as_ref().map_or(0, |state| initial_selection(state, &value)));
+                        draft.set(value);
+                        menu_dismissed.set(false);
+                    },
+                    onkeydown: move |event: KeyboardEvent| {
+                        let key = event.key().to_string();
+                        if menu_open && key == "Escape" {
+                            event.prevent_default();
+                            menu_dismissed.set(true);
+                            return;
+                        }
+                        if options_open {
+                            match key.as_str() {
+                                "ArrowDown" | "ArrowUp" => {
+                                    event.prevent_default();
+                                    let next = if key == "ArrowDown" {
+                                        (selected + 1) % option_count
+                                    } else {
+                                        selected.checked_sub(1).unwrap_or(option_count - 1)
+                                    };
+                                    selected_option.set(next);
+                                    scroll_option_into_view(&key_conversation, next);
+                                    return;
+                                }
+                                "Tab" => {
+                                    event.prevent_default();
+                                    if let Some(text) = &selected_text {
+                                        fill_draft(draft, selected_option, text);
+                                    }
+                                    return;
+                                }
+                                _ => {}
+                            }
+                        }
+                        if key == "Enter" && !event.modifiers().contains(Modifiers::SHIFT) && !event.is_composing() {
+                            event.prevent_default();
+                            if options_open {
+                                accept.call(selected);
+                            } else {
+                                send.call(());
+                            }
+                        }
+                    },
+                }
                     if running {
                         IconButton {
                             icon: "stop",
@@ -369,6 +359,17 @@ pub fn AgentComposer(
                             onclick: move |_| send.call(()),
                         }
                     }
+                }
+                if let Some(state) = menu.clone().filter(|_| menu_open) {
+                    SlashMenu {
+                        conversation_id: conversation_id.clone(),
+                        state,
+                        selected,
+                        on_choose: accept,
+                    }
+                }
+                if let Some(message) = command_error() {
+                    p { class: ERROR_TEXT_CLASS, role: "alert", "data-testid": "agent-command-error", "{message}" }
                 }
             }
             GoalControls {
