@@ -12,7 +12,7 @@ use roost_protocol::wire::agent_chat::{
 use super::agent_alert::ERROR_TEXT_CLASS;
 #[cfg(target_arch = "wasm32")]
 use super::composer_helpers::abort_run;
-use super::composer_helpers::{fill_draft, focus_field};
+use super::composer_helpers::{fill_draft, focus_field, pick_fills_draft};
 use super::composer_status::ComposerErrorBanner;
 use super::goal_controls::GoalControls;
 use super::goal_dock::GoalDock;
@@ -179,6 +179,7 @@ pub fn AgentComposer(
     let sources_for_input = sources.clone();
     let key_conversation = conversation_id.clone();
     let button_conversation = conversation_id.clone();
+    let pick = pick_fills_draft(menu.as_ref(), draft, selected_option, field);
     rsx! {
         div {
             class: "agent-chat__composer",
@@ -361,7 +362,7 @@ pub fn AgentComposer(
                         conversation_id: conversation_id.clone(),
                         state,
                         selected,
-                        on_choose: accept,
+                        on_choose: pick,
                     }
                 }
                 if let Some(message) = command_error() {
