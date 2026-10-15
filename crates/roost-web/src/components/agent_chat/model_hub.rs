@@ -15,7 +15,7 @@ use roost_protocol::wire::agent_chat::{
     AgentSettingsView, ConversationSummary, ModelsCatalog, ProviderEntry,
 };
 
-use self::hub_logic::{HubSection, HubView, hub_options, hub_sections, initial_view};
+use self::hub_logic::{HubSection, HubView, hub_options, hub_sections, initial_view, role_leaders};
 use self::hub_nav::{HubNav, nav_row_id};
 use self::hub_presets::HubPresets;
 use super::model_controls::{Configure, configure};
@@ -258,11 +258,22 @@ fn HubContent(
         .or(conversation.model.as_ref())
         .map(|model| format!("{}/{}", model.provider, model.model_id));
     let conversation_id = conversation.id.clone();
+    // Recent lists what chats used, every version of it; elsewhere a model a
+    // role leads with stays listed even once a newer version exists.
+    let keep = if view == HubView::Recent {
+        options
+            .iter()
+            .map(|option| option.selector.clone())
+            .collect()
+    } else {
+        role_leaders(&settings(), &catalog.thinking_levels)
+    };
     rsx! {
         ModelPicker {
             key: "{view.id()}",
             options,
             selected,
+            keep,
             placeholder: "Search models",
             test_id: "agent-model-hub-picker",
             autofocus: !compact,

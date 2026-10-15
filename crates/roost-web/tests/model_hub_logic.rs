@@ -8,7 +8,7 @@ use roost_web::components::agent_chat::model_hub::hub_logic::{
     HubSection, HubView, assigned_roles, format_cost_pair, format_tokens, hub_options,
     hub_sections, initial_view, model_argument_values, model_facts,
 };
-use roost_web::components::agent_chat::model_picker::{PickerOption, filter_options};
+use roost_web::components::agent_chat::model_picker::{PickerOption, filter_options, superseded};
 
 fn entry(provider: &str, model_id: &str, name: &str, available: bool) -> ModelEntry {
     ModelEntry {
@@ -163,8 +163,8 @@ fn model_facts_read_like_a_spec_line() {
 
 #[test]
 fn model_completions_offer_roles_ranked_models_or_nothing() {
-    let models: Vec<(String, String)> = (0..10)
-        .map(|index| (format!("p/m{index}"), format!("Model {index}")))
+    let models: Vec<(String, String)> = ('a'..='j')
+        .map(|letter| (format!("p/m{letter}"), format!("Model {letter}")))
         .chain([
             (
                 "anthropic/claude-haiku-4-5".into(),
@@ -185,6 +185,48 @@ fn model_completions_offer_roles_ranked_models_or_nothing() {
     );
     let blank = model_argument_values(&models, "");
     assert_eq!(blank, models[..8]);
+}
+
+#[test]
+fn only_the_newest_version_of_each_model_is_offered_first() {
+    let pair = |selector: &str, name: &str| (selector.to_owned(), name.to_owned());
+    let models = [
+        pair("anthropic/claude-sonnet-5-5", "Claude Sonnet 5.5"),
+        pair("anthropic/claude-opus-5", "Claude Opus 5"),
+        pair("anthropic/claude-sonnet-4-5", "Claude Sonnet 4.5"),
+        pair(
+            "openrouter/anthropic/claude-sonnet-4-5",
+            "Anthropic: Claude Sonnet 4.5",
+        ),
+        pair("anthropic/claude-opus-4-1", "Claude Opus 4.1"),
+    ];
+    let items = || models.iter().map(|(s, n)| (s.as_str(), n.as_str()));
+    assert_eq!(superseded(items(), &[]), [false, false, true, false, true]);
+    // A kept older model stays listed; a kept newest one still hides the rest.
+    assert_eq!(
+        superseded(items(), &["anthropic/claude-sonnet-5-5".to_owned()]),
+        [false, false, true, false, true]
+    );
+    assert_eq!(
+        superseded(items(), &["anthropic/claude-opus-4-1".to_owned()]),
+        [false, false, true, false, false]
+    );
+    let values: Vec<String> = model_argument_values(&models, "sonnet")
+        .into_iter()
+        .map(|(value, _)| value)
+        .collect();
+    assert_eq!(
+        values,
+        [
+            "anthropic/claude-sonnet-5-5",
+            "openrouter/anthropic/claude-sonnet-4-5"
+        ]
+    );
+    // Only an older version matches: it is offered rather than nothing.
+    assert_eq!(
+        model_argument_values(&models, "4.1")[0].0,
+        "anthropic/claude-opus-4-1"
+    );
 }
 
 #[test]

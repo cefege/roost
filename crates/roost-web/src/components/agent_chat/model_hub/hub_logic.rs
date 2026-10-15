@@ -7,7 +7,7 @@ use roost_protocol::wire::agent_chat::{
     rank_matches,
 };
 
-use crate::components::agent_chat::model_picker::PickerOption;
+use crate::components::agent_chat::model_picker::{PickerOption, superseded};
 use crate::components::settings::model_chain::split_thinking;
 
 /// How many models `/model <partial>` offers.
@@ -250,6 +250,12 @@ fn cost_leg(micros: u64) -> String {
     }
 }
 
+/// The model a chain tries first, without its `:level`.
+fn chain_leader<'a>(chain: &'a str, levels: &[String]) -> &'a str {
+    let first = chain.split(',').next().unwrap_or_default().trim();
+    split_thinking(first, levels).0
+}
+
 /// All-folders roles whose chain starts with `selector` (any `:level` ignored).
 pub fn assigned_roles(
     settings: &AgentSettingsView,
@@ -259,17 +265,26 @@ pub fn assigned_roles(
     settings
         .model_roles
         .iter()
-        .filter(|(_, chain)| {
-            let first = chain.split(',').next().unwrap_or_default().trim();
-            split_thinking(first, levels).0 == selector
-        })
+        .filter(|(_, chain)| chain_leader(chain, levels) == selector)
         .map(|(role, _)| role.clone())
+        .collect()
+}
+
+/// The model each all-folders role tries first: listed even when a newer
+/// version of it exists, since a role uses it.
+pub fn role_leaders(settings: &AgentSettingsView, levels: &[String]) -> Vec<String> {
+    settings
+        .model_roles
+        .values()
+        .map(|chain| chain_leader(chain, levels).to_owned())
+        .filter(|leader| !leader.is_empty())
         .collect()
 }
 
 /// `/model <partial>` completions as `(value, label)`: role aliases after `@`,
 /// nothing once a `:level` is typed, else the best fuzzy matches among
-/// `models` (`(selector, name)`, catalog order).
+/// `models` (`(selector, name)`, newest first). Only the newest version of
+/// each model is offered, unless only an older one matches what was typed.
 pub fn model_argument_values(models: &[(String, String)], partial: &str) -> Vec<(String, String)> {
     if partial.contains(':') {
         return Vec::new();
@@ -281,15 +296,35 @@ pub fn model_argument_values(models: &[(String, String)], partial: &str) -> Vec<
             .map(|alias| ((*alias).to_owned(), "Role".to_owned()))
             .collect();
     }
-    let haystacks: Vec<String> = models
+    let older = superseded(
+        models
+            .iter()
+            .map(|(selector, name)| (selector.as_str(), name.as_str())),
+        &[],
+    );
+    let latest: Vec<&(String, String)> = models
         .iter()
-        .map(|(selector, name)| model_search_text(selector, name))
+        .zip(&older)
+        .filter(|(_, older)| !**older)
+        .map(|(model, _)| model)
         .collect();
-    rank_matches(&haystacks, partial)
-        .into_iter()
-        .take(MODEL_COMPLETIONS)
-        .map(|index| models[index].clone())
-        .collect()
+    let ranked = |pool: &[&(String, String)]| -> Vec<(String, String)> {
+        let haystacks: Vec<String> = pool
+            .iter()
+            .map(|(selector, name)| model_search_text(selector, name))
+            .collect();
+        rank_matches(&haystacks, partial)
+            .into_iter()
+            .take(MODEL_COMPLETIONS)
+            .map(|index| pool[index].clone())
+            .collect()
+    };
+    let offered = ranked(&latest);
+    if offered.is_empty() {
+        ranked(&models.iter().collect::<Vec<_>>())
+    } else {
+        offered
+    }
 }
 
 /// Every available model, grouped under its provider's name, plus the session's
