@@ -594,7 +594,8 @@
   .agent-chat__assistant > .agent-chat__markdown[data-streaming] > :last-child::after { animation: none; }
   .agent-chat__shimmer { color: var(--md-sys-color-on-surface-variant); background: none; }
 }
-/* One compact line per command: a name column every row shares, then the summary. */
+/* Wide: one line per command, a name column every row shares, then the summary.
+   Phone: the row's own two-line stack, so the summary keeps the full width. */
 .agent-chat__slash-menu {
   max-height: min(calc(var(--md-space-9) * 7), 40dvh);
   overflow-y: auto;
@@ -618,7 +619,7 @@
 }
 .agent-chat__slash-name { font-family: var(--font-mono); }
 @media (max-width: 48rem) {
-  .agent-chat__slash-row .md-list-row__body { grid-template-columns: minmax(6rem, 9rem) minmax(0, 1fr); }
+  .agent-chat__slash-row .md-list-row__body { display: flex; align-items: stretch; }
 }
 .agent-chat__command-help {
   display: flex;
