@@ -19,6 +19,10 @@ kind: HelmRelease
 metadata:
   name: roost-coordinator
   namespace: roost
+  annotations:
+    # Never pruned: a production tree without this file must not uninstall
+    # the release (and with it the Secret holding the credential key).
+    kustomize.toolkit.fluxcd.io/prune: disabled
 spec:
   interval: 10m
   releaseName: roost-coordinator

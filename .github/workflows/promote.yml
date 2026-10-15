@@ -3,7 +3,11 @@ name: promote
 # Puts a published release into production. Called by release.yml once a tag's
 # assets are published, and runnable by hand to roll back:
 #
-#   gh workflow run promote.yml --ref v3 -f tag=v3.0.0-rc.36
+#   gh workflow run promote.yml -f tag=v3.0.0-rc.37
+#
+# Only a tag whose tree carries deploy/flux/production/ (v3.0.0-rc.37 on) can
+# be promoted: the production branch becomes that tree, and Flux reads its
+# HelmRelease from it.
 #
 # The job runs in the `production` environment, so it waits for an approval
 # in GitHub before it changes anything. It never touches the cluster: it
@@ -78,6 +82,14 @@ jobs:
         with:
           ref: ${{ inputs.tag }}
           fetch-depth: 1
+
+      - name: the tag carries the Flux release definition
+        run: |
+          set -euo pipefail
+          if [ ! -f deploy/flux/production/helmrelease.yaml ]; then
+            echo "::error::$TAG predates deploy/flux/production/; production cannot point at it"
+            exit 1
+          fi
 
       - name: point production at the tag
         run: |

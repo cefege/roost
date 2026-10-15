@@ -741,6 +741,11 @@ older than the first one carrying `__self-update` needs one manual update to
 start following. A coordinator built from a checkout reports a commit, not a
 tag, so its workers are converged by `roost push` and the catch-up below.
 
+The coordinator's release wins over `roost update`: a following worker that
+`roost update` moves past its coordinator is moved back on the next poll.
+Update such a machine by updating its coordinator, or set
+`ROOST_AUTO_UPDATE=0` to manage it by hand.
+
 ### Rolling a fleet from a source checkout: `roost push`
 
 To roll a source-installed coordinator and its registered fleet onto one

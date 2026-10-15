@@ -453,7 +453,7 @@ Releasing is a tag and an approval; no machine of ours runs a deploy.
 ```
 git tag <tag> && git push origin <tag>   # release.yml + container.yml build everything
 # then approve the `production` deployment on the release run in GitHub
-gh workflow run promote.yml --ref v3 -f tag=<older tag>   # roll back (see below)
+gh workflow run promote.yml -f tag=<older tag>   # roll back (see below)
 ```
 
 1. **Build.** `release.yml` gates and publishes the tag's assets;
@@ -483,7 +483,11 @@ gh workflow run promote.yml --ref v3 -f tag=<older tag>   # roll back (see below
 **Rolling back** is promoting an older tag. Going back past a migration or
 the credential encryption also needs the database restored from a
 `pg_dump` taken before the newer release (the CronJob keeps 14 on the
-`roost-coordinator-postgres-backups` PVC).
+`roost-coordinator-postgres-backups` PVC; the dump taken minutes before
+rc.36 is in `ovh1:~/roost-backups/` and on m5 in `~/roost-backups/`). The
+floor is `v3.0.0-rc.37`: promote refuses an older tag, whose tree has no
+`deploy/flux/production/`, and a worker moved below it would lose
+`__self-update` and stop following.
 
 **`cargo xtask fleet install --version <tag> [--host <name>]…`** remains for
 the Windows host, which cannot replace its own binary, and for moving a
