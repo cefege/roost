@@ -316,15 +316,18 @@ k3s on ovh1, the same host as the public edge (namespace `roost`, Deployment
 `pg_dump` CronJob keeping 14 archives), so on every fleet host `roost status`
 reports the coordinator service and listener as absent and the worker roster as
 "not on this host"; that is expected. The Deployment runs `replicas` pods
-(`xtask/fleet.json`, default 2): one holds the `cluster:links` lease and serves
+(the chart's default, 2): one holds the `cluster:links` lease and serves
 every worker link, browser socket and agent run, and the others splice their
-connections to it (`crates/roost-coord/src/cluster/`). The
-k3s API answers on ovh1's tailnet address only to desktop-pc and mini-pc
-(firewalld rich rules on ovh1's `public` zone, port 6443); each keeps its
-kubeconfig for it at `~/.kube/ovh1.yaml`. Check it with:
+connections to it (`crates/roost-coord/src/cluster/`). Flux, installed in the
+same k3s (`flux-system`), owns the Helm release (see "Release to the fleet").
+The k3s API answers on ovh1's tailnet address only to desktop-pc (firewalld
+rich rule on ovh1's `public` zone, port 6443, kubeconfig `~/.kube/ovh1.yaml`
+there); on ovh1 itself `sudo /usr/local/bin/k3s kubectl` needs none. Check it
+with:
 
 ```
-export KUBECONFIG=~/.kube/ovh1.yaml
+export KUBECONFIG=~/.kube/ovh1.yaml               # or, on ovh1: alias kubectl='sudo k3s kubectl'
+kubectl -n roost get helmrelease roost-coordinator # Ready = Flux's last upgrade succeeded
 kubectl -n roost get pods                         # coordinator, postgres, backups
 curl -s https://mike.roosttt.com/readyz           # 200 = database answers
 kubectl -n roost logs deploy/roost-coordinator --since=1h   # the JSON log
@@ -445,41 +448,50 @@ and the incremental workspace crates recompile per worktree.
 
 ### Release to the fleet
 
-Our own machines take a release from GitHub: `release.yml` builds it, this
-checkout installs it. The host list, install order and service names are
-`xtask/fleet.json`.
+Releasing is a tag and an approval; no machine of ours runs a deploy.
 
 ```
-git tag <tag> && git push origin <tag>      # release.yml + container.yml build everything
-cargo xtask fleet install --version <tag> [--host <name>]…
+git tag <tag> && git push origin <tag>   # release.yml + container.yml build everything
+# then approve the `production` deployment on the release run in GitHub
+gh workflow run promote.yml --ref v3 -f tag=<older tag>   # roll back (see below)
 ```
 
-`fleet install` downloads the tag's release assets with `gh` into
-`target/fleet/<tag>/` (the Linux x64 and macOS arm64 pairs and the web
-bundle), checks each against its `.sha256`, and records the commit the tag
-names; it refuses until `release.yml` has published the release. It then
-upgrades the coordinator, which runs on ovh1's k3s against an in-chart
-Postgres (`fleet.json` `coordinator`, values in
-`deploy/helm/fleet-ovh1.values.yaml`): it refuses until
-`.github/workflows/container.yml` has published the tag's image to ghcr, then
-`helm upgrade`s and checks every coordinator pod reports the tag and sha. It then copies the
-tag into each host's `versions/<tag>/`, repoints the systemd units or the
-LaunchAgent at it, restarts them, and fails a host whose binary reports
-another commit or whose keeper pid changed. The public door is unchanged:
-`mike.roosttt.com` reaches ovh1's edge Caddy, whose `roost-saas-legacy-bridge`
-forwards to the coordinator's NodePort (30413) on ovh1's tailnet address.
-Needs `gh`, `helm` (3.x: the release's history was written by Helm 3),
-`kubectl` and `git` on this machine. The deploy machine is mini-pc
-(`ssh mini-pc`, user `mike`, checkout `~/repos/roost-v3`), with desktop-pc as
-the other machine the k3s API accepts. Nothing is built on mini-pc: it has no
-Rust toolchain, and runs a static `xtask` cross-built elsewhere
-(`CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld cargo build -p xtask
---release --target x86_64-unknown-linux-musl`, copied to
-`~/.local/bin/roost-xtask`), so there the release command is
-`ROOST_REPO_ROOT=~/repos/roost-v3 roost-xtask fleet install --version <tag>`.
-mini-pc reaches the fleet hosts over its own key (`mike@mini-pc fleet
-deploy`) and the ssh-mesh aliases in its `~/.ssh/config`; it is not a fleet
-host, so every `fleet.json` host is reached over ssh.
+1. **Build.** `release.yml` gates and publishes the tag's assets;
+   `container.yml` publishes the coordinator image to ghcr.
+2. **Promote.** `release.yml` ends with `promote.yml`, which waits for an
+   approval in the `production` environment (required reviewer: cefege;
+   allowed refs: `v3.*` tags and the `v3` branch), waits for the image, then
+   force-pushes the `production` branch to the tag's commit plus one commit
+   writing `deploy/helm/production.values.yaml` (`image.tag`). It finishes when
+   `https://mike.roosttt.com/version` reports the tag.
+3. **Coordinator.** Flux on ovh1 (`deploy/flux/`: a GitRepository on
+   `production`, a Kustomization applying `deploy/flux/production/`, whose
+   HelmRelease upgrades `roost-coordinator` with the chart and
+   `fleet-ovh1.values.yaml` from that commit) picks the branch up within a
+   minute. `postgres.password` comes from the Secret
+   `roost-coordinator-values` (namespace `roost`, created by hand, never in
+   git); the chart's `lookup` keeps `ROOST_COORDINATOR_SECRET_KEY`. A failed
+   upgrade is left failed, never retried or rolled back on its own: an
+   upgrade can migrate the database and re-encrypt credentials. Flux's own
+   manifests were installed once from its release `install.yaml`
+   (`kubectl apply --server-side`), then `deploy/flux/bootstrap.yaml`.
+4. **Workers.** Linux and macOS workers poll the coordinator's `/version` and
+   install exactly that release themselves (`roost __self-update`), so they
+   follow a promotion and a rollback alike; a machine that was off catches up
+   when it starts.
+
+**Rolling back** is promoting an older tag. Going back past a migration or
+the credential encryption also needs the database restored from a
+`pg_dump` taken before the newer release (the CronJob keeps 14 on the
+`roost-coordinator-postgres-backups` PVC).
+
+**`cargo xtask fleet install --version <tag> [--host <name>]…`** remains for
+the Windows host, which cannot replace its own binary, and for moving a
+machine by hand: it fetches the tag's assets with `gh` into
+`target/fleet/<tag>/`, checks their `.sha256`, copies the tag into each
+`xtask/fleet.json` host's `versions/<tag>/` over ssh, repoints and restarts
+its services, and fails a host whose binary reports another commit or whose
+keeper pid changed. It no longer touches the coordinator.
 
 ---
 

@@ -1,10 +1,15 @@
-//! `cargo xtask fleet install` — the release path for our own machines. It
-//! downloads one tag's GitHub release (built by `.github/workflows/release.yml`)
-//! into `target/fleet/<tag>/`, upgrades the Kubernetes coordinator to the tag's
-//! image, then puts the tag on each host in `xtask/fleet.json` and restarts its
-//! services, refusing a host whose keeper did not survive the restart.
+//! `cargo xtask fleet install` — the manual path for putting a release on our
+//! own worker machines. It downloads one tag's GitHub release (built by
+//! `.github/workflows/release.yml`) into `target/fleet/<tag>/`, then puts the
+//! tag on each host in `xtask/fleet.json` and restarts its services, refusing a
+//! host whose keeper did not survive the restart.
+//!
+//! The coordinator is not installed here: Flux deploys it from the
+//! `production` branch (`deploy/flux/`, `.github/workflows/promote.yml`), and
+//! Linux and macOS workers follow its `/version` on their own. This stays for
+//! the Windows host, which cannot replace its own binary, and for a machine
+//! that has to be moved by hand.
 
-mod coordinator;
 mod fetch;
 mod install;
 mod manifest;
@@ -52,14 +57,11 @@ fn install_command(arguments: &InstallArgs) -> Result<(), String> {
     let fleet = manifest::Fleet::load(&fleet_file())?;
     let selected =
         |name: &str| arguments.hosts.is_empty() || arguments.hosts.iter().any(|host| host == name);
-    let coordinator_name = fleet
-        .coordinator
-        .as_ref()
-        .map(|coordinator| coordinator.name.as_str());
-    if let Some(unknown) = arguments.hosts.iter().find(|name| {
-        !fleet.hosts.iter().any(|host| &host.name == *name)
-            && Some(name.as_str()) != coordinator_name
-    }) {
+    if let Some(unknown) = arguments
+        .hosts
+        .iter()
+        .find(|name| !fleet.hosts.iter().any(|host| &host.name == *name))
+    {
         return Err(format!("{unknown} is not a host in xtask/fleet.json"));
     }
     // Only the platforms some host runs: a tag published before a platform
@@ -71,13 +73,6 @@ fn install_command(arguments: &InstallArgs) -> Result<(), String> {
     fetch::fetch_release(&arguments.version, &platforms)?;
     let release = install::BuiltRelease::load(&arguments.version)?;
     let started = Instant::now();
-    if let Some(coordinator) = fleet
-        .coordinator
-        .as_ref()
-        .filter(|coordinator| selected(&coordinator.name))
-    {
-        coordinator::install_coordinator(coordinator, &release)?;
-    }
     for host in fleet.hosts.iter().filter(|host| selected(&host.name)) {
         install::install_on(host, &release)?;
     }

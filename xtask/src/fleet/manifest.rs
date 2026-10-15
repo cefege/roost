@@ -13,11 +13,8 @@ use serde::Deserialize;
 /// The whole file.
 #[derive(Debug, Deserialize)]
 pub struct Fleet {
-    /// Install order; a host running a coordinator service comes first.
+    /// Install order.
     pub hosts: Vec<FleetHost>,
-    /// A coordinator that runs on Kubernetes, upgraded before every host.
-    #[serde(default)]
-    pub coordinator: Option<super::coordinator::KubeCoordinator>,
 }
 
 #[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]

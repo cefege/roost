@@ -1,14 +1,4 @@
 {
-  "coordinator": {
-    "name": "ovh1-k3s",
-    "kubeconfig": "/home/mike/.kube/ovh1.yaml",
-    "namespace": "roost",
-    "release": "roost-coordinator",
-    "chart": "deploy/helm/roost-coordinator",
-    "values": "deploy/helm/fleet-ovh1.values.yaml",
-    "replicas": 2,
-    "image": "ghcr.io/cefege/roost-coordinator"
-  },
   "hosts": [
     {
       "name": "ovh1",
