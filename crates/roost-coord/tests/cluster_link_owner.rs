@@ -107,7 +107,14 @@ async fn postgres_replicas_elect_one_owner_release_and_detect_fencing() {
         rx_b,
     )));
     assert!(!state_b.is_owner());
-    wait_until(|| state_b.owner_internal_url().is_some()).await;
+    // Ready means all three probe inputs: a known owner, a fresh heartbeat
+    // and a connected notice listener; on a slow runner they land apart.
+    wait_until(|| {
+        state_b.owner_internal_url().is_some()
+            && state_b.heartbeat_fresh(roost_coord::serve::now_ms())
+            && service_b.cluster.connected()
+    })
+    .await;
     assert_eq!(probe_status(probe_address).await, 200);
 
     stop_a.send(true).unwrap();
