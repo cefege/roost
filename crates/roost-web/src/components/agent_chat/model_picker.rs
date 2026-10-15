@@ -4,6 +4,7 @@
 //! reports the chosen selector; what that choice means is the caller's.
 
 use dioxus::prelude::*;
+use roost_protocol::wire::agent_chat::{model_search_text, rank_matches};
 
 use crate::components::md::{Icon, List, ListRow, SectionTitle, TextField};
 
@@ -17,29 +18,26 @@ pub struct PickerOption {
     pub detail: Option<String>,
 }
 
-/// Options matching every whitespace-separated term of `query`, case-blind,
-/// in their given order. An empty query matches everything.
+/// Options matching every whitespace-separated term of `query`, best match
+/// first (`rank_matches`: whole word, prefix, substring, then scattered
+/// letters), ties in their given order. An empty query keeps every option in
+/// order.
 pub fn filter_options<'a>(options: &'a [PickerOption], query: &str) -> Vec<&'a PickerOption> {
-    let terms: Vec<&str> = query.split_whitespace().collect();
-    options
+    let haystacks: Vec<String> = options
         .iter()
-        .filter(|option| {
-            terms.iter().all(|term| {
-                [
-                    option.name.as_str(),
-                    option.group.as_str(),
-                    option.selector.as_str(),
-                    option.detail.as_deref().unwrap_or_default(),
-                ]
-                .into_iter()
-                .any(|field| {
-                    field
-                        .as_bytes()
-                        .windows(term.len())
-                        .any(|window| window.eq_ignore_ascii_case(term.as_bytes()))
-                })
-            })
+        .map(|option| {
+            let name = format!(
+                "{} {} {}",
+                option.name,
+                option.group,
+                option.detail.as_deref().unwrap_or_default()
+            );
+            model_search_text(&option.selector, &name)
         })
+        .collect();
+    rank_matches(&haystacks, query)
+        .into_iter()
+        .map(|index| &options[index])
         .collect()
 }
 

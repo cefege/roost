@@ -9,7 +9,8 @@ use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{ConversationSummary, ModelsCatalog};
 
 use super::composer_commands::model_picker_trigger_id;
-use super::model_picker::{ModelPicker, PickerOption};
+use super::model_hub::hub_logic::model_picker_options;
+use super::model_picker::ModelPicker;
 use super::toolbar_menu::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
 use crate::components::md::{Button, ButtonSize, ButtonVariant, Card, CardVariant, Dialog};
 use crate::pump::Pump;
@@ -232,7 +233,7 @@ pub fn ModelSetupCard(setup: ModelSetup, on_retry: EventHandler<()>) -> Element 
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-enum Configure {
+pub(super) enum Configure {
     Model(Option<String>),
     Thinking(String),
 }
@@ -243,61 +244,6 @@ fn thinking_label(level: &str) -> String {
         .next()
         .map(|first| first.to_uppercase().chain(characters).collect())
         .unwrap_or_default()
-}
-
-/// Every available model, grouped under its provider's name, plus the session's
-/// own model when the catalog no longer lists it as available, so the picker
-/// can always show what is in use.
-fn model_picker_options(
-    catalog: Option<&ModelsCatalog>,
-    conversation: &ConversationSummary,
-) -> Vec<PickerOption> {
-    let mut options: Vec<PickerOption> = catalog
-        .map(|catalog| {
-            catalog
-                .models
-                .iter()
-                .filter(|model| model.available && !model.classifier)
-                .map(|model| PickerOption {
-                    selector: format!("{}/{}", model.provider, model.model_id),
-                    name: model.name.clone(),
-                    group: provider_display_name(catalog, &model.provider),
-                    detail: Some(model.model_id.clone()),
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    if let Some(current) = conversation.model.as_ref()
-        && !catalog.is_some_and(|catalog| {
-            catalog.models.iter().any(|entry| {
-                entry.classifier
-                    && entry.provider == current.provider
-                    && entry.model_id == current.model_id
-            })
-        })
-    {
-        let selector = format!("{}/{}", current.provider, current.model_id);
-        if !options.iter().any(|option| option.selector == selector) {
-            options.insert(
-                0,
-                PickerOption {
-                    selector,
-                    name: current.model_id.clone(),
-                    group: "Current".to_string(),
-                    detail: None,
-                },
-            );
-        }
-    }
-    options
-}
-
-fn provider_display_name(catalog: &ModelsCatalog, provider_id: &str) -> String {
-    catalog
-        .providers
-        .iter()
-        .find(|provider| provider.id == provider_id)
-        .map_or_else(|| provider_id.to_string(), |provider| provider.name.clone())
 }
 
 fn current_model_label(
@@ -332,7 +278,7 @@ fn current_model_label(
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
-fn configure(pump: Pump, conversation_id: String, change: Configure) {
+pub(super) fn configure(pump: Pump, conversation_id: String, change: Configure) {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_futures::spawn_local(async move {
         let call = match change {

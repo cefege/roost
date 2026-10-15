@@ -1,0 +1,45 @@
+/* The agent chat's models hub: view sidebar beside the picker or role editor. */
+.model-hub__layout {
+  display: grid;
+  grid-template-columns: minmax(10rem, 14rem) 1fr;
+  gap: var(--md-space-4);
+  min-block-size: min(70dvh, 40rem);
+}
+.model-hub__sidebar {
+  overflow-y: auto;
+  min-inline-size: 0;
+}
+.model-hub__content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-3);
+  min-inline-size: 0;
+  overflow-y: auto;
+}
+.model-hub__locked { color: var(--text-lo); }
+.model-hub__count { color: var(--text-lo); }
+.model-hub .model-picker__results { max-block-size: none; }
+.model-hub__empty { margin: 0; color: var(--text-mid); }
+.model-hub__error { margin: var(--md-space-2) 0 0; color: var(--md-error); }
+.model-hub__presets {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-2);
+  margin-block-start: var(--md-space-4);
+}
+.model-hub__preset-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-2);
+}
+.model-hub__preset-save {
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-2);
+}
+.model-hub__preset-save > :first-child { flex: 1 1 auto; }
+@media (max-width: 40rem) {
+  .model-hub__layout { grid-template-columns: 1fr; }
+  .model-hub__sidebar { overflow-x: auto; overflow-y: hidden; }
+  .model-hub__sidebar .md-list { display: flex; flex-direction: row; }
+}

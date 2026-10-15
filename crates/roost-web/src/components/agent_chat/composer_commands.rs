@@ -89,6 +89,7 @@ pub(super) struct LocalCommandScope<'a> {
     pub(super) pump: Pump,
     pub(super) navigate: EventHandler<String>,
     pub(super) connect_provider: Signal<Option<ProviderEntry>>,
+    pub(super) model_hub_open: Signal<bool>,
 }
 
 /// Runs a client-side command; `false` means the text goes to the harness.
@@ -105,6 +106,11 @@ pub(super) fn run_local_command(
     let mut connect_provider = scope.connect_provider;
     match name {
         "model" if client_bare && args.is_empty() => {
+            let mut open = scope.model_hub_open;
+            open.set(true);
+            true
+        }
+        "switch" if client_bare && args.is_empty() => {
             #[cfg(target_arch = "wasm32")]
             open_model_picker(&conversation.id);
             true

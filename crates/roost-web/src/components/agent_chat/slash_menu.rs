@@ -10,6 +10,7 @@ use roost_protocol::wire::agent_chat::{
 };
 
 use super::model_controls::supports_reasoning;
+use super::model_hub::hub_logic::model_argument_values;
 use crate::components::md::{List, ListRow};
 
 #[cfg(target_arch = "wasm32")]
@@ -44,7 +45,7 @@ impl SlashMenuState {
 
 /// `None` when the draft is not a command, or names a command and has moved past
 /// its one argument word (typed text is the harness's, not a completion).
-pub(super) fn slash_menu_state(draft: &str, effort_levels: &[String]) -> Option<SlashMenuState> {
+pub(super) fn slash_menu_state(draft: &str, sources: &SlashSources) -> Option<SlashMenuState> {
     let body = draft.strip_prefix('/')?;
     if draft.contains('\n') {
         return None;
@@ -64,7 +65,7 @@ pub(super) fn slash_menu_state(draft: &str, effort_levels: &[String]) -> Option<
         return None;
     }
     Some(SlashMenuState {
-        options: argument_options(command, &argument.to_ascii_lowercase(), effort_levels),
+        options: argument_options(command, &argument.to_ascii_lowercase(), sources),
         argument_command: Some(command),
     })
 }
@@ -79,19 +80,41 @@ pub(super) fn initial_selection(state: &SlashMenuState, draft: &str) -> usize {
         .unwrap_or(0)
 }
 
-/// `/effort` offers the levels the conversation's model accepts. Other argument
-/// values come from the registry.
-pub(super) fn effort_levels(
+/// Argument values that come from the conversation rather than the registry.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(super) struct SlashSources {
+    /// `/effort`: the levels the conversation's model accepts.
+    pub(super) effort_levels: Vec<String>,
+    /// `/model` and `/switch`: available chat models as `(selector, name)`.
+    pub(super) models: Vec<(String, String)>,
+}
+
+pub(super) fn slash_sources(
     conversation: &ConversationSummary,
     catalog: Option<&ModelsCatalog>,
-) -> Vec<String> {
+) -> SlashSources {
     let Some(catalog) = catalog else {
-        return Vec::new();
+        return SlashSources::default();
     };
-    if supports_reasoning(conversation, Some(catalog)) {
+    let effort_levels = if supports_reasoning(conversation, Some(catalog)) {
         catalog.thinking_levels.clone()
     } else {
         Vec::new()
+    };
+    let models = catalog
+        .models
+        .iter()
+        .filter(|model| model.available && !model.classifier)
+        .map(|model| {
+            (
+                format!("{}/{}", model.provider, model.model_id),
+                model.name.clone(),
+            )
+        })
+        .collect();
+    SlashSources {
+        effort_levels,
+        models,
     }
 }
 
@@ -146,23 +169,26 @@ fn name_rank(command: &SlashCommand, partial: &str) -> Option<u8> {
 fn argument_options(
     command: &'static SlashCommand,
     partial: &str,
-    effort_levels: &[String],
+    sources: &SlashSources,
 ) -> Vec<SlashOption> {
-    let candidates: Vec<(String, String)> = if command.name == "effort" {
-        effort_levels
+    let candidates: Vec<(String, String)> = match command.name {
+        "effort" => sources
+            .effort_levels
             .iter()
+            .filter(|level| level.starts_with(partial))
             .map(|level| (level.clone(), String::new()))
-            .collect()
-    } else {
-        command
+            .collect(),
+        // Already filtered and ranked by the fuzzy model search.
+        "model" | "switch" => model_argument_values(&sources.models, partial),
+        _ => command
             .subcommands
             .iter()
+            .filter(|argument| argument.name.starts_with(partial))
             .map(|argument| (argument.name.to_string(), argument.summary.to_string()))
-            .collect()
+            .collect(),
     };
     candidates
         .into_iter()
-        .filter(|(value, _)| value.starts_with(partial))
         .map(|(value, summary)| SlashOption {
             command,
             text: format!("/{} {value}", command.name),

@@ -5,13 +5,14 @@
 //! code-block Copy delegation. Mounted by the deck's `AgentSlot`.
 
 use dioxus::prelude::*;
-use roost_protocol::wire::agent_chat::{AgentRunState, ModelsCatalog, Transcript};
+use roost_protocol::wire::agent_chat::{AgentRunState, ModelsCatalog, ProviderEntry, Transcript};
 
 use super::composer::AgentComposer;
 use super::header::{AgentChatHeader, short_path};
 use super::interaction_cards::TodoCard;
 use super::loop_controls::LoopControls;
 use super::model_controls::{ModelSetup, ModelSetupCard};
+use super::model_hub::ModelHub;
 use super::surface_state::{is_blank, latest_todo, loop_status};
 use super::welcome::AgentWelcome;
 use crate::components::md::{ButtonVariant, EmptyState, IconButton, IconButtonSize, Skeleton};
@@ -19,6 +20,10 @@ use crate::pump::use_store;
 
 #[cfg(target_arch = "wasm32")]
 use super::surface_fetch::{fetch_events_or_snapshot, fetch_snapshot};
+#[cfg(target_arch = "wasm32")]
+use roost_client_core::ClientEvent;
+#[cfg(target_arch = "wasm32")]
+use roost_client_core::client::agent_chat::AgentChatIntent;
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::client::rpc::calls::agent_chat::ListAgentModels;
 
@@ -45,6 +50,15 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
     let mut catalog_failed = use_signal(|| false);
     let mut catalog_attempt = use_signal(|| 0_u32);
     let mut draft = use_signal(String::new);
+    let model_hub_open = use_signal(|| false);
+    let connect_provider = use_signal(|| None::<ProviderEntry>);
+    // Opening the hub refetches the catalog so its recent models are current.
+    use_effect(move || {
+        if model_hub_open() {
+            let next = *catalog_attempt.peek() + 1;
+            catalog_attempt.set(next);
+        }
+    });
     let mut field = use_signal(|| None::<std::rc::Rc<MountedData>>);
     let mut scroll_node = use_signal(|| None::<std::rc::Rc<MountedData>>);
     // Decided on scroll, not after render: by the time a large chunk of output
@@ -151,6 +165,15 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
             host_connected,
             pump: pump.clone(),
             on_field_mounted: move |node| field.set(Some(node)),
+            model_hub_open,
+            connect_provider,
+        }
+        ModelHub {
+            open: model_hub_open,
+            conversation: conversation.clone(),
+            catalog: catalog(),
+            pump: pump.clone(),
+            connect_provider,
         }
     };
     if is_blank(&transcript) {

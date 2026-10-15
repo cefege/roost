@@ -42,6 +42,7 @@ style = [
   "/styles/agent-chat.css",
   "/styles/agent-goal.css",
   "/styles/agent-settings.css",
+  "/styles/agent-model-hub.css",
   "/styles/tv.css",
   "/styles/gamepad.css",
 ]

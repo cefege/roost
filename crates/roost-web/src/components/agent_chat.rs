@@ -18,6 +18,7 @@ mod loop_controls;
 mod markdown;
 mod message_actions;
 mod model_controls;
+pub mod model_hub;
 pub mod model_picker;
 mod notice_card;
 mod plan_card;

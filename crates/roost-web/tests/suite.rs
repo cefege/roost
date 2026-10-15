@@ -52,6 +52,8 @@ mod md_primitives;
 mod md_select;
 #[path = "mic_unmount_lifecycle.rs"]
 mod mic_unmount_lifecycle;
+#[path = "model_hub_logic.rs"]
+mod model_hub_logic;
 #[path = "notification_dock_lift.rs"]
 mod notification_dock_lift;
 #[path = "notify_target_ring.rs"]

@@ -17,8 +17,8 @@ use super::goal_controls::GoalControls;
 use super::goal_dock::GoalDock;
 use super::model_controls::AgentModelControls;
 use super::slash_menu::{
-    SlashMenu, effort_levels, initial_selection, listbox_id, option_id, scroll_option_into_view,
-    slash_menu_state,
+    SlashMenu, initial_selection, listbox_id, option_id, scroll_option_into_view, slash_menu_state,
+    slash_sources,
 };
 use crate::components::md::{ButtonVariant, Chip, Icon, IconButton, IconButtonSize, IconSize};
 use crate::components::settings::agent_connect_dialog::AgentConnectDialog;
@@ -41,6 +41,8 @@ pub fn AgentComposer(
     host_connected: bool,
     pump: Pump,
     on_field_mounted: EventHandler<Rc<MountedData>>,
+    model_hub_open: Signal<bool>,
+    connect_provider: Signal<Option<ProviderEntry>>,
 ) -> Element {
     let mut draft = draft;
     let disabled = !host_connected;
@@ -49,7 +51,7 @@ pub fn AgentComposer(
     let mut selected_option = use_signal(|| 0_usize);
     let mut menu_dismissed = use_signal(|| false);
     let mut field = use_signal(|| None::<Rc<MountedData>>);
-    let mut connect_provider = use_signal(|| None::<ProviderEntry>);
+    let mut connect_provider = connect_provider;
     let mut command_error = use_signal(|| None::<String>);
     let mut advisor_pending = use_signal(|| false);
     let mut goal_open = use_signal(|| false);
@@ -64,8 +66,8 @@ pub fn AgentComposer(
         advisor_pending.set(false);
         command_error.set(result.err());
     });
-    let levels = effort_levels(&conversation, catalog.as_ref());
-    let menu = slash_menu_state(&draft(), &levels);
+    let sources = slash_sources(&conversation, catalog.as_ref());
+    let menu = slash_menu_state(&draft(), &sources);
     let option_count = menu.as_ref().map_or(0, |state| state.options.len());
     let menu_open = !menu_dismissed() && menu.is_some();
     let options_open = menu_open && option_count > 0;
@@ -117,6 +119,7 @@ pub fn AgentComposer(
                         pump: pump.clone(),
                         navigate,
                         connect_provider,
+                        model_hub_open,
                     },
                 ) {
                     draft.set(String::new());
@@ -128,10 +131,10 @@ pub fn AgentComposer(
         }
     });
     let accept = EventHandler::new({
-        let levels = levels.clone();
+        let sources = sources.clone();
         move |index: usize| {
             let current = draft.peek().clone();
-            let Some(option) = slash_menu_state(&current, &levels)
+            let Some(option) = slash_menu_state(&current, &sources)
                 .and_then(|state| state.options.get(index).cloned())
             else {
                 return;
@@ -176,7 +179,7 @@ pub fn AgentComposer(
     } else {
         "Ask the agent, or type / for commands…"
     };
-    let levels_for_input = levels.clone();
+    let sources_for_input = sources.clone();
     let key_conversation = conversation_id.clone();
     let button_conversation = conversation_id.clone();
     rsx! {
@@ -218,7 +221,7 @@ pub fn AgentComposer(
                 },
                 oninput: move |event: FormEvent| {
                     let value = event.value();
-                    let next = slash_menu_state(&value, &levels_for_input);
+                    let next = slash_menu_state(&value, &sources_for_input);
                     selected_option.set(next.as_ref().map_or(0, |state| initial_selection(state, &value)));
                     draft.set(value);
                     menu_dismissed.set(false);
