@@ -1,7 +1,7 @@
 //! A bounded per-subscriber queue over one `BoundedBus`, and the deploy output
 //! read built on it: a job's buffered lines, then its live lines, until `done`.
-//! Called by `deploy::rpc_deploy` (the `WorkersDeployOutput` stream) and by
-//! `deploy::catchup` (the outcome watcher). Depends on `events::bus` and
+//! Called by `deploy::rpc_deploy` (the `WorkersDeployOutput` stream). Depends on
+//! `events::bus` and
 //! `deploy::jobs`. Ports apps/coord/src/sync/sse.ts and the `deployOutput`
 //! generator of apps/coord/src/deploy/deploy-jobs.ts.
 //!

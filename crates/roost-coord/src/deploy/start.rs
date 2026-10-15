@@ -1,7 +1,6 @@
 //! Starting one POSIX deploy job: the host and release checks, the coordinator
 //! URL the deployed worker will dial, and the `roost deploy` invocation.
-//! Called by `deploy::rpc_deploy` (the Settings button) and `deploy::catchup`
-//! (a behind worker attaching). Ports `startDeploy` and
+//! Called by `deploy::rpc_deploy` (the Settings button). Ports `startDeploy` and
 //! `resolveDeployCoordinatorUrl` of apps/coord/src/deploy/deploy-jobs.ts, and
 //! `resolveCoordinatorDialUrl` of packages/protocol/src/coordinator-dial-url.ts.
 //!

@@ -17,6 +17,9 @@ mod middleware_support;
 #[path = "middleware_admission_stack/health_probes.rs"]
 mod health_probes;
 
+#[path = "middleware_admission_stack/version_route.rs"]
+mod version_route;
+
 use middleware_support::{FOREIGN_HOST, FixtureConfig, ListenerFixture};
 
 /// The browser's Sync socket.

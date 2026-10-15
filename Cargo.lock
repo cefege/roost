@@ -5737,6 +5737,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.4.3",
  "regex",
+ "reqwest 0.13.5",
  "roost-agent-tools",
  "roost-host",
  "roost-keeper",

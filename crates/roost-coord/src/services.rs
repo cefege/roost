@@ -141,7 +141,7 @@ pub struct CoordServices {
     pub attachments: AttachmentsRuntime,
     /// Global session search across every worker, and its cancellations.
     pub search: GlobalSearchRuntime,
-    /// Keeper-update preparation, the deploy jobs, and the worker's catch-up.
+    /// Keeper-update preparation and the deploy jobs.
     pub deploy: DeployRuntime,
     /// The per-route, per-client request budget.
     pub rate_limit: RateLimiter,
@@ -300,10 +300,6 @@ impl CoordServices {
                 .and_then(|config| config.credential_secret_key.as_ref())
                 .map(|key| *key.as_bytes()),
         );
-        let catch_up_on_ready = Arc::new(crate::deploy::catchup_on_ready::CatchUpOnReady::new(
-            deploy.clone(),
-            db.clone(),
-        ));
         let worker_lifecycle = crate::coord_core::worker_lifecycle::WorkerLifecycle::new(vec![
             Arc::clone(scrollback.pending())
                 as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
@@ -314,8 +310,6 @@ impl CoordServices {
             Arc::clone(terminal_direct.negotiations())
                 as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
             attachments.worker_lifecycle_observer(),
-            catch_up_on_ready
-                as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
             Arc::clone(&agent_tools)
                 as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
         ]);

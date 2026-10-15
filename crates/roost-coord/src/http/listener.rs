@@ -74,6 +74,7 @@ use crate::http::db_export::db_export;
 use crate::http::health::{HEALTHZ_PATH, READYZ_PATH};
 use crate::http::spa::{self, SpaMount};
 use crate::http::upgrade::{sync_upgrade, worker_upgrade};
+use crate::http::version::{VERSION_PATH, version_routes};
 use crate::middleware::admission_layer::{AdmissionLayer, admission_gate};
 use crate::middleware::audit_layer::{AuditMount, audit_layer};
 use crate::middleware::caller_origin::{CallerTrust, caller_origin_layer, listener_trust};
@@ -221,6 +222,7 @@ pub fn build_router(state: Arc<ListenerState>) -> MountedListener {
         .route(DB_EXPORT_PATH, get(db_export).head(db_export))
         .route(RETIRED_SYNC_PATH, post(retired_sync))
         .merge(crate::http::health::health_routes())
+        .merge(version_routes())
         .fallback_service(connect)
         // The SPA is the fallback for the paths nothing above claims, and it is
         // mounted as a layer rather than a route so the two upgrade routes and
@@ -286,6 +288,7 @@ pub fn mounted_paths() -> Vec<&'static str> {
         RETIRED_SYNC_PATH,
         HEALTHZ_PATH,
         READYZ_PATH,
+        VERSION_PATH,
     ]
 }
 

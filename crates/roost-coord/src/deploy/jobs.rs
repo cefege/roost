@@ -1,8 +1,7 @@
 //! The in-memory deploy job registry: one record per `roost deploy` run, its
 //! buffered output and bus, and its expiry twenty minutes after it finishes.
 //! Called by `deploy::job_process` (which feeds a job), `deploy::output_stream`
-//! (which reads one), `deploy::catchup` (which hosts are busy) and
-//! `deploy::rpc_deploy`. Ports the registry half of
+//! (which reads one) and `deploy::rpc_deploy`. Ports the registry half of
 //! apps/coord/src/deploy/deploy-jobs.ts.
 //!
 //! A LINE IS BUFFERED AND PUBLISHED UNDER ONE LOCK, and a reader snapshots the

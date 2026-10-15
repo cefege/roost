@@ -21,3 +21,4 @@ pub mod listener;
 pub mod spa;
 pub mod spa_cache;
 pub mod upgrade;
+pub mod version;

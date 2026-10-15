@@ -96,14 +96,9 @@ impl ApplyManifest {
     /// touched. Each one is a value that would otherwise become a directory name
     /// or a unit-file line.
     pub fn validate(&self) -> Result<(), String> {
-        if self.git_sha.is_empty()
-            || !self
-                .git_sha
-                .chars()
-                .all(|character| character.is_ascii_alphanumeric() || character == '-')
-        {
+        if !is_release_directory_name(&self.git_sha) {
             return Err(format!(
-                "apply manifest names a release directory {:?}, which is not a build identity",
+                "apply manifest names a release directory {:?}, which is not a release name",
                 self.git_sha
             ));
         }
@@ -125,6 +120,44 @@ impl ApplyManifest {
             ));
         }
         Ok(())
+    }
+}
+
+/// Whether `name` can be joined under the release root as one directory name:
+/// letters, digits, `-`, `_` and `.`, never starting with `.` and never holding
+/// `..`. A release tag such as `v3.0.0-rc.1` passes; `.`, `..`, `../x`, a
+/// separator or a backslash does not.
+fn is_release_directory_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.starts_with('.')
+        && !name.contains("..")
+        && name.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn manifest(git_sha: &str) -> ApplyManifest {
+        ApplyManifest::new(git_sha, "/tmp/staged", &"0".repeat(64), BTreeMap::new())
+    }
+
+    #[test]
+    fn a_dotted_release_tag_is_a_release_name() {
+        assert!(manifest("v3.0.0-rc.7").validate().is_ok());
+        assert!(manifest("v3.1.0").validate().is_ok());
+    }
+
+    #[test]
+    fn names_that_could_leave_the_release_root_are_refused() {
+        for name in ["", ".", "..", "../etc", "v3/../x", ".hidden", "a/b", "a\\b"] {
+            assert!(
+                manifest(name).validate().is_err(),
+                "{name:?} must be refused"
+            );
+        }
     }
 }
 

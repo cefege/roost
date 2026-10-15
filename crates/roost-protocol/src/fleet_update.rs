@@ -1,7 +1,6 @@
 //! The one classifier for "is this machine on the fleet's current release?",
 //! and the one wording per state. Called by `roost-cli` `status/render.rs` (the
-//! status row) and `roost-coord` `deploy/catchup_decision.rs` (catch-up
-//! admission), the two v2 callers the web's MachineCard shares it with. Ported
+//! status row), the v2 caller the web's MachineCard shares it with. Ported
 //! from `packages/protocol/src/fleet-update.ts`; do not add a second copy.
 
 /// The fleet's desired release is the COORDINATOR's own SHA, and nothing else.

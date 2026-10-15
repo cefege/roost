@@ -28,6 +28,7 @@ pub mod ops;
 pub mod overlay_env;
 pub mod push;
 pub mod quickstart;
+pub mod self_update;
 pub mod services;
 pub mod status;
 pub mod update;
@@ -142,6 +143,8 @@ pub enum Command {
     Test(TestArgs),
     #[command(name = "__keeper-contract", hide = true)]
     KeeperContract(KeeperContractArgs),
+    #[command(name = "__self-update", hide = true)]
+    SelfUpdate(crate::self_update::SelfUpdateArgs),
 }
 
 impl Command {
@@ -179,6 +182,7 @@ impl Command {
             Command::Skill(_) => "skill",
             Command::Test(_) => "test",
             Command::KeeperContract(_) => "__keeper-contract",
+            Command::SelfUpdate(_) => "__self-update",
         }
     }
 }
@@ -217,5 +221,6 @@ pub async fn dispatch(cli: Cli) -> Result<ExitCode, CommandFailure> {
         Command::Skill(args) => ops::skill::run(&args),
         Command::Test(args) => ops::test::run(&args),
         Command::KeeperContract(args) => ops::keeper_contract::run(&args),
+        Command::SelfUpdate(args) => self_update::run(&args).await,
     }
 }

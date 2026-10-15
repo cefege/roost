@@ -21,6 +21,8 @@
 
 pub mod agent_owners;
 pub mod agent_tools;
+mod auto_update;
+mod auto_update_spawn;
 pub mod boot;
 pub mod boot_admission;
 pub mod boot_order;
@@ -110,7 +112,12 @@ pub async fn serve_until(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result
     if let Err(error) = roost_keeper::win32_ffi::disinherit_standard_handles() {
         tracing::warn!(%error, "the worker's standard handles stay inheritable: a keeper it starts holds the launcher's log files open");
     }
-    boot_sequence::run(boot, stop).await
+    let poller = auto_update::spawn_poller(&boot);
+    let result = boot_sequence::run(boot, stop).await;
+    if let Some(poller) = poller {
+        poller.abort();
+    }
+    result
 }
 
 /// Install the JSON-lines log subscriber, or accept that one is already there.

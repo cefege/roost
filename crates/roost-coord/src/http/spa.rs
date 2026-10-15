@@ -35,6 +35,7 @@ use tracing::warn;
 use crate::http::health::{HEALTHZ_PATH, READYZ_PATH};
 use crate::http::listener::CONNECT_PATH_PREFIX;
 use crate::http::spa_cache::{FileState, SpaCache};
+use crate::http::version::VERSION_PATH;
 
 /// The API namespace, which no static path may claim: `/api/db-export` is a
 /// route and every other `/api/` path is a 404, never the shell.
@@ -126,6 +127,7 @@ fn owns_another_surface(path: &str) -> bool {
         || path.starts_with(WS_PREFIX)
         || path == HEALTHZ_PATH
         || path == READYZ_PATH
+        || path == VERSION_PATH
 }
 
 /// The `Accept-Encoding` header, or the empty string. Absent is not `*`: a
