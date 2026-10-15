@@ -468,13 +468,18 @@ LaunchAgent at it, restarts them, and fails a host whose binary reports
 another commit or whose keeper pid changed. The public door is unchanged:
 `mike.roosttt.com` reaches ovh1's edge Caddy, whose `roost-saas-legacy-bridge`
 forwards to the coordinator's NodePort (30413) on ovh1's tailnet address.
-Needs `gh`, `helm` (3.x: the release's history was written by Helm 3) and
-`kubectl` on this machine. The deploy machine is mini-pc (`ssh mini-pc`, user
-`mike`, checkout `~/repos/roost-v3`), with desktop-pc as the other machine
-the k3s API accepts. mini-pc reaches the fleet hosts over its own key
-(`mike@mini-pc fleet deploy`) and the ssh-mesh aliases in its
-`~/.ssh/config`; it is not a fleet host, so every `fleet.json` host is
-reached over ssh.
+Needs `gh`, `helm` (3.x: the release's history was written by Helm 3),
+`kubectl` and `git` on this machine. The deploy machine is mini-pc
+(`ssh mini-pc`, user `mike`, checkout `~/repos/roost-v3`), with desktop-pc as
+the other machine the k3s API accepts. Nothing is built on mini-pc: it has no
+Rust toolchain, and runs a static `xtask` cross-built elsewhere
+(`CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld cargo build -p xtask
+--release --target x86_64-unknown-linux-musl`, copied to
+`~/.local/bin/roost-xtask`), so there the release command is
+`ROOST_REPO_ROOT=~/repos/roost-v3 roost-xtask fleet install --version <tag>`.
+mini-pc reaches the fleet hosts over its own key (`mike@mini-pc fleet
+deploy`) and the ssh-mesh aliases in its `~/.ssh/config`; it is not a fleet
+host, so every `fleet.json` host is reached over ssh.
 
 ---
 
