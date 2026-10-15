@@ -85,6 +85,25 @@ const GOAL_SUBCOMMANDS: &[SlashArgument] = &[
     },
 ];
 
+const MODELPRESET_SUBCOMMANDS: &[SlashArgument] = &[
+    SlashArgument {
+        name: "list",
+        summary: "List saved presets",
+    },
+    SlashArgument {
+        name: "save",
+        summary: "Save the all-folders roles under a name",
+    },
+    SlashArgument {
+        name: "switch",
+        summary: "Make a preset the all-folders roles",
+    },
+    SlashArgument {
+        name: "delete",
+        summary: "Delete a preset",
+    },
+];
+
 pub const AGENT_SLASH_COMMANDS: &[SlashCommand] = &[
     SlashCommand {
         name: "goal",
@@ -112,10 +131,37 @@ pub const AGENT_SLASH_COMMANDS: &[SlashCommand] = &[
         name: "model",
         aliases: &["models"],
         args: "<selector>",
-        summary: "Choose a model",
+        summary: "Open the models hub, or switch this chat to a model",
         client_bare: true,
         subcommands: &[],
-        examples: &["/model", "/model @smol"],
+        examples: &["/model", "/model sonnet", "/model @smol"],
+    },
+    SlashCommand {
+        name: "switch",
+        aliases: &[],
+        args: "<selector>",
+        summary: "Switch this chat's model: a name, provider/id, @role, with an optional :level",
+        client_bare: true,
+        subcommands: &[],
+        examples: &[
+            "/switch",
+            "/switch sonnet",
+            "/switch opus:high",
+            "/switch @smol",
+        ],
+    },
+    SlashCommand {
+        name: "modelpreset",
+        aliases: &[],
+        args: "[list|save|switch|delete] [name]",
+        summary: "Save and switch named sets of model roles",
+        client_bare: false,
+        subcommands: MODELPRESET_SUBCOMMANDS,
+        examples: &[
+            "/modelpreset",
+            "/modelpreset save fast",
+            "/modelpreset switch fast",
+        ],
     },
     SlashCommand {
         name: "effort",

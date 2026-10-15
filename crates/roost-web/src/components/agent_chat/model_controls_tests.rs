@@ -12,13 +12,14 @@ fn a_classifier_account_does_not_enable_chat() {
             provider: "typesafe".into(),
             model_id: "jev-latest".into(),
             name: "System One".into(),
-            reasoning: false,
             available: true,
             classifier: true,
+            ..ModelEntry::default()
         }],
         providers: Vec::new(),
         thinking_levels: Vec::new(),
         default_model: None,
+        recent_models: Vec::new(),
     };
     assert_eq!(
         ModelSetup::from_catalog(Some(&catalog), false),

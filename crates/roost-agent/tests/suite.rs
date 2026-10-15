@@ -12,8 +12,12 @@ mod agent_loop;
 mod find;
 #[path = "loop_mode.rs"]
 mod loop_mode;
+#[path = "model_presets.rs"]
+mod model_presets;
 #[path = "model_scope.rs"]
 mod model_scope;
+#[path = "model_switch.rs"]
+mod model_switch;
 #[path = "plan_and_tasks.rs"]
 mod plan_and_tasks;
 #[path = "quality_tools.rs"]

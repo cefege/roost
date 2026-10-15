@@ -157,6 +157,14 @@ async fn conversation_entries_settings_and_credentials_round_trip() {
                 .into_iter()
                 .collect(),
         }],
+        model_presets: [(
+            "fast".to_owned(),
+            [("smol".to_owned(), "openrouter/model".to_owned())]
+                .into_iter()
+                .collect(),
+        )]
+        .into_iter()
+        .collect(),
     };
     store.save_settings(&settings).await.expect("save settings");
     assert_eq!(store.settings().await.expect("load settings"), settings);

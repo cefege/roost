@@ -361,6 +361,7 @@ impl AgentRuntime {
                 AgentError::InvalidArgument(format!("role {}: {error}", role.as_str()))
             })?;
         }
+        crate::model_presets::validate_presets(&settings.model_presets)?;
         settings.folder_model_roles =
             folder_roles::prepare_folder_rows(&settings.folder_model_roles)?;
         self.inner.store.save_settings(&settings).await?;

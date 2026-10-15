@@ -26,6 +26,8 @@ pub mod llm_adapter;
 mod loop_mode;
 pub mod memory_store;
 mod model_call;
+mod model_presets;
+mod model_switch;
 mod plan_mode;
 pub mod projection;
 pub mod prompts;

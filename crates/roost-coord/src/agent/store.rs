@@ -8,6 +8,7 @@ use futures::future::BoxFuture;
 use roost_agent::error::AgentError;
 use roost_agent::records::{AgentSettings, ConversationRecord, Entry};
 use roost_agent::traits::{AdmitOutcome, AgentStore, CommandAdmission, LeaseFence};
+use roost_protocol::wire::agent_chat::ModelRef;
 use sqlx::Row as _;
 use tokio_util::sync::CancellationToken;
 
@@ -289,6 +290,30 @@ impl AgentStore for CoordAgentStore {
             Ok(())
         })
     }
+}
+
+/// Models conversations were explicitly switched to, most recently active first.
+pub async fn recent_models(db: &CoordDb, limit: i64) -> Result<Vec<ModelRef>, AgentError> {
+    let rows = sqlx::query(
+        "SELECT model_provider, model_id FROM agent_conversations \
+         WHERE model_provider IS NOT NULL AND model_id IS NOT NULL \
+         AND model_provider <> '' AND model_id <> '' \
+         GROUP BY model_provider, model_id ORDER BY MAX(updated_ms) DESC LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(db.pool())
+    .await
+    .map_err(store_error)?;
+    rows.iter()
+        .map(|row| {
+            Ok(ModelRef {
+                provider: row
+                    .try_get::<String, _>("model_provider")
+                    .map_err(store_error)?,
+                model_id: row.try_get::<String, _>("model_id").map_err(store_error)?,
+            })
+        })
+        .collect()
 }
 
 pub(super) fn now_ms() -> i64 {

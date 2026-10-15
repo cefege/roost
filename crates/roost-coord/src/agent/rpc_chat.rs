@@ -12,6 +12,9 @@ use crate::auth::principal::require_account_device;
 use crate::coord_core::{Caller, CoordCore};
 use crate::rpc::service::ok_response;
 
+/// How many recently used models the catalog carries.
+const RECENT_MODEL_LIMIT: i64 = 15;
+
 pub async fn handle_agent_chat_list(
     core: &CoordCore,
     caller: &Caller,
@@ -259,9 +262,13 @@ pub async fn handle_agent_models_list(
     _request: proto::AgentModelsListRequest,
 ) -> ServiceResult<proto::AgentModelsListResponse> {
     require_account_device(caller)?;
-    let catalog = super::rpc_accounts::models_catalog(&core.services.agent)
+    let mut catalog = super::rpc_accounts::models_catalog(&core.services.agent)
         .await
         .map_err(credential_status)?;
+    catalog.recent_models =
+        super::store::recent_models(&core.services.agent.sink.database(), RECENT_MODEL_LIMIT)
+            .await
+            .map_err(agent_status)?;
     let catalog_json =
         serde_json::to_string(&catalog).map_err(|_| internal("catalog did not serialize"))?;
     ok_response(proto::AgentModelsListResponse {

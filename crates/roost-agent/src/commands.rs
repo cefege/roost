@@ -9,7 +9,7 @@ use crate::error::AgentError;
 use crate::journal::effective_entries;
 use crate::records::{ConversationRecord, Entry, model_ref};
 use crate::runtime::AgentRuntime;
-use crate::{advisor, btw, compaction, plan_mode, roles, turn};
+use crate::{advisor, btw, compaction, model_presets, model_switch, plan_mode, turn};
 
 pub(crate) async fn execute(
     runtime: &AgentRuntime,
@@ -20,7 +20,8 @@ pub(crate) async fn execute(
     tracing::info!(conversation_id = %record.id, command = command.name, "agent slash command");
     match command.name {
         "plan" => plan_mode::toggle(runtime, record, args).await,
-        "model" => set_model(runtime, record, args).await,
+        "model" | "switch" => set_model(runtime, record, command.name, args).await,
+        "modelpreset" => model_presets::command(runtime, record, args).await,
         "effort" => set_effort(runtime, record, args).await,
         "usage" => usage(runtime, record).await,
         "compact" => compact(runtime, record, args).await,
@@ -96,16 +97,17 @@ async fn latest_user(
 async fn set_model(
     runtime: &AgentRuntime,
     record: &ConversationRecord,
+    name: &str,
     args: &str,
 ) -> Result<(), AgentError> {
     if args.is_empty() {
-        return Err(AgentError::InvalidArgument(
-            "/model needs a selector such as anthropic/claude-sonnet-5 or @smol".into(),
-        ));
+        return Err(AgentError::InvalidArgument(format!(
+            "/{name} needs a model: a name like sonnet, a provider/id such as anthropic/claude-sonnet-5, or a role such as @smol"
+        )));
     }
     let settings = runtime.settings_for(record).await?;
     let Some(resolved) =
-        roles::resolve_selector(runtime.inner.llm.as_ref(), &settings, args).await?
+        model_switch::resolve_session_selector(runtime.inner.llm.as_ref(), &settings, args).await?
     else {
         runtime
             .notice(

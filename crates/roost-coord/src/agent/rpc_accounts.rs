@@ -97,6 +97,16 @@ pub async fn models_catalog(agent: &AgentService) -> Result<ModelsCatalog, Crede
             reasoning: model.reasoning,
             available: connected.contains(&model.provider),
             classifier: model.kind == ModelKind::Classifier,
+            context_window: model.context_window,
+            max_output_tokens: model.max_tokens,
+            images: model.images,
+            input_cost_micros: cost_micros(model.cost.input),
+            output_cost_micros: cost_micros(model.cost.output),
+            thinking_levels: model
+                .supported_thinking_levels()
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
         })
         .collect();
     models.sort_by(compare_models_newest_first);
@@ -105,7 +115,17 @@ pub async fn models_catalog(agent: &AgentService) -> Result<ModelsCatalog, Crede
         providers,
         thinking_levels: agent.runtime.thinking_levels().await,
         default_model: agent.runtime.default_model().await,
+        recent_models: Vec::new(),
     })
+}
+
+/// USD per million tokens as integer micros; `0` for free, unknown or invalid.
+fn cost_micros(usd_per_million: f64) -> u64 {
+    if usd_per_million.is_finite() && usd_per_million > 0.0 {
+        (usd_per_million * 1_000_000.0).round() as u64
+    } else {
+        0
+    }
 }
 
 async fn account_entries(
@@ -239,6 +259,7 @@ pub async fn handle_agent_settings_get(
         advisor_enabled: settings.advisor_enabled,
         searxng_url: settings.searxng_url,
         folder_model_roles: settings.folder_model_roles,
+        model_presets: settings.model_presets,
     };
     let settings_json =
         serde_json::to_string(&view).map_err(|_| internal("settings did not serialize"))?;
@@ -276,6 +297,7 @@ pub async fn handle_agent_settings_set(
         advisor_enabled: view.advisor_enabled,
         searxng_url: view.searxng_url,
         folder_model_roles: view.folder_model_roles,
+        model_presets: view.model_presets,
     };
     core.services
         .agent

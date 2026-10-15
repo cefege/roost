@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::model::ModelRef;
+use super::model_presets::ModelPresets;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ModelsCatalog {
@@ -11,8 +12,11 @@ pub struct ModelsCatalog {
     pub providers: Vec<ProviderEntry>,
     pub thinking_levels: Vec<String>,
     pub default_model: Option<ModelRef>,
+    /// Models conversations were explicitly switched to, most recently active first.
+    #[serde(default)]
+    pub recent_models: Vec<ModelRef>,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelEntry {
     pub provider: String,
     pub model_id: String,
@@ -22,6 +26,22 @@ pub struct ModelEntry {
     /// A judgment (System One) model: offered only for the `judge` role.
     #[serde(default)]
     pub classifier: bool,
+    #[serde(default)]
+    pub context_window: u64,
+    #[serde(default)]
+    pub max_output_tokens: u64,
+    /// Accepts image input.
+    #[serde(default)]
+    pub images: bool,
+    /// USD per million input tokens × 1 000 000; `0` is free or unknown.
+    #[serde(default)]
+    pub input_cost_micros: u64,
+    /// USD per million output tokens × 1 000 000; `0` is free or unknown.
+    #[serde(default)]
+    pub output_cost_micros: u64,
+    /// Thinking levels this model accepts, in `THINKING_LEVELS` order.
+    #[serde(default)]
+    pub thinking_levels: Vec<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderEntry {
@@ -98,6 +118,9 @@ pub struct AgentSettingsView {
     /// A role absent from a folder's row inherits the global value.
     #[serde(default)]
     pub folder_model_roles: Vec<FolderModelRoles>,
+    /// Preset name → role name → selector chain.
+    #[serde(default)]
+    pub model_presets: ModelPresets,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LoginState {

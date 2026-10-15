@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use roost_llm::{AssistantBlock, StopReason, Usage};
 use roost_protocol::wire::agent_chat::{
-    AgentRunState, AskQuestion, FolderModelRoles, GoalState, ModelRef, TodoPhase,
+    AgentRunState, AskQuestion, FolderModelRoles, GoalState, ModelPresets, ModelRef, TodoPhase,
 };
 use serde::{Deserialize, Serialize};
 
@@ -290,6 +290,9 @@ pub struct AgentSettings {
     pub searxng_url: Option<String>,
     #[serde(default)]
     pub folder_model_roles: Vec<FolderModelRoles>,
+    /// Named sets of all-folders roles: preset → role name → selector chain.
+    #[serde(default)]
+    pub model_presets: ModelPresets,
 }
 
 impl AgentSettings {
@@ -304,6 +307,7 @@ impl AgentSettings {
             advisor_enabled: self.advisor_enabled,
             searxng_url: self.searxng_url.clone(),
             folder_model_roles: Vec::new(),
+            model_presets: ModelPresets::new(),
         };
         let Some(row) = self
             .folder_model_roles

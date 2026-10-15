@@ -14,16 +14,27 @@ const MAX_GENERATION: u32 = 1_000;
 /// Newest generation first; unversioned names after every versioned one;
 /// ties alphabetical by name, then by id.
 pub fn compare_models_newest_first(left: &ModelEntry, right: &ModelEntry) -> Ordering {
-    let left_version = model_version(&left.name).or_else(|| model_version(&left.model_id));
-    let right_version = model_version(&right.name).or_else(|| model_version(&right.model_id));
+    compare_newest_first(&left.name, &left.model_id, &right.name, &right.model_id)
+}
+
+/// [`compare_models_newest_first`] over a bare display name and model id, for
+/// callers that hold some other model type.
+pub fn compare_newest_first(
+    left_name: &str,
+    left_id: &str,
+    right_name: &str,
+    right_id: &str,
+) -> Ordering {
+    let left_version = model_version(left_name).or_else(|| model_version(left_id));
+    let right_version = model_version(right_name).or_else(|| model_version(right_id));
     match (left_version, right_version) {
         (Some(left_version), Some(right_version)) => right_version.cmp(&left_version),
         (Some(_), None) => Ordering::Less,
         (None, Some(_)) => Ordering::Greater,
         (None, None) => Ordering::Equal,
     }
-    .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
-    .then_with(|| left.model_id.cmp(&right.model_id))
+    .then_with(|| left_name.to_lowercase().cmp(&right_name.to_lowercase()))
+    .then_with(|| left_id.cmp(right_id))
 }
 
 /// The first dotted number in a model name: `"Claude Opus 4.1"` → `[4, 1]`.
@@ -65,9 +76,7 @@ mod tests {
             provider: "anthropic".to_owned(),
             model_id: name.to_lowercase().replace(' ', "-"),
             name: name.to_owned(),
-            reasoning: false,
-            available: true,
-            classifier: false,
+            ..ModelEntry::default()
         }
     }
 

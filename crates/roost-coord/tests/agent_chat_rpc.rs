@@ -8,6 +8,8 @@
 mod agent_fixture;
 mod db_support;
 
+#[path = "agent_chat_rpc/models_hub.rs"]
+mod models_hub;
 #[path = "agent_chat_rpc/recovery.rs"]
 mod recovery;
 
