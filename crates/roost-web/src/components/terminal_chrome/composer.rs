@@ -170,9 +170,6 @@ pub fn TerminalComposer(
                 return;
             }
             let text = draft();
-            if text.is_empty() {
-                return;
-            }
             handle.send_text(&text, true);
             hold_height.set(true);
             draft.set(String::new());
@@ -197,13 +194,20 @@ pub fn TerminalComposer(
     };
     // While a stopped recording waits for its last words the press is queued
     // with the mic, which submits through `submit_queued` once they land.
+    // Staged attachments take priority over the draft, whichever event sent.
     let mut press_send = {
         let dictation = dictation.clone();
         let mut send = send.clone();
-        move || match dictation.send_gate() {
-            SendGate::Submit => send(),
-            SendGate::AfterFinalize => dictation.send_after_finalize(),
-            SendGate::Withheld => {}
+        move || {
+            if !staged_files().is_empty() {
+                send_staged_files(staged_files, on_send_uploads);
+                return;
+            }
+            match dictation.send_gate() {
+                SendGate::Submit => send(),
+                SendGate::AfterFinalize => dictation.send_after_finalize(),
+                SendGate::Withheld => {}
+            }
         }
     };
     let submit = {
@@ -234,7 +238,8 @@ pub fn TerminalComposer(
         // A live recording owns the field: an Enter then would send a
         // half-heard sentence, so it stays the newline the key is for. A
         // stopped one takes it as Send, as the button does.
-        // A staged attachment send takes priority over the draft submit.
+        // A staged attachment send takes priority over the draft submit
+        // (`press_send` checks it).
         if event.key() == Key::Enter
             && !event.modifiers().contains(Modifiers::SHIFT)
             && dictation_for_keys.send_gate().offers_send()
@@ -242,11 +247,7 @@ pub fn TerminalComposer(
             && dom::enter_targets_composer_or_staged_row(&event)
         {
             event.prevent_default();
-            if !staged_files().is_empty() {
-                send_staged_files(staged_files, on_send_uploads);
-            } else {
-                press_send();
-            }
+            press_send();
             return;
         }
         // Escape cancels staged files; otherwise focus returns to the terminal.
