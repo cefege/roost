@@ -214,7 +214,7 @@ pub fn ModelSetupCard(setup: ModelSetup, on_retry: EventHandler<()>) -> Element 
         Card {
             title: Some(title.to_string()),
             variant: CardVariant::Outlined,
-            class: "agent-chat__notice-card agent-chat__notice-card--info agent-chat__model-setup",
+            class: Some("agent-chat__model-setup".to_string()),
             test_id: Some("agent-chat-model-setup-card".to_string()),
             children: rsx! {
                 p { class: "agent-chat__model-setup-body", "{body}" }

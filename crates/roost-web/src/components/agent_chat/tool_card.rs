@@ -6,7 +6,12 @@ use std::borrow::Cow;
 
 use dioxus::prelude::*;
 
-use crate::components::md::{Button, ButtonVariant, Icon, IconSize};
+use super::agent_alert::{AgentAlert, AlertTone};
+use super::markdown::TERMINAL_GROUND_STYLE;
+use crate::components::md::list_row::list_row_class;
+use crate::components::md::{
+    Button, ButtonVariant, Icon, IconSize, List, ListRow, Surface, SurfaceRadius,
+};
 use crate::pump::use_store;
 use crate::router_state::use_navigate;
 
@@ -114,7 +119,7 @@ pub fn ToolCard(
     rsx! {
         div { class: "agent-chat__step", "data-state": state,
             details { class: "agent-chat__step-disclosure",
-            summary { class: "agent-chat__step-summary",
+            summary { class: list_row_class(true, Some("agent-chat__step-summary")),
                 span { class: "agent-chat__step-icon", Icon { name: icon, size: IconSize::Sm } }
                 span { class: "agent-chat__step-verb", "{verb}" }
                 if !target.is_empty() { code { class: "agent-chat__step-target", title: target.clone(), "{target}" } }
@@ -141,17 +146,21 @@ pub fn ToolCard(
                 if !details_json.is_empty() && details_json != "{}" {
                     details { class: "agent-chat__step-detail-disclosure",
                         summary { "Execution details" }
-                        pre { class: "agent-chat__step-metadata", "{details_json}" }
+                        Surface { level: 2, radius: SurfaceRadius::Sm, pad: 2, class: "agent-chat__step-metadata",
+                            pre { class: "agent-chat__step-pre", "{details_json}" }
+                        }
                     }
                 }
                 if !args_json.is_empty() && args_json != "{}" {
                     details { class: "agent-chat__step-detail-disclosure",
                         summary { "Arguments" }
-                        pre { class: "agent-chat__step-metadata", "{args_json}" }
+                        Surface { level: 2, radius: SurfaceRadius::Sm, pad: 2, class: "agent-chat__step-metadata",
+                            pre { class: "agent-chat__step-pre", "{args_json}" }
+                        }
                     }
                 }
                 if !running && has_output {
-                    pre { class: "agent-chat__step-output", "{visible_output}" }
+                    TerminalOutput { text: visible_output.to_string(), class: "agent-chat__step-output" }
                 } else if !has_output && !queued {
                     p { class: "agent-chat__step-empty", if running { "Waiting for output…" } else { "No output was returned." } }
                 }
@@ -167,17 +176,17 @@ pub fn ToolCard(
                 }
                 if !child_links.is_empty() {
                     nav { class: "agent-chat__task-children", aria_label: "Subagent conversations",
-                        for (child_id, agent, title, status) in child_links {
-                            a {
-                                key: "{child_id}",
-                                href: crate::routes::agent_href(&child_id),
-                                onclick: move |event| {
-                                    if event.modifiers().is_empty() {
-                                        event.prevent_default();
-                                        navigate.call(crate::routes::agent_href(&child_id));
-                                    }
-                                },
-                                "{agent}: {title} — {status}"
+                        List { contained: true,
+                            for (child_id, agent, title, status) in child_links {
+                                ListRow {
+                                    key: "{child_id}",
+                                    dense: true,
+                                    class: "agent-chat__task-child",
+                                    href: crate::routes::agent_href(&child_id),
+                                    on_navigate: navigate,
+                                    headline: rsx! { "{agent}: {title}" },
+                                    support: rsx! { "{status}" },
+                                }
                             }
                         }
                     }
@@ -186,22 +195,35 @@ pub fn ToolCard(
         }
             if running && has_output {
                 div { class: "agent-chat__step-live-preview", aria_label: "Recent live tool output",
-                    pre { class: "agent-chat__step-output", "{preview}" }
+                    TerminalOutput { text: preview.to_string(), class: "agent-chat__step-output" }
                     if preview_trimmed { span { class: "agent-chat__step-fact", "Latest output preview · up to {PREVIEW_LINES} lines / {PREVIEW_CHARS} characters." } }
                 }
             }
             if timed_out {
-                p { class: "agent-chat__step-warning", role: "status", "Execution timed out." }
+                AgentAlert { tone: AlertTone::Warning, p { "Execution timed out." } }
             }
             if failed {
-                p { class: "agent-chat__step-error", role: "alert", "{error_preview}" }
+                AgentAlert { p { class: "agent-chat__step-error-text", "{error_preview}" } }
                 if preview_trimmed {
                     span { class: "agent-chat__step-fact", "Latest error preview · up to {PREVIEW_LINES} lines / {PREVIEW_CHARS} characters. Open details for the full transported output." }
                 }
             }
             if outcome_unknown {
-                p { class: "agent-chat__step-warning", role: "status", "Final outcome unknown. Inspect current state before repeating the call." }
+                AgentAlert { tone: AlertTone::Warning,
+                    p { "Final outcome unknown. Inspect current state before repeating the call." }
+                }
             }
+        }
+    }
+}
+
+/// Terminal output keeps the terminal's ground, the one colour the chat borrows
+/// from the terminal rather than from the design tokens.
+#[component]
+fn TerminalOutput(text: String, class: &'static str) -> Element {
+    rsx! {
+        Surface { radius: SurfaceRadius::Md, style: TERMINAL_GROUND_STYLE.to_string(),
+            pre { class: class, "{text}" }
         }
     }
 }

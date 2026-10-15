@@ -8,6 +8,7 @@ use roost_protocol::wire::agent_chat::ProviderEntry;
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::client::rpc::calls::agent_chat::{SetAgentApiKey, StartAgentLogin};
 
+use crate::components::agent_chat::agent_alert::ERROR_TEXT_CLASS;
 use crate::components::md::{Button, ButtonVariant, Dialog, TextField};
 use crate::pump::{Pump, use_store};
 
@@ -80,7 +81,7 @@ pub fn AgentConnectDialog(
                         onclick: move |_| begin_oauth(oauth_pump.clone(), oauth_provider_id.clone(), login_id, error),
                         "Sign in with {provider.name}"
                     }
-                    p { class: "agent-settings__muted md-label-m", "or use an API key" }
+                    p { class: "agent-settings__support", "or use an API key" }
                 }
                 TextField {
                     label: "API key",
@@ -96,7 +97,7 @@ pub fn AgentConnectDialog(
                     "Save API key"
                 }
                 if !error().is_empty() {
-                    p { class: "agent-settings__notice md-body-s", role: "alert", {error()} }
+                    p { class: ERROR_TEXT_CLASS, role: "alert", {error()} }
                 }
                 Button {
                     variant: ButtonVariant::Link,

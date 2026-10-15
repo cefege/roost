@@ -9,7 +9,10 @@ use roost_client_core::client::rpc::calls::agent_chat::{
     CancelAgentLogin, PollAgentLogin, RespondAgentLogin,
 };
 
-use crate::components::md::{Button, ButtonVariant, Dialog, IconButton, IconButtonSize, TextField};
+use crate::components::agent_chat::agent_alert::ERROR_TEXT_CLASS;
+use crate::components::md::{
+    Button, ButtonVariant, Dialog, IconButton, IconButtonSize, Surface, SurfaceRadius, TextField,
+};
 use crate::pump::{Pump, use_store};
 use roost_protocol::wire::agent_chat::{LoginPromptType, LoginState, LoginStatus};
 
@@ -116,9 +119,11 @@ pub fn AgentLoginDialog(
             div { class: "agent-settings__dialog-body",
                 if let Some(value) = current {
                     for notice in value.notices {
-                        div {
+                        Surface {
                             key: "{notice.notice_type:?}-{notice.message}",
-                            class: "agent-settings__notice-card",
+                            border: true,
+                            pad: Some(3),
+                            radius: SurfaceRadius::Md,
                             p { class: "md-body-m", "{notice.message}" }
                             if notice.notice_type == roost_protocol::wire::agent_chat::LoginNoticeType::AuthUrl {
                                 if let Some(url) = notice.url {
@@ -136,7 +141,7 @@ pub fn AgentLoginDialog(
                     if value.state == LoginStatus::Done { p { class: "md-body-s", "Sign-in complete." } }
                     if value.state == LoginStatus::Failed {
                         div { class: "agent-settings__login-failed", role: "alert",
-                            p { class: "agent-settings__notice md-body-s", {value.error.unwrap_or_else(|| "Sign-in failed.".to_owned())} }
+                            p { class: ERROR_TEXT_CLASS, {value.error.unwrap_or_else(|| "Sign-in failed.".to_owned())} }
                             p { class: "md-body-s",
                                 "A code works once, and only for the most recent sign-in link. Start over for a fresh link."
                             }
@@ -152,7 +157,7 @@ pub fn AgentLoginDialog(
                     p { class: "md-body-s", "Connecting to provider…" }
                 }
                 if !error_message.is_empty() {
-                    p { class: "agent-settings__notice md-body-s", role: "alert", {error_message} }
+                    p { class: ERROR_TEXT_CLASS, role: "alert", {error_message} }
                 }
                 if let Some(prompt) = prompt {
                     if prompt.prompt_type == LoginPromptType::ManualCode {
@@ -214,7 +219,10 @@ pub fn AgentLoginDialog(
 fn SignInUrl(url: String) -> Element {
     let mut copied = use_signal(|| false);
     rsx! {
-        div { class: "agent-settings__auth-url",
+        Surface {
+            class: "agent-settings__auth-url",
+            pad: Some(2),
+            radius: SurfaceRadius::Sm,
             a {
                 class: "agent-settings__auth-url-link",
                 href: "{url}",

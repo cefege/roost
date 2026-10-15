@@ -11,7 +11,7 @@ use roost_protocol::wire::agent_chat::{
 
 use super::model_controls::supports_reasoning;
 use super::model_hub::hub_logic::model_argument_values;
-use crate::components::md::{List, ListRow};
+use crate::components::md::{List, ListRow, Surface};
 
 #[cfg(target_arch = "wasm32")]
 use web_sys::{ScrollIntoViewOptions, ScrollLogicalPosition};
@@ -232,8 +232,9 @@ pub fn SlashMenu(
     let listbox = listbox_id(&conversation_id);
     let has_options = !state.options.is_empty();
     rsx! {
-        div { class: "agent-chat__slash-menu", "data-testid": "agent-chat-command-menu",
+        div { class: "agent-chat__slash-menu",
             onmousedown: move |event: MouseEvent| event.prevent_default(),
+            Surface { class: "agent-chat__slash-panel", test_id: "agent-chat-command-menu", level: 2, elevation: 2, border: true,
             if let Some(command) = help {
                 div { class: "agent-chat__command-help", "data-testid": "agent-chat-command-help",
                     div { class: "agent-chat__command-usage",
@@ -273,6 +274,7 @@ pub fn SlashMenu(
                     }
                 }
                 div { class: "agent-chat__command-hint", "↑↓ move · Tab complete · Enter select · Esc close" }
+            }
             }
         }
     }

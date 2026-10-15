@@ -8,6 +8,10 @@ use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd, html};
 /// The attribute the transcript's click delegation looks for on a Copy button.
 pub const COPY_CODE_ATTRIBUTE: &str = "data-copy-code";
 
+/// The terminal's own ground and ink. Code blocks and tool output share it so
+/// both read as terminal text rather than as chat surfaces.
+pub const TERMINAL_GROUND_STYLE: &str = "background: var(--term-bg); color: var(--term-fg);";
+
 /// Convert chat Markdown to HTML while treating host-provided content as untrusted.
 pub fn markdown_to_safe_html(text: &str) -> String {
     let options =
@@ -52,15 +56,24 @@ fn code_block_open(kind: &CodeBlockKind<'_>) -> String {
     } else {
         language.as_str()
     };
-    // The block lives in sanitized `innerHTML`, where no component can mount,
-    // so the button takes the `Button` primitive's own classes.
+    // The block lives in sanitized `innerHTML`, where no component can mount, so
+    // the chrome takes the primitives' own class and style helpers. The terminal
+    // ground stays: code reads as terminal output.
     let button_class = crate::components::md::button::button_class(
         crate::components::md::ButtonVariant::Ghost,
         crate::components::md::ButtonSize::Xs,
         Some("agent-chat__code-copy"),
     );
+    let wrapper_style = crate::components::md::surface::surface_style(
+        1,
+        0,
+        crate::components::md::SurfaceRadius::Md,
+        None,
+        true,
+        Some(TERMINAL_GROUND_STYLE),
+    );
     format!(
-        "<div class=\"agent-chat__code\"><div class=\"agent-chat__code-bar\">\
+        "<div class=\"agent-chat__code\" style=\"{wrapper_style}\"><div class=\"agent-chat__code-bar\">\
          <span class=\"agent-chat__code-language\">{label}</span>\
          <button type=\"button\" class=\"{button_class}\" {COPY_CODE_ATTRIBUTE}>Copy</button>\
          </div><pre><code>"

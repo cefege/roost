@@ -4,7 +4,8 @@
 
 use dioxus::prelude::*;
 
-use crate::components::md::{Button, ButtonVariant, Icon, IconSize};
+use super::agent_alert::AgentAlert;
+use crate::components::md::{Button, ButtonVariant};
 
 #[component]
 pub(super) fn ComposerErrorBanner(
@@ -35,13 +36,8 @@ pub(super) fn ComposerErrorBanner(
     let headline = error_headline(&error_text);
     let has_details = error_text.len() > 80 || error_text.lines().count() > 1;
     rsx! {
-        section {
-            class: "agent-chat__pinned-error",
-            role: "alert",
-            "aria-live": "assertive",
-            "data-testid": "agent-chat-pinned-error",
+        AgentAlert { test_id: "agent-chat-pinned-error",
             div { class: "agent-chat__pinned-error-head",
-                Icon { name: "error", size: IconSize::Sm }
                 strong { "{headline}" }
                 if has_details {
                     Button {

@@ -5,6 +5,7 @@
 //! renders them and sends the UI-direct `AgentChat*` calls.
 
 mod advisory_card;
+pub mod agent_alert;
 mod composer;
 mod composer_commands;
 mod composer_helpers;

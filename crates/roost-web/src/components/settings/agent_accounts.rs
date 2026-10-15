@@ -8,9 +8,10 @@ use roost_protocol::wire::agent_chat::{AccountEntry, AccountKind, AccountUsageWi
 
 use super::agent_provider_status::{AccountHealth, ProviderSummary};
 use super::format::time_until;
+use crate::components::agent_chat::agent_alert::ERROR_TEXT_CLASS;
 use crate::components::md::{
-    Button, ButtonSize, ButtonVariant, Card, CardVariant, Chip, List, ListRow, ProgressBar,
-    StatusDot,
+    Button, ButtonSize, ButtonVariant, Card, CardVariant, Chip, List, ListRow, MetricTile,
+    SectionTitle, StatusDot,
 };
 use crate::pump::{Pump, use_store};
 #[cfg(target_arch = "wasm32")]
@@ -35,20 +36,21 @@ pub fn ConnectedProviderCard(
         plural(summary.model_count, "model", "models"),
     ]
     .join(" · ");
+    let state = provider_state(&health, account_count, now_ms);
     rsx! {
         Card {
             variant: CardVariant::Outlined,
             class: "agent-settings__provider-card",
             test_id: Some(format!("agent-provider-{}", summary.provider.id)),
-            children: rsx! {
-                div { class: "agent-settings__provider-head",
+            title: Some(summary.provider.name.clone()),
+            supporting: Some(format!("{counts} · {state}")),
+            trailing: rsx! {
+                div { class: "agent-settings__provider-actions",
                     StatusDot { status: health.dot().to_owned(), size: 10, title: Some(health_title(&health, now_ms)) }
-                    div { class: "agent-settings__provider-info",
-                        span { class: "agent-settings__provider-name", "{summary.provider.name}" }
-                        span { class: "agent-settings__provider-id", "{counts} · {provider_state(&health, account_count, now_ms)}" }
-                    }
                     Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm, icon: "add", onclick: move |_| on_add.call(()), "Add account" }
                 }
+            },
+            children: rsx! {
                 if !summary.accounts.is_empty() {
                     List { contained: true,
                         for account in summary.accounts.clone() {
@@ -82,16 +84,20 @@ fn AccountRow(account: AccountEntry, now_ms: u64, on_removed: EventHandler<()>) 
             leading: rsx! { StatusDot { status: health.dot().to_owned(), title: Some(health_title(&health, now_ms)) } },
             headline: rsx! { "{account.label}" },
             support: rsx! {
-                span { class: "agent-settings__account-state", "{kind_label(account.kind)} · {health_title(&health, now_ms)}" }
-                if !windows.is_empty() {
-                    div { class: "agent-settings__usage",
-                        for window in windows {
-                            UsageWindow { key: "{window.name}", window, now_ms }
+                div { class: "agent-settings__support-stack",
+                    div { "{kind_label(account.kind)} · {health_title(&health, now_ms)}" }
+                    if !windows.is_empty() {
+                        div { class: "md-metric-grid",
+                            for window in windows {
+                                UsageWindow { key: "{window.name}", window, now_ms }
+                            }
                         }
                     }
+                    if let Some(note) = note { div { class: "agent-settings__support", "{note}" } }
+                    if !error().is_empty() {
+                        p { class: ERROR_TEXT_CLASS, role: "alert", {error()} }
+                    }
                 }
-                if let Some(note) = note { span { class: "agent-settings__muted md-body-s", "{note}" } }
-                if !error().is_empty() { span { class: "agent-settings__notice md-body-s", role: "alert", {error()} } }
             },
             trailing: rsx! {
                 if confirming() {
@@ -116,11 +122,13 @@ fn UsageWindow(window: AccountUsageWindow, now_ms: u64) -> Element {
         .and_then(|at| u64::try_from(at).ok())
         .map(|at| format!(" · resets {}", time_until(now_ms, at)))
         .unwrap_or_default();
-    let caption = format!("{} · {percent:.0}% used{reset}", window.name);
     rsx! {
-        div { class: "agent-settings__usage-window",
-            span { class: "agent-settings__usage-caption", "{caption}" }
-            ProgressBar { value: Some(window.used_fraction), label: caption.clone(), meter: true }
+        MetricTile {
+            label: window.name.clone(),
+            icon: None,
+            value: format!("{percent:.0}%"),
+            support: Some(format!("used{reset}")),
+            ratio: Some(window.used_fraction),
         }
     }
 }
@@ -138,7 +146,7 @@ fn ModelPreview(models: Vec<ModelEntry>) -> Element {
     };
     rsx! {
         div { class: "agent-settings__model-preview",
-            span { class: "agent-settings__muted md-label-m", "Models" }
+            SectionTitle { "Models" }
             div { class: "agent-settings__model-chips",
                 for model in models.into_iter().take(shown) {
                     Chip {

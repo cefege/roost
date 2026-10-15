@@ -8,7 +8,7 @@ use roost_protocol::wire::agent_chat::ProviderEntry;
 use super::agent_accounts::plural;
 use super::agent_provider_status::ProviderSummary;
 use crate::components::md::{
-    Button, ButtonSize, ButtonVariant, List, ListRow, StatusDot, TextField,
+    Button, ButtonSize, ButtonVariant, EmptyState, List, ListRow, StatusDot, TextField,
 };
 
 #[component]
@@ -39,9 +39,9 @@ pub fn AvailableProviders(
             }
         }
         if total == 0 {
-            p { class: "agent-settings__muted md-body-s", "Every provider is signed in." }
+            EmptyState { icon: "check_circle".to_owned(), title: "Every provider is signed in.".to_owned() }
         } else if shown.is_empty() {
-            p { class: "agent-settings__muted md-body-s", "No provider matches “{filter}”." }
+            EmptyState { icon: "search_off".to_owned(), title: format!("No provider matches “{}”.", filter()) }
         } else {
             List { contained: true,
                 for summary in shown {

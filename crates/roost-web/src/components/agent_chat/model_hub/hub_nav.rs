@@ -5,7 +5,7 @@
 use dioxus::prelude::*;
 
 use super::hub_logic::{HubSection, HubView};
-use crate::components::md::{Icon, List, ListRow};
+use crate::components::md::{Chip, Icon, List, ListRow};
 
 /// The element id of a view's row, so focus can return to it.
 pub(super) fn nav_row_id(view: &HubView) -> String {
@@ -48,15 +48,15 @@ pub(super) fn HubNav(
                                 support: section.locked.then(|| rsx! { "Not signed in" }),
                                 trailing: rsx! {
                                     if let Some(count) = count {
-                                        span { class: "model-hub__count", "{count}" }
+                                        Chip { label: count.to_string(), small: true }
                                     }
                                     if compact {
-                                        Icon { name: "chevron_right".to_owned(), class: "model-hub__chevron" }
+                                        Icon { name: "chevron_right".to_owned() }
                                     }
                                 },
+                                dense: true,
                                 selected: is_current && !compact,
                                 aria_current: (is_current && !compact).then(|| "true".to_owned()),
-                                class: section.locked.then(|| "model-hub__locked".to_owned()),
                                 test_id: format!("agent-model-hub-view-{}", section.view.id()),
                                 onclick: move |_| on_select.call(target.clone()),
                             }

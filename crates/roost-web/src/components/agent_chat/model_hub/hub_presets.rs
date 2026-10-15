@@ -91,94 +91,96 @@ pub(super) fn HubPresets(
             "data-testid": "agent-model-presets",
             SectionTitle { "Presets" }
             if current.model_presets.is_empty() {
-                p { class: "model-hub__empty",
+                p { class: "agent-settings__support",
                     "No presets yet. A preset saves every all-folders role chain under one name."
                 }
-            }
-            List {
-                for (preset_name, roles) in current.model_presets.clone() {
-                    {
-                        let summary = roles
-                            .iter()
-                            .map(|(role, chain)| format!("{role}: {chain}"))
-                            .collect::<Vec<_>>()
-                            .join("; ");
-                        let is_active = active.as_deref() == Some(preset_name.as_str());
-                        let asking = confirming().as_deref() == Some(preset_name.as_str());
-                        let apply_pump = pump.clone();
-                        let delete_pump = pump.clone();
-                        let apply_roles = roles.clone();
-                        let delete_name = preset_name.clone();
-                        let ask_name = preset_name.clone();
-                        let keep_name = preset_name.clone();
-                        rsx! {
-                            ListRow {
-                                key: "{preset_name}",
-                                class: "model-hub__preset",
-                                headline: rsx! { "{preset_name}" },
-                                support: rsx! { "{summary}" },
-                                test_id: format!("agent-model-preset-{preset_name}"),
-                                trailing: rsx! {
-                                    div { class: "model-hub__preset-actions",
-                                        if asking {
-                                            span { class: "model-hub__confirm", role: "status", "Delete {preset_name}?" }
-                                            // Delete before Keep: a double tap on the first Delete
-                                            // lands on Keep, never on the confirmation.
-                                            Button {
-                                                variant: ButtonVariant::Destructive,
-                                                size,
-                                                "data-testid": "agent-model-preset-confirm-delete-{preset_name}",
-                                                onclick: move |_| {
-                                                    let mut updated = settings.peek().clone();
-                                                    updated.model_presets.remove(&delete_name);
-                                                    save_settings(delete_pump.clone(), updated, settings, error);
-                                                    confirming.set(None);
-                                                    focus_after.set(Some(SECTION_ID.to_owned()));
-                                                },
-                                                "Delete"
-                                            }
-                                            Button {
-                                                id: keep_id(&preset_name),
-                                                variant: ButtonVariant::Ghost,
-                                                size,
-                                                "data-testid": "agent-model-preset-cancel-{preset_name}",
-                                                onclick: move |_| {
-                                                    confirming.set(None);
-                                                    focus_after.set(Some(delete_id(&keep_name)));
-                                                },
-                                                "Keep"
-                                            }
-                                        } else {
-                                            if is_active {
-                                                Chip { label: "Active".to_owned(), small: true }
-                                            }
-                                            Button {
-                                                variant: ButtonVariant::Outline,
-                                                size,
-                                                disabled: is_active,
-                                                title: if is_active { "These roles are already in use" } else { "Make these the all-folders roles" },
-                                                "data-testid": "agent-model-preset-apply-{preset_name}",
-                                                onclick: move |_| {
-                                                    let mut updated = settings.peek().clone();
-                                                    updated.model_roles = apply_roles.clone();
-                                                    save_settings(apply_pump.clone(), updated, settings, error);
-                                                },
-                                                "Apply"
-                                            }
-                                            Button {
-                                                id: delete_id(&preset_name),
-                                                variant: ButtonVariant::Ghost,
-                                                size,
-                                                "data-testid": "agent-model-preset-delete-{preset_name}",
-                                                onclick: move |_| {
-                                                    focus_after.set(Some(keep_id(&ask_name)));
-                                                    confirming.set(Some(ask_name.clone()));
-                                                },
-                                                "Delete"
+            } else {
+                List {
+                    contained: true,
+                    for (preset_name, roles) in current.model_presets.clone() {
+                        {
+                            let summary = roles
+                                .iter()
+                                .map(|(role, chain)| format!("{role}: {chain}"))
+                                .collect::<Vec<_>>()
+                                .join("; ");
+                            let is_active = active.as_deref() == Some(preset_name.as_str());
+                            let asking = confirming().as_deref() == Some(preset_name.as_str());
+                            let apply_pump = pump.clone();
+                            let delete_pump = pump.clone();
+                            let apply_roles = roles.clone();
+                            let delete_name = preset_name.clone();
+                            let ask_name = preset_name.clone();
+                            let keep_name = preset_name.clone();
+                            rsx! {
+                                ListRow {
+                                    key: "{preset_name}",
+                                    class: "model-hub__preset",
+                                    headline: rsx! { "{preset_name}" },
+                                    support: rsx! { "{summary}" },
+                                    test_id: format!("agent-model-preset-{preset_name}"),
+                                    trailing: rsx! {
+                                        div { class: "model-hub__preset-actions",
+                                            if asking {
+                                                span { class: "model-hub__confirm", role: "status", "Delete {preset_name}?" }
+                                                // Delete before Keep: a double tap on the first Delete
+                                                // lands on Keep, never on the confirmation.
+                                                Button {
+                                                    variant: ButtonVariant::Destructive,
+                                                    size,
+                                                    "data-testid": "agent-model-preset-confirm-delete-{preset_name}",
+                                                    onclick: move |_| {
+                                                        let mut updated = settings.peek().clone();
+                                                        updated.model_presets.remove(&delete_name);
+                                                        save_settings(delete_pump.clone(), updated, settings, error);
+                                                        confirming.set(None);
+                                                        focus_after.set(Some(SECTION_ID.to_owned()));
+                                                    },
+                                                    "Delete"
+                                                }
+                                                Button {
+                                                    id: keep_id(&preset_name),
+                                                    variant: ButtonVariant::Ghost,
+                                                    size,
+                                                    "data-testid": "agent-model-preset-cancel-{preset_name}",
+                                                    onclick: move |_| {
+                                                        confirming.set(None);
+                                                        focus_after.set(Some(delete_id(&keep_name)));
+                                                    },
+                                                    "Keep"
+                                                }
+                                            } else {
+                                                if is_active {
+                                                    Chip { label: "Active".to_owned(), small: true }
+                                                }
+                                                Button {
+                                                    variant: ButtonVariant::Outline,
+                                                    size,
+                                                    disabled: is_active,
+                                                    title: if is_active { "These roles are already in use" } else { "Make these the all-folders roles" },
+                                                    "data-testid": "agent-model-preset-apply-{preset_name}",
+                                                    onclick: move |_| {
+                                                        let mut updated = settings.peek().clone();
+                                                        updated.model_roles = apply_roles.clone();
+                                                        save_settings(apply_pump.clone(), updated, settings, error);
+                                                    },
+                                                    "Apply"
+                                                }
+                                                Button {
+                                                    id: delete_id(&preset_name),
+                                                    variant: ButtonVariant::Ghost,
+                                                    size,
+                                                    "data-testid": "agent-model-preset-delete-{preset_name}",
+                                                    onclick: move |_| {
+                                                        focus_after.set(Some(keep_id(&ask_name)));
+                                                        confirming.set(Some(ask_name.clone()));
+                                                    },
+                                                    "Delete"
+                                                }
                                             }
                                         }
-                                    }
-                                },
+                                    },
+                                }
                             }
                         }
                     }
@@ -202,7 +204,6 @@ pub(super) fn HubPresets(
                 }
                 Button {
                     variant: ButtonVariant::Default,
-                    size,
                     disabled: name().trim().is_empty(),
                     "data-testid": "agent-model-preset-save",
                     onclick: move |_| save(),

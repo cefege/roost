@@ -18,7 +18,7 @@ pub fn AdvisoryCard(id: String, severity: String, note: String, delivered: bool)
             key: "{id}",
             title: Some(label.to_string()),
             variant: CardVariant::Outlined,
-            class: format!("agent-chat__advisory-card agent-chat__advisory-card--{tone}"),
+            class: "agent-chat__advisory-card".to_string(),
             children: rsx! {
                 div { class: "agent-chat__advisory-heading", "data-tone": tone,
                     Icon { name: if tone == "error" { "error" } else if tone == "warning" { "warning" } else { "info" }, size: IconSize::Sm }

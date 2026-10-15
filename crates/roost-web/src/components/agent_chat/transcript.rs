@@ -1,7 +1,7 @@
-//! The transcript: user messages as soft bubbles, assistant replies as
+//! The transcript: user messages as `Surface` bubbles, assistant replies as
 //! full-width prose with a Copy action, and each run of consecutive tool calls
-//! as one step timeline. The fold and the stream are client-core's; Markdown
-//! safety is `markdown`'s. Rendered by `agent_chat::surface`.
+//! as one contained `List` of step disclosures. The fold and the stream are
+//! client-core's; Markdown safety is `markdown`'s. Rendered by `agent_chat::surface`.
 
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{
@@ -9,6 +9,7 @@ use roost_protocol::wire::agent_chat::{
 };
 
 use super::advisory_card::AdvisoryCard;
+use super::agent_alert::AgentAlert;
 use super::interaction_cards::{AskCard, BtwCard};
 use super::message_actions::{ForkMessageAction, UserMessageActions};
 use super::notice_card::NoticeCard;
@@ -16,7 +17,8 @@ use super::plan_card::PlanCard;
 use super::thinking_block::ThinkingBlock;
 use super::tool_card::ToolCard;
 use crate::components::md::{
-    Button, ButtonVariant, Icon, IconButton, IconButtonSize, IconSize, StatusDot,
+    Button, ButtonVariant, Icon, IconButton, IconButtonSize, IconSize, List, StatusDot, Surface,
+    SurfaceRadius,
 };
 use crate::pump::Pump;
 
@@ -86,7 +88,7 @@ pub fn AgentTranscriptView(
                     },
                     Segment::Steps(_) if !show_tools() => rsx! {},
                     Segment::Steps(steps) => rsx! {
-                        div { key: "{step_group_key(&steps)}", class: "agent-chat__steps",
+                        List { key: "{step_group_key(&steps)}", contained: true, class: "agent-chat__steps",
                             for step in steps {
                                 if let TranscriptItem::Tool { id, tool_name, args_json, output, is_error, running, queued, details_json, children, .. } = step {
                                     ToolCard {
@@ -124,14 +126,13 @@ pub fn AgentTranscriptView(
             }
             if running && !streaming {
                 div { class: "agent-chat__working", role: "status",
-                    span { class: "agent-chat__working-mark" }
+                    StatusDot { status: "running".to_string() }
                     span { class: "agent-chat__shimmer", "Working…" }
                 }
             }
             if transcript.run_state == AgentRunState::Failed {
-                div { class: "agent-chat__notice", "data-tone": "error", role: "alert",
-                    Icon { name: "error", size: IconSize::Sm }
-                    span { {transcript.error.clone().unwrap_or_else(|| "The agent stopped with an error.".to_string())} }
+                AgentAlert {
+                    p { {transcript.error.clone().unwrap_or_else(|| "The agent stopped with an error.".to_string())} }
                 }
             }
         }
@@ -148,7 +149,7 @@ fn UserMessage(
 ) -> Element {
     rsx! {
         div { class: "agent-chat__user",
-            div { class: "agent-chat__user-bubble", "{text}" }
+            Surface { class: "agent-chat__user-bubble", level: 2, radius: SurfaceRadius::Md, pad: 3, "{text}" }
             UserMessageActions { conversation_id, item_id: id, text, draft, pump }
         }
     }
@@ -197,32 +198,27 @@ fn AssistantMessage(
             }
             if streaming {
                 div { class: "agent-chat__live-tail", role: "status", "aria-label": "Assistant response is streaming",
-                    span { class: "agent-chat__live-dot", StatusDot { status: "running" } }
+                    StatusDot { status: "running".to_string() }
                     "Generating response"
                 }
             }
             if let Some(error) = error {
-                div { class: "agent-chat__notice", "data-tone": "error", role: "alert",
-                    Icon { name: "error", size: IconSize::Sm }
-                    span { "{error}" }
-                }
-            }
-            if has_text && !streaming {
-                div { class: "agent-chat__message-actions",
-                    IconButton {
-                        icon: "content_copy",
-                        label: "Copy response",
-                        title: "Copy",
-                        variant: ButtonVariant::Ghost,
-                        size: IconButtonSize::IconSm,
-                        onclick: move |_| {
-                            crate::components::notifications::clipboard::copy_text(&copy_text);
-                        },
-                    }
-                }
+                AgentAlert { p { "{error}" } }
             }
             if !streaming {
                 div { class: "agent-chat__message-actions",
+                    if has_text {
+                        IconButton {
+                            icon: "content_copy",
+                            label: "Copy response",
+                            title: "Copy",
+                            variant: ButtonVariant::Ghost,
+                            size: IconButtonSize::Icon,
+                            onclick: move |_| {
+                                crate::components::notifications::clipboard::copy_text(&copy_text);
+                            },
+                        }
+                    }
                     ForkMessageAction { conversation_id: conversation_id.clone(), item_id: id.clone(), pump: pump.clone() }
                 }
             }

@@ -26,7 +26,7 @@ pub fn NoticeCard(id: String, level: String, title: String, body: String) -> Ele
             key: "{id}",
             title: Some(title),
             variant: CardVariant::Outlined,
-            class: format!("agent-chat__notice-card agent-chat__notice-card--{tone}"),
+            class: "agent-chat__notice-card".to_string(),
             children: rsx! {
                 div { class: "agent-chat__notice-heading", "data-tone": tone,
                     Icon { name: icon, size: IconSize::Sm }

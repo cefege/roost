@@ -8,7 +8,7 @@ use roost_protocol::wire::agent_chat::{AgentSettingsView, ModelsCatalog};
 
 use crate::components::agent_chat::model_picker::PickerOption;
 use crate::components::agent_chat::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
-use crate::components::md::{Button, ButtonSize, ButtonVariant, Chip, SwitchRow};
+use crate::components::md::{Button, ButtonSize, ButtonVariant, Card, Chip, SwitchRow};
 use crate::components::settings::model_chain::{join_chain, parse_chain};
 use crate::components::settings::model_chain_editor::ModelChainEditor;
 use crate::components::settings::model_scope::{
@@ -155,7 +155,7 @@ pub fn AgentRoles(
             if specialized() { "Hide work-role overrides" } else { "Customize by task" }
         }
         if specialized() {
-            div { id: "agent-work-role-models",
+            div { id: "agent-work-role-models", class: "agent-settings__role-cards",
                 for (role, title, purpose, inherits) in ROLES.into_iter().skip(1) {
                     {role_row(RoleRow { role, title, purpose, inherits }, &context)}
                 }
@@ -317,16 +317,30 @@ fn role_row(row: RoleRow, context: &RoleContext<'_>) -> Element {
     let reset_pump = context.pump.clone();
     let show_reset = is_folder && source == RoleSource::Folder;
     rsx! {
-        div { class: "agent-settings__role-row", key: "{role}", "data-testid": "agent-role-{role}",
-            div { class: "agent-settings__provider-info",
-                span { class: "agent-settings__provider-name", "{title}" }
-                span { class: "agent-settings__provider-id", "{purpose}" }
-            }
-            Chip {
-                label: source_text,
-                title: Some(source_title),
-                test_id: Some(format!("agent-role-{role}-source")),
-            }
+        Card {
+            key: "{role}",
+            title: title.to_owned(),
+            supporting: purpose.to_owned(),
+            test_id: format!("agent-role-{role}"),
+            trailing: rsx! {
+                Chip {
+                    label: source_text,
+                    title: Some(source_title),
+                    test_id: Some(format!("agent-role-{role}-source")),
+                }
+                if show_reset {
+                    Button {
+                        variant: ButtonVariant::Ghost,
+                        size: ButtonSize::Sm,
+                        "data-testid": "agent-role-{role}-use-all-folders",
+                        onclick: move |_| {
+                            let updated = with_role_value(&reset_current, &reset_scope, role, None);
+                            save_settings(reset_pump.clone(), updated, settings, error);
+                        },
+                        "Use all-folders chain"
+                    }
+                }
+            },
             ModelChainEditor {
                 role_title: title.to_owned(),
                 chain,
@@ -338,19 +352,6 @@ fn role_row(row: RoleRow, context: &RoleContext<'_>) -> Element {
                     let updated = with_role_value(&edit_current, &edit_scope, role, Some(join_chain(&next)));
                     save_settings(edit_pump.clone(), updated, settings, error);
                 },
-            }
-            if show_reset {
-                Button {
-                    variant: ButtonVariant::Ghost,
-                    size: ButtonSize::Sm,
-                    class: "agent-settings__role-reset",
-                    "data-testid": "agent-role-{role}-use-all-folders",
-                    onclick: move |_| {
-                        let updated = with_role_value(&reset_current, &reset_scope, role, None);
-                        save_settings(reset_pump.clone(), updated, settings, error);
-                    },
-                    "Use all-folders chain"
-                }
             }
         }
     }

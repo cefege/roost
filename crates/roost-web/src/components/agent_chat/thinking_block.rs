@@ -4,7 +4,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::md::{Button, ButtonVariant, Icon, IconSize};
+use crate::components::md::{Button, ButtonSize, ButtonVariant, Icon, IconSize};
 
 #[component]
 pub(super) fn ThinkingBlock(text: String, live: bool, globally_visible: bool) -> Element {
@@ -55,7 +55,8 @@ pub(super) fn ThinkingBlock(text: String, live: bool, globally_visible: bool) ->
         if globally_visible || live {
             section { class: "agent-chat__thinking", "data-live": live.then_some("true"),
                 Button {
-                variant: ButtonVariant::Link,
+                variant: ButtonVariant::Ghost,
+                size: ButtonSize::Sm,
                 class: "agent-chat__thinking-toggle",
                 aria_expanded: (expanded() && globally_visible).to_string(),
                 disabled: !globally_visible,

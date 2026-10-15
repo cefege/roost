@@ -6,7 +6,7 @@ use roost_protocol::wire::agent_chat::{
 };
 use roost_web::components::agent_chat::model_hub::hub_logic::{
     HubSection, HubView, assigned_roles, format_cost_pair, format_tokens, hub_options,
-    hub_sections, initial_view, model_argument_values, model_facts,
+    hub_sections, model_argument_values, model_facts,
 };
 use roost_web::components::agent_chat::model_picker::{PickerOption, filter_options, superseded};
 
@@ -86,13 +86,13 @@ fn section(view: HubView, label: &str, count: Option<usize>, locked: bool) -> Hu
 }
 
 #[test]
-fn sections_list_recent_roles_all_then_signed_in_and_locked_providers() {
+fn sections_list_roles_recent_all_then_signed_in_and_locked_providers() {
     let catalog = catalog();
     assert_eq!(
         hub_sections(&catalog),
         [
-            section(HubView::Recent, "Recent", Some(1), false),
             section(HubView::Roles, "Roles", None, false),
+            section(HubView::Recent, "Recent", Some(1), false),
             section(HubView::All, "All models", Some(3), false),
             section(
                 HubView::Provider("anthropic".into()),
@@ -108,13 +108,12 @@ fn sections_list_recent_roles_all_then_signed_in_and_locked_providers() {
             ),
         ]
     );
-    assert_eq!(initial_view(&catalog), HubView::Recent);
     let fresh = ModelsCatalog {
         recent_models: Vec::new(),
         ..catalog
     };
     assert_eq!(hub_sections(&fresh)[0].view, HubView::Roles);
-    assert_eq!(initial_view(&fresh), HubView::All);
+    assert_eq!(hub_sections(&fresh)[1].view, HubView::All);
 }
 
 #[test]

@@ -4,6 +4,7 @@
 
 use dioxus::prelude::*;
 
+use super::agent_alert::ERROR_TEXT_CLASS;
 use super::composer_commands::submit_direct_command;
 use crate::components::md::{Chip, IconButton, IconButtonSize};
 use crate::pump::Pump;
@@ -43,7 +44,7 @@ pub(super) fn LoopControls(status: String, conversation_id: String, pump: Pump) 
                 },
             }
             if let Some(error) = error() {
-                span { class: "agent-chat__notice", role: "alert", "{error}" }
+                span { class: ERROR_TEXT_CLASS, role: "alert", "{error}" }
             }
         }
     }

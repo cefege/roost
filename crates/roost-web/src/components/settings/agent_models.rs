@@ -12,6 +12,7 @@ use super::agent_connect_dialog::AgentConnectDialog;
 use super::agent_provider_list::AvailableProviders;
 use super::agent_provider_status::{ProviderSummary, provider_summaries};
 use super::agent_roles::{AgentRoles, load_settings, save_settings};
+use crate::components::agent_chat::agent_alert::ERROR_TEXT_CLASS;
 use crate::components::md::{
     Button, ButtonSize, ButtonVariant, EmptyState, IconButton, IconButtonSize, Skeleton, TextField,
 };
@@ -59,7 +60,7 @@ pub fn AgentModelsPane() -> Element {
     let Some(catalog_value) = catalog() else {
         return rsx! {
             div { class: "settings-pane agent-settings", "data-testid": "agent-models-pane",
-                if !error().is_empty() { p { class: "agent-settings__notice md-body-s", role: "alert", {error()} } }
+                if !error().is_empty() { p { class: ERROR_TEXT_CLASS, role: "alert", {error()} } }
                 Skeleton { class: "agent-settings__skeleton-tile" }
             }
         };
@@ -76,7 +77,7 @@ pub fn AgentModelsPane() -> Element {
             .collect();
     rsx! {
         div { class: "settings-pane agent-settings", "data-testid": "agent-models-pane",
-            if !error().is_empty() { p { class: "agent-settings__notice md-body-s", role: "alert", {error()} } }
+            if !error().is_empty() { p { class: ERROR_TEXT_CLASS, role: "alert", {error()} } }
             nav { class: "settings-tabs", role: "tablist", "aria-label": "Model settings",
                 for (key, label, icon) in [("models", "Models", "smart_toy"), ("accounts", "Provider accounts", "key"), ("search", "Web search", "travel_explore")] {
                     Button {
@@ -102,7 +103,7 @@ pub fn AgentModelsPane() -> Element {
                 "aria-labelledby": format!("agent-settings-tab-{}", section()),
                 if section() == "models" {
                     section { class: "agent-settings__section", "data-testid": "agent-model-roles",
-                        p { class: "agent-settings__muted md-body-s",
+                        p { class: "agent-settings__support",
                             "Choose a default once. Override a task or folder only when you need to. The chat picker changes one session."
                         }
                         if signed_in.is_empty() {
@@ -120,7 +121,7 @@ pub fn AgentModelsPane() -> Element {
                     section { class: "agent-settings__section", "data-testid": "agent-connected-providers",
                         div { class: "agent-settings__section-head",
                             h2 { class: "agent-settings__section-title", "Connected providers" }
-                            span { class: "agent-settings__muted md-label-m", {plural(signed_in.len(), "provider", "providers")} }
+                            span { class: "agent-settings__count", {plural(signed_in.len(), "provider", "providers")} }
                             IconButton { icon: "refresh", label: "Refresh accounts and usage", title: "Refresh accounts and usage", size: IconButtonSize::IconSm, class: "agent-settings__section-action", onclick: move |_| reload(()) }
                         }
                         if signed_in.is_empty() {
@@ -157,7 +158,7 @@ pub fn AgentModelsPane() -> Element {
                 } else {
                     section { class: "agent-settings__section", "data-testid": "agent-web-search",
                         h2 { class: "agent-settings__section-title", "Search services" }
-                        p { class: "agent-settings__muted md-body-s", "Keyless engines work out of the box. Connect a service below to use its search API; engine order lives under Models → Customize by task." }
+                        p { class: "agent-settings__support", "Keyless engines work out of the box. Connect a service below to use its search API; engine order lives under Models → Customize by task." }
                         for summary in web_search.iter().filter(|summary| summary.provider.configured).cloned() {
                             ConnectedProviderCard {
                                 key: "{summary.provider.id}",

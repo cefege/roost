@@ -5,9 +5,10 @@
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::GoalState;
 
+use super::agent_alert::ERROR_TEXT_CLASS;
 use super::composer_commands::submit_direct_command;
 use crate::components::md::{
-    Button, ButtonVariant, Dialog, StatusDot, Surface, SurfaceRadius, TextField,
+    Button, ButtonVariant, Dialog, ProgressBar, StatusDot, Surface, TextField,
 };
 use crate::pump::Pump;
 
@@ -81,7 +82,7 @@ pub(super) fn GoalControls(
     let drop_id = conversation_id.clone();
     let status_content = if let Some(state) = goal.as_ref() {
         rsx! {
-            Surface { class: "agent-goal__details", test_id: "agent-goal-status", level: 1, pad: Some(3), border: true, radius: SurfaceRadius::Lg,
+            Surface { class: "agent-goal__details", test_id: "agent-goal-status", level: 1, pad: Some(3), border: true,
                 span { class: "agent-goal__status", "data-status": state.status.as_str(),
                     StatusDot { status: status_indicator.to_string() }
                     "{goal_status_label(state.status.as_str())}"
@@ -91,6 +92,9 @@ pub(super) fn GoalControls(
                     "Tokens: {state.tokens_used}"
                     if let Some(limit) = state.token_budget { " / {limit} ({limit.saturating_sub(state.tokens_used)} remaining)" }
                     " · Time: {format_duration(state.time_used_seconds)}"
+                }
+                if let Some(limit) = state.token_budget {
+                    ProgressBar { value: Some(state.tokens_used as f64 / limit.max(1) as f64), label: "Token budget used".to_string(), meter: true }
                 }
                 if let Some(report) = &state.report { section { class: "agent-goal__report", h3 { "Report" } p { "{report}" } } }
                 if let Some(reason) = &state.waiting_reason { p { class: "agent-goal__waiting", role: "status", "{reason}" } }
@@ -175,7 +179,7 @@ pub(super) fn GoalControls(
                     if goal.as_ref().is_some_and(|state| state.status.as_str() == "paused") { p { role: "alert", "Resume the goal before changing its budget." } }
                 }
                 if view() == GoalDialogView::ConfirmDrop { p { "Dropping disables this goal. Its status and report remain in the session history." } }
-                if let Some(message) = command_error() { p { class: "agent-goal__error", role: "alert", "{message}" } }
+                if let Some(message) = command_error() { p { class: ERROR_TEXT_CLASS, role: "alert", "{message}" } }
             }
         }
     }

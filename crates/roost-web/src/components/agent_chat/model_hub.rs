@@ -1,10 +1,9 @@
-//! The models hub `/model` opens: views (recent models, roles, all models,
-//! each provider) and the chosen view. A model view switches this chat's
-//! model; Roles edits the all-folders role chains and presets; a provider not
-//! signed in offers its sign-in. On a wide screen the views are a sidebar
-//! beside the content in a dialog; on a phone the hub is a full-height bottom
-//! sheet that opens on the chosen view, with Back to the list of views.
-//! Mounted by `agent_chat::surface`.
+//! The models hub `/model` opens on Roles: the all-folders role chains and
+//! presets. The model views (recent, all, each provider) switch this chat's
+//! model, and a provider not signed in offers its sign-in. A wide screen shows
+//! the views as a sidebar beside the content in a dialog; a phone shows a
+//! full-height bottom sheet of one screen at a time, with Back to the list of
+//! views. Mounted by `agent_chat::surface`.
 
 pub mod hub_logic;
 mod hub_nav;
@@ -15,9 +14,10 @@ use roost_protocol::wire::agent_chat::{
     AgentSettingsView, ConversationSummary, ModelsCatalog, ProviderEntry,
 };
 
-use self::hub_logic::{HubSection, HubView, hub_options, hub_sections, initial_view, role_leaders};
+use self::hub_logic::{HubSection, HubView, hub_options, hub_sections, role_leaders};
 use self::hub_nav::{HubNav, nav_row_id};
 use self::hub_presets::HubPresets;
+use super::agent_alert::ERROR_TEXT_CLASS;
 use super::model_controls::{Configure, configure};
 use super::model_picker::ModelPicker;
 use crate::components::file_viewer::dom::focus_by_id;
@@ -75,7 +75,7 @@ pub fn ModelHub(
     } else {
         (
             "roost-dialog--wide model-hub model-hub--split",
-            Some(rsx! { "Pick this chat's model, or set the roles every chat starts from." }),
+            Some(rsx! { "Set the roles every chat starts from, or pick this chat's model." }),
         )
     };
     let Some(catalog) = catalog else {
@@ -89,7 +89,7 @@ pub fn ModelHub(
         };
     };
     let sections = hub_sections(&catalog);
-    let current = view().unwrap_or_else(|| initial_view(&catalog));
+    let current = view().unwrap_or(HubView::Roles);
     let section = sections
         .iter()
         .find(|section| section.view == current)
@@ -165,7 +165,9 @@ pub fn ModelHub(
             test_id: "agent-model-hub".to_owned(),
             {body}
             if !error().is_empty() {
-                p { class: "model-hub__error", role: "alert", "{error}" }
+                div { class: "model-hub__error",
+                    p { class: ERROR_TEXT_CLASS, role: "alert", "{error}" }
+                }
             }
         }
     }

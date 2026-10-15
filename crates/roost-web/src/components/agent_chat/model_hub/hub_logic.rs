@@ -70,11 +70,16 @@ fn recent_entries(catalog: &ModelsCatalog) -> Vec<&ModelEntry> {
         .collect()
 }
 
-/// Recent (when any), Roles, All models, signed-in providers, then providers
+/// Roles, Recent (when any), All models, signed-in providers, then providers
 /// still to sign in to, each in catalog order. Providers without chat models
 /// are left out.
 pub fn hub_sections(catalog: &ModelsCatalog) -> Vec<HubSection> {
-    let mut sections = Vec::new();
+    let mut sections = vec![HubSection {
+        view: HubView::Roles,
+        label: "Roles".to_owned(),
+        count: None,
+        locked: false,
+    }];
     let recent = recent_entries(catalog).len();
     if recent > 0 {
         sections.push(HubSection {
@@ -84,12 +89,6 @@ pub fn hub_sections(catalog: &ModelsCatalog) -> Vec<HubSection> {
             locked: false,
         });
     }
-    sections.push(HubSection {
-        view: HubView::Roles,
-        label: "Roles".to_owned(),
-        count: None,
-        locked: false,
-    });
     sections.push(HubSection {
         view: HubView::All,
         label: "All models".to_owned(),
@@ -134,15 +133,6 @@ pub fn hub_sections(catalog: &ModelsCatalog) -> Vec<HubSection> {
         }
     }
     sections
-}
-
-/// Recent when it lists anything, else All models.
-pub fn initial_view(catalog: &ModelsCatalog) -> HubView {
-    if recent_entries(catalog).is_empty() {
-        HubView::All
-    } else {
-        HubView::Recent
-    }
 }
 
 /// The picker rows of a view; Roles has none (it shows the role editor). Only

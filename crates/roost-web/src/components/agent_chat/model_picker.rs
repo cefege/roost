@@ -12,7 +12,8 @@ use roost_protocol::wire::agent_chat::{model_family, model_search_text, rank_mat
 
 use crate::components::file_viewer::dom::focus_by_id;
 use crate::components::md::{
-    Button, ButtonSize, ButtonVariant, Chip, Icon, List, ListRow, SectionTitle, TextField,
+    Button, ButtonSize, ButtonVariant, Chip, EmptyState, Icon, List, ListRow, SectionTitle,
+    TextField,
 };
 
 /// One choice the picker offers. `selector` is the saved string (`provider/id`
@@ -202,23 +203,29 @@ pub fn ModelPicker(
                 }
             }
             if older_match {
-                div { class: "model-picker__empty",
-                    p { "Only older versions match “{current_query}”." }
-                    Button {
-                        variant: ButtonVariant::Outline,
-                        size: ButtonSize::Sm,
-                        "data-testid": "{test_id}-show-all",
-                        // The button goes away with the hint; focus returns to
-                        // the search so the dialog keeps it (and Escape works).
-                        onclick: move |_| {
-                            show_all.set(true);
-                            focus_by_id(&search_focus);
-                        },
-                        "Show all versions"
-                    }
+                EmptyState {
+                    icon: "history".to_owned(),
+                    title: format!("Only older versions match “{current_query}”."),
+                    action: rsx! {
+                        Button {
+                            variant: ButtonVariant::Outline,
+                            size: ButtonSize::Sm,
+                            "data-testid": "{test_id}-show-all",
+                            // The button goes away with the hint; focus returns to
+                            // the search so the dialog keeps it (and Escape works).
+                            onclick: move |_| {
+                                show_all.set(true);
+                                focus_by_id(&search_focus);
+                            },
+                            "Show all versions"
+                        }
+                    },
                 }
             } else if no_matches {
-                p { class: "model-picker__empty", "No models match “{current_query}”." }
+                EmptyState {
+                    icon: "search_off".to_owned(),
+                    title: format!("No models match “{current_query}”."),
+                }
             }
             div { id: results_id, class: "model-picker__results", role: "listbox", "aria-label": "Models",
             for (group, rows) in groups {
@@ -226,7 +233,7 @@ pub fn ModelPicker(
                 if !group.is_empty() {
                     SectionTitle { "{group}" }
                 }
-                List { class: "model-picker__group",
+                List { contained: true, class: "model-picker__group",
                     for option in rows {
                         {
                             let is_selected = selected.as_deref() == Some(option.selector.as_str());
@@ -244,6 +251,7 @@ pub fn ModelPicker(
                                     aria_selected: is_highlighted.to_string(),
                                     tabindex: Some(-1),
                                     selected: is_highlighted,
+                                    dense: true,
                                     test_id: format!("model-picker-option-{}", option.selector),
                                     onclick: move |_| on_choose.call(choice.clone()),
                                 }

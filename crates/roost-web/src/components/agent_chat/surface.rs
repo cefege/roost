@@ -124,6 +124,15 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
                 scroll_to_bottom(&node);
             }
         }));
+        // The draft sizes the composer (slash menu included) and so the transcript
+        // above it; re-pin so the newest messages move up instead of hiding. Read
+        // here, not in the body, so a keystroke reruns this effect, not the surface.
+        use_effect(move || {
+            let _ = draft.read();
+            if let (Some(node), true) = (scroll_node(), *pinned_to_bottom.peek()) {
+                scroll_to_bottom(&node);
+            }
+        });
     }
     use_drop({
         let pump = pump.clone();

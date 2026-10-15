@@ -9,6 +9,7 @@ use roost_protocol::wire::agent_chat::{
     ConversationSummary, ModelsCatalog, ProviderEntry, Transcript, parse_slash_command,
 };
 
+use super::agent_alert::ERROR_TEXT_CLASS;
 #[cfg(target_arch = "wasm32")]
 use super::composer_helpers::abort_run;
 use super::composer_helpers::{fill_draft, focus_field};
@@ -20,7 +21,7 @@ use super::slash_menu::{
     SlashMenu, initial_selection, listbox_id, option_id, scroll_option_into_view, slash_menu_state,
     slash_sources,
 };
-use crate::components::md::{ButtonVariant, Chip, Icon, IconButton, IconButtonSize, IconSize};
+use crate::components::md::{ButtonVariant, Chip, IconButton, IconButtonSize, Surface};
 use crate::components::settings::agent_connect_dialog::AgentConnectDialog;
 use crate::pump::Pump;
 use crate::router_state::use_navigate;
@@ -187,187 +188,186 @@ pub fn AgentComposer(
             class: "agent-chat__composer",
             "data-disabled": disabled.then_some("true"),
             "data-testid": "agent-chat-composer",
-            if let Some(state) = menu.clone().filter(|_| menu_open) {
-                SlashMenu {
-                    conversation_id: conversation_id.clone(),
-                    state,
-                    selected,
-                    on_choose: accept,
+            Surface { class: "agent-chat__composer-panel", level: 1, elevation: 1, border: true, pad: Some(3),
+                ComposerErrorBanner {
+                    error: run_error,
+                    running,
+                    on_stop: stop,
+                    on_switch_model: switch_model,
                 }
-            }
-            ComposerErrorBanner {
-                error: run_error,
-                running,
-                on_stop: stop,
-                on_switch_model: switch_model,
-            }
-            textarea {
-                class: "agent-chat__input",
-                "data-testid": "agent-chat-input",
-                "aria-label": "Message the agent",
-                role: "combobox",
-                "aria-autocomplete": "list",
-                "aria-expanded": if options_open { "true" } else { "false" },
-                "aria-controls": options_open.then(|| listbox.clone()),
-                "aria-activedescendant": options_open.then(|| option_id(&conversation_id, selected)),
-                rows: "1",
-                placeholder,
-                disabled,
-                value: "{draft}",
-                onmounted: move |event: MountedEvent| {
-                    let data = event.data();
-                    field.set(Some(data.clone()));
-                    on_field_mounted.call(data);
-                },
-                oninput: move |event: FormEvent| {
-                    let value = event.value();
-                    let next = slash_menu_state(&value, &sources_for_input);
-                    selected_option.set(next.as_ref().map_or(0, |state| initial_selection(state, &value)));
-                    draft.set(value);
-                    menu_dismissed.set(false);
-                },
-                onkeydown: move |event: KeyboardEvent| {
-                    let key = event.key().to_string();
-                    if menu_open && key == "Escape" {
-                        event.prevent_default();
-                        menu_dismissed.set(true);
-                        return;
-                    }
-                    if options_open {
-                        match key.as_str() {
-                            "ArrowDown" | "ArrowUp" => {
-                                event.prevent_default();
-                                let next = if key == "ArrowDown" {
-                                    (selected + 1) % option_count
-                                } else {
-                                    selected.checked_sub(1).unwrap_or(option_count - 1)
-                                };
-                                selected_option.set(next);
-                                scroll_option_into_view(&key_conversation, next);
-                                return;
-                            }
-                            "Tab" => {
-                                event.prevent_default();
-                                if let Some(text) = &selected_text {
-                                    fill_draft(draft, selected_option, text);
-                                }
-                                return;
-                            }
-                            _ => {}
-                        }
-                    }
-                    if key == "Enter" && !event.modifiers().contains(Modifiers::SHIFT) && !event.is_composing() {
-                        event.prevent_default();
-                        if options_open {
-                            accept.call(selected);
-                        } else {
-                            send.call(());
-                        }
-                    }
-                },
-            }
-            if let Some(message) = command_error() {
-                div { class: "agent-chat__notice", "data-tone": "error", role: "alert", "data-testid": "agent-command-error",
-                    Icon { name: "error", size: IconSize::Sm }
-                    span { "{message}" }
-                }
-            }
-            div { class: "agent-chat__composer-bar",
-                AgentModelControls { conversation: conversation.clone(), catalog, catalog_failed, pump: pump.clone() }
-                span {
-                    class: "agent-chat__usage",
-                    "data-testid": "agent-chat-usage",
-                    title: "Session token usage and cost",
-                    "{usage}"
-                }
-                span { class: "agent-chat__status", "data-testid": "agent-chat-status",
-                    if disabled { "Offline" } else if running { "Running" } else { "Ready" }
-                }
-                IconButton {
-                    icon: "apps",
-                    label: "Show agent commands",
-                    title: "Commands",
-                    variant: ButtonVariant::Secondary,
-                    size: IconButtonSize::Icon,
-                    class: "agent-chat__commands",
-                    "data-testid": "agent-chat-commands",
-                    expanded: Some(options_open),
-                    controls_id: Some(listbox.clone()),
-                    onclick: move |_| {
-                        if disabled {
+                textarea {
+                    class: "agent-chat__input",
+                    "data-testid": "agent-chat-input",
+                    "aria-label": "Message the agent",
+                    role: "combobox",
+                    "aria-autocomplete": "list",
+                    "aria-expanded": if options_open { "true" } else { "false" },
+                    "aria-controls": options_open.then(|| listbox.clone()),
+                    "aria-activedescendant": options_open.then(|| option_id(&conversation_id, selected)),
+                    rows: "1",
+                    placeholder,
+                    disabled,
+                    value: "{draft}",
+                    onmounted: move |event: MountedEvent| {
+                        let data = event.data();
+                        field.set(Some(data.clone()));
+                        on_field_mounted.call(data);
+                    },
+                    oninput: move |event: FormEvent| {
+                        let value = event.value();
+                        let next = slash_menu_state(&value, &sources_for_input);
+                        selected_option.set(next.as_ref().map_or(0, |state| initial_selection(state, &value)));
+                        draft.set(value);
+                        menu_dismissed.set(false);
+                    },
+                    onkeydown: move |event: KeyboardEvent| {
+                        let key = event.key().to_string();
+                        if menu_open && key == "Escape" {
+                            event.prevent_default();
+                            menu_dismissed.set(true);
                             return;
                         }
-                        if draft.peek().is_empty() {
-                            fill_draft(draft, selected_option, "/");
+                        if options_open {
+                            match key.as_str() {
+                                "ArrowDown" | "ArrowUp" => {
+                                    event.prevent_default();
+                                    let next = if key == "ArrowDown" {
+                                        (selected + 1) % option_count
+                                    } else {
+                                        selected.checked_sub(1).unwrap_or(option_count - 1)
+                                    };
+                                    selected_option.set(next);
+                                    scroll_option_into_view(&key_conversation, next);
+                                    return;
+                                }
+                                "Tab" => {
+                                    event.prevent_default();
+                                    if let Some(text) = &selected_text {
+                                        fill_draft(draft, selected_option, text);
+                                    }
+                                    return;
+                                }
+                                _ => {}
+                            }
                         }
-                        menu_dismissed.set(false);
-                        focus_field(field);
+                        if key == "Enter" && !event.modifiers().contains(Modifiers::SHIFT) && !event.is_composing() {
+                            event.prevent_default();
+                            if options_open {
+                                accept.call(selected);
+                            } else {
+                                send.call(());
+                            }
+                        }
                     },
                 }
-                GoalDock {
-                    goal: goal.clone(),
-                    view_request: goal_view_request,
-                    on_open: move |_| goal_open.set(true),
+                if let Some(state) = menu.clone().filter(|_| menu_open) {
+                    SlashMenu {
+                        conversation_id: conversation_id.clone(),
+                        state,
+                        selected,
+                        on_choose: accept,
+                    }
                 }
-                if conversation.mode == "plan" {
-                    Chip { label: "Plan mode".to_string(), icon: Some("assignment".to_string()), selected: Some(true),
+                if let Some(message) = command_error() {
+                    p { class: ERROR_TEXT_CLASS, role: "alert", "data-testid": "agent-command-error", "{message}" }
+                }
+                div { class: "agent-chat__composer-bar",
+                    AgentModelControls { conversation: conversation.clone(), catalog, catalog_failed, pump: pump.clone() }
+                    span {
+                        class: "agent-chat__usage",
+                        "data-testid": "agent-chat-usage",
+                        title: "Session token usage and cost",
+                        "{usage}"
+                    }
+                    span { class: "agent-chat__status", "data-testid": "agent-chat-status",
+                        if disabled { "Offline" } else if running { "Running" } else { "Ready" }
+                    }
+                    IconButton {
+                        icon: "apps",
+                        label: "Show agent commands",
+                        title: "Commands",
+                        variant: ButtonVariant::Secondary,
+                        size: IconButtonSize::Icon,
+                        class: "agent-chat__commands",
+                        "data-testid": "agent-chat-commands",
+                        expanded: Some(options_open),
+                        controls_id: Some(listbox.clone()),
+                        onclick: move |_| {
+                            if disabled {
+                                return;
+                            }
+                            if draft.peek().is_empty() {
+                                fill_draft(draft, selected_option, "/");
+                            }
+                            menu_dismissed.set(false);
+                            focus_field(field);
+                        },
+                    }
+                    GoalDock {
+                        goal: goal.clone(),
+                        view_request: goal_view_request,
+                        on_open: move |_| goal_open.set(true),
+                    }
+                    if conversation.mode == "plan" {
+                        Chip { label: "Plan mode".to_string(), icon: Some("assignment".to_string()), selected: Some(true),
+                            onclick: Some(EventHandler::new({
+                                let pump = pump.clone();
+                                let conversation_id = button_conversation.clone();
+                                move |_| submit_direct_command(pump.clone(), conversation_id.clone(), "/plan".to_string(), report)
+                            }))
+                        }
+                    }
+                    Chip { label: "Advisor".to_string(), icon: Some("psychology".to_string()), selected: Some(conversation.advisor),
+                        title: Some(advisor_title(conversation.advisor, advisor_pending()).to_string()),
+                        test_id: Some("agent-advisor-toggle".to_string()),
+                        disabled: advisor_pending(),
+                        busy: advisor_pending(),
                         onclick: Some(EventHandler::new({
                             let pump = pump.clone();
                             let conversation_id = button_conversation.clone();
-                            move |_| submit_direct_command(pump.clone(), conversation_id.clone(), "/plan".to_string(), report)
+                            move |_| {
+                                if advisor_pending() {
+                                    return;
+                                }
+                                advisor_pending.set(true);
+                                submit_direct_command(pump.clone(), conversation_id.clone(), "/advisor".to_string(), advisor_done);
+                            }
                         }))
                     }
-                }
-                Chip { label: "Advisor".to_string(), icon: Some("psychology".to_string()), selected: Some(conversation.advisor),
-                    title: Some(advisor_title(conversation.advisor, advisor_pending()).to_string()),
-                    test_id: Some("agent-advisor-toggle".to_string()),
-                    disabled: advisor_pending(),
-                    busy: advisor_pending(),
-                    onclick: Some(EventHandler::new({
-                        let pump = pump.clone();
-                        let conversation_id = button_conversation.clone();
-                        move |_| {
-                            if advisor_pending() {
-                                return;
-                            }
-                            advisor_pending.set(true);
-                            submit_direct_command(pump.clone(), conversation_id.clone(), "/advisor".to_string(), advisor_done);
-                        }
-                    }))
-                }
-                IconButton {
-                    icon: "settings",
-                    label: "Agent settings",
-                    title: "Models, accounts and agent settings",
-                    variant: ButtonVariant::Ghost,
-                    size: IconButtonSize::Icon,
-                    "data-testid": "agent-chat-settings",
-                    onclick: move |_| navigate.call(crate::routes::settings_pane_href("models")),
-                }
-                span { class: "agent-chat__composer-spacer" }
-                if running {
                     IconButton {
-                        icon: "stop",
-                        label: "Stop the agent",
-                        title: "Stop",
-                        variant: ButtonVariant::Secondary,
+                        icon: "settings",
+                        label: "Agent settings",
+                        title: "Models, accounts and agent settings",
+                        variant: ButtonVariant::Ghost,
                         size: IconButtonSize::Icon,
-                        class: "agent-chat__action",
-                        "data-testid": "agent-chat-stop",
-                        onclick: move |_| stop.call(()),
+                        "data-testid": "agent-chat-settings",
+                        onclick: move |_| navigate.call(crate::routes::settings_pane_href("models")),
                     }
-                }
-                if !running || !empty {
-                    IconButton {
-                        icon: "arrow_upward",
-                        label: if running { "Steer the agent" } else { "Send message" },
-                        title: if running { "Steer" } else { "Send" },
-                        variant: ButtonVariant::Default,
-                        size: IconButtonSize::Icon,
-                        class: "agent-chat__action",
-                        "data-testid": "agent-chat-send",
-                        "aria-disabled": (disabled || empty).then_some("true"),
-                        onclick: move |_| send.call(()),
+                    span { class: "agent-chat__composer-spacer" }
+                    if running {
+                        IconButton {
+                            icon: "stop",
+                            label: "Stop the agent",
+                            title: "Stop",
+                            variant: ButtonVariant::Secondary,
+                            size: IconButtonSize::Icon,
+                            class: "agent-chat__action",
+                            "data-testid": "agent-chat-stop",
+                            onclick: move |_| stop.call(()),
+                        }
+                    }
+                    if !running || !empty {
+                        IconButton {
+                            icon: "arrow_upward",
+                            label: if running { "Steer the agent" } else { "Send message" },
+                            title: if running { "Steer" } else { "Send" },
+                            variant: ButtonVariant::Default,
+                            size: IconButtonSize::Icon,
+                            class: "agent-chat__action",
+                            "data-testid": "agent-chat-send",
+                            "aria-disabled": (disabled || empty).then_some("true"),
+                            onclick: move |_| send.call(()),
+                        }
                     }
                 }
             }

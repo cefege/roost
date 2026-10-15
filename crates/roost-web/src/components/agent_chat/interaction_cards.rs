@@ -7,9 +7,10 @@ use std::collections::BTreeMap;
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{AskQuestion, TodoPhase, TodoStatus};
 
+use super::agent_alert::ERROR_TEXT_CLASS;
 use crate::components::md::{
-    Button, ButtonVariant, Card, CardVariant, Checkbox, Chip, Icon, IconSize, Surface,
-    SurfaceElement, SurfaceRadius, TextField,
+    Button, ButtonVariant, Card, CardVariant, Checkbox, Chip, Icon, IconSize, ListRow,
+    SectionTitle, StatusDot, Surface, SurfaceElement, TextField,
 };
 use crate::pump::Pump;
 
@@ -36,7 +37,7 @@ pub fn TodoCard(phases: Vec<TodoPhase>) -> Element {
                 .find(|task| !matches!(task.status, TodoStatus::Completed | TodoStatus::Abandoned))
         });
     rsx! {
-        Surface { element: SurfaceElement::Section, class: "agent-chat__todo-hud", test_id: "agent-chat-todo", level: 1, pad: Some(2), border: true, radius: SurfaceRadius::Lg,
+        Surface { element: SurfaceElement::Section, class: "agent-chat__todo-hud", test_id: "agent-chat-todo", level: 1, pad: Some(2), border: true,
             Button {
                 variant: ButtonVariant::Link,
                 class: "agent-chat__todo-toggle",
@@ -62,13 +63,17 @@ pub fn TodoCard(phases: Vec<TodoPhase>) -> Element {
                             class: "agent-chat__todo-phase",
                             key: "{phase.name}",
                             open: phase.tasks.iter().any(|task| !matches!(task.status, TodoStatus::Completed | TodoStatus::Abandoned)),
-                            summary { class: "agent-chat__todo-phase-title", "{phase.name}" }
+                            summary { class: "agent-chat__todo-phase-title", SectionTitle { "{phase.name}" } }
                             for (index, task) in phase.tasks.iter().enumerate() {
-                                div { class: "agent-chat__todo-task", role: "listitem", key: "{phase.name}-{index}",
-                                    Icon { name: task_icon(task.status), size: IconSize::Sm }
-                                    span { "{task.content}" }
-                                    span { class: "agent-chat__todo-status", "data-status": status_label(task.status).to_ascii_lowercase().replace(' ', "-"), "{status_label(task.status)}" }
-                                    if let Some(blocker) = &task.blocker { span { class: "agent-chat__todo-blocker", "{blocker}" } }
+                                ListRow {
+                                    key: "{phase.name}-{index}",
+                                    dense: true,
+                                    role: "listitem",
+                                    class: "agent-chat__todo-task",
+                                    leading: rsx! { Icon { name: task_icon(task.status), size: IconSize::Sm } },
+                                    headline: rsx! { "{task.content}" },
+                                    support: task.blocker.as_ref().map(|blocker| rsx! { span { class: "agent-chat__todo-blocker", "{blocker}" } }),
+                                    trailing: rsx! { span { class: "agent-chat__todo-status", "data-status": status_label(task.status).to_ascii_lowercase().replace(' ', "-"), "{status_label(task.status)}" } },
                                 }
                             }
                         }
@@ -137,7 +142,7 @@ pub fn AskCard(
                     "Submit answers"
                 }
             }
-            if !error().is_empty() { p { role: "alert", class: "md-body-s", "{error()}" } }
+            if !error().is_empty() { p { role: "alert", class: ERROR_TEXT_CLASS, "{error()}" } }
         }
     }
 }
@@ -288,9 +293,9 @@ pub fn BtwCard(question: String, answer: Option<String>, error: Option<String>) 
             if let Some(answer) = answer {
                 div { class: "agent-chat__markdown", dangerous_inner_html: super::markdown::markdown_to_safe_html(&answer) }
             } else if let Some(error) = error {
-                p { class: "md-body-s", role: "alert", "{error}" }
+                p { class: ERROR_TEXT_CLASS, role: "alert", "{error}" }
             } else {
-                div { class: "agent-chat__working", role: "status", span { class: "agent-chat__working-mark" }, span { class: "agent-chat__shimmer", "Finding an answer…" } }
+                div { class: "agent-chat__working", role: "status", StatusDot { status: "running".to_string() } span { class: "agent-chat__shimmer", "Finding an answer…" } }
             }
         }
     }

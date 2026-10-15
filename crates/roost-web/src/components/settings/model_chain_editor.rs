@@ -97,6 +97,7 @@ pub fn ModelChainEditor(
                                         if index == 0 { "Primary" } else { "Fallback {index}" }
                                         if let Some(text) = support { " · {text}" }
                                     }),
+                                    dense: true,
                                     test_id: row_test_id,
                                     trailing: Some(rsx! {
                                         IconButton {
