@@ -30,6 +30,7 @@ pub mod model_picker;
 mod notice_card;
 mod output_lines;
 mod output_window;
+mod peer_message_card;
 mod plan_card;
 mod queued_band;
 mod request_ids;

@@ -24,8 +24,8 @@ mod strip_thinking;
 use hub_text::{footer_hints, status_text};
 use locked_provider::LockedProvider;
 use model_hub_actions::{
-    StripCommit, activate_row, activate_strip_chip, conversation_folder, opened_strip,
-    rescope_strip,
+    HUB_ROOT_ID, StripCommit, activate_row, activate_strip_chip, conversation_folder, opened_strip,
+    refocus_frame, rescope_strip,
 };
 use model_role_strip::{ModelRoleStrip, OpenStrip, STRIP_FOOTER, run_strip_key};
 use strip_chips::{strip_key, strip_view_chips};
@@ -47,9 +47,6 @@ use super::agent_alert::ERROR_TEXT_CLASS;
 use crate::components::md::{Dialog, Skeleton};
 use crate::components::settings::agent_roles::load_settings;
 use crate::pump::Pump;
-
-/// The root's id, focused on open so the hub's keys reach it.
-const HUB_ROOT_ID: &str = "agent-model-hub-root";
 
 #[component]
 pub fn ModelHub(
@@ -77,11 +74,7 @@ pub fn ModelHub(
             error.set(String::new());
             strip.set(None);
             load_settings(load_pump.clone(), settings, error);
-        }
-    });
-    use_effect(move || {
-        if open() {
-            crate::components::file_viewer::dom::focus_by_id(HUB_ROOT_ID);
+            refocus_frame();
         }
     });
     if !open() {
@@ -274,6 +267,7 @@ pub fn ModelHub(
             HubKeyEffect::RefreshProvider | HubKeyEffect::Ignore => {}
             HubKeyEffect::Close => open.set(false),
         }
+        refocus_frame();
     };
 
     let sidebar_sections = sections.clone();
@@ -299,6 +293,7 @@ pub fn ModelHub(
                                 view.set(target);
                                 selected.set(0);
                                 focus_pane.set(HubFocus::List);
+                                refocus_frame();
                             },
                         }
                     }
@@ -355,10 +350,14 @@ pub fn ModelHub(
                                 rows: rows.clone(),
                                 selected: index,
                                 current: current_selector.clone(),
-                                on_select: move |next: usize| selected.set(next),
+                                on_select: move |next: usize| {
+                                    selected.set(next);
+                                    refocus_frame();
+                                },
                                 on_activate: move |next: usize| {
                                     selected.set(next);
                                     focus_pane.set(HubFocus::List);
+                                    refocus_frame();
                                     if let Some(selector) = activate_row(
                                         &view(),
                                         &click_catalog,

@@ -20,6 +20,16 @@ use crate::components::settings::agent_roles::save_settings;
 use crate::components::settings::model_scope::ModelScope;
 use crate::pump::Pump;
 
+/// The hub frame's id. A listbox row carries `tabindex` so a click can focus
+/// it, and that element can disappear on the next render (a view switch, a
+/// re-filtered row list); the frame holds the key handler, so a click or key
+/// effect must pull focus back to it or the next key reaches nothing.
+pub(super) const HUB_ROOT_ID: &str = "agent-model-hub-root";
+
+pub(super) fn refocus_frame() {
+    crate::components::file_viewer::dom::focus_by_id(HUB_ROOT_ID);
+}
+
 /// Everything a strip chip needs to save and close: the chat, its pin, and the
 /// signals the hub reads.
 #[derive(Clone)]

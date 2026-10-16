@@ -16,6 +16,7 @@ use super::background_job_box::BackgroundJobBox;
 use super::interaction_cards::{AskCard, BtwCard};
 use super::message_actions::{ForkMessageAction, UserMessageActions};
 use super::notice_card::NoticeCard;
+use super::peer_message_card::PeerMessageCard;
 use super::plan_card::PlanCard;
 use super::queued_band::QueuedBand;
 use super::streaming_reveal::StreamingText;
@@ -38,6 +39,7 @@ enum Segment<'transcript> {
     Ask(&'transcript TranscriptItem),
     Btw(&'transcript TranscriptItem),
     BackgroundJob(&'transcript TranscriptItem),
+    PeerMessage(&'transcript TranscriptItem),
 }
 
 #[component]
@@ -142,6 +144,9 @@ pub fn AgentTranscriptView(
                     },
                     Segment::BackgroundJob(TranscriptItem::BackgroundJob { id, job_id, command, state, is_error, output, exit_code }) => rsx! {
                         BackgroundJobBox { key: "{id}", job_id: job_id.clone(), command: command.clone(), state: *state, is_error: *is_error, output: output.clone(), exit_code: *exit_code }
+                    },
+                    Segment::PeerMessage(TranscriptItem::PeerMessage { id, from, broadcast, text, .. }) => rsx! {
+                        PeerMessageCard { key: "{id}", id: id.clone(), from: from.clone(), broadcast: *broadcast, text: text.clone() }
                     },
                     _ => rsx! {},
                 }
@@ -286,6 +291,7 @@ fn segments(transcript: &Transcript) -> Vec<Segment<'_>> {
             TranscriptItem::Btw { .. } => segments.push(Segment::Btw(item)),
             TranscriptItem::Advisory { .. } => segments.push(Segment::Advisory(item)),
             TranscriptItem::BackgroundJob { .. } => segments.push(Segment::BackgroundJob(item)),
+            TranscriptItem::PeerMessage { .. } => segments.push(Segment::PeerMessage(item)),
         }
     }
     segments
