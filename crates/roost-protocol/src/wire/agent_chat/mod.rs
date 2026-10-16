@@ -20,7 +20,10 @@ pub use model::*;
 pub use model_order::{
     compare_models_newest_first, compare_newest_first, model_family, model_version,
 };
-pub use model_presets::{ModelPresets, PRESET_NAME_HINT, active_preset, valid_preset_name};
+pub use model_presets::{
+    BUILTIN_PRESETS, ModelPresets, PRESET_NAME_HINT, active_preset, apply_preset,
+    is_builtin_preset, presets_with_builtins, valid_preset_name,
+};
 pub use model_search::{fuzzy_score, model_search_text, rank_matches};
 pub use proto::{conversation_from_proto, conversation_to_proto};
 

@@ -25,6 +25,7 @@ pub mod model_picker;
 mod notice_card;
 mod plan_card;
 mod request_ids;
+mod role_presets;
 mod role_switch;
 mod role_switcher;
 mod slash_menu;

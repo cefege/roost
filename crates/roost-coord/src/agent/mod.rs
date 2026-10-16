@@ -2,6 +2,7 @@
 //! the coordinator's database, worker links, Sync buses and provider accounts.
 //! RPC handlers live in `rpc_*`; `tool_calls` carries tool frames to workers.
 
+mod chat_delivery;
 mod chat_events;
 pub mod credentials;
 mod executor;
@@ -205,8 +206,11 @@ impl AgentService {
         let mut notices = self.cluster.notifier.subscribe();
         let notifier = Arc::clone(&self.cluster.notifier);
         let db = self.sink.database();
-        let buses = self.sink.buses();
-        self.spawn_background(chat_events::relay(notifier, db.clone(), buses));
+        self.spawn_background(chat_events::relay(
+            notifier,
+            db.clone(),
+            self.sink.delivery(),
+        ));
         self.spawn_background(async move {
             let mut prune = tokio::time::interval(Duration::from_secs(10 * 60));
             loop {

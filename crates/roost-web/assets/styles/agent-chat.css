@@ -655,13 +655,16 @@
   color: var(--md-sys-color-on-surface);
   font: var(--md-title-s-weight) var(--md-title-s-size)/var(--md-title-s-line) var(--md-font);
 }
-.agent-chat__roles-scope {
+.agent-chat__roles-scope,
+.agent-chat__roles-presets,
+.agent-chat__roles-preset-save {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--md-space-2);
   padding: 0 var(--md-space-2) var(--md-space-2);
 }
+.agent-chat__roles-preset-save > :first-child { flex: 1 1 calc(var(--md-space-9) * 3); min-width: 0; }
 /* Role, then the model it runs, on one line where the width allows. */
 .agent-chat__roles-row .md-list-row__body {
   flex-direction: row;

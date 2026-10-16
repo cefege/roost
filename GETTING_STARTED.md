@@ -202,16 +202,26 @@ to change its model in place; the change saves for all folders, or choose
 **This folder** to override it for this chat's folder only. The row marked
 **This chat** is the role this chat runs on (Planning in plan mode, a
 subagent's own role), and changing it moves the chat onto the new model even
-after `/switch`. **Settings** in that panel opens
-the fallback chains, presets and accounts. The **+** button opens the command
-menu; bare `/model` (also `/models`) and `/settings` selections open HTML
-controls without sending a message. Settings have searchable groups and
-mobile list/detail navigation.
+after `/switch`. Across the top, **presets** set every role in one tap:
+the starter **Anthropic** (Opus 5.5 by default, Fable 5.1 for deep review,
+Sonnet 5.5 for delegated work, Haiku 5.5 for quick and side tasks) and
+**OpenAI** (GPT-6.1 Sol by default, GPT-6 Astra for deep review, GPT-6 Luna for
+quick and side tasks), then any you saved. A preset sets only the roles it
+names. **Save as…** stores the current roles under a name; saving under a
+starter's name replaces that starter, and deleting the saved copy (or
+`/modelpreset delete <name>`) brings the starter back. **Settings** in that
+panel opens the fallback chains, presets and accounts. The **+** button opens
+the command menu; tapping or clicking a command does what Enter does: it runs a
+command that needs nothing more and fills one that needs an argument. Bare
+`/model` (also `/models`) and `/settings` open HTML controls without sending a
+message. Settings have searchable groups and mobile list/detail navigation.
 
 The **Goal** chip, shown while a goal is live, opens an HTML objective, status and budget dialog.
 `/goal <objective>` (or `/goal set <objective>`) starts the same workflow.
 `/goal show`, `pause`, `resume`, `drop`, and `budget <positive integer|off>`
-manage it. Pause prevents future goal continuations, not the current accepted
+manage it; those words are commands only on their own (`budget` with one
+value), so `/goal drop support for X` sets that objective.
+Pause prevents future goal continuations, not the current accepted
 turn; **Stop** aborts that turn and pauses the goal, even with an unsent draft.
 Resume or drop a paused goal before replacing it. Dropping retains its history.
 Completion requires the model's explicit `goal complete` tool report; prose or

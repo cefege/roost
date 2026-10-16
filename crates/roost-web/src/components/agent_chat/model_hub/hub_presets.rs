@@ -1,15 +1,15 @@
-//! The hub's presets: named snapshots of the all-folders role chains, saved,
-//! applied and deleted here or with `/modelpreset`. Both edit the one
-//! `model_presets` map, and the coordinator re-validates it on save. Delete
-//! asks once more in place, since a preset cannot be restored.
-
-use std::collections::BTreeMap;
+//! The hub's presets: the starter presets and named snapshots of the
+//! all-folders role chains, saved, applied and deleted here or with
+//! `/modelpreset`. Both edit the one `model_presets` map, and the coordinator
+//! re-validates it on save. Delete asks once more in place, since a preset
+//! cannot be restored; on a saved starter it resets to the starter roles.
 
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{
-    AgentSettingsView, PRESET_NAME_HINT, active_preset, valid_preset_name,
+    AgentSettingsView, active_preset, is_builtin_preset, presets_with_builtins,
 };
 
+use crate::components::agent_chat::role_switch::{with_applied_preset, with_saved_preset};
 use crate::components::file_viewer::dom::focus_by_id;
 use crate::components::md::{
     Button, ButtonSize, ButtonVariant, Chip, List, ListRow, SectionTitle, TextField,
@@ -51,7 +51,8 @@ pub(super) fn HubPresets(
         }
     });
     let current = settings();
-    let active = active_preset(&current.model_presets, &current.model_roles).map(str::to_owned);
+    let presets = presets_with_builtins(&current.model_presets);
+    let active = active_preset(&presets, &current.model_roles).map(str::to_owned);
     let size = if compact {
         ButtonSize::Default
     } else {
@@ -60,26 +61,13 @@ pub(super) fn HubPresets(
     let save_pump = pump.clone();
     let mut save = move || {
         let typed = name.peek().trim().to_owned();
-        if !valid_preset_name(&typed) {
-            error.set(format!(
-                "Invalid preset name \"{typed}\": {PRESET_NAME_HINT}"
-            ));
-            return;
+        match with_saved_preset(&settings.peek(), &typed) {
+            Ok(updated) => {
+                save_settings(save_pump.clone(), updated, settings, error);
+                name.set(String::new());
+            }
+            Err(message) => error.set(message),
         }
-        let mut updated = settings.peek().clone();
-        let roles: BTreeMap<String, String> = updated
-            .model_roles
-            .iter()
-            .filter(|(_, chain)| !chain.trim().is_empty())
-            .map(|(role, chain)| (role.clone(), chain.clone()))
-            .collect();
-        if roles.is_empty() {
-            error.set("Set at least one all-folders role before saving a preset.".to_owned());
-            return;
-        }
-        updated.model_presets.insert(typed, roles);
-        save_settings(save_pump.clone(), updated, settings, error);
-        name.set(String::new());
     };
     let mut save_on_enter = save.clone();
     rsx! {
@@ -90,14 +78,9 @@ pub(super) fn HubPresets(
             "aria-label": "Presets",
             "data-testid": "agent-model-presets",
             SectionTitle { "Presets" }
-            if current.model_presets.is_empty() {
-                p { class: "agent-settings__support",
-                    "No presets yet. A preset saves every all-folders role chain under one name."
-                }
-            } else {
-                List {
-                    contained: true,
-                    for (preset_name, roles) in current.model_presets.clone() {
+            List {
+                contained: true,
+                for (preset_name, roles) in presets {
                         {
                             let summary = roles
                                 .iter()
@@ -106,6 +89,10 @@ pub(super) fn HubPresets(
                                 .join("; ");
                             let is_active = active.as_deref() == Some(preset_name.as_str());
                             let asking = confirming().as_deref() == Some(preset_name.as_str());
+                            let starter = is_builtin_preset(&preset_name);
+                            // A starter can only lose its saved replacement, which resets it.
+                            let removable = current.model_presets.contains_key(&preset_name);
+                            let remove_label = if starter { "Reset" } else { "Delete" };
                             let apply_pump = pump.clone();
                             let delete_pump = pump.clone();
                             let apply_roles = roles.clone();
@@ -122,7 +109,7 @@ pub(super) fn HubPresets(
                                     trailing: rsx! {
                                         div { class: "model-hub__preset-actions",
                                             if asking {
-                                                span { class: "model-hub__confirm", role: "status", "Delete {preset_name}?" }
+                                                span { class: "model-hub__confirm", role: "status", "{remove_label} {preset_name}?" }
                                                 // Delete before Keep: a double tap on the first Delete
                                                 // lands on Keep, never on the confirmation.
                                                 Button {
@@ -136,7 +123,7 @@ pub(super) fn HubPresets(
                                                         confirming.set(None);
                                                         focus_after.set(Some(SECTION_ID.to_owned()));
                                                     },
-                                                    "Delete"
+                                                    "{remove_label}"
                                                 }
                                                 Button {
                                                     id: keep_id(&preset_name),
@@ -152,6 +139,8 @@ pub(super) fn HubPresets(
                                             } else {
                                                 if is_active {
                                                     Chip { label: "Active".to_owned(), small: true }
+                                                } else if starter && !removable {
+                                                    Chip { label: "Starter".to_owned(), small: true }
                                                 }
                                                 Button {
                                                     variant: ButtonVariant::Outline,
@@ -160,22 +149,23 @@ pub(super) fn HubPresets(
                                                     title: if is_active { "These roles are already in use" } else { "Make these the all-folders roles" },
                                                     "data-testid": "agent-model-preset-apply-{preset_name}",
                                                     onclick: move |_| {
-                                                        let mut updated = settings.peek().clone();
-                                                        updated.model_roles = apply_roles.clone();
+                                                        let updated = with_applied_preset(&settings.peek(), &apply_roles);
                                                         save_settings(apply_pump.clone(), updated, settings, error);
                                                     },
                                                     "Apply"
                                                 }
-                                                Button {
-                                                    id: delete_id(&preset_name),
-                                                    variant: ButtonVariant::Ghost,
-                                                    size,
-                                                    "data-testid": "agent-model-preset-delete-{preset_name}",
-                                                    onclick: move |_| {
-                                                        focus_after.set(Some(keep_id(&ask_name)));
-                                                        confirming.set(Some(ask_name.clone()));
-                                                    },
-                                                    "Delete"
+                                                if removable {
+                                                    Button {
+                                                        id: delete_id(&preset_name),
+                                                        variant: ButtonVariant::Ghost,
+                                                        size,
+                                                        "data-testid": "agent-model-preset-delete-{preset_name}",
+                                                        onclick: move |_| {
+                                                            focus_after.set(Some(keep_id(&ask_name)));
+                                                            confirming.set(Some(ask_name.clone()));
+                                                        },
+                                                        "{remove_label}"
+                                                    }
                                                 }
                                             }
                                         }
@@ -185,7 +175,6 @@ pub(super) fn HubPresets(
                         }
                     }
                 }
-            }
             div { class: "model-hub__preset-save",
                 TextField {
                     value: name(),

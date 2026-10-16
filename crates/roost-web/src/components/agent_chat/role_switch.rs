@@ -4,7 +4,11 @@
 //! each comes from, and the settings after a new model leads a role. The
 //! component is `role_switcher`; scope rules are `settings::model_scope`.
 
-use roost_protocol::wire::agent_chat::{AgentSettingsView, ModelsCatalog};
+use std::collections::BTreeMap;
+
+use roost_protocol::wire::agent_chat::{
+    AgentSettingsView, ModelsCatalog, PRESET_NAME_HINT, apply_preset, valid_preset_name,
+};
 
 use crate::components::settings::agent_roles::ROLES;
 use crate::components::settings::model_chain::{join_chain, parse_chain, split_thinking};
@@ -112,6 +116,44 @@ pub(super) fn with_role_leader(
         fresh
     });
     with_role_value(settings, scope, role, Some(join_chain(&chain)))
+}
+
+/// The settings with the all-folders roles saved as preset `name`, replacing a
+/// preset of that name. `Err` carries the message to show: a bad name, or no
+/// role set to save.
+pub(super) fn with_saved_preset(
+    settings: &AgentSettingsView,
+    name: &str,
+) -> Result<AgentSettingsView, String> {
+    if !valid_preset_name(name) {
+        return Err(format!(
+            "Invalid preset name \"{name}\": {PRESET_NAME_HINT}"
+        ));
+    }
+    let roles: BTreeMap<String, String> = settings
+        .model_roles
+        .iter()
+        .filter(|(_, chain)| !chain.trim().is_empty())
+        .map(|(role, chain)| (role.clone(), chain.clone()))
+        .collect();
+    if roles.is_empty() {
+        return Err("Set at least one all-folders role before saving a preset.".to_owned());
+    }
+    let mut updated = settings.clone();
+    updated.model_presets.insert(name.to_owned(), roles);
+    Ok(updated)
+}
+
+/// The settings after applying a preset to the all-folders roles
+/// (`apply_preset`: roles it names change, the rest stay). Folder overrides
+/// stay too.
+pub(super) fn with_applied_preset(
+    settings: &AgentSettingsView,
+    preset: &BTreeMap<String, String>,
+) -> AgentSettingsView {
+    let mut updated = settings.clone();
+    updated.model_roles = apply_preset(&settings.model_roles, preset);
+    updated
 }
 
 fn model_name(catalog: Option<&ModelsCatalog>, selector: &str) -> String {

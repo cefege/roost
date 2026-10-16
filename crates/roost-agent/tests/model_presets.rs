@@ -7,7 +7,7 @@ mod support;
 use std::collections::BTreeMap;
 
 use roost_agent::{AgentSettings, Role};
-use roost_protocol::wire::agent_chat::TranscriptItem;
+use roost_protocol::wire::agent_chat::{TranscriptItem, presets_with_builtins};
 use support::Harness;
 
 async fn set_default(harness: &Harness, chain: &str) {
@@ -76,4 +76,44 @@ async fn settings_refuse_a_preset_with_an_unknown_role() {
         BTreeMap::from([("bogus".to_owned(), "anthropic/claude-sonnet-5".to_owned())]),
     );
     assert!(harness.runtime.set_settings(settings).await.is_err());
+}
+
+#[tokio::test]
+async fn starter_presets_switch_unsaved_and_a_saved_copy_resets_on_delete() {
+    let harness = Harness::new();
+    let id = harness.conversation().await;
+    // Every starter is a preset the settings accept as saved.
+    let settings = AgentSettings {
+        model_presets: presets_with_builtins(&BTreeMap::new()),
+        ..AgentSettings::default()
+    };
+    harness.runtime.set_settings(settings).await.unwrap();
+    harness
+        .runtime
+        .set_settings(AgentSettings::default())
+        .await
+        .unwrap();
+
+    harness.submit(&id, "/modelpreset switch OpenAI").await;
+    let roles = harness.runtime.settings().await.unwrap().model_roles;
+    assert_eq!(
+        roles.get(&Role::Default).map(String::as_str),
+        Some("openai-codex/gpt-6.1-sol")
+    );
+
+    set_default(&harness, "anthropic/claude-sonnet-5").await;
+    harness.submit(&id, "/modelpreset save Anthropic").await;
+    harness.submit(&id, "/modelpreset switch Anthropic").await;
+    let roles = harness.runtime.settings().await.unwrap().model_roles;
+    assert_eq!(
+        roles.get(&Role::Default).map(String::as_str),
+        Some("anthropic/claude-sonnet-5")
+    );
+    harness.submit(&id, "/modelpreset delete Anthropic").await;
+    harness.submit(&id, "/modelpreset switch Anthropic").await;
+    let roles = harness.runtime.settings().await.unwrap().model_roles;
+    assert_eq!(
+        roles.get(&Role::Default).map(String::as_str),
+        Some("anthropic/claude-opus-5-5")
+    );
 }

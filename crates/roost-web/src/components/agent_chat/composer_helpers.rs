@@ -29,26 +29,6 @@ pub(super) fn focus_field(field: Signal<Option<Rc<MountedData>>>) {
     });
 }
 
-/// A pointer pick on a menu row fills like Tab, as OMP's does, so a stray tap
-/// never runs a command; Enter is what runs one.
-pub(super) fn pick_fills_draft(
-    menu: Option<&super::slash_menu::SlashMenuState>,
-    draft: Signal<String>,
-    selected_option: Signal<usize>,
-    field: Signal<Option<Rc<MountedData>>>,
-) -> EventHandler<usize> {
-    let texts: Vec<String> = menu
-        .iter()
-        .flat_map(|state| state.options.iter().map(|option| option.text.clone()))
-        .collect();
-    EventHandler::new(move |idx: usize| {
-        if let Some(text) = texts.get(idx) {
-            fill_draft(draft, selected_option, text);
-            focus_field(field);
-        }
-    })
-}
-
 #[cfg(target_arch = "wasm32")]
 pub(super) fn abort_run(pump: Pump, conversation_id: String) {
     wasm_bindgen_futures::spawn_local(async move {

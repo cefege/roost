@@ -1,13 +1,13 @@
 //! Durable cursor-ordered chat batches and their per-replica bus relay.
-//! The database is the source of truth; notices only advance local delivery.
+//! The database is the source of truth; notices only advance local delivery,
+//! and `chat_delivery` keeps the relay and the direct path from repeating a
+//! batch.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
+use super::chat_delivery::ChatDelivery;
 use crate::cluster::notify::{CHAT_CHANNEL, ClusterNotifier, Notice};
 use crate::db::{CoordDb, DbBackend};
-use crate::events::bus_domains::Buses;
-use crate::events::bus_messages::AgentChatEventsUpdate;
 
 #[derive(Debug, Clone)]
 pub struct ChatEventRow {
@@ -129,9 +129,9 @@ pub async fn prune(db: &CoordDb) -> Result<u64, sqlx::Error> {
 /// Relays durable chat batches in cursor order, serializing concurrent notices.
 /// A conversation is relayed from the first cursor a notice names; history
 /// before that reaches a client through its snapshot, never through the bus.
-pub async fn relay(notifier: Arc<ClusterNotifier>, db: CoordDb, buses: Arc<Buses>) {
+/// A batch the writer already published directly is not published again.
+pub async fn relay(notifier: Arc<ClusterNotifier>, db: CoordDb, delivery: Arc<ChatDelivery>) {
     let mut notices = notifier.subscribe();
-    let mut delivered = HashMap::<String, u64>::new();
     loop {
         let notice = match notices.recv().await {
             Ok(notice) if notice.channel == CHAT_CHANNEL => notice,
@@ -151,19 +151,17 @@ pub async fn relay(notifier: Arc<ClusterNotifier>, db: CoordDb, buses: Arc<Buses
         };
         let mut targets = Vec::new();
         if notice.resync {
-            targets.extend(delivered.keys().cloned());
+            targets.extend(delivery.conversations());
         } else if let Some((id, first)) = notice.payload.rsplit_once(':') {
             let Ok(first) = first.parse::<u64>() else {
                 continue;
             };
-            delivered
-                .entry(id.to_owned())
-                .or_insert_with(|| first.saturating_sub(1));
+            delivery.start_at(id, first);
             targets.push(id.to_owned());
         }
         for id in targets {
             loop {
-                let after = delivered.get(&id).copied().unwrap_or(0);
+                let after = delivery.last_delivered(&id).unwrap_or(0);
                 match read_after(&db, &id, after, 500).await {
                     Ok((rows, _)) => {
                         let batch_count = rows.len();
@@ -172,16 +170,11 @@ pub async fn relay(notifier: Arc<ClusterNotifier>, db: CoordDb, buses: Arc<Buses
                         }
                         let mut expected = after.saturating_add(1);
                         for row in rows {
-                            if row.cursor != expected && delivered.contains_key(&id) {
+                            if row.cursor != expected {
                                 tracing::warn!(conversation_id = %id, expected, actual = row.cursor, "chat event cursor gap while relaying");
                             }
-                            buses.agent_chat_bus.publish(AgentChatEventsUpdate {
-                                conversation_id: id.clone(),
-                                seq: row.cursor,
-                                events_json: row.events_json,
-                            });
-                            delivered.insert(id.clone(), row.cursor);
                             expected = row.cursor.saturating_add(1);
+                            delivery.deliver(&id, row.cursor, row.events_json);
                         }
                         if batch_count < 500 {
                             break;

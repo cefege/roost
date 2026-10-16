@@ -13,7 +13,7 @@ use super::agent_alert::ERROR_TEXT_CLASS;
 use super::composer_footer::ComposerFooter;
 #[cfg(target_arch = "wasm32")]
 use super::composer_helpers::abort_run;
-use super::composer_helpers::{fill_draft, focus_field, pick_fills_draft};
+use super::composer_helpers::{fill_draft, focus_field};
 use super::composer_status::ComposerErrorBanner;
 use super::goal_controls::GoalControls;
 use super::slash_menu::{
@@ -109,6 +109,7 @@ pub fn AgentComposer(
                         navigate,
                         connect_provider,
                         model_hub_open,
+                        report,
                     },
                 ) {
                     draft.set(String::new());
@@ -129,7 +130,11 @@ pub fn AgentComposer(
                 return;
             };
             match accept_action(&option) {
-                SlashAccept::Fill(text) => fill_draft(draft, selected_option, &text),
+                SlashAccept::Fill(text) => {
+                    fill_draft(draft, selected_option, &text);
+                    // A tap moved focus to the row; the argument is typed next.
+                    focus_field(field);
+                }
                 SlashAccept::Submit(text) => {
                     draft.set(text);
                     send.call(());
@@ -166,7 +171,9 @@ pub fn AgentComposer(
     };
     let sources_for_input = sources.clone();
     let key_conversation = conversation_id.clone();
-    let pick = pick_fills_draft(menu.as_ref(), draft, selected_option, field);
+    // A tap or click on a row does what Enter does on it: runs a command that
+    // needs nothing more, completes one that needs an argument.
+    let pick = accept;
     rsx! {
         div {
             class: "agent-chat__composer",

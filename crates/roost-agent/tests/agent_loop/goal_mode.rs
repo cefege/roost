@@ -330,3 +330,23 @@ async fn blocked_only_todos_wait_without_completing_or_resuming_on_restart() {
         roost_protocol::wire::agent_chat::AgentRunState::Idle
     );
 }
+
+#[tokio::test]
+async fn goal_objectives_that_begin_with_a_keyword_are_kept_whole() {
+    let harness = Harness::new();
+    for objective in [
+        "drop support for the legacy API",
+        "show the logs in the dashboard",
+        "pause after the migration",
+        "resume the sync job",
+        "budget 50k tokens",
+    ] {
+        let id = harness.conversation().await;
+        harness.llm.script(&id, text_reply("Working on it."));
+        harness.submit(&id, &format!("/goal {objective}")).await;
+        let transcript = harness.settle(&id).await;
+        let state = projected_goal(&transcript);
+        assert_eq!(state.objective, objective);
+        assert_eq!(state.status, GoalStatus::Active);
+    }
+}

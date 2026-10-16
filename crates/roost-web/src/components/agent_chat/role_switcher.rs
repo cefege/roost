@@ -11,6 +11,7 @@ use roost_protocol::wire::agent_chat::{AgentSettingsView, ConversationSummary, M
 use super::agent_alert::ERROR_TEXT_CLASS;
 use super::model_controls::{Configure, configure};
 use super::model_picker::ModelPicker;
+use super::role_presets::RolePresets;
 use super::role_switch::{RoleLine, initial_scope, pin_hides, role_lines, with_role_leader};
 use crate::components::context_menu::use_floating_menu_dismiss;
 use crate::components::layout::window_size::use_is_compact;
@@ -178,6 +179,12 @@ fn RolePanel(
                         },
                         "Settings"
                     }
+                }
+                RolePresets {
+                    conversation: conversation.clone(),
+                    settings,
+                    error,
+                    pump: pump.clone(),
                 }
                 List {
                     for line in lines {

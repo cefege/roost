@@ -23,10 +23,9 @@ pub(crate) async fn command(
                 .unwrap_or(runtime.inner.store.settings().await?.advisor_enabled);
             set_enabled(runtime, record, !enabled).await
         }
-        other => {
-            runtime.notice(&record.id, "info", "Advisor command", &format!("Unknown argument `{other}`. Use `/advisor`, `/advisor on`, `/advisor off`, or `/advisor status`. ")).await;
-            Ok(())
-        }
+        other => Err(AgentError::InvalidArgument(format!(
+            "Unknown argument `{other}`. Use `/advisor`, `/advisor on`, `/advisor off`, or `/advisor status`."
+        ))),
     }
 }
 

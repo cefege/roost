@@ -220,7 +220,7 @@ pub const AGENT_SLASH_COMMANDS: &[SlashCommand] = &[
     SlashCommand {
         name: "logout",
         aliases: &[],
-        args: "[provider]",
+        args: "",
         summary: "Manage connected accounts",
         client_bare: true,
         subcommands: &[],

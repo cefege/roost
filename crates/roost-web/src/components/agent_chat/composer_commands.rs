@@ -102,6 +102,7 @@ pub(super) struct LocalCommandScope<'a> {
     pub(super) navigate: EventHandler<String>,
     pub(super) connect_provider: Signal<Option<ProviderEntry>>,
     pub(super) model_hub_open: Signal<bool>,
+    pub(super) report: EventHandler<Result<(), String>>,
 }
 
 /// Runs a client-side command; `false` means the text goes to the harness.
@@ -116,6 +117,7 @@ pub(super) fn run_local_command(
     let pump = scope.pump.clone();
     let navigate = scope.navigate;
     let mut connect_provider = scope.connect_provider;
+    let report = scope.report;
     match name {
         "model" if client_bare && args.is_empty() => {
             let mut open = scope.model_hub_open;
@@ -127,23 +129,38 @@ pub(super) fn run_local_command(
             open_model_picker(&conversation.id);
             true
         }
+        "settings" | "new" | "export" | "logout" if client_bare && !args.is_empty() => {
+            report.call(Err(format!("Usage: /{name}")));
+            true
+        }
         "settings" if client_bare => {
             navigate.call(Route::Settings { pane: None }.to_path());
             true
         }
         "login" => {
-            let provider = catalog.and_then(|catalog| {
-                if args.is_empty() {
-                    catalog.providers.first()
-                } else {
-                    catalog
-                        .providers
+            let providers = catalog.map_or(&[][..], |catalog| catalog.providers.as_slice());
+            let provider = if args.is_empty() {
+                providers.first()
+            } else {
+                providers.iter().find(|provider| provider.id == args)
+            };
+            match provider {
+                Some(provider) => connect_provider.set(Some(provider.clone())),
+                None if args.is_empty() => {}
+                None => {
+                    let known = providers
                         .iter()
-                        .find(|provider| provider.id == args)
+                        .map(|provider| provider.id.as_str())
+                        .collect::<Vec<_>>();
+                    let known = if known.is_empty() {
+                        "none".to_owned()
+                    } else {
+                        known.join(", ")
+                    };
+                    report.call(Err(format!(
+                        "Unknown provider `{args}`. Known providers: {known}."
+                    )));
                 }
-            });
-            if let Some(provider) = provider {
-                connect_provider.set(Some(provider.clone()));
             }
             true
         }

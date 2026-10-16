@@ -130,39 +130,33 @@ impl AgentRuntime {
         record: &ConversationRecord,
         args: &str,
     ) -> Result<(), AgentError> {
-        let (command, rest) = first_word(args);
         let current = self.refresh_goal(&record.id).await?;
-        let operation = match command.to_ascii_lowercase().as_str() {
-            "set" => Some("set"),
-            "show" => Some("show"),
-            "pause" => Some("pause"),
-            "resume" => Some("resume"),
-            "drop" => Some("drop"),
-            "budget" => Some("budget"),
-            _ => None,
+        let (objective, replaces_goal) = match parse_goal_command(args) {
+            GoalCommand::Show => ("", false),
+            GoalCommand::Pause => return self.change_goal_status(record, GoalStatus::Paused).await,
+            GoalCommand::Resume => {
+                return self.change_goal_status(record, GoalStatus::Active).await;
+            }
+            GoalCommand::Drop => return self.change_goal_status(record, GoalStatus::Dropped).await,
+            GoalCommand::Budget(value) => return self.change_budget(record, value).await,
+            GoalCommand::Set(objective) => (objective, true),
+            GoalCommand::Objective(objective) => (objective, false),
         };
-        match operation.unwrap_or("objective") {
-            "show" => {
-                self.notice(&record.id, "info", "Goal", &current.as_ref().map_or_else(|| "No goal set.".into(), describe)).await;
-                Ok(())
-            }
-            "objective" | "set" => {
-                let objective = if operation.is_none() { args.trim() } else { rest.trim() };
-                if objective.is_empty() {
-                    self.notice(&record.id, "info", "Goal", &current.as_ref().map_or_else(|| "No goal set.".into(), describe)).await;
-                    return Ok(());
-                }
-                let state = self.set_goal(&record.id, objective, operation == Some("set"), None).await?;
-                self.deliver_user_text(record, objective.to_owned(), None).await?;
-                self.notice(&record.id, "info", "Goal set", &state.objective).await;
-                Ok(())
-            }
-            "pause" => self.change_goal_status(record, GoalStatus::Paused).await,
-            "resume" => self.change_goal_status(record, GoalStatus::Active).await,
-            "drop" => self.change_goal_status(record, GoalStatus::Dropped).await,
-            "budget" => self.change_budget(record, rest).await,
-            _ => Err(AgentError::InvalidArgument("Use /goal [objective], set <objective>, show, pause, resume, drop, or budget <positive integer|off>.".into())),
+        if objective.is_empty() {
+            let summary = current
+                .as_ref()
+                .map_or_else(|| "No goal set.".into(), describe);
+            self.notice(&record.id, "info", "Goal", &summary).await;
+            return Ok(());
         }
+        let state = self
+            .set_goal(&record.id, objective, replaces_goal, None)
+            .await?;
+        self.deliver_user_text(record, objective.to_owned(), None)
+            .await?;
+        self.notice(&record.id, "info", "Goal set", &state.objective)
+            .await;
+        Ok(())
     }
 
     async fn change_goal_status(
@@ -324,4 +318,38 @@ fn first_word(text: &str) -> (&str, &str) {
     let text = text.trim();
     text.find(char::is_whitespace)
         .map_or((text, ""), |index| (&text[..index], text[index..].trim()))
+}
+
+/// What a `/goal` argument asks for. A keyword is a command only when it is the
+/// whole argument (or the single operand of `budget`), so an objective may begin
+/// with one of them.
+#[derive(Debug, PartialEq, Eq)]
+enum GoalCommand<'a> {
+    Show,
+    Pause,
+    Resume,
+    Drop,
+    Budget(&'a str),
+    Set(&'a str),
+    Objective(&'a str),
+}
+
+fn parse_goal_command(args: &str) -> GoalCommand<'_> {
+    let args = args.trim();
+    let (keyword, rest) = first_word(args);
+    match keyword.to_ascii_lowercase().as_str() {
+        "show" if rest.is_empty() => GoalCommand::Show,
+        "pause" if rest.is_empty() => GoalCommand::Pause,
+        "resume" if rest.is_empty() => GoalCommand::Resume,
+        "drop" if rest.is_empty() => GoalCommand::Drop,
+        "budget" if is_single_budget_operand(rest) => GoalCommand::Budget(rest),
+        "set" => GoalCommand::Set(rest),
+        _ => GoalCommand::Objective(args),
+    }
+}
+
+/// `budget` with no operand or one word is the budget command, which rejects a
+/// bad value with its usage; more words are objective text ("budget the sprint").
+fn is_single_budget_operand(rest: &str) -> bool {
+    !rest.contains(char::is_whitespace)
 }

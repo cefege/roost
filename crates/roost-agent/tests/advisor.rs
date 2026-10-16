@@ -4,7 +4,7 @@
 #[path = "support/mod.rs"]
 mod support;
 
-use roost_agent::{AgentSettings, AgentStore, Entry};
+use roost_agent::{AgentError, AgentSettings, AgentStore, Entry};
 use roost_llm::Message;
 use roost_protocol::wire::agent_chat::TranscriptItem;
 use support::{Harness, Script, text_reply, tool_reply};
@@ -276,6 +276,27 @@ async fn toggling_the_advisor_sets_state_without_a_transcript_notice() {
         let summary = harness.runtime.conversation(&id).await.unwrap();
         assert_eq!(summary.advisor, enabled, "after {command}");
     }
+    let entries = harness.store.entries(&id).await.unwrap();
+    assert!(
+        !entries
+            .iter()
+            .any(|(_, entry)| matches!(entry, Entry::Notice { .. })),
+        "{entries:#?}"
+    );
+}
+
+#[tokio::test]
+async fn unknown_advisor_argument_is_rejected_without_a_notice() {
+    let harness = Harness::new();
+    let id = harness.conversation().await;
+    let result = harness
+        .runtime
+        .submit(&id, "/advisor bogus".to_owned())
+        .await;
+    assert!(
+        matches!(&result, Err(AgentError::InvalidArgument(message)) if message.contains("bogus")),
+        "{result:?}"
+    );
     let entries = harness.store.entries(&id).await.unwrap();
     assert!(
         !entries

@@ -4,7 +4,8 @@
 use std::collections::BTreeMap;
 
 use roost_protocol::wire::agent_chat::{
-    ModelPresets, PRESET_NAME_HINT, active_preset, valid_preset_name,
+    ModelPresets, PRESET_NAME_HINT, active_preset, apply_preset, is_builtin_preset,
+    presets_with_builtins, valid_preset_name,
 };
 
 use crate::error::AgentError;
@@ -65,13 +66,13 @@ pub(crate) async fn command(
             )
         }
         ["switch", name] => {
-            let preset = settings
-                .model_presets
+            let presets = presets_with_builtins(&settings.model_presets);
+            let preset = presets
                 .get(*name)
                 .ok_or_else(|| invalid(format!("Preset not found: {name}")))?;
-            settings.model_roles = preset
-                .iter()
-                .filter_map(|(key, chain)| Role::from_name(key).map(|role| (role, chain.clone())))
+            settings.model_roles = apply_preset(&global_roles(&settings), preset)
+                .into_iter()
+                .filter_map(|(key, chain)| Role::from_name(&key).map(|role| (role, chain)))
                 .collect();
             let overridden = folder_overrides(&settings, record);
             runtime.set_settings(settings).await?;
@@ -86,10 +87,19 @@ pub(crate) async fn command(
         }
         ["delete", name] => {
             if settings.model_presets.remove(*name).is_none() {
-                return Err(invalid(format!("Preset not found: {name}")));
+                return Err(invalid(if is_builtin_preset(name) {
+                    format!("`{name}` is a starter preset and cannot be deleted")
+                } else {
+                    format!("Preset not found: {name}")
+                }));
             }
             runtime.set_settings(settings).await?;
-            ("Model preset deleted", format!("Deleted `{name}`."))
+            let body = if is_builtin_preset(name) {
+                format!("Reset `{name}` to its starter roles.")
+            } else {
+                format!("Deleted `{name}`.")
+            };
+            ("Model preset deleted", body)
         }
         _ => return Err(invalid(USAGE.into())),
     };
@@ -98,12 +108,10 @@ pub(crate) async fn command(
 }
 
 fn list(settings: &AgentSettings) -> String {
-    if settings.model_presets.is_empty() {
-        return "No model presets saved. Use `/modelpreset save <name>` to create one.".into();
-    }
-    let active = active_preset(&settings.model_presets, &global_roles(settings));
+    let presets = presets_with_builtins(&settings.model_presets);
+    let active = active_preset(&presets, &global_roles(settings));
     let mut table = String::from("| Preset | Roles |\n|---|---|\n");
-    for (name, preset) in &settings.model_presets {
+    for (name, preset) in &presets {
         let marker = if active == Some(name.as_str()) {
             " (active)"
         } else {
