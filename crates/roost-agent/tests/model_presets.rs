@@ -7,7 +7,7 @@ mod support;
 use std::collections::BTreeMap;
 
 use roost_agent::{AgentSettings, Role};
-use roost_protocol::wire::agent_chat::{TranscriptItem, presets_with_builtins};
+use roost_protocol::wire::agent_chat::{BUILTIN_PRESETS, TranscriptItem, presets_with_builtins};
 use support::Harness;
 
 async fn set_default(harness: &Harness, chain: &str) {
@@ -116,4 +116,18 @@ async fn starter_presets_switch_unsaved_and_a_saved_copy_resets_on_delete() {
         roles.get(&Role::Default).map(String::as_str),
         Some("anthropic/claude-opus-5-5")
     );
+}
+
+#[test]
+fn every_starter_preset_names_a_model_the_bundled_catalog_has() {
+    let catalog = roost_llm::Catalog::builtin();
+    for (preset, roles) in BUILTIN_PRESETS {
+        for (role, selector) in *roles {
+            let (provider, id) = selector.split_once('/').unwrap_or_default();
+            assert!(
+                catalog.get(provider, id).is_some(),
+                "starter preset {preset} role {role} names {selector}, which the catalog lacks"
+            );
+        }
+    }
 }

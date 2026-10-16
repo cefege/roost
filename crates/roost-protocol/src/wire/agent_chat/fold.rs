@@ -8,6 +8,15 @@ pub fn fold_chat_event(transcript: &mut Transcript, event: &ChatEvent) {
         ChatEvent::Reset {
             transcript: replacement,
         } => *transcript = replacement.clone(),
+        // A user message is emitted once, when the run reads it, and belongs
+        // after everything already shown; one that was queued leaves the queue.
+        ChatEvent::Item {
+            item: item @ TranscriptItem::User { id, .. },
+        } => {
+            transcript.queued.retain(|queued| queued.id != *id);
+            transcript.items.retain(|old| old.id() != id);
+            transcript.items.push(item.clone());
+        }
         ChatEvent::Item { item } => {
             if let Some(existing) = transcript
                 .items
@@ -17,6 +26,16 @@ pub fn fold_chat_event(transcript: &mut Transcript, event: &ChatEvent) {
                 *existing = item.clone();
             } else {
                 transcript.items.push(item.clone());
+            }
+        }
+        ChatEvent::Queued { message } => {
+            let shown = transcript.items.iter().any(|item| item.id() == message.id)
+                || transcript
+                    .queued
+                    .iter()
+                    .any(|queued| queued.id == message.id);
+            if !shown {
+                transcript.queued.push(message.clone());
             }
         }
         ChatEvent::TextDelta {

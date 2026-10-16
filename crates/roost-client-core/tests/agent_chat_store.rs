@@ -34,6 +34,7 @@ fn transcript() -> Transcript {
         thinking_level: None,
         mode: None,
         usage: UsageTotals::default(),
+        queued: Vec::new(),
     }
 }
 

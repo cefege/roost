@@ -87,6 +87,20 @@ pub struct Transcript {
     #[serde(default)]
     pub mode: Option<String>,
     pub usage: UsageTotals,
+    /// Messages sent while the agent works, waiting for the run's next
+    /// boundary (after the current model call or tool round). Each leaves
+    /// this list for `items` when the run reads it, so it appears where the
+    /// agent took it, never inside the reply it interrupted.
+    #[serde(default)]
+    pub queued: Vec<QueuedMessage>,
+}
+
+/// A user message accepted but not yet read by the running agent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueuedMessage {
+    /// The id its user item will have.
+    pub id: String,
+    pub text: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -267,6 +281,10 @@ pub enum ChatEvent {
     },
     Usage {
         usage: UsageTotals,
+    },
+    /// A message joined the queue; its `Item` follows when the run reads it.
+    Queued {
+        message: QueuedMessage,
     },
 }
 

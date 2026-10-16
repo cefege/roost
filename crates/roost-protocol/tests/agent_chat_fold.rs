@@ -1,8 +1,8 @@
 //! Agent chat events form one canonical transcript through the shared fold.
 
 use roost_protocol::wire::agent_chat::{
-    AgentRunState, ChatEvent, Transcript, TranscriptBlock, TranscriptItem, UsageTotals,
-    fold_chat_event,
+    AgentRunState, ChatEvent, QueuedMessage, Transcript, TranscriptBlock, TranscriptItem,
+    UsageTotals, fold_chat_event,
 };
 
 fn transcript() -> Transcript {
@@ -33,6 +33,7 @@ fn transcript() -> Transcript {
         thinking_level: None,
         usage: UsageTotals::default(),
         mode: None,
+        queued: Vec::new(),
     }
 }
 
@@ -137,7 +138,7 @@ fn unknown_item_is_ignored() {
 fn every_chat_event_round_trips_spec_json() {
     let pairs = [
         (
-            r#"{"type":"reset","transcript":{"items":[],"run_state":"idle","error":null,"model":null,"thinking_level":null,"mode":null,"usage":{"input_tokens":0,"output_tokens":0,"cost_usd":0.0}}}"#,
+            r#"{"type":"reset","transcript":{"items":[],"run_state":"idle","error":null,"model":null,"thinking_level":null,"mode":null,"usage":{"input_tokens":0,"output_tokens":0,"cost_usd":0.0},"queued":[]}}"#,
             ChatEvent::Reset {
                 transcript: Transcript {
                     items: vec![],
@@ -147,6 +148,7 @@ fn every_chat_event_round_trips_spec_json() {
                     thinking_level: None,
                     mode: None,
                     usage: UsageTotals::default(),
+                    queued: Vec::new(),
                 },
             },
         ),
@@ -220,6 +222,15 @@ fn every_chat_event_round_trips_spec_json() {
                 },
             },
         ),
+        (
+            r#"{"type":"queued","message":{"id":"u7","text":"also check tests"}}"#,
+            ChatEvent::Queued {
+                message: QueuedMessage {
+                    id: "u7".into(),
+                    text: "also check tests".into(),
+                },
+            },
+        ),
     ];
     for (json, event) in pairs {
         assert_eq!(
@@ -232,6 +243,35 @@ fn every_chat_event_round_trips_spec_json() {
             serde_json::from_str::<serde_json::Value>(json).expect("literal JSON")
         );
     }
+}
+
+#[test]
+fn a_queued_message_waits_outside_the_items_and_lands_after_them_when_read() {
+    let mut value = transcript();
+    let queued = QueuedMessage {
+        id: "u9".into(),
+        text: "steer".into(),
+    };
+    fold_chat_event(
+        &mut value,
+        &ChatEvent::Queued {
+            message: queued.clone(),
+        },
+    );
+    fold_chat_event(&mut value, &ChatEvent::Queued { message: queued });
+    assert_eq!(value.queued.len(), 1);
+    assert_eq!(value.items.len(), 2);
+    fold_chat_event(
+        &mut value,
+        &ChatEvent::Item {
+            item: TranscriptItem::User {
+                id: "u9".into(),
+                text: "steer".into(),
+            },
+        },
+    );
+    assert!(value.queued.is_empty());
+    assert!(matches!(value.items.last(), Some(TranscriptItem::User { id, .. }) if id == "u9"));
 }
 
 #[test]

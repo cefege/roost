@@ -202,7 +202,7 @@ to change its model in place; the change saves for all folders, or choose
 **This folder** to override it for this chat's folder only. The row marked
 **This chat** is the role this chat runs on (Planning in plan mode, a
 subagent's own role), and changing it moves the chat onto the new model even
-after `/switch`. Across the top, **presets** set every role in one tap:
+after `/switch`. Across the top, **presets** set the main roles in one tap:
 the starter **Anthropic** (Opus 5.5 by default, Fable 5.1 for deep review,
 Sonnet 5.5 for delegated work, Haiku 5.5 for quick and side tasks) and
 **OpenAI** (GPT-6.1 Sol by default, GPT-6 Astra for deep review, GPT-6 Luna for

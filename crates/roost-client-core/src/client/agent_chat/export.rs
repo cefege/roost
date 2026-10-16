@@ -146,6 +146,7 @@ mod tests {
             thinking_level: None,
             mode: None,
             usage: UsageTotals::default(),
+            queued: Vec::new(),
         };
         assert_eq!(
             transcript_to_markdown("Research", &transcript),

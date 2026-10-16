@@ -315,29 +315,34 @@
 .agent-chat__thinking-chevron { display: inline-flex; transition: transform var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard); }
 .agent-chat__thinking[open] .agent-chat__thinking-chevron { transform: rotate(180deg); }
 
-/* ── tool steps ── */
+/* ── tool steps: inline, as a terminal transcript prints them ── */
 
 .agent-chat__steps {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-}
-
-.agent-chat__step + .agent-chat__step { border-top: var(--workbench-border-width) solid var(--md-sys-color-outline-variant); }
-
-/* The summary wears the dense list-row class; this adds only what a
-   disclosure summary needs on top of it. */
-.agent-chat__step-summary {
+  gap: var(--md-space-2);
   min-width: 0;
-  list-style: none;
-  cursor: pointer;
 }
 
-.agent-chat__step-summary::-webkit-details-marker { display: none; }
+.agent-chat__step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-1);
+  min-width: 0;
+}
+
+.agent-chat__step-head {
+  display: flex;
+  align-items: center;
+  gap: var(--md-space-2);
+  min-width: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-body-m-size);
+  line-height: var(--md-body-m-line);
+}
 
 .agent-chat__step-icon,
-.agent-chat__step-state,
-.agent-chat__step-chevron { display: inline-flex; flex: none; }
+.agent-chat__step-state { display: inline-flex; flex: none; }
 
 .agent-chat__step-verb { flex: none; color: var(--md-sys-color-on-surface); font-weight: var(--md-label-l-weight); }
 
@@ -354,17 +359,22 @@
 .agent-chat__step-state { margin-left: auto; }
 .agent-chat__step[data-state="error"] .agent-chat__step-state,
 .agent-chat__step[data-state="error"] .agent-chat__step-verb { color: var(--md-sys-color-error); }
-.agent-chat__step-chevron { transition: transform var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard); }
-.agent-chat__step-disclosure[open] > .agent-chat__step-summary .agent-chat__step-chevron { transform: rotate(180deg); }
+
+/* Output sits under the head, indented past its icon. */
+.agent-chat__step > :not(.agent-chat__step-head) { margin-inline-start: var(--md-space-6); }
+.agent-chat__step-output-ground { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+.agent-chat__step-output-ground .agent-chat__step-more { margin: var(--md-space-1) var(--md-space-3) 0; }
+.agent-chat__step-output[data-error] { color: var(--md-sys-color-error); }
 
 .agent-chat__step-body {
-  padding: 0 var(--md-space-3) var(--md-space-3);
+  padding: 0 0 var(--md-space-2);
 }
 
 .agent-chat__step-output {
+  align-self: stretch;
   max-height: calc(var(--md-space-9) * 7);
   margin: 0;
-  padding: var(--md-space-3) var(--md-space-4);
+  padding: var(--md-space-2) var(--md-space-3);
   overflow: auto;
   font-family: var(--font-mono);
   font-size: var(--md-body-s-size);
@@ -374,7 +384,26 @@
 }
 
 .agent-chat__step-empty { margin: 0; color: var(--md-sys-color-on-surface-variant); font-size: var(--md-body-s-size); }
-.agent-chat__step-more { margin-bottom: var(--md-space-2); }
+.agent-chat__step-more { align-self: flex-start; }
+
+/* ── queued messages, above the composer ── */
+
+.agent-chat__queued {
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-1);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-body-s-size);
+  line-height: var(--md-body-s-line);
+}
+.agent-chat__queued-head { margin: 0; }
+.agent-chat__queued-list { margin: 0; padding-inline-start: var(--md-space-5); }
+.agent-chat__queued-row {
+  overflow: hidden;
+  color: var(--md-sys-color-on-surface);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .agent-chat__spinner {
   width: var(--md-space-3);
@@ -767,6 +796,11 @@
   display: inline-flex;
   align-items: center;
   align-self: flex-start;
+.agent-chat__step-detail-disclosure > summary {
+  padding-block: var(--md-space-1);
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);
+}
   gap: var(--md-space-2);
   color: var(--md-sys-color-on-surface-variant);
   font-size: var(--md-body-s-size);
@@ -803,10 +837,8 @@
 .agent-chat__step-state { gap: var(--md-space-1); align-items: center; font-size: var(--md-label-m-size); }
 .agent-chat__step[data-state="error"] .agent-chat__step-state { color: var(--md-sys-color-error); }
 .agent-chat__step[data-state="timeout"] .agent-chat__step-state { color: var(--md-sys-color-tertiary); }
-.agent-chat__step > .agent-chat__alert { margin: 0 var(--md-space-3) var(--md-space-2); }
+.agent-chat__step > .agent-chat__alert { margin-block: 0; }
 .agent-chat__step-body { display: flex; flex-direction: column; gap: var(--md-space-2); }
-.agent-chat__step-live-preview { padding: 0 var(--md-space-3) var(--md-space-2); }
-.agent-chat__step-live-preview .agent-chat__step-output { max-height: calc(var(--md-space-9) * 3); }
 .agent-chat__step-fact { display: block; margin-block-start: var(--md-space-1); color: var(--md-sys-color-on-surface-variant); font-size: var(--md-body-s-size); }
 .agent-chat__step-error-text {
   max-height: calc(var(--md-space-9) * 3);
@@ -837,6 +869,6 @@
 
 @media (max-width: 40rem) {
   .agent-chat__step-target { font-size: var(--md-body-s-size); }
-  .agent-chat__step-live-preview { padding-inline: var(--md-space-2); }
+  .agent-chat__step > :not(.agent-chat__step-head) { margin-inline-start: var(--md-space-4); }
   .agent-chat__step-actions { gap: var(--md-space-1); }
 }

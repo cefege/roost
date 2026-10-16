@@ -214,6 +214,9 @@ async fn inject_steered(
         if let Steer::Persisted { entry, sequence } = message {
             if matches!(entry, crate::records::Entry::User { .. }) {
                 memory.new_submission();
+                // The message left the queue: it appears here, after the
+                // reply and tool round it waited behind.
+                runtime.emit_entry(id, sequence, &entry).await?;
             }
             runtime.note_processed_seq(id, sequence);
         }

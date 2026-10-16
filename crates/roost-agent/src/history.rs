@@ -46,7 +46,7 @@ pub fn active_window(entries: &[(u64, Entry)]) -> (Option<&str>, &[(u64, Entry)]
 /// Provider messages for a call to `provider`. Thinking blocks from another
 /// provider are dropped: their signatures are meaningless elsewhere.
 pub fn build_messages(entries: &[(u64, Entry)], provider: &str) -> Vec<Message> {
-    let entries = &crate::journal::effective_entries(entries);
+    let entries = &crate::journal::delivery_order(crate::journal::effective_entries(entries));
     let (summary, window) = active_window(entries);
     let latest_copies = latest_item_copies(window);
     let latest_todo = window

@@ -1,7 +1,9 @@
-//! The transcript: user messages as `Surface` bubbles, assistant replies as
-//! full-width prose with a Copy action, and each run of consecutive tool calls
-//! as one contained `List` of step disclosures. The fold and the stream are
-//! client-core's; Markdown safety is `markdown`'s. Rendered by `agent_chat::surface`.
+//! The transcript, laid out as OMP's terminal transcript: user messages as
+//! `Surface` bubbles, assistant replies as full-width prose (the reply being
+//! written paced by `streaming_reveal`), and tool calls inline with their
+//! output folded to each tool's preview window. "Expand tool output" opens
+//! every call at once. The fold and the stream are client-core's; Markdown
+//! safety is `markdown`'s. Rendered by `agent_chat::surface`.
 
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{
@@ -14,10 +16,12 @@ use super::interaction_cards::{AskCard, BtwCard};
 use super::message_actions::{ForkMessageAction, UserMessageActions};
 use super::notice_card::NoticeCard;
 use super::plan_card::PlanCard;
+use super::queued_band::QueuedBand;
+use super::streaming_reveal::StreamingText;
 use super::thinking_block::ThinkingBlock;
 use super::tool_card::ToolCard;
 use crate::components::md::{
-    Button, ButtonVariant, Icon, IconButton, IconButtonSize, IconSize, List, StatusDot, Surface,
+    Button, ButtonVariant, Icon, IconButton, IconButtonSize, IconSize, StatusDot, Surface,
     SurfaceRadius,
 };
 use crate::pump::Pump;
@@ -54,6 +58,7 @@ pub fn AgentTranscriptView(
     ));
     let mut show_tools = use_signal(|| true);
     let mut show_thinking = use_signal(|| true);
+    let mut expand_tools = use_signal(|| false);
     rsx! {
         div { class: "agent-chat__items",
             if has_tools || has_thinking {
@@ -75,6 +80,16 @@ pub fn AgentTranscriptView(
                             Icon { name: if show_tools() { "visibility" } else { "visibility_off" }, size: IconSize::Sm }
                             if show_tools() { "Hide tool activity" } else { "Show tool activity" }
                         }
+                        if show_tools() {
+                            Button {
+                                variant: ButtonVariant::Link,
+                                aria_pressed: expand_tools().to_string(),
+                                "data-testid": "agent-chat-expand-tools",
+                                onclick: move |_| expand_tools.set(!expand_tools()),
+                                Icon { name: if expand_tools() { "unfold_less" } else { "unfold_more" }, size: IconSize::Sm }
+                                if expand_tools() { "Fold tool output" } else { "Expand tool output" }
+                            }
+                        }
                     }
                 }
             }
@@ -88,7 +103,7 @@ pub fn AgentTranscriptView(
                     },
                     Segment::Steps(_) if !show_tools() => rsx! {},
                     Segment::Steps(steps) => rsx! {
-                        List { key: "{step_group_key(&steps)}", contained: true, class: "agent-chat__steps",
+                        div { key: "{step_group_key(&steps)}", class: "agent-chat__steps",
                             for step in steps {
                                 if let TranscriptItem::Tool { id, tool_name, args_json, output, is_error, running, queued, details_json, children, .. } = step {
                                     ToolCard {
@@ -101,6 +116,7 @@ pub fn AgentTranscriptView(
                                         queued: *queued,
                                         details_json: details_json.clone(),
                                         child_ids: children.clone(),
+                                        expanded: expand_tools(),
                                     }
                                 }
                             }
@@ -135,6 +151,7 @@ pub fn AgentTranscriptView(
                     p { {transcript.error.clone().unwrap_or_else(|| "The agent stopped with an error.".to_string())} }
                 }
             }
+            QueuedBand { messages: transcript.queued.clone() }
         }
     }
 }
@@ -181,11 +198,13 @@ fn AssistantMessage(
         div { class: "agent-chat__assistant", "data-streaming": streaming.then_some("true"),
             for (index, block) in blocks.iter().enumerate() {
                 match block {
+                    TranscriptBlock::Text { text } if !text.is_empty() && streaming && index + 1 == blocks.len() => rsx! {
+                        StreamingText { key: "text-{index}", text: text.clone() }
+                    },
                     TranscriptBlock::Text { text } if !text.is_empty() => rsx! {
                         div {
                             key: "text-{index}",
                             class: "agent-chat__markdown",
-                            "data-streaming": (streaming && index + 1 == blocks.len()).then_some("true"),
                             dangerous_inner_html: super::markdown::markdown_to_safe_html(text),
                         }
                     },

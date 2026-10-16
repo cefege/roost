@@ -381,6 +381,7 @@ impl AgentRuntime {
         }
         self.emit(id, vec![ChatEvent::RunState { run_state, error }])
             .await;
+        self.release_unread_queue(id, &entries, processed_seq).await;
         let restart = !aborted && (pending || queued > 0);
         drop(_guard);
         if intent_error.is_some() || (entries_read_failed && !aborted) {

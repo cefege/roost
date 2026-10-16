@@ -1,22 +1,22 @@
-//! One tool call as a compact step: intent, target and truthful lifecycle.
-//! Arguments, output and structured executor facts remain reachable on demand;
-//! all host-provided content is rendered as text, never trusted markup.
-
-use std::borrow::Cow;
+//! One tool call as OMP's transcript shows it: a head line with what ran and
+//! its state, then the output itself, folded to the tool's preview window
+//! (`tool_view::preview_window`) and opened by the transcript-wide toggle or
+//! the card's own "Show all". Arguments and executor facts stay one click
+//! away. All host-provided content is rendered as text, never trusted markup.
 
 use dioxus::prelude::*;
 
 use super::agent_alert::{AgentAlert, AlertTone};
 use super::markdown::TERMINAL_GROUND_STYLE;
-use crate::components::md::list_row::list_row_class;
+use super::tool_view::{
+    ERROR_ROWS, PreviewEdge, argument_summary, detail_facts, presentation, preview_window,
+    strip_ansi, visible_lines,
+};
 use crate::components::md::{
-    Button, ButtonVariant, Icon, IconSize, List, ListRow, Surface, SurfaceRadius,
+    Button, ButtonSize, ButtonVariant, Icon, IconSize, List, ListRow, Surface, SurfaceRadius,
 };
 use crate::pump::use_store;
 use crate::router_state::use_navigate;
-
-const PREVIEW_LINES: usize = 10;
-const PREVIEW_CHARS: usize = 2_000;
 
 #[component]
 pub fn ToolCard(
@@ -28,7 +28,11 @@ pub fn ToolCard(
     queued: bool,
     details_json: String,
     #[props(default)] child_ids: Vec<String>,
+    /// The transcript-wide "expand tool output" switch.
+    #[props(default)]
+    expanded: bool,
 ) -> Element {
+    let mut show_all = use_signal(|| false);
     let pump = use_store();
     let _revision = pump.revision()();
     let navigate = use_navigate();
@@ -58,33 +62,16 @@ pub fn ToolCard(
     };
     let target = argument_summary(&tool_name, &args_json);
     let visible_output = strip_ansi(&output);
-    let recent = visible_output.trim_end_matches('\n');
-    let line_start = recent
-        .rmatch_indices('\n')
-        .nth(PREVIEW_LINES - 1)
-        .map_or(0, |(offset, _)| offset + 1);
-    let recent = &recent[line_start..];
-    let character_start = recent
-        .char_indices()
-        .rev()
-        .nth(PREVIEW_CHARS - 1)
-        .map_or(0, |(offset, _)| offset);
-    let preview = &recent[character_start..];
-    let preview_trimmed = line_start > 0 || character_start > 0;
     let details = serde_json::from_str::<serde_json::Value>(&details_json).ok();
     let facts = detail_facts(details.as_ref());
-    let timed_out = details.as_ref().is_some_and(|value| {
-        value.get("timed_out").and_then(serde_json::Value::as_bool) == Some(true)
-    });
-    let cancelled = details.as_ref().is_some_and(|value| {
-        value.get("cancelled").and_then(serde_json::Value::as_bool) == Some(true)
-    });
-    let outcome_unknown = details.as_ref().is_some_and(|value| {
-        value
-            .get("outcome_unknown")
-            .and_then(serde_json::Value::as_bool)
-            == Some(true)
-    });
+    let flag = |name: &str| {
+        details
+            .as_ref()
+            .is_some_and(|value| value.get(name).and_then(serde_json::Value::as_bool) == Some(true))
+    };
+    let timed_out = flag("timed_out");
+    let cancelled = flag("cancelled");
+    let outcome_unknown = flag("outcome_unknown");
     let failed = is_error && !cancelled && !timed_out;
     let state = if queued {
         "waiting"
@@ -105,282 +92,121 @@ pub fn ToolCard(
         "cancelled" => "Cancelled",
         "timeout" => "Timed out",
         "error" => "Error",
-        _ => "Done",
+        _ => "",
     };
     let (icon, verb) = presentation(&tool_name, queued, running, cancelled, timed_out);
-    let has_output = !visible_output.is_empty();
+    let open = expanded || show_all();
+    let (rows, edge) = if failed {
+        (ERROR_ROWS, PreviewEdge::Tail)
+    } else {
+        preview_window(&tool_name)
+    };
+    let (shown, hidden) = visible_lines(&visible_output, rows, edge, open);
     let command = argument_summary("bash", &args_json);
     let copy_command = tool_name == "bash" && !command.is_empty();
-    let error_preview = if visible_output.is_empty() {
-        "Tool execution failed."
-    } else {
-        preview
-    };
+    let has_details = !facts.is_empty()
+        || (!details_json.is_empty() && details_json != "{}")
+        || (!args_json.is_empty() && args_json != "{}")
+        || copy_command
+        || !output.is_empty();
     rsx! {
         div { class: "agent-chat__step", "data-state": state,
-            details { class: "agent-chat__step-disclosure",
-            summary { class: list_row_class(true, Some("agent-chat__step-summary")),
+            div { class: "agent-chat__step-head",
                 span { class: "agent-chat__step-icon", Icon { name: icon, size: IconSize::Sm } }
                 span { class: "agent-chat__step-verb", "{verb}" }
                 if !target.is_empty() { code { class: "agent-chat__step-target", title: target.clone(), "{target}" } }
-                span { class: "agent-chat__step-state", if running && !queued {
-                    span { class: "agent-chat__spinner", role: "status", "aria-label": "Running" }
-                } else if failed {
-                    Icon { name: "error", size: IconSize::Sm }
-                } else if cancelled {
-                    Icon { name: "cancel", size: IconSize::Sm }
-                } else if timed_out {
-                    Icon { name: "warning", size: IconSize::Sm }
-                } else if queued {
-                    Icon { name: "schedule", size: IconSize::Sm }
-                }
-                    span { "{state_label}" }
-                }
-                span { class: "agent-chat__step-chevron", Icon { name: "expand_more", size: IconSize::Sm } }
-            }
-            div { class: "agent-chat__step-body",
-                if queued { p { class: "agent-chat__step-empty", "Waiting for an executor to start this call." } }
-                if !facts.is_empty() {
-                    ul { class: "agent-chat__step-facts", for fact in facts { li { "{fact}" } } }
-                }
-                if !details_json.is_empty() && details_json != "{}" {
-                    details { class: "agent-chat__step-detail-disclosure",
-                        summary { "Execution details" }
-                        Surface { level: 2, radius: SurfaceRadius::Sm, pad: 2, class: "agent-chat__step-metadata",
-                            pre { class: "agent-chat__step-pre", "{details_json}" }
-                        }
+                span { class: "agent-chat__step-state",
+                    if running && !queued {
+                        span { class: "agent-chat__spinner", role: "status", "aria-label": "Running" }
+                    } else if failed {
+                        Icon { name: "error", size: IconSize::Sm }
+                    } else if cancelled {
+                        Icon { name: "cancel", size: IconSize::Sm }
+                    } else if timed_out {
+                        Icon { name: "warning", size: IconSize::Sm }
+                    } else if queued {
+                        Icon { name: "schedule", size: IconSize::Sm }
                     }
-                }
-                if !args_json.is_empty() && args_json != "{}" {
-                    details { class: "agent-chat__step-detail-disclosure",
-                        summary { "Arguments" }
-                        Surface { level: 2, radius: SurfaceRadius::Sm, pad: 2, class: "agent-chat__step-metadata",
-                            pre { class: "agent-chat__step-pre", "{args_json}" }
-                        }
-                    }
-                }
-                if !running && has_output {
-                    TerminalOutput { text: visible_output.to_string(), class: "agent-chat__step-output" }
-                } else if !has_output && !queued {
-                    p { class: "agent-chat__step-empty", if running { "Waiting for output…" } else { "No output was returned." } }
-                }
-                if copy_command || !output.is_empty() {
-                    div { class: "agent-chat__step-actions",
-                        if copy_command {
-                            Button { variant: ButtonVariant::Link, onclick: { let command = command.clone(); move |_: MouseEvent| { crate::components::notifications::clipboard::copy_text(&command); } }, "Copy command" }
-                        }
-                        if !output.is_empty() {
-                            Button { variant: ButtonVariant::Link, onclick: { let text = output.clone(); move |_: MouseEvent| { crate::components::notifications::clipboard::copy_text(&text); } }, "Copy output" }
-                        }
-                    }
-                }
-                if !child_links.is_empty() {
-                    nav { class: "agent-chat__task-children", aria_label: "Subagent conversations",
-                        List { contained: true,
-                            for (child_id, agent, title, status) in child_links {
-                                ListRow {
-                                    key: "{child_id}",
-                                    dense: true,
-                                    class: "agent-chat__task-child",
-                                    href: crate::routes::agent_href(&child_id),
-                                    on_navigate: navigate,
-                                    headline: rsx! { "{agent}: {title}" },
-                                    support: rsx! { "{status}" },
-                                }
-                            }
-                        }
-                    }
+                    if !state_label.is_empty() { span { "{state_label}" } }
                 }
             }
-        }
-            if running && has_output {
-                div { class: "agent-chat__step-live-preview", aria_label: "Recent live tool output",
-                    TerminalOutput { text: preview.to_string(), class: "agent-chat__step-output" }
-                    if preview_trimmed { span { class: "agent-chat__step-fact", "Latest output preview · up to {PREVIEW_LINES} lines / {PREVIEW_CHARS} characters." } }
+            if !shown.is_empty() {
+                Surface { radius: SurfaceRadius::Md, style: TERMINAL_GROUND_STYLE.to_string(),
+                    class: "agent-chat__step-output-ground",
+                    if hidden > 0 && edge == PreviewEdge::Tail {
+                        Button { variant: ButtonVariant::Link, size: ButtonSize::Sm,
+                            class: "agent-chat__step-more",
+                            onclick: move |_| show_all.set(true),
+                            "… {hidden} earlier lines"
+                        }
+                    }
+                    pre { class: "agent-chat__step-output", "data-error": failed.then_some("true"), "{shown}" }
+                    if hidden > 0 && edge == PreviewEdge::Head {
+                        Button { variant: ButtonVariant::Link, size: ButtonSize::Sm,
+                            class: "agent-chat__step-more",
+                            onclick: move |_| show_all.set(true),
+                            "… {hidden} more lines"
+                        }
+                    }
+                }
+            } else if failed {
+                p { class: "agent-chat__step-empty", "Tool execution failed." }
+            }
+            if show_all() && !expanded {
+                Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "agent-chat__step-more",
+                    onclick: move |_| show_all.set(false),
+                    "Fold output"
                 }
             }
             if timed_out {
                 AgentAlert { tone: AlertTone::Warning, p { "Execution timed out." } }
-            }
-            if failed {
-                AgentAlert { p { class: "agent-chat__step-error-text", "{error_preview}" } }
-                if preview_trimmed {
-                    span { class: "agent-chat__step-fact", "Latest error preview · up to {PREVIEW_LINES} lines / {PREVIEW_CHARS} characters. Open details for the full transported output." }
-                }
             }
             if outcome_unknown {
                 AgentAlert { tone: AlertTone::Warning,
                     p { "Final outcome unknown. Inspect current state before repeating the call." }
                 }
             }
-        }
-    }
-}
-
-/// Terminal output keeps the terminal's ground, the one colour the chat borrows
-/// from the terminal rather than from the design tokens.
-#[component]
-fn TerminalOutput(text: String, class: &'static str) -> Element {
-    rsx! {
-        Surface { radius: SurfaceRadius::Md, style: TERMINAL_GROUND_STYLE.to_string(),
-            pre { class: class, "{text}" }
-        }
-    }
-}
-fn presentation(
-    tool_name: &str,
-    queued: bool,
-    running: bool,
-    cancelled: bool,
-    timed_out: bool,
-) -> (&'static str, String) {
-    let (icon, active, finished) = match tool_name {
-        "bash" => ("terminal", "Running", "Ran"),
-        "read" => ("description", "Reading", "Read"),
-        "edit" => ("edit", "Editing", "Edited"),
-        "write" => ("edit_document", "Writing", "Wrote"),
-        "grep" | "find" | "glob" | "lsp" => ("search", "Searching", "Searched"),
-        "task" => ("account_tree", "Starting", "Started"),
-        "propose_plan" => ("assignment", "Drafting", "Drafted"),
-        _ => ("build", tool_name, tool_name),
-    };
-    (
-        icon,
-        if cancelled {
-            "Cancelled".into()
-        } else if timed_out {
-            "Timed out".into()
-        } else if queued {
-            "Waiting".into()
-        } else if running {
-            active.into()
-        } else {
-            finished.into()
-        },
-    )
-}
-
-fn argument_summary(tool_name: &str, args_json: &str) -> String {
-    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(args_json) else {
-        return String::new();
-    };
-    if tool_name == "task" {
-        let count = parsed
-            .get("tasks")
-            .and_then(serde_json::Value::as_array)
-            .map_or(0, Vec::len);
-        return format!("{count} task{}", if count == 1 { "" } else { "s" });
-    }
-    let value = match tool_name {
-        "bash" => parsed.get("command"),
-        "read" | "write" | "edit" | "ls" => parsed.get("path"),
-        "grep" | "glob" => parsed.get("pattern"),
-        "find" => parsed.get("query").or_else(|| parsed.get("pattern")),
-        "lsp" => {
-            return [parsed.get("action"), parsed.get("file")]
-                .into_iter()
-                .flatten()
-                .filter_map(serde_json::Value::as_str)
-                .filter(|part| !part.is_empty())
-                .collect::<Vec<_>>()
-                .join(" ");
-        }
-        "propose_plan" => parsed.get("title"),
-        _ => None,
-    };
-    value
-        .and_then(serde_json::Value::as_str)
-        .map(|value| value.lines().next().unwrap_or_default().to_owned())
-        .unwrap_or_else(|| compact_arguments(&parsed))
-}
-
-fn compact_arguments(arguments: &serde_json::Value) -> String {
-    arguments
-        .as_object()
-        .map(|object| {
-            object
-                .values()
-                .filter_map(serde_json::Value::as_str)
-                .collect::<Vec<_>>()
-                .join(", ")
-                .chars()
-                .take(100)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn detail_facts(details: Option<&serde_json::Value>) -> Vec<String> {
-    let Some(details) = details.and_then(serde_json::Value::as_object) else {
-        return Vec::new();
-    };
-    let mut facts = Vec::new();
-    if let Some(code) = details.get("exit_code").and_then(serde_json::Value::as_i64) {
-        facts.push(format!("Exit code {code}"));
-    }
-    if let Some(ms) = details
-        .get("duration_ms")
-        .and_then(serde_json::Value::as_u64)
-    {
-        facts.push(format!("Execution time: {ms} ms"));
-    }
-    if details
-        .get("truncated")
-        .and_then(serde_json::Value::as_bool)
-        == Some(true)
-    {
-        facts.push("Output was truncated; some output was not transported.".into());
-    }
-    if let Some(path) = details
-        .get("artifact_path")
-        .and_then(serde_json::Value::as_str)
-    {
-        let complete = details
-            .get("artifact_complete")
-            .and_then(serde_json::Value::as_bool)
-            == Some(true);
-        facts.push(if complete {
-            format!("Complete output artifact: {path}")
-        } else {
-            format!("Earlier output artifact: {path} (incomplete; full output was not transported)")
-        });
-    }
-    facts
-}
-
-/// Remove terminal control sequences without interpreting their styling.
-fn strip_ansi(text: &str) -> Cow<'_, str> {
-    if !text.contains('\u{1b}') {
-        return Cow::Borrowed(text);
-    }
-    let mut clean = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch != '\u{1b}' {
-            clean.push(ch);
-            continue;
-        }
-        match chars.next() {
-            Some('[') => {
-                for next in chars.by_ref() {
-                    if ('@'..='~').contains(&next) {
-                        break;
+            if !child_links.is_empty() {
+                nav { class: "agent-chat__task-children", aria_label: "Subagent conversations",
+                    List {
+                        for (child_id, agent, title, status) in child_links {
+                            ListRow {
+                                key: "{child_id}",
+                                dense: true,
+                                class: "agent-chat__task-child",
+                                href: crate::routes::agent_href(&child_id),
+                                on_navigate: navigate,
+                                headline: rsx! { "{agent}: {title}" },
+                                support: rsx! { "{status}" },
+                            }
+                        }
                     }
                 }
             }
-            Some(']') => {
-                while let Some(next) = chars.next() {
-                    if next == '\u{7}' {
-                        break;
-                    }
-                    if next == '\u{1b}' && chars.peek() == Some(&'\\') {
-                        chars.next();
-                        break;
+            if has_details {
+                details { class: "agent-chat__step-detail-disclosure",
+                    summary { "Details" }
+                    div { class: "agent-chat__step-body",
+                        if !facts.is_empty() {
+                            ul { class: "agent-chat__step-facts", for fact in facts { li { "{fact}" } } }
+                        }
+                        if !args_json.is_empty() && args_json != "{}" {
+                            pre { class: "agent-chat__step-pre", "{args_json}" }
+                        }
+                        if !details_json.is_empty() && details_json != "{}" {
+                            pre { class: "agent-chat__step-pre", "{details_json}" }
+                        }
+                        div { class: "agent-chat__step-actions",
+                            if copy_command {
+                                Button { variant: ButtonVariant::Link, onclick: { let command = command.clone(); move |_: MouseEvent| { crate::components::notifications::clipboard::copy_text(&command); } }, "Copy command" }
+                            }
+                            if !output.is_empty() {
+                                Button { variant: ButtonVariant::Link, onclick: { let text = output.clone(); move |_: MouseEvent| { crate::components::notifications::clipboard::copy_text(&text); } }, "Copy output" }
+                            }
+                        }
                     }
                 }
             }
-            Some(_) | None => {}
         }
     }
-    Cow::Owned(clean)
 }

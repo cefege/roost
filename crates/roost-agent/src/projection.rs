@@ -76,11 +76,16 @@ pub fn children_from_details(details_json: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// The transcript id of the user message journaled at `seq`.
+pub fn user_item_id(seq: u64) -> String {
+    format!("u{seq}")
+}
+
 /// The item one entry projects to, if it is user-visible.
 pub fn entry_item(seq: u64, entry: &Entry, tools: &ToolCallIndex) -> Option<TranscriptItem> {
     match entry {
         Entry::User { text, .. } => Some(TranscriptItem::User {
-            id: format!("u{seq}"),
+            id: user_item_id(seq),
             text: text.clone(),
         }),
         Entry::Assistant {
@@ -195,10 +200,11 @@ pub fn entry_item(seq: u64, entry: &Entry, tools: &ToolCallIndex) -> Option<Tran
     }
 }
 
-/// Every visible item in journal order. A re-appended plan or advisory
-/// replaces its earlier copy in place, so a card keeps its position.
+/// Every visible item in the order the model read it (`delivery_order`). A
+/// re-appended plan or advisory replaces its earlier copy in place, so a card
+/// keeps its position.
 pub fn project_items(entries: &[(u64, Entry)]) -> Vec<TranscriptItem> {
-    let entries = &crate::journal::effective_entries(entries);
+    let entries = &crate::journal::delivery_order(crate::journal::effective_entries(entries));
     let tools = index_tool_calls(entries);
     let mut items: Vec<TranscriptItem> = Vec::new();
     let mut positions: HashMap<String, usize> = HashMap::new();
@@ -289,5 +295,6 @@ pub fn transcript(
         thinking_level: Some(record.thinking_level.clone()),
         usage,
         mode: Some(record.mode.as_str().to_owned()),
+        queued: Vec::new(),
     }
 }

@@ -5,6 +5,8 @@
 
 use std::sync::atomic::Ordering;
 
+use roost_protocol::wire::agent_chat::{ChatEvent, QueuedMessage};
+
 use super::{AgentRuntime, Steer, random_id};
 use crate::error::AgentError;
 use crate::records::Entry;
@@ -87,13 +89,34 @@ impl AgentRuntime {
                 return Err(error);
             }
         };
-        for (seq, appended_entry) in seqs.iter().zip(appended.iter()) {
-            self.emit_entry(id, *seq, appended_entry).await?;
-        }
         let sequence = seqs
             .get(appended.len().saturating_sub(1))
             .copied()
             .ok_or_else(|| AgentError::Store("admission returned no sequence".into()))?;
+        // A run that is working reads this message at its next boundary; until
+        // then it waits in the queue rather than appearing above the reply the
+        // run is still writing.
+        let joins_live_run = user_submission
+            && self
+                .with_run(id, |run| !run.cancel.is_cancelled())
+                .unwrap_or(false);
+        for (seq, appended_entry) in seqs.iter().zip(appended.iter()) {
+            match appended_entry {
+                Entry::User { text, .. } if joins_live_run && *seq == sequence => {
+                    self.emit(
+                        id,
+                        vec![ChatEvent::Queued {
+                            message: QueuedMessage {
+                                id: crate::projection::user_item_id(*seq),
+                                text: text.clone(),
+                            },
+                        }],
+                    )
+                    .await;
+                }
+                _ => self.emit_entry(id, *seq, appended_entry).await?,
+            }
+        }
         if user_submission && let Err(error) = self.commit_loop_prompt_capture(id, sequence).await {
             self.schedule_readmission(id);
             return Err(error);
@@ -103,9 +126,13 @@ impl AgentRuntime {
             request_id = command.request_id,
             kind = command.kind,
             sequence,
+            queued = joins_live_run,
             "agent command admitted"
         );
-        let committed = Steer::Persisted { entry, sequence };
+        let committed = Steer::Persisted {
+            entry: entry.clone(),
+            sequence,
+        };
         let queued = self.with_run(id, |run| {
             if run.cancel.is_cancelled() || run.steer.send(committed).is_err() {
                 return false;
@@ -113,7 +140,16 @@ impl AgentRuntime {
             run.queued_seq.fetch_max(sequence, Ordering::SeqCst);
             true
         });
-        if queued.is_some() {
+        if queued == Some(true) {
+            return Ok(());
+        }
+        // The run stopped between the check and the hand-off: show the message
+        // now; the next run reads it from the journal.
+        if joins_live_run {
+            self.emit_entry(id, sequence, &entry).await?;
+        }
+        if queued == Some(false) {
+            // An unwinding run settles under this lock and restarts for it.
             return Ok(());
         }
         match self.start_run_now(id, None, None).await {
@@ -127,6 +163,26 @@ impl AgentRuntime {
                     self.schedule_readmission(id);
                 }
                 Err(error)
+            }
+        }
+    }
+}
+
+impl AgentRuntime {
+    /// Shows every message queued behind a run that ended without reading
+    /// it; the next run reads them from the journal.
+    pub(crate) async fn release_unread_queue(
+        &self,
+        id: &str,
+        entries: &[(u64, Entry)],
+        read_through: u64,
+    ) {
+        for (sequence, entry) in crate::journal::effective_entries(entries) {
+            if sequence > read_through
+                && matches!(entry, Entry::User { .. })
+                && let Err(error) = self.emit_entry(id, sequence, &entry).await
+            {
+                tracing::warn!(conversation_id = id, %error, "unread queued message was not shown");
             }
         }
     }

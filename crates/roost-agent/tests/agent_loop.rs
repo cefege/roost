@@ -17,6 +17,9 @@ mod goal_mode;
 #[path = "agent_loop/goal_progress.rs"]
 mod goal_progress;
 
+#[path = "agent_loop/steering_order.rs"]
+mod steering_order;
+
 use std::collections::BTreeMap;
 use std::time::Duration;
 
