@@ -138,7 +138,7 @@ fn unknown_item_is_ignored() {
 fn every_chat_event_round_trips_spec_json() {
     let pairs = [
         (
-            r#"{"type":"reset","transcript":{"items":[],"run_state":"idle","error":null,"model":null,"thinking_level":null,"mode":null,"usage":{"input_tokens":0,"output_tokens":0,"cost_usd":0.0},"queued":[]}}"#,
+            r#"{"type":"reset","transcript":{"items":[],"run_state":"idle","error":null,"model":null,"thinking_level":null,"mode":null,"usage":{"input_tokens":0,"output_tokens":0,"cost_usd":0.0}}}"#,
             ChatEvent::Reset {
                 transcript: Transcript {
                     items: vec![],

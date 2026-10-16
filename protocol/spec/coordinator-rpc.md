@@ -38,6 +38,16 @@ deserialize to false/empty. `ToolStarted` clears queued status without claiming
 completion. Cancellation, timeout, truncation, artifact completeness and unknown
 outcomes are executor facts, not meanings inferred from output text.
 
+A user message sent while a run is working is announced by `Queued { message:
+{ id, text } }` and listed in `Transcript.queued` (absent means empty; a
+snapshot never carries queued entries). It is not a transcript item yet: when
+the run reads it, or when the run ends without reading it, a `User` item with
+the same `id` arrives, removes it from `queued` and is placed after every item
+already shown. Rebuilt transcripts and the model's history agree on that
+place: each user message sits just before the first assistant reply whose
+request read it (`AssistantMetadata.input_through_seq`), so a reply streamed
+while the message waited stays above it.
+
 ## State machine
 
 1. Bun/Connect routing enters `buildConnectRouter`. The auth interceptor reads `Authorization: Bearer ...`, verifies and resolves a persisted principal, installs caller/trace/remote/on-host/listener-trust/tab context, then calls the single service implementation.

@@ -33,33 +33,6 @@ pub fn ToolCard(
     expanded: bool,
 ) -> Element {
     let mut show_all = use_signal(|| false);
-    let pump = use_store();
-    let _revision = pump.revision()();
-    let navigate = use_navigate();
-    let child_links: Vec<(String, String, String, String)> = {
-        let core = pump.core();
-        let core = core.borrow();
-        child_ids
-            .iter()
-            .filter_map(|child_id| {
-                core.store()
-                    .agent_chat
-                    .conversations
-                    .get(child_id)
-                    .map(|child| {
-                        (
-                            child_id.clone(),
-                            child
-                                .agent
-                                .clone()
-                                .unwrap_or_else(|| "Subagent".to_string()),
-                            child.title.clone(),
-                            child.run_state.as_str().to_owned(),
-                        )
-                    })
-            })
-            .collect()
-    };
     let target = argument_summary(&tool_name, &args_json);
     let visible_output = strip_ansi(&output);
     let details = serde_json::from_str::<serde_json::Value>(&details_json).ok();
@@ -166,22 +139,8 @@ pub fn ToolCard(
                     p { "Final outcome unknown. Inspect current state before repeating the call." }
                 }
             }
-            if !child_links.is_empty() {
-                nav { class: "agent-chat__task-children", aria_label: "Subagent conversations",
-                    List {
-                        for (child_id, agent, title, status) in child_links {
-                            ListRow {
-                                key: "{child_id}",
-                                dense: true,
-                                class: "agent-chat__task-child",
-                                href: crate::routes::agent_href(&child_id),
-                                on_navigate: navigate,
-                                headline: rsx! { "{agent}: {title}" },
-                                support: rsx! { "{status}" },
-                            }
-                        }
-                    }
-                }
+            if !child_ids.is_empty() {
+                ChildLinks { child_ids }
             }
             if has_details {
                 details { class: "agent-chat__step-detail-disclosure",
@@ -204,6 +163,60 @@ pub fn ToolCard(
                                 Button { variant: ButtonVariant::Link, onclick: { let text = output.clone(); move |_: MouseEvent| { crate::components::notifications::clipboard::copy_text(&text); } }, "Copy output" }
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The conversations a `task` call started, with their live state. Only this
+/// part reads the store, so ordinary tool cards do not re-render on every
+/// streamed delta.
+#[component]
+fn ChildLinks(child_ids: Vec<String>) -> Element {
+    let pump = use_store();
+    let _revision = pump.revision()();
+    let navigate = use_navigate();
+    let links: Vec<(String, String, String, String)> = {
+        let core = pump.core();
+        let core = core.borrow();
+        child_ids
+            .iter()
+            .filter_map(|child_id| {
+                core.store()
+                    .agent_chat
+                    .conversations
+                    .get(child_id)
+                    .map(|child| {
+                        (
+                            child_id.clone(),
+                            child
+                                .agent
+                                .clone()
+                                .unwrap_or_else(|| "Subagent".to_string()),
+                            child.title.clone(),
+                            child.run_state.as_str().to_owned(),
+                        )
+                    })
+            })
+            .collect()
+    };
+    if links.is_empty() {
+        return rsx! {};
+    }
+    rsx! {
+        nav { class: "agent-chat__task-children", aria_label: "Subagent conversations",
+            List {
+                for (child_id, agent, title, status) in links {
+                    ListRow {
+                        key: "{child_id}",
+                        dense: true,
+                        class: "agent-chat__task-child",
+                        href: crate::routes::agent_href(&child_id),
+                        on_navigate: navigate,
+                        headline: rsx! { "{agent}: {title}" },
+                        support: rsx! { "{status}" },
                     }
                 }
             }

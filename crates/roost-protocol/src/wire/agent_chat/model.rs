@@ -91,7 +91,7 @@ pub struct Transcript {
     /// boundary (after the current model call or tool round). Each leaves
     /// this list for `items` when the run reads it, so it appears where the
     /// agent took it, never inside the reply it interrupted.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub queued: Vec<QueuedMessage>,
 }
 

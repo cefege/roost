@@ -88,7 +88,7 @@ async fn latest_user(
         .into_iter()
         .rev()
         .find_map(|(seq, entry)| match entry {
-            Entry::User { text, .. } => Some((format!("u{seq}"), text)),
+            Entry::User { text, .. } => Some((crate::projection::user_item_id(seq), text)),
             _ => None,
         })
         .ok_or_else(|| AgentError::InvalidArgument("no user turn to rewind".into()))
