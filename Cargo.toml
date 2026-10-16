@@ -157,6 +157,7 @@ wasm-bindgen-futures = "0.4.79"
 js-sys = "0.3.106"
 web-sys = "0.3.106"
 dioxus = "0.7.10"
+dioxus-html = { version = "0.7.10", default-features = false }
 
 # Shared plumbing.
 futures = "0.3.34"

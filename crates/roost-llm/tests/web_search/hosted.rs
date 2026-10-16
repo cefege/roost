@@ -22,6 +22,11 @@ fn model(provider: &str, api: WireApi, base_url: &str) -> ModelInfo {
         thinking_level_map: BTreeMap::new(),
         kind: roost_llm::ModelKind::Chat,
         compat: Value::Null,
+        intelligence: None,
+        tokens_per_second: None,
+        runner_kind: String::new(),
+        priority: None,
+        pricing_status: None,
     }
 }
 

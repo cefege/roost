@@ -2,6 +2,8 @@
 //! The model catalog: the four providers' JSON compiled in, parsed once, and
 //! the thinking-level rules (`supported_thinking_levels`, `clamp_thinking_level`).
 //! Read by the provider clients, the account pool and roost-agent's role resolver.
+//! The intelligence, speed, kind, priority and pricing fields are copied from
+//! OMP's `packages/catalog/src/models.json` (catalog 18.6.2) by provider and id.
 
 use std::collections::BTreeMap;
 
@@ -66,6 +68,16 @@ pub struct ModelInfo {
     pub kind: ModelKind,
     /// The catalog's `compat` flags (`forceAdaptiveThinking`, `thinkingFormat`, …).
     pub compat: serde_json::Value,
+    /// OMP's `int` intelligence score; `None` when the catalog has none.
+    pub intelligence: Option<f32>,
+    /// OMP's `tps` estimated output tokens per second.
+    pub tokens_per_second: Option<f32>,
+    /// OMP's `kind` (one of its `MODEL_KINDS`); empty means chat, as OMP's `modelKind()`.
+    pub runner_kind: String,
+    /// OMP's `priority`; lower sorts first.
+    pub priority: Option<i32>,
+    /// OMP's `pricingStatus` (`free`, `included`, `variable`, `unknown`); `None` is fixed pricing.
+    pub pricing_status: Option<String>,
 }
 
 impl ModelInfo {
@@ -200,6 +212,16 @@ struct RawModel {
     compat: serde_json::Value,
     #[serde(rename = "type", default)]
     model_type: Option<String>,
+    #[serde(rename = "int", default)]
+    intelligence: Option<f32>,
+    #[serde(rename = "tps", default)]
+    tokens_per_second: Option<f32>,
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    priority: Option<i32>,
+    #[serde(default)]
+    pricing_status: Option<String>,
 }
 
 #[derive(Default, Deserialize)]
@@ -262,6 +284,11 @@ fn parse_catalog_source(source: &str) -> Vec<ModelInfo> {
                 thinking_level_map: raw.thinking_level_map,
                 kind,
                 compat: raw.compat,
+                intelligence: raw.intelligence,
+                tokens_per_second: raw.tokens_per_second,
+                runner_kind: raw.kind.unwrap_or_default(),
+                priority: raw.priority,
+                pricing_status: raw.pricing_status,
             });
         }
     }
@@ -297,5 +324,36 @@ mod tests {
             model.provider_thinking_value("minimal").as_deref(),
             Some("low")
         );
+    }
+
+    #[test]
+    fn bundled_model_carries_omp_intelligence_and_speed() {
+        let catalog = Catalog::builtin();
+        let model = catalog
+            .get("anthropic", "claude-opus-5-5")
+            .expect("pinned model catalog entry exists");
+        assert_eq!(model.intelligence, Some(57.6));
+        assert_eq!(model.tokens_per_second, Some(96.6));
+        assert_eq!(model.runner_kind, "");
+    }
+
+    #[test]
+    fn bundled_judge_model_carries_its_omp_kind() {
+        let catalog = Catalog::builtin();
+        let model = catalog
+            .get("typesafe", "jev-latest")
+            .expect("pinned model catalog entry exists");
+        assert_eq!(model.runner_kind, "judge");
+        assert_eq!(model.kind, super::ModelKind::Classifier);
+    }
+
+    #[test]
+    fn non_chat_openai_completions_row_keeps_its_omp_kind_and_stays_chat_api() {
+        let catalog = Catalog::builtin();
+        let model = catalog
+            .get("openrouter", "google/gemini-3-pro-image")
+            .expect("pinned model catalog entry exists");
+        assert_eq!(model.runner_kind, "image");
+        assert_eq!(model.kind, super::ModelKind::Chat);
     }
 }

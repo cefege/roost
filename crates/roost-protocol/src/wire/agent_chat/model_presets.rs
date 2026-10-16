@@ -58,8 +58,8 @@ pub fn is_builtin_preset(name: &str) -> bool {
     BUILTIN_PRESETS.iter().any(|(builtin, _)| *builtin == name)
 }
 
-/// Every preset a user can apply: the starters, each replaced by a saved
-/// preset of the same name, then the other saved presets.
+/// Every preset a user can apply, in name order: each starter, replaced by a saved
+/// preset of the same name, plus the other saved presets.
 pub fn presets_with_builtins(saved: &ModelPresets) -> ModelPresets {
     let mut presets: ModelPresets = BUILTIN_PRESETS
         .iter()

@@ -16,7 +16,7 @@ pub struct ModelsCatalog {
     #[serde(default)]
     pub recent_models: Vec<ModelRef>,
 }
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ModelEntry {
     pub provider: String,
     pub model_id: String,
@@ -42,6 +42,27 @@ pub struct ModelEntry {
     /// Thinking levels this model accepts, in `THINKING_LEVELS` order.
     #[serde(default)]
     pub thinking_levels: Vec<String>,
+    /// OMP model kind: chat, tiny, image, tts, stt, search, judge, embedding, rerank, video. Empty means chat.
+    #[serde(default)]
+    pub kind: String,
+    /// OMP's `int` intelligence score; absent when the catalog has none.
+    #[serde(default)]
+    pub intelligence: Option<f32>,
+    /// OMP's `tps` estimated tokens per second; absent when unknown.
+    #[serde(default)]
+    pub tokens_per_second: Option<f32>,
+    /// OMP's sort priority; lower sorts first.
+    #[serde(default)]
+    pub priority: Option<i32>,
+    /// OMP's `isRecommended` flag.
+    #[serde(default)]
+    pub recommended: bool,
+    /// OMP's `pricingStatus` (`free`, `included`, `variable`, `unknown`); absent means fixed pricing.
+    #[serde(default)]
+    pub pricing_status: Option<String>,
+    /// The bundled catalog records no release date, so this is empty for every model.
+    #[serde(default)]
+    pub released: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderEntry {

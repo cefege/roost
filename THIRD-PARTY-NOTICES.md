@@ -10,6 +10,11 @@ names its source path on the first line of its `//!` header.
 Source: https://github.com/can1357/oh-my-pi at commit
 `d46bd42f39e82d41b4a04c022fb94e595bd8c3c8`.
 
+The per-model `int`, `tps`, `kind`, `priority` and `pricingStatus` fields in
+`crates/roost-llm/catalog/*.json` come from `packages/catalog/src/models.json`
+of pi-catalog 18.6.2 at commit `a507b6235d`, merged by provider and id. The
+other fields in those files are unchanged from pi-ai 1.1.0.
+
 ```
 MIT License
 

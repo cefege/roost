@@ -107,6 +107,15 @@ pub async fn models_catalog(agent: &AgentService) -> Result<ModelsCatalog, Crede
                 .into_iter()
                 .map(str::to_owned)
                 .collect(),
+            kind: model.runner_kind.clone(),
+            intelligence: model.intelligence,
+            tokens_per_second: model.tokens_per_second,
+            priority: model.priority,
+            // OMP sets `isRecommended` from live provider discovery; the bundled catalog does not carry it.
+            recommended: false,
+            pricing_status: model.pricing_status.clone(),
+            // The bundled catalog records no release date; OMP's recency sort reads the id's `-YYYYMMDD` suffix.
+            released: None,
         })
         .collect();
     models.sort_by(compare_models_newest_first);

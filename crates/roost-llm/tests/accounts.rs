@@ -178,6 +178,11 @@ async fn judge_translates_noul_and_retries_service_unavailable() {
         thinking_level_map: BTreeMap::new(),
         kind: ModelKind::Classifier,
         compat: Value::Null,
+        intelligence: None,
+        tokens_per_second: None,
+        runner_kind: String::new(),
+        priority: None,
+        pricing_status: None,
     };
     let answers = judge
         .judge(

@@ -9,7 +9,7 @@ mod jobs;
 mod model;
 mod model_order;
 mod model_presets;
-mod model_search;
+pub mod model_search;
 mod proto;
 mod tools;
 pub use commands::{AGENT_SLASH_COMMANDS, SlashArgument, SlashCommand, parse_slash_command};
