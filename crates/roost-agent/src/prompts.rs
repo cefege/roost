@@ -23,6 +23,7 @@ pub const TODO_TOOL: &str = include_str!("prompts/todo_tool.md");
 pub const ASK_TOOL: &str = include_str!("prompts/ask_tool.md");
 pub const FETCH_TOOL: &str = include_str!("prompts/fetch_tool.md");
 pub const WEB_SEARCH_TOOL: &str = include_str!("prompts/web_search_tool.md");
+pub const MESSAGE_TOOL: &str = include_str!("prompts/message_tool.md");
 pub const BTW: &str = include_str!("prompts/btw.md");
 pub const GOAL_TOOL: &str = include_str!("prompts/goal_tool.md");
 pub const GOAL_MODE: &str = include_str!("prompts/goal_mode.md");

@@ -20,6 +20,8 @@ mod model_presets;
 mod model_scope;
 #[path = "model_switch.rs"]
 mod model_switch;
+#[path = "peer_messages.rs"]
+mod peer_messages;
 #[path = "plan_and_tasks.rs"]
 mod plan_and_tasks;
 #[path = "quality_tools.rs"]

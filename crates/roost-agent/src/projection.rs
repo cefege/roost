@@ -178,6 +178,18 @@ pub fn entry_item(seq: u64, entry: &Entry, tools: &ToolCallIndex) -> Option<Tran
             output: output.clone(),
             exit_code: *exit_code,
         }),
+        Entry::PeerMessage {
+            from_id,
+            from,
+            broadcast,
+            text,
+        } => Some(TranscriptItem::PeerMessage {
+            id: format!("peer{seq}"),
+            from_id: from_id.clone(),
+            from: from.clone(),
+            broadcast: *broadcast,
+            text: text.clone(),
+        }),
         Entry::Todo { phases } => Some(TranscriptItem::Todo {
             id: TODO_ITEM_ID.into(),
             phases: phases.clone(),
@@ -245,6 +257,7 @@ pub fn item_id(item: &TranscriptItem) -> &str {
         | TranscriptItem::Assistant { id, .. }
         | TranscriptItem::Tool { id, .. }
         | TranscriptItem::BackgroundJob { id, .. }
+        | TranscriptItem::PeerMessage { id, .. }
         | TranscriptItem::Notice { id, .. }
         | TranscriptItem::Plan { id, .. }
         | TranscriptItem::Goal { id, .. }

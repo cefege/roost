@@ -5,6 +5,7 @@
 use roost_llm::{ChatRequest, Message};
 use tokio_util::sync::CancellationToken;
 
+use crate::compaction_text::render_for_summary;
 use crate::error::AgentError;
 use crate::history;
 use crate::model_call::{Silent, call_chain};
@@ -84,7 +85,7 @@ async fn answer(
     let context = format!(
         "Conversation context (quoted transcript):\n{}\n{}",
         summary.unwrap_or_default(),
-        history::render_for_summary(window)
+        render_for_summary(window)
     );
     let system = prompts::system_blocks(&record, &[], "", None);
     let question_message = prompts::render(prompts::BTW, &[("question", question)]);

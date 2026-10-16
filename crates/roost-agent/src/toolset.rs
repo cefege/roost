@@ -21,6 +21,7 @@ pub const TOOL_TODO: &str = "todo";
 pub const TOOL_ASK: &str = "ask";
 pub const TOOL_FETCH: &str = "fetch";
 pub const TOOL_WEB_SEARCH: &str = "web_search";
+pub const TOOL_MESSAGE: &str = "message";
 
 /// Subagent nesting limit: a depth-2 child may not spawn further children.
 pub const MAX_DEPTH: u32 = 2;
@@ -127,6 +128,7 @@ pub fn toolset_for(record: &ConversationRecord, depth: u32, find_available: bool
     }
     specs.push(crate::web_tools::fetch_spec());
     specs.push(crate::web_tools::web_search_spec());
+    specs.push(crate::peer_message::message_spec());
     let may_delegate = match kind {
         None => true,
         Some(SubagentKind::Task) => depth < MAX_DEPTH,

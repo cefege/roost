@@ -145,6 +145,17 @@ pub enum TranscriptItem {
         output: String,
         exit_code: Option<i32>,
     },
+    /// A message another conversation sent to this one. An arrival, not a reply, so
+    /// it renders as its own row. `from` is the sender's name, `from_id` its id.
+    #[serde(rename = "peer_message")]
+    PeerMessage {
+        id: String,
+        from_id: String,
+        from: String,
+        #[serde(default)]
+        broadcast: bool,
+        text: String,
+    },
     #[serde(rename = "notice")]
     Notice {
         id: String,

@@ -228,6 +228,7 @@ fn latest_run_intent(entries: &[(u64, Entry)]) -> Option<(bool, u64, bool)> {
             active,
             through_seq,
             aborted,
+            ..
         } => Some((*active, *through_seq, *aborted)),
         _ => None,
     })
@@ -239,6 +240,9 @@ pub(crate) fn latest_active_intent_seq(entries: &[(u64, Entry)]) -> Option<u64> 
     })
 }
 
+/// Peer messages are left out on purpose: they never start or restart a run on
+/// their own, so a message buffered for an idle subagent cannot make recovery or
+/// settle restart a subagent that has finished.
 pub(crate) fn latest_submission_seq(entries: &[(u64, Entry)]) -> Option<u64> {
     crate::journal::effective_entries(entries)
         .iter()

@@ -113,6 +113,19 @@ pub fn transcript_to_markdown(title: &str, transcript: &Transcript) -> String {
                 };
                 append_section(&mut markdown, &heading, &format!("$ {command}\n{output}"));
             }
+            TranscriptItem::PeerMessage {
+                from,
+                broadcast,
+                text,
+                ..
+            } => {
+                let scope = if *broadcast {
+                    "Broadcast from"
+                } else {
+                    "Message from"
+                };
+                append_section(&mut markdown, &format!("{scope} {from}"), text);
+            }
             TranscriptItem::Advisory { severity, note, .. } => {
                 append_section(&mut markdown, &format!("Advisor · {severity}"), note);
             }

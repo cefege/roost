@@ -15,12 +15,12 @@ use crate::projection::tool_item_id;
 use crate::records::{ConversationRecord, Entry};
 use crate::runtime::{AgentRuntime, RunEnd};
 use crate::toolset::{
-    LSP_READ_ACTIONS, TOOL_ASK, TOOL_FETCH, TOOL_FIND, TOOL_PROPOSE_PLAN, TOOL_TASK, TOOL_TODO,
-    TOOL_WEB_SEARCH, TOOL_YIELD, Toolset, is_read_only,
+    LSP_READ_ACTIONS, TOOL_ASK, TOOL_FETCH, TOOL_FIND, TOOL_MESSAGE, TOOL_PROPOSE_PLAN, TOOL_TASK,
+    TOOL_TODO, TOOL_WEB_SEARCH, TOOL_YIELD, Toolset, is_read_only,
 };
 use crate::traits::{ToolCall, ToolOutcome};
 use crate::web_tools;
-use crate::{ask, find, plan_mode, subagents, todo, wait};
+use crate::{ask, find, peer_message, plan_mode, subagents, todo, wait};
 
 /// Live output kept in a running tool card; older output is trimmed.
 const LIVE_OUTPUT_CHARS: u64 = 64 * 1024;
@@ -176,6 +176,10 @@ async fn run_call(scope: &CallScope<'_>, call_id: &str, name: &str, args: &str) 
         TOOL_WAIT => {
             drop(out);
             wait::run(scope).await
+        }
+        TOOL_MESSAGE => {
+            drop(out);
+            peer_message::run(scope, args).await
         }
         TOOL_FETCH | TOOL_WEB_SEARCH => {
             drop(out);

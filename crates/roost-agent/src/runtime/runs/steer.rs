@@ -25,6 +25,7 @@ impl Steer {
             },
             Self::Persisted { entry, .. } => entry,
             Self::BackgroundJob(entry) => entry,
+            Self::PeerMessage { entry, .. } => entry,
         }
     }
 
@@ -32,6 +33,7 @@ impl Steer {
     pub(crate) fn wakes_idle_conversation(&self) -> bool {
         match self {
             Self::BackgroundJob(Entry::BackgroundJob { state, .. }) => state.wakes_conversation(),
+            Self::PeerMessage { wakes_idle, .. } => *wakes_idle,
             _ => true,
         }
     }

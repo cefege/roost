@@ -198,6 +198,7 @@ async fn recovered_successful_output_finishes_without_repeating_its_primary_call
             active: true,
             through_seq: input_seq,
             aborted: false,
+            yielded: false,
         },
     )
     .await;
@@ -249,6 +250,7 @@ async fn late_user_and_advisory_inputs_are_not_marked_consumed_by_prior_output()
             active: true,
             through_seq: input_seq,
             aborted: false,
+            yielded: false,
         },
     )
     .await;
@@ -296,6 +298,7 @@ async fn late_user_and_advisory_inputs_are_not_marked_consumed_by_prior_output()
             active: true,
             through_seq: late_seq,
             aborted: false,
+            yielded: false,
         },
     )
     .await;

@@ -22,6 +22,9 @@ const MAX_CONCURRENT_CHILDREN: usize = 8;
 const RESULT_BYTES: usize = 50 * 1024;
 const TITLE_CHARS: usize = 60;
 
+/// Separates a subagent's name from its task in the title that peers see.
+pub(crate) const TITLE_SEPARATOR: &str = ": ";
+
 #[derive(Debug, Deserialize)]
 struct TaskArgs {
     #[serde(default)]
@@ -166,7 +169,7 @@ async fn create_child(
     let runtime = scope.runtime;
     let model = scope.record.model.clone();
     let now = now_ms();
-    let title: String = format!("{name}: {task}")
+    let title: String = format!("{name}{TITLE_SEPARATOR}{task}")
         .chars()
         .take(TITLE_CHARS)
         .collect();

@@ -206,6 +206,18 @@ settles or is cancelled. Jobs live on their worker's coordinator link: if that
 link drops, the jobs are reported as failed, since their outcome is unknown and
 nothing is replayed. Aborting a chat cancels its running jobs.
 
+Peer messages: a live chat or subagent sends another visible conversation text
+with the `message` tool, addressed by a peer's id or unique label, or to `all`
+for a broadcast. Delivery never blocks the sender. A busy recipient reads the
+message as an aside at its next step boundary. An idle recipient starts a run
+for a direct message; a broadcast only waits for the recipient's next turn and
+never wakes it. A subagent sees its parent and the subagents with the same
+parent; the main chat sees its subagents. A subagent that has yielded is
+finished and refuses messages. `wait` also returns once a message arrives. A
+parent blocked inside a `task` call receives its messages after the whole batch
+finishes. Not in this version: OMP's parked-agent lifecycle and broadcast
+de-duplication (`suppressRelay`).
+
 In the agent composer, the model button opens **Models**: every model role
 this chat runs, under OMP's role names (Default, Fast, Thinking, Architect,
 Subtask, Tiny, Judge, Advisor), with the model leading each; the **ⓘ** button

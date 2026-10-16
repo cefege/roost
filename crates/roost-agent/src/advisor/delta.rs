@@ -83,6 +83,10 @@ fn render_entry(entry: &Entry) -> Option<String> {
             state.as_str(),
             truncate(output, TOOL_RESULT_LIMIT)
         )),
+        Entry::PeerMessage { from, text, .. } => Some(format!(
+            "## Message from {from}\n{}",
+            truncate(text, TOOL_RESULT_LIMIT)
+        )),
         Entry::Todo { phases } => Some(format!(
             "## Task list\n{}",
             crate::todo_notice::todo_message(phases)

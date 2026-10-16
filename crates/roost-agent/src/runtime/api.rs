@@ -123,7 +123,7 @@ impl AgentRuntime {
             doomed.extend(
                 records
                     .iter()
-                    .filter(|record| record.parent_id.as_deref() == Some(parent.as_str()))
+                    .filter(|record| record.is_child_of(&parent))
                     .cloned(),
             );
             cursor += 1;

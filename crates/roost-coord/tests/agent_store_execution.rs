@@ -153,7 +153,8 @@ async fn stale_revisions_conflict_superseded_leases_are_fenced_and_commands_admi
                 Entry::RunIntent {
                     active: true,
                     through_seq: 1,
-                    aborted: false
+                    aborted: false,
+                    yielded: false
                 }
             ),
         ]

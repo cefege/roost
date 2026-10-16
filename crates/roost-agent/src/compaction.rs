@@ -5,8 +5,9 @@
 use roost_llm::{AssistantBlock, ChatRequest, Message, ModelInfo};
 use tokio_util::sync::CancellationToken;
 
+use crate::compaction_text::{estimate_tokens, render_for_summary};
 use crate::error::AgentError;
-use crate::history::{active_window, estimate_tokens, render_for_summary};
+use crate::history::active_window;
 use crate::model_call::{Silent, call_chain};
 use crate::prompts;
 use crate::records::{ConversationRecord, Entry};

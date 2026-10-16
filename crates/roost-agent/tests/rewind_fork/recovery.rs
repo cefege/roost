@@ -33,6 +33,7 @@ async fn recovery_replays_unexpected_stop_policy_once_for_completed_output() {
                 active: true,
                 through_seq: input_seq,
                 aborted: false,
+                yielded: false,
             },
             &[],
             None,

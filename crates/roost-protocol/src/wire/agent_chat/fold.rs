@@ -161,6 +161,7 @@ impl TranscriptItem {
             | Self::LoopStatus { id, .. }
             | Self::Ask { id, .. }
             | Self::BackgroundJob { id, .. }
+            | Self::PeerMessage { id, .. }
             | Self::Btw { id, .. } => id,
         }
     }

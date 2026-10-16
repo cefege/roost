@@ -198,6 +198,7 @@ async fn recovery_resumes_current_and_legacy_interrupted_work_once() {
             active: true,
             through_seq: 6,
             aborted: false,
+            yielded: false,
         },
     ];
     for entry in entries {

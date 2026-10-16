@@ -52,6 +52,7 @@ async fn recovered_final_output_admits_the_next_loop_iteration() {
             active: true,
             through_seq: input_seq,
             aborted: false,
+            yielded: false,
         },
     )
     .await;

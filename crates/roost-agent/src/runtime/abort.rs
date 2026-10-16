@@ -23,7 +23,7 @@ impl AgentRuntime {
         while let Some(parent_id) = doomed.get(cursor).map(|record| record.id.clone()) {
             for child in records
                 .iter()
-                .filter(|record| record.parent_id.as_deref() == Some(parent_id.as_str()))
+                .filter(|record| record.is_child_of(&parent_id))
             {
                 if seen.insert(child.id.clone()) {
                     doomed.push(child.clone());
@@ -128,6 +128,7 @@ impl AgentRuntime {
                     active,
                     through_seq,
                     aborted,
+                    ..
                 } => Some((*active, *through_seq, *aborted)),
                 _ => None,
             });
@@ -135,6 +136,9 @@ impl AgentRuntime {
                 let pending = entries.iter().rev().find_map(|(sequence, entry)| {
                     let pending_entry = match entry {
                         Entry::User { .. } | Entry::Advisory { .. } => true,
+                        // A broadcast is buffered for the recipient's own next turn; only a
+                        // direct message is work that must finish before the conversation settles.
+                        Entry::PeerMessage { broadcast, .. } => !broadcast,
                         Entry::BackgroundJob { state, .. } => state.wakes_conversation(),
                         _ => false,
                     };

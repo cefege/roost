@@ -108,7 +108,7 @@ impl AgentStore for InMemoryAgentStore {
                         state
                             .conversations
                             .values()
-                            .filter(|record| record.parent_id.as_deref() == Some(parent.as_str()))
+                            .filter(|record| record.is_child_of(&parent))
                             .map(|record| record.id.clone()),
                     );
                     cursor += 1;

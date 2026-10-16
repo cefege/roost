@@ -5,7 +5,7 @@
 #![allow(dead_code, unused_imports)]
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -37,6 +37,7 @@ pub struct FakeTools {
     pub delay: Mutex<Option<Duration>>,
     pub panic_next: AtomicBool,
     pub hold_next: AtomicBool,
+    pub running_jobs: AtomicUsize,
 }
 
 impl FakeTools {
@@ -126,7 +127,8 @@ impl ToolExecutor for FakeTools {
     }
 
     fn running_background_jobs<'a>(&'a self, _: &'a str) -> BoxFuture<'a, usize> {
-        Box::pin(async { 0 })
+        let running = self.running_jobs.load(Ordering::SeqCst);
+        Box::pin(async move { running })
     }
 }
 

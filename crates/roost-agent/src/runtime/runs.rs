@@ -32,6 +32,13 @@ pub(crate) enum Steer {
     },
     /// A settled background job, journaled as the entry that wakes or joins the run.
     BackgroundJob(Entry),
+    /// A message from a peer conversation, journaled as the entry it becomes.
+    /// `wakes_idle` starts a run when the recipient is idle. A subagent runs only
+    /// under its task, so a direct message to one waits in its journal until then.
+    PeerMessage {
+        entry: Entry,
+        wakes_idle: bool,
+    },
     Persisted {
         entry: Entry,
         sequence: u64,
@@ -67,6 +74,19 @@ impl AgentRuntime {
             let _guard = lifecycle.lock().await;
             runtime.start_run_now(&id, parent.as_ref(), None).await
         })
+    }
+
+    /// Boxed so the restart in `steer_command` does not embed `start_run_now`'s
+    /// future in the steer future: the spawned run loop reaches `steer` again,
+    /// and that cycle broke the `Send` proof for the spawn. The caller must
+    /// already hold the conversation's lifecycle lock; this does not take it.
+    pub(crate) fn start_run_now_boxed(
+        &self,
+        id: &str,
+    ) -> BoxFuture<'static, Result<Option<oneshot::Receiver<RunEnd>>, AgentError>> {
+        let runtime = self.clone();
+        let id = id.to_owned();
+        Box::pin(async move { runtime.start_run_now(&id, None, None).await })
     }
 
     pub(crate) async fn start_run_now(
@@ -115,6 +135,7 @@ impl AgentRuntime {
                     active: true,
                     through_seq,
                     aborted: false,
+                    yielded: false,
                 },
             )
             .await
@@ -326,6 +347,7 @@ impl AgentRuntime {
                     active: false,
                     through_seq,
                     aborted,
+                    yielded: matches!(end, RunEnd::Yielded(_)),
                 },
             )
             .await
@@ -364,7 +386,9 @@ impl AgentRuntime {
         self.emit(id, vec![ChatEvent::RunState { run_state, error }])
             .await;
         self.release_unread_queue(id, &entries, processed_seq).await;
-        let restart = !aborted && (pending || queued > 0);
+        // A yielded subagent's caller already took its result; a restart would run a
+        // turn no one reads, so its unread messages stay in the journal.
+        let restart = !aborted && !matches!(end, RunEnd::Yielded(_)) && (pending || queued > 0);
         drop(_guard);
         if intent_error.is_some() || (entries_read_failed && !aborted) {
             self.schedule_readmission(id);

@@ -36,7 +36,7 @@ impl AgentRuntime {
                     .conversations()
                     .await?
                     .into_iter()
-                    .filter(|record| record.parent_id.as_deref() == Some(id))
+                    .filter(|record| record.is_child_of(id))
                     .map(|record| record.id)
                     .collect::<Vec<_>>()
             } else {

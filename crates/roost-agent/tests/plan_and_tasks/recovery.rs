@@ -28,6 +28,7 @@ async fn recovered_partial_assistant_output_retries_the_primary_call() {
             active: true,
             through_seq: input_seq,
             aborted: false,
+            yielded: false,
         },
     )
     .await;

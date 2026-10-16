@@ -19,11 +19,13 @@ pub fn intent_entry(
             active: true,
             through_seq: last_appended.unwrap_or(last_before),
             aborted: false,
+            yielded: false,
         }),
         IntentChange::Abort => Some(Entry::RunIntent {
             active: false,
             through_seq: last_appended.unwrap_or(last_before),
             aborted: true,
+            yielded: false,
         }),
     }
 }

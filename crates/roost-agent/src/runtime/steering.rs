@@ -48,10 +48,13 @@ impl AgentRuntime {
         let lifecycle = self.lifecycle_lock(id);
         let _guard = lifecycle.lock().await;
         let user_submission = matches!(&message, Steer::User(_));
-        let job_delivery = matches!(&message, Steer::BackgroundJob(_));
+        let journal_delivery = matches!(
+            &message,
+            Steer::BackgroundJob(_) | Steer::PeerMessage { .. }
+        );
         let wakes = message.wakes_idle_conversation();
-        let accepted_submission =
-            matches!(&message, Steer::User(_) | Steer::Advisory { .. }) || (job_delivery && wakes);
+        let accepted_submission = matches!(&message, Steer::User(_) | Steer::Advisory { .. })
+            || (journal_delivery && wakes);
         if let Steer::User(text) = &message {
             self.prepare_loop_prompt_capture(id, text).await?;
         }
@@ -68,7 +71,11 @@ impl AgentRuntime {
                     request_id: command.request_id.to_owned(),
                     kind: command.kind.to_owned(),
                     entries,
-                    intent: IntentChange::Activate,
+                    intent: if wakes {
+                        IntentChange::Activate
+                    } else {
+                        IntentChange::None
+                    },
                 },
             )
             .await;
@@ -99,7 +106,7 @@ impl AgentRuntime {
         // A run that is working reads this message at its next boundary; until
         // then it waits in the queue rather than appearing above the reply the
         // run is still writing.
-        let joins_live_run = (user_submission || job_delivery)
+        let joins_live_run = (user_submission || journal_delivery)
             && self
                 .with_run(id, |run| !run.cancel.is_cancelled())
                 .unwrap_or(false);
@@ -163,7 +170,7 @@ impl AgentRuntime {
             self.inner.signal.conversation_changed(id).await;
             return Ok(());
         }
-        match self.start_run_now(id, None, None).await {
+        match self.start_run_now_boxed(id).await {
             Ok(Some(_)) => Ok(()),
             Ok(None) => {
                 self.inner.signal.conversation_changed(id).await;
@@ -183,6 +190,19 @@ impl AgentRuntime {
     pub async fn deliver_background_job(&self, id: &str, entry: Entry) -> Result<(), AgentError> {
         self.steer(id, Steer::BackgroundJob(entry)).await
     }
+
+    /// Journals a message from a peer conversation and delivers it: into the live
+    /// run at its next step boundary, or as a new run when `wakes_idle` and the
+    /// recipient is idle.
+    pub async fn deliver_peer_message(
+        &self,
+        id: &str,
+        entry: Entry,
+        wakes_idle: bool,
+    ) -> Result<(), AgentError> {
+        self.steer(id, Steer::PeerMessage { entry, wakes_idle })
+            .await
+    }
 }
 
 impl AgentRuntime {
@@ -196,7 +216,10 @@ impl AgentRuntime {
     ) {
         for (sequence, entry) in crate::journal::effective_entries(entries) {
             if sequence > read_through
-                && matches!(entry, Entry::User { .. } | Entry::BackgroundJob { .. })
+                && matches!(
+                    entry,
+                    Entry::User { .. } | Entry::BackgroundJob { .. } | Entry::PeerMessage { .. }
+                )
                 && let Err(error) = self.emit_entry(id, sequence, &entry).await
             {
                 tracing::warn!(conversation_id = id, %error, "unread queued message was not shown");

@@ -110,6 +110,14 @@ pub struct ConversationRecord {
     pub revision: u64,
 }
 
+impl ConversationRecord {
+    /// The one owner of the parent link: peer lookups, cascades and the
+    /// fleet's child listings all ask through this.
+    pub(crate) fn is_child_of(&self, parent_id: &str) -> bool {
+        self.parent_id.as_deref() == Some(parent_id)
+    }
+}
+
 /// One journal entry. The journal is append-only: a plan proposal or an
 /// advisory whose state changes is appended again under the same `item_id`,
 /// and the latest copy wins in both the transcript and the model history.
@@ -173,6 +181,15 @@ pub enum Entry {
         output: String,
         exit_code: Option<i32>,
     },
+    /// A message from a peer conversation, journaled when admitted and read by
+    /// the recipient at its next step boundary or next run.
+    PeerMessage {
+        from_id: String,
+        from: String,
+        #[serde(default)]
+        broadcast: bool,
+        text: String,
+    },
     /// The agent's task list after a `todo` call; the latest copy is current.
     Todo { phases: Vec<TodoPhase> },
     /// Questions the `ask` tool put to the user; re-appended with `answers`.
@@ -206,6 +223,10 @@ pub enum Entry {
         active: bool,
         through_seq: u64,
         aborted: bool,
+        /// Set when the run ended by `yield`: a subagent that yielded has
+        /// finished and takes no further messages.
+        #[serde(default)]
+        yielded: bool,
     },
     /// The durable `/loop` snapshot; the latest entry is authoritative.
     LoopState { state_json: Option<String> },

@@ -115,6 +115,7 @@ async fn concurrent_boot_recovery_asks_the_model_once_per_interrupted_conversati
             active: true,
             through_seq: user,
             aborted: false,
+            yielded: false,
         };
         journal.append_entry(&id, &intent, &[], None).await.unwrap();
         let mut record = journal.conversation(&id).await.unwrap().unwrap();
