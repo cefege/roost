@@ -13,24 +13,24 @@ pub(super) fn GoalDock(
     mut view_request: Signal<String>,
     on_open: EventHandler<()>,
 ) -> Element {
-    let Some(state) = goal else {
+    // A finished goal stays in the transcript; the footer shows only live ones.
+    let Some(state) = goal.filter(|state| !matches!(state.status.as_str(), "complete" | "dropped"))
+    else {
         return rsx! {};
     };
     let status = match state.status.as_str() {
         "active" => "Active",
         "paused" => "Paused",
         "budget_limited" => "Budget limited",
-        "complete" => "Complete",
-        "dropped" => "Dropped",
         _ => "Unknown",
     };
     let progress = state.token_budget.map_or_else(
         || format!("{} tokens", state.tokens_used),
-        |limit| format!("{} / {limit}", state.tokens_used),
+        |limit| format!("{} / {limit} tokens", state.tokens_used),
     );
-    let label = format!("Goal · {status} · {progress}");
+    let label = format!("Goal · {status}");
     let title = format!(
-        "{}{}{}",
+        "{}\n{progress}{}{}",
         state.objective,
         state.waiting_reason.as_ref().map_or("", |_| "\nWaiting: "),
         state.waiting_reason.as_deref().unwrap_or_default()

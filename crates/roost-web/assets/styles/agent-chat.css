@@ -59,10 +59,15 @@
 .agent-chat__place-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-chat__offline { flex: none; color: var(--md-sys-color-error); }
 .agent-chat__header-actions { display: inline-flex; margin-left: auto; color: var(--md-sys-color-on-surface-variant); }
+/* Gives way before the place line, so the menu button never leaves the row. */
 .agent-chat__header .agent-chat__usage {
+  flex: 0 4 auto;
+  min-width: 0;
   margin-left: auto;
+  overflow: hidden;
   color: var(--md-sys-color-on-surface-variant);
   font-size: var(--md-body-s-size);
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .agent-chat__usage + .agent-chat__header-actions { margin-left: 0; }
@@ -597,9 +602,6 @@
   /* The deck bar above already names the conversation. */
   .agent-chat__header { min-height: var(--md-space-8); padding-left: var(--md-space-3); }
   .agent-chat__title { display: none; }
-  /* A phone's header has room for the machine and folder only. */
-  .agent-chat__header .agent-chat__usage { display: none; }
-  .agent-chat__usage + .agent-chat__header-actions { margin-left: auto; }
   .agent-chat__transcript { padding: var(--md-space-3) var(--md-space-3) var(--md-space-5); }
   .agent-chat__dock { padding: 0 var(--md-space-2) var(--md-space-2); }
   .agent-chat__user-bubble { max-width: 88%; }
@@ -622,6 +624,12 @@
   inset-inline: 0;
   bottom: calc(100% + var(--md-space-2));
   z-index: 2;
+}
+/* A new chat centres the composer in a scrolling welcome; space above it can
+   be shorter than the menu and would clip it, so there the menu opens down. */
+.agent-chat[data-empty] .agent-chat__slash-menu {
+  top: calc(100% + var(--md-space-2));
+  bottom: auto;
 }
 .agent-chat__slash-panel {
   max-height: min(calc(var(--md-space-9) * 7), 40dvh);

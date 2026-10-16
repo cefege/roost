@@ -152,12 +152,10 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
     let Some(conversation) = conversation else {
         return rsx! { LoadingTranscript {} };
     };
-    let usage = transcript.as_ref().map(|transcript| {
-        format!(
-            "{} tokens · ${:.4}",
-            transcript.usage.input_tokens + transcript.usage.output_tokens,
-            transcript.usage.cost_usd
-        )
+    // Nothing spent yet says nothing; a fresh chat's header stays bare.
+    let usage = transcript.as_ref().and_then(|transcript| {
+        let tokens = transcript.usage.input_tokens + transcript.usage.output_tokens;
+        (tokens > 0).then(|| format!("{tokens} tokens · ${:.4}", transcript.usage.cost_usd))
     });
     let header = rsx! {
         AgentChatHeader { conversation: conversation.clone(), online, usage, pump: pump.clone() }
