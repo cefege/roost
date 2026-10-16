@@ -327,7 +327,7 @@
 .agent-chat__thinking-chevron { display: inline-flex; transition: transform var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard); }
 .agent-chat__thinking[open] .agent-chat__thinking-chevron { transform: rotate(180deg); }
 
-/* ── tool steps: inline, as a terminal transcript prints them ── */
+/* ── tool boxes: OMP's bordered tool card, one per call ── */
 
 .agent-chat__steps {
   display: flex;
@@ -341,6 +341,14 @@
   flex-direction: column;
   gap: var(--md-space-1);
   min-width: 0;
+  padding: var(--md-space-2) var(--md-space-3);
+  border: var(--workbench-border-width) solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-shape-sm);
+}
+
+/* OMP tints a failed box's border with the error colour over its neutral edge. */
+.agent-chat__step[data-state="error"] {
+  border-color: color-mix(in srgb, var(--chat-err) 40%, var(--md-sys-color-outline-variant));
 }
 
 .agent-chat__step-head {
@@ -354,7 +362,7 @@
 }
 
 .agent-chat__step-icon,
-.agent-chat__step-state { display: inline-flex; flex: none; }
+.agent-chat__step-state { display: inline-flex; flex: none; align-items: center; gap: var(--md-space-1); }
 
 .agent-chat__step-verb { flex: none; color: var(--md-sys-color-on-surface); font-weight: var(--md-label-l-weight); }
 
@@ -369,21 +377,18 @@
 }
 
 .agent-chat__step-state { margin-left: auto; }
-/* OMP's status colours: green done, red failed, accent while running, faint
-   while waiting, warning when cut short. */
-.agent-chat__step[data-state="done"] .agent-chat__step-icon { color: var(--chat-ok); }
-.agent-chat__step[data-state="running"] .agent-chat__step-icon { color: var(--chat-accent); }
-.agent-chat__step[data-state="waiting"] .agent-chat__step-icon { color: var(--chat-faint); }
-.agent-chat__step[data-state="cancelled"] .agent-chat__step-icon,
-.agent-chat__step[data-state="timeout"] .agent-chat__step-icon { color: var(--chat-warn); }
-.agent-chat__step[data-state="error"] .agent-chat__step-icon,
-.agent-chat__step[data-state="error"] .agent-chat__step-state,
-.agent-chat__step[data-state="error"] .agent-chat__step-verb { color: var(--chat-err); }
 
-/* The target in the tool's own ink: a command in the shell hue behind an
-   accent prompt, a search pattern accent-tinted, a path in full ink. */
-.agent-chat__step[data-tool="bash"] .agent-chat__step-target { color: var(--chat-command); }
-.agent-chat__step[data-tool="bash"] .agent-chat__step-target::before { content: "$ "; color: var(--chat-accent); }
+/* Diff stats in the head: `[+added/−removed]`, the add side in OMP's success ink. */
+.agent-chat__step-stats {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--md-body-s-size);
+  color: var(--md-sys-color-on-surface-variant);
+}
+.agent-chat__stat-added { color: var(--chat-ok); }
+.agent-chat__stat-removed { color: var(--chat-err); }
+
+/* The target in the tool's own ink: a search pattern accent-tinted, a path in full ink. */
 .agent-chat__step[data-tool="grep"] .agent-chat__step-target,
 .agent-chat__step[data-tool="glob"] .agent-chat__step-target,
 .agent-chat__step[data-tool="find"] .agent-chat__step-target { color: color-mix(in srgb, var(--chat-accent) 75%, var(--md-sys-color-on-surface)); }
@@ -391,16 +396,20 @@
 .agent-chat__step[data-tool="edit"] .agent-chat__step-target,
 .agent-chat__step[data-tool="write"] .agent-chat__step-target { color: var(--md-sys-color-on-surface); }
 
-/* Output sits under the head, indented past its icon. */
-.agent-chat__step > :not(.agent-chat__step-head) { margin-inline-start: var(--md-space-6); }
-.agent-chat__step-output-ground { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
-.agent-chat__step-output-ground .agent-chat__step-more { margin: var(--md-space-1) var(--md-space-3) 0; }
-.agent-chat__step-output[data-error] { color: var(--chat-err); }
-
-.agent-chat__step-body {
-  padding: 0 0 var(--md-space-2);
+/* The model's declared intent: a faint italic line under the head. */
+.agent-chat__step-intent {
+  margin: 0;
+  color: var(--chat-faint);
+  font-style: italic;
+  font-size: var(--md-body-s-size);
+  line-height: var(--md-body-s-line);
+  overflow-wrap: anywhere;
 }
 
+.agent-chat__step-body { padding: 0 0 var(--md-space-2); }
+
+.agent-chat__step-output-ground { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+.agent-chat__step-output-ground .agent-chat__step-more { margin: var(--md-space-1) var(--md-space-3) 0; }
 .agent-chat__step-output {
   align-self: stretch;
   max-height: calc(var(--md-space-9) * 7);
@@ -413,10 +422,18 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.agent-chat__step-output[data-error] { color: var(--chat-err); }
+.agent-chat__step-hint {
+  margin: 0;
+  padding: 0 var(--md-space-3);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-body-s-size);
+  line-height: var(--md-body-s-line);
+}
 
 .agent-chat__out-line { min-height: var(--md-body-s-line); padding-inline: var(--md-space-3); }
 
-/* Diff rows as OMP tints them: added green, removed red, headers faint. */
+/* Output rows as OMP tints them: added green, removed red, headers faint. */
 .agent-chat__out-line[data-tone="added"] {
   background: color-mix(in srgb, var(--chat-ok) 14%, transparent);
   color: color-mix(in srgb, var(--chat-ok) 75%, var(--term-fg));
@@ -426,6 +443,111 @@
   color: color-mix(in srgb, var(--chat-err) 75%, var(--term-fg));
 }
 .agent-chat__out-line[data-tone="header"] { color: color-mix(in srgb, var(--term-fg) 55%, transparent); }
+
+/* Edit diff: a right-aligned line-number gutter, the sign, then the text. The
+   gutter width in characters is set per diff in `--diff-gutter`. */
+.agent-chat__diff {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: var(--md-space-2) 0;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--md-body-s-size);
+  line-height: var(--md-body-s-line);
+}
+.agent-chat__diff-row {
+  display: grid;
+  grid-template-columns: calc(var(--diff-gutter) * 1ch + var(--md-space-2)) 1ch minmax(0, 1fr);
+  padding-inline: var(--md-space-3);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.agent-chat__diff-gutter {
+  padding-inline-end: var(--md-space-2);
+  text-align: right;
+  white-space: nowrap;
+  color: var(--chat-faint);
+  user-select: none;
+}
+.agent-chat__diff-sign { user-select: none; }
+.agent-chat__diff-row[data-kind="added"] {
+  background: color-mix(in srgb, var(--chat-ok) 14%, transparent);
+  color: color-mix(in srgb, var(--chat-ok) 75%, var(--term-fg));
+}
+.agent-chat__diff-row[data-kind="removed"] {
+  background: color-mix(in srgb, var(--chat-err) 14%, transparent);
+  color: color-mix(in srgb, var(--chat-err) 75%, var(--term-fg));
+}
+.agent-chat__diff-row[data-kind="context"] { color: var(--chat-faint); }
+.agent-chat__diff-meta { color: color-mix(in srgb, var(--term-fg) 55%, transparent); grid-template-columns: minmax(0, 1fr); }
+.agent-chat__diff-row [data-changed="true"] { background: color-mix(in srgb, var(--chat-ok) 32%, transparent); }
+.agent-chat__diff-row[data-kind="removed"] [data-changed="true"] { background: color-mix(in srgb, var(--chat-err) 32%, transparent); }
+.agent-chat__diff-tab,
+.agent-chat__diff-space { color: var(--chat-faint); }
+.agent-chat__step-notes {
+  margin: 0;
+  padding: var(--md-space-1) 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-family: var(--font-mono);
+  font-size: var(--md-body-s-size);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Write preview: numbered content lines, the gutter width set in `--write-gutter`. */
+.agent-chat__write {
+  margin: 0;
+  padding: var(--md-space-2) 0;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--md-body-s-size);
+  line-height: var(--md-body-s-line);
+}
+.agent-chat__write-line {
+  display: grid;
+  grid-template-columns: calc(var(--write-gutter) * 1ch) minmax(0, 1fr);
+  padding-inline: var(--md-space-3);
+}
+.agent-chat__write-gutter {
+  padding-inline-end: var(--md-space-2);
+  text-align: right;
+  color: var(--chat-faint);
+  user-select: none;
+}
+.agent-chat__write-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Bash: the command as `$ ` lines, then the output window and footer facts. */
+.agent-chat__bash-command {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: var(--md-space-2) var(--md-space-3) 0;
+  color: var(--chat-command);
+  font-family: var(--font-mono);
+  font-size: var(--md-body-s-size);
+  line-height: var(--md-body-s-line);
+}
+.agent-chat__bash-line { white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-chat__bash-prompt { color: var(--chat-accent); }
+.agent-chat__bash-footer {
+  margin: 0;
+  padding: var(--md-space-1) var(--md-space-3) 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-body-s-size);
+  line-height: var(--md-body-s-line);
+}
+
+/* Task: the subagent rows and the folded-agents summary. */
+.agent-chat__task-children { min-width: 0; }
+.agent-chat__task-children .md-list-row { min-height: 0; padding: var(--md-space-1) var(--md-space-3); gap: var(--md-space-2); }
+.agent-chat__task-children .md-list-row__headline { font-size: var(--md-body-s-size); line-height: var(--md-body-s-line); }
+.agent-chat__task-hidden {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-body-s-size);
+  line-height: var(--md-body-s-line);
+}
 
 /* The 16 terminal colours a tool printed, on the terminal ground. */
 .agent-chat__ansi-0 { color: var(--term-color-0); }
@@ -503,6 +625,23 @@
 }
 
 @keyframes agent-chat-shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+
+/* ── working row ── */
+
+.agent-chat__working-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.agent-chat__working-elapsed,
+.agent-chat__working-sep { color: var(--chat-faint); font-variant-numeric: tabular-nums; }
+.agent-chat__working-char--low { color: var(--chat-faint); }
+.agent-chat__working-char--mid { color: var(--md-sys-color-on-surface-variant); }
+.agent-chat__working-char--high { color: var(--chat-accent); }
+.agent-chat__working--paused { display: none; }
 
 /* ── alerts ── */
 
@@ -722,6 +861,38 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* With "what each role is for" on, a row stacks: model, then its purpose. */
+.agent-chat__roles-row--explained .md-list-row__body { flex-direction: column; align-items: stretch; gap: var(--md-space-1); }
+.agent-chat__roles-row--explained .md-list-row__support {
+  display: flex;
+  flex-direction: column;
+  text-align: start;
+  white-space: normal;
+}
+.agent-chat__roles-purpose {
+  margin: 0;
+  color: var(--chat-faint);
+  font-size: var(--md-body-s-size);
+  line-height: var(--md-body-s-line);
+}
+p.agent-chat__roles-purpose { padding: 0 var(--md-space-2) var(--md-space-2); }
+.agent-chat__roles-thinking {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--md-space-1) var(--md-space-2);
+  padding: 0 var(--md-space-2) var(--md-space-2);
+}
+.agent-chat__roles-label {
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-label-l-weight) var(--md-label-l-size)/var(--md-label-l-line) var(--md-font);
+}
+.agent-chat__roles-note {
+  margin: 0;
+  padding: 0 var(--md-space-2) var(--md-space-2);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-body-s-size);
+}
 /* The body's font is the names' font, so `ch` below is one name character. */
 .agent-chat__slash-row .md-list-row__body {
   display: grid;
@@ -886,6 +1057,5 @@
 
 @media (max-width: 40rem) {
   .agent-chat__step-target { font-size: var(--md-body-s-size); }
-  .agent-chat__step > :not(.agent-chat__step-head) { margin-inline-start: var(--md-space-4); }
   .agent-chat__step-actions { gap: var(--md-space-1); }
 }

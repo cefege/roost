@@ -111,6 +111,7 @@ fn dark_palette(token: CanonicalToken) -> &'static str {
         CanonicalToken::AnsiBrightMagenta => "#d7aefb",
         CanonicalToken::AnsiBrightCyan => "#a1e4f2",
         CanonicalToken::AnsiBrightWhite => "#ffffff",
+        CanonicalToken::ChatAccent => "#ed4abf",
     }
 }
 
@@ -175,5 +176,6 @@ fn light_palette(token: CanonicalToken) -> &'static str {
         CanonicalToken::AnsiBrightMagenta => "#a626a4",
         CanonicalToken::AnsiBrightCyan => "#0184bc",
         CanonicalToken::AnsiBrightWhite => "#ffffff",
+        CanonicalToken::ChatAccent => "#c4268f",
     }
 }

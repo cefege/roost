@@ -30,14 +30,8 @@ pub(super) fn preview_window(tool_name: &str) -> (usize, PreviewEdge) {
 pub(super) const ERROR_ROWS: usize = 8;
 
 /// The icon and verb for a call in its current state.
-pub(super) fn presentation(
-    tool_name: &str,
-    queued: bool,
-    running: bool,
-    cancelled: bool,
-    timed_out: bool,
-) -> (&'static str, String) {
-    let (icon, active, finished) = match tool_name {
+pub(super) fn presentation(tool_name: &str, active: bool) -> (&'static str, String) {
+    let (icon, running_verb, finished_verb) = match tool_name {
         "bash" => ("terminal", "Running", "Ran"),
         "read" => ("description", "Reading", "Read"),
         "edit" => ("edit", "Editing", "Edited"),
@@ -45,21 +39,13 @@ pub(super) fn presentation(
         "grep" | "find" | "glob" | "lsp" => ("search", "Searching", "Searched"),
         "task" => ("account_tree", "Starting", "Started"),
         "propose_plan" => ("assignment", "Drafting", "Drafted"),
+        "wait" => ("schedule", "Waiting", "Waited"),
+        "job" => ("work", "Job", "Job"),
         _ => ("build", tool_name, tool_name),
     };
     (
         icon,
-        if cancelled {
-            "Cancelled".into()
-        } else if timed_out {
-            "Timed out".into()
-        } else if queued {
-            "Waiting".into()
-        } else if running {
-            active.into()
-        } else {
-            finished.into()
-        },
+        if active { running_verb } else { finished_verb }.into(),
     )
 }
 
@@ -80,15 +66,8 @@ pub(super) fn argument_summary(tool_name: &str, args_json: &str) -> String {
         "read" | "write" | "edit" | "ls" => parsed.get("path"),
         "grep" | "glob" => parsed.get("pattern"),
         "find" => parsed.get("query").or_else(|| parsed.get("pattern")),
-        "lsp" => {
-            return [parsed.get("action"), parsed.get("file")]
-                .into_iter()
-                .flatten()
-                .filter_map(serde_json::Value::as_str)
-                .filter(|part| !part.is_empty())
-                .collect::<Vec<_>>()
-                .join(" ");
-        }
+        "lsp" => return joined_fields(&parsed, &["action", "file"]),
+        "job" => return joined_fields(&parsed, &["op", "id"]),
         "propose_plan" => parsed.get("title"),
         _ => None,
     };
@@ -103,8 +82,9 @@ fn compact_arguments(arguments: &serde_json::Value) -> String {
         .as_object()
         .map(|object| {
             object
-                .values()
-                .filter_map(serde_json::Value::as_str)
+                .iter()
+                .filter(|(key, _)| key.as_str() != INTENT_KEY)
+                .filter_map(|(_, value)| value.as_str())
                 .collect::<Vec<_>>()
                 .join(", ")
                 .chars()
@@ -112,6 +92,16 @@ fn compact_arguments(arguments: &serde_json::Value) -> String {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// The parts of `keys` the arguments carry as non-empty strings, joined by a space.
+fn joined_fields(parsed: &serde_json::Value, keys: &[&str]) -> String {
+    keys.iter()
+        .filter_map(|key| parsed.get(*key))
+        .filter_map(serde_json::Value::as_str)
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The executor facts worth a line each: exit code, time, truncation, artifact.
@@ -151,4 +141,123 @@ pub(super) fn detail_facts(details: Option<&serde_json::Value>) -> Vec<String> {
         });
     }
     facts
+}
+
+/// The model-supplied intent every tool schema carries; it describes the call and is not an argument.
+pub(super) const INTENT_KEY: &str = "i";
+
+/// The intent a call declares, normalised the way the working row shows it.
+pub(super) fn intent_for(args_json: &str) -> Option<String> {
+    let parsed = serde_json::from_str::<serde_json::Value>(args_json).ok()?;
+    let raw = parsed.get(INTENT_KEY)?.as_str()?;
+    roost_protocol::wire::agent_chat::intent_label(raw)
+}
+
+/// The state a call's box is drawn in. A call's own flags win over the
+/// tool's error bit, so a cancel or timeout is never drawn as a plain error.
+/// `background` is the `async.state` of a backgrounded bash call.
+pub(super) fn tool_state(
+    queued: bool,
+    running: bool,
+    cancelled: bool,
+    timed_out: bool,
+    failed: bool,
+    background: Option<&str>,
+) -> &'static str {
+    if queued {
+        "waiting"
+    } else if running {
+        "running"
+    } else if background == Some("running") {
+        "background"
+    } else if cancelled || background == Some("cancelled") {
+        "cancelled"
+    } else if timed_out {
+        "timeout"
+    } else if failed || background == Some("failed") {
+        "error"
+    } else {
+        "done"
+    }
+}
+
+/// The visible word beside a call's status indicator.
+pub(super) fn state_label(state: &str) -> &'static str {
+    match state {
+        "waiting" => "Waiting",
+        "running" => "Running",
+        "background" => "Backgrounded",
+        "cancelled" => "Cancelled",
+        "timeout" => "Timed out",
+        "error" => "Error",
+        _ => "Done",
+    }
+}
+
+/// The `StatusDot` status a call's state paints with.
+pub(super) fn status_name(state: &str) -> &'static str {
+    match state {
+        "waiting" => "idle",
+        "running" | "background" => "running",
+        "cancelled" | "timeout" => "warn",
+        "error" => "error",
+        _ => "ok",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+
+    #[test]
+    fn the_intent_is_read_from_args_and_never_summarised() {
+        assert_eq!(
+            intent_for(r#"{"i":"Run the suite","command":"cargo test"}"#).as_deref(),
+            Some("Run the suite")
+        );
+        assert_eq!(intent_for(r#"{"command":"cargo test"}"#), None);
+        assert_eq!(
+            argument_summary("bash", r#"{"i":"Run","command":"cargo test"}"#),
+            "cargo test"
+        );
+        assert_eq!(argument_summary("wait", r#"{"i":"Wait for jobs"}"#), "");
+        assert_eq!(
+            argument_summary("job", r#"{"i":"Check","op":"output","id":"bg_1"}"#),
+            "output bg_1"
+        );
+    }
+
+    #[test]
+    fn a_cancel_or_timeout_is_not_drawn_as_a_plain_error() {
+        assert_eq!(
+            tool_state(false, false, true, false, true, None),
+            "cancelled"
+        );
+        assert_eq!(tool_state(false, false, false, true, true, None), "timeout");
+        assert_eq!(tool_state(false, false, false, false, true, None), "error");
+        assert_eq!(
+            tool_state(true, false, false, false, false, None),
+            "waiting"
+        );
+    }
+
+    #[test]
+    fn a_backgrounded_call_reads_its_job_state() {
+        assert_eq!(
+            tool_state(false, false, false, false, false, Some("running")),
+            "background"
+        );
+        assert_eq!(
+            tool_state(false, false, false, false, false, Some("completed")),
+            "done"
+        );
+        assert_eq!(
+            tool_state(false, false, false, false, false, Some("failed")),
+            "error"
+        );
+        assert_eq!(state_label("background"), "Backgrounded");
+        assert_eq!(status_name("timeout"), "warn");
+    }
 }

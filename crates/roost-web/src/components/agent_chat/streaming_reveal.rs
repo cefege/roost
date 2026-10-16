@@ -2,7 +2,7 @@
 //! has arrived is shown a few characters per frame, 30 frames a second,
 //! catching up within about eight frames however much is waiting. A burst of
 //! tokens therefore reads as steady typing instead of a jump. Mounted by
-//! `transcript` for the one block still streaming; finished text renders whole.
+//! `transcript` for every assistant text block; one finished at mount renders whole.
 
 use dioxus::prelude::*;
 use unicode_segmentation::UnicodeSegmentation;
@@ -28,30 +28,42 @@ pub(super) fn grapheme_prefix(text: &str, count: usize) -> &str {
         .map_or(text, |(offset, _)| &text[..offset])
 }
 
+/// One assistant text block. While `live` (the block still streaming) or
+/// still behind what arrived, it reveals at OMP's pace; the stream ending or
+/// a tool call landing after it does not drop the backlog on screen at once.
+/// A block that is already finished when it mounts renders whole.
 #[component]
-pub(super) fn StreamingText(text: String) -> Element {
+pub(super) fn StreamingText(text: String, live: bool) -> Element {
     let total = text.graphemes(true).count();
-    // Revealed from the first character, as OMP's `begin` resets to zero: the
-    // provider's first chunk is often a whole sentence. Text already present
-    // (a reload mid-reply) catches up within CATCHUP_FRAMES.
-    let mut shown = use_signal(|| 0_usize);
+    // A live block starts from the first character, as OMP's `begin` resets
+    // to zero: the provider's first chunk is often a whole sentence. A reload
+    // mid-reply catches up within CATCHUP_FRAMES.
+    let mut shown = use_signal(|| if live { 0 } else { total });
     let mut arrived = use_signal(|| total);
-    use_effect(use_reactive((&total,), move |(total,)| arrived.set(total)));
+    let mut still_live = use_signal(|| live);
+    use_effect(use_reactive((&total, &live), move |(total, live)| {
+        arrived.set(total);
+        still_live.set(live);
+    }));
     use_future(move || async move {
         loop {
-            crate::components::terminal::dom::sleep_ms(FRAME_MS).await;
             let target = *arrived.peek();
             let current = *shown.peek();
             if current < target {
                 shown.set(current + reveal_step(target - current));
+            } else if !*still_live.peek() {
+                break;
             }
+            crate::components::terminal::dom::sleep_ms(FRAME_MS).await;
         }
     });
-    let visible = grapheme_prefix(&text, shown().min(total));
+    let revealed = shown().min(total);
+    let typing = live || revealed < total;
+    let visible = grapheme_prefix(&text, revealed);
     rsx! {
         div {
             class: "agent-chat__markdown",
-            "data-streaming": "true",
+            "data-streaming": typing.then_some("true"),
             dangerous_inner_html: markdown_to_safe_html(visible),
         }
     }

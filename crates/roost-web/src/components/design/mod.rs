@@ -8,6 +8,7 @@ pub mod catalog;
 pub mod content_primitives;
 pub mod control_states;
 pub mod gallery;
+pub mod loader_specimen;
 pub mod overlay_states;
 pub mod settings_navigation_specimen;
 pub mod token_sections;

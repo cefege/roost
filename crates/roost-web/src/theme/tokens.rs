@@ -81,11 +81,13 @@ pub enum CanonicalToken {
     AnsiBrightMagenta,
     AnsiBrightCyan,
     AnsiBrightWhite,
+    // The agent chat's accent: OMP's transcript accent, distinct from links.
+    ChatAccent,
 }
 
 impl CanonicalToken {
     /// Every role, in v2's declaration order.
-    pub const ALL: [Self; 59] = [
+    pub const ALL: [Self; 60] = [
         Self::BgBase,
         Self::Surface0,
         Self::Surface1,
@@ -145,6 +147,7 @@ impl CanonicalToken {
         Self::AnsiBrightMagenta,
         Self::AnsiBrightCyan,
         Self::AnsiBrightWhite,
+        Self::ChatAccent,
     ];
 
     /// The role's name: the custom property without its `--`.
@@ -209,6 +212,7 @@ impl CanonicalToken {
             Self::AnsiBrightMagenta => "ansi-bright-magenta",
             Self::AnsiBrightCyan => "ansi-bright-cyan",
             Self::AnsiBrightWhite => "ansi-bright-white",
+            Self::ChatAccent => "chat-accent",
         }
     }
 

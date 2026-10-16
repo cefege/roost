@@ -21,10 +21,14 @@ use crate::components::settings::model_scope::{
 pub(super) struct RoleLine {
     pub(super) role: &'static str,
     pub(super) title: &'static str,
+    /// What the agent uses the role for, in plain words.
+    pub(super) purpose: &'static str,
     /// The model that leads the role's chain, by name, or what it inherits.
     pub(super) model: String,
     /// The leading selector without its thinking suffix, for the picker's mark.
     pub(super) selector: Option<String>,
+    /// The leader's own thinking level; `None` follows the chat's level.
+    pub(super) thinking: Option<String>,
     /// This folder overrides the all-folders chain for the role.
     pub(super) folder_override: bool,
     /// The role this chat's own turns run on.
@@ -43,10 +47,10 @@ pub(super) fn role_lines(
     ROLES
         .iter()
         .filter(|(role, ..)| *role != "web")
-        .map(|&(role, title, _, inherits)| {
+        .map(|&(role, title, purpose, inherits)| {
             let leader = role_value(settings, folder, role)
                 .and_then(|value| parse_chain(&value).into_iter().next());
-            let (model, selector) = match leader {
+            let (model, selector, thinking) = match leader {
                 Some(leader) => {
                     let (selector, level) = split_thinking(&leader, levels);
                     let name = model_name(catalog, selector);
@@ -54,15 +58,17 @@ pub(super) fn role_lines(
                         Some(level) => format!("{name} · {level}"),
                         None => name,
                     };
-                    (model, Some(selector.to_owned()))
+                    (model, Some(selector.to_owned()), level.map(str::to_owned))
                 }
-                None => (inherited_text(inherits), None),
+                None => (inherited_text(inherits), None, None),
             };
             RoleLine {
                 role,
                 title,
+                purpose,
                 model,
                 selector,
+                thinking,
                 folder_override: role_source(settings, folder, role) == RoleSource::Folder,
                 this_chat: role == running,
             }
@@ -116,6 +122,49 @@ pub(super) fn with_role_leader(
         fresh
     });
     with_role_value(settings, scope, role, Some(join_chain(&chain)))
+}
+
+/// The settings after `role`'s leading model in `scope` takes thinking
+/// `level` (`None` drops the suffix, so the chat's own level applies). The
+/// fallbacks keep theirs. Unchanged when the role has no chain of its own.
+pub(super) fn with_role_thinking(
+    settings: &AgentSettingsView,
+    scope: &ModelScope,
+    role: &str,
+    level: Option<&str>,
+    levels: &[String],
+) -> AgentSettingsView {
+    let mut chain = parse_chain(&role_value(settings, scope, role).unwrap_or_default());
+    let Some(leader) = chain.first_mut() else {
+        return settings.clone();
+    };
+    let base = split_thinking(leader, levels).0.to_owned();
+    *leader = match level {
+        Some(level) => format!("{base}:{level}"),
+        None => base,
+    };
+    with_role_value(settings, scope, role, Some(join_chain(&chain)))
+}
+
+/// The thinking levels a picker offers for `selector`: `auto`, then the
+/// levels the model accepts (the catalog-wide list when it names none).
+/// Empty for a model that does not reason.
+pub(super) fn thinking_choices(catalog: &ModelsCatalog, selector: &str) -> Vec<String> {
+    let (provider, model_id) = selector.split_once('/').unwrap_or(("", selector));
+    let model = catalog
+        .models
+        .iter()
+        .find(|model| model.provider == provider && model.model_id == model_id);
+    if model.is_some_and(|model| !model.reasoning) {
+        return Vec::new();
+    }
+    let levels = match model {
+        Some(model) if !model.thinking_levels.is_empty() => &model.thinking_levels,
+        _ => &catalog.thinking_levels,
+    };
+    std::iter::once("auto".to_owned())
+        .chain(levels.iter().filter(|level| *level != "auto").cloned())
+        .collect()
 }
 
 /// The settings with the all-folders roles saved as preset `name`, replacing a

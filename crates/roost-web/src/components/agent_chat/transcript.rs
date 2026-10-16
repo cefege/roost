@@ -12,6 +12,7 @@ use roost_protocol::wire::agent_chat::{
 
 use super::advisory_card::AdvisoryCard;
 use super::agent_alert::AgentAlert;
+use super::background_job_box::BackgroundJobBox;
 use super::interaction_cards::{AskCard, BtwCard};
 use super::message_actions::{ForkMessageAction, UserMessageActions};
 use super::notice_card::NoticeCard;
@@ -20,6 +21,7 @@ use super::queued_band::QueuedBand;
 use super::streaming_reveal::StreamingText;
 use super::thinking_block::ThinkingBlock;
 use super::tool_card::ToolCard;
+use super::working_row::{WorkingRow, working_label};
 use crate::components::md::{
     Button, ButtonVariant, Icon, IconButton, IconButtonSize, IconSize, StatusDot, Surface,
     SurfaceRadius,
@@ -35,6 +37,7 @@ enum Segment<'transcript> {
     Advisory(&'transcript TranscriptItem),
     Ask(&'transcript TranscriptItem),
     Btw(&'transcript TranscriptItem),
+    BackgroundJob(&'transcript TranscriptItem),
 }
 
 #[component]
@@ -137,14 +140,14 @@ pub fn AgentTranscriptView(
                     Segment::Btw(TranscriptItem::Btw { id, question, answer, error }) => rsx! {
                         BtwCard { key: "{id}", question: question.clone(), answer: answer.clone(), error: error.clone() }
                     },
+                    Segment::BackgroundJob(TranscriptItem::BackgroundJob { id, job_id, command, state, is_error, output, exit_code }) => rsx! {
+                        BackgroundJobBox { key: "{id}", job_id: job_id.clone(), command: command.clone(), state: *state, is_error: *is_error, output: output.clone(), exit_code: *exit_code }
+                    },
                     _ => rsx! {},
                 }
             }
-            if running && !streaming {
-                div { class: "agent-chat__working", role: "status",
-                    StatusDot { status: "running".to_string() }
-                    span { class: "agent-chat__shimmer", "Working…" }
-                }
+            if running {
+                WorkingRow { label: working_label(&transcript.items), paused: streaming }
             }
             if transcript.run_state == AgentRunState::Failed {
                 AgentAlert {
@@ -202,15 +205,10 @@ fn AssistantMessage(
         div { class: "agent-chat__assistant", "data-streaming": streaming.then_some("true"),
             for (index, block) in blocks.iter().enumerate() {
                 match block {
-                    TranscriptBlock::Text { text } if !text.is_empty() && streaming && index + 1 == blocks.len() => rsx! {
-                        StreamingText { key: "text-{index}", text: text.clone() }
-                    },
+                    // Every text block goes through StreamingText under one key,
+                    // so a block that stops streaming keeps revealing its backlog.
                     TranscriptBlock::Text { text } if !text.is_empty() => rsx! {
-                        div {
-                            key: "text-{index}",
-                            class: "agent-chat__markdown",
-                            dangerous_inner_html: super::markdown::markdown_to_safe_html(text),
-                        }
+                        StreamingText { key: "text-{index}", text: text.clone(), live: streaming && index + 1 == blocks.len() }
                     },
                     TranscriptBlock::Thinking { text } if !text.is_empty() => {
                         let live = streaming && Some(index) == last_thinking && index + 1 == blocks.len();
@@ -287,6 +285,7 @@ fn segments(transcript: &Transcript) -> Vec<Segment<'_>> {
             TranscriptItem::Ask { .. } => segments.push(Segment::Ask(item)),
             TranscriptItem::Btw { .. } => segments.push(Segment::Btw(item)),
             TranscriptItem::Advisory { .. } => segments.push(Segment::Advisory(item)),
+            TranscriptItem::BackgroundJob { .. } => segments.push(Segment::BackgroundJob(item)),
         }
     }
     segments

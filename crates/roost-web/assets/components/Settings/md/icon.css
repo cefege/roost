@@ -4,7 +4,8 @@
  * every consumer (PaneStrip tab close, sidebar rows, dialogs) instead of
  * being trapped in the lazy Settings chunk (tokens.css). The @font-face for
  * "Material Symbols Rounded" lives in styles/sidebar.css (eager via main.tsx,
- * font-display: block) — this file only applies the family to .md-icon.
+ * font-display: block) — this file only applies the family to .md-icon. It also
+ * carries the .md-spinner colour, which the Spinner primitive attaches with it.
  */
 
 /* ─── Material Symbols icon (utility) ─────────────────────────── */
@@ -28,3 +29,4 @@
 .md-icon--filled { font-variation-settings: "FILL" 1, "wght" 400, "GRAD" 0, "opsz" 20; }
 .md-icon--sm { font-size: 16px; }
 .md-icon--lg { font-size: 24px; }
+.md-spinner { color: var(--md-sys-color-primary); }

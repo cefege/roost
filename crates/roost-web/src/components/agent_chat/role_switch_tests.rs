@@ -6,7 +6,9 @@ use std::collections::BTreeMap;
 
 use roost_protocol::wire::agent_chat::{AgentSettingsView, FolderModelRoles};
 
-use super::{initial_scope, pin_hides, role_lines, with_role_leader};
+use super::{
+    initial_scope, pin_hides, role_lines, thinking_choices, with_role_leader, with_role_thinking,
+};
 use crate::components::settings::model_scope::ModelScope;
 
 fn folder() -> ModelScope {
@@ -108,4 +110,55 @@ fn a_folder_edit_overrides_only_that_folder() {
             .map(String::as_str),
         Some("c/local,b/spare")
     );
+}
+
+#[test]
+fn a_thinking_level_rides_on_the_leader_only_and_clearing_it_follows_the_chat() {
+    let levels = ["low".to_owned(), "high".to_owned()];
+    let current = settings(&[("slow", "a/deep:low,b/backup:low")], &[]);
+    let raised = with_role_thinking(&current, &ModelScope::Global, "slow", Some("high"), &levels);
+    assert_eq!(
+        raised.model_roles.get("slow").map(String::as_str),
+        Some("a/deep:high,b/backup:low")
+    );
+    let cleared = with_role_thinking(&raised, &ModelScope::Global, "slow", None, &levels);
+    assert_eq!(
+        cleared.model_roles.get("slow").map(String::as_str),
+        Some("a/deep,b/backup:low")
+    );
+    let row = role_lines(&raised, &ModelScope::Global, None, "default")
+        .into_iter()
+        .find(|line| line.role == "slow");
+    assert_eq!(
+        row.and_then(|row| row.thinking),
+        None,
+        "no catalog, no known levels"
+    );
+    let unset = with_role_thinking(&current, &ModelScope::Global, "plan", Some("high"), &levels);
+    assert_eq!(unset, current, "an inherited role has no leader to tune");
+}
+
+#[test]
+fn thinking_choices_start_with_auto_and_skip_models_that_do_not_reason() {
+    use roost_protocol::wire::agent_chat::{ModelEntry, ModelsCatalog};
+    let model = |id: &str, reasoning: bool, levels: &[&str]| ModelEntry {
+        provider: "p".into(),
+        model_id: id.into(),
+        reasoning,
+        thinking_levels: levels.iter().map(|level| (*level).to_owned()).collect(),
+        ..ModelEntry::default()
+    };
+    let catalog = ModelsCatalog {
+        models: vec![
+            model("r", true, &["low", "high"]),
+            model("plain", false, &[]),
+        ],
+        providers: Vec::new(),
+        thinking_levels: vec!["off".into(), "low".into(), "medium".into(), "high".into()],
+        default_model: None,
+        recent_models: Vec::new(),
+    };
+    assert_eq!(thinking_choices(&catalog, "p/r"), ["auto", "low", "high"]);
+    assert!(thinking_choices(&catalog, "p/plain").is_empty());
+    assert_eq!(thinking_choices(&catalog, "x/unknown").len(), 5);
 }

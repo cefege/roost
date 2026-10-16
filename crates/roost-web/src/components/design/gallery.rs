@@ -12,6 +12,7 @@ use dioxus::prelude::*;
 
 use super::content_primitives::ContentPrimitives;
 use super::control_states::DesignControlStates;
+use super::loader_specimen::LoaderSpecimen;
 use super::overlay_states::DesignOverlayStates;
 use super::settings_navigation_specimen::SettingsNavigationSpecimen;
 use super::token_sections::{ColorRoles, ElevationScale, ShapeScale, SpacingScale, TypeRamp};
@@ -87,6 +88,7 @@ pub fn DesignGallery(on_navigate: EventHandler<String>) -> Element {
             GallerySection { title: "Shape / radii", ShapeScale {} }
             GallerySection { title: "Elevation", ElevationScale {} }
             GallerySection { title: "Control states", DesignControlStates {} }
+            GallerySection { title: "Loader", LoaderSpecimen {} }
             GallerySection { title: "Content primitives", ContentPrimitives {} }
             GallerySection { title: "Overlay states", DesignOverlayStates {} }
         }

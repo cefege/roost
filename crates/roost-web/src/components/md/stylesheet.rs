@@ -1,5 +1,5 @@
 //! The md stylesheets a primitive attaches when it first renders, and the one
-//! hook that attaches them. Called by `Icon`, `EmptyState` and `Dialog`; depends
+//! hook that attaches them. Called by `Icon`, `Spinner`, `EmptyState` and `Dialog`; depends
 //! on the DOM only inside the wasm adapter below.
 //!
 //! v2 imported `icon.css`, `EmptyState.css` and `overlays.css` from the component
@@ -13,7 +13,8 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-/// The icon utility sheet: `.md-icon` and its size and fill modifiers.
+/// The icon utility sheet: `.md-icon` and its size and fill modifiers, plus the
+/// `.md-spinner` colour rule, which the loader primitive attaches the same way.
 pub const ICON_STYLESHEET_HREF: &str = "/components/Settings/md/icon.css";
 
 /// The empty-state layout and type styles.

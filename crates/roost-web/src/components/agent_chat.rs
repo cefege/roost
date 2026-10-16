@@ -6,11 +6,16 @@
 
 mod advisory_card;
 pub mod agent_alert;
+mod background_job_box;
+mod bash_box;
+mod bash_footer;
 mod composer;
 mod composer_commands;
 mod composer_footer;
 mod composer_helpers;
 mod composer_status;
+mod diff_model;
+mod diff_view;
 mod goal_controls;
 mod goal_dock;
 mod header;
@@ -24,23 +29,29 @@ pub mod model_hub;
 pub mod model_picker;
 mod notice_card;
 mod output_lines;
+mod output_window;
 mod plan_card;
 mod queued_band;
 mod request_ids;
 mod role_presets;
 mod role_switch;
 mod role_switcher;
+mod role_thinking;
+mod shimmer;
 mod slash_menu;
 mod streaming_reveal;
 mod surface;
 #[cfg(target_arch = "wasm32")]
 mod surface_fetch;
 mod surface_state;
+mod task_rows;
 mod thinking_block;
 mod tool_card;
 mod tool_view;
 mod toolbar_menu;
 mod transcript;
+pub(crate) mod working_row;
+mod write_view;
 
 pub use launch::launch_agent;
 pub use surface::AgentChatSurface;

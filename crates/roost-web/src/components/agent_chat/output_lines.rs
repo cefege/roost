@@ -178,6 +178,7 @@ fn parse_runs(line: &str, style: &mut RunStyle) -> Vec<Run> {
     let mut runs: Vec<Run> = Vec::new();
     let mut text = String::new();
     let mut length = 0;
+    let mut truncated = false;
     let mut chars = line.chars().peekable();
     let flush = |runs: &mut Vec<Run>, text: &mut String, style: RunStyle| {
         if !text.is_empty() {
@@ -194,12 +195,17 @@ fn parse_runs(line: &str, style: &mut RunStyle) -> Vec<Run> {
             runs.clear();
             text.clear();
             length = 0;
+            truncated = false;
             continue;
         }
         if ch != '\u{1b}' {
+            if truncated {
+                continue;
+            }
             if length == MAX_LINE_CHARS {
                 text.push('…');
-                break;
+                truncated = true;
+                continue;
             }
             if ch == '\t' || !ch.is_control() {
                 text.push(ch);
@@ -241,7 +247,7 @@ fn parse_runs(line: &str, style: &mut RunStyle) -> Vec<Run> {
 
 #[cfg(test)]
 mod tests {
-    use super::{LineTone, RunStyle, reads_as_diff, styled_lines, window};
+    use super::{LineTone, MAX_LINE_CHARS, RunStyle, reads_as_diff, styled_lines, window};
 
     #[test]
     fn sgr_colours_carry_across_lines_until_reset_and_other_escapes_vanish() {
@@ -309,6 +315,21 @@ mod tests {
         assert_eq!(lines[0].runs.len(), 1);
         assert_eq!(lines[0].runs[0].text, "100% done");
         assert_eq!(lines[0].runs[0].style.color, Some(2));
-        assert!(!reads_as_diff("write", "[a.rs#1A2B]\n"));
+        let tag = "1A2B";
+        assert!(!reads_as_diff("write", &format!("[a.rs#{tag}]\n")));
+    }
+
+    #[test]
+    fn a_line_cut_at_the_cap_still_applies_its_closing_reset() {
+        let long = "x".repeat(MAX_LINE_CHARS + 50);
+        let text = format!("\u{1b}[31m{long}\u{1b}[0m tail\nnext\n");
+        let lines = styled_lines(&text, false);
+        assert_eq!(lines.len(), 2);
+        let first: String = lines[0].runs.iter().map(|run| run.text.as_str()).collect();
+        assert_eq!(first.matches('…').count(), 1);
+        assert!(!first.contains("tail"));
+        assert_eq!(lines[0].runs[0].style.color, Some(1));
+        assert_eq!(lines[1].runs[0].text, "next");
+        assert_eq!(lines[1].runs[0].style.color, None);
     }
 }
