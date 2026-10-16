@@ -127,11 +127,8 @@ pub(crate) async fn conversation_chain_with_settings(
 
 /// The role a subagent's turns draw from. Main and plan-mode turns have none.
 fn subagent_role(record: &ConversationRecord) -> Option<Role> {
-    match record.agent.as_deref().and_then(SubagentKind::from_name)? {
-        SubagentKind::Scout => Some(Role::Smol),
-        SubagentKind::Reviewer => Some(Role::Slow),
-        SubagentKind::Task => Some(Role::Task),
-    }
+    let agent = record.agent.as_deref()?;
+    roost_protocol::wire::agent_chat::subagent_role(agent).and_then(Role::from_name)
 }
 
 /// An explicit session model, checked against the catalog and credentials.

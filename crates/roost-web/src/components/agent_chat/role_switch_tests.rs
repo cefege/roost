@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use roost_protocol::wire::agent_chat::{AgentSettingsView, FolderModelRoles};
 
-use super::{initial_scope, role_lines, with_role_leader};
+use super::{initial_scope, pin_hides, role_lines, with_role_leader};
 use crate::components::settings::model_scope::ModelScope;
 
 fn folder() -> ModelScope {
@@ -39,7 +39,7 @@ fn settings(global: &[(&str, &str)], folder_roles: &[(&str, &str)]) -> AgentSett
 #[test]
 fn rows_show_the_folder_override_over_all_folders_and_what_unset_roles_inherit() {
     let current = settings(&[("smol", "a/fast")], &[("smol", "b/faster,a/fast")]);
-    let lines = role_lines(&current, &folder(), None);
+    let lines = role_lines(&current, &folder(), None, "default");
     let smol = lines.iter().find(|line| line.role == "smol");
     assert_eq!(
         smol.map(|line| (line.model.as_str(), line.folder_override)),
@@ -51,6 +51,22 @@ fn rows_show_the_folder_override_over_all_folders_and_what_unset_roles_inherit()
         Some("Same as Default model")
     );
     assert!(lines.iter().all(|line| line.role != "web"));
+}
+
+#[test]
+fn the_row_this_chat_runs_on_is_marked_and_only_plan_or_default_clear_a_pin() {
+    let lines = role_lines(&AgentSettingsView::default(), &folder(), None, "plan");
+    let marked: Vec<&str> = lines
+        .iter()
+        .filter(|line| line.this_chat)
+        .map(|line| line.role)
+        .collect();
+    assert_eq!(marked, ["plan"]);
+    assert!(pin_hides("plan", "plan"));
+    assert!(pin_hides("default", "default"));
+    // The pin never outranks a subagent's role, and editing another role leaves it.
+    assert!(!pin_hides("smol", "smol"));
+    assert!(!pin_hides("default", "plan"));
 }
 
 #[test]

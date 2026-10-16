@@ -51,6 +51,32 @@ fn normal_mode() -> String {
     "normal".to_owned()
 }
 
+/// The model role a subagent kind's turns draw from (`scout` → `smol`,
+/// `reviewer` → `slow`, `task` → `task`); `None` for any other agent name.
+/// The agent runtime resolves with it and the composer marks the row with it.
+pub fn subagent_role(agent: &str) -> Option<&'static str> {
+    match agent {
+        "scout" => Some("smol"),
+        "reviewer" => Some("slow"),
+        "task" => Some("task"),
+        _ => None,
+    }
+}
+
+impl ConversationSummary {
+    /// The role this conversation's own turns run on: Planning in plan mode,
+    /// its kind's role for a subagent, otherwise Default.
+    pub fn running_role(&self) -> &'static str {
+        if self.mode == "plan" {
+            return "plan";
+        }
+        self.agent
+            .as_deref()
+            .and_then(subagent_role)
+            .unwrap_or("default")
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Transcript {
     pub items: Vec<TranscriptItem>,
@@ -242,4 +268,46 @@ pub enum ChatEvent {
     Usage {
         usage: UsageTotals,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AgentRunState, ConversationSummary};
+
+    fn conversation(mode: &str, agent: Option<&str>) -> ConversationSummary {
+        ConversationSummary {
+            id: "c".into(),
+            title: String::new(),
+            worker_fp: String::new(),
+            worker_label: String::new(),
+            cwd: String::new(),
+            model: None,
+            effective_model: None,
+            thinking_level: None,
+            mode: mode.into(),
+            parent_id: None,
+            agent: agent.map(Into::into),
+            advisor: false,
+            run_state: AgentRunState::Idle,
+            error: None,
+            created_ms: 0,
+            updated_ms: 0,
+        }
+    }
+
+    #[test]
+    fn plan_mode_then_subagent_kind_then_default_decide_the_running_role() {
+        assert_eq!(conversation("plan", Some("scout")).running_role(), "plan");
+        assert_eq!(conversation("normal", Some("scout")).running_role(), "smol");
+        assert_eq!(
+            conversation("normal", Some("reviewer")).running_role(),
+            "slow"
+        );
+        assert_eq!(conversation("normal", Some("task")).running_role(), "task");
+        assert_eq!(
+            conversation("normal", Some("other")).running_role(),
+            "default"
+        );
+        assert_eq!(conversation("normal", None).running_role(), "default");
+    }
 }

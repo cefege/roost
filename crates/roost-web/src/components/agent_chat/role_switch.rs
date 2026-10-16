@@ -1,7 +1,8 @@
 //! What the composer's role switcher shows and saves, as pure functions of the
 //! agent settings: each model role's running model for this chat's folder,
-//! where it comes from, and the settings after a new model leads a role.
-//! The component is `role_switcher`; scope rules are `settings::model_scope`.
+//! which of them this chat runs on (`ConversationSummary::running_role`), where
+//! each comes from, and the settings after a new model leads a role. The
+//! component is `role_switcher`; scope rules are `settings::model_scope`.
 
 use roost_protocol::wire::agent_chat::{AgentSettingsView, ModelsCatalog};
 
@@ -22,6 +23,8 @@ pub(super) struct RoleLine {
     pub(super) selector: Option<String>,
     /// This folder overrides the all-folders chain for the role.
     pub(super) folder_override: bool,
+    /// The role this chat's own turns run on.
+    pub(super) this_chat: bool,
 }
 
 /// Every chat model role, in the settings pane's order. Web search picks
@@ -30,6 +33,7 @@ pub(super) fn role_lines(
     settings: &AgentSettingsView,
     folder: &ModelScope,
     catalog: Option<&ModelsCatalog>,
+    running: &str,
 ) -> Vec<RoleLine> {
     let levels = catalog.map_or(&[][..], |catalog| catalog.thinking_levels.as_slice());
     ROLES
@@ -56,9 +60,17 @@ pub(super) fn role_lines(
                 model,
                 selector,
                 folder_override: role_source(settings, folder, role) == RoleSource::Folder,
+                this_chat: role == running,
             }
         })
         .collect()
+}
+
+/// Whether a session pin hides an edit to `role` from this chat. The agent
+/// tries the pin before the Planning and Default chains, so moving this chat
+/// onto either means clearing it; a subagent's role chain already beats it.
+pub(super) fn pin_hides(role: &str, running: &str) -> bool {
+    role == running && matches!(role, "plan" | "default")
 }
 
 /// Where a role edit lands first: this folder when it already overrides the

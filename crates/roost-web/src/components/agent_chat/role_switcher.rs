@@ -11,7 +11,7 @@ use roost_protocol::wire::agent_chat::{AgentSettingsView, ConversationSummary, M
 use super::agent_alert::ERROR_TEXT_CLASS;
 use super::model_controls::{Configure, configure};
 use super::model_picker::ModelPicker;
-use super::role_switch::{RoleLine, initial_scope, role_lines, with_role_leader};
+use super::role_switch::{RoleLine, initial_scope, pin_hides, role_lines, with_role_leader};
 use crate::components::context_menu::use_floating_menu_dismiss;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::md::{
@@ -87,7 +87,8 @@ fn RolePanel(
             let active = scope();
             let on_folder = active == folder;
             let options = role_options(catalog, role);
-            let pinned = conversation.model.is_some();
+            let clear_pin =
+                conversation.model.is_some() && pin_hides(role, conversation.running_role());
             let conversation_id = conversation.id.clone();
             let choose_pump = pump.clone();
             let reset_pump = pump.clone();
@@ -146,8 +147,8 @@ fn RolePanel(
                     on_choose: move |selector: String| {
                         let updated = with_role_leader(&choose_current, &active, role, &selector);
                         save_settings(choose_pump.clone(), updated, settings, error);
-                        // The default role is what this chat runs; a pin would hide the change.
-                        if role == "default" && pinned {
+                        // A session pin runs ahead of this role; clear it so this chat follows.
+                        if clear_pin {
                             configure(choose_pump.clone(), conversation_id.clone(), Configure::Model(None));
                         }
                         editing.set(None);
@@ -156,7 +157,12 @@ fn RolePanel(
             }
         }
         _ => {
-            let lines = role_lines(&current, &folder, catalog.as_ref());
+            let lines = role_lines(
+                &current,
+                &folder,
+                catalog.as_ref(),
+                conversation.running_role(),
+            );
             let settings_pane = crate::routes::settings_pane_href("models");
             rsx! {
                 div { class: "agent-chat__roles-head",
@@ -182,8 +188,15 @@ fn RolePanel(
                             dense: true,
                             headline: rsx! { span { "{line.title}" } },
                             support: Some(rsx! { span { "{line.model}" } }),
-                            trailing: line.folder_override.then(|| rsx! {
-                                Chip { label: "This folder".to_owned(), small: true }
+                            trailing: (line.this_chat || line.folder_override).then(|| rsx! {
+                                if line.this_chat {
+                                    Chip { label: "This chat".to_owned(), small: true, selected: Some(true),
+                                        title: Some("This chat's own turns run on this role".to_owned()),
+                                    }
+                                }
+                                if line.folder_override {
+                                    Chip { label: "This folder".to_owned(), small: true }
+                                }
                             }),
                             onclick: EventHandler::new({
                                 let line = line.clone();
