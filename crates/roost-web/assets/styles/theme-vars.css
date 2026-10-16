@@ -311,6 +311,18 @@
   --color-accent: var(--accent);
   --color-accent-tonal: var(--accent-container);
 
+  /* ── Agent chat palette ──
+     OMP's transcript roles (accent, ok, err, warn, link, faint; its
+     `web-palette.ts`) drawn from the terminal palette, so the chat carries the
+     same hues as a terminal running OMP and follows the theme's ANSI set. */
+  --chat-accent: var(--ansi-magenta);
+  --chat-ok: var(--ansi-green);
+  --chat-err: var(--ansi-red);
+  --chat-warn: var(--ansi-yellow);
+  --chat-link: var(--ansi-cyan);
+  --chat-command: var(--ansi-cyan);
+  --chat-faint: color-mix(in srgb, var(--md-sys-color-on-surface-variant) 75%, transparent);
+
   /* ── Terminal palette bridge ──
      Cell spans reference --term-color-0..15 plus --term-bg/fg/cursor. These
      aliases feed app chrome outside the grid and the scoped .wterm bridge in

@@ -31,9 +31,10 @@ pub(super) fn grapheme_prefix(text: &str, count: usize) -> &str {
 #[component]
 pub(super) fn StreamingText(text: String) -> Element {
     let total = text.graphemes(true).count();
-    // Text already on screen when this mounts (a reload mid-reply) is not
-    // replayed; only what arrives afterwards is paced.
-    let mut shown = use_signal(|| total);
+    // Revealed from the first character, as OMP's `begin` resets to zero: the
+    // provider's first chunk is often a whole sentence. Text already present
+    // (a reload mid-reply) catches up within CATCHUP_FRAMES.
+    let mut shown = use_signal(|| 0_usize);
     let mut arrived = use_signal(|| total);
     use_effect(use_reactive((&total,), move |(total,)| arrived.set(total)));
     use_future(move || async move {

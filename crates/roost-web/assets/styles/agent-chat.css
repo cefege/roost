@@ -207,8 +207,13 @@
 
 .agent-chat__markdown h1 { font-size: var(--md-title-l-size); line-height: var(--md-title-l-line); }
 
+/* OMP's markdown roles: accent headings and list bullets. */
+.agent-chat__markdown :is(h1, h2, h3, h4) { color: var(--chat-accent); }
+.agent-chat__markdown li::marker { color: var(--chat-accent); }
+.agent-chat__markdown strong { color: var(--md-sys-color-on-surface); }
+
 .agent-chat__markdown a {
-  color: var(--md-sys-color-primary);
+  color: var(--chat-link);
   text-decoration-thickness: var(--workbench-border-width);
   text-underline-offset: var(--md-space-1);
 }
@@ -217,13 +222,14 @@
   padding: 0 var(--md-space-1);
   border-radius: var(--md-shape-xs);
   background: var(--md-sys-color-surface-container-high);
+  color: color-mix(in srgb, var(--chat-accent) 55%, var(--md-sys-color-on-surface));
   font-family: var(--font-mono);
   font-size: 0.875em;
 }
 
 .agent-chat__markdown blockquote {
   padding-left: var(--md-space-4);
-  border-left: var(--md-space-1) solid var(--md-sys-color-outline-variant);
+  border-left: var(--md-space-1) solid color-mix(in srgb, var(--chat-accent) 40%, var(--md-sys-color-outline-variant));
   color: var(--md-sys-color-on-surface-variant);
 }
 
@@ -295,6 +301,12 @@
   line-height: var(--md-body-m-line);
 }
 
+/* `syntax_lite` tokens, in the theme's syntax palette. */
+.agent-chat__tok-keyword { color: var(--syntax-keyword); }
+.agent-chat__tok-string { color: var(--syntax-string); }
+.agent-chat__tok-number { color: var(--syntax-number); }
+.agent-chat__tok-comment { color: var(--syntax-comment); font-style: italic; }
+
 /* ── thinking ── */
 
 .agent-chat__thinking { color: var(--md-sys-color-on-surface-variant); }
@@ -357,14 +369,33 @@
 }
 
 .agent-chat__step-state { margin-left: auto; }
+/* OMP's status colours: green done, red failed, accent while running, faint
+   while waiting, warning when cut short. */
+.agent-chat__step[data-state="done"] .agent-chat__step-icon { color: var(--chat-ok); }
+.agent-chat__step[data-state="running"] .agent-chat__step-icon { color: var(--chat-accent); }
+.agent-chat__step[data-state="waiting"] .agent-chat__step-icon { color: var(--chat-faint); }
+.agent-chat__step[data-state="cancelled"] .agent-chat__step-icon,
+.agent-chat__step[data-state="timeout"] .agent-chat__step-icon { color: var(--chat-warn); }
+.agent-chat__step[data-state="error"] .agent-chat__step-icon,
 .agent-chat__step[data-state="error"] .agent-chat__step-state,
-.agent-chat__step[data-state="error"] .agent-chat__step-verb { color: var(--md-sys-color-error); }
+.agent-chat__step[data-state="error"] .agent-chat__step-verb { color: var(--chat-err); }
+
+/* The target in the tool's own ink: a command in the shell hue behind an
+   accent prompt, a search pattern accent-tinted, a path in full ink. */
+.agent-chat__step[data-tool="bash"] .agent-chat__step-target { color: var(--chat-command); }
+.agent-chat__step[data-tool="bash"] .agent-chat__step-target::before { content: "$ "; color: var(--chat-accent); }
+.agent-chat__step[data-tool="grep"] .agent-chat__step-target,
+.agent-chat__step[data-tool="glob"] .agent-chat__step-target,
+.agent-chat__step[data-tool="find"] .agent-chat__step-target { color: color-mix(in srgb, var(--chat-accent) 75%, var(--md-sys-color-on-surface)); }
+.agent-chat__step[data-tool="read"] .agent-chat__step-target,
+.agent-chat__step[data-tool="edit"] .agent-chat__step-target,
+.agent-chat__step[data-tool="write"] .agent-chat__step-target { color: var(--md-sys-color-on-surface); }
 
 /* Output sits under the head, indented past its icon. */
 .agent-chat__step > :not(.agent-chat__step-head) { margin-inline-start: var(--md-space-6); }
 .agent-chat__step-output-ground { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
 .agent-chat__step-output-ground .agent-chat__step-more { margin: var(--md-space-1) var(--md-space-3) 0; }
-.agent-chat__step-output[data-error] { color: var(--md-sys-color-error); }
+.agent-chat__step-output[data-error] { color: var(--chat-err); }
 
 .agent-chat__step-body {
   padding: 0 0 var(--md-space-2);
@@ -374,7 +405,7 @@
   align-self: stretch;
   max-height: calc(var(--md-space-9) * 7);
   margin: 0;
-  padding: var(--md-space-2) var(--md-space-3);
+  padding: var(--md-space-2) 0;
   overflow: auto;
   font-family: var(--font-mono);
   font-size: var(--md-body-s-size);
@@ -382,6 +413,41 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+.agent-chat__out-line { min-height: var(--md-body-s-line); padding-inline: var(--md-space-3); }
+
+/* Diff rows as OMP tints them: added green, removed red, headers faint. */
+.agent-chat__out-line[data-tone="added"] {
+  background: color-mix(in srgb, var(--chat-ok) 14%, transparent);
+  color: color-mix(in srgb, var(--chat-ok) 75%, var(--term-fg));
+}
+.agent-chat__out-line[data-tone="removed"] {
+  background: color-mix(in srgb, var(--chat-err) 14%, transparent);
+  color: color-mix(in srgb, var(--chat-err) 75%, var(--term-fg));
+}
+.agent-chat__out-line[data-tone="header"] { color: color-mix(in srgb, var(--term-fg) 55%, transparent); }
+
+/* The 16 terminal colours a tool printed, on the terminal ground. */
+.agent-chat__ansi-0 { color: var(--term-color-0); }
+.agent-chat__ansi-1 { color: var(--term-color-1); }
+.agent-chat__ansi-2 { color: var(--term-color-2); }
+.agent-chat__ansi-3 { color: var(--term-color-3); }
+.agent-chat__ansi-4 { color: var(--term-color-4); }
+.agent-chat__ansi-5 { color: var(--term-color-5); }
+.agent-chat__ansi-6 { color: var(--term-color-6); }
+.agent-chat__ansi-7 { color: var(--term-color-7); }
+.agent-chat__ansi-8 { color: var(--term-color-8); }
+.agent-chat__ansi-9 { color: var(--term-color-9); }
+.agent-chat__ansi-10 { color: var(--term-color-10); }
+.agent-chat__ansi-11 { color: var(--term-color-11); }
+.agent-chat__ansi-12 { color: var(--term-color-12); }
+.agent-chat__ansi-13 { color: var(--term-color-13); }
+.agent-chat__ansi-14 { color: var(--term-color-14); }
+.agent-chat__ansi-15 { color: var(--term-color-15); }
+.agent-chat__ansi-bold { font-weight: var(--md-title-m-weight); }
+.agent-chat__ansi-dim { opacity: 0.6; }
+.agent-chat__ansi-italic { font-style: italic; }
+.agent-chat__ansi-underline { text-decoration: underline; }
 
 .agent-chat__step-empty { margin: 0; color: var(--md-sys-color-on-surface-variant); font-size: var(--md-body-s-size); }
 .agent-chat__step-more { align-self: flex-start; }
@@ -396,7 +462,7 @@
   font-size: var(--md-body-s-size);
   line-height: var(--md-body-s-line);
 }
-.agent-chat__queued-head { margin: 0; }
+.agent-chat__queued-head { margin: 0; color: var(--chat-accent); font-weight: var(--md-label-l-weight); }
 .agent-chat__queued-list { margin: 0; padding-inline-start: var(--md-space-5); }
 .agent-chat__queued-row {
   overflow: hidden;
@@ -408,8 +474,8 @@
 .agent-chat__spinner {
   width: var(--md-space-3);
   height: var(--md-space-3);
-  border: calc(var(--workbench-border-width) * 2) solid color-mix(in srgb, var(--md-sys-color-primary) 25%, transparent);
-  border-top-color: var(--md-sys-color-primary);
+  border: calc(var(--workbench-border-width) * 2) solid color-mix(in srgb, var(--chat-faint) 50%, transparent);
+  border-top-color: var(--chat-accent);
   border-radius: var(--md-shape-full);
   animation: agent-chat-spin 0.8s linear infinite;
 }
@@ -753,6 +819,7 @@
   position: relative;
   max-width: 100%;
   padding-inline-start: var(--md-space-4);
+  border-inline-start: calc(var(--workbench-border-width) * 2) solid color-mix(in srgb, var(--chat-accent) 35%, var(--md-sys-color-outline-variant));
 }
 
 .agent-chat__thinking[data-live="true"] .agent-chat__thinking-content {
@@ -761,10 +828,12 @@
 }
 .agent-chat__thinking-tail-note { margin: 0; color: var(--md-sys-color-on-surface-variant); font-size: var(--md-body-s-size); }
 
+/* OMP prints thinking as italic muted prose under a hairline rule. */
 .agent-chat__thinking-text {
   margin-block: var(--md-space-1);
   color: var(--md-sys-color-on-surface-variant);
   font-size: var(--md-body-m-size);
+  font-style: italic;
   line-height: var(--md-body-m-line);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -778,8 +847,8 @@
 }
 
 .agent-chat__step-state { gap: var(--md-space-1); align-items: center; font-size: var(--md-label-m-size); }
-.agent-chat__step[data-state="error"] .agent-chat__step-state { color: var(--md-sys-color-error); }
-.agent-chat__step[data-state="timeout"] .agent-chat__step-state { color: var(--md-sys-color-tertiary); }
+.agent-chat__step[data-state="error"] .agent-chat__step-state { color: var(--chat-err); }
+.agent-chat__step[data-state="timeout"] .agent-chat__step-state { color: var(--chat-warn); }
 .agent-chat__step > .agent-chat__alert { margin-block: 0; }
 .agent-chat__step-body { display: flex; flex-direction: column; gap: var(--md-space-2); }
 .agent-chat__step-fact { display: block; margin-block-start: var(--md-space-1); color: var(--md-sys-color-on-surface-variant); font-size: var(--md-body-s-size); }

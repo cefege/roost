@@ -2,8 +2,6 @@
 //! slice of output visible while folded (OMP's per-tool preview windows), and
 //! the executor facts. The component is `tool_card`.
 
-use std::borrow::Cow;
-
 /// Which end of the output a folded preview keeps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PreviewEdge {
@@ -14,13 +12,15 @@ pub(super) enum PreviewEdge {
 }
 
 /// Rows a folded tool shows, per OMP's renderers: bash keeps the last 10,
-/// a read its first 3, grep 6, glob 8, find and fetch 12, a subagent 3.
+/// a read its first 3, grep 6, glob 8, find and fetch 12, a subagent 3, an
+/// edit's diff 12 and a write 6.
 pub(super) fn preview_window(tool_name: &str) -> (usize, PreviewEdge) {
     match tool_name {
         "read" => (3, PreviewEdge::Head),
         "grep" => (6, PreviewEdge::Head),
+        "write" => (6, PreviewEdge::Head),
         "glob" | "ls" | "web_search" => (8, PreviewEdge::Head),
-        "find" | "fetch" => (12, PreviewEdge::Head),
+        "find" | "fetch" | "edit" => (12, PreviewEdge::Head),
         "task" => (3, PreviewEdge::Tail),
         _ => (10, PreviewEdge::Tail),
     }
@@ -28,39 +28,6 @@ pub(super) fn preview_window(tool_name: &str) -> (usize, PreviewEdge) {
 
 /// An error keeps at most this many rows folded, as OMP's transcript does.
 pub(super) const ERROR_ROWS: usize = 8;
-
-/// Lines past this many characters are cut, so one minified line cannot
-/// flood the transcript.
-const MAX_LINE_CHARS: usize = 4_000;
-
-/// The visible part of `text`: all of it when `expanded`, otherwise `rows`
-/// lines from `edge`. Returns the text and how many lines were left out.
-pub(super) fn visible_lines(
-    text: &str,
-    rows: usize,
-    edge: PreviewEdge,
-    expanded: bool,
-) -> (String, usize) {
-    let lines: Vec<&str> = text.trim_end_matches('\n').lines().collect();
-    let total = lines.len();
-    let shown: &[&str] = if expanded || total <= rows {
-        &lines
-    } else {
-        match edge {
-            PreviewEdge::Head => &lines[..rows],
-            PreviewEdge::Tail => &lines[total - rows..],
-        }
-    };
-    let text = shown
-        .iter()
-        .map(|line| match line.char_indices().nth(MAX_LINE_CHARS) {
-            Some((cut, _)) => format!("{}…", &line[..cut]),
-            None => (*line).to_owned(),
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    (text, total - shown.len())
-}
 
 /// The icon and verb for a call in its current state.
 pub(super) fn presentation(
@@ -184,60 +151,4 @@ pub(super) fn detail_facts(details: Option<&serde_json::Value>) -> Vec<String> {
         });
     }
     facts
-}
-
-/// Remove terminal control sequences without interpreting their styling.
-pub(super) fn strip_ansi(text: &str) -> Cow<'_, str> {
-    if !text.contains('\u{1b}') {
-        return Cow::Borrowed(text);
-    }
-    let mut clean = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch != '\u{1b}' {
-            clean.push(ch);
-            continue;
-        }
-        match chars.next() {
-            Some('[') => {
-                for next in chars.by_ref() {
-                    if ('@'..='~').contains(&next) {
-                        break;
-                    }
-                }
-            }
-            Some(']') => {
-                while let Some(next) = chars.next() {
-                    if next == '\u{7}' {
-                        break;
-                    }
-                    if next == '\u{1b}' && chars.peek() == Some(&'\\') {
-                        chars.next();
-                        break;
-                    }
-                }
-            }
-            Some(_) | None => {}
-        }
-    }
-    Cow::Owned(clean)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{PreviewEdge, preview_window, visible_lines};
-
-    #[test]
-    fn a_folded_command_keeps_its_last_lines_and_a_read_its_first() {
-        let output: String = (1..=25).map(|line| format!("line {line}\n")).collect();
-        let (bash, hidden) = visible_lines(&output, 10, PreviewEdge::Tail, false);
-        assert_eq!(bash.lines().next(), Some("line 16"));
-        assert_eq!(hidden, 15);
-        let (rows, edge) = preview_window("read");
-        let (read, hidden) = visible_lines(&output, rows, edge, false);
-        assert_eq!(read, "line 1\nline 2\nline 3");
-        assert_eq!(hidden, 22);
-        let (all, hidden) = visible_lines(&output, rows, edge, true);
-        assert_eq!((all.lines().count(), hidden), (25, 0));
-    }
 }

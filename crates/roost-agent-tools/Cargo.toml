@@ -26,6 +26,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true, features = ["rustls"] }
 sha2 = { workspace = true }
+similar = { workspace = true }
 hex = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt", "sync", "time"] }

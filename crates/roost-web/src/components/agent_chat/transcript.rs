@@ -156,6 +156,10 @@ pub fn AgentTranscriptView(
     }
 }
 
+/// OMP's user card: the accent washed into the panel, with an accent hairline.
+const USER_BUBBLE_TINT: &str = "background: color-mix(in srgb, var(--chat-accent) 12%, var(--surface-2)); \
+     border: var(--workbench-border-width) solid color-mix(in srgb, var(--chat-accent) 35%, transparent);";
+
 #[component]
 fn UserMessage(
     id: String,
@@ -166,7 +170,7 @@ fn UserMessage(
 ) -> Element {
     rsx! {
         div { class: "agent-chat__user",
-            Surface { class: "agent-chat__user-bubble", level: 2, radius: SurfaceRadius::Md, pad: 3, "{text}" }
+            Surface { class: "agent-chat__user-bubble", level: 2, radius: SurfaceRadius::Md, pad: 3, style: USER_BUBBLE_TINT.to_string(), "{text}" }
             UserMessageActions { conversation_id, item_id: id, text, draft, pump }
         }
     }

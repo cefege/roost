@@ -1,5 +1,6 @@
 //! One tool call as OMP's transcript shows it: a head line with what ran and
-//! its state, then the output itself, folded to the tool's preview window
+//! its state in OMP's status colours, then the output itself in its terminal
+//! colours (`output_lines`), folded to the tool's preview window
 //! (`tool_view::preview_window`) and opened by the transcript-wide toggle or
 //! the card's own "Show all". Arguments and executor facts stay one click
 //! away. All host-provided content is rendered as text, never trusted markup.
@@ -8,9 +9,9 @@ use dioxus::prelude::*;
 
 use super::agent_alert::{AgentAlert, AlertTone};
 use super::markdown::TERMINAL_GROUND_STYLE;
+use super::output_lines::{reads_as_diff, styled_lines, window};
 use super::tool_view::{
     ERROR_ROWS, PreviewEdge, argument_summary, detail_facts, presentation, preview_window,
-    strip_ansi, visible_lines,
 };
 use crate::components::md::{
     Button, ButtonSize, ButtonVariant, Icon, IconSize, List, ListRow, Surface, SurfaceRadius,
@@ -34,7 +35,7 @@ pub fn ToolCard(
 ) -> Element {
     let mut show_all = use_signal(|| false);
     let target = argument_summary(&tool_name, &args_json);
-    let visible_output = strip_ansi(&output);
+    let lines = styled_lines(&output, reads_as_diff(&tool_name, &output));
     let details = serde_json::from_str::<serde_json::Value>(&details_json).ok();
     let facts = detail_facts(details.as_ref());
     let flag = |name: &str| {
@@ -74,7 +75,12 @@ pub fn ToolCard(
     } else {
         preview_window(&tool_name)
     };
-    let (shown, hidden) = visible_lines(&visible_output, rows, edge, open);
+    let (shown, hidden) = window(&lines, rows, edge == PreviewEdge::Head, open);
+    let shown = if lines.len() == 1 && lines.first().is_some_and(|line| line.runs.is_empty()) {
+        &[][..]
+    } else {
+        shown
+    };
     let command = argument_summary("bash", &args_json);
     let copy_command = tool_name == "bash" && !command.is_empty();
     let has_details = !facts.is_empty()
@@ -83,7 +89,7 @@ pub fn ToolCard(
         || copy_command
         || !output.is_empty();
     rsx! {
-        div { class: "agent-chat__step", "data-state": state,
+        div { class: "agent-chat__step", "data-state": state, "data-tool": tool_name.clone(),
             div { class: "agent-chat__step-head",
                 span { class: "agent-chat__step-icon", Icon { name: icon, size: IconSize::Sm } }
                 span { class: "agent-chat__step-verb", "{verb}" }
@@ -113,7 +119,15 @@ pub fn ToolCard(
                             "… {hidden} earlier lines"
                         }
                     }
-                    pre { class: "agent-chat__step-output", "data-error": failed.then_some("true"), "{shown}" }
+                    pre { class: "agent-chat__step-output", "data-error": failed.then_some("true"),
+                        for line in shown.iter() {
+                            div { class: "agent-chat__out-line", "data-tone": line.tone.attribute(),
+                                for run in line.runs.iter() {
+                                    span { class: run.style.classes(), "{run.text}" }
+                                }
+                            }
+                        }
+                    }
                     if hidden > 0 && edge == PreviewEdge::Head {
                         Button { variant: ButtonVariant::Link, size: ButtonSize::Sm,
                             class: "agent-chat__step-more",

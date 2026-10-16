@@ -315,20 +315,34 @@ async fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     Ok(())
 }
 
+/// The edit as unified hunks with three lines of context, the shape OMP's edit
+/// result shows: the change itself, not the whole file before and after.
 fn unified_preview(path: &str, before: &str, after: &str) -> String {
     if before == after {
         return "(no changes)".to_owned();
     }
-    let mut output = format!("--- {path}\n+++ {path}\n");
-    for line in before.split('\n') {
-        output.push('-');
-        output.push_str(line);
-        output.push('\n');
+    similar::TextDiff::from_lines(before, after)
+        .unified_diff()
+        .context_radius(3)
+        .header(path, path)
+        .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::unified_preview;
+
+    #[test]
+    fn an_edit_reports_only_the_changed_hunk_with_its_context() {
+        let before: String = (1..=40).map(|line| format!("line {line}\n")).collect();
+        let after = before.replace("line 20\n", "line twenty\n");
+        let diff = unified_preview("src/a.rs", &before, &after);
+        assert!(
+            diff.starts_with("--- src/a.rs\n+++ src/a.rs\n@@ -17,7 +17,7 @@\n"),
+            "{diff}"
+        );
+        assert!(diff.contains("\n-line 20\n+line twenty\n"), "{diff}");
+        assert!(!diff.contains("line 1\n"), "{diff}");
+        assert_eq!(unified_preview("a", "same", "same"), "(no changes)");
     }
-    for line in after.split('\n') {
-        output.push('+');
-        output.push_str(line);
-        output.push('\n');
-    }
-    output
 }
