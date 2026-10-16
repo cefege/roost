@@ -121,7 +121,7 @@ pub(super) struct OutputLine {
 
 /// Whether `tool_name`'s output, or the text itself, is a unified diff.
 pub(super) fn reads_as_diff(tool_name: &str, text: &str) -> bool {
-    matches!(tool_name, "edit" | "write")
+    tool_name == "edit"
         || text.starts_with("diff --git")
         || text.contains("\n@@ ")
 }
@@ -190,6 +190,14 @@ fn parse_runs(line: &str, style: &mut RunStyle) -> Vec<Run> {
         }
     };
     while let Some(ch) = chars.next() {
+        // A bare carriage return (a progress bar redrawing) starts the line
+        // over, as a terminal shows it; the style it reached carries on.
+        if ch == '\r' {
+            runs.clear();
+            text.clear();
+            length = 0;
+            continue;
+        }
         if ch != '\u{1b}' {
             if length == MAX_LINE_CHARS {
                 text.push('…');
@@ -294,5 +302,15 @@ mod tests {
         assert_eq!(window(&rows, 10, false, false), (&rows[15..], 15));
         assert_eq!(window(&rows, 3, true, false), (&rows[..3], 22));
         assert_eq!(window(&rows, 3, true, true), (&rows[..], 0));
+    }
+
+    #[test]
+    fn a_redrawn_progress_line_shows_only_its_last_state() {
+        let lines = styled_lines("\u{1b}[32m 10%\r 50%\r100% done\r\nnext\n", false);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].runs.len(), 1);
+        assert_eq!(lines[0].runs[0].text, "100% done");
+        assert_eq!(lines[0].runs[0].style.color, Some(2));
+        assert!(!reads_as_diff("write", "[a.rs#1A2B]\n"));
     }
 }
