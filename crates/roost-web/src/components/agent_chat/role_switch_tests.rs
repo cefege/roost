@@ -48,7 +48,7 @@ fn rows_show_the_folder_override_over_all_folders_and_what_unset_roles_inherit()
     let slow = lines.iter().find(|line| line.role == "slow");
     assert_eq!(
         slow.map(|line| line.model.as_str()),
-        Some("Same as Default model")
+        Some("Same as Default")
     );
     assert!(lines.iter().all(|line| line.role != "web"));
 }

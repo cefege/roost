@@ -80,7 +80,7 @@ pub(crate) async fn side_task_models(
 }
 
 /// The candidates a turn tries in order. In plan mode an explicit session model
-/// answers alone, then the Planning chain, then the model saved when plan mode
+/// answers alone, then the Architect chain, then the model saved when plan mode
 /// began. A subagent's configured role chain beats the parent pin it inherited.
 /// Otherwise an explicit session model answers alone, then the folder's
 /// `default` chain. Chains come from the conversation's folder-merged settings.

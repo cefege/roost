@@ -28,7 +28,7 @@ pub(super) fn RolePresets(
     let current = settings();
     let presets = presets_with_builtins(&current.model_presets);
     let active = active_preset(&presets, &current.model_roles).map(str::to_owned);
-    // Applying moves Default and Planning; a pin on the role this chat runs
+    // Applying moves Default and Architect; a pin on the role this chat runs
     // would keep the chat where it was.
     let clear_pin = conversation.model.is_some()
         && ["default", "plan"]

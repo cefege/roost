@@ -196,17 +196,17 @@ over the worker link. For a proxy or alternate provider endpoint, set
 URLs, for example `{"anthropic":"https://gateway.example"}`.
 
 In the agent composer, the model button opens **Models**: every model role
-this chat runs (default, quick tasks, deep review, planning, delegated work,
-side tasks, decision checks, advisor) with the model leading each. Pick a role
+this chat runs, under OMP's role names (Default, Fast, Thinking, Architect,
+Subtask, Tiny, Judge, Advisor), with the model leading each. Pick a role
 to change its model in place; the change saves for all folders, or choose
 **This folder** to override it for this chat's folder only. The row marked
-**This chat** is the role this chat runs on (Planning in plan mode, a
+**This chat** is the role this chat runs on (Architect in plan mode, a
 subagent's own role), and changing it moves the chat onto the new model even
 after `/switch`. Across the top, **presets** set the main roles in one tap:
-the starter **Anthropic** (Opus 5.5 by default, Fable 5.1 for deep review,
-Sonnet 5.5 for delegated work, Haiku 5.5 for quick and side tasks) and
-**OpenAI** (GPT-6.1 Sol by default, GPT-6 Astra for deep review, GPT-6 Luna for
-quick and side tasks), then any you saved. A preset sets only the roles it
+the starter **Anthropic** (Opus 5.5 for Default and Architect, Fable 5.1 for
+Thinking, Sonnet 5.5 for Subtask, Haiku 5.5 for Fast and Tiny) and
+**OpenAI** (GPT-6.1 Sol for Default, Architect and Subtask, GPT-6 Astra for
+Thinking, GPT-6 Luna for Fast and Tiny), then any you saved. A preset sets only the roles it
 names. **Save as…** stores the current roles under a name; saving under a
 starter's name replaces that starter, and deleting the saved copy (or
 `/modelpreset delete <name>`) brings the starter back. **Settings** in that

@@ -71,7 +71,7 @@ pub(super) fn role_lines(
 }
 
 /// Whether a session pin hides an edit to `role` from this chat. The agent
-/// tries the pin before the Planning and Default chains, so moving this chat
+/// tries the pin before the Architect and Default chains, so moving this chat
 /// onto either means clearing it; a subagent's role chain already beats it.
 pub(super) fn pin_hides(role: &str, running: &str) -> bool {
     role == running && matches!(role, "plan" | "default")

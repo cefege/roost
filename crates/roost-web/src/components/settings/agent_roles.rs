@@ -19,48 +19,48 @@ use crate::pump::{Pump, use_store};
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::client::rpc::calls::agent_chat::{GetAgentSettings, SetAgentSettings};
 
-/// (role id, visible title, what it is for, what a role with no chain inherits).
-/// Stored keys in `model_roles`, user-facing titles; the composer lists them too.
+/// (role id, title as OMP's `MODEL_ROLES` names it, what it is for, what an unset
+/// role inherits). Stored keys in `model_roles`; the composer lists them too.
 pub const ROLES: [(&str, &str, &str, &str); 9] = [
     (
         "default",
-        "Default model",
+        "Default",
         "Main conversations start on this chain. Other roles inherit it when unset.",
         "automatic selection",
     ),
     (
         "smol",
-        "Quick tasks",
+        "Fast",
         "Scout subagents; fallback for side tasks.",
-        "Default model",
+        "Default",
     ),
     (
         "slow",
-        "Deep review",
+        "Thinking",
         "Reviewer subagents and the advisor.",
-        "Default model",
+        "Default",
     ),
     (
         "plan",
-        "Planning",
+        "Architect",
         "Used while a conversation is in plan mode.",
         "the conversation's model",
     ),
     (
         "task",
-        "Delegated work",
+        "Subtask",
         "Subagents you hand work to.",
         "the conversation's model",
     ),
     (
         "tiny",
-        "Side tasks",
+        "Tiny",
         "Side questions (/btw) and conversation compaction.",
-        "Quick tasks",
+        "Fast",
     ),
     (
         "judge",
-        "Decision checks",
+        "Judge",
         "Quick yes/no checks. Classifier models are offered only here.",
         "automatic selection",
     ),
@@ -68,7 +68,7 @@ pub const ROLES: [(&str, &str, &str, &str); 9] = [
         "advisor",
         "Advisor",
         "Reviews each turn while the advisor is on.",
-        "Deep review",
+        "Thinking",
     ),
     (
         "web",

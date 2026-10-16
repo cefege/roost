@@ -24,9 +24,9 @@ pub fn valid_preset_name(name: &str) -> bool {
 }
 
 /// The starter presets: one provider's models in every chat role, the
-/// strongest on Default, Planning and Deep review, the fastest on Quick and
-/// Side tasks. Roles left out inherit as usual (Advisor follows Deep review,
-/// Decision checks pick automatically). A saved preset of the same name
+/// strongest on Default, Architect and Thinking, the fastest on Fast and
+/// Tiny. Roles left out inherit as usual (Advisor follows Thinking, Judge
+/// picks automatically). A saved preset of the same name
 /// replaces a starter; deleting that saved preset brings the starter back.
 pub const BUILTIN_PRESETS: &[(&str, &[(&str, &str)])] = &[
     (
@@ -81,7 +81,7 @@ pub fn presets_with_builtins(saved: &ModelPresets) -> ModelPresets {
 
 /// The roles after applying `preset`: each role it names takes its chain, and
 /// every role it leaves out keeps its current chain, so a starter that does
-/// not mention Decision checks or Web search never clears them.
+/// not mention Judge or Web search never clears them.
 pub fn apply_preset(
     current: &BTreeMap<String, String>,
     preset: &BTreeMap<String, String>,

@@ -64,7 +64,7 @@ pub fn subagent_role(agent: &str) -> Option<&'static str> {
 }
 
 impl ConversationSummary {
-    /// The role this conversation's own turns run on: Planning in plan mode,
+    /// The role this conversation's own turns run on: Architect in plan mode,
     /// its kind's role for a subagent, otherwise Default.
     pub fn running_role(&self) -> &'static str {
         if self.mode == "plan" {

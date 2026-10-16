@@ -288,7 +288,7 @@ async fn plan_mode_session_pick_wins_over_planning_and_exit_restores_the_pre_pla
     let entered = harness.runtime.conversation(&id).await.unwrap();
     assert_eq!(
         entered.model, None,
-        "entering plan mode inherits the Planning role"
+        "entering plan mode inherits the Architect role"
     );
 
     harness.runtime.set_model(&id, pin(SONNET)).await.unwrap();
@@ -300,7 +300,7 @@ async fn plan_mode_session_pick_wins_over_planning_and_exit_restores_the_pre_pla
     assert_eq!(
         model_ids(&harness, &id).last().map(String::as_str),
         Some(SONNET),
-        "a session pick during plan mode outranks the Planning role"
+        "a session pick during plan mode outranks the Architect role"
     );
 
     harness.runtime.clear_model(&id).await.unwrap();
@@ -312,7 +312,7 @@ async fn plan_mode_session_pick_wins_over_planning_and_exit_restores_the_pre_pla
     assert_eq!(
         model_ids(&harness, &id).last().map(String::as_str),
         Some(OPUS),
-        "clearing the pick returns plan turns to the Planning role"
+        "clearing the pick returns plan turns to the Architect role"
     );
 
     harness.submit(&id, "/plan").await;
