@@ -615,19 +615,19 @@
   .agent-chat__assistant > .agent-chat__markdown[data-streaming] > :last-child::after { animation: none; }
   .agent-chat__shimmer { color: var(--md-sys-color-on-surface-variant); background: none; }
 }
-/* Raised over the transcript, above the box, so opening it never moves the
-   field. Rows follow OMP's slash list: a name column as wide as the widest
-   visible name (`--slash-name-chars`, set by the menu), then usage and summary
-   wrapping to at most two lines. Phones stack the two. */
-.agent-chat__slash-menu {
+/* The composer's two panels, the slash menu and the model roles, rise over
+   the transcript above the box, so opening one never moves the field. */
+.agent-chat__slash-menu,
+.agent-chat__roles {
   position: absolute;
   inset-inline: 0;
   bottom: calc(100% + var(--md-space-2));
   z-index: 2;
 }
 /* A new chat centres the composer in a scrolling welcome; space above it can
-   be shorter than the menu and would clip it, so there the menu opens down. */
-.agent-chat[data-empty] .agent-chat__slash-menu {
+   be shorter than a panel and would clip it, so there the panels open down. */
+.agent-chat[data-empty] .agent-chat__slash-menu,
+.agent-chat[data-empty] .agent-chat__roles {
   top: calc(100% + var(--md-space-2));
   bottom: auto;
 }
@@ -636,6 +636,45 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-block: var(--md-space-1);
+}
+.agent-chat__roles-panel {
+  max-height: min(calc(var(--md-space-9) * 10), 60dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.agent-chat__roles-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--md-space-2);
+  padding: 0 var(--md-space-1) var(--md-space-2) var(--md-space-2);
+}
+.agent-chat__roles-head > :first-child:not(.agent-chat__roles-title) { flex: none; }
+.agent-chat__roles-head > .agent-chat__roles-title { flex: 1 1 auto; }
+.agent-chat__roles-title {
+  color: var(--md-sys-color-on-surface);
+  font: var(--md-title-s-weight) var(--md-title-s-size)/var(--md-title-s-line) var(--md-font);
+}
+.agent-chat__roles-scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--md-space-2);
+  padding: 0 var(--md-space-2) var(--md-space-2);
+}
+/* Role, then the model it runs, on one line where the width allows. */
+.agent-chat__roles-row .md-list-row__body {
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--md-space-4);
+}
+.agent-chat__roles-row .md-list-row__support {
+  min-width: 0;
+  overflow: hidden;
+  text-align: end;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* The body's font is the names' font, so `ch` below is one name character. */
 .agent-chat__slash-row .md-list-row__body {

@@ -195,13 +195,18 @@ over the worker link. For a proxy or alternate provider endpoint, set
 `ROOST_AGENT_ENDPOINT_OVERRIDES` to a JSON object mapping provider names to base
 URLs, for example `{"anthropic":"https://gateway.example"}`.
 
-In the agent composer, click the model button to choose a session-only model,
-or the settings button to open **Models & accounts**. The commands button
-opens the command menu; bare `/model` (also `/models`) and `/settings`
-selections open HTML controls without sending a message. Settings have
-searchable groups and mobile list/detail navigation.
+In the agent composer, the model button opens **Models**: every model role
+this chat runs (default, quick tasks, deep review, planning, delegated work,
+side tasks, decision checks, advisor) with the model leading each. Pick a role
+to change its model in place; the change saves for all folders, or choose
+**This folder** to override it for this chat's folder only. Changing the
+default role also moves this chat onto it. **Settings** in that panel opens
+the fallback chains, presets and accounts. The **+** button opens the command
+menu; bare `/model` (also `/models`) and `/settings` selections open HTML
+controls without sending a message. Settings have searchable groups and
+mobile list/detail navigation.
 
-The **Set goal / Goal** control opens an HTML objective, status and budget dialog.
+The **Goal** chip, shown while a goal is live, opens an HTML objective, status and budget dialog.
 `/goal <objective>` (or `/goal set <objective>`) starts the same workflow.
 `/goal show`, `pause`, `resume`, `drop`, and `budget <positive integer|off>`
 manage it. Pause prevents future goal continuations, not the current accepted

@@ -20,8 +20,8 @@ use crate::pump::{Pump, use_store};
 use roost_client_core::client::rpc::calls::agent_chat::{GetAgentSettings, SetAgentSettings};
 
 /// (role id, visible title, what it is for, what a role with no chain inherits).
-/// The ids are the stored keys in `model_roles`; the titles are what users see.
-const ROLES: [(&str, &str, &str, &str); 9] = [
+/// Stored keys in `model_roles`, user-facing titles; the composer lists them too.
+pub const ROLES: [(&str, &str, &str, &str); 9] = [
     (
         "default",
         "Default model",
@@ -241,7 +241,7 @@ fn scope_menu_items(folders: &[KnownFolder], active: &ModelScope) -> Vec<Toolbar
 /// The models a role's chain may name. Web search draws from its engines; chat
 /// roles draw from signed-in, non-classifier models, and the judge also gets
 /// classifier models.
-fn role_options(catalog: &ModelsCatalog, role: &str) -> Vec<PickerOption> {
+pub fn role_options(catalog: &ModelsCatalog, role: &str) -> Vec<PickerOption> {
     if role == "web" {
         return WEB_ENGINES
             .iter()

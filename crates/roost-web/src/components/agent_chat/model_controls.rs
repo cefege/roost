@@ -1,19 +1,16 @@
-//! The composer's model and thinking pickers, and the setup card shown while
-//! no model can run. The current model always shows, whether or not the
-//! catalog has loaded or still offers it. Choosing sends `AgentChatConfigure`;
-//! "Use folder default" sends empty ids, which clears the session override.
-//! Mounted by `agent_chat::composer` and `agent_chat::surface`; the thinking
-//! menu opens upward because the composer sits at the bottom of its pane.
+//! The composer's model button and thinking picker, and the setup card shown
+//! while no model can run. The button names the model this chat runs and opens
+//! `role_switcher`, where every model role is changed in place. Mounted by
+//! `agent_chat::composer` and `agent_chat::surface`; the thinking menu opens
+//! upward because the composer sits at the bottom of its pane.
 
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{ConversationSummary, ModelsCatalog};
 
 use super::composer_commands::model_picker_trigger_id;
-use super::model_hub::hub_logic::model_picker_options;
-use super::model_picker::ModelPicker;
+use super::role_switcher::RoleSwitcher;
 use super::toolbar_menu::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
-use crate::components::layout::window_size::use_is_compact;
-use crate::components::md::{Button, ButtonSize, ButtonVariant, Card, CardVariant, Dialog};
+use crate::components::md::{Button, ButtonSize, ButtonVariant, Card, CardVariant};
 use crate::pump::Pump;
 use crate::router_state::use_navigate;
 
@@ -57,7 +54,6 @@ pub fn AgentModelControls(
     pump: Pump,
 ) -> Element {
     let navigate = use_navigate();
-    let compact = use_is_compact();
     let open_settings = move || navigate.call(crate::routes::settings_pane_href("models"));
     let setup = ModelSetup::from_catalog(catalog.as_ref(), catalog_failed);
     let mut picker_open = use_signal(|| false);
@@ -90,12 +86,6 @@ pub fn AgentModelControls(
         };
     }
     let model_label = current_model_label(catalog.as_ref(), &conversation);
-    let selected_selector = conversation
-        .effective_model
-        .as_ref()
-        .or(conversation.model.as_ref())
-        .map(|model| format!("{}/{}", model.provider, model.model_id));
-    let picker_options = model_picker_options(catalog.as_ref(), &conversation);
     let reasoning = supports_reasoning(&conversation, catalog.as_ref());
     let thinking = conversation
         .thinking_level
@@ -117,12 +107,9 @@ pub fn AgentModelControls(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let choose_pump = pump.clone();
-    let clear_pump = pump.clone();
-    let thinking_pump = pump;
-    let model_id = conversation.id.clone();
-    let clear_id = conversation.id.clone();
+    let thinking_pump = pump.clone();
     let thinking_id = conversation.id.clone();
+    let expanded = if picker_open() { "true" } else { "false" };
     rsx! {
         div { class: "agent-chat__model-controls",
             Button {
@@ -130,52 +117,19 @@ pub fn AgentModelControls(
                 size: ButtonSize::Sm,
                 class: "agent-chat__picker",
                 id: "{trigger_id}",
-                "aria-haspopup": "dialog",
+                "aria-haspopup": "true",
+                "aria-expanded": expanded,
                 "data-testid": "agent-chat-model-trigger",
-                title: format!("{model_label}. Choose a session-only model; folder and task defaults stay unchanged."),
-                onclick: move |_| picker_open.set(true),
+                title: format!("{model_label}. Change the models for this chat and its subagents."),
+                onclick: move |_| picker_open.toggle(),
                 span { class: "agent-chat__picker-label", "{model_label}" }
             }
-            Dialog {
-                open: picker_open(),
-                on_close: move |_| picker_open.set(false),
-                headline: "Model for this session".to_string(),
-                description: rsx! { "This session only. Folder and global model roles stay unchanged." },
-                test_id: "agent-chat-model-dialog".to_string(),
-                class: compact.then(|| "roost-sheet--bottom roost-sheet--kb".to_owned()),
-                // On a phone the header's Close takes first focus, so opening
-                // the sheet never raises the keyboard over the list.
-                show_close_button: compact.then_some(true),
-                actions: rsx! {
-                    Button {
-                        variant: ButtonVariant::Outline,
-                        size: ButtonSize::Sm,
-                        "data-testid": "agent-chat-model-use-folder-default",
-                        onclick: move |_| {
-                            configure(clear_pump.clone(), clear_id.clone(), Configure::Model(None));
-                            picker_open.set(false);
-                        },
-                        if conversation.mode == "plan" { "Use planning default" } else { "Use folder default" }
-                    }
-                    Button {
-                        variant: ButtonVariant::Link,
-                        size: ButtonSize::Sm,
-                        "data-testid": "agent-chat-model-manage",
-                        onclick: move |_| open_settings(),
-                        "Manage models…"
-                    }
-                },
-                ModelPicker {
-                    options: picker_options,
-                    selected: selected_selector,
-                    placeholder: "Search models",
-                    test_id: "agent-chat-model-picker",
-                    autofocus: !compact,
-                    on_choose: move |selector: String| {
-                        configure(choose_pump.clone(), model_id.clone(), Configure::Model(Some(selector)));
-                        picker_open.set(false);
-                    },
-                }
+            RoleSwitcher {
+                open: picker_open,
+                trigger_id: trigger_id.clone(),
+                conversation: conversation.clone(),
+                catalog: catalog.clone(),
+                pump,
             }
             if reasoning && !thinking_items.is_empty() {
                 ToolbarMenu {
