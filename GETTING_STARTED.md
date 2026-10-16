@@ -199,8 +199,10 @@ In the agent composer, the model button opens **Models**: every model role
 this chat runs (default, quick tasks, deep review, planning, delegated work,
 side tasks, decision checks, advisor) with the model leading each. Pick a role
 to change its model in place; the change saves for all folders, or choose
-**This folder** to override it for this chat's folder only. Changing the
-default role also moves this chat onto it. **Settings** in that panel opens
+**This folder** to override it for this chat's folder only. The row marked
+**This chat** is the role this chat runs on (Planning in plan mode, a
+subagent's own role), and changing it moves the chat onto the new model even
+after `/switch`. **Settings** in that panel opens
 the fallback chains, presets and accounts. The **+** button opens the command
 menu; bare `/model` (also `/models`) and `/settings` selections open HTML
 controls without sending a message. Settings have searchable groups and

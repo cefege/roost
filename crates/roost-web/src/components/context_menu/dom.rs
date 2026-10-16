@@ -164,20 +164,16 @@ impl DismissListeners {
         on_escape: Option<EventHandler<()>>,
         within_ids: Vec<String>,
     ) -> Self {
+        // The click's path is fixed when it is dispatched. A handler inside the
+        // menu may re-render it before this document listener runs, detaching
+        // the target, so `contains` on the live tree would call an inside click
+        // outside and close the menu the click just changed.
         let click =
             Closure::<dyn FnMut(web_sys::MouseEvent)>::new(move |event: web_sys::MouseEvent| {
-                let target = event
-                    .target()
-                    .and_then(|target| target.dyn_into::<web_sys::Node>().ok());
-                let document = web_sys::window().and_then(|window| window.document());
-                let inside = match (target, document) {
-                    (Some(target), Some(document)) => within_ids.iter().any(|id| {
-                        document
-                            .get_element_by_id(id)
-                            .is_some_and(|element| element.contains(Some(&target)))
-                    }),
-                    _ => false,
-                };
+                let inside = event.composed_path().iter().any(|node| {
+                    node.dyn_ref::<web_sys::Element>()
+                        .is_some_and(|element| within_ids.iter().any(|id| element.id() == *id))
+                });
                 if !inside {
                     on_close.call(());
                 }
