@@ -8,6 +8,7 @@ mod advisory_card;
 pub mod agent_alert;
 mod composer;
 mod composer_commands;
+mod composer_footer;
 mod composer_helpers;
 mod composer_status;
 mod goal_controls;

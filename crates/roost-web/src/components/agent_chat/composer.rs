@@ -1,6 +1,6 @@
-//! HTML draft entry, slash completion and live agent controls.
-//! The surface keeps the draft; the pump submits input and explicit Stop.
-//! Model, settings and goal actions remain clickable while output streams.
+//! The agent composer: one box holding the draft field and, under it, the
+//! footer row (`composer_footer`). The slash menu opens above the box. The
+//! surface keeps the draft; the pump submits input and explicit Stop.
 
 use std::rc::Rc;
 
@@ -10,25 +10,23 @@ use roost_protocol::wire::agent_chat::{
 };
 
 use super::agent_alert::ERROR_TEXT_CLASS;
+use super::composer_footer::ComposerFooter;
 #[cfg(target_arch = "wasm32")]
 use super::composer_helpers::abort_run;
 use super::composer_helpers::{fill_draft, focus_field, pick_fills_draft};
 use super::composer_status::ComposerErrorBanner;
 use super::goal_controls::GoalControls;
-use super::goal_dock::GoalDock;
-use super::model_controls::AgentModelControls;
 use super::slash_menu::{
     SlashAccept, SlashMenu, accept_action, initial_selection, listbox_id, option_id,
     scroll_option_into_view, slash_menu_state, slash_sources,
 };
-use crate::components::md::{ButtonVariant, Chip, IconButton, IconButtonSize, Surface};
+use crate::components::md::Surface;
 use crate::components::settings::agent_connect_dialog::AgentConnectDialog;
 use crate::pump::Pump;
 use crate::router_state::use_navigate;
 
 use super::composer_commands::{
-    LocalCommandScope, advisor_title, report_command, run_local_command, submit_direct_command,
-    submit_message,
+    LocalCommandScope, report_command, run_local_command, submit_message,
 };
 
 #[component]
@@ -54,7 +52,6 @@ pub fn AgentComposer(
     let mut field = use_signal(|| None::<Rc<MountedData>>);
     let mut connect_provider = connect_provider;
     let mut command_error = use_signal(|| None::<String>);
-    let mut advisor_pending = use_signal(|| false);
     let mut goal_open = use_signal(|| false);
     let mut goal_view_request = use_signal(String::new);
     let mut goal_pending = use_signal(|| false);
@@ -63,10 +60,6 @@ pub fn AgentComposer(
         command_error.set(result.err());
     });
     let report = report_command(command_error);
-    let advisor_done = EventHandler::new(move |result: Result<(), String>| {
-        advisor_pending.set(false);
-        command_error.set(result.err());
-    });
     let sources = slash_sources(&conversation, catalog.as_ref());
     let menu = slash_menu_state(&draft(), &sources);
     let option_count = menu.as_ref().map_or(0, |state| state.options.len());
@@ -83,11 +76,6 @@ pub fn AgentComposer(
         roost_protocol::wire::agent_chat::TranscriptItem::Goal { state, .. } => Some(state.clone()),
         _ => None,
     });
-    let usage = format!(
-        "{} tokens · ${:.4}",
-        transcript.usage.input_tokens + transcript.usage.output_tokens,
-        transcript.usage.cost_usd
-    );
     let send = EventHandler::new({
         let pump = pump.clone();
         let conversation_id = conversation_id.clone();
@@ -178,13 +166,20 @@ pub fn AgentComposer(
     };
     let sources_for_input = sources.clone();
     let key_conversation = conversation_id.clone();
-    let button_conversation = conversation_id.clone();
     let pick = pick_fills_draft(menu.as_ref(), draft, selected_option, field);
     rsx! {
         div {
             class: "agent-chat__composer",
             "data-disabled": disabled.then_some("true"),
             "data-testid": "agent-chat-composer",
+            if let Some(state) = menu.clone().filter(|_| menu_open) {
+                SlashMenu {
+                    conversation_id: conversation_id.clone(),
+                    state,
+                    selected,
+                    on_choose: pick,
+                }
+            }
             Surface { class: "agent-chat__composer-panel", level: 1, elevation: 1, border: true, pad: Some(3),
                 ComposerErrorBanner {
                     error: run_error,
@@ -192,80 +187,6 @@ pub fn AgentComposer(
                     on_stop: stop,
                     on_switch_model: switch_model,
                 }
-                div { class: "agent-chat__composer-bar",
-                    AgentModelControls { conversation: conversation.clone(), catalog, catalog_failed, pump: pump.clone() }
-                    span {
-                        class: "agent-chat__usage",
-                        "data-testid": "agent-chat-usage",
-                        title: "Session token usage and cost",
-                        "{usage}"
-                    }
-                    span { class: "agent-chat__status", "data-testid": "agent-chat-status",
-                        if disabled { "Offline" } else if running { "Running" } else { "Ready" }
-                    }
-                    IconButton {
-                        icon: "apps",
-                        label: "Show agent commands",
-                        title: "Commands",
-                        variant: ButtonVariant::Secondary,
-                        size: IconButtonSize::Icon,
-                        class: "agent-chat__commands",
-                        "data-testid": "agent-chat-commands",
-                        expanded: Some(options_open),
-                        controls_id: Some(listbox.clone()),
-                        onclick: move |_| {
-                            if disabled {
-                                return;
-                            }
-                            if draft.peek().is_empty() {
-                                fill_draft(draft, selected_option, "/");
-                            }
-                            menu_dismissed.set(false);
-                            focus_field(field);
-                        },
-                    }
-                    GoalDock {
-                        goal: goal.clone(),
-                        view_request: goal_view_request,
-                        on_open: move |_| goal_open.set(true),
-                    }
-                    if conversation.mode == "plan" {
-                        Chip { label: "Plan mode".to_string(), icon: Some("assignment".to_string()), selected: Some(true),
-                            onclick: Some(EventHandler::new({
-                                let pump = pump.clone();
-                                let conversation_id = button_conversation.clone();
-                                move |_| submit_direct_command(pump.clone(), conversation_id.clone(), "/plan".to_string(), report)
-                            }))
-                        }
-                    }
-                    Chip { label: "Advisor".to_string(), icon: Some("psychology".to_string()), selected: Some(conversation.advisor),
-                        title: Some(advisor_title(conversation.advisor, advisor_pending()).to_string()),
-                        test_id: Some("agent-advisor-toggle".to_string()),
-                        disabled: advisor_pending(),
-                        busy: advisor_pending(),
-                        onclick: Some(EventHandler::new({
-                            let pump = pump.clone();
-                            let conversation_id = button_conversation.clone();
-                            move |_| {
-                                if advisor_pending() {
-                                    return;
-                                }
-                                advisor_pending.set(true);
-                                submit_direct_command(pump.clone(), conversation_id.clone(), "/advisor".to_string(), advisor_done);
-                            }
-                        }))
-                    }
-                    IconButton {
-                        icon: "settings",
-                        label: "Agent settings",
-                        title: "Models, accounts and agent settings",
-                        variant: ButtonVariant::Ghost,
-                        size: IconButtonSize::Icon,
-                        "data-testid": "agent-chat-settings",
-                        onclick: move |_| navigate.call(crate::routes::settings_pane_href("models")),
-                    }
-                }
-                div { class: "agent-chat__input-row",
                 textarea {
                     class: "agent-chat__input",
                     "data-testid": "agent-chat-input",
@@ -331,42 +252,35 @@ pub fn AgentComposer(
                         }
                     },
                 }
-                    if running {
-                        IconButton {
-                            icon: "stop",
-                            label: "Stop the agent",
-                            title: "Stop",
-                            variant: ButtonVariant::Secondary,
-                            size: IconButtonSize::Icon,
-                            class: "agent-chat__action",
-                            "data-testid": "agent-chat-stop",
-                            onclick: move |_| stop.call(()),
-                        }
-                    }
-                    if !running || !empty {
-                        IconButton {
-                            icon: "arrow_upward",
-                            label: if running { "Steer the agent" } else { "Send message" },
-                            title: if running { "Steer" } else { "Send" },
-                            variant: ButtonVariant::Default,
-                            size: IconButtonSize::Icon,
-                            class: "agent-chat__action",
-                            "data-testid": "agent-chat-send",
-                            "aria-disabled": (disabled || empty).then_some("true"),
-                            onclick: move |_| send.call(()),
-                        }
-                    }
-                }
-                if let Some(state) = menu.clone().filter(|_| menu_open) {
-                    SlashMenu {
-                        conversation_id: conversation_id.clone(),
-                        state,
-                        selected,
-                        on_choose: pick,
-                    }
-                }
                 if let Some(message) = command_error() {
                     p { class: ERROR_TEXT_CLASS, role: "alert", "data-testid": "agent-command-error", "{message}" }
+                }
+                ComposerFooter {
+                    conversation: conversation.clone(),
+                    catalog,
+                    catalog_failed,
+                    pump: pump.clone(),
+                    goal: goal.clone(),
+                    goal_view_request,
+                    on_goal_open: move |_| goal_open.set(true),
+                    command_error,
+                    commands_open: options_open,
+                    listbox: listbox.clone(),
+                    on_commands: move |_| {
+                        if disabled {
+                            return;
+                        }
+                        if draft.peek().is_empty() {
+                            fill_draft(draft, selected_option, "/");
+                        }
+                        menu_dismissed.set(false);
+                        focus_field(field);
+                    },
+                    running,
+                    has_draft: !empty,
+                    disabled,
+                    on_send: send,
+                    on_stop: stop,
                 }
             }
             GoalControls {

@@ -1,4 +1,4 @@
-//! The slash-command menu under the agent composer's field. `slash_menu_state`
+//! The slash-command menu, a panel raised above the agent composer. `slash_menu_state`
 //! decides what a draft can complete to, from the shared registry: command
 //! names while the draft is one word, then the subcommands or argument values
 //! of the single command it names. `SlashMenu` renders that as OMP's list does:
@@ -12,7 +12,7 @@ use roost_protocol::wire::agent_chat::{
 
 use super::model_controls::supports_reasoning;
 use super::model_hub::hub_logic::model_argument_values;
-use crate::components::md::{List, ListRow};
+use crate::components::md::{List, ListRow, Surface};
 
 #[cfg(target_arch = "wasm32")]
 use web_sys::{ScrollIntoViewOptions, ScrollLogicalPosition};
@@ -290,6 +290,9 @@ pub fn SlashMenu(
     rsx! {
         div { class: "agent-chat__slash-menu", "data-testid": "agent-chat-command-menu",
             onmousedown: move |event: MouseEvent| event.prevent_default(),
+            // The composer's level, so the selected row's container color reads
+            // against it; the elevation is what lifts it off the transcript.
+            Surface { class: "agent-chat__slash-panel", level: 1, elevation: 2, border: true,
             if let Some(command) = usage_line {
                 p { class: "agent-chat__slash-usage", "data-testid": "agent-chat-command-usage",
                     span { class: "agent-chat__slash-args",
@@ -330,6 +333,7 @@ pub fn SlashMenu(
                         }
                     }
                 }
+            }
             }
         }
     }

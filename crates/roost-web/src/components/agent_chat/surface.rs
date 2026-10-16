@@ -124,9 +124,9 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
                 scroll_to_bottom(&node);
             }
         }));
-        // The draft sizes the composer (slash menu included) and so the transcript
-        // above it; re-pin so the newest messages move up instead of hiding. Read
-        // here, not in the body, so a keystroke reruns this effect, not the surface.
+        // The draft sizes the composer's field and so the transcript above it;
+        // re-pin so the newest messages move up instead of hiding. Read here,
+        // not in the body, so a keystroke reruns this effect, not the surface.
         use_effect(move || {
             let _ = draft.read();
             if let (Some(node), true) = (scroll_node(), *pinned_to_bottom.peek()) {
@@ -152,8 +152,16 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
     let Some(conversation) = conversation else {
         return rsx! { LoadingTranscript {} };
     };
-    let header =
-        rsx! { AgentChatHeader { conversation: conversation.clone(), online, pump: pump.clone() } };
+    let usage = transcript.as_ref().map(|transcript| {
+        format!(
+            "{} tokens · ${:.4}",
+            transcript.usage.input_tokens + transcript.usage.output_tokens,
+            transcript.usage.cost_usd
+        )
+    });
+    let header = rsx! {
+        AgentChatHeader { conversation: conversation.clone(), online, usage, pump: pump.clone() }
+    };
     let Some(transcript) = transcript else {
         return rsx! { div { class: "agent-chat", {header} LoadingTranscript {} } };
     };

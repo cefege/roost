@@ -62,13 +62,6 @@
   .agent-goal__actions { justify-content: stretch; }
   .agent-goal__actions > * { flex: 1 1 auto; }
 }
-.agent-chat__usage,
-.agent-chat__status {
-  color: var(--md-sys-color-on-surface-variant);
-  font-size: var(--md-body-s-size);
-  white-space: nowrap;
-}
-
 .agent-goal__continuation-hint {
   margin: 0;
   color: var(--md-sys-color-primary);

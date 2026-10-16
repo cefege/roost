@@ -180,7 +180,7 @@ pub fn AgentModelControls(
             if reasoning && !thinking_items.is_empty() {
                 ToolbarMenu {
                     menu_key: "thinking",
-                    trigger: ToolbarTrigger::Picker { label: format!("Thinking · {}", thinking_label(&thinking)) },
+                    trigger: ToolbarTrigger::Picker { label: thinking_label(&thinking) },
                     aria_label: "Thinking effort",
                     items: thinking_items,
                     opens_up: true,

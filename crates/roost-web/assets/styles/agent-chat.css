@@ -59,6 +59,13 @@
 .agent-chat__place-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-chat__offline { flex: none; color: var(--md-sys-color-error); }
 .agent-chat__header-actions { display: inline-flex; margin-left: auto; color: var(--md-sys-color-on-surface-variant); }
+.agent-chat__header .agent-chat__usage {
+  margin-left: auto;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-body-s-size);
+  white-space: nowrap;
+}
+.agent-chat__usage + .agent-chat__header-actions { margin-left: 0; }
 
 /* ── pickers and menus ── */
 
@@ -453,6 +460,7 @@
 }
 
 .agent-chat__composer {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--md-space-1);
@@ -491,22 +499,30 @@
 
 .agent-chat__input::placeholder { color: var(--md-sys-color-on-surface-variant); }
 
-.agent-chat__composer-bar {
+/* The box's bottom row: `+` and the modes that are on at the start, the model
+   and send at the end, as chat composers lay theirs out. */
+.agent-chat__composer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--md-space-2);
+  min-width: 0;
+  margin-inline-start: calc(var(--md-space-2) * -1);
+}
+.agent-chat__composer-tools {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--md-space-2);
   min-width: 0;
-  margin-left: calc(var(--md-space-2) * -1);
 }
-
-.agent-chat__input-row {
+.agent-chat__composer-send {
   display: flex;
-  align-items: flex-end;
-  gap: var(--md-space-2);
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--md-space-1);
   min-width: 0;
 }
-.agent-chat__input-row > .agent-chat__input { flex: 1 1 auto; min-width: 0; }
 .agent-chat__action { flex: none; }
 .agent-chat__action[aria-disabled="true"] { opacity: 0.4; pointer-events: none; }
 
@@ -581,6 +597,9 @@
   /* The deck bar above already names the conversation. */
   .agent-chat__header { min-height: var(--md-space-8); padding-left: var(--md-space-3); }
   .agent-chat__title { display: none; }
+  /* A phone's header has room for the machine and folder only. */
+  .agent-chat__header .agent-chat__usage { display: none; }
+  .agent-chat__usage + .agent-chat__header-actions { margin-left: auto; }
   .agent-chat__transcript { padding: var(--md-space-3) var(--md-space-3) var(--md-space-5); }
   .agent-chat__dock { padding: 0 var(--md-space-2) var(--md-space-2); }
   .agent-chat__user-bubble { max-width: 88%; }
@@ -594,15 +613,21 @@
   .agent-chat__assistant > .agent-chat__markdown[data-streaming] > :last-child::after { animation: none; }
   .agent-chat__shimmer { color: var(--md-sys-color-on-surface-variant); background: none; }
 }
-/* OMP's slash list, in HTML: a name column as wide as the widest visible name
-   (`--slash-name-chars`, set by the menu), then usage and summary wrapping to
-   at most two lines. Phones stack the two so the summary keeps the width. */
+/* Raised over the transcript, above the box, so opening it never moves the
+   field. Rows follow OMP's slash list: a name column as wide as the widest
+   visible name (`--slash-name-chars`, set by the menu), then usage and summary
+   wrapping to at most two lines. Phones stack the two. */
 .agent-chat__slash-menu {
+  position: absolute;
+  inset-inline: 0;
+  bottom: calc(100% + var(--md-space-2));
+  z-index: 2;
+}
+.agent-chat__slash-panel {
   max-height: min(calc(var(--md-space-9) * 7), 40dvh);
   overflow-y: auto;
   overscroll-behavior: contain;
-  border-top: var(--workbench-border-width) solid var(--md-sys-color-outline-variant);
-  padding-top: var(--md-space-1);
+  padding-block: var(--md-space-1);
 }
 /* The body's font is the names' font, so `ch` below is one name character. */
 .agent-chat__slash-row .md-list-row__body {

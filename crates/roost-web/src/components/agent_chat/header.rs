@@ -1,7 +1,7 @@
-//! The chat's top row: the conversation's title, where its tools run, and the
-//! overflow menu that deletes it through the deck's close. Model, thinking and
-//! Stop live in the composer, where the next message is written.
-//! Mounted by `agent_chat::surface`.
+//! The chat's top row: the conversation's title, where its tools run, the
+//! session's token use and cost, and the overflow menu that deletes it through
+//! the deck's close. Model, thinking and Stop live in the composer, where the
+//! next message is written. Mounted by `agent_chat::surface`.
 
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::ConversationSummary;
@@ -11,7 +11,13 @@ use crate::components::md::{Button, ButtonVariant, Dialog, StatusDot};
 use crate::pump::Pump;
 
 #[component]
-pub fn AgentChatHeader(conversation: ConversationSummary, online: bool, pump: Pump) -> Element {
+pub fn AgentChatHeader(
+    conversation: ConversationSummary,
+    online: bool,
+    /// Token use and cost so far; absent until the transcript loads.
+    usage: Option<String>,
+    pump: Pump,
+) -> Element {
     let mut confirm_delete = use_signal(|| false);
     let conversation_id = conversation.id.clone();
     let place = format!(
@@ -31,6 +37,9 @@ pub fn AgentChatHeader(conversation: ConversationSummary, online: bool, pump: Pu
                 }
                 span { class: "agent-chat__place-text", "{place}" }
                 if !online { span { class: "agent-chat__offline", "Offline" } }
+            }
+            if let Some(usage) = usage {
+                span { class: "agent-chat__usage", "data-testid": "agent-chat-usage", title: "Session token usage and cost", "{usage}" }
             }
             span { class: "agent-chat__header-actions",
                 ToolbarMenu {
