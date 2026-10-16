@@ -10,6 +10,8 @@ use roost_protocol::wire::agent_chat::{
 };
 
 use super::hub_browse::BrowseRow;
+use super::hub_keys::HubKeyEffect;
+use super::hub_logic::HubSection;
 use super::hub_logic::HubView;
 use super::model_role_strip::OpenStrip;
 use super::strip_chips::{StripAction, StripChip, apply_settings, strip_view_chips};
@@ -28,6 +30,132 @@ pub(super) const HUB_ROOT_ID: &str = "agent-model-hub-root";
 
 pub(super) fn refocus_frame() {
     crate::components::file_viewer::dom::focus_by_id(HUB_ROOT_ID);
+}
+
+/// The signals `on_key`'s match writes. Bundled so the whole effect ladder
+/// lives in one function instead of the frame component.
+#[derive(Clone)]
+pub(super) struct HubKeySignals {
+    pub view: Signal<HubView>,
+    pub kind: Signal<String>,
+    pub query: Signal<String>,
+    pub selected: Signal<usize>,
+    pub focus_pane: Signal<super::hub_keys::HubFocus>,
+    pub open: Signal<bool>,
+    pub connect_provider: Signal<Option<ProviderEntry>>,
+    pub strip: Signal<Option<OpenStrip>>,
+}
+
+/// The read-only state `apply_key_effect` needs: the sections and kinds a
+/// move wraps over, the row data a row-effect reads, and where a newly
+/// opened strip is scoped.
+#[derive(Clone, Copy)]
+pub(super) struct HubKeyData<'a> {
+    pub sections: &'a [HubSection],
+    pub kinds: &'a [String],
+    pub catalog: &'a ModelsCatalog,
+    pub rows: &'a [BrowseRow],
+    pub settings: &'a AgentSettingsView,
+    pub folder: &'a ModelScope,
+    pub index: usize,
+    pub row_count: usize,
+}
+
+/// Applies one `HubKeyEffect` to the hub's state: moves the view or row
+/// cursor, edits the search query, activates a row, or closes the hub. A
+/// view or kind change refocuses the frame, since it replaces the row
+/// listbox a click may have focused; row movement and query edits must not,
+/// since the search field can still hold real DOM focus for those.
+pub(super) fn apply_key_effect(
+    effect: HubKeyEffect,
+    signals: &mut HubKeySignals,
+    data: &HubKeyData<'_>,
+) {
+    let HubKeyData {
+        sections,
+        kinds,
+        catalog,
+        rows,
+        settings,
+        folder,
+        index,
+        row_count,
+    } = *data;
+    match effect {
+        HubKeyEffect::MoveView(step) => {
+            let position = sections
+                .iter()
+                .position(|section| section.view == signals.view.peek().clone())
+                .unwrap_or(0);
+            let next = super::hub_catalog::wrap_index(position, step, sections.len());
+            signals.view.set(sections[next].view.clone());
+            signals.selected.set(0);
+            refocus_frame();
+        }
+        HubKeyEffect::MoveRow(step) => {
+            signals
+                .selected
+                .set(super::hub_catalog::wrap_index(index, step, row_count));
+        }
+        HubKeyEffect::PageRow(step) => {
+            let target = index as i64 + i64::from(step) * 8;
+            signals
+                .selected
+                .set(target.clamp(0, row_count.saturating_sub(1) as i64) as usize);
+        }
+        HubKeyEffect::JumpRow { to_end } => {
+            signals.selected.set(if to_end {
+                row_count.saturating_sub(1)
+            } else {
+                0
+            });
+        }
+        HubKeyEffect::MoveKind(step) => {
+            let active = signals.kind.peek().clone();
+            let position = kinds.iter().position(|name| *name == active).unwrap_or(0);
+            if let Some(next) =
+                kinds.get(super::hub_catalog::wrap_index(position, step, kinds.len()))
+            {
+                signals.kind.set(next.clone());
+            }
+            signals.selected.set(0);
+            refocus_frame();
+        }
+        HubKeyEffect::ActivateRow => {
+            if let Some(selector) = activate_row(
+                &signals.view.peek(),
+                catalog,
+                rows,
+                index,
+                &mut signals.open,
+                &mut signals.connect_provider,
+            ) {
+                signals
+                    .strip
+                    .set(Some(opened_strip(settings, folder, selector)));
+            }
+        }
+        HubKeyEffect::FocusList => signals.focus_pane.set(super::hub_keys::HubFocus::List),
+        HubKeyEffect::FocusView => signals.focus_pane.set(super::hub_keys::HubFocus::Scope),
+        HubKeyEffect::ClearQuery => {
+            signals.query.set(String::new());
+            signals.selected.set(0);
+        }
+        HubKeyEffect::Backspace => {
+            let mut next = signals.query.peek().clone();
+            next.pop();
+            signals.query.set(next);
+            signals.selected.set(0);
+        }
+        HubKeyEffect::Search(letter) => {
+            let mut next = signals.query.peek().clone();
+            next.push(letter);
+            signals.query.set(next);
+            signals.selected.set(0);
+        }
+        HubKeyEffect::RefreshProvider | HubKeyEffect::Ignore => {}
+        HubKeyEffect::Close => signals.open.set(false),
+    }
 }
 
 /// Everything a strip chip needs to save and close: the chat, its pin, and the

@@ -6,9 +6,9 @@
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::ModelsCatalog;
 
+use super::hub_catalog::wrap_index;
 use super::model_hub_actions::{StripCommit, apply_strip_chip};
 use super::strip_chips::{StripChip, StripKey};
-use super::wrap_index;
 use crate::components::md::Chip;
 use crate::components::settings::model_scope::ModelScope;
 

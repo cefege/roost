@@ -214,8 +214,10 @@ pub fn HubRolesView(
 #[component]
 fn TabButton(choice: RoleTab, selected: bool, on_select: EventHandler<()>) -> Element {
     rsx! {
-        button {
-            class: "model-hub-roles__tab",
+        Button {
+            variant: if selected { ButtonVariant::Secondary } else { ButtonVariant::Ghost },
+            size: ButtonSize::Sm,
+            class: "model-hub-roles__tab".to_owned(),
             role: "tab",
             "aria-selected": if selected { "true" } else { "false" },
             onclick: move |_| on_select.call(()),

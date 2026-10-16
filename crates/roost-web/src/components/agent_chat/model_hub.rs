@@ -24,8 +24,8 @@ mod strip_thinking;
 use hub_text::{footer_hints, status_text};
 use locked_provider::LockedProvider;
 use model_hub_actions::{
-    HUB_ROOT_ID, StripCommit, activate_row, activate_strip_chip, conversation_folder, opened_strip,
-    refocus_frame, rescope_strip,
+    HUB_ROOT_ID, HubKeySignals, StripCommit, activate_row, activate_strip_chip, apply_key_effect,
+    conversation_folder, opened_strip, refocus_frame, rescope_strip,
 };
 use model_role_strip::{ModelRoleStrip, OpenStrip, STRIP_FOOTER, run_strip_key};
 use strip_chips::{strip_key, strip_view_chips};
@@ -37,7 +37,7 @@ use roost_protocol::wire::agent_chat::{
 };
 
 use self::hub_browse::{BrowseRow, browse_rows};
-use self::hub_catalog::{kinds_present, provider_configured, roles_progress, wrap_index};
+use self::hub_catalog::{kinds_present, provider_configured, roles_progress};
 use self::hub_keys::{HubFocus, HubKeyContext, HubKeyEffect, hub_key_effect};
 use self::hub_list::{HubSidebar, KindTabs, ModelDetail, ModelRows};
 use self::hub_logic::{HubView, hub_sections};
@@ -199,75 +199,28 @@ pub fn ModelHub(
         }
         event.prevent_default();
         event.stop_propagation();
-        match effect {
-            HubKeyEffect::MoveView(step) => {
-                let position = key_sections
-                    .iter()
-                    .position(|section| section.view == view())
-                    .unwrap_or(0);
-                let next = wrap_index(position, step, key_sections.len());
-                view.set(key_sections[next].view.clone());
-                selected.set(0);
-            }
-            HubKeyEffect::MoveRow(step) => {
-                selected.set(wrap_index(index, step, row_count));
-            }
-            HubKeyEffect::PageRow(step) => {
-                let target = index as i64 + i64::from(step) * 8;
-                selected.set(target.clamp(0, row_count.saturating_sub(1) as i64) as usize);
-            }
-            HubKeyEffect::JumpRow { to_end } => {
-                selected.set(if to_end {
-                    row_count.saturating_sub(1)
-                } else {
-                    0
-                });
-            }
-            HubKeyEffect::MoveKind(step) => {
-                let active = kind();
-                let position = key_kinds
-                    .iter()
-                    .position(|name| *name == active)
-                    .unwrap_or(0);
-                if let Some(next) = key_kinds.get(wrap_index(position, step, key_kinds.len())) {
-                    kind.set(next.clone());
-                }
-                selected.set(0);
-            }
-            HubKeyEffect::ActivateRow => {
-                if let Some(selector) = activate_row(
-                    &view(),
-                    &key_catalog,
-                    &key_rows,
-                    index,
-                    &mut open,
-                    &mut connect_provider,
-                ) {
-                    strip.set(Some(opened_strip(&settings(), &key_folder, selector)));
-                }
-            }
-            HubKeyEffect::FocusList => focus_pane.set(HubFocus::List),
-            HubKeyEffect::FocusView => focus_pane.set(HubFocus::Scope),
-            HubKeyEffect::ClearQuery => {
-                query.set(String::new());
-                selected.set(0);
-            }
-            HubKeyEffect::Backspace => {
-                let mut next = query();
-                next.pop();
-                query.set(next);
-                selected.set(0);
-            }
-            HubKeyEffect::Search(letter) => {
-                let mut next = query();
-                next.push(letter);
-                query.set(next);
-                selected.set(0);
-            }
-            HubKeyEffect::RefreshProvider | HubKeyEffect::Ignore => {}
-            HubKeyEffect::Close => open.set(false),
-        }
-        refocus_frame();
+        let mut signals = HubKeySignals {
+            view,
+            kind,
+            query,
+            selected,
+            focus_pane,
+            open,
+            connect_provider,
+            strip,
+        };
+        let settings_snapshot = settings();
+        let data = model_hub_actions::HubKeyData {
+            sections: &key_sections,
+            kinds: &key_kinds,
+            catalog: &key_catalog,
+            rows: &key_rows,
+            settings: &settings_snapshot,
+            folder: &key_folder,
+            index,
+            row_count,
+        };
+        apply_key_effect(effect, &mut signals, &data);
     };
 
     let sidebar_sections = sections.clone();
