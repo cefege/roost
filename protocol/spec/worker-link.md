@@ -22,6 +22,8 @@ Each worker dials one long-lived, full-duplex binary WebSocket to the coordinato
 | `WTerminalViewState`, `WTerminalViewProjection` | `protocol/proto/roost/v1/worker_transport.proto:170-187` | Worker-owned view result and coordinator presence/diagnostic projection. |
 | Direct grant/peer/attachment result frames | `protocol/proto/roost/v1/worker_transport.proto` | Coordinator-authorized direct terminal/attachment admission and liveness. |
 | `WTerminalMetadata` | `protocol/proto/roost/v1/worker_transport.proto` | Volatile semantic title/activity updates plus one-shot OSC 52 clipboard writes, long-command completion and bell events; events are not replayed after link loss. |
+| `WAgentJobResult` | `protocol/proto/roost/v1/worker_transport.proto` | Settled background `bash` job (`Completed`, `Failed` or `Cancelled`) for one conversation; a running state is refused. Not replayed after link loss: the coordinator records the job as lost. |
+| `DAgentToolBackground`, `DAgentJobsAbort` | `protocol/proto/roost/v1/worker_transport.proto` | Coordinator asks a worker to detach a running `bash` call into a job, or to cancel a conversation's running jobs. |
 
 ## State machine
 

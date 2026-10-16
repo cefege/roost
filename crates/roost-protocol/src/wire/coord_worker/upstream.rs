@@ -143,6 +143,8 @@ pub enum CoordWorkerUpstream {
     AgentToolOutput(roost_proto::WAgentToolOutput),
     #[serde(rename = "agent-tool-result")]
     AgentToolResult(roost_proto::WAgentToolResult),
+    #[serde(rename = "agent-job-result")]
+    AgentJobResult(roost_proto::WAgentJobResult),
 }
 
 impl CoordWorkerUpstream {
@@ -175,6 +177,7 @@ impl CoordWorkerUpstream {
             Self::TerminalPipelineSnapshot(_) => "terminal-pipeline-snapshot",
             Self::AgentToolOutput(_) => "agent-tool-output",
             Self::AgentToolResult(_) => "agent-tool-result",
+            Self::AgentJobResult(_) => "agent-job-result",
         }
     }
 

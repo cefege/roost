@@ -140,6 +140,9 @@ pub(super) fn to_proto(frame: &CoordWorkerUpstream) -> ProtocolResult<CoordWorke
         CoordWorkerUpstream::AgentToolResult(result) => {
             Frame::AgentToolResult(Box::new((*result).clone()))
         }
+        CoordWorkerUpstream::AgentJobResult(result) => {
+            Frame::AgentJobResult(Box::new((*result).clone()))
+        }
     };
     Ok(CoordWorkerUp {
         frame: Some(arm),
@@ -252,6 +255,7 @@ pub(super) fn from_proto(message: &CoordWorkerUp) -> ProtocolResult<CoordWorkerU
         }
         Frame::AgentToolOutput(output) => CoordWorkerUpstream::AgentToolOutput((**output).clone()),
         Frame::AgentToolResult(result) => CoordWorkerUpstream::AgentToolResult((**result).clone()),
+        Frame::AgentJobResult(result) => CoordWorkerUpstream::AgentJobResult((**result).clone()),
     };
     frame.check()?;
     Ok(frame)

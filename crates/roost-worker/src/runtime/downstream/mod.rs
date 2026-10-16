@@ -177,6 +177,10 @@ impl Dispatcher {
             | CoordWorkerDownstream::CoordRelocate(_)) => retired(frame.kind()),
             CoordWorkerDownstream::AgentToolCall(request) => self.agent_tool_call(request),
             CoordWorkerDownstream::AgentToolCancel(request) => self.agent_tool_cancel(request),
+            CoordWorkerDownstream::AgentToolBackground(request) => {
+                self.agent_tool_background(request)
+            }
+            CoordWorkerDownstream::AgentJobsAbort(request) => self.agent_jobs_abort(request),
             CoordWorkerDownstream::AgentConversationClosed(request) => {
                 self.agent_conversation_closed(request)
             }

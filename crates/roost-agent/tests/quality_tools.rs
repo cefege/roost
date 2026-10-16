@@ -306,6 +306,19 @@ async fn every_agent_kind_and_mode_offers_each_tool_name_once() {
                 names.sort_unstable();
                 names.dedup();
                 assert_eq!(names.len(), offered, "{agent:?} {mode:?}: {names:?}");
+                for spec in &toolset.specs {
+                    let intent = roost_protocol::wire::agent_chat::INTENT_FIELD;
+                    assert_eq!(
+                        spec.parameters["required"][0], intent,
+                        "{agent:?} {mode:?}: {} must require `{intent}` first",
+                        spec.name
+                    );
+                    assert_eq!(
+                        spec.parameters["properties"][intent]["type"], "string",
+                        "{agent:?} {mode:?}: {} must declare `{intent}`",
+                        spec.name
+                    );
+                }
             }
         }
     }

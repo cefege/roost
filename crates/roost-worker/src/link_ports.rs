@@ -240,6 +240,8 @@ pub trait KeeperUpdatePort: Send + Sync + std::fmt::Debug {
 pub trait AgentToolsPort: Send + Sync + std::fmt::Debug {
     fn call(&self, request: roost_proto::DAgentToolCall);
     fn cancel(&self, request: roost_proto::DAgentToolCancel);
+    fn background_call(&self, request: roost_proto::DAgentToolBackground);
+    fn abort_jobs(&self, request: roost_proto::DAgentJobsAbort);
     fn close_conversation(&self, request: roost_proto::DAgentConversationClosed);
     fn close_all(&self);
 }

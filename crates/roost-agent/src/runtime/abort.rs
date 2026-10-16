@@ -40,6 +40,9 @@ impl AgentRuntime {
             .collect();
         let _guards =
             futures::future::join_all(locks.iter().map(|lifecycle| lifecycle.lock())).await;
+        for record in &doomed {
+            self.inner.tools.abort_background_jobs(&record.id).await;
+        }
         let active = self.has_active_work(&doomed).await?;
         if !active {
             return Ok(false);
@@ -130,8 +133,12 @@ impl AgentRuntime {
             });
             if let Some((active, through_seq, aborted)) = intent {
                 let pending = entries.iter().rev().find_map(|(sequence, entry)| {
-                    matches!(entry, Entry::User { .. } | Entry::Advisory { .. })
-                        .then_some(*sequence)
+                    let pending_entry = match entry {
+                        Entry::User { .. } | Entry::Advisory { .. } => true,
+                        Entry::BackgroundJob { state, .. } => state.wakes_conversation(),
+                        _ => false,
+                    };
+                    pending_entry.then_some(*sequence)
                 });
                 if active || pending.is_some_and(|sequence| sequence > through_seq) {
                     return Ok(true);

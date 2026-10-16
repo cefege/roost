@@ -153,6 +153,10 @@ pub enum CoordWorkerDownstream {
     AgentToolCancel(roost_proto::DAgentToolCancel),
     #[serde(rename = "agent-conversation-closed")]
     AgentConversationClosed(roost_proto::DAgentConversationClosed),
+    #[serde(rename = "agent-tool-background")]
+    AgentToolBackground(roost_proto::DAgentToolBackground),
+    #[serde(rename = "agent-jobs-abort")]
+    AgentJobsAbort(roost_proto::DAgentJobsAbort),
 }
 
 impl CoordWorkerDownstream {
@@ -193,6 +197,8 @@ impl CoordWorkerDownstream {
             Self::AgentToolCall(_) => "agent-tool-call",
             Self::AgentToolCancel(_) => "agent-tool-cancel",
             Self::AgentConversationClosed(_) => "agent-conversation-closed",
+            Self::AgentToolBackground(_) => "agent-tool-background",
+            Self::AgentJobsAbort(_) => "agent-jobs-abort",
         }
     }
 

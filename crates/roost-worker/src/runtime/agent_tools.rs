@@ -8,9 +8,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Instant;
 
-use roost_agent_tools::{ToolCallRequest, ToolHost, ToolOutcome};
+use roost_agent_tools::{SettledJob, ToolCallRequest, ToolHost, ToolOutcome};
 use roost_proto::{
-    DAgentConversationClosed, DAgentToolCall, DAgentToolCancel, WAgentToolOutput, WAgentToolResult,
+    DAgentConversationClosed, DAgentJobsAbort, DAgentToolBackground, DAgentToolCall,
+    DAgentToolCancel, WAgentJobResult, WAgentToolOutput, WAgentToolResult,
 };
 use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
 use tokio::sync::mpsc;
@@ -31,6 +32,7 @@ pub struct AgentToolsOwner {
     uplink: Uplink,
     calls: Arc<Mutex<HashMap<String, Arc<CancellationToken>>>>,
     idle_eviction: tokio::task::JoinHandle<()>,
+    settled_forwarder: tokio::task::JoinHandle<()>,
 }
 
 impl std::fmt::Debug for AgentToolsOwner {
@@ -52,7 +54,31 @@ impl std::fmt::Debug for AgentToolsOwner {
 impl AgentToolsOwner {
     #[must_use]
     pub fn new(data_dir: PathBuf, uplink: Uplink) -> Self {
-        let host = Arc::new(ToolHost::new(data_dir));
+        Self::build(data_dir, uplink, None)
+    }
+
+    /// Backgrounds a foreground `bash` call after `after` instead of the tool's default
+    /// threshold, so the auto-background path can run without waiting a minute.
+    #[must_use]
+    pub fn with_auto_background_after(
+        data_dir: PathBuf,
+        uplink: Uplink,
+        after: std::time::Duration,
+    ) -> Self {
+        Self::build(data_dir, uplink, Some(after))
+    }
+
+    fn build(
+        data_dir: PathBuf,
+        uplink: Uplink,
+        auto_background_after: Option<std::time::Duration>,
+    ) -> Self {
+        let (settled_tx, mut settled_rx) = mpsc::unbounded_channel::<SettledJob>();
+        let mut tool_host = ToolHost::new(data_dir, settled_tx);
+        if let Some(after) = auto_background_after {
+            tool_host = tool_host.with_auto_background_after(after);
+        }
+        let host = Arc::new(tool_host);
         let eviction_host = Arc::clone(&host);
         let idle_eviction = tokio::spawn(async move {
             let mut interval = tokio::time::interval(IDLE_EVICTION_INTERVAL);
@@ -61,11 +87,20 @@ impl AgentToolsOwner {
                 eviction_host.evict_idle().await;
             }
         });
+        let settled_uplink = uplink.clone();
+        let settled_forwarder = tokio::spawn(async move {
+            while let Some(settled) = settled_rx.recv().await {
+                settled_uplink.send(CoordWorkerUpstream::AgentJobResult(job_result_frame(
+                    settled,
+                )));
+            }
+        });
         Self {
             host,
             uplink,
             calls: Arc::new(Mutex::new(HashMap::new())),
             idle_eviction,
+            settled_forwarder,
         }
     }
 
@@ -85,6 +120,7 @@ impl AgentToolsOwner {
         tokio::spawn(async move {
             let (output_tx, mut output_rx) = mpsc::channel::<String>(64);
             let tool_call = ToolCallRequest {
+                call_id: call_id.clone(),
                 conversation_id: request.conversation_id,
                 cwd: PathBuf::from(request.cwd),
                 tool: request.tool,
@@ -170,6 +206,7 @@ impl AgentToolsOwner {
     }
 
     fn cancel_all(&self) {
+        self.host.cancel_all_jobs();
         let mut calls = self.calls.lock().unwrap_or_else(PoisonError::into_inner);
         let count = calls.len();
         for (_, cancel) in calls.drain() {
@@ -188,6 +225,7 @@ impl Drop for AgentToolsOwner {
     fn drop(&mut self) {
         self.cancel_all();
         self.idle_eviction.abort();
+        self.settled_forwarder.abort();
     }
 }
 
@@ -197,6 +235,17 @@ impl AgentToolsPort for AgentToolsOwner {
     }
     fn cancel(&self, request: DAgentToolCancel) {
         self.cancel_call(&request.call_id);
+    }
+    fn background_call(&self, request: DAgentToolBackground) {
+        if self.host.background_call(&request.call_id) {
+            tracing::info!(
+                call_id = %request.call_id,
+                "worker agent tool call detaching to a background job"
+            );
+        }
+    }
+    fn abort_jobs(&self, request: DAgentJobsAbort) {
+        self.host.abort_jobs(&request.conversation_id);
     }
     fn close_conversation(&self, request: DAgentConversationClosed) {
         self.close_conversation_state(request.conversation_id);
@@ -233,6 +282,19 @@ fn bounded_result(mut outcome: ToolOutcome) -> ToolOutcome {
         outcome.is_error = true;
     }
     outcome
+}
+
+fn job_result_frame(settled: SettledJob) -> WAgentJobResult {
+    WAgentJobResult {
+        conversation_id: settled.conversation_id,
+        job_id: settled.job_id,
+        command: settled.command,
+        state: settled.state.as_str().to_owned(),
+        is_error: settled.is_error,
+        output: settled.output,
+        exit_code: settled.exit_code,
+        ..Default::default()
+    }
 }
 
 fn forward_ready_output(

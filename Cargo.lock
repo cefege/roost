@@ -5666,6 +5666,7 @@ dependencies = [
  "roost-proto",
  "serde",
  "serde_json",
+ "thiserror 2.0.21",
  "tracing",
 ]
 
@@ -5702,6 +5703,7 @@ dependencies = [
  "rqrr",
  "serde",
  "serde_json",
+ "similar",
  "thiserror 2.0.21",
  "tracing",
  "tracing-subscriber",

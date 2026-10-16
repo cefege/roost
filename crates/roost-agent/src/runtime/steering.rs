@@ -47,8 +47,11 @@ impl AgentRuntime {
     ) -> Result<(), AgentError> {
         let lifecycle = self.lifecycle_lock(id);
         let _guard = lifecycle.lock().await;
-        let accepted_submission = matches!(&message, Steer::User(_) | Steer::Advisory { .. });
         let user_submission = matches!(&message, Steer::User(_));
+        let job_delivery = matches!(&message, Steer::BackgroundJob(_));
+        let wakes = message.wakes_idle_conversation();
+        let accepted_submission =
+            matches!(&message, Steer::User(_) | Steer::Advisory { .. }) || (job_delivery && wakes);
         if let Steer::User(text) = &message {
             self.prepare_loop_prompt_capture(id, text).await?;
         }
@@ -96,10 +99,13 @@ impl AgentRuntime {
         // A run that is working reads this message at its next boundary; until
         // then it waits in the queue rather than appearing above the reply the
         // run is still writing.
-        let joins_live_run = user_submission
+        let joins_live_run = (user_submission || job_delivery)
             && self
                 .with_run(id, |run| !run.cancel.is_cancelled())
                 .unwrap_or(false);
+        if user_submission && joins_live_run {
+            self.inner.tools.detach_background_calls(id).await;
+        }
         for (seq, appended_entry) in seqs.iter().zip(appended.iter()) {
             match appended_entry {
                 Entry::User { text, .. } if joins_live_run && *seq == sequence => {
@@ -140,6 +146,7 @@ impl AgentRuntime {
             run.queued_seq.fetch_max(sequence, Ordering::SeqCst);
             true
         });
+        self.arrival_signal(id).notify_waiters();
         if queued == Some(true) {
             return Ok(());
         }
@@ -150,6 +157,10 @@ impl AgentRuntime {
         }
         if queued == Some(false) {
             // An unwinding run settles under this lock and restarts for it.
+            return Ok(());
+        }
+        if !wakes {
+            self.inner.signal.conversation_changed(id).await;
             return Ok(());
         }
         match self.start_run_now(id, None, None).await {
@@ -166,6 +177,12 @@ impl AgentRuntime {
             }
         }
     }
+
+    /// Journals a settled background job and delivers it like a user message:
+    /// into the live run after its current tool round, or as a new run when idle.
+    pub async fn deliver_background_job(&self, id: &str, entry: Entry) -> Result<(), AgentError> {
+        self.steer(id, Steer::BackgroundJob(entry)).await
+    }
 }
 
 impl AgentRuntime {
@@ -179,7 +196,7 @@ impl AgentRuntime {
     ) {
         for (sequence, entry) in crate::journal::effective_entries(entries) {
             if sequence > read_through
-                && matches!(entry, Entry::User { .. })
+                && matches!(entry, Entry::User { .. } | Entry::BackgroundJob { .. })
                 && let Err(error) = self.emit_entry(id, sequence, &entry).await
             {
                 tracing::warn!(conversation_id = id, %error, "unread queued message was not shown");

@@ -8,6 +8,8 @@
 mod agent_fixture;
 mod db_support;
 
+#[path = "agent_chat_rpc/fake_worker.rs"]
+mod fake_worker;
 #[path = "agent_chat_rpc/models_hub.rs"]
 mod models_hub;
 #[path = "agent_chat_rpc/recovery.rs"]
@@ -24,9 +26,9 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
 use connectrpc::ErrorCode;
-use futures::future::BoxFuture;
+use fake_worker::FakeWorker;
 use parking_lot::Mutex;
-use roost_agent::{ToolCall, ToolExecutor, ToolOutcome};
+use roost_agent::{ToolCall, ToolExecutor};
 use roost_coord::agent::AgentService;
 use roost_coord::agent::rpc_accounts::handle_agent_settings_set;
 use roost_coord::agent::rpc_auth::handle_agent_auth_set_api_key;
@@ -37,7 +39,6 @@ use roost_proto as proto;
 use serde_json::Value;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
-use tokio_util::sync::CancellationToken;
 
 const MODEL: &str = "claude-sonnet-5";
 
@@ -109,44 +110,6 @@ fn tool_sse(call_id: &str, name: &str, args: &str) -> String {
         serde_json::json!({"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":5}}),
         serde_json::json!({"type":"message_stop"}),
     ])
-}
-
-/// Stands in for the worker: `read` answers with a hashline file.
-#[derive(Debug, Default)]
-struct FakeWorker {
-    calls: Mutex<Vec<ToolCall>>,
-}
-
-impl ToolExecutor for FakeWorker {
-    fn execute<'a>(
-        &'a self,
-        _worker_fp: &'a str,
-        call: ToolCall,
-        _out: mpsc::Sender<String>,
-        _cancel: CancellationToken,
-    ) -> BoxFuture<'a, Result<ToolOutcome, String>> {
-        let content = if call.tool == "context_files" {
-            r#"{"context":"","watchdog":""}"#.to_owned()
-        } else {
-            "[README.md#5BF9]\n1:hello".to_owned()
-        };
-        self.calls.lock().push(call);
-        Box::pin(async move {
-            Ok(ToolOutcome {
-                is_error: false,
-                content,
-                details_json: "{}".into(),
-            })
-        })
-    }
-
-    fn close_conversation<'a>(
-        &'a self,
-        _worker_fp: &'a str,
-        _conversation_id: &'a str,
-    ) -> BoxFuture<'a, ()> {
-        Box::pin(async {})
-    }
 }
 
 struct Setup {

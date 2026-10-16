@@ -4,13 +4,15 @@
 //! native-tools capability; generation retirement fails every matching waiter.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
+use roost_agent::AgentRuntime;
 use roost_protocol::versioning::CAPABILITY_AGENT_TOOLS_V1;
 use roost_protocol::wire::coord_worker::{CoordWorkerDownstream, CoordWorkerUpstream};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
+use super::job_ledger::JobLedger;
 use crate::coord_core::worker_handle::{WorkerHandle, WorkerRegistry};
 use crate::coord_core::worker_lifecycle::{LinkEnd, WorkerLifecycleObserver};
 use crate::db::CoordDb;
@@ -39,19 +41,33 @@ pub struct AgentToolCallSpec {
 }
 
 #[derive(Debug)]
-struct PendingCall {
-    worker_fp: String,
+pub(super) struct PendingCall {
+    pub(super) worker_fp: String,
     worker_label: String,
+    pub(super) conversation_id: String,
     completion: oneshot::Sender<Result<WorkerToolOutcome, String>>,
     output: mpsc::Sender<String>,
 }
 
-/// Pending tool calls and the live worker generation registry they target.
-#[derive(Debug)]
+/// Pending tool calls, the live worker generation registry they target, and
+/// the background jobs the workers report.
 pub struct ToolCallRegistry {
-    workers: Arc<WorkerRegistry>,
+    pub(super) workers: Arc<WorkerRegistry>,
     database: CoordDb,
-    pending: Mutex<HashMap<String, PendingCall>>,
+    pub(super) pending: Mutex<HashMap<String, PendingCall>>,
+    pub(super) jobs: Mutex<JobLedger>,
+    /// Set once the agent runtime exists; it is built after the tool executor
+    /// that holds this registry, so it cannot be a constructor argument.
+    pub(super) runtime: OnceLock<AgentRuntime>,
+}
+
+impl std::fmt::Debug for ToolCallRegistry {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ToolCallRegistry")
+            .field("runtime_bound", &self.runtime.get().is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 impl ToolCallRegistry {
@@ -61,6 +77,8 @@ impl ToolCallRegistry {
             workers,
             database,
             pending: Mutex::new(HashMap::new()),
+            jobs: Mutex::new(JobLedger::default()),
+            runtime: OnceLock::new(),
         }
     }
 
@@ -73,6 +91,8 @@ impl ToolCallRegistry {
         out: mpsc::Sender<String>,
         cancel: CancellationToken,
     ) -> Result<WorkerToolOutcome, String> {
+        let job_command = super::tool_calls_jobs::bash_command(&call.tool, &call.args_json);
+        let conversation_id = call.conversation_id.clone();
         let fingerprint = roost_protocol::wire::WorkerFp::try_from(worker_fp.to_owned())
             .map_err(|_| format!("invalid machine fingerprint {worker_fp}"))?;
         let label = self
@@ -102,6 +122,7 @@ impl ToolCallRegistry {
                 PendingCall {
                     worker_fp: worker_fp.to_owned(),
                     worker_label: label.clone(),
+                    conversation_id: conversation_id.clone(),
                     completion,
                     output: out,
                 },
@@ -126,7 +147,11 @@ impl ToolCallRegistry {
         let (interruption, cancelled) = tokio::select! {
             result = completed => {
                 self.remove_pending(&call.call_id);
-                return result.unwrap_or_else(|_| Err("worker disconnected after dispatch; the tool outcome is unknown. Inspect current state before repeating the call.".to_owned()));
+                let outcome = result.unwrap_or_else(|_| Err("worker disconnected after dispatch; the tool outcome is unknown. Inspect current state before repeating the call.".to_owned()));
+                if let Ok(outcome) = &outcome {
+                    self.note_job_started(worker_fp, &label, &conversation_id, job_command, &outcome.details_json);
+                }
+                return outcome;
             }
             () = cancel.cancelled() => (
                 "Cancellation requested; the final tool outcome is unknown. Inspect current state before repeating the call.".to_owned(),
@@ -206,7 +231,8 @@ impl ToolCallRegistry {
         }
     }
 
-    /// Deliver one output chunk or final result from an authenticated worker frame.
+    /// Deliver one output chunk, final result, or settled background job from an
+    /// authenticated worker frame.
     pub fn receive(&self, worker_fp: &str, frame: CoordWorkerUpstream) -> bool {
         match frame {
             CoordWorkerUpstream::AgentToolOutput(output) => {
@@ -248,6 +274,9 @@ impl ToolCallRegistry {
                 let _ = call.completion.send(Ok(outcome));
                 true
             }
+            CoordWorkerUpstream::AgentJobResult(result) => {
+                self.receive_job_result(worker_fp, result)
+            }
             _ => false,
         }
     }
@@ -271,6 +300,7 @@ impl ToolCallRegistry {
     }
 
     fn reject_worker(&self, worker_fp: &str, reason: &str) {
+        self.lose_worker_jobs(worker_fp);
         let mut pending = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
         let call_ids: Vec<String> = pending
             .iter()

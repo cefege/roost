@@ -160,6 +160,7 @@ impl TranscriptItem {
             | Self::Goal { id, .. }
             | Self::LoopStatus { id, .. }
             | Self::Ask { id, .. }
+            | Self::BackgroundJob { id, .. }
             | Self::Btw { id, .. } => id,
         }
     }

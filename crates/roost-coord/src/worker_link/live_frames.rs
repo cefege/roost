@@ -158,7 +158,9 @@ impl WorkerFrameDispatcher {
         let pending = self.core.services.scrollback.pending();
         if matches!(
             upstream,
-            CoordWorkerUpstream::AgentToolOutput(_) | CoordWorkerUpstream::AgentToolResult(_)
+            CoordWorkerUpstream::AgentToolOutput(_)
+                | CoordWorkerUpstream::AgentToolResult(_)
+                | CoordWorkerUpstream::AgentJobResult(_)
         ) {
             return if self.core.services.agent_tools.receive(worker_fp, upstream) {
                 DispatchOutcome::Handled

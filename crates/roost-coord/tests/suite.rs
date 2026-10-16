@@ -12,6 +12,8 @@ mod agent_chat_turns;
 mod agent_config_rpc;
 #[path = "agent_credentials.rs"]
 mod agent_credentials;
+#[path = "agent_job_loss.rs"]
+mod agent_job_loss;
 #[path = "agent_prompt_handlers.rs"]
 mod agent_prompt_handlers;
 #[path = "agent_prompt_status_wait.rs"]

@@ -5,6 +5,7 @@ mod catalog;
 mod commands;
 mod fold;
 mod interaction;
+mod jobs;
 mod model;
 mod model_order;
 mod model_presets;
@@ -12,6 +13,7 @@ mod model_search;
 mod proto;
 mod tools;
 pub use commands::{AGENT_SLASH_COMMANDS, SlashArgument, SlashCommand, parse_slash_command};
+pub use jobs::*;
 pub use tools::*;
 
 pub use catalog::*;

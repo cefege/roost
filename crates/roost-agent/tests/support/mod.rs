@@ -23,9 +23,11 @@ use tokio_util::sync::CancellationToken;
 
 mod gated;
 mod llm;
+mod sink;
 
 pub use gated::{ArmOnCheckSink, GatedStore};
 pub use llm::{ANY_SESSION, JudgeScript, Script, ScriptedLlm};
+pub use sink::RecordingSink;
 
 /// A worker that answers each tool with a fixed outcome and records calls.
 #[derive(Default)]
@@ -114,48 +116,17 @@ impl ToolExecutor for FakeTools {
     ) -> BoxFuture<'a, ()> {
         Box::pin(async {})
     }
-}
 
-/// Records conversation rows and events.
-#[derive(Default)]
-pub struct RecordingSink {
-    pub summaries: Mutex<Vec<ConversationSummary>>,
-    pub events: Mutex<Vec<(String, ChatEvent)>>,
-    pub removed: Mutex<Vec<String>>,
-}
-
-impl RecordingSink {
-    pub fn events_for(&self, id: &str) -> Vec<ChatEvent> {
-        self.events
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|(conversation, _)| conversation == id)
-            .map(|(_, event)| event.clone())
-            .collect()
-    }
-}
-
-impl ChatSink for RecordingSink {
-    fn conversation<'a>(&'a self, summary: &'a ConversationSummary) -> BoxFuture<'a, ()> {
-        self.summaries.lock().unwrap().push(summary.clone());
+    fn detach_background_calls<'a>(&'a self, _: &'a str) -> BoxFuture<'a, ()> {
         Box::pin(async {})
     }
 
-    fn events<'a>(&'a self, conversation_id: &'a str, events: Vec<ChatEvent>) -> BoxFuture<'a, ()> {
-        let mut recorded = self.events.lock().unwrap();
-        for event in events {
-            recorded.push((conversation_id.to_owned(), event));
-        }
+    fn abort_background_jobs<'a>(&'a self, _: &'a str) -> BoxFuture<'a, ()> {
         Box::pin(async {})
     }
 
-    fn removed<'a>(&'a self, conversation_id: &'a str) -> BoxFuture<'a, ()> {
-        self.removed
-            .lock()
-            .unwrap()
-            .push(conversation_id.to_owned());
-        Box::pin(async {})
+    fn running_background_jobs<'a>(&'a self, _: &'a str) -> BoxFuture<'a, usize> {
+        Box::pin(async { 0 })
     }
 }
 

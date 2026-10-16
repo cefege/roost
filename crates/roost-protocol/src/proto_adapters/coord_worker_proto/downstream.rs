@@ -148,6 +148,12 @@ pub(super) fn to_proto(frame: &CoordWorkerDownstream) -> ProtocolResult<CoordWor
         CoordWorkerDownstream::AgentConversationClosed(closed) => {
             Frame::AgentConversationClosed(Box::new((*closed).clone()))
         }
+        CoordWorkerDownstream::AgentToolBackground(background) => {
+            Frame::AgentToolBackground(Box::new((*background).clone()))
+        }
+        CoordWorkerDownstream::AgentJobsAbort(abort) => {
+            Frame::AgentJobsAbort(Box::new((*abort).clone()))
+        }
     };
     Ok(CoordWorkerDown {
         frame: Some(arm),
@@ -274,6 +280,10 @@ pub(super) fn from_proto(message: &CoordWorkerDown) -> ProtocolResult<CoordWorke
         Frame::AgentConversationClosed(closed) => {
             CoordWorkerDownstream::AgentConversationClosed((**closed).clone())
         }
+        Frame::AgentToolBackground(background) => {
+            CoordWorkerDownstream::AgentToolBackground((**background).clone())
+        }
+        Frame::AgentJobsAbort(abort) => CoordWorkerDownstream::AgentJobsAbort((**abort).clone()),
     };
     frame.check()?;
     Ok(frame)

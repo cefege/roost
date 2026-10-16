@@ -40,7 +40,7 @@ pub fn delivery_order(entries: Vec<(u64, Entry)>) -> Vec<(u64, Entry)> {
     let mut unread: Vec<(u64, Entry)> = Vec::new();
     for (seq, entry) in entries {
         match &entry {
-            Entry::User { .. } => unread.push((seq, entry)),
+            Entry::User { .. } | Entry::BackgroundJob { .. } => unread.push((seq, entry)),
             Entry::Assistant { metadata, .. } => {
                 let read_through = metadata
                     .as_ref()

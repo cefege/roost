@@ -6,7 +6,9 @@ use std::collections::{HashMap, HashSet};
 
 use roost_llm::{AssistantBlock, Message};
 
+use crate::job_notice::{background_job_message, summary_text};
 use crate::records::{AdvisorySeverity, Entry};
+use crate::todo_notice::todo_message;
 
 /// The text an aborted or lost tool call answers with, so the provider sees
 /// every `tool_use` paired with a result.
@@ -178,6 +180,21 @@ pub fn build_messages(entries: &[(u64, Entry)], provider: &str) -> Vec<Message> 
                 &open_calls,
                 Message::user_text(advisory_message(*severity, note)),
             ),
+            Entry::BackgroundJob {
+                job_id,
+                command,
+                state,
+                output,
+                exit_code,
+                ..
+            } => append_context_message(
+                &mut messages,
+                &mut deferred_context,
+                &open_calls,
+                Message::user_text(background_job_message(
+                    job_id, command, *state, output, *exit_code,
+                )),
+            ),
             Entry::Todo { phases } if latest_todo == Some(position) => {
                 append_context_message(
                     &mut messages,
@@ -274,6 +291,9 @@ pub fn estimate_tokens(entry: &Entry) -> u64 {
             .sum(),
         Entry::ToolResult { text, .. } => text.len(),
         Entry::Advisory { note, .. } => note.len(),
+        Entry::BackgroundJob {
+            command, output, ..
+        } => command.len() + output.len(),
         Entry::Compaction { summary, .. } => summary.len(),
         Entry::Todo { phases } => todo_message(phases).len(),
         Entry::SubagentContext { context } => context.len(),
@@ -327,6 +347,12 @@ pub fn render_for_summary(entries: &[(u64, Entry)]) -> String {
                 rendered.push_str(&format!("\n[earlier summary]\n{summary}\n"));
             }
             Entry::Advisory { note, .. } => rendered.push_str(&format!("\n[advisory] {note}\n")),
+            Entry::BackgroundJob {
+                job_id,
+                command,
+                output,
+                ..
+            } => rendered.push_str(&summary_text(job_id, command, output)),
             Entry::Todo { phases } => rendered.push_str(&format!("\n{}\n", todo_message(phases))),
             Entry::Ask {
                 questions, answers, ..
@@ -355,26 +381,5 @@ pub fn render_for_summary(entries: &[(u64, Entry)]) -> String {
             | Entry::GoalActivity { .. } => {}
         }
     }
-    rendered
-}
-
-/// The model-facing form of the current task list.
-pub fn todo_message(phases: &[roost_protocol::wire::agent_chat::TodoPhase]) -> String {
-    let mut rendered = String::from("<todo>\n");
-    for phase in phases {
-        rendered.push_str(&format!("{}:\n", phase.name));
-        for task in &phase.tasks {
-            let status = serde_json::to_value(task.status)
-                .ok()
-                .and_then(|value| value.as_str().map(str::to_owned))
-                .unwrap_or_default();
-            rendered.push_str(&format!("- [{status}] {}", task.content));
-            if let Some(blocker) = &task.blocker {
-                rendered.push_str(&format!(" (blocked: {blocker})"));
-            }
-            rendered.push('\n');
-        }
-    }
-    rendered.push_str("</todo>");
     rendered
 }

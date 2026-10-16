@@ -8,6 +8,8 @@
 mod advisor;
 #[path = "agent_loop.rs"]
 mod agent_loop;
+#[path = "background_jobs.rs"]
+mod background_jobs;
 #[path = "find.rs"]
 mod find;
 #[path = "loop_mode.rs"]

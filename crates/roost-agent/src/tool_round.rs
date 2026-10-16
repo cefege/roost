@@ -3,7 +3,9 @@
 //! each result. Harness tools run here; worker tools go through `ToolExecutor`.
 
 use futures::future::join_all;
-use roost_protocol::wire::agent_chat::{ChatEvent, LspArgs, TOOL_BASH, TOOL_LSP, TranscriptItem};
+use roost_protocol::wire::agent_chat::{
+    ChatEvent, LspArgs, TOOL_BASH, TOOL_LSP, TOOL_WAIT, TranscriptItem, split_intent,
+};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -18,7 +20,7 @@ use crate::toolset::{
 };
 use crate::traits::{ToolCall, ToolOutcome};
 use crate::web_tools;
-use crate::{ask, find, plan_mode, subagents, todo};
+use crate::{ask, find, plan_mode, subagents, todo, wait};
 
 /// Live output kept in a running tool card; older output is trimmed.
 const LIVE_OUTPUT_CHARS: u64 = 64 * 1024;
@@ -139,6 +141,11 @@ async fn run_call(scope: &CallScope<'_>, call_id: &str, name: &str, args: &str) 
     if !scope.toolset.offers(name) {
         return CallResult::failure(format!("Tool `{name}` is not available here."));
     }
+    let (_intent, dispatch_args) = match split_intent(args) {
+        Ok(split) => split,
+        Err(error) => return CallResult::failure(error.to_string()),
+    };
+    let args = dispatch_args.as_str();
     scope
         .runtime
         .emit(
@@ -165,6 +172,10 @@ async fn run_call(scope: &CallScope<'_>, call_id: &str, name: &str, args: &str) 
         TOOL_ASK => {
             drop(out);
             ask::run(scope, args).await
+        }
+        TOOL_WAIT => {
+            drop(out);
+            wait::run(scope).await
         }
         TOOL_FETCH | TOOL_WEB_SEARCH => {
             drop(out);

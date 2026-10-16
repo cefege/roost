@@ -47,6 +47,18 @@ impl ToolExecutor for BlockingSecondTool {
     fn close_conversation<'a>(&'a self, _: &'a str, _: &'a str) -> BoxFuture<'a, ()> {
         Box::pin(async {})
     }
+
+    fn detach_background_calls<'a>(&'a self, _: &'a str) -> BoxFuture<'a, ()> {
+        Box::pin(async {})
+    }
+
+    fn abort_background_jobs<'a>(&'a self, _: &'a str) -> BoxFuture<'a, ()> {
+        Box::pin(async {})
+    }
+
+    fn running_background_jobs<'a>(&'a self, _: &'a str) -> BoxFuture<'a, usize> {
+        Box::pin(async { 0 })
+    }
 }
 
 #[tokio::test]

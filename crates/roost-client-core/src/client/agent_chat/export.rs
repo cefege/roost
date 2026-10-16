@@ -99,6 +99,20 @@ pub fn transcript_to_markdown(title: &str, transcript: &Transcript) -> String {
                 append_section(&mut markdown, &heading, output);
             }
             TranscriptItem::Tool { .. } => {}
+            TranscriptItem::BackgroundJob {
+                job_id,
+                command,
+                output,
+                is_error,
+                ..
+            } => {
+                let heading = if *is_error {
+                    format!("Background job error: {job_id}")
+                } else {
+                    format!("Background job: {job_id}")
+                };
+                append_section(&mut markdown, &heading, &format!("$ {command}\n{output}"));
+            }
             TranscriptItem::Advisory { severity, note, .. } => {
                 append_section(&mut markdown, &format!("Advisor · {severity}"), note);
             }

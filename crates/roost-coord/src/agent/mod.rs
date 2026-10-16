@@ -6,6 +6,7 @@ mod chat_delivery;
 mod chat_events;
 pub mod credentials;
 mod executor;
+mod job_ledger;
 mod logins;
 pub mod rpc_accounts;
 pub mod rpc_auth;
@@ -15,6 +16,7 @@ pub mod rpc_turns;
 mod sink;
 pub mod store;
 pub mod tool_calls;
+mod tool_calls_jobs;
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -73,12 +75,13 @@ impl AgentService {
         cluster: ClusterMembership,
         credential_key: Option<[u8; 32]>,
     ) -> Arc<Self> {
+        let registry = Arc::clone(&tool_calls);
         let tools = Arc::new(executor::WorkerToolExecutor::new(tool_calls));
         let config = RuntimeConfig {
             instance_id: cluster.instance_id.clone(),
             ..RuntimeConfig::default()
         };
-        Self::with_config(
+        let service = Self::with_config(
             db,
             buses,
             tools,
@@ -86,7 +89,9 @@ impl AgentService {
             cluster,
             config,
             credential_key,
-        )
+        );
+        registry.bind_runtime(service.runtime.clone());
+        service
     }
 
     /// The harness over any tool executor; tests answer tool calls directly.

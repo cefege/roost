@@ -176,6 +176,13 @@ pub trait ToolExecutor: Send + Sync {
         worker_fp: &'a str,
         conversation_id: &'a str,
     ) -> BoxFuture<'a, ()>;
+    /// Asks the workers to move this conversation's running foreground bash calls
+    /// to background jobs. Used when a message steers a live run mid-command.
+    fn detach_background_calls<'a>(&'a self, conversation_id: &'a str) -> BoxFuture<'a, ()>;
+    /// Cancels every background job the conversation owns on its workers.
+    fn abort_background_jobs<'a>(&'a self, conversation_id: &'a str) -> BoxFuture<'a, ()>;
+    /// The number of background jobs the conversation has running.
+    fn running_background_jobs<'a>(&'a self, conversation_id: &'a str) -> BoxFuture<'a, usize>;
 }
 
 /// Delivery of conversation rows and transcript events to clients.

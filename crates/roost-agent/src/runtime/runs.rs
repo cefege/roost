@@ -2,6 +2,8 @@
 //! The runtime owns the task registry; the journal owns which accepted work
 //! remains unfinished across failures, cancellation and process restart.
 
+mod steer;
+
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -28,32 +30,12 @@ pub(crate) enum Steer {
         severity: AdvisorySeverity,
         note: String,
     },
+    /// A settled background job, journaled as the entry that wakes or joins the run.
+    BackgroundJob(Entry),
     Persisted {
         entry: Entry,
         sequence: u64,
     },
-}
-
-impl Steer {
-    pub(crate) fn into_entry(self) -> Entry {
-        match self {
-            Self::User(text) => Entry::User {
-                text,
-                loop_repeat: false,
-            },
-            Self::Advisory {
-                item_id,
-                severity,
-                note,
-            } => Entry::Advisory {
-                item_id,
-                severity,
-                note,
-                delivered: true,
-            },
-            Self::Persisted { entry, .. } => entry,
-        }
-    }
 }
 
 /// How a run ended.

@@ -276,6 +276,17 @@ message WAgentToolResult {
   string content = 3;
   string details_json = 4;
 }
+// A background bash job's terminal state. `state` is "completed", "failed" or
+// "cancelled"; `exit_code` is absent when the process never exited.
+message WAgentJobResult {
+  string conversation_id = 1;
+  string job_id = 2;
+  string command = 3;
+  string state = 4;
+  bool is_error = 5;
+  string output = 6;
+  optional int32 exit_code = 7;
+}
 
 message CoordWorkerUp {
   reserved 4, 5, 8, 9, 13, 15;
@@ -307,6 +318,7 @@ message CoordWorkerUp {
     WAttachmentDirectStatus attachment_direct_status = 29;
     WAgentToolOutput agent_tool_output = 33;
     WAgentToolResult agent_tool_result = 34;
+    WAgentJobResult agent_job_result = 35;
   }
   reserved 31, 32;
 }
@@ -590,6 +602,11 @@ message DAgentToolCall {
   uint64 checkpoint_id = 7;
 }
 message DAgentToolCancel { string call_id = 1; }
+// Moves a foreground bash call to a background job; the call returns at once
+// with the job id and the command keeps running.
+message DAgentToolBackground { string call_id = 1; }
+// Cancels every running background job of one conversation (run aborted).
+message DAgentJobsAbort { string conversation_id = 1; }
 message DAgentConversationClosed { string conversation_id = 1; }
 
 message CoordWorkerDown {
@@ -630,6 +647,8 @@ message CoordWorkerDown {
     DAgentToolCall agent_tool_call = 37;
     DAgentToolCancel agent_tool_cancel = 38;
     DAgentConversationClosed agent_conversation_closed = 39;
+    DAgentToolBackground agent_tool_background = 40;
+    DAgentJobsAbort agent_jobs_abort = 41;
   }
   reserved 33, 34, 35, 36;
 }

@@ -141,7 +141,8 @@ fn classify(upstream: CoordWorkerUpstream) -> LinkFrame {
         | Up::TerminalInputRouteResult(_)
         | Up::TerminalTransportProbeResult(_)
         | Up::AgentToolOutput(_)
-        | Up::AgentToolResult(_) => (FrameClass::Rpc, 0),
+        | Up::AgentToolResult(_)
+        | Up::AgentJobResult(_) => (FrameClass::Rpc, 0),
     };
     LinkFrame::Dispatch(Box::new(InboundFrame {
         class,

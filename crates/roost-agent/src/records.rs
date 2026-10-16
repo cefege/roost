@@ -6,7 +6,8 @@ use std::collections::BTreeMap;
 
 use roost_llm::{AssistantBlock, StopReason, Usage};
 use roost_protocol::wire::agent_chat::{
-    AgentRunState, AskQuestion, FolderModelRoles, GoalState, ModelPresets, ModelRef, TodoPhase,
+    AgentRunState, AskQuestion, FolderModelRoles, GoalState, JobState, ModelPresets, ModelRef,
+    TodoPhase,
 };
 use serde::{Deserialize, Serialize};
 
@@ -160,6 +161,17 @@ pub enum Entry {
         severity: AdvisorySeverity,
         note: String,
         delivered: bool,
+    },
+    /// A settled background bash job, delivered back into the conversation as a
+    /// follow-up. `state` is `Completed`, `Failed` (including lost to a worker
+    /// disconnect) or `Cancelled`.
+    BackgroundJob {
+        job_id: String,
+        command: String,
+        state: JobState,
+        is_error: bool,
+        output: String,
+        exit_code: Option<i32>,
     },
     /// The agent's task list after a `todo` call; the latest copy is current.
     Todo { phases: Vec<TodoPhase> },

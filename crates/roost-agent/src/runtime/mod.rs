@@ -105,6 +105,9 @@ pub(crate) struct RuntimeInner {
     aborted_last: Mutex<HashMap<String, bool>>,
     record_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     lifecycle_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// Wakes a `wait` call when a background job settles or a message lands for a
+    /// conversation. Entries are kept like `lifecycle_locks`: one per conversation id.
+    arrivals: Mutex<HashMap<String, Arc<tokio::sync::Notify>>>,
     goal_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     goal_clocks: Mutex<HashMap<String, (String, Instant)>>,
     context_cache:
@@ -189,6 +192,7 @@ impl AgentRuntime {
                 aborted_last: Mutex::new(HashMap::new()),
                 record_locks: Mutex::new(HashMap::new()),
                 lifecycle_locks: Mutex::new(HashMap::new()),
+                arrivals: Mutex::new(HashMap::new()),
                 goal_locks: Mutex::new(HashMap::new()),
                 goal_clocks: Mutex::new(HashMap::new()),
                 context_cache: Mutex::new(HashMap::new()),
@@ -254,6 +258,9 @@ impl AgentRuntime {
                 .entry(id.to_owned())
                 .or_default(),
         )
+    }
+    pub(crate) fn arrival_signal(&self, id: &str) -> Arc<tokio::sync::Notify> {
+        Arc::clone(lock(&self.inner.arrivals).entry(id.to_owned()).or_default())
     }
     pub(crate) fn goal_lock(&self, id: &str) -> Arc<tokio::sync::Mutex<()>> {
         Arc::clone(

@@ -6,23 +6,31 @@ use std::{
     collections::HashMap,
     path::PathBuf,
     sync::{
-        Arc,
+        Arc, PoisonError,
         atomic::{AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
 
 use roost_protocol::wire::agent_chat::{
-    BashArgs, EditArgs, GlobArgs, GrepArgs, LspArgs, ReadArgs, RewindFilesArgs, TOOL_BASH,
-    TOOL_CONTEXT_FILES, TOOL_EDIT, TOOL_GLOB, TOOL_GREP, TOOL_LSP, TOOL_READ, TOOL_REWIND_FILES,
-    TOOL_WRITE, WriteArgs,
+    BashArgs, EditArgs, GlobArgs, GrepArgs, JobArgs, LspArgs, ReadArgs, RewindFilesArgs, TOOL_BASH,
+    TOOL_CONTEXT_FILES, TOOL_EDIT, TOOL_GLOB, TOOL_GREP, TOOL_JOB, TOOL_LSP, TOOL_READ,
+    TOOL_REWIND_FILES, TOOL_WRITE, WriteArgs,
 };
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex, Notify, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    bash::bash_tool, context_files::context_files_tool, file_tools, glob::glob_tool,
-    grep::grep_tool, hashline::EditStore, lsp::LspManager, outcome::ToolOutcome, restore_points,
+    bash::{BashCall, DEFAULT_AUTO_BACKGROUND_AFTER, bash_tool},
+    context_files::context_files_tool,
+    file_tools,
+    glob::glob_tool,
+    grep::grep_tool,
+    hashline::EditStore,
+    jobs::{JobRegistry, SettledJob},
+    lsp::LspManager,
+    outcome::ToolOutcome,
+    restore_points,
 };
 
 const IDLE_TTL: Duration = Duration::from_secs(60 * 60);
@@ -43,8 +51,26 @@ impl Drop for ActiveCall {
     }
 }
 
+/// Removes a call's detach handle once the call returns, so a steer that arrives
+/// after completion finds nothing to detach.
+struct DetachableCall<'a> {
+    host: &'a ToolHost,
+    call_id: String,
+}
+
+impl Drop for DetachableCall<'_> {
+    fn drop(&mut self) {
+        self.host
+            .detachable_calls
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&self.call_id);
+    }
+}
+
 #[derive(Debug)]
 pub struct ToolCallRequest {
+    pub call_id: String,
     pub conversation_id: String,
     pub cwd: PathBuf,
     pub tool: String,
@@ -57,6 +83,10 @@ pub struct ToolHost {
     data_dir: PathBuf,
     conversations: Mutex<HashMap<String, Arc<ConversationTools>>>,
     lsp: LspManager,
+    jobs: Arc<JobRegistry>,
+    auto_background_after: Duration,
+    /// Running `bash` calls keyed by call id, so a steer detaches the right one.
+    detachable_calls: std::sync::Mutex<HashMap<String, Arc<Notify>>>,
 }
 
 impl std::fmt::Debug for ToolHost {
@@ -69,7 +99,7 @@ impl std::fmt::Debug for ToolHost {
 }
 
 impl ToolHost {
-    pub fn new(data_dir: PathBuf) -> Self {
+    pub fn new(data_dir: PathBuf, settled_jobs: mpsc::UnboundedSender<SettledJob>) -> Self {
         if let Err(error) = restore_points::prune_expired(&data_dir) {
             tracing::warn!(%error, "agent tool restore-point pruning failed");
         }
@@ -77,7 +107,16 @@ impl ToolHost {
             lsp: LspManager::new(data_dir.clone()),
             data_dir,
             conversations: Mutex::new(HashMap::new()),
+            jobs: Arc::new(JobRegistry::new(settled_jobs)),
+            auto_background_after: DEFAULT_AUTO_BACKGROUND_AFTER,
+            detachable_calls: std::sync::Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Overrides how long a foreground `bash` call runs before it auto-backgrounds.
+    pub fn with_auto_background_after(mut self, after: Duration) -> Self {
+        self.auto_background_after = after;
+        self
     }
 
     pub async fn call(
@@ -170,16 +209,28 @@ impl ToolHost {
             TOOL_CONTEXT_FILES => context_files_tool(&request.cwd).await,
             TOOL_BASH => match decode::<BashArgs>(&request.args_json) {
                 Ok(args) => {
+                    let detach = Arc::new(Notify::new());
+                    let _registration = self.register_detachable(&request.call_id, detach.clone());
                     bash_tool(
-                        &self.data_dir,
-                        &request.cwd,
-                        args,
-                        request.timeout_ms,
+                        BashCall {
+                            data_dir: self.data_dir.clone(),
+                            cwd: request.cwd,
+                            conversation_id: request.conversation_id,
+                            args,
+                            timeout_ms: request.timeout_ms,
+                            auto_background_after: self.auto_background_after,
+                            detach,
+                            jobs: self.jobs.clone(),
+                        },
                         &out,
                         cancel,
                     )
                     .await
                 }
+                Err(error) => ToolOutcome::failure(error),
+            },
+            TOOL_JOB => match decode::<JobArgs>(&request.args_json) {
+                Ok(args) => self.jobs.run_job_tool(&request.conversation_id, args).await,
                 Err(error) => ToolOutcome::failure(error),
             },
             TOOL_LSP => match decode::<LspArgs>(&request.args_json) {
@@ -217,8 +268,46 @@ impl ToolHost {
         outcome
     }
 
+    fn register_detachable(&self, call_id: &str, detach: Arc<Notify>) -> DetachableCall<'_> {
+        self.detachable_calls
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(call_id.to_owned(), detach);
+        DetachableCall {
+            host: self,
+            call_id: call_id.to_owned(),
+        }
+    }
+
+    /// Detaches the running `bash` call with this id into a background job. Returns
+    /// false when no such call is running.
+    pub fn background_call(&self, call_id: &str) -> bool {
+        let calls = self
+            .detachable_calls
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        match calls.get(call_id) {
+            Some(detach) => {
+                detach.notify_one();
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Ends the conversation's running background jobs; a turn abort takes them with it.
+    pub fn abort_jobs(&self, conversation_id: &str) {
+        self.jobs.cancel_running(conversation_id);
+    }
+
+    /// Ends every background job this worker runs; used when its coordinator link drops.
+    pub fn cancel_all_jobs(&self) {
+        self.jobs.cancel_all();
+    }
+
     pub async fn close_conversation(&self, conversation_id: &str) {
         self.conversations.lock().await.remove(conversation_id);
+        self.jobs.close_conversation(conversation_id);
         if let Err(error) = restore_points::close_conversation(&self.data_dir, conversation_id) {
             tracing::warn!(conversation_id, %error, "agent tool restore-point cleanup failed");
         }
@@ -234,6 +323,7 @@ impl ToolHost {
                 Err(_) => true,
             }
         });
+        self.jobs.evict_idle();
     }
 }
 

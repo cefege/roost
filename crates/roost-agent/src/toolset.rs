@@ -4,7 +4,8 @@
 
 use roost_llm::ToolSpec;
 use roost_protocol::wire::agent_chat::{
-    TOOL_BASH, TOOL_EDIT, TOOL_GLOB, TOOL_GREP, TOOL_LSP, TOOL_READ, TOOL_WRITE, worker_tool_specs,
+    TOOL_BASH, TOOL_EDIT, TOOL_GLOB, TOOL_GREP, TOOL_JOB, TOOL_LSP, TOOL_READ, TOOL_WAIT,
+    TOOL_WRITE, with_intent_field, worker_tool_specs,
 };
 use serde_json::json;
 
@@ -100,12 +101,14 @@ pub fn toolset_for(record: &ConversationRecord, depth: u32, find_available: bool
     let read_only_lsp = plan_mode || kind == Some(SubagentKind::Scout);
     let worker_names: &[&str] = match kind {
         Some(SubagentKind::Scout) => &[TOOL_READ, TOOL_GREP, TOOL_GLOB, TOOL_LSP],
-        Some(SubagentKind::Reviewer) => &[TOOL_READ, TOOL_GREP, TOOL_GLOB, TOOL_LSP, TOOL_BASH],
-        Some(SubagentKind::Task) | None if plan_mode => {
-            &[TOOL_READ, TOOL_GREP, TOOL_GLOB, TOOL_LSP, TOOL_BASH]
-        }
+        Some(SubagentKind::Reviewer) => &[
+            TOOL_READ, TOOL_GREP, TOOL_GLOB, TOOL_LSP, TOOL_BASH, TOOL_JOB,
+        ],
+        Some(SubagentKind::Task) | None if plan_mode => &[
+            TOOL_READ, TOOL_GREP, TOOL_GLOB, TOOL_LSP, TOOL_BASH, TOOL_JOB,
+        ],
         Some(SubagentKind::Task) | None => &[
-            TOOL_READ, TOOL_GREP, TOOL_GLOB, TOOL_LSP, TOOL_BASH, TOOL_EDIT, TOOL_WRITE,
+            TOOL_READ, TOOL_GREP, TOOL_GLOB, TOOL_LSP, TOOL_BASH, TOOL_JOB, TOOL_EDIT, TOOL_WRITE,
         ],
     };
     // `edit` and `write` exist only in the non-read-only list, and no
@@ -135,6 +138,9 @@ pub fn toolset_for(record: &ConversationRecord, depth: u32, find_available: bool
     if kind != Some(SubagentKind::Scout) {
         specs.push(todo_spec());
     }
+    if worker_names.contains(&TOOL_BASH) {
+        specs.push(wait_spec());
+    }
     if kind.is_none() {
         specs.push(ask_spec());
     }
@@ -145,7 +151,13 @@ pub fn toolset_for(record: &ConversationRecord, depth: u32, find_available: bool
     } else {
         specs.push(goal_spec());
     }
-    let specs = keep_first_tool_names(specs);
+    let specs = keep_first_tool_names(specs)
+        .into_iter()
+        .map(|mut spec| {
+            spec.parameters = with_intent_field(spec.parameters);
+            spec
+        })
+        .collect();
     Toolset {
         specs,
         lsp_read_only: read_only_lsp,
@@ -314,6 +326,19 @@ pub fn goal_spec() -> ToolSpec {
         }),
     }
 }
+
+pub fn wait_spec() -> ToolSpec {
+    ToolSpec {
+        name: TOOL_WAIT.into(),
+        description: "Block until a background job you started finishes or a message arrives. Returns at once if none is running. Safety cap 30 minutes returns a still-running snapshot. Results arrive as follow-up messages; do not poll.".into(),
+        parameters: json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }),
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {

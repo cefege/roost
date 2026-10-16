@@ -72,9 +72,20 @@ fn render_entry(entry: &Entry) -> Option<String> {
             ..
         } if !delivered => Some(format!("## Advisory card ({})\n{note}", severity.as_str())),
         Entry::Advisory { .. } => None,
+        Entry::BackgroundJob {
+            job_id,
+            command,
+            state,
+            output,
+            ..
+        } => Some(format!(
+            "## Background job {job_id} ({})\n{command}\n{}",
+            state.as_str(),
+            truncate(output, TOOL_RESULT_LIMIT)
+        )),
         Entry::Todo { phases } => Some(format!(
             "## Task list\n{}",
-            crate::history::todo_message(phases)
+            crate::todo_notice::todo_message(phases)
         )),
         Entry::Ask {
             questions, answers, ..

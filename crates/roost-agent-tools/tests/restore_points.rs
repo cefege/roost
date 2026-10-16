@@ -24,6 +24,7 @@ async fn call(
     let result = host
         .call(
             ToolCallRequest {
+                call_id: tool.to_owned(),
                 conversation_id: conversation_id.to_owned(),
                 cwd: cwd.to_path_buf(),
                 tool: tool.to_owned(),
@@ -45,7 +46,7 @@ async fn edit_then_write_rewinds_to_original_and_deletes_created_file() {
     let cwd = tempfile::tempdir().expect("working directory");
     let original = cwd.path().join("original.txt");
     std::fs::write(&original, "before\n").expect("original file");
-    let host = ToolHost::new(data_dir.path().to_path_buf());
+    let host = ToolHost::new(data_dir.path().to_path_buf(), mpsc::unbounded_channel().0);
     let conversation_id = "rewind-edit-write";
     let read = call(
         &host,
@@ -120,7 +121,7 @@ async fn move_remove_restore_and_checkpoint_range_are_respected() {
     std::fs::write(cwd.path().join("source.txt"), "move me\n").expect("source");
     std::fs::write(cwd.path().join("remove.txt"), "keep me\n").expect("remove target");
     std::fs::write(cwd.path().join("earlier.txt"), "original\n").expect("earlier file");
-    let host = ToolHost::new(data_dir.path().to_path_buf());
+    let host = ToolHost::new(data_dir.path().to_path_buf(), mpsc::unbounded_channel().0);
     let conversation_id = "rewind-move-remove";
     let source_read = call(
         &host,

@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 pub use super::interaction::{AskOption, AskQuestion, TodoPhase, TodoStatus, TodoTask};
+use super::jobs::JobState;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelRef {
@@ -131,6 +132,18 @@ pub enum TranscriptItem {
         details_json: String,
         #[serde(default)]
         children: Vec<String>,
+    },
+    /// A background job that settled. A standalone item, never a tool step, so the
+    /// result reads as its own transcript row. `id` is `job_<job_id>`.
+    #[serde(rename = "background_job")]
+    BackgroundJob {
+        id: String,
+        job_id: String,
+        command: String,
+        state: JobState,
+        is_error: bool,
+        output: String,
+        exit_code: Option<i32>,
     },
     #[serde(rename = "notice")]
     Notice {

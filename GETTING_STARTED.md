@@ -195,10 +195,24 @@ over the worker link. For a proxy or alternate provider endpoint, set
 `ROOST_AGENT_ENDPOINT_OVERRIDES` to a JSON object mapping provider names to base
 URLs, for example `{"anthropic":"https://gateway.example"}`.
 
+Background jobs: a `bash` call with `async` set returns a job id (`bg_N`) at once,
+and the command keeps running on its worker. A foreground `bash` call that runs
+longer than 60 s moves into a background job by itself and returns its id. The
+`wait` tool blocks until a running job settles and answers at once when none runs;
+the `job` tool lists jobs, shows a job's output, or cancels one. A settled job is
+delivered into its conversation as a notice, which starts a new run when the chat
+is idle. Each chat may hold 15 running jobs; a sixteenth is refused until one
+settles or is cancelled. Jobs live on their worker's coordinator link: if that
+link drops, the jobs are reported as failed, since their outcome is unknown and
+nothing is replayed. Aborting a chat cancels its running jobs.
+
 In the agent composer, the model button opens **Models**: every model role
 this chat runs, under OMP's role names (Default, Fast, Thinking, Architect,
-Subtask, Tiny, Judge, Advisor), with the model leading each. Pick a role
-to change its model in place; the change saves for all folders, or choose
+Subtask, Tiny, Judge, Advisor), with the model leading each; the **ⓘ** button
+shows what each role is for. Pick a role to change its model in place and
+its **Thinking** level (Chat's level follows `/effort`; Auto picks a level per
+request; or a fixed level the model accepts, saved as the model's `:level`
+suffix); the change saves for all folders, or choose
 **This folder** to override it for this chat's folder only. The row marked
 **This chat** is the role this chat runs on (Architect in plan mode, a
 subagent's own role), and changing it moves the chat onto the new model even

@@ -1,355 +1,204 @@
-//! Shell command execution for worker-side tool calls.
-//! Called by `ToolHost` with a conversation directory and cancellation token.
-//! Uses the shared worker search path and bounds retained output in memory.
+//! The `bash` tool: runs one shell command in the foreground and turns it into a
+//! background job when asked (`async: true`), when it outlives the auto-background
+//! threshold, or when the model steers mid-call. A backgrounded call returns at
+//! once with its job id; the settled result is reported later by the job registry.
 
-use std::{
-    fmt::Write as _,
-    path::{Path, PathBuf},
-    process::Stdio,
-    time::{Duration, Instant},
-};
+use std::{fmt::Write as _, path::PathBuf, sync::Arc, time::Duration};
 
-use getrandom::fill;
-use roost_protocol::wire::agent_chat::BashArgs;
+use roost_protocol::wire::agent_chat::{BashArgs, JobState, async_details_json};
 use tokio::{
-    fs::OpenOptions,
-    io::{AsyncReadExt, AsyncWriteExt},
-    process::{Child, Command},
-    sync::mpsc,
+    sync::{Mutex, Notify, mpsc},
+    task::{JoinError, JoinHandle},
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::{outcome::ToolOutcome, search_path::extended_path_value};
+use crate::{
+    bash_capture::BashCapture,
+    bash_process::{BashProcess, LiveSink, run_bash_process},
+    jobs::{JobLimitReached, JobRegistry},
+    outcome::ToolOutcome,
+};
 
-const OUTPUT_LIMIT: usize = 50 * 1024;
-const STREAM_CHUNK: usize = 8 * 1024;
+pub const DEFAULT_AUTO_BACKGROUND_AFTER: Duration = Duration::from_secs(60);
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_TIMEOUT_SECS: u64 = 3600;
 
+/// Everything one `bash` call needs from its host.
+#[derive(Debug)]
+pub struct BashCall {
+    pub data_dir: PathBuf,
+    pub cwd: PathBuf,
+    pub conversation_id: String,
+    pub args: BashArgs,
+    pub timeout_ms: u32,
+    pub auto_background_after: Duration,
+    /// Fired by a steer; detaches this call into a background job.
+    pub detach: Arc<Notify>,
+    pub jobs: Arc<JobRegistry>,
+}
+
+/// The state one bash process writes into. The foreground call owns it until a
+/// detach hands the same state to the job registry.
+struct ProcessRun {
+    capture: Arc<Mutex<BashCapture>>,
+    live: LiveSink,
+    cancel: CancellationToken,
+}
+
 pub async fn bash_tool(
-    data_dir: &Path,
-    cwd: &Path,
-    args: BashArgs,
-    timeout_ms: u32,
+    call: BashCall,
     out: &mpsc::Sender<String>,
     cancel: CancellationToken,
 ) -> ToolOutcome {
-    let timeout = args
-        .timeout
-        .map(|seconds| Duration::from_secs(seconds.clamp(1, MAX_TIMEOUT_SECS)))
-        .unwrap_or_else(|| {
-            if timeout_ms == 0 {
-                DEFAULT_TIMEOUT
-            } else {
-                Duration::from_millis(u64::from(timeout_ms))
-            }
-        });
-    let started = Instant::now();
-    let mut command = shell_command(&args.command, cwd, data_dir);
-    command
-        .current_dir(cwd)
-        .env("PATH", extended_path_value(cwd, data_dir))
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    #[cfg(unix)]
-    command.process_group(0);
-    let mut child = match command.spawn() {
-        Ok(child) => child,
-        Err(error) => return ToolOutcome::failure(format!("failed to start shell: {error}")),
+    let timeout = resolve_timeout(call.args.timeout, call.timeout_ms);
+    if call.args.background == Some(true) {
+        return start_explicit_job(&call, timeout);
+    }
+    let run = ProcessRun {
+        capture: Arc::new(Mutex::new(BashCapture::new(&call.data_dir))),
+        live: LiveSink::attached(out.clone()),
+        cancel: CancellationToken::new(),
     };
-    let Some(stdout) = child.stdout.take() else {
-        return ToolOutcome::failure("failed to capture shell output");
-    };
-    let Some(stderr) = child.stderr.take() else {
-        return ToolOutcome::failure("failed to capture shell output");
-    };
-    let (chunks_tx, mut chunks_rx) = mpsc::channel::<Vec<u8>>(32);
-    tokio::spawn(pump(stdout, chunks_tx.clone()));
-    tokio::spawn(pump(stderr, chunks_tx));
-
-    let deadline = tokio::time::sleep(timeout);
-    tokio::pin!(deadline);
-    let mut retained = Vec::with_capacity(OUTPUT_LIMIT);
-    let mut spill: Option<SpillFile> = None;
-    let mut timed_out = false;
-    let mut cancelled = false;
-    let status = loop {
-        tokio::select! {
-            _ = cancel.cancelled() => { cancelled = true; terminate_child(&mut child).await; break None; }
-            _ = &mut deadline => { timed_out = true; terminate_child(&mut child).await; break None; }
-            chunk = chunks_rx.recv() => {
-                if let Some(chunk) = chunk {
-                    if let Err(error) = retain_tail(data_dir, &chunk, &mut retained, &mut spill).await {
-                        terminate_child(&mut child).await;
-                        return ToolOutcome::failure(error);
-                    }
-                    let _ = out.send(String::from_utf8_lossy(&chunk).into_owned()).await;
-                }
-                else if let Ok(Some(status)) = child.try_wait() { break Some(status); }
-                else { tokio::task::yield_now().await; }
-            }
-            result = child.wait() => { break result.ok(); }
-        }
-    };
-    while let Some(chunk) = chunks_rx.recv().await {
-        if let Err(error) = retain_tail(data_dir, &chunk, &mut retained, &mut spill).await {
-            return ToolOutcome::failure(error);
-        }
-        let _ = out.send(String::from_utf8_lossy(&chunk).into_owned()).await;
-    }
-    let mut content = String::from_utf8_lossy(&retained).into_owned();
-    let artifact_path = spill.as_ref().map(|file| file.path.display().to_string());
-    if let Some(path) = &artifact_path {
-        let _ = write!(content, "\n[earlier output saved to {path}]");
-    }
-    let details = serde_json::json!({
-        "exit_code": status.as_ref().and_then(|status| status.code()),
-        "duration_ms": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-        "timed_out": timed_out,
-        "cancelled": cancelled,
-        "truncated": artifact_path.is_some(),
-        "artifact_path": artifact_path,
-        "artifact_complete": false,
-    });
-    if timed_out {
-        return ToolOutcome::failure(format!(
-            "command timed out after {} ms\n{content}",
-            timeout.as_millis()
-        ))
-        .with_details(details);
-    }
-    if cancelled {
-        return ToolOutcome::failure(format!("command cancelled\n{content}")).with_details(details);
-    }
-    match status {
-        Some(status) => {
-            if status.success() {
-                ToolOutcome::success(content).with_details(details)
-            } else {
-                ToolOutcome::failure(format!(
-                    "exit {}\n{content}",
-                    status
-                        .code()
-                        .map_or_else(|| "signal".to_owned(), |code| code.to_string())
-                ))
-                .with_details(details)
-            }
-        }
-        None => ToolOutcome::failure(format!("command failed\n{content}")).with_details(details),
-    }
-}
-
-fn shell_command(script: &str, _cwd: &Path, _data_dir: &Path) -> Command {
-    #[cfg(unix)]
-    {
-        let mut command = Command::new("bash");
-        command.args(["-lc", script]);
-        command
-    }
-    #[cfg(windows)]
-    {
-        if let Some(binary) = crate::search_path::resolve_binary("bash", _cwd, _data_dir) {
-            let mut command = Command::new(binary);
-            command.args(["-lc", script]);
-            command
-        } else {
-            let mut command = Command::new("powershell");
-            command.args(["-NoProfile", "-Command", script]);
-            command
-        }
-    }
-}
-
-async fn pump<R>(mut reader: R, sender: mpsc::Sender<Vec<u8>>)
-where
-    R: tokio::io::AsyncRead + Unpin + Send + 'static,
-{
-    let mut buffer = vec![0; STREAM_CHUNK];
+    let mut process = spawn_process(&call, timeout, &run);
+    let auto_threshold = auto_background_threshold(call.auto_background_after, timeout);
+    let auto_timer = tokio::time::sleep(auto_threshold.unwrap_or_default());
+    tokio::pin!(auto_timer);
+    let mut auto_pending = auto_threshold.is_some();
     loop {
-        match reader.read(&mut buffer).await {
-            Ok(0) | Err(_) => break,
-            Ok(count) if sender.send(buffer[..count].to_vec()).await.is_err() => break,
-            Ok(_) => {}
+        tokio::select! {
+            joined = &mut process => return join_outcome(joined),
+            _ = cancel.cancelled() => {
+                run.cancel.cancel();
+                return join_outcome(process.await);
+            }
+            _ = &mut auto_timer, if auto_pending => {
+                auto_pending = false;
+                if let Ok(job_id) = register_process(&call, &run) {
+                    return detach_to_job(&call, &run, process, &job_id, timeout, false).await;
+                }
+            }
+            _ = call.detach.notified() => {
+                if let Ok(job_id) = register_process(&call, &run) {
+                    return detach_to_job(&call, &run, process, &job_id, timeout, true).await;
+                }
+            }
         }
     }
 }
 
-struct SpillFile {
-    path: PathBuf,
-    file: tokio::fs::File,
+fn start_explicit_job(call: &BashCall, timeout: Duration) -> ToolOutcome {
+    let run = ProcessRun {
+        capture: Arc::new(Mutex::new(BashCapture::new(&call.data_dir))),
+        live: LiveSink::detached(),
+        cancel: CancellationToken::new(),
+    };
+    match register_process(call, &run) {
+        Ok(job_id) => {
+            let process = spawn_process(call, timeout, &run);
+            supervise_job(&call.jobs, &call.conversation_id, &job_id, process);
+            started_outcome(&job_id, timeout, false, String::new())
+        }
+        Err(error) => ToolOutcome::failure(error.to_string()),
+    }
 }
 
-async fn retain_tail(
-    data_dir: &Path,
-    chunk: &[u8],
-    retained: &mut Vec<u8>,
-    spill: &mut Option<SpillFile>,
-) -> Result<(), String> {
-    let excess = retained
-        .len()
-        .saturating_add(chunk.len())
-        .saturating_sub(OUTPUT_LIMIT);
-    if excess == 0 {
-        retained.extend_from_slice(chunk);
-        return Ok(());
-    }
-    let old_excess = excess.min(retained.len());
-    append_spill(data_dir, spill, &retained[..old_excess]).await?;
-    retained.drain(..old_excess);
-    let chunk_excess = excess - old_excess;
-    append_spill(data_dir, spill, &chunk[..chunk_excess]).await?;
-    retained.extend_from_slice(&chunk[chunk_excess..]);
-    Ok(())
+async fn detach_to_job(
+    call: &BashCall,
+    run: &ProcessRun,
+    process: JoinHandle<ToolOutcome>,
+    job_id: &str,
+    timeout: Duration,
+    steered: bool,
+) -> ToolOutcome {
+    run.live.detach().await;
+    let latest_output = run.capture.lock().await.content();
+    supervise_job(&call.jobs, &call.conversation_id, job_id, process);
+    started_outcome(job_id, timeout, steered, latest_output)
 }
 
-async fn append_spill(
-    data_dir: &Path,
-    spill: &mut Option<SpillFile>,
-    bytes: &[u8],
-) -> Result<(), String> {
-    if bytes.is_empty() {
-        return Ok(());
-    }
-    if spill.is_none() {
-        let directory = data_dir.join("agent-tools").join("spill");
-        tokio::fs::create_dir_all(&directory)
-            .await
-            .map_err(|error| format!("failed to create spill directory: {error}"))?;
-        let mut random = [0_u8; 16];
-        fill(&mut random).map_err(|error| format!("failed to name output spill file: {error}"))?;
-        let path = directory.join(format!("{}.log", hex(&random)));
-        let file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
-            .await
-            .map_err(|error| format!("failed to create spill file: {error}"))?;
-        *spill = Some(SpillFile { path, file });
-    }
-    if let Some(spill_file) = spill {
-        spill_file
-            .file
-            .write_all(bytes)
-            .await
-            .map_err(|error| format!("failed to spill command output: {error}"))?;
-    }
-    Ok(())
+fn register_process(call: &BashCall, run: &ProcessRun) -> Result<String, JobLimitReached> {
+    call.jobs.register(
+        &call.conversation_id,
+        &call.args.command,
+        run.cancel.clone(),
+        run.capture.clone(),
+    )
 }
 
-fn hex(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
-    let mut value = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        let _ = write!(value, "{byte:02x}");
-    }
-    value
+fn spawn_process(call: &BashCall, timeout: Duration, run: &ProcessRun) -> JoinHandle<ToolOutcome> {
+    tokio::spawn(run_bash_process(BashProcess {
+        data_dir: call.data_dir.clone(),
+        cwd: call.cwd.clone(),
+        script: call.args.command.clone(),
+        timeout,
+        capture: run.capture.clone(),
+        live: run.live.clone(),
+        cancel: run.cancel.clone(),
+    }))
 }
 
-async fn terminate_child(child: &mut Child) {
-    #[cfg(unix)]
-    if let Some(pid) = child.id() {
-        let _ = Command::new("kill")
-            .args(["-KILL", "--", &format!("-{pid}")])
-            .status()
-            .await;
+/// Hands the finished process to the registry, which records its outcome once.
+fn supervise_job(
+    jobs: &Arc<JobRegistry>,
+    conversation_id: &str,
+    job_id: &str,
+    process: JoinHandle<ToolOutcome>,
+) {
+    let jobs = jobs.clone();
+    let conversation_id = conversation_id.to_owned();
+    let job_id = job_id.to_owned();
+    tokio::spawn(async move {
+        let outcome = join_outcome(process.await);
+        jobs.settle(&conversation_id, &job_id, outcome);
+    });
+}
+
+fn join_outcome(joined: Result<ToolOutcome, JoinError>) -> ToolOutcome {
+    joined.unwrap_or_else(|error| ToolOutcome::failure(format!("command task failed: {error}")))
+}
+
+fn resolve_timeout(seconds: Option<u64>, timeout_ms: u32) -> Duration {
+    match seconds {
+        Some(seconds) => Duration::from_secs(seconds.clamp(1, MAX_TIMEOUT_SECS)),
+        None if timeout_ms == 0 => DEFAULT_TIMEOUT,
+        None => Duration::from_millis(u64::from(timeout_ms)),
     }
-    let _ = child.start_kill();
-    let _ = child.wait().await;
+}
+
+/// The configured threshold, capped one second short of the command's own deadline
+/// so a command never auto-backgrounds in the last second before it is killed.
+fn auto_background_threshold(configured: Duration, timeout: Duration) -> Option<Duration> {
+    let threshold = configured.min(timeout.saturating_sub(Duration::from_secs(1)));
+    (!threshold.is_zero()).then_some(threshold)
+}
+
+fn started_outcome(
+    job_id: &str,
+    timeout: Duration,
+    steered: bool,
+    latest_output: String,
+) -> ToolOutcome {
+    let mut content = String::new();
+    if steered {
+        content.push_str(
+            "Backgrounded early to handle an incoming message; the command keeps running.\n",
+        );
+    }
+    let _ = write!(
+        content,
+        "Backgrounded as job {job_id} (killed once it has run {}s in total); its output is injected into the conversation as a follow-up the moment it finishes. Do NOT poll for it (no `sleep`, `ps`, `pgrep`, `top`, `pidwait`, log tailing): every poll is a wasted turn. Do other work, or end your reply and wait to be woken.",
+        timeout.as_secs()
+    );
+    if !latest_output.is_empty() {
+        let _ = write!(content, "\n\nOutput so far:\n{latest_output}");
+    }
+    ToolOutcome {
+        is_error: false,
+        content,
+        details_json: async_details_json(JobState::Running, job_id),
+    }
 }
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
-mod tests {
-    use super::*;
-    use tempfile::tempdir;
-
-    async fn execute(
-        script: &str,
-        timeout_ms: u32,
-        cancel: CancellationToken,
-        out: &mpsc::Sender<String>,
-    ) -> ToolOutcome {
-        let directory = tempdir().expect("tempdir");
-        bash_tool(
-            directory.path(),
-            directory.path(),
-            BashArgs {
-                command: script.to_owned(),
-                timeout: None,
-            },
-            timeout_ms,
-            out,
-            cancel,
-        )
-        .await
-    }
-
-    #[tokio::test]
-    async fn streams_output_and_preserves_nonzero_exit_status() {
-        let (out, mut chunks) = mpsc::channel(4);
-        let result = execute("printf streamed; exit 7", 0, CancellationToken::new(), &out).await;
-        assert!(result.is_error);
-        let details: serde_json::Value = serde_json::from_str(&result.details_json).unwrap();
-        assert_eq!(details["exit_code"], 7);
-        assert!(
-            chunks
-                .recv()
-                .await
-                .expect("stream chunk")
-                .contains("streamed")
-        );
-    }
-
-    #[tokio::test]
-    async fn enforces_timeout() {
-        let (out, _) = mpsc::channel(4);
-        let result = execute("sleep 5", 50, CancellationToken::new(), &out).await;
-        assert!(result.is_error);
-        let details: serde_json::Value = serde_json::from_str(&result.details_json).unwrap();
-        assert_eq!(details["timed_out"], true);
-        assert_eq!(details["cancelled"], false);
-    }
-
-    #[tokio::test]
-    async fn cancellation_terminates_command() {
-        let (out, _) = mpsc::channel(4);
-        let cancellation = CancellationToken::new();
-        let child_cancel = cancellation.clone();
-        let task = tokio::spawn(async move { execute("sleep 5", 0, child_cancel, &out).await });
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        cancellation.cancel();
-        let result = task.await.expect("bash task");
-        assert!(result.is_error);
-        let details: serde_json::Value = serde_json::from_str(&result.details_json).unwrap();
-        assert_eq!(details["cancelled"], true);
-        assert_eq!(details["timed_out"], false);
-    }
-
-    #[tokio::test]
-    async fn spilled_prefix_is_not_advertised_as_complete_output() {
-        let directory = tempdir().unwrap();
-        let (out, _) = mpsc::channel(64);
-        let result = bash_tool(
-            directory.path(),
-            directory.path(),
-            BashArgs {
-                command: "printf '%60000s' ''; printf tail-marker".into(),
-                timeout: None,
-            },
-            0,
-            &out,
-            CancellationToken::new(),
-        )
-        .await;
-        let details: serde_json::Value = serde_json::from_str(&result.details_json).unwrap();
-        assert_eq!(details["truncated"], true);
-        assert_eq!(details["artifact_complete"], false);
-        let earlier = tokio::fs::read_to_string(details["artifact_path"].as_str().unwrap())
-            .await
-            .unwrap();
-        assert!(!earlier.contains("tail-marker"));
-        assert!(result.content.contains("tail-marker"));
-    }
-}
+mod tests;

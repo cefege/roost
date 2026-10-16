@@ -162,6 +162,22 @@ pub fn entry_item(seq: u64, entry: &Entry, tools: &ToolCallIndex) -> Option<Tran
             note: note.clone(),
             delivered: *delivered,
         }),
+        Entry::BackgroundJob {
+            job_id,
+            command,
+            state,
+            is_error,
+            output,
+            exit_code,
+        } => Some(TranscriptItem::BackgroundJob {
+            id: format!("job{seq}"),
+            job_id: job_id.clone(),
+            command: command.clone(),
+            state: *state,
+            is_error: *is_error,
+            output: output.clone(),
+            exit_code: *exit_code,
+        }),
         Entry::Todo { phases } => Some(TranscriptItem::Todo {
             id: TODO_ITEM_ID.into(),
             phases: phases.clone(),
@@ -228,6 +244,7 @@ pub fn item_id(item: &TranscriptItem) -> &str {
         TranscriptItem::User { id, .. }
         | TranscriptItem::Assistant { id, .. }
         | TranscriptItem::Tool { id, .. }
+        | TranscriptItem::BackgroundJob { id, .. }
         | TranscriptItem::Notice { id, .. }
         | TranscriptItem::Plan { id, .. }
         | TranscriptItem::Goal { id, .. }

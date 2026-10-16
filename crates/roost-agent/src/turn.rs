@@ -251,7 +251,7 @@ pub(crate) async fn take_turn(
             .iter()
             .rev()
             .find_map(|(_, entry)| match entry {
-                Entry::Todo { phases } => Some(history::todo_message(phases)),
+                Entry::Todo { phases } => Some(crate::todo_notice::todo_message(phases)),
                 _ => None,
             })
             .unwrap_or_default();

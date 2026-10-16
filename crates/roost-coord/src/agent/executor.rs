@@ -59,4 +59,19 @@ impl ToolExecutor for WorkerToolExecutor {
         self.registry.close_conversation(worker_fp, conversation_id);
         Box::pin(async {})
     }
+
+    fn detach_background_calls<'a>(&'a self, conversation_id: &'a str) -> BoxFuture<'a, ()> {
+        self.registry.detach_calls(conversation_id);
+        Box::pin(async {})
+    }
+
+    fn abort_background_jobs<'a>(&'a self, conversation_id: &'a str) -> BoxFuture<'a, ()> {
+        self.registry.abort_jobs(conversation_id);
+        Box::pin(async {})
+    }
+
+    fn running_background_jobs<'a>(&'a self, conversation_id: &'a str) -> BoxFuture<'a, usize> {
+        let count = self.registry.running_jobs(conversation_id);
+        Box::pin(async move { count })
+    }
 }
