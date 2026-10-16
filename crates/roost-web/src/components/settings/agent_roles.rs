@@ -78,7 +78,7 @@ pub const ROLES: [(&str, &str, &str, &str); 9] = [
     ),
 ];
 
-const WEB_ENGINES: [(&str, &str); 16] = [
+pub(crate) const WEB_ENGINES: [(&str, &str); 16] = [
     ("web/hosted", "Hosted search"),
     ("web/exa", "Exa"),
     ("web/parallel", "Parallel"),

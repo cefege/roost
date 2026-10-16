@@ -1,5 +1,5 @@
 //! The presets row at the top of the composer's model panel: one chip per
-//! preset (the Anthropic and OpenAI starters, then saved ones), the one in use
+//! preset in name order (starters and saved ones together), the one in use
 //! checked; a tap applies it to all folders. "Save as" stores the current
 //! roles under a name, replacing a preset of that name. Mounted by
 //! `role_switcher`; shares its pure rules with the models hub (`role_switch`).

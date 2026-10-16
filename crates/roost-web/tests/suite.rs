@@ -54,6 +54,8 @@ mod md_select;
 mod mic_unmount_lifecycle;
 #[path = "model_hub_logic.rs"]
 mod model_hub_logic;
+#[path = "model_hub_mount.rs"]
+mod model_hub_mount;
 #[path = "notification_dock_lift.rs"]
 mod notification_dock_lift;
 #[path = "notify_target_ring.rs"]

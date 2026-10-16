@@ -199,7 +199,11 @@ pub(super) enum Configure {
     Thinking(String),
 }
 
-fn thinking_label(level: &str) -> String {
+/// `xhigh` → `XHigh`, `auto` → `Auto`: a thinking level as a label.
+pub(super) fn thinking_label(level: &str) -> String {
+    if level == "xhigh" {
+        return "XHigh".to_owned();
+    }
     let mut characters = level.chars();
     characters
         .next()

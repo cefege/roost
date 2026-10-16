@@ -37,6 +37,7 @@ pub const COLOR_GROUPS: [ColorGroup; 6] = [
             "--brand-coral",
             "--accent-container",
             "--on-accent",
+            "--chat-accent",
         ],
     },
     ColorGroup {

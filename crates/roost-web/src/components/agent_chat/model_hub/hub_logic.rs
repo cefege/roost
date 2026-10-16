@@ -50,7 +50,7 @@ pub struct HubSection {
 }
 
 fn is_chat(entry: &ModelEntry) -> bool {
-    !entry.classifier
+    super::hub_browse::kind_of(entry) == "chat"
 }
 
 fn is_available_chat(entry: &ModelEntry) -> bool {

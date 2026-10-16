@@ -6,6 +6,7 @@
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{AgentSettingsView, ModelsCatalog};
 
+use super::model_controls::thinking_label;
 use super::role_switch::{RoleLine, thinking_choices, with_role_thinking};
 use crate::components::md::Chip;
 use crate::components::settings::agent_roles::save_settings;
@@ -40,7 +41,7 @@ pub(super) fn RoleThinking(
             for level in options {
                 {
                     let selected = line.thinking == level;
-                    let label = level.as_deref().map_or_else(|| "Chat's level".to_owned(), level_label);
+                    let label = level.as_deref().map_or_else(|| "Chat's level".to_owned(), thinking_label);
                     let title = match level.as_deref() {
                         None => "Follow this chat's own thinking level (/effort)".to_owned(),
                         Some("auto") => "Pick a level per request from how open-ended it is".to_owned(),
@@ -66,20 +67,6 @@ pub(super) fn RoleThinking(
                     }
                 }
             }
-        }
-    }
-}
-
-/// `xhigh` → `XHigh`, `auto` → `Auto`: the level as a chip label.
-fn level_label(level: &str) -> String {
-    match level {
-        "xhigh" => "XHigh".to_owned(),
-        other => {
-            let mut characters = other.chars();
-            characters
-                .next()
-                .map(|first| first.to_uppercase().chain(characters).collect())
-                .unwrap_or_default()
         }
     }
 }
