@@ -1,5 +1,5 @@
-//! The chat in an agent deck tab: header, then either the welcome (nothing said
-//! yet, composer centred) or the transcript with the composer docked below.
+//! The chat in an agent deck tab: header, the transcript, and the composer
+//! docked below it — a new chat starts the same way, empty above the composer.
 //! It owns the snapshot lifecycle (fetch when absent or stale, retry, not
 //! found), the model catalog, the draft, stick-to-bottom scrolling and the
 //! code-block Copy delegation. Mounted by the deck's `AgentSlot`.
@@ -8,13 +8,12 @@ use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{AgentRunState, ModelsCatalog, ProviderEntry, Transcript};
 
 use super::composer::AgentComposer;
-use super::header::{AgentChatHeader, short_path};
+use super::header::AgentChatHeader;
 use super::interaction_cards::TodoCard;
 use super::loop_controls::LoopControls;
 use super::model_controls::{ModelSetup, ModelSetupCard};
 use super::model_hub::ModelHub;
-use super::surface_state::{is_blank, latest_todo, loop_status};
-use super::welcome::AgentWelcome;
+use super::surface_state::{latest_todo, loop_status};
 use crate::components::md::{ButtonVariant, EmptyState, IconButton, IconButtonSize, Skeleton};
 use crate::pump::use_store;
 
@@ -49,7 +48,7 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
     #[allow(unused_mut)]
     let mut catalog_failed = use_signal(|| false);
     let mut catalog_attempt = use_signal(|| 0_u32);
-    let mut draft = use_signal(String::new);
+    let draft = use_signal(String::new);
     let model_hub_open = use_signal(|| false);
     let connect_provider = use_signal(|| None::<ProviderEntry>);
     // Opening the hub refetches the catalog so its recent models are current.
@@ -59,7 +58,6 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
             catalog_attempt.set(next);
         }
     });
-    let mut field = use_signal(|| None::<std::rc::Rc<MountedData>>);
     let mut scroll_node = use_signal(|| None::<std::rc::Rc<MountedData>>);
     // Decided on scroll, not after render: by the time a large chunk of output
     // has rendered, the distance to the bottom already includes it.
@@ -179,7 +177,6 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
             running,
             host_connected,
             pump: pump.clone(),
-            on_field_mounted: move |node| field.set(Some(node)),
             model_hub_open,
             connect_provider,
         }
@@ -191,24 +188,6 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
             connect_provider,
         }
     };
-    if is_blank(&transcript) {
-        return rsx! {
-            div { class: "agent-chat", "data-empty": "true",
-                {header}
-                AgentWelcome {
-                    folder: short_path(&conversation.cwd).rsplit('/').next().unwrap_or_default().to_string(),
-                    machine: conversation.worker_label.clone(),
-                    show_suggestions: setup == ModelSetup::Ready,
-                    on_suggest: move |text: String| {
-                        draft.set(text);
-                        focus(field());
-                    },
-                    ModelSetupCard { setup, on_retry: retry_catalog }
-                    {composer}
-                }
-            }
-        };
-    }
     rsx! {
         div { class: "agent-chat",
             {header}
@@ -308,16 +287,6 @@ fn read_store(pump: &crate::pump::Pump, conversation_id: &str) -> StoreReading {
         store.agent_chat.host_connected,
         online,
     )
-}
-
-#[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
-fn focus(field: Option<std::rc::Rc<MountedData>>) {
-    #[cfg(target_arch = "wasm32")]
-    if let Some(field) = field {
-        wasm_bindgen_futures::spawn_local(async move {
-            let _ = field.set_focus(true).await;
-        });
-    }
 }
 
 /// A click on a code block's Copy button copies that block and says so.

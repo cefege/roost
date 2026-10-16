@@ -560,50 +560,6 @@
 .agent-chat__action { flex: none; }
 .agent-chat__action[aria-disabled="true"] { opacity: 0.4; pointer-events: none; }
 
-/* ── welcome ─────────────────────────────────────────────────────────── */
-
-.agent-chat__welcome {
-  display: flex;
-  flex: 1 1 auto;
-  align-items: center;
-  justify-content: center;
-  min-height: 0;
-  overflow-y: auto;
-  padding: var(--md-space-6) var(--md-space-5);
-}
-
-.agent-chat__welcome-inner {
-  display: flex;
-  flex-direction: column;
-  gap: var(--md-space-4);
-  width: 100%;
-  max-width: var(--agent-chat-column);
-  margin-bottom: calc(var(--md-space-9) * 2);
-}
-
-.agent-chat__welcome-title {
-  margin: 0;
-  color: var(--md-sys-color-on-surface);
-  font-size: var(--md-title-l-size);
-  font-weight: var(--md-title-l-weight);
-  line-height: var(--md-title-l-line);
-  text-align: center;
-}
-
-.agent-chat__welcome-hint {
-  margin: calc(var(--md-space-3) * -1) 0 var(--md-space-2);
-  color: var(--md-sys-color-on-surface-variant);
-  font-size: var(--md-body-m-size);
-  text-align: center;
-}
-
-.agent-chat__suggestions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--md-space-2);
-}
-
 .agent-chat__model-setup-body {
   margin: 0;
   color: var(--md-sys-color-on-surface-variant);
@@ -635,7 +591,6 @@
   .agent-chat__dock { padding: 0 var(--md-space-2) var(--md-space-2); }
   .agent-chat__user-bubble { max-width: 88%; }
   .agent-chat__picker { max-width: calc(var(--md-space-9) * 3); }
-  .agent-chat__welcome-title { font-size: var(--md-title-m-size); line-height: var(--md-title-m-line); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -652,13 +607,6 @@
   inset-inline: 0;
   bottom: calc(100% + var(--md-space-2));
   z-index: 2;
-}
-/* A new chat centres the composer in a scrolling welcome; space above it can
-   be shorter than a panel and would clip it, so there the panels open down. */
-.agent-chat[data-empty] .agent-chat__slash-menu,
-.agent-chat[data-empty] .agent-chat__roles {
-  top: calc(100% + var(--md-space-2));
-  bottom: auto;
 }
 .agent-chat__slash-panel {
   max-height: min(calc(var(--md-space-9) * 7), 40dvh);
@@ -796,11 +744,6 @@
   display: inline-flex;
   align-items: center;
   align-self: flex-start;
-.agent-chat__step-detail-disclosure > summary {
-  padding-block: var(--md-space-1);
-  color: var(--md-sys-color-on-surface-variant);
-  font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);
-}
   gap: var(--md-space-2);
   color: var(--md-sys-color-on-surface-variant);
   font-size: var(--md-body-s-size);
@@ -852,6 +795,11 @@
   color: var(--md-sys-color-primary);
   font: var(--md-label-l-weight) var(--md-label-l-size)/var(--md-label-l-line) var(--md-font);
   cursor: pointer;
+}
+.agent-chat__step-detail-disclosure > summary {
+  padding-block: var(--md-space-1);
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);
 }
 .agent-chat__step-metadata { min-width: 0; }
 .agent-chat__step-pre { max-height: calc(var(--md-space-9) * 8); margin: 0; overflow: auto; font-family: var(--font-mono); font-size: var(--md-body-s-size); white-space: pre-wrap; overflow-wrap: anywhere; }

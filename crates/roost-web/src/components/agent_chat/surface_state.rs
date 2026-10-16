@@ -2,7 +2,7 @@
 //! Todo and loop state have one visible home beside the composer; neither is
 //! rendered as conversation content by the transcript view.
 
-use roost_protocol::wire::agent_chat::{AgentRunState, TodoPhase, Transcript, TranscriptItem};
+use roost_protocol::wire::agent_chat::{TodoPhase, Transcript, TranscriptItem};
 
 pub(super) fn latest_todo(transcript: &Transcript) -> Option<Vec<TodoPhase>> {
     transcript.items.iter().rev().find_map(|item| match item {
@@ -16,12 +16,4 @@ pub(super) fn loop_status(transcript: &Transcript) -> Option<&str> {
         TranscriptItem::LoopStatus { status, .. } => Some(status.as_str()),
         _ => None,
     })
-}
-
-pub(super) fn is_blank(transcript: &Transcript) -> bool {
-    transcript.run_state != AgentRunState::Running
-        && transcript
-            .items
-            .iter()
-            .all(|item| matches!(item, TranscriptItem::LoopStatus { .. }))
 }

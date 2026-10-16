@@ -61,9 +61,8 @@ pub(super) fn submit_message(
     let label = text.clone();
     // The call and its report run apart. The call is unscoped, so it always
     // completes. The report is scoped to the component that sent it: the
-    // first message of a chat swaps the welcome layout for the transcript,
-    // which remounts the composer while the call is in flight, and calling
-    // the old composer's dropped `outcome` would panic the whole app.
+    // composer can unmount while the call is in flight (its tab closes), and
+    // calling a dropped component's `outcome` would panic the whole app.
     let (sent, answer) = futures::channel::oneshot::channel();
     wasm_bindgen_futures::spawn_local(async move {
         let result = match pump

@@ -39,7 +39,6 @@ pub fn AgentComposer(
     running: bool,
     host_connected: bool,
     pump: Pump,
-    on_field_mounted: EventHandler<Rc<MountedData>>,
     model_hub_open: Signal<bool>,
     connect_provider: Signal<Option<ProviderEntry>>,
 ) -> Element {
@@ -207,11 +206,7 @@ pub fn AgentComposer(
                     placeholder,
                     disabled,
                     value: "{draft}",
-                    onmounted: move |event: MountedEvent| {
-                        let data = event.data();
-                        field.set(Some(data.clone()));
-                        on_field_mounted.call(data);
-                    },
+                    onmounted: move |event: MountedEvent| field.set(Some(event.data())),
                     oninput: move |event: FormEvent| {
                         let value = event.value();
                         let next = slash_menu_state(&value, &sources_for_input);

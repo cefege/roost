@@ -40,7 +40,6 @@ mod tool_card;
 mod tool_view;
 mod toolbar_menu;
 mod transcript;
-mod welcome;
 
 pub use launch::launch_agent;
 pub use surface::AgentChatSurface;
