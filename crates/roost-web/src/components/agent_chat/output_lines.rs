@@ -121,9 +121,7 @@ pub(super) struct OutputLine {
 
 /// Whether `tool_name`'s output, or the text itself, is a unified diff.
 pub(super) fn reads_as_diff(tool_name: &str, text: &str) -> bool {
-    tool_name == "edit"
-        || text.starts_with("diff --git")
-        || text.contains("\n@@ ")
+    tool_name == "edit" || text.starts_with("diff --git") || text.contains("\n@@ ")
 }
 
 /// `text` split into styled lines; a trailing newline adds no empty line.
