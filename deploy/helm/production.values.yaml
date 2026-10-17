@@ -1,0 +1,4 @@
+# Written by .github/workflows/promote.yml on the production branch
+# only: the release Flux deploys (deploy/flux/production/).
+image:
+  tag: "3.0.0-rc.71"
