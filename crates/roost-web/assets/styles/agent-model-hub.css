@@ -2,9 +2,49 @@
    the content. The model rows drop their metric columns as the list narrows
    (container queries), so the model name keeps its room. Narrow screens stack
    the view list above the content. Only the lists scroll, so the search field
-   and the view's heading stay in reach. */
+   and the view's heading stay in reach.
+
+   The dialog, body and frame form one definite-height flex chain down to the
+   scrolling panes, the same pattern `.roost-dialog--browse` and
+   `.roost-dialog--command-palette` use: a `fit-content` dialog with only a
+   `max-block-size` cap never actually shrinks a plain block descendant (only
+   a flex item gets shrunk by its flex container), so a fixed-height island
+   further down the tree — the old `.model-hub__layout { block-size: 60dvh }`
+   — rendered at its full height regardless of room, and every pane but the
+   outer dialog body was a plain block box with nothing to scroll inside, so
+   wheel and drag landed on whichever accidental scroller still had room,
+   or nothing. Every box below `.roost-dialog.model-hub--split` must set an
+   actual `block-size` or `flex: 1 1 auto; min-block-size: 0;`, never only a
+   `max-block-size`, so the leaf panes (`.model-hub__rows`, `.model-hub-roles__list`)
+   are the only things with room left over to scroll in. */
 
 /* ── Shared ── */
+.roost-dialog.model-hub--split {
+  /* The dialog's content has no intrinsic width, so take a fixed width
+     rather than fit-content's narrow rail; the model rows need the room. */
+  inline-size: min(
+    calc(var(--roost-dialog-wide-max-inline-size) * 1.4),
+    calc(100vw - 2 * var(--roost-dialog-viewport-margin))
+  );
+  max-inline-size: none;
+  /* A definite height, not just a cap: the body below can then genuinely
+     flex-shrink into it instead of rendering at its natural content size. */
+  block-size: min(var(--roost-dialog-max-block-size), calc(var(--md-space-9) * 14));
+}
+.model-hub--split .roost-dialog__body {
+  display: flex;
+  overflow: hidden;
+  padding: 0;
+}
+.model-hub__frame {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  gap: var(--md-space-2);
+  min-block-size: 0;
+  padding: var(--md-space-5);
+  outline: none;
+}
 .model-hub__content {
   display: flex;
   flex-direction: column;
@@ -29,15 +69,14 @@
 .model-hub__status {
   margin: 0;
   color: var(--md-sys-color-on-surface-variant);
-  font: var(--md-label-l-weight) var(--md-label-l-size)/var(--md-label-l-line) var(--md-font);
+  font: var(--md-label-m-weight) var(--md-label-m-size)/var(--md-label-m-line) var(--md-font);
 }
 .model-hub__empty {
   margin: 0;
   padding: var(--md-space-3) var(--md-space-2);
   color: var(--text-lo);
-  font: var(--md-body-m-weight) var(--md-body-m-size)/var(--md-body-m-line) var(--md-font);
+  font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);
 }
-.model-hub__frame { display: flex; flex-direction: column; gap: var(--md-space-2); min-block-size: 0; outline: none; }
 .model-hub__footer {
   margin: 0;
   color: var(--text-lo);
@@ -45,20 +84,12 @@
 }
 
 /* ── Wide screens ── */
-/* The dialog's content has no intrinsic width, so take a fixed width rather
-   than fit-content's narrow rail; the model rows need the room. */
-.roost-dialog.model-hub--split {
-  inline-size: min(
-    calc(var(--roost-dialog-wide-max-inline-size) * 1.4),
-    calc(100vw - 2 * var(--roost-dialog-viewport-margin))
-  );
-  max-inline-size: none;
-}
 .model-hub__layout {
   display: grid;
   grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr);
   gap: var(--md-space-4);
-  block-size: min(60dvh, 40rem);
+  flex: 1 1 auto;
+  min-block-size: 0;
 }
 .model-hub__sidebar {
   min-block-size: 0;
@@ -77,7 +108,7 @@
   border-radius: var(--md-shape-sm);
   cursor: pointer;
   color: var(--text-mid);
-  font: var(--md-body-m-weight) var(--md-body-m-size)/var(--md-body-m-line) var(--md-font);
+  font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);
 }
 .model-hub__view:hover { background: var(--surface-1); }
 .model-hub__view[aria-selected="true"] { color: var(--text-hi); }
@@ -125,7 +156,7 @@
   border-radius: var(--md-shape-sm);
   cursor: pointer;
   color: var(--text-mid);
-  font: var(--md-body-m-weight) var(--md-body-m-size)/var(--md-body-m-line) var(--md-font);
+  font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);
   white-space: nowrap;
 }
 .model-hub__row--selected { background: var(--surface-2); color: var(--text-hi); }
