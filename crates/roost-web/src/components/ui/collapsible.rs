@@ -103,7 +103,7 @@ pub fn CollapsibleContent(
             class: "{outer}",
             // Collapsed content stays mounted for rust-ui's height transition;
             // `inert` keeps its controls out of the tab order and the AT tree.
-            div { class: tw_merge!("min-h-0", class.as_deref().unwrap_or("")), inert: !open, {children} }
+            div { class: tw_merge!("min-h-0", class.as_deref().unwrap_or("")), inert: (!open).then_some("true"), {children} }
         }
     }
 }
