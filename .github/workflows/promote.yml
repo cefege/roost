@@ -3,12 +3,17 @@ name: promote
 # Puts a published release into production. Called by release.yml once a tag's
 # assets are published, and runnable by hand to roll back:
 #
-#   gh workflow run promote.yml -f tag=v3.0.0-rc.39
+#   gh workflow run promote.yml -f tag=v3.0.0-rc.39 -f allow_rollback=true
 #
 # The floor is v3.0.0-rc.39: the first release whose worker updater reloads
 # the systemd unit and retries launchd's bootstrap. Workers follow the
 # coordinator down as well as up, and a worker sent below the floor would
 # apply the next release with the broken updater, so an older tag is refused.
+# Separately, a tag older than what production CURRENTLY runs is refused too
+# unless `allow_rollback` is set -- a stale approval left waiting at the gate
+# on an older tag (release.yml's workflow_call path never carries this input,
+# so it can never set it) must not force production backward if someone
+# clicks it after a newer tag already promoted.
 #
 # The job runs in the `production` environment, so it waits for an approval
 # in GitHub before it changes anything. It never touches the cluster: it
@@ -27,6 +32,10 @@ on:
       tag:
         description: 'Release tag to put in production (v3.0.0-rc.39 or later)'
         required: true
+      allow_rollback:
+        description: 'Set true to intentionally move production to a tag older than what it currently runs'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -70,6 +79,44 @@ jobs:
             *)
               echo "::error::$TAG does not contain v3.0.0-rc.39 (compare: $status); production cannot go below it"
               exit 1
+              ;;
+          esac
+
+      - name: the tag does not move production backward
+        # The only history-ordering guard above is the rc.39 floor, which is
+        # fixed -- it says nothing about what production runs RIGHT NOW. A
+        # release run (workflow_call) can only ever reach this job once per
+        # tag and never carries allow_rollback (it is not in that trigger's
+        # inputs, so it reads empty here), so a stale approval left waiting
+        # on an older tag -- exactly what rc.64 was while rc.65 was already
+        # promoting -- is refused instead of force-pushing production
+        # backward. Intentional rollback stays the workflow_dispatch path
+        # CLAUDE.md documents, now spelled out with `-f allow_rollback=true`
+        # instead of implied by which workflow the operator happens to run.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ALLOW_ROLLBACK: ${{ inputs.allow_rollback }}
+        run: |
+          set -euo pipefail
+          current_sha=$(gh api "repos/${GH_REPO}/branches/production" --jq .commit.sha 2>/dev/null) || {
+            echo "no production branch yet; nothing to go backward from"
+            exit 0
+          }
+          # The branch is the deployed commit plus one commit pinning the
+          # image (see "point production at the tag" below), so the deployed
+          # source is the branch head's parent.
+          deployed_sha=$(gh api "repos/${GH_REPO}/commits/${current_sha}" --jq '.parents[0].sha')
+          status=$(gh api "repos/${GH_REPO}/compare/${deployed_sha}...${TAG}" --jq .status)
+          case "$status" in
+            ahead|identical) ;;
+            *)
+              if [ "$ALLOW_ROLLBACK" = "true" ]; then
+                echo "::warning::$TAG is behind what production runs (compare: $status); proceeding, allow_rollback=true"
+              else
+                echo "::error::$TAG is behind what production currently runs (compare: $status). If this is an intentional rollback, run: gh workflow run promote.yml -f tag=$TAG -f allow_rollback=true"
+                exit 1
+              fi
               ;;
           esac
 
