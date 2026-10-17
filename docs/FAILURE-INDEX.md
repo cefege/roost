@@ -448,9 +448,10 @@ flips to `none` on the pane display (`CellTerminal.tsx`, keyed on
 ### A list refuses to scroll while the cursor sits on a row's clipped label
 
 **Symptom** — "the agents list only scrolls from some parts of a row",
-"the wheel does nothing over the row title but works 20px lower", a wheel event
-that reaches the row (`defaultPrevented` false) with no `scroll` event on the
-list.
+"the wheel does nothing over the row title but works 20px lower", "in the agent
+chat I can't scroll while the pointer is over a code box or a message", a wheel
+event that reaches the row or box (`defaultPrevented` false) with no `scroll`
+event on the list or transcript.
 
 **Wrong** — blame scroll latching, relax the gate that wheels at a panel's
 centre, or narrow `* { overscroll-behavior-y: none; }` in
@@ -461,11 +462,16 @@ land, and the same wheel scrolls from a neighbouring pixel.
 **Right** — **a box that only clips text must not swallow the gesture.**
 `overflow: hidden` makes it a scroll container, the global policy then denies
 that container scroll chaining, and a wheel landing on the text is consumed by
-a container with no scroll range instead of reaching the list. Every text clip
-opts chaining back in with `overscroll-behavior-y: auto`: the `truncate`
-utility carries it (`@utility truncate` in `crates/roost-web/tailwind.css`),
-and a clip built another way (`overflow-hidden` on a label) adds
-`overscroll-y-auto`. The global `none` lives in `@layer base` in
+a container with no scroll range instead of reaching the list. Every box that
+only clips or only scrolls sideways opts chaining back in with
+`overscroll-behavior-y: auto`, and the utilities carry it themselves —
+`@utility truncate`, `@utility overflow-hidden` and `@utility overflow-x-auto`
+in `crates/roost-web/tailwind.css` — so a row label, a chat bubble, a
+collapsible, a code block or a diff passes a vertical wheel to the list or
+transcript around it. A clip built another way (raw CSS `overflow: hidden`)
+adds `overscroll-y-auto`. A clip that must still contain pairs with
+`overscroll-y-contain`, never the `overscroll-contain` shorthand, which sorts
+before these utilities and loses to them. The global `none` lives in `@layer base` in
 `crates/roost-web/index.html`, because an unlayered rule would beat every
 utility. It has no scroll range of its own, so chaining there can only reach
 the list, and the list's own `none` still stops the chain from reaching the

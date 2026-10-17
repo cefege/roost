@@ -477,11 +477,22 @@
   --color-terminal-foreground: var(--term-fg);
 }
 
-/* A text clip is a scroll container, and the global `overscroll-behavior-y:
-   none` (index.html) would then swallow a wheel landing on the clipped text
-   instead of letting it reach the list (FAILURE-INDEX "A list refuses to
-   scroll while the cursor sits on a row's clipped label"). */
+/* A box that only clips (`truncate`, `overflow-hidden`) or only scrolls
+   sideways (`overflow-x-auto`) is still a scroll container, and the global
+   `overscroll-behavior-y: none` (index.html) would then swallow a vertical
+   wheel landing on it — a row label, a chat bubble, a collapsible, a code
+   block, a diff — instead of letting it reach the list or transcript around it
+   (FAILURE-INDEX "A list refuses to scroll while the cursor sits on a row's
+   clipped label"). None of them has a vertical range of its own to contain. */
 @utility truncate {
+  overscroll-behavior-y: auto;
+}
+
+@utility overflow-hidden {
+  overscroll-behavior-y: auto;
+}
+
+@utility overflow-x-auto {
   overscroll-behavior-y: auto;
 }
 
