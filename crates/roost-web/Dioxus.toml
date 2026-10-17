@@ -8,6 +8,10 @@ out_dir = "dist"
 # byte-for-byte out of v2 and the fonts, icons, manifest and service worker
 # that land beside it in later waves are served by ONE rule rather than two.
 public_dir = "assets"
+# rust-ui's Tailwind layer. Its output sits in cascade layers, so any unlayered
+# hand-written rule beats a utility whatever the stylesheet order.
+tailwind_input = "tailwind.css"
+tailwind_output = "assets/styles/tailwind.css"
 
 [web]
 # The coordinator serves the built assets pre-compressed, and the CSS is ~180 KB
@@ -30,6 +34,7 @@ base_path = "/"
 # one attaches it when it mounts.
 [web.resource]
 style = [
+  "/styles/tailwind.css",
   "/styles/theme-vars.css",
   "/components/Settings/md/tokens.css",
   "/styles/sidebar.css",

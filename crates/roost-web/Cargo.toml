@@ -40,6 +40,8 @@ serde_json = { workspace = true }
 pulldown-cmark = { workspace = true, features = ["html"] }
 qrcode = { workspace = true }
 similar = { workspace = true }
+tw_merge = { workspace = true }
+icons = { workspace = true }
 
 thiserror = { workspace = true }
 tracing = { workspace = true }

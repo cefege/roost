@@ -24,14 +24,17 @@ const MEMORY: &str = "CLAUDE.md — design system";
 /// it DECLARES the `.md-icon` font-size utility that `.md-icon--sm` / `--lg`
 /// reference — its px values are the declaration, not drift. `themes.rs` and
 /// `agents.rs` are here because raw hex is the SOURCE of the canonical palette
-/// in both, not a hardcoded copy of it.
-const TOKEN_FILES: [&str; 6] = [
+/// in both, not a hardcoded copy of it. `tailwind.css` is the Tailwind theme
+/// bridge that declares the rust-ui colour roles; the same name is its
+/// compiled, gitignored output under `assets/styles/`.
+const TOKEN_FILES: [&str; 7] = [
     "theme-vars.css",
     "tokens.css",
     "icon.css",
     "voice-input.css",
     "themes.rs",
     "agents.rs",
+    "tailwind.css",
 ];
 
 fn describe(observed: usize, allowed: usize) -> String {

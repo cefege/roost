@@ -308,8 +308,6 @@
   --color-err: var(--status-err);
   --color-info: var(--status-info);
   --color-action: var(--accent);
-  --color-accent: var(--accent);
-  --color-accent-tonal: var(--accent-container);
 
   /* ── Agent chat palette ──
      OMP's transcript roles (accent, ok, err, warn, link; its `web-palette.ts`)
@@ -425,7 +423,6 @@
   --term-font-size: 14px;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, "Cascadia Code", "Courier New", monospace;
   --row-h: 28px;
-  --radius-sm: 4px;
   --r-1: 6px;
   /* Settings mobile slide nav direction: 1 = forward, -1 = back.
      Runtime-set per navigation in SettingsRoot.slideNavigate(); static

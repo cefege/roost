@@ -43,6 +43,8 @@ impl ThemeDocument for BrowserThemeDocument {
             let _ = style.set_property(property, value);
         }
         let _ = root.set_attribute("data-theme", application.theme_id);
+        // Tailwind's `dark:` variant selects on this attribute (tailwind.css).
+        let _ = root.set_attribute("data-color-scheme", application.color_scheme);
         let _ = style.set_property("color-scheme", application.color_scheme);
     }
 }

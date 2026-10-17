@@ -1,0 +1,80 @@
+/*
+ * tailwind.css — the Tailwind v4 input for the rust-ui component layer.
+ *
+ * `dx build`/`dx serve` compile this (Dioxus.toml `tailwind_input`) into
+ * `assets/styles/tailwind.css`, which is generated and gitignored. The classes
+ * are read out of the Rust sources, so a class must appear as a complete
+ * literal: one assembled with `format!` is never emitted.
+ *
+ * The `@theme inline` block is the bridge from rust-ui's shadcn colour roles
+ * (`bg-primary`, `text-muted-foreground`, `border-input`, …) to Roost's
+ * canonical theme tokens. `inline` makes every utility carry the canonical
+ * `var()` itself, so the theme engine's inline custom properties reflow every
+ * utility and no shadcn-named variable exists to drift.
+ */
+
+@import "tailwindcss";
+
+@source "./src/**/*.rs";
+
+/* The theme engine writes `data-color-scheme` on <html>; index.html seeds it
+   dark to match the `:root` fallback in theme-vars.css. */
+@custom-variant dark (&:where([data-color-scheme="dark"], [data-color-scheme="dark"] *));
+
+@theme inline {
+  --font-sans: var(--md-font);
+
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.875rem;
+  --radius-2xl: 1rem;
+
+  --color-background: var(--bg-base);
+  --color-foreground: var(--text-hi);
+  --color-card: var(--surface-1);
+  --color-card-foreground: var(--text-hi);
+  --color-popover: var(--surface-2);
+  --color-popover-foreground: var(--text-hi);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--on-accent);
+  --color-secondary: var(--surface-2);
+  --color-secondary-foreground: var(--text-hi);
+  --color-muted: var(--surface-1);
+  --color-muted-foreground: var(--text-lo);
+  --color-accent: var(--secondary-container);
+  --color-accent-foreground: var(--on-secondary-container);
+  --color-destructive: var(--status-err);
+  --color-destructive-foreground: var(--md-on-error);
+  --color-success: var(--status-ok);
+  --color-success-foreground: oklch(0.985 0 0);
+  --color-warning: var(--status-warn);
+  --color-warning-foreground: oklch(0.205 0 0);
+  --color-info: var(--status-info);
+  --color-info-foreground: oklch(0.985 0 0);
+  --color-border: var(--border-subtle);
+  --color-input: var(--border-strong);
+  --color-ring: var(--wb-focus);
+  --color-brand: var(--brand-coral);
+  --color-terminal: var(--term-bg);
+  --color-terminal-foreground: var(--term-fg);
+
+  --color-sidenav: var(--wb-sidebar);
+  --color-sidenav-foreground: var(--text-hi);
+  --color-sidenav-primary: var(--wb-active);
+  --color-sidenav-primary-foreground: var(--wb-active-contrast);
+  --color-sidenav-accent: var(--wb-selected);
+  --color-sidenav-accent-foreground: var(--wb-selected-contrast);
+  --color-sidenav-border: var(--wb-border);
+  --color-sidenav-ring: var(--wb-focus);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  ::selection {
+    @apply bg-accent text-accent-foreground;
+  }
+}
