@@ -1,7 +1,5 @@
-//! `Alert`, `AlertTitle` and `AlertDescription`: an inline notice that a state
-//! needs attention. `Destructive` marks a failure the user must act on; `Warning`
-//! marks a condition to watch that does not block. `role` is `alert` unless the
-//! notice waits rather than interrupts, then `status`.
+//! `Alert`, `AlertTitle` and `AlertDescription`: rust-ui's inline notice. `role` is
+//! `alert` unless the notice waits rather than interrupts, then `status`.
 
 use dioxus::prelude::*;
 use tw_merge::tw_merge;
@@ -11,7 +9,6 @@ pub enum AlertVariant {
     #[default]
     Default,
     Destructive,
-    Warning,
 }
 
 impl AlertVariant {
@@ -20,9 +17,6 @@ impl AlertVariant {
             Self::Default => "bg-background text-foreground",
             Self::Destructive => {
                 "border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive"
-            }
-            Self::Warning => {
-                "border-warning/50 text-warning dark:border-warning [&>svg]:text-warning"
             }
         }
     }

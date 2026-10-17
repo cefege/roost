@@ -1,6 +1,8 @@
 //! `MetricTile`: one machine metric, its label, value, support line and an optional
-//! usage bar. The machines and metrics surfaces compose it; the bar is `ui::Progress`
-//! in meter mode, so the value is announced as a level.
+//! usage bar. Tiles sit inside panels that already own their border and padding,
+//! so the tile is a plain column that uses rust-ui's `CardDescription` and
+//! `ItemTitle` text recipes. The bar is `ui::Progress` in meter mode, so the value
+//! is announced as a level.
 
 use dioxus::prelude::*;
 
@@ -18,15 +20,15 @@ pub fn MetricTile(
     let bar_label = label.clone();
     rsx! {
         div { class: "flex min-w-0 flex-col gap-1",
-            span { class: "flex items-center gap-1.5 text-xs text-muted-foreground",
+            span { class: "flex items-center gap-1.5 text-sm text-muted-foreground",
                 if let Some(icon) = icon {
                     Icon { icon, class: "size-3.5" }
                 }
                 {label}
             }
-            span { class: "text-lg font-semibold tabular-nums", {value} }
+            span { class: "text-sm font-medium leading-snug tabular-nums", {value} }
             if let Some(support) = support {
-                span { class: "text-xs text-muted-foreground", {support} }
+                span { class: "text-sm text-muted-foreground", {support} }
             }
             if let Some(ratio) = ratio {
                 div { class: "mt-1",

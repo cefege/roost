@@ -1,6 +1,6 @@
-//! The sidenav root: `SidenavWrapper` owns the open flag and width variables,
-//! `Sidenav` renders the responsive aside, and `SidenavTrigger` plus the rail
-//! toggle the flag. Width is resized by the shell's sidebar resizer, not here.
+//! The sidenav root: `SidenavWrapper` owns the open flag and the `--sidenav-width`
+//! variable, `Sidenav` renders the responsive aside, and `SidenavTrigger` plus the
+//! rail toggle the flag. Callers set the width through the wrapper's `style`.
 
 use dioxus::prelude::*;
 use tw_merge::tw_merge;
@@ -13,17 +13,28 @@ use super::sidenav_types::{
 #[component]
 pub fn SidenavWrapper(
     #[props(into, optional)] class: Option<String>,
+    #[props(into, optional)] style: Option<String>,
     #[props(default = true)] default_open: bool,
+    #[props(default = 160)] min_width: u32,
+    #[props(default = 480)] max_width: u32,
     children: Element,
 ) -> Element {
     let open = use_signal(|| default_open);
     provide_context(SidenavContext { open });
     let merged_class = tw_merge!(
-        "group/sidenav-wrapper has-data-[variant=Inset]:bg-sidenav flex h-full w-full [--sidenav-width:256px] [--sidenav-width-icon:3rem]",
+        "group/sidenav-wrapper has-data-[variant=Inset]:bg-sidenav flex h-full w-full",
         class.as_deref().unwrap_or("")
     );
+    let wrapper_style = format!("--sidenav-width: 256px;{}", style.as_deref().unwrap_or(""));
     rsx! {
-        div { "data-name": "SidenavWrapper", class: "{merged_class}", {children} }
+        div {
+            "data-name": "SidenavWrapper",
+            "data-min-width": "{min_width}",
+            "data-max-width": "{max_width}",
+            style: "{wrapper_style}",
+            class: "{merged_class}",
+            {children}
+        }
     }
 }
 
@@ -84,7 +95,6 @@ pub fn Sidenav(
             "data-sidenav": data_state.as_str(),
             "data-state": if is_open() { "Expanded" } else { "Collapsed" },
             "data-side": data_side.as_str(),
-            "data-collapsible": data_collapsible.as_str(),
             class: "hidden md:block group peer text-sidenav-foreground data-[state=Collapsed]:hidden",
             div { "data-name": "SidenavGap", class: "{gap_class}" }
             div {

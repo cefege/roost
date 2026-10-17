@@ -1,19 +1,20 @@
 //! The browser half of the theme engine: reading the OS colour-scheme
 //! preference, writing a `ThemeApplication` onto `document.documentElement`, and
 //! listening for the OS preference to flip. Called only by `theme.rs`; every
-//! rule it performs is decided in `choice.rs`. Ports the DOM calls of
-//! `apps/web/src/lib/theme.ts` (`systemThemeId`, `applyTheme`'s writes, and the
-//! module-level `matchMedia` listener).
+//! rule it performs is decided in `choice.rs`.
 
 use wasm_bindgen::JsCast as _;
 use wasm_bindgen::closure::Closure;
 
 use super::ThemeDocument;
-use super::choice::ThemeApplication;
+use super::choice::{ThemeApplication, managed_properties};
 use super::tokens::ThemeAppearance;
 
 /// The media query whose match means "the OS prefers dark".
 const PREFERS_DARK_QUERY: &str = "(prefers-color-scheme: dark)";
+
+/// rust-ui's `dark:` variant selects on this class (`&:is(.dark *)`).
+const DARK_CLASS: &str = "dark";
 
 /// `document.documentElement` and the OS preference behind it.
 #[derive(Debug)]
@@ -39,13 +40,21 @@ impl ThemeDocument for BrowserThemeDocument {
             return;
         };
         let style = root.style();
+        for property in managed_properties() {
+            let _ = style.remove_property(property);
+        }
         for (property, value) in &application.properties {
             let _ = style.set_property(property, value);
         }
-        let _ = root.set_attribute("data-theme", application.theme_id);
-        // Tailwind's `dark:` variant selects on this attribute (tailwind.css).
-        let _ = root.set_attribute("data-color-scheme", application.color_scheme);
-        let _ = style.set_property("color-scheme", application.color_scheme);
+        let scheme = application.appearance.color_scheme();
+        let classes = root.class_list();
+        let _ = match application.appearance {
+            ThemeAppearance::Dark => classes.add_1(DARK_CLASS),
+            ThemeAppearance::Light => classes.remove_1(DARK_CLASS),
+        };
+        // Tailwind's `dark:` variant also matches on this attribute (tailwind.css).
+        let _ = root.set_attribute("data-color-scheme", scheme);
+        let _ = style.set_property("color-scheme", scheme);
     }
 }
 

@@ -33,7 +33,7 @@ pub fn AgentAlert(
         ),
         AlertTone::Warning => (
             IconType::TriangleAlert,
-            AlertVariant::Warning,
+            AlertVariant::Default,
             "status",
             "text-warning",
         ),

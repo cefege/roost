@@ -87,13 +87,13 @@ pub fn Bubble(
             "*:data-[name=BubbleContent]:bg-primary *:data-[name=BubbleContent]:text-primary-foreground [&>[data-name=BubbleContent]:is(button,a):hover]:bg-primary/80"
         }
         BubbleVariant::Secondary => {
-            "*:data-[name=BubbleContent]:bg-secondary *:data-[name=BubbleContent]:text-secondary-foreground [&>[data-name=BubbleContent]:is(button,a):hover]:bg-[color-mix(in_oklch,var(--surface-2),var(--text-hi)_5%)]"
+            "*:data-[name=BubbleContent]:bg-secondary *:data-[name=BubbleContent]:text-secondary-foreground [&>[data-name=BubbleContent]:is(button,a):hover]:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)]"
         }
         BubbleVariant::Muted => {
-            "*:data-[name=BubbleContent]:bg-muted [&>[data-name=BubbleContent]:is(button,a):hover]:bg-[color-mix(in_oklch,var(--surface-1),var(--text-hi)_5%)]"
+            "*:data-[name=BubbleContent]:bg-muted [&>[data-name=BubbleContent]:is(button,a):hover]:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_5%)]"
         }
         BubbleVariant::Tinted => {
-            "*:data-[name=BubbleContent]:bg-[oklch(from_var(--accent)_0.93_calc(c*0.4)_h)] *:data-[name=BubbleContent]:text-foreground dark:*:data-[name=BubbleContent]:bg-[oklch(from_var(--accent)_0.3_calc(c*0.4)_h)] [&>[data-name=BubbleContent]:is(button,a):hover]:bg-[oklch(from_var(--accent)_0.88_calc(c*0.5)_h)] dark:[&>[data-name=BubbleContent]:is(button,a):hover]:bg-[oklch(from_var(--accent)_0.35_calc(c*0.5)_h)]"
+            "*:data-[name=BubbleContent]:bg-[oklch(from_var(--primary)_0.93_calc(c*0.4)_h)] *:data-[name=BubbleContent]:text-foreground dark:*:data-[name=BubbleContent]:bg-[oklch(from_var(--primary)_0.3_calc(c*0.4)_h)] [&>[data-name=BubbleContent]:is(button,a):hover]:bg-[oklch(from_var(--primary)_0.88_calc(c*0.5)_h)] dark:[&>[data-name=BubbleContent]:is(button,a):hover]:bg-[oklch(from_var(--primary)_0.35_calc(c*0.5)_h)]"
         }
         BubbleVariant::Outline => {
             "*:data-[name=BubbleContent]:border-border *:data-[name=BubbleContent]:bg-background [&>[data-name=BubbleContent]:is(button,a):hover]:bg-muted [&>[data-name=BubbleContent]:is(button,a):hover]:text-foreground dark:[&>[data-name=BubbleContent]:is(button,a):hover]:bg-input/30"

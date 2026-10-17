@@ -75,6 +75,7 @@ pub mod tabs;
 pub mod text_field;
 pub mod textarea;
 pub mod toast;
+mod toast_queue;
 pub mod toggle_group;
 pub mod tooltip;
 pub mod usage_ring;
@@ -171,8 +172,8 @@ pub use section_title::SectionTitle;
 pub use select::{Select, SelectOption};
 pub use separator::{Separator, SeparatorOrientation};
 pub use sheet::{
-    Sheet, SheetClose, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetSide,
-    SheetTitle, SheetTrigger,
+    Sheet, SheetBody, SheetClose, SheetContent, SheetDescription, SheetFooter, SheetHeader,
+    SheetSide, SheetTitle, SheetTrigger,
 };
 pub use shimmer::Shimmer;
 pub use sidenav::{Sidenav, SidenavTrigger, SidenavWrapper};
@@ -202,7 +203,11 @@ pub use table::{
 pub use tabs::{Tabs, TabsContent, TabsList, TabsTrigger};
 pub use text_field::TextField;
 pub use textarea::Textarea;
-pub use toast::{ToastHandle, ToastId, ToastPosition, ToastSpec, ToastVariant, Toaster, use_toast};
+pub use toast::{
+    ToastContainer, ToastDirection, ToastList, ToastPosition, ToastToaster, ToastTrigger,
+    ToastType, Toaster,
+};
+pub use toast_queue::{ToastHandle, use_toast};
 pub use toggle_group::{
     ToggleGroup, ToggleGroupAction, ToggleGroupItem, ToggleGroupSpacing, ToggleGroupVariant,
 };

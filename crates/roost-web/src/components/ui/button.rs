@@ -67,29 +67,19 @@ impl ButtonSize {
             Self::Xs => "h-6 gap-1 rounded-md px-2 text-xs has-[>svg]:px-1.5",
             Self::Sm => "h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5",
             Self::Lg => "h-10 rounded-md px-6 has-[>svg]:px-4",
-            Self::Icon => {
-                "size-9 any-pointer-coarse:w-(--control-touch-target) any-pointer-coarse:min-w-(--control-touch-target)"
-            }
-            Self::IconSm => {
-                "size-8 rounded-md any-pointer-coarse:w-(--control-touch-target) any-pointer-coarse:min-w-(--control-touch-target)"
-            }
-            Self::IconXs => {
-                "size-6 rounded-md any-pointer-coarse:w-(--control-touch-target) any-pointer-coarse:min-w-(--control-touch-target)"
-            }
-            Self::IconLg => {
-                "size-10 rounded-md any-pointer-coarse:w-(--control-touch-target) any-pointer-coarse:min-w-(--control-touch-target)"
-            }
+            Self::Icon => "size-9",
+            Self::IconSm => "size-8 rounded-md",
+            Self::IconXs => "size-6 rounded-md",
+            Self::IconLg => "size-10 rounded-md",
         }
     }
 }
 
 /// The button's class attribute: the rust-ui base, then variant, size and the
-/// caller's class, with later utilities winning conflicts. On a coarse pointer
-/// every button is at least `--control-touch-target` tall (and an icon button
-/// as wide), the floor phones and the TV need.
+/// caller's class, with later utilities winning conflicts.
 pub fn button_class(variant: ButtonVariant, size: ButtonSize, class: Option<&str>) -> String {
     tw_merge!(
-        "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive w-fit hover:cursor-pointer active:scale-[0.98] active:opacity-100 touch-manipulation [-webkit-tap-highlight-color:transparent] select-none [-webkit-touch-callout:none] any-pointer-coarse:min-h-(--control-touch-target)",
+        "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive w-fit hover:cursor-pointer active:scale-[0.98] active:opacity-100 touch-manipulation [-webkit-tap-highlight-color:transparent] select-none [-webkit-touch-callout:none]",
         variant.as_str(),
         size.as_str(),
         class.unwrap_or("")

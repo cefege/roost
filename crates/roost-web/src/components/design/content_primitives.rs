@@ -141,14 +141,14 @@ pub fn ContentPrimitives() -> Element {
         List { contained: true,
             ListRow {
                 leading_icon: IconType::Folder,
-                headline: rsx! { Skeleton {} },
-                support: rsx! { Skeleton { width: "30%" } },
+                headline: rsx! { Skeleton { class: "h-4 w-full" } },
+                support: rsx! { Skeleton { class: "h-4", width: "30%" } },
             }
-            ListRow { leading_icon: IconType::Folder, headline: rsx! { Skeleton { width: "40%" } } }
+            ListRow { leading_icon: IconType::Folder, headline: rsx! { Skeleton { class: "h-4", width: "40%" } } }
         }
         div { class: "mt-4 mb-5 flex flex-col gap-3",
-            Skeleton {}
-            Skeleton { width: "40%" }
+            Skeleton { class: "h-4 w-full" }
+            Skeleton { class: "h-4", width: "40%" }
         }
 
         SectionTitle { "Metric tiles" }

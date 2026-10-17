@@ -65,7 +65,7 @@ pub fn StatusDot(
     }
 }
 
-/// The rust-ui status palette, mapped onto the theme's status roles.
+/// The rust-ui status palette: the corner indicator's colour per variant.
 #[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum StatusVariant {
     #[default]
@@ -78,10 +78,10 @@ pub enum StatusVariant {
 impl StatusVariant {
     const fn color(self) -> &'static str {
         match self {
-            Self::Default => "bg-muted-foreground",
-            Self::Active => "bg-success",
-            Self::Inactive => "bg-warning",
-            Self::Normal => "bg-info",
+            Self::Default => "bg-neutral-300",
+            Self::Active => "bg-green-300",
+            Self::Inactive => "bg-orange-300",
+            Self::Normal => "bg-sky-300",
         }
     }
 }

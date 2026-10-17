@@ -28,7 +28,7 @@ impl MarkerVariant {
 #[component]
 pub fn MarkerContent(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
     let merged = tw_merge!(
-        "min-w-0 wrap-break-word group-data-[variant=Separator]/marker:flex-none group-data-[variant=Separator]/marker:text-center *:[&_a]:underline *:[&_a]:underline-offset-3 *:[&_a]:hover:text-foreground",
+        "min-w-0 wrap-break-word group-data-[variant=Separator]/marker:flex-none group-data-[variant=Separator]/marker:text-center *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground",
         class.as_deref().unwrap_or("")
     );
     rsx! { span { "data-name": "MarkerContent", class: "{merged}", {children} } }
@@ -68,7 +68,7 @@ pub fn Marker(
         MarkerVariant::Border => "border-b border-border pb-2",
     };
     let merged = tw_merge!(
-        "group/marker relative flex min-h-4 w-full items-center gap-2 text-left text-sm text-muted-foreground [&_svg:not([class*='size-'])]:size-4 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground",
+        "group/marker relative flex min-h-4 w-full items-center gap-2 text-left text-sm text-muted-foreground [&_svg:not([class*='size-'])]:size-4 [a]:underline [a]:underline-offset-3 [a]:hover:text-foreground",
         variant_class,
         class.as_deref().unwrap_or("")
     );

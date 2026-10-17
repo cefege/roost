@@ -1,9 +1,10 @@
 //! A disclosure: a trigger that flips a parent-owned `open` flag, and content
-//! that exists only while open. Closed content is unmounted, so it leaves the
-//! tab order and the accessibility tree and `aria-expanded` describes what is
-//! shown. Not an overlay: no dismiss, focus trap or scrim.
+//! that stays mounted and animates its grid rows between `0fr` and `1fr`. The
+//! `data-state` attribute on each part carries the open state, so CSS drives the
+//! reveal. Not an overlay: no dismiss, focus trap or scrim.
 
 use dioxus::prelude::*;
+use tw_merge::tw_merge;
 
 use super::button::{Button, ButtonSize, ButtonVariant};
 
@@ -31,12 +32,13 @@ pub fn Collapsible(
         on_open_change,
     });
     let state = state_label(open);
+    let merged = tw_merge!("", class.as_deref().unwrap_or(""));
 
     rsx! {
         div {
             "data-name": "Collapsible",
             "data-state": "{state}",
-            class: class.as_deref(),
+            class: "{merged}",
             {children}
         }
     }
@@ -78,23 +80,30 @@ pub fn CollapsibleTrigger(
     }
 }
 
-/// The content of an open `Collapsible`. Renders nothing while closed.
+/// The content of a `Collapsible`. It stays mounted while closed and collapses
+/// to zero rows, so the reveal animates.
 #[component]
 pub fn CollapsibleContent(
     #[props(into, optional)] class: Option<String>,
+    #[props(into, optional)] outer_class: Option<String>,
     children: Element,
 ) -> Element {
     let CollapsibleContext { open, .. } = consume_context::<CollapsibleContext>();
-    if !open {
-        return rsx! {};
-    }
+    let state = state_label(open);
+
+    let outer = tw_merge!(
+        "grid overflow-hidden transition-all duration-300 data-[state=closed]:grid-rows-[0fr] data-[state=open]:grid-rows-[1fr]",
+        outer_class.as_deref().unwrap_or("")
+    );
 
     rsx! {
         div {
             "data-name": "CollapsibleContent",
-            "data-state": "open",
-            class: class.as_deref(),
-            {children}
+            "data-state": "{state}",
+            class: "{outer}",
+            // Collapsed content stays mounted for rust-ui's height transition;
+            // `inert` keeps its controls out of the tab order and the AT tree.
+            div { class: tw_merge!("min-h-0", class.as_deref().unwrap_or("")), inert: !open, {children} }
         }
     }
 }
@@ -167,12 +176,12 @@ mod tests {
     }
 
     #[test]
-    fn trigger_and_content_follow_every_toggle() {
+    fn trigger_follows_every_toggle_and_content_stays_mounted() {
         TRIGGER_SEEN.with(|seen| seen.borrow_mut().clear());
         CONTENT_MOUNTS.with(|mounts| mounts.set(0));
         let (mut dom, mut open) = mounted();
         assert_eq!(last_trigger_seen(), Some(false));
-        assert_eq!(CONTENT_MOUNTS.with(|mounts| mounts.get()), 0);
+        assert_eq!(CONTENT_MOUNTS.with(|mounts| mounts.get()), 1);
 
         toggle_to(&mut dom, &mut open, true);
         assert_eq!(last_trigger_seen(), Some(true));
@@ -181,9 +190,5 @@ mod tests {
         toggle_to(&mut dom, &mut open, false);
         assert_eq!(last_trigger_seen(), Some(false));
         assert_eq!(CONTENT_MOUNTS.with(|mounts| mounts.get()), 1);
-
-        toggle_to(&mut dom, &mut open, true);
-        assert_eq!(last_trigger_seen(), Some(true));
-        assert_eq!(CONTENT_MOUNTS.with(|mounts| mounts.get()), 2);
     }
 }

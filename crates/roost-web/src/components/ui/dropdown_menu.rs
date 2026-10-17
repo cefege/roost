@@ -7,13 +7,12 @@
 use dioxus::prelude::*;
 use tw_merge::tw_merge;
 
-use super::menu_items::{
-    render_menu_group, render_menu_item, render_menu_label, render_menu_separator,
-};
+use super::menu_items::{MenuItemHooks, render_menu_group, render_menu_item, render_menu_label};
 use super::menu_overlay::{
     MenuContext, MenuRoot, MenuSide, MenuSurface, anchored_placement, provide_menu_root,
     request_close, request_open,
 };
+use super::separator::Separator;
 use crate::components::context_menu::MenuFocusEdge;
 use crate::components::ui::field::scoped_element_id;
 
@@ -42,7 +41,9 @@ pub fn DropdownMenu(
         aria_label: None,
     });
     rsx! {
-        {children}
+        div { "data-name": "DropdownMenu",
+            {children}
+        }
     }
 }
 
@@ -82,6 +83,9 @@ pub fn DropdownMenuTrigger(
         button {
             id: "{trigger_id}",
             r#type: "button",
+            tabindex: "0",
+            "data-name": "DropdownMenuTrigger",
+            "data-dropdown-trigger": "{root.menu_id}",
             "aria-haspopup": "menu",
             "aria-label": aria_label,
             "aria-expanded": if root.open { "true" } else { "false" },
@@ -136,11 +140,16 @@ pub fn DropdownMenuContent(
     children: Element,
 ) -> Element {
     let merged = tw_merge!(
-        "z-50 p-1 rounded-md border bg-popover text-popover-foreground shadow-md h-fit fixed w-44 transition-all duration-200",
+        "z-50 p-1 rounded-md border bg-card shadow-md h-fit fixed w-[180px] transition-all duration-200 data-[state=closed]:opacity-0 data-[state=closed]:scale-95 data-[state=open]:opacity-100 data-[state=open]:scale-100",
         class.as_deref().unwrap_or("")
     );
     rsx! {
-        MenuSurface { class: merged, {children} }
+        MenuSurface {
+            class: merged,
+            name: "DropdownMenuContent",
+            target: "target__dropdown",
+            {children}
+        }
     }
 }
 
@@ -155,10 +164,10 @@ pub fn DropdownMenuItem(
     children: Element,
 ) -> Element {
     render_menu_item(
+        "DropdownMenuItem",
         class,
         disabled,
-        test_id,
-        title,
+        MenuItemHooks { test_id, title },
         onclick,
         onmouseenter,
         children,
@@ -170,7 +179,7 @@ pub fn DropdownMenuLabel(
     #[props(into, optional)] class: Option<String>,
     children: Element,
 ) -> Element {
-    render_menu_label(class, children)
+    render_menu_label("DropdownMenuLabel", class, children)
 }
 
 #[component]
@@ -178,10 +187,12 @@ pub fn DropdownMenuGroup(
     #[props(into, optional)] class: Option<String>,
     children: Element,
 ) -> Element {
-    render_menu_group(class, children)
+    render_menu_group("DropdownMenuGroup", class, children)
 }
 
 #[component]
 pub fn DropdownMenuSeparator(#[props(into, optional)] class: Option<String>) -> Element {
-    render_menu_separator(class)
+    rsx! {
+        Separator { class: class.unwrap_or_default() }
+    }
 }

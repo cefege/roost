@@ -1,114 +1,119 @@
-//! The parts a `Dialog` is composed from: header, title, description, body,
-//! footer, and the close and action buttons. Title and description read their
-//! ids from the root's context, so the panel's `aria-labelledby` and
-//! `aria-describedby` name the elements a caller actually rendered.
+//! The non-panel parts of `Dialog`: header, title, description, body, footer,
+//! and the close and action buttons. Each renders rust-ui's element type and
+//! class string. The panel and root live in `dialog.rs`, which provides the
+//! `DialogContext` these parts read.
 
+use super::dialog::DialogContext;
 use dioxus::prelude::*;
 use tw_merge::tw_merge;
 
-use super::button::{Button, ButtonVariant};
-use super::dialog::DialogContext;
+const CLOSE_OUTLINE_CLASS: &str = "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 cursor-pointer";
 
-/// The header block: title and description, stacked and centred on mobile.
+const ACTION_CLASS: &str = "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 h-9 px-4 py-2 cursor-pointer";
+
+/// Marks the root as having a footer so the close button hides, and clears the
+/// mark when the footer unmounts.
+pub(crate) fn use_footer_presence() {
+    let mut context = use_context::<DialogContext>();
+    use_effect(move || {
+        context.has_footer.set(true);
+    });
+    use_drop(move || {
+        context.has_footer.set(false);
+    });
+}
+
+/// The header block.
 #[component]
 pub fn DialogHeader(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+    let merged = tw_merge!(
+        "flex flex-col gap-2 text-center sm:text-left",
+        class.as_deref().unwrap_or("")
+    );
     rsx! {
-        div {
-            class: tw_merge!("flex flex-col gap-2 text-center sm:text-left", class.as_deref().unwrap_or("")),
-            {children}
-        }
+        div { class: "{merged}", {children} }
     }
 }
 
-/// The dialog's accessible name.
+/// The dialog title, bound to the panel by `aria-labelledby`.
 #[component]
 pub fn DialogTitle(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
     let context = use_context::<DialogContext>();
+    let merged = tw_merge!(
+        "text-lg leading-none font-semibold",
+        class.as_deref().unwrap_or("")
+    );
     rsx! {
-        h2 {
-            id: "{context.title_id}",
-            class: tw_merge!("text-lg leading-none font-semibold", class.as_deref().unwrap_or("")),
-            {children}
-        }
+        h3 { id: "{context.title_id}", class: "{merged}", {children} }
     }
 }
 
-/// The dialog's accessible description.
+/// The dialog description, bound to the panel by `aria-describedby`.
 #[component]
 pub fn DialogDescription(
     #[props(into, optional)] class: Option<String>,
     children: Element,
 ) -> Element {
     let context = use_context::<DialogContext>();
+    let merged = tw_merge!(
+        "text-muted-foreground text-sm",
+        class.as_deref().unwrap_or("")
+    );
     rsx! {
-        p {
-            id: "{context.description_id}",
-            class: tw_merge!("text-muted-foreground text-sm", class.as_deref().unwrap_or("")),
-            {children}
-        }
+        p { id: "{context.description_id}", class: "{merged}", {children} }
     }
 }
 
-/// The scrollable-free body between header and footer.
+/// The scrolling body between header and footer.
 #[component]
 pub fn DialogBody(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+    let merged = tw_merge!("flex flex-col gap-4", class.as_deref().unwrap_or(""));
     rsx! {
-        div {
-            class: tw_merge!("flex flex-col gap-4", class.as_deref().unwrap_or("")),
-            {children}
-        }
+        div { class: "{merged}", {children} }
     }
 }
 
-/// The action row. Mounting it tells the root a footer exists, which hides the
-/// header close button unless the caller asks for it.
+/// The footer row. Presence turns the header close button off.
 #[component]
 pub fn DialogFooter(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let context = use_context::<DialogContext>();
-    let mut has_footer = context.has_footer;
-    use_effect(move || {
-        if let Ok(mut flag) = has_footer.try_write() {
-            *flag = true;
-        }
-    });
-    // A footer that unmounts with its dialog must not leave the header close
-    // button hidden for the next open. `try_write` because the signal's owner
-    // may already be gone when this drop runs.
-    use_drop(move || {
-        if let Ok(mut flag) = has_footer.try_write() {
-            *flag = false;
-        }
-    });
+    use_footer_presence();
+    let merged = tw_merge!(
+        "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+        class.as_deref().unwrap_or("")
+    );
     rsx! {
-        footer {
-            class: tw_merge!("flex flex-col-reverse gap-2 sm:flex-row sm:justify-end", class.as_deref().unwrap_or("")),
-            {children}
-        }
+        footer { class: "{merged}", {children} }
     }
 }
 
-/// An outline button that closes the dialog.
+/// A footer button that closes the dialog, in rust-ui's outline style.
 #[component]
 pub fn DialogClose(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
     let context = use_context::<DialogContext>();
+    let merged = tw_merge!(CLOSE_OUTLINE_CLASS, class.as_deref().unwrap_or(""));
     rsx! {
-        Button {
-            variant: ButtonVariant::Outline,
-            class,
+        button {
+            r#type: "button",
+            class: "{merged}",
+            "data-dialog-close": "{context.content_id}",
+            "aria-label": "Close dialog",
             onclick: move |_| context.request_open(false),
             {children}
         }
     }
 }
 
-/// The primary button that closes the dialog.
+/// A primary footer button that closes the dialog.
 #[component]
 pub fn DialogAction(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
     let context = use_context::<DialogContext>();
+    let merged = tw_merge!(ACTION_CLASS, class.as_deref().unwrap_or(""));
     rsx! {
-        Button {
-            variant: ButtonVariant::Default,
-            class,
+        button {
+            r#type: "button",
+            class: "{merged}",
+            "data-dialog-close": "{context.content_id}",
+            "aria-label": "Close dialog",
             onclick: move |_| context.request_open(false),
             {children}
         }

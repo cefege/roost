@@ -12,6 +12,8 @@ use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
 use tw_merge::tw_merge;
 
+use super::item::{ITEM_BASE, ItemSize, ItemVariant};
+
 use crate::components::ui::IconType;
 use crate::components::ui::icon::Icon;
 
@@ -92,14 +94,16 @@ pub fn ListRow(
     tabindex: Option<i32>,
     class: Option<String>,
 ) -> Element {
-    let density_class = if dense {
-        "min-h-10 py-1"
+    let size_class = if dense {
+        ItemSize::Xs.class()
     } else {
-        "min-h-14 py-2"
+        ItemSize::Sm.class()
     };
     let row_class = tw_merge!(
-        "flex w-full items-center gap-4 px-4 text-left text-foreground rounded-md transition-colors hover:bg-accent/50 data-[selected=true]:bg-accent",
-        density_class,
+        ITEM_BASE,
+        ItemVariant::Default.class(),
+        "w-full text-left text-foreground data-[selected=true]:bg-accent",
+        size_class,
         class.as_deref().unwrap_or("")
     );
     let data_selected = selected.then_some("true");

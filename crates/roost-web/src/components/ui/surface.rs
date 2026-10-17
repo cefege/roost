@@ -36,7 +36,7 @@ impl SurfaceRadius {
             Self::None => "rounded-none",
             Self::Xs => "rounded-xs",
             Self::Sm => "rounded-md",
-            Self::Md => "rounded-lg",
+            Self::Md => "rounded-xl",
             Self::Lg => "rounded-2xl",
             Self::Xl => "rounded-3xl",
             Self::Full => "rounded-full",
@@ -53,10 +53,10 @@ const MAX_PAD: u8 = 9;
 
 fn level_class(level: u8) -> &'static str {
     match level {
-        0 => "bg-background",
-        1 => "bg-card",
-        2 => "bg-popover",
-        _ => "bg-[var(--surface-3)]",
+        0 => "bg-background text-foreground",
+        1 => "bg-card text-card-foreground",
+        2 => "bg-popover text-popover-foreground",
+        _ => "bg-accent text-accent-foreground",
     }
 }
 

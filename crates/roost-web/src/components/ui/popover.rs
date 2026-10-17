@@ -1,6 +1,7 @@
-//! Click-to-open floating dialog anchored to its trigger. The caller owns `open`; trigger
-//! clicks and outside clicks report through `on_open_change`, Escape too unless `on_escape` takes it. Depends on
-//! `ui::anchored_panel` (placement, focus), `context_menu` (dismissal) and `ui::field` (ids).
+//! Click-to-open floating dialog anchored to its trigger, with rust-ui's popover classes. The caller
+//! owns `open`; trigger clicks and outside clicks report through `on_open_change`, Escape too unless
+//! `on_escape` takes it. Depends on `ui::anchored_panel` (placement, focus), `context_menu`
+//! (dismissal) and `ui::field` (ids).
 
 use dioxus::prelude::*;
 use tw_merge::tw_merge;
@@ -39,7 +40,6 @@ pub fn Popover(
     /// Replaces the default Escape (refocus the trigger, then close) for a caller whose Escape steps back through its own state first; the caller then owns closing.
     #[props(optional)]
     on_escape: Option<EventHandler<()>>,
-    #[props(into, optional)] class: Option<String>,
     children: Element,
 ) -> Element {
     let view = use_memo(use_reactive((&open, &test_id), |(open, test_id)| {
@@ -55,10 +55,7 @@ pub fn Popover(
         trigger_id,
         content_id,
     });
-    let root_class = tw_merge!("inline-block", class.as_deref().unwrap_or(""));
-    rsx! {
-        div { "data-name": "Popover", class: "{root_class}", {children} }
-    }
+    children
 }
 
 /// The button that toggles the panel. It reports `!open` and holds no state of its own.
@@ -152,9 +149,12 @@ fn PopoverPanel(class: Option<String>, test_id: Option<String>, children: Elemen
     use_effect(move || focus_element_by_id(&focus_content_id));
     use_hook(|| tracing::debug!(target: "ui", "popover opened"));
     use_drop(|| tracing::debug!(target: "ui", "popover closed"));
-    let style = anchored_placement_style(&trigger_id, false).unwrap_or_default();
+    // Placement is measured from the trigger, so `position: fixed` is set here rather than by a
+    // rust-ui class: the class list below is rust-ui's, and the placement longhands follow it.
+    let placement = anchored_placement_style(&trigger_id, false).unwrap_or_default();
+    let style = format!("position: fixed; {placement}");
     let panel_class = tw_merge!(
-        "overflow-visible fixed z-50 p-4 rounded-md border bg-popover text-popover-foreground shadow-md w-64 outline-hidden",
+        "overflow-visible relative z-50 p-4 rounded-md border bg-card shadow-md my-[1ch] w-[250px] min-h-[150px] pointer-events-none opacity-0 transition-all duration-150 data-[state=open]:opacity-100 data-[state=open]:pointer-events-auto",
         class.as_deref().unwrap_or("")
     );
     rsx! {
@@ -164,6 +164,7 @@ fn PopoverPanel(class: Option<String>, test_id: Option<String>, children: Elemen
             tabindex: "-1",
             "data-name": "PopoverContent",
             "data-testid": test_id.as_deref(),
+            "data-state": "open",
             class: "{panel_class}",
             style: "{style}",
             {children}

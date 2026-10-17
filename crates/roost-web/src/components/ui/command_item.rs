@@ -10,9 +10,7 @@ use super::Icon;
 use super::command::CommandContext;
 use super::command_keys::item_element_id;
 
-// The highlight is `accent`, the theme's selected/hover role; rust-ui's
-// `bg-muted` maps onto the card tier here and would not show on a card.
-const ITEM_RECIPE: &str = "group relative flex gap-2 items-center px-2 py-1.5 text-sm rounded-sm cursor-default select-none outline-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 hover:bg-accent/60 hover:text-accent-foreground aria-selected:bg-accent aria-selected:text-accent-foreground";
+const ITEM_RECIPE: &str = "group relative flex gap-2 items-center px-2 py-1.5 text-sm rounded-sm cursor-default select-none outline-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 hover:bg-accent hover:text-accent-foreground";
 const CHECK_RESERVED: &str =
     "ml-auto size-4 text-muted-foreground opacity-0 group-aria-selected:opacity-100";
 const CHECK_HIDDEN: &str = "ml-auto size-4 text-muted-foreground hidden group-aria-selected:block";
@@ -65,8 +63,12 @@ pub fn CommandItem(
     let highlight = context.current_highlight();
     let is_highlighted = selected || highlight.as_deref() == Some(value.as_str());
 
-    let display = if is_visible { "flex" } else { "hidden" };
-    let merged_class = tw_merge!(ITEM_RECIPE, display, class.as_deref().unwrap_or(""));
+    let display_style = if is_visible {
+        "display: flex;"
+    } else {
+        "display: none;"
+    };
+    let merged_class = tw_merge!(ITEM_RECIPE, class.as_deref().unwrap_or(""));
     let check_class = if reserve_check_space {
         CHECK_RESERVED
     } else {
@@ -84,6 +86,7 @@ pub fn CommandItem(
             "data-visible": visible_flag,
             "data-testid": test_id.as_deref(),
             class: "{merged_class}",
+            style: "{display_style}",
             role: "option",
             tabindex: "{tab_index}",
             "aria-selected": if is_highlighted { "true" } else { "false" },

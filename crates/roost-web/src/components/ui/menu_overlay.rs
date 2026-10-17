@@ -5,7 +5,6 @@
 //! key routing reuse `deck::deck_dom`.
 
 use dioxus::prelude::*;
-use tw_merge::tw_merge;
 
 use crate::components::context_menu::{
     MenuFocusEdge, MenuFocusRequest, attempt_menu_focus, focus_menu_edge, use_floating_menu_dismiss,
@@ -149,31 +148,44 @@ pub fn anchored_placement(trigger_id: &str, side: MenuSide) -> MenuPlacement {
 /// The `role="menu"` panel shared by dropdown and context content. Renders
 /// nothing while closed so the node is absent from the DOM, not merely hidden.
 #[component]
-pub fn MenuSurface(class: String, children: Element) -> Element {
+pub fn MenuSurface(
+    class: String,
+    name: &'static str,
+    target: &'static str,
+    children: Element,
+) -> Element {
     let Some(context) = try_use_context::<MenuContext>() else {
         return rsx! {};
     };
     if !context.root.read().open {
         return rsx! {};
     }
-    let merged = tw_merge!(
-        "animate-menu-enter origin-top-right motion-reduce:animate-none",
-        class.as_str()
-    );
     rsx! {
-        MenuPanel { class: merged, {children} }
+        MenuPanel { class, name, target, {children} }
     }
 }
 
 /// Mounted only while open, so the document listeners it installs are removed
-/// when the menu closes instead of staying live for the root's lifetime.
+/// when the menu closes instead of staying live for the root's lifetime. It
+/// mounts `data-state="closed"` and flips to `open` once attached, so rust-ui's
+/// `data-[state=…]` transition runs on entrance.
 #[component]
-fn MenuPanel(class: String, children: Element) -> Element {
+fn MenuPanel(
+    class: String,
+    name: &'static str,
+    target: &'static str,
+    children: Element,
+) -> Element {
     let Some(context) = try_use_context::<MenuContext>() else {
         return rsx! {};
     };
     let root = context.root.read().clone();
     let style = placement_style(&context.placement.read());
+    let mut shown = use_signal(|| false);
+    let is_shown = *shown.read();
+    let state = if is_shown { "open" } else { "closed" };
+    let pointer_events = if is_shown { "auto" } else { "none" };
+    let style_text = format!("pointer-events: {pointer_events}; {style}");
     use_floating_menu_dismiss(
         EventHandler::new(move |()| request_close(context, false)),
         Some(EventHandler::new(move |()| request_close(context, true))),
@@ -186,10 +198,16 @@ fn MenuPanel(class: String, children: Element) -> Element {
             "aria-labelledby": root.aria_label.is_none().then(|| root.trigger_id.clone()),
             "aria-label": root.aria_label.clone(),
             "data-testid": root.test_id.clone(),
+            "data-name": name,
+            "data-target": target,
+            "data-state": state,
             tabindex: "-1",
             class,
-            style: "{style}",
-            onmounted: move |_| attempt_pending_focus(context),
+            style: "{style_text}",
+            onmounted: move |_| {
+                attempt_pending_focus(context);
+                shown.set(true);
+            },
             onkeydown: move |event: KeyboardEvent| menu_keydown(context, &event),
             oncontextmenu: move |event: MouseEvent| event.prevent_default(),
             {children}

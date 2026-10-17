@@ -5,8 +5,8 @@
 use dioxus::prelude::*;
 use tw_merge::tw_merge;
 
-const LIST_RECIPE: &str = "group/list overflow-y-auto overflow-x-hidden max-h-[300px] scroll-py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden min-h-80 scroll-pt-2 scroll-pb-1.5";
-const EMPTY_RECIPE: &str = "py-6 text-sm text-center group-has-[[data-visible=true]]/list:hidden";
+const LIST_RECIPE: &str = "overflow-y-auto overflow-x-hidden max-h-[300px] scroll-py-1 no__scrollbar min-h-80 scroll-pt-2 scroll-pb-1.5";
+const EMPTY_RECIPE: &str = "py-6 text-sm text-center";
 
 #[component]
 pub fn CommandHeader(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
@@ -38,8 +38,7 @@ pub fn CommandDescription(
     rsx! { p { "data-name": "CommandDescription", class: "{merged_class}", {children} } }
 }
 
-/// The scrollable item list. Its `group/list` name is what `CommandEmpty` keys
-/// off, so the empty state must be rendered inside it.
+/// The scrollable item list.
 #[component]
 pub fn CommandList(
     #[props(into, optional)] class: Option<String>,

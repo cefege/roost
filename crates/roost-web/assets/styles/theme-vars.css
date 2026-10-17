@@ -1,73 +1,43 @@
 /*
- * theme-vars.css — the canonical theme tokens and the layout tokens.
+ * theme-vars.css — the Roost-named aliases onto rust-ui's theme roles, and the
+ * layout tokens.
  *
- * The theme engine (`src/theme/`) writes the canonical colour set
- * (`theme/tokens.rs` `CanonicalToken`: --bg-base, --surface-0..3,
- * --text-hi/mid/lo, --accent*, --border-*, --status-*, --syntax-*,
- * --term-bg/fg, --ansi-*, --wb-*) inline on <html> per the active theme.
- *
- * THIS FILE declares:
- *   1. The `:root` canonical FALLBACK (= Dark values), so first paint before
- *      the engine runs still renders. The engine's inline style wins.
- *   2. The few aliases that are not a Tailwind colour role: the terminal
- *      palette bridge and the workbench chrome tokens. Every UI colour
- *      otherwise reaches components through `tailwind.css`'s `@theme inline`
- *      bridge (`bg-card`, `text-muted-foreground`, …).
+ * The theme engine (`src/theme/`) writes the active base palette, accent
+ * palette and mode's custom properties inline on <html> (rust-ui's `background`,
+ * `primary`, `sidenav`, … roles), plus Roost's terminal, ANSI, syntax and chat
+ * roles. `tailwind.css` maps the rust-ui roles to Tailwind colours. THIS FILE
+ * declares:
+ *   1. The aliases older Roost selectors read (`--surface-*`, `--text-*`,
+ *      `--accent`, `--status-*`, `--wb-*`) onto those rust-ui roles.
+ *   2. The terminal palette bridge, and the workbench chrome names.
  *   3. Layout tokens that runtime styles and arbitrary Tailwind values read.
  */
 
 :root {
   --roost-main-left: 0px;
-  /* ── 1. CANONICAL FALLBACK (Dark) — engine overrides via inline style ── */
-  --bg-base: #0a0a0a;
-  --surface-0: #0a0a0a;
-  --surface-1: #171717;
-  --surface-2: #262626;
-  --surface-3: #404040;
-  --term-bg: #0a0f11;
-  --text-hi: #fafafa;
-  --text-mid: #d4d4d4;
-  --text-lo: #a3a3a3;
-  --term-fg: #e3e3e1;
-  --accent: #fafafa;
+  /* ── 1. ALIASES onto rust-ui theme roles ── */
+  --bg-base: var(--background);
+  --surface-0: var(--background);
+  --surface-1: var(--card);
+  --surface-2: var(--muted);
+  --surface-3: var(--accent);
+  --text-hi: var(--foreground);
+  --text-mid: var(--secondary-foreground);
+  --text-lo: var(--muted-foreground);
+  --accent: var(--primary);
+  --on-accent: var(--primary-foreground);
+  --accent-container: var(--secondary);
+  --on-accent-container: var(--secondary-foreground);
+  --secondary-container: var(--secondary);
+  --on-secondary-container: var(--secondary-foreground);
+  --border-strong: var(--input);
+  --border-subtle: var(--border);
+  --status-ok: var(--success);
+  --status-warn: var(--warning);
+  --status-err: var(--destructive);
+  --status-info: var(--info);
   /* Fixed Roost brand coral remains product identity, not selection chrome. */
   --brand-coral: #db7556;
-  --on-accent: #171717;
-  --accent-container: #262626;
-  --on-accent-container: #fafafa;
-  --secondary-container: #262626;
-  --on-secondary-container: #fafafa;
-  --border-strong: #525252;
-  --border-subtle: #262626;
-  --status-ok: #4caf50;
-  --status-warn: #ff9800;
-  --status-err: #f44336;
-  --status-info: #2196f3;
-  --syntax-plain: #abb2bf;
-  --syntax-keyword: #c678dd;
-  --syntax-string: #98c379;
-  --syntax-number: #d19a66;
-  --syntax-comment: #5c6370;
-  --ansi-black: #282c34;
-  --ansi-red: #e06c75;
-  --ansi-green: #98c379;
-  --ansi-yellow: #d19a66;
-  --ansi-blue: #61afef;
-  --ansi-magenta: #c678dd;
-  --ansi-cyan: #56b6c2;
-  --ansi-white: #abb2bf;
-  --ansi-bright-black: #5c6370;
-  --ansi-bright-red: #e06c75;
-  --ansi-bright-green: #98c379;
-  --ansi-bright-yellow: #e5c07b;
-  --ansi-bright-blue: #61afef;
-  --ansi-bright-magenta: #c678dd;
-  --ansi-bright-cyan: #56b6c2;
-  --ansi-bright-white: #ffffff;
-  /* OMP's transcript pink: its own theme token (themes.rs paints it per theme;
-     this is the dark fallback) because no other role carries it. */
-  --chat-accent: #ed4abf;
-
   /* Pairing QR code. Theme-invariant on purpose: a phone camera reads dark
      modules on a light field, and many refuse a code drawn inverted, so a dark
      theme must not flip it. The SVG draws its modules in currentColor. */
@@ -77,7 +47,7 @@
   /* ── 2. Terminal palette bridge ──
      Cell spans reference --term-color-0..15 plus --term-bg/fg/cursor. These
      aliases feed app chrome outside the grid and the scoped .wterm bridge in
-     terminal-grid.css. Index→name order matches the themes.rs ANSI block.
+     terminal-grid.css. Index→name order matches the palettes/roost.rs ANSI block.
      --terminal-grid-* avoid self-references at the .wterm scope. */
   --term-color-0: var(--ansi-black);
   --term-color-1: var(--ansi-red);
@@ -171,6 +141,10 @@
   /* Soft-keyboard inset (px). Desktop default 0; `keyboard_offset.rs`
      overrides at runtime on mobile. */
   --kb-offset: 0px;
+  /* Where a bottom sheet sits above the soft keyboard. Zeroed below under an
+     editor region the keyboard already translates, which is the sheet's
+     containing block there; lifting again would push its top off the screen. */
+  --sheet-kb-bottom: max(var(--kb-offset, 0px), 0px);
   /* Notification dock lift: the bottom chrome the dock clears, published
      inline per render. */
   --roost-notify-dock-lift: 0px;
@@ -204,6 +178,16 @@
      0px, so nothing else keeps chrome off the bezel-cropped edge. */
   --tv-overscan-inline: 48px;
   --tv-overscan-block: 27px;
+}
+[data-keyboard-shift="true"] {
+  --sheet-kb-bottom: 0px;
+}
+/* rust-ui's base pads <body> by the safe-area insets; Roost's shell, drawer,
+   sheets and composer apply those insets themselves, so body padding would
+   apply each twice and shrink the 100svh shell. */
+body {
+  padding-top: 0;
+  padding-bottom: 0;
 }
 @media (any-pointer: coarse) {
   :root {

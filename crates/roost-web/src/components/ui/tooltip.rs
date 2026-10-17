@@ -1,5 +1,5 @@
-//! CSS-only tooltip: visibility is Tailwind `group-hover`, so there is no open state and no
-//! DOM access. Callers compose `Tooltip` around a trigger with a sibling `TooltipContent`.
+//! CSS-only tooltip with rust-ui's classes: visibility is Tailwind `group-hover`, so there is no open
+//! state and no DOM access. Callers compose `Tooltip` around a trigger with a sibling `TooltipContent`.
 //! Depends only on `tw_merge` for class merging; no other module.
 
 use dioxus::prelude::*;
@@ -24,11 +24,11 @@ pub fn TooltipProvider() -> Element {
 #[component]
 pub fn Tooltip(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
     let merged = tw_merge!(
-        "inline-block relative mx-0 whitespace-nowrap transition-all duration-300 ease-in-out group/tooltip my-1",
+        "inline-block relative mx-0 whitespace-nowrap transition-all duration-300 ease-in-out group/tooltip my-[5px]",
         class.as_deref().unwrap_or("")
     );
     rsx! {
-        div { "data-name": "Tooltip", class: "{merged}", {children} }
+        div { class: "{merged}", {children} }
     }
 }
 
@@ -38,7 +38,7 @@ pub fn TooltipContent(
     #[props(default = TooltipPosition::default())] position: TooltipPosition,
     children: Element,
 ) -> Element {
-    const SHARED: &str = "absolute opacity-0 transition-all duration-300 ease-in-out pointer-events-none group-hover/tooltip:opacity-100 group-hover/tooltip:pointer-events-auto group-focus-within/tooltip:opacity-100 z-[1000000]";
+    const SHARED: &str = "absolute opacity-0 transition-all duration-300 ease-in-out pointer-events-none group-hover/tooltip:opacity-100 group-hover/tooltip:pointer-events-auto z-[1000000]";
 
     let (pos_class, arrow_pos_class, pos_str) = match position {
         TooltipPosition::Top => (

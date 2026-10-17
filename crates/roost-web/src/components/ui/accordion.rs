@@ -42,7 +42,8 @@ pub fn AccordionTrigger(
         input {
             id: "{id}",
             r#type: "checkbox",
-            class: "sr-only peer",
+            class: "overflow-hidden absolute p-0 -m-px w-px h-px whitespace-nowrap border-0 peer",
+            style: "clip: rect(0, 0, 0, 0)",
             checked: open,
         }
         label {

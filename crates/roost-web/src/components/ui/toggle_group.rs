@@ -32,19 +32,19 @@ pub enum ToggleGroupSpacing {
 }
 
 impl ToggleGroupSpacing {
-    const fn gap_class(self) -> &'static str {
+    const fn gap_style(self) -> &'static str {
         match self {
-            Self::Snug => "gap-1",
-            Self::Flush => "gap-0",
-            Self::Loose => "gap-2",
+            Self::Snug => "gap: 0.25rem",
+            Self::Flush => "gap: 0px",
+            Self::Loose => "gap: 0.5rem",
         }
     }
 
     const fn data_value(self) -> &'static str {
         match self {
-            Self::Snug => "snug",
-            Self::Flush => "flush",
-            Self::Loose => "loose",
+            Self::Snug => "1",
+            Self::Flush => "0",
+            Self::Loose => "2",
         }
     }
 }
@@ -76,7 +76,6 @@ pub fn ToggleGroup(
     let is_outline = variant == ToggleGroupVariant::Outline;
     let merged = tw_merge!(
         "flex items-center rounded-md group/toggle-group w-fit",
-        spacing.gap_class(),
         if is_vertical { "flex-col" } else { "" },
         if is_outline { "shadow-xs" } else { "" },
         class.as_deref().unwrap_or("")
@@ -85,7 +84,7 @@ pub fn ToggleGroup(
     rsx! {
         div {
             class: "{merged}",
-            role: "group",
+            style: "{spacing.gap_style()}",
             "data-name": "ToggleGroup",
             "data-variant": if is_outline { "Outline" } else { "Default" },
             "data-orientation": if is_vertical { "Vertical" } else { "Horizontal" },
@@ -106,7 +105,7 @@ pub fn ToggleGroupAction(
     children: Element,
 ) -> Element {
     let merged = tw_merge!(
-        "inline-flex gap-2 justify-center items-center p-0 text-sm font-medium whitespace-nowrap rounded-sm transition-all outline-none disabled:opacity-50 disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 aria-invalid:ring-destructive/20 aria-invalid:border-destructive size-6 dark:aria-invalid:ring-destructive/40 dark:hover:bg-accent/50 hover:bg-accent hover:text-accent-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-3",
+        "inline-flex gap-2 justify-center items-center p-0 text-sm font-medium whitespace-nowrap rounded-sm transition-all outline-none disabled:opacity-50 disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 aria-invalid:ring-destructive/20 aria-invalid:border-destructive size-6 dark:aria-invalid:ring-destructive/40 dark:hover:bg-accent/50 hover:bg-accent hover:text-accent-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
         class.as_deref().unwrap_or("")
     );
 
@@ -150,7 +149,7 @@ pub fn ToggleGroupItem(
     let width = if is_vertical { "w-full" } else { "" };
 
     let merged = tw_merge!(
-        "inline-flex flex-1 gap-2 justify-center items-center px-2 min-w-0 h-9 text-sm font-medium whitespace-nowrap bg-transparent shadow-none outline-none focus:z-10 focus-visible:z-10 disabled:opacity-50 disabled:pointer-events-none data-[state=on]:bg-accent data-[state=on]:text-accent-foreground [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0 transition-[color,box-shadow] aria-invalid:ring-destructive/20 aria-invalid:border-destructive shrink-0 dark:aria-invalid:ring-destructive/40 hover:bg-muted hover:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-3",
+        "inline-flex flex-1 gap-2 justify-center items-center px-2 min-w-0 h-9 text-sm font-medium whitespace-nowrap bg-transparent shadow-none outline-none focus:z-10 focus-visible:z-10 disabled:opacity-50 disabled:pointer-events-none data-[state=on]:bg-accent data-[state=on]:text-accent-foreground [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0 transition-[color,box-shadow] aria-invalid:ring-destructive/20 aria-invalid:border-destructive shrink-0 dark:aria-invalid:ring-destructive/40 hover:bg-muted hover:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
         rounded,
         border,
         width,
@@ -162,6 +161,8 @@ pub fn ToggleGroupItem(
         button {
             r#type: "button",
             "data-name": "ToggleGroupItem",
+            role: "radio",
+            tabindex: "-1",
             class: "{merged}",
             id,
             "data-testid": test_id,

@@ -20,12 +20,16 @@ const MEMORY: &str = "CLAUDE.md — design system";
 /// stops looking is worse than a noisy one, so the match is on the part of the
 /// path a reorganisation does not move.
 ///
-/// This list is the authority for what a definition file is. `themes.rs` and
-/// `agents.rs` are here because raw hex is the SOURCE of the canonical palette
-/// in both, not a hardcoded copy of it. `tailwind.css` is the Tailwind theme
-/// bridge that declares the rust-ui colour roles; the same name is its
+/// This list is the authority for what a definition file is. `agents.rs` is
+/// here because raw hex is the SOURCE of its palette, not a hardcoded copy of
+/// it. `tailwind.css` is rust-ui's Tailwind theme; the same name is its
 /// compiled, gitignored output under `assets/styles/`.
-const TOKEN_FILES: [&str; 4] = ["theme-vars.css", "themes.rs", "agents.rs", "tailwind.css"];
+const TOKEN_FILES: [&str; 3] = ["theme-vars.css", "agents.rs", "tailwind.css"];
+
+/// Directories whose raw values are the declaration itself: the theme engine's
+/// palettes (rust-ui's base and accent themes, copied verbatim) and rust-ui's
+/// vendored stylesheets, which are copied rather than authored here.
+const TOKEN_DIRS: [&str; 2] = ["/theme/palettes/", "/roost-web/vendor/"];
 
 fn describe(observed: usize, allowed: usize) -> String {
     format!(
@@ -51,6 +55,9 @@ fn is_scanned(relative: &str) -> bool {
         && !relative.contains("/target/")
         && !relative.contains("/tests/")
         && !TOKEN_FILES.iter().any(|token| relative.ends_with(token))
+        && !TOKEN_DIRS
+            .iter()
+            .any(|directory| relative.contains(directory))
 }
 
 fn is_raw_value_line(line: &str) -> bool {

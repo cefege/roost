@@ -80,6 +80,18 @@ pub fn Command(
             },
             {children}
         }
+        style {
+            r#"
+            /* Command component - aria-selected styling */
+            [data-name="CommandItem"][aria-selected="true"] {{
+                background-color: var(--color-muted);
+            }}
+            /* Hide CommandEmpty when there are visible items */
+            [data-name="CommandList"]:has([data-name="CommandItem"][style*="flex"]) [data-name="CommandEmpty"] {{
+                display: none;
+            }}
+            "#
+        }
     }
 }
 

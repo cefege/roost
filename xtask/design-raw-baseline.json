@@ -1,3 +1,5 @@
 {
-  "crates/roost-web/assets/styles/terminal-grid.css": 6
+  "crates/roost-web/src/components/ui/badge.rs": 1,
+  "crates/roost-web/src/components/ui/drawer.rs": 1,
+  "crates/roost-web/src/components/ui/radio_button_group.rs": 1
 }

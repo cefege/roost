@@ -147,7 +147,7 @@ pub fn TabsList(
 
     let is_line = variant == TabsVariant::Line;
     let merged = tw_merge!(
-        "group/tabs-list inline-flex w-fit items-center justify-center rounded-lg p-0.75 text-muted-foreground",
+        "group/tabs-list inline-flex w-fit items-center justify-center rounded-lg p-[3px] text-muted-foreground",
         "group-data-[orientation=Horizontal]/tabs:h-8",
         "group-data-[orientation=Vertical]/tabs:h-fit group-data-[orientation=Vertical]/tabs:flex-col",
         if is_line {
@@ -196,12 +196,12 @@ pub fn TabsTrigger(
     };
 
     let merged = tw_merge!(
-        "relative inline-flex h-full flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-1.5 py-0.5 text-sm font-medium whitespace-nowrap transition-all cursor-pointer select-none",
-        "focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none",
+        "relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-1.5 py-0.5 text-sm font-medium whitespace-nowrap transition-all cursor-pointer select-none",
+        "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
         "disabled:pointer-events-none disabled:opacity-50",
         "group-data-[orientation=Vertical]/tabs:w-full group-data-[orientation=Vertical]/tabs:justify-start",
         "after:absolute after:bg-foreground after:transition-opacity",
-        "group-data-[orientation=Horizontal]/tabs:after:inset-x-0 group-data-[orientation=Horizontal]/tabs:after:-bottom-1.25 group-data-[orientation=Horizontal]/tabs:after:h-0.5",
+        "group-data-[orientation=Horizontal]/tabs:after:inset-x-0 group-data-[orientation=Horizontal]/tabs:after:bottom-[-5px] group-data-[orientation=Horizontal]/tabs:after:h-0.5",
         "group-data-[orientation=Vertical]/tabs:after:inset-y-0 group-data-[orientation=Vertical]/tabs:after:-right-1 group-data-[orientation=Vertical]/tabs:after:w-0.5",
         if is_active {
             "text-foreground"
@@ -272,7 +272,8 @@ pub fn TabsContent(
     let merged = tw_merge!(
         "flex-1 text-sm outline-none",
         "group-data-[orientation=Horizontal]/tabs:mt-2 group-data-[orientation=Vertical]/tabs:ml-4",
-        class.as_deref().unwrap_or("")
+        class.as_deref().unwrap_or(""),
+        if is_active { "" } else { "hidden" }
     );
 
     rsx! {
@@ -282,7 +283,6 @@ pub fn TabsContent(
             id: "{panel_id}",
             "aria-labelledby": "{tab_id}",
             "data-name": "TabsContent",
-            hidden: !is_active,
             {children}
         }
     }

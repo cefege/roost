@@ -1,8 +1,8 @@
-//! The `/design` gallery specimens name only Tailwind theme roles the stylesheet
-//! defines, and the theme engine writes only roles the stylesheet has a fallback
-//! for. Exercises `roost_web::components::design::catalog` against the
-//! `@theme inline` block in `tailwind.css` and `theme::tokens` against
-//! `assets/styles/theme-vars.css`.
+//! The `/design` gallery's specimens name only Tailwind theme roles the
+//! stylesheet defines, and every Roost alias in `theme-vars.css` resolves to a
+//! property the stylesheet declares or the engine writes. Exercises
+//! `roost_web::components::design::catalog` against the `@theme inline` block in
+//! `tailwind.css`, and `assets/styles/theme-vars.css` for alias targets.
 //!
 //! A swatch or radius step naming a role the theme does not define paints
 //! nothing, which reads as "that token is fine" when it does not exist — the
@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 
 use roost_web::components::design::catalog::SHAPE_STEPS;
 use roost_web::components::design::color_roles::COLOR_GROUPS;
-use roost_web::theme::tokens::CanonicalToken;
+use roost_web::theme::choice::managed_properties;
 
 const THEME_VARS: &str = include_str!("../assets/styles/theme-vars.css");
 const TAILWIND_CSS: &str = include_str!("../tailwind.css");
@@ -38,17 +38,34 @@ fn declared_properties(css: &str) -> BTreeSet<String> {
     declared
 }
 
-/// The body of the first `@theme inline` block. It holds declarations only, so
-/// the first closing brace ends it.
-fn theme_block(css: &str) -> &str {
-    css.split_once("@theme inline").map_or("", |(_, rest)| {
-        rest.split_once('}').map_or(rest, |(block, _)| block)
-    })
+/// Every custom property the stylesheet REFERENCES through `var(--name)`.
+fn referenced_properties(css: &str) -> BTreeSet<String> {
+    css.split("var(")
+        .skip(1)
+        .filter_map(|rest| {
+            let name = rest.trim_start().strip_prefix("--")?;
+            let end = name
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+                .unwrap_or(name.len());
+            Some(format!("--{}", &name[..end]))
+        })
+        .collect()
+}
+
+/// The bodies of every `@theme inline` block, joined: rust-ui's own block and
+/// Roost's additions after it. Each holds declarations only, so its first
+/// closing brace ends it.
+fn theme_blocks(css: &str) -> String {
+    css.split("@theme inline")
+        .skip(1)
+        .map(|rest| rest.split_once('}').map_or(rest, |(block, _)| block))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// The names after `prefix` of every theme property that starts with it.
 fn theme_names(prefix: &str) -> BTreeSet<String> {
-    declared_properties(theme_block(TAILWIND_CSS))
+    declared_properties(&theme_blocks(TAILWIND_CSS))
         .into_iter()
         .filter_map(|property| property.strip_prefix(prefix).map(str::to_string))
         .collect()
@@ -104,15 +121,20 @@ fn every_radius_step_is_defined_by_the_theme() {
 }
 
 #[test]
-fn every_canonical_theme_role_has_a_stylesheet_fallback() {
-    // The engine writes these inline; before it runs (and wherever it cannot)
-    // the `:root` declaration is what paints, and every alias reads through it.
-    let declared = declared_properties(THEME_VARS);
-    for token in CanonicalToken::ALL {
-        let property = token.custom_property();
+fn every_alias_in_theme_vars_resolves_to_a_declared_property() {
+    // Roost's aliases read rust-ui roles; the engine writes the rest inline.
+    let engine_written = managed_properties()
+        .into_iter()
+        .map(|name| name.to_string());
+    let declared: BTreeSet<String> = declared_properties(TAILWIND_CSS)
+        .union(&declared_properties(THEME_VARS))
+        .cloned()
+        .chain(engine_written)
+        .collect();
+    for property in referenced_properties(THEME_VARS) {
         assert!(
             declared.contains(&property),
-            "{property} has no fallback in theme-vars.css"
+            "{property} is referenced by theme-vars.css but never declared"
         );
     }
 }

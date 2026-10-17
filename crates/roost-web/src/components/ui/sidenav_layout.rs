@@ -92,7 +92,7 @@ pub fn SidenavContent(
     children: Element,
 ) -> Element {
     let merged_class = tw_merge!(
-        "flex min-h-0 flex-1 flex-col gap-2 overflow-auto group-data-[collapsible=Icon]:overflow-hidden",
+        "scrollbar__on_hover flex min-h-0 flex-1 flex-col gap-2 overflow-auto group-data-[collapsible=Icon]:overflow-hidden",
         class.as_deref().unwrap_or("")
     );
     rsx! { div { "data-name": "SidenavContent", class: "{merged_class}", {children} } }

@@ -37,9 +37,13 @@ impl BadgeVariant {
                 "border-transparent shadow bg-destructive text-destructive-foreground hover:bg-destructive/80"
             }
             Self::Outline => "text-foreground",
-            Self::Success => "border-transparent bg-success/15 text-success hover:bg-success/25",
-            Self::Warning => "border-transparent bg-warning/15 text-warning hover:bg-warning/25",
-            Self::Info => "border-transparent bg-info/15 text-info hover:bg-info/25",
+            Self::Success => {
+                "border-transparent bg-success-light text-success-dark hover:bg-success-light/80"
+            }
+            Self::Warning => {
+                "border-transparent bg-warning-light text-warning-dark hover:bg-warning-light/80"
+            }
+            Self::Info => "border-transparent bg-info-light text-info-dark hover:bg-info-light/80",
         }
     }
 }
@@ -57,7 +61,7 @@ impl BadgeSize {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Default => "px-2.5 py-0.5 text-xs",
-            Self::Sm => "px-1.5 py-0.5 text-xs",
+            Self::Sm => "px-1.5 py-0.5 text-[10px]",
             Self::Lg => "px-3 py-1 text-sm",
         }
     }

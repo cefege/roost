@@ -18,17 +18,18 @@ use super::select::SelectOption;
 use super::select_navigation::{
     ListboxKeyAction, Typeahead, listbox_key_action, typeahead_character, typeahead_match,
 };
-use super::select_placement::{AnchorRect, listbox_placement, listbox_style};
+use super::select_placement::{AnchorRect, PlacementSide, listbox_placement, listbox_style};
 
 /// The surface the listbox sits on. Its position is the inline style from
 /// `listbox_style`, so only the paint and the scroll bounds are classes here.
-const LISTBOX_CONTENT_CLASS: &str = "z-50 overflow-auto p-1 rounded-md border bg-card shadow-md h-fit max-h-[300px] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
+const LISTBOX_CONTENT_CLASS: &str = "w-[150px] overflow-auto z-50 p-1 rounded-md border bg-card shadow-md h-fit max-h-[300px] absolute top-[calc(100%+4px)] left-0 data-[position=Above]:top-auto data-[position=Above]:bottom-[calc(100%+4px)] transition-all duration-200 data-[state=closed]:opacity-0 data-[state=closed]:scale-95 data-[state=open]:opacity-100 data-[state=open]:scale-100 data-[state=closed]:data-[position=Below]:origin-top data-[state=open]:data-[position=Below]:origin-top data-[state=closed]:data-[position=Above]:origin-bottom data-[state=open]:data-[position=Above]:origin-bottom [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
 
-const LISTBOX_CLASS: &str = "m-0 list-none p-0 outline-hidden";
+/// Rust/UI's select group class, verbatim.
+const LISTBOX_CLASS: &str = "group";
 
-/// Rust/UI's select option recipe, with the highlight as a presence variant
-/// because keyboard movement highlights without moving focus.
-const OPTION_CLASS: &str = "group inline-flex gap-2 items-center w-full rounded-sm px-2 py-1.5 text-sm cursor-pointer no-underline transition-colors duration-200 text-popover-foreground hover:bg-accent hover:text-accent-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground [&_svg:not([class*='size-'])]:size-4 any-pointer-coarse:min-h-(--control-touch-target)";
+/// Rust/UI's select option recipe. The highlight is a presence variant because
+/// keyboard movement highlights without moving focus.
+const OPTION_CLASS: &str = "group inline-flex gap-2 items-center w-full rounded-sm px-2 py-1.5 text-sm cursor-pointer no-underline transition-colors duration-200 text-popover-foreground hover:bg-accent hover:text-accent-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground [&_svg:not([class*='size-'])]:size-4";
 
 const OPTION_CHECK_CLASS: &str =
     "ml-auto opacity-0 size-4 text-muted-foreground group-aria-selected:opacity-100";
@@ -68,6 +69,13 @@ pub fn SelectListbox(
     let mut typeahead = use_signal(Typeahead::default);
     let mut items = use_signal(Vec::<Option<Rc<MountedData>>>::new);
     let placement = listbox_placement(anchor, content_height(), viewport_height());
+    let mut entered = use_signal(|| false);
+    let mut can_scroll_up = use_signal(|| false);
+    let mut can_scroll_down = use_signal(|| false);
+    let position = match placement.side {
+        PlacementSide::Top => "Above",
+        PlacementSide::Bottom => "Below",
+    };
     let active_descendant = highlighted().map(|index| select_option_id(&listbox_id, index));
     let labels: Vec<String> = options.iter().map(|option| option.label.clone()).collect();
     let count = options.len();
@@ -82,15 +90,32 @@ pub fn SelectListbox(
     rsx! {
         div {
             class: LISTBOX_CONTENT_CLASS,
+            "data-name": "SelectContent",
+            "data-target": "target__select",
             "data-expanded": "",
+            "data-state": if entered() { "open" } else { "closed" },
+            "data-position": position,
             style: listbox_style(&placement),
+            onscroll: move |event: Event<ScrollData>| {
+                let scroll_top = event.scroll_top();
+                let scroll_height = f64::from(event.scroll_height());
+                let client_height = f64::from(event.client_height());
+                can_scroll_up.set(scroll_top > 0.0);
+                can_scroll_down.set(scroll_top < scroll_height - client_height - 1.0);
+            },
             onmounted: move |event: MountedEvent| async move {
                 if let Ok(rect) = event.data().get_client_rect().await {
                     content_height.set(Some(rect.size.height));
                 }
+                entered.set(true);
             },
+            div {
+                class: if can_scroll_up() { "sticky -top-1 z-10 flex items-center justify-center py-1 bg-card" } else { "hidden" },
+                Icon { icon: IconType::ChevronUp, class: "size-4 text-muted-foreground" }
+            }
             ul {
                 id: listbox_id.clone(),
+                "data-name": "SelectGroup",
                 class: LISTBOX_CLASS,
                 role: "listbox",
                 tabindex: "-1",
@@ -134,6 +159,7 @@ pub fn SelectListbox(
                 },
                 for (index, option) in options.into_iter().enumerate() {
                     li {
+                        "data-name": "SelectOption",
                         key: "{option.value}",
                         id: select_option_id(&listbox_id, index),
                         class: OPTION_CLASS,
@@ -164,6 +190,10 @@ pub fn SelectListbox(
                         Icon { icon: IconType::Check, class: OPTION_CHECK_CLASS }
                     }
                 }
+            }
+            div {
+                class: if can_scroll_down() { "sticky -bottom-1 z-10 flex items-center justify-center py-1 bg-card" } else { "hidden" },
+                Icon { icon: IconType::ChevronDown, class: "size-4 text-muted-foreground" }
             }
         }
     }

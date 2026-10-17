@@ -15,8 +15,8 @@ pub enum SliderVariant {
 impl SliderVariant {
     const fn as_str(self) -> &'static str {
         match self {
-            Self::Round => "round",
-            Self::Flat => "flat",
+            Self::Round => "Round",
+            Self::Flat => "Flat",
         }
     }
 }
@@ -35,7 +35,7 @@ pub fn Slider(
     #[props(optional)] on_value_change: Option<EventHandler<f64>>,
 ) -> Element {
     let merged = tw_merge!(
-        "overflow-hidden relative bg-transparent transition-all duration-100 ease-in-out appearance-none disabled:opacity-30 disabled:cursor-not-allowed w-48 text-primary active:cursor-grabbing disabled:grayscale",
+        "overflow-hidden relative bg-transparent transition-all duration-100 ease-in-out appearance-none disabled:opacity-30 disabled:cursor-not-allowed text-[1.5rem] w-[12.5em] text-primary active:cursor-grabbing disabled:grayscale",
         class.as_deref().unwrap_or("")
     );
     rsx! {

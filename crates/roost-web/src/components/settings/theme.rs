@@ -1,14 +1,10 @@
-//! Settings → Interface → Theme: the appearance picker, plus the two device
-//! modality switches that sit above it.
+//! Settings → Interface → Theme: the base, accent and mode pickers, plus the two
+//! device modality switches that sit above them.
 //!
-//! Ports `apps/web/src/components/Settings/ThemePane.tsx`. Depends on
-//! `crate::theme` for the engine and the registry, and on
-//! `input_nav::modality_dom` for the TV and controller choices the same pane
-//! offered.
-//!
-//! Each row previews itself: the swatch strip is read straight out of the
-//! theme's canonical tokens, so the list cannot advertise colours the engine
-//! does not write.
+//! The pickers read their options from `crate::theme::catalog` (rust-ui's base
+//! and accent palettes) and persist through `crate::theme::apply_theme`, which
+//! writes the resolved palette onto the document root. The modality switches
+//! depend on `input_nav::modality` for the TV and controller choices.
 
 use std::rc::Rc;
 
@@ -17,87 +13,25 @@ use roost_client_core::ClientEvent;
 use roost_client_core::KeyValueStore;
 use roost_client_core::store::shell_intent::ShellIntent;
 
-use crate::components::ui::{Button, ButtonVariant, Icon, IconType, Select, SelectOption};
+use crate::components::ui::{Select, SelectOption};
 use crate::input_nav::modality::{ModeChoice, NavModality};
 #[cfg(target_arch = "wasm32")]
 use crate::input_nav::{set_pad_mode_choice, set_tv_mode_choice};
 use crate::platform::storage::LocalStorageKeyValueStore;
 use crate::pump::{Pump, use_store};
-use crate::theme::choice::{AUTO_THEME_CHOICE, ThemeChoice, load_theme, resolve_theme_id};
-use crate::theme::themes::{THEMES, theme_by_id};
-use crate::theme::tokens::{CanonicalToken, ThemeAppearance, ThemeGroup};
-use crate::theme::{apply_theme, system_appearance};
+use crate::theme::apply_theme;
+use crate::theme::catalog::{accent_themes, base_themes};
+use crate::theme::choice::{ThemeChoice, ThemeMode, load_theme};
 
-/// The five tokens that read as a recognisable preview of a theme.
-const SWATCH_TOKENS: [CanonicalToken; 5] = [
-    CanonicalToken::BgBase,
-    CanonicalToken::Surface2,
-    CanonicalToken::Accent,
-    CanonicalToken::TextHi,
-    CanonicalToken::StatusOk,
-];
-
-/// One pickable choice: the stored spelling, its wording, and its swatches.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ThemeEntry {
-    choice: String,
-    label: &'static str,
-    support: &'static str,
-    swatches: Vec<&'static str>,
-}
-
-/// One swatch cell's inline style: the token's canonical value, written
-/// straight from the theme so a row cannot advertise a colour the engine does
-/// not write.
-fn swatch_style(swatch: &str) -> String {
-    format!("background: {swatch};")
-}
-
-fn swatches_for(theme_id: &str) -> Vec<&'static str> {
-    theme_by_id(theme_id)
-        .map(|theme| {
-            SWATCH_TOKENS
-                .iter()
-                .map(|token| theme.token(*token))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// Every choice, grouped the way the picker draws them.
-fn entries() -> Vec<(ThemeGroup, Vec<ThemeEntry>)> {
-    let mut groups: Vec<(ThemeGroup, Vec<ThemeEntry>)> = Vec::new();
-    for group in ThemeGroup::ORDER {
-        let mut rows: Vec<ThemeEntry> = Vec::new();
-        if group == ThemeGroup::System {
-            let resolved = resolve_theme_id(&ThemeChoice::Auto, system_appearance());
-            rows.push(ThemeEntry {
-                choice: AUTO_THEME_CHOICE.to_owned(),
-                label: "System",
-                support: "Follow the operating-system preference",
-                swatches: swatches_for(resolved),
-            });
-        }
-        for theme in THEMES {
-            if theme.group != group {
-                continue;
-            }
-            let support = match theme.appearance {
-                ThemeAppearance::Dark => "Dark",
-                ThemeAppearance::Light => "Light",
-            };
-            rows.push(ThemeEntry {
-                choice: theme.id.to_owned(),
-                label: theme.label,
-                support,
-                swatches: swatches_for(theme.id),
-            });
-        }
-        if !rows.is_empty() {
-            groups.push((group, rows));
-        }
-    }
-    groups
+/// Persist a changed theme choice and apply it. `change` edits the stored
+/// choice; the result is written through the engine, which persists it too.
+fn change_theme(storage: &dyn KeyValueStore, pump: &Pump, change: impl FnOnce(&mut ThemeChoice)) {
+    let mut choice = load_theme(storage);
+    change(&mut choice);
+    apply_theme(&choice);
+    pump.dispatch(ClientEvent::Shell(ShellIntent::ActionSucceeded {
+        message: "Theme saved".to_owned(),
+    }));
 }
 
 /// Persist the TV choice and re-apply the root attribute the stylesheets key
@@ -145,7 +79,7 @@ pub fn ThemePane() -> Element {
     let storage = use_hook(|| Rc::new(LocalStorageKeyValueStore::new()));
     let pump = use_store();
     let modality = use_context::<Signal<NavModality>>();
-    let stored = load_theme(storage.as_ref()).as_stored().to_owned();
+    let stored = load_theme(storage.as_ref());
     let tv_choice = modality.peek().tv_choice();
     let pad_choice = modality.peek().pad_choice();
 
@@ -177,6 +111,36 @@ pub fn ThemePane() -> Element {
             }));
         }
     };
+    let on_base_change = {
+        let base_pump = pump.clone();
+        let base_storage = storage.clone();
+        move |value: String| {
+            change_theme(base_storage.as_ref(), &base_pump, |choice| {
+                choice.base = value
+            });
+        }
+    };
+    let on_accent_change = {
+        let accent_pump = pump.clone();
+        let accent_storage = storage.clone();
+        move |value: String| {
+            change_theme(accent_storage.as_ref(), &accent_pump, |choice| {
+                choice.accent = value;
+            });
+        }
+    };
+    let on_mode_change = {
+        let mode_pump = pump.clone();
+        let mode_storage = storage.clone();
+        move |value: String| {
+            let Some(mode) = ThemeMode::from_stored(&value) else {
+                return;
+            };
+            change_theme(mode_storage.as_ref(), &mode_pump, |choice| {
+                choice.mode = mode
+            });
+        }
+    };
     rsx! {
         div {
             class: "flex max-w-xl flex-col gap-5",
@@ -204,60 +168,37 @@ pub fn ThemePane() -> Element {
                 on_change: on_pad_change,
             }
             p { class: "text-sm text-muted-foreground",
-                "Pick an appearance. The swatches preview each theme's colors. Applies to this browser profile."
+                "Pick a base, an accent and a mode. Applies to this browser profile."
             }
-            for (group, rows) in entries() {
-                div { class: "flex flex-col gap-2",
-                    h3 { class: "text-xs font-medium uppercase tracking-wide text-muted-foreground",
-                        {group.label()}
-                    }
-                    for row in rows {
-                        ThemeRow { entry: row.clone(), selected: row.choice == stored, pump: pump.clone() }
-                    }
-                }
+            Select {
+                test_id: "theme-base-select",
+                label: "Base",
+                value: stored.base.clone(),
+                options: base_themes()
+                    .iter()
+                    .map(|theme| SelectOption::new(theme.id, theme.label))
+                    .collect::<Vec<_>>(),
+                on_change: on_base_change,
             }
-        }
-    }
-}
-
-/// One pickable appearance, with its swatch strip.
-#[component]
-fn ThemeRow(entry: ThemeEntry, selected: bool, pump: Pump) -> Element {
-    let choice = entry.choice.clone();
-    let label = entry.label;
-    let support = entry.support;
-    let swatch_styles: Vec<String> = entry
-        .swatches
-        .iter()
-        .map(|swatch| swatch_style(swatch))
-        .collect();
-    let icon = if selected {
-        IconType::CircleCheck
-    } else {
-        IconType::Circle
-    };
-    rsx! {
-        Button {
-            variant: ButtonVariant::Ghost,
-            class: "w-full justify-start gap-3 text-left",
-            "data-testid": format!("theme-row-{choice}"),
-            "data-selected": if selected { "true" } else { "false" },
-            onclick: move |_| {
-                apply_theme(&ThemeChoice::from_stored(Some(choice.as_str())));
-                pump.dispatch(ClientEvent::Shell(ShellIntent::ActionSucceeded {
-                    message: "Theme saved".to_owned(),
-                }));
-            },
-            span { class: "flex shrink-0 overflow-hidden rounded-md border border-border",
-                for (index, style) in swatch_styles.iter().enumerate() {
-                    span { class: "h-8 w-4", style: style, key: "{index}" }
-                }
+            Select {
+                test_id: "theme-accent-select",
+                label: "Accent",
+                value: stored.accent.clone(),
+                options: accent_themes()
+                    .map(|theme| SelectOption::new(theme.id, theme.label))
+                    .collect::<Vec<_>>(),
+                on_change: on_accent_change,
             }
-            span { class: "flex min-w-0 flex-1 flex-col",
-                span { class: "font-semibold text-foreground", {label} }
-                span { class: "text-sm text-muted-foreground", {support} }
+            Select {
+                test_id: "theme-mode-select",
+                label: "Mode",
+                value: stored.mode.as_stored().to_owned(),
+                options: ThemeMode::ALL
+                    .into_iter()
+                    .map(|mode| SelectOption::new(mode.as_stored(), mode.label()))
+                    .collect::<Vec<_>>(),
+                on_change: on_mode_change,
             }
-            Icon { icon, class: "size-4" }
         }
     }
 }

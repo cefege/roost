@@ -13,10 +13,17 @@ pub fn chip_selected_attribute(selected: Option<bool>) -> Option<&'static str> {
     (selected == Some(true)).then_some("true")
 }
 
-const CHIP_RECIPE: &str = "gap-1 rounded-full font-medium [&_svg:not([class*='size-'])]:size-3 data-[selected=true]:border-transparent data-[selected=true]:bg-primary data-[selected=true]:text-primary-foreground";
-const CHIP_INTERACTIVE_RECIPE: &str = "gap-1 rounded-full font-medium [&_svg:not([class*='size-'])]:size-3 data-[selected=true]:border-transparent data-[selected=true]:bg-primary data-[selected=true]:text-primary-foreground cursor-pointer hover:bg-accent disabled:pointer-events-none disabled:opacity-50 aria-busy:cursor-wait any-pointer-coarse:min-h-(--control-touch-target)";
+const CHIP_RECIPE: &str = "gap-1";
+const CHIP_INTERACTIVE_RECIPE: &str =
+    "gap-1 cursor-pointer disabled:pointer-events-none disabled:opacity-50 aria-busy:cursor-wait";
 
-fn chip_class(small: bool, interactive: bool, class: &str) -> String {
+/// A selected chip takes the Badge default (filled) variant; otherwise outline.
+fn chip_class(selected: bool, small: bool, interactive: bool, class: &str) -> String {
+    let variant = if selected {
+        BadgeVariant::Default
+    } else {
+        BadgeVariant::Outline
+    };
     let size = if small {
         BadgeSize::Sm
     } else {
@@ -28,7 +35,7 @@ fn chip_class(small: bool, interactive: bool, class: &str) -> String {
         CHIP_RECIPE
     };
     let merged = tw_merge!(recipe, class);
-    badge_class(BadgeVariant::Outline, size, Some(merged.as_str()))
+    badge_class(variant, size, Some(merged.as_str()))
 }
 
 /// A chip. `small` is the inline size a card row uses.
@@ -63,7 +70,7 @@ pub fn Chip(
         Some(handler) => rsx! {
             button {
                 r#type: "button",
-                class: "{chip_class(small, true, &class)}",
+                class: "{chip_class(selected == Some(true), small, true, &class)}",
                 "data-size": size,
                 "data-selected": chip_selected_attribute(selected),
                 "aria-pressed": selected.map(|selected| selected.to_string()),
@@ -77,7 +84,7 @@ pub fn Chip(
         },
         None => rsx! {
             span {
-                class: "{chip_class(small, false, &class)}",
+                class: "{chip_class(selected == Some(true), small, false, &class)}",
                 "data-size": size,
                 "data-selected": chip_selected_attribute(selected),
                 "data-testid": test_id,

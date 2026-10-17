@@ -23,7 +23,7 @@ pub struct ColorGroup {
 }
 
 /// Every theme colour role, grouped as the gallery shows them.
-pub const COLOR_GROUPS: [ColorGroup; 7] = [
+pub const COLOR_GROUPS: [ColorGroup; 9] = [
     ColorGroup {
         title: "Surfaces",
         roles: &[
@@ -86,6 +86,14 @@ pub const COLOR_GROUPS: [ColorGroup; 7] = [
                 class: "bg-primary-foreground",
             },
             ColorRole {
+                name: "primary-light",
+                class: "bg-primary-light",
+            },
+            ColorRole {
+                name: "primary-dark",
+                class: "bg-primary-dark",
+            },
+            ColorRole {
                 name: "accent",
                 class: "bg-accent",
             },
@@ -103,8 +111,12 @@ pub const COLOR_GROUPS: [ColorGroup; 7] = [
                 class: "bg-destructive",
             },
             ColorRole {
-                name: "destructive-foreground",
-                class: "bg-destructive-foreground",
+                name: "destructive-light",
+                class: "bg-destructive-light",
+            },
+            ColorRole {
+                name: "destructive-dark",
+                class: "bg-destructive-dark",
             },
             ColorRole {
                 name: "success",
@@ -115,6 +127,14 @@ pub const COLOR_GROUPS: [ColorGroup; 7] = [
                 class: "bg-success-foreground",
             },
             ColorRole {
+                name: "success-light",
+                class: "bg-success-light",
+            },
+            ColorRole {
+                name: "success-dark",
+                class: "bg-success-dark",
+            },
+            ColorRole {
                 name: "warning",
                 class: "bg-warning",
             },
@@ -123,12 +143,78 @@ pub const COLOR_GROUPS: [ColorGroup; 7] = [
                 class: "bg-warning-foreground",
             },
             ColorRole {
+                name: "warning-light",
+                class: "bg-warning-light",
+            },
+            ColorRole {
+                name: "warning-dark",
+                class: "bg-warning-dark",
+            },
+            ColorRole {
                 name: "info",
                 class: "bg-info",
             },
             ColorRole {
                 name: "info-foreground",
                 class: "bg-info-foreground",
+            },
+            ColorRole {
+                name: "info-light",
+                class: "bg-info-light",
+            },
+            ColorRole {
+                name: "info-dark",
+                class: "bg-info-dark",
+            },
+        ],
+    },
+    ColorGroup {
+        title: "Selection",
+        roles: &[
+            ColorRole {
+                name: "selection",
+                class: "bg-selection",
+            },
+            ColorRole {
+                name: "selection-foreground",
+                class: "bg-selection-foreground",
+            },
+        ],
+    },
+    ColorGroup {
+        title: "Charts",
+        roles: &[
+            ColorRole {
+                name: "chart-1",
+                class: "bg-chart-1",
+            },
+            ColorRole {
+                name: "chart-2",
+                class: "bg-chart-2",
+            },
+            ColorRole {
+                name: "chart-3",
+                class: "bg-chart-3",
+            },
+            ColorRole {
+                name: "chart-4",
+                class: "bg-chart-4",
+            },
+            ColorRole {
+                name: "chart-5",
+                class: "bg-chart-5",
+            },
+            ColorRole {
+                name: "chart-primary",
+                class: "bg-chart-primary",
+            },
+            ColorRole {
+                name: "chart-muted",
+                class: "bg-chart-muted",
+            },
+            ColorRole {
+                name: "chart-grid",
+                class: "bg-chart-grid",
             },
         ],
     },

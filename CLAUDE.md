@@ -277,13 +277,18 @@ mechanically enforced so drift can't return:
    including Tailwind arbitrary values (`text-[13px]`, `bg-[#fff]`). Colour
    through the Tailwind roles (`bg-background`, `bg-card`, `bg-primary`,
    `text-muted-foreground`, `border-border`, `bg-accent`, `bg-destructive`, …),
-   which `crates/roost-web/tailwind.css`'s `@theme inline` block bridges onto
-   the canonical theme tokens, so every theme reflows every utility; type
-   through the `text-xs…` scale. Token files (`theme-vars.css`,
-   `tailwind.css`, the palettes in `themes.rs`/`agents.rs`) DECLARE values
-   and are the only files exempt. Enforced by `cargo xtask lint`'s design
-   ratchet against `xtask/design-raw-baseline.json`: a NEW raw value fails the
-   build. After migrating a file down, re-snapshot with
+   which `crates/roost-web/tailwind.css` (rust-ui's own theme file, verbatim)
+   maps onto rust-ui's theme variables. The theme engine (`src/theme/`) writes
+   rust-ui's base × accent palettes (`src/theme/palettes/`, verbatim) and the
+   `dark` class; default dark Neutral. Roost's older tokens (`--surface-*`,
+   `--text-*`, …) alias onto rust-ui's in `theme-vars.css`. Type through the
+   `text-xs…` scale. Token files (`theme-vars.css`, `tailwind.css`,
+   `agents.rs`, `src/theme/palettes/`, vendored rust-ui CSS under
+   `crates/roost-web/vendor/`) DECLARE values and are exempt. Components copy
+   rust-ui's class recipes byte for byte; the few raw values rust-ui itself
+   ships are baselined. Enforced by `cargo xtask lint`'s design ratchet against
+   `xtask/design-raw-baseline.json`: a NEW raw value fails the build. After
+   migrating a file down, re-snapshot with
    `cargo xtask lint --update-design-baseline`.
 2. **Components first.** Compose from `ui` (`Button`, `IconButton`, `Card`,
    `Surface`, `StatusDot`, `Badge`, `Dialog`, `Sheet`, `Drawer`, `Popover`,

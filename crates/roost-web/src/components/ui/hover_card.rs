@@ -163,10 +163,13 @@ fn HoverCardPanel(
     );
     use_hook(|| tracing::debug!(target: "ui", "hover card opened"));
     use_drop(|| tracing::debug!(target: "ui", "hover card closed"));
-    let style =
+    // Placement is measured from the trigger; `position: fixed` rides in the inline style so the
+    // class list stays rust-ui's.
+    let placement =
         anchored_placement_style(&trigger_id, side == HoverCardSide::Top).unwrap_or_default();
+    let style = format!("position: fixed; {placement}");
     let card_class = tw_merge!(
-        "overflow-visible fixed z-50 p-4 rounded-lg border bg-card shadow-md w-64",
+        "overflow-visible relative z-50 p-4 rounded-lg border bg-card shadow-md w-64",
         class.as_deref().unwrap_or("")
     );
     rsx! {

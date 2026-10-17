@@ -1,22 +1,18 @@
-//! The theme engine: the single source of truth for the active theme. Ported
-//! from `apps/web/src/lib/theme.ts` (with `themeTokens.ts` in `tokens` and
-//! `themes.ts` in `themes`). `App` calls [`apply_stored_theme`] once at boot,
-//! before the first paint; the Settings theme picker calls [`apply_theme`].
+//! The theme engine: the single source of truth for the active theme. `App`
+//! calls [`apply_stored_theme`] once at boot, before the first paint; the
+//! Settings theme picker calls [`apply_theme`].
 //!
-//! Applying a theme persists the CHOICE (`auto` or an id, through
-//! `KeyValueStore`), resolves it against the OS preference, and writes every
-//! canonical token inline on `document.documentElement` with `data-theme` and
-//! `color-scheme` — inline custom properties win over the `:root` fallback in
-//! `theme-vars.css`, where every other token aliases to them. The sequence is
+//! A choice is a base palette, an accent palette and a mode. Applying it
+//! persists the three parts (`KeyValueStore`), resolves the mode against the OS
+//! preference, clears every managed custom property, and writes the resolved
+//! base, accent and Roost roles inline on `document.documentElement`, together
+//! with the `dark` class rust-ui's `dark:` variant selects on. The sequence is
 //! [`apply_theme_with`] over a [`ThemeDocument`], so it runs natively in tests;
 //! the browser document is `document::BrowserThemeDocument`.
-//!
-//! The picker's cross-fade is v2's `withViewTransition(() => applyTheme(choice))`
-//! (`apps/web/src/browser/viewTransition.ts`), which the SHELL slice owns; the
-//! picker composes that wrapper around [`apply_theme`].
 
+pub mod catalog;
 pub mod choice;
-pub mod themes;
+pub mod palettes;
 pub mod tokens;
 
 #[cfg(target_arch = "wasm32")]
@@ -24,7 +20,9 @@ mod document;
 
 use roost_client_core::KeyValueStore;
 
-use choice::{ThemeApplication, ThemeChoice, load_theme, persist_theme, theme_application};
+use choice::{
+    ThemeApplication, ThemeChoice, ThemeMode, load_theme, persist_theme, theme_application,
+};
 use tokens::ThemeAppearance;
 
 /// Where a theme is written, and where the OS preference is read.
@@ -47,23 +45,23 @@ pub fn apply_theme_with(
     document.write(&application);
     tracing::info!(
         target: "theme",
-        choice = choice.as_stored(),
-        theme = application.theme_id,
+        base = application.base_id,
+        accent = application.accent_id,
+        mode = choice.mode.as_stored(),
+        appearance = application.appearance.color_scheme(),
         "theme applied"
     );
     application
 }
 
-/// The OS preference flipped: re-apply when, and only when, the persisted
-/// choice follows it. An explicit Light or Dark does not change under the reader.
+/// The OS preference flipped: re-apply when, and only when, the persisted mode
+/// is System. An explicit Light or Dark does not change under the reader.
 pub fn reapply_for_system_flip(
     store: &dyn KeyValueStore,
     document: &dyn ThemeDocument,
 ) -> Option<ThemeApplication> {
     let stored = load_theme(store);
-    stored
-        .follows_system()
-        .then(|| apply_theme_with(store, document, &stored))
+    (stored.mode == ThemeMode::System).then(|| apply_theme_with(store, document, &stored))
 }
 
 /// Apply the persisted theme and follow OS flips from now on. Called once, by

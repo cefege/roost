@@ -141,7 +141,7 @@ pub fn BrowseEntryList(
                         div { "aria-hidden": "true",
                             List { layout: ListLayout::Grid,
                                 for _ in 0..SKELETON_ROWS {
-                                    ListRow { dense: true, headline: rsx! { Skeleton {} } }
+                                    ListRow { dense: true, headline: rsx! { Skeleton { class: "h-4 w-full" } } }
                                 }
                             }
                         }

@@ -13,7 +13,7 @@ pub fn RadioButtonText(
     children: Element,
 ) -> Element {
     let merged = tw_merge!(
-        "block cursor-pointer bg-transparent text-primary px-3 py-1.5 relative ml-px ring-1 ring-border tracking-wider text-center transition-colors duration-500 peer-checked:bg-primary peer-checked:text-primary-foreground peer-focus-visible:ring-ring",
+        "block cursor-pointer bg-transparent text-primary px-3 py-1.5 relative ml-px shadow-[0_0_0_1px_#b5bfd9] tracking-wider text-center transition-colors duration-500",
         class.as_deref().unwrap_or("")
     );
     rsx! { span { "data-name": "RadioButtonText", class: "{merged}", {children} } }
@@ -46,7 +46,7 @@ pub fn RadioButton(
                 r#type: "radio",
                 name,
                 value,
-                class: "sr-only peer",
+                class: "radio__button focus:outline-0 focus:border-input/60",
                 checked,
                 onchange: move |event| {
                     if let Some(handler) = &onchange {

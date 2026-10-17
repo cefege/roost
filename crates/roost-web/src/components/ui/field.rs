@@ -7,6 +7,7 @@
 //! come first, then the visible description, then the error, so a screen reader
 //! reads the caller's context, then the help, then what is wrong.
 
+use crate::components::ui::separator::Separator;
 use dioxus::core::current_scope_id;
 use dioxus::prelude::*;
 use tw_merge::tw_merge;
@@ -202,9 +203,7 @@ pub fn FieldLabel(
     }
 }
 
-/// A rule across the field with an optional caption in its middle. The rule is
-/// inlined rather than borrowed from `Separator`, so the field family owns its
-/// own markup and `data-slot` hooks.
+/// A rule across the field with an optional caption in its middle.
 #[component]
 pub fn FieldSeparator(
     #[props(into, optional)] class: Option<String>,
@@ -220,7 +219,7 @@ pub fn FieldSeparator(
             "data-slot": "field-separator",
             "data-content": if has_content { "true" } else { "false" },
             class: "{merged}",
-            div { class: "shrink-0 bg-border absolute inset-0 top-1/2 w-full h-px" }
+            Separator { class: "absolute inset-0 top-1/2" }
             if let Some(c) = children {
                 span {
                     class: "block relative px-2 mx-auto bg-background text-muted-foreground w-fit",

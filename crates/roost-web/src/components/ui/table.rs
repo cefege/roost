@@ -55,16 +55,19 @@ pub fn TableRow(
 #[component]
 pub fn TableHead(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
     let merged = tw_merge!(
-        "h-10 px-2 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-0.5",
+        "h-10 px-2 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
         class.as_deref().unwrap_or("")
     );
     rsx! { th { class: "{merged}", {children} } }
 }
 
+/// rust-ui's second selector is malformed (`&:has(...)]:pl-3`, missing its
+/// leading `[`), so Tailwind emits nothing for it. Kept byte-identical to rust-ui
+/// so both render the same; fix it here when rust-ui fixes its source.
 #[component]
 pub fn TableCell(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
     let merged = tw_merge!(
-        "p-4 align-middle [&:has([role=checkbox])]:pr-0 [&:has([role=checkbox])]:pl-3",
+        "p-4 align-middle [&:has([role=checkbox])]:pr-0  &:has([role=checkbox])]:pl-3",
         class.as_deref().unwrap_or("")
     );
     rsx! { td { class: "{merged}", {children} } }

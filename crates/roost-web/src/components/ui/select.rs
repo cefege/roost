@@ -18,7 +18,9 @@ use tw_merge::tw_merge;
 
 use super::Icon;
 use super::dom::key_event_time_ms;
-use super::field::{described_by, description_id, error_id, scoped_element_id};
+use super::field::{
+    FieldDescription, FieldError, described_by, description_id, error_id, scoped_element_id,
+};
 use super::select_listbox::SelectListbox;
 use super::select_navigation::{
     OpenFocus, TriggerKeyAction, Typeahead, initial_highlight, trigger_key_action,
@@ -29,17 +31,14 @@ use super::select_placement::AnchorRect;
 /// The placeholder shown when no option matches the value.
 pub const DEFAULT_SELECT_PLACEHOLDER: &str = "Select an option";
 
-/// Rust/UI's select trigger recipe, plus the coarse-pointer touch floor.
-const TRIGGER_CLASS: &str = "w-full p-2 h-9 inline-flex items-center justify-between text-sm font-medium whitespace-nowrap rounded-md transition-colors focus:outline-none focus:ring-1 focus:ring-ring focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&_svg:not(:last-child)]:mr-2 [&_svg:not(:first-child)]:ml-2 [&_svg:not([class*='size-'])]:size-4 border bg-background border-input hover:bg-accent hover:text-accent-foreground any-pointer-coarse:min-h-(--control-touch-target)";
+/// Rust/UI's select trigger recipe, verbatim.
+const TRIGGER_CLASS: &str = "w-full p-2 h-9 inline-flex items-center justify-between text-sm font-medium whitespace-nowrap rounded-md transition-colors focus:outline-none focus:ring-1 focus:ring-ring focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&_svg:not(:last-child)]:mr-2 [&_svg:not(:first-child)]:ml-2 [&_svg:not([class*='size-'])]:size-4 border bg-background border-input hover:bg-accent hover:text-accent-foreground";
 
 /// Rust/UI's select label, verbatim.
-const LABEL_CLASS: &str = "px-2 py-1.5 text-sm font-medium mb-1";
+const LABEL_CLASS: &str = "px-2 py-1.5 text-sm font-medium data-inset:pl-8 mb-1";
 
-const VALUE_CLASS: &str = "truncate text-sm data-[placeholder-shown]:text-muted-foreground";
-
-const DESCRIPTION_CLASS: &str = "text-sm text-muted-foreground";
-
-const ERROR_CLASS: &str = "text-sm text-destructive";
+/// Rust/UI's select value, verbatim.
+const VALUE_CLASS: &str = "text-sm text-muted-foreground truncate";
 
 /// One option: the value reported, and the label shown.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -181,6 +180,7 @@ pub fn Select(
 
     rsx! {
         div {
+            "data-name": "Select",
             class: "{root_class}",
             role: "group",
             "data-expanded": expanded_attribute,
@@ -190,6 +190,7 @@ pub fn Select(
             if let (Some(label), Some(label_id)) = (label, label_id.clone()) {
                 span {
                     id: label_id,
+                    "data-name": "SelectLabel",
                     class: LABEL_CLASS,
                     onclick: move |_| {
                         if !is_disabled && let Some(mounted) = trigger() {
@@ -206,6 +207,7 @@ pub fn Select(
                 id: trigger_id,
                 class: TRIGGER_CLASS,
                 "data-name": "SelectTrigger",
+                tabindex: "0",
                 disabled: is_disabled,
                 "aria-haspopup": "listbox",
                 "aria-expanded": open().to_string(),
@@ -263,6 +265,7 @@ pub fn Select(
                 },
                 span {
                     id: value_id,
+                    "data-name": "SelectValue",
                     class: VALUE_CLASS,
                     "data-placeholder-shown": placeholder_shown,
                     {value_text}
@@ -270,10 +273,10 @@ pub fn Select(
                 Icon { icon: IconType::ChevronDown, class: "text-muted-foreground" }
             }
             if let Some(description) = description {
-                div { id: description_element_id, class: DESCRIPTION_CLASS, {description} }
+                FieldDescription { id: description_element_id, {description} }
             }
             if let Some(error) = error.filter(|_| invalid) {
-                div { id: error_element_id, class: ERROR_CLASS, {error} }
+                FieldError { id: error_element_id, {error} }
             }
             if let (true, Some(anchor)) = (open(), anchor()) {
                 SelectListbox {

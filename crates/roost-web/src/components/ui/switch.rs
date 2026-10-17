@@ -6,7 +6,9 @@
 use dioxus::prelude::*;
 use tw_merge::tw_merge;
 
-use crate::components::ui::field::scoped_element_id;
+use crate::components::ui::field::{
+    Field, FieldContent, FieldDescription, FieldTitle, FieldVariant, scoped_element_id,
+};
 
 #[component]
 pub fn SwitchLabel(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
@@ -71,15 +73,11 @@ pub fn SwitchRow(
     let support_id = use_hook(|| format!("{}-support", scoped_element_id("roost-switch-row")));
     let described_by = support.is_some().then(|| support_id.clone());
     rsx! {
-        div { class: "flex items-center gap-4",
-            div { class: "flex-1 min-w-0",
-                div { class: "text-sm font-medium text-foreground", {headline.clone()} }
+        Field { variant: FieldVariant::Horizontal,
+            FieldContent { class: "min-w-0",
+                FieldTitle { {headline.clone()} }
                 if let Some(support) = support {
-                    div {
-                        id: support_id,
-                        class: "text-sm font-normal text-muted-foreground",
-                        {support}
-                    }
+                    FieldDescription { id: support_id, {support} }
                 }
             }
             Switch {
