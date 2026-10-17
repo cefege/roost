@@ -228,7 +228,7 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
                         icon: "arrow_downward",
                         label: "Jump to the latest message",
                         title: "Jump to latest",
-                        variant: ButtonVariant::Outline,
+                        variant: ButtonVariant::Secondary,
                         size: IconButtonSize::IconSm,
                         class: "agent-chat__jump",
                         onclick: move |_| {

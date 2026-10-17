@@ -697,6 +697,7 @@
   left: 50%;
   z-index: 1;
   transform: translateX(-50%);
+  box-shadow: var(--md-elev-2);
 }
 
 .agent-chat__composer {
