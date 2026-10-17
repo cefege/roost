@@ -40,6 +40,8 @@ mod directional_input;
 mod file_route_round_trip;
 #[path = "global_search_page.rs"]
 mod global_search_page;
+#[path = "index_page.rs"]
+mod index_page;
 #[path = "keyboard_shortcuts.rs"]
 mod keyboard_shortcuts;
 #[path = "machine_actions.rs"]

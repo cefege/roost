@@ -31,6 +31,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
  && rm -rf target/dx/roost-web/release/web/public \
  && dx build --release --profile wasm-release -p roost-web --platform web \
  && test -f target/dx/roost-web/release/web/public/index.html \
+ && test -s target/dx/roost-web/release/web/public/styles/tailwind.css \
  && if grep -rl '__smoke' target/dx/roost-web/release/web/public; then \
       echo "the web bundle carries __smoke; this is not a production bundle" >&2; exit 1; \
     fi \

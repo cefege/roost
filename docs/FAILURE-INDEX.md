@@ -4308,3 +4308,22 @@ An absent link, a link into another install and a regular file are left alone.
 **Guard** — `crates/roost-cli/tests/self_link_repair.rs` —
 `a_settled_release_moves_this_installs_link_off_the_retired_release` and
 `a_settled_release_leaves_an_absent_or_foreign_link_and_a_file_alone`.
+
+### Tailwind padding, margin or overscroll classes do nothing
+
+**Symptom** — a `p-4`, `px-3`, `m-2`, `gap`-adjacent spacing or `overscroll-y-auto` class is in the DOM
+and in the compiled `tailwind.css`, yet the computed value is `0` / `none`; every rust-ui component
+renders with its padding collapsed.
+
+**Wrong** — raise specificity (`!p-4`), add an inline `style`, or re-declare the padding in a feature
+stylesheet. Tailwind v4 emits every utility inside `@layer utilities`, and an UNLAYERED rule beats every
+layered one whatever its specificity, so `* { margin: 0; padding: 0; }` or
+`* { overscroll-behavior-y: none; }` written unlayered anywhere (the page shell's inline `<style>` had
+both) cancels the whole utility layer for those properties.
+
+**Right** — the page shell's reset and global policies sit in `@layer base` (`crates/roost-web/index.html`),
+below `utilities`. Any hand-written stylesheet that must stay keeps to selectors no component styles with
+utilities (renderer-internal classes, `[data-tv]` modality overrides), because an unlayered rule there
+wins over a utility on the same element.
+
+**Guard** — `crates/roost-web/tests/index_page.rs` — `every_inline_page_rule_sits_in_the_base_layer`.
