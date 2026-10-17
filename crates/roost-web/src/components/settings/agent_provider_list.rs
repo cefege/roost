@@ -7,8 +7,8 @@ use roost_protocol::wire::agent_chat::ProviderEntry;
 
 use super::agent_accounts::plural;
 use super::agent_provider_status::ProviderSummary;
-use crate::components::md::{
-    Button, ButtonSize, ButtonVariant, EmptyState, List, ListRow, StatusDot, TextField,
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, EmptyState, IconType, List, ListRow, StatusDot, TextField,
 };
 
 #[component]
@@ -34,14 +34,14 @@ pub fn AvailableProviders(
                 on_input: move |value| filter.set(value),
                 placeholder: Some("Search providers".to_owned()),
                 aria_label: Some("Search providers".to_owned()),
-                class: Some("agent-settings__filter".to_owned()),
+                class: Some("w-full max-w-sm".to_owned()),
                 input_type: Some("search".to_owned()),
             }
         }
         if total == 0 {
-            EmptyState { icon: "check_circle".to_owned(), title: "Every provider is signed in.".to_owned() }
+            EmptyState { icon: IconType::Check, title: "Every provider is signed in.".to_owned() }
         } else if shown.is_empty() {
-            EmptyState { icon: "search_off".to_owned(), title: format!("No provider matches “{}”.", filter()) }
+            EmptyState { icon: IconType::SearchX, title: format!("No provider matches “{}”.", filter()) }
         } else {
             List { contained: true,
                 for summary in shown {
@@ -55,7 +55,7 @@ pub fn AvailableProviders(
                             Button {
                                 variant: if summary.provider.supports_oauth { ButtonVariant::Default } else { ButtonVariant::Outline },
                                 size: ButtonSize::Sm,
-                                icon: if summary.provider.supports_oauth { "login" } else { "key" },
+                                icon: Some(if summary.provider.supports_oauth { IconType::LogIn } else { IconType::Key }),
                                 onclick: {
                                     let provider = summary.provider.clone();
                                     move |_| on_connect.call(provider.clone())

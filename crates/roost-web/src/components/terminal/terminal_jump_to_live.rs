@@ -9,7 +9,7 @@
 use dioxus::prelude::*;
 
 use super::pane_handle::PaneHandle;
-use crate::components::md::{ButtonVariant, IconButton};
+use crate::components::ui::{ButtonVariant, IconButton, IconType};
 
 /// The button, or nothing while the reader follows the live tail. `lift` is
 /// the display's own `transform`, so the arrow rides a display a grown composer
@@ -24,11 +24,11 @@ pub fn TerminalJumpToLive(visible: bool, handle: PaneHandle, lift: String) -> El
             class: "term-jump-anchor",
             style: "transform: {lift};",
             IconButton {
-                icon: "arrow_downward",
+                icon: IconType::ArrowDown,
                 label: "Jump to the latest output",
                 title: "Jump to the latest output",
                 variant: ButtonVariant::Secondary,
-                class: "term-jump-to-live",
+                class: Some("term-jump-to-live".to_owned()),
                 "data-testid": "terminal-jump-to-live",
                 // Pressed without moving focus: the keyboard stays with the
                 // terminal on a desktop, and no soft keyboard opens on a phone.

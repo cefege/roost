@@ -8,9 +8,9 @@ use roost_protocol::wire::agent_chat::{AgentSettingsView, ModelsCatalog};
 
 use super::model_controls::thinking_label;
 use super::role_switch::{RoleLine, thinking_choices, with_role_thinking};
-use crate::components::md::Chip;
 use crate::components::settings::agent_roles::save_settings;
 use crate::components::settings::model_scope::ModelScope;
+use crate::components::ui::{Chip, IconType};
 use crate::pump::Pump;
 
 #[component]
@@ -24,20 +24,20 @@ pub(super) fn RoleThinking(
 ) -> Element {
     let Some(selector) = line.selector.clone() else {
         return rsx! {
-            p { class: "agent-chat__roles-note", "Choose a model for this role to set its thinking level." }
+            p { class: "text-sm text-muted-foreground", "Choose a model for this role to set its thinking level." }
         };
     };
     let choices = thinking_choices(&catalog, &selector);
     if choices.is_empty() {
         return rsx! {
-            p { class: "agent-chat__roles-note", "This model does not think before answering." }
+            p { class: "text-sm text-muted-foreground", "This model does not think before answering." }
         };
     }
     let levels = catalog.thinking_levels.clone();
     let options = std::iter::once(None).chain(choices.into_iter().map(Some));
     rsx! {
-        div { class: "agent-chat__roles-thinking", role: "group", "aria-label": "Thinking level",
-            span { class: "agent-chat__roles-label", "Thinking" }
+        div { class: "flex flex-wrap items-center gap-2", role: "group", "aria-label": "Thinking level",
+            span { class: "text-sm text-muted-foreground", "Thinking" }
             for level in options {
                 {
                     let selected = line.thinking == level;
@@ -57,7 +57,7 @@ pub(super) fn RoleThinking(
                             label,
                             small: true,
                             selected: Some(selected),
-                            icon: selected.then(|| "check".to_owned()),
+                            icon: selected.then_some(IconType::Check),
                             title: Some(title),
                             onclick: Some(EventHandler::new(move |_| {
                                 let updated = with_role_thinking(&settings.peek(), &scope, role, level.as_deref(), &levels);

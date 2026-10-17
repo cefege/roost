@@ -24,7 +24,7 @@ use roost_client_core::client::rpc::calls::settings::agent_config::{
 use roost_client_core::store::shell_intent::ShellIntent;
 
 use super::agents::{BUILTIN_AGENTS, CUSTOM_AGENT_ID, DEFAULT_AGENT, ResolvedAgent, resolve_agent};
-use crate::components::md::{Button, ButtonVariant, Chip, Select, SelectOption, Switch, TextField};
+use crate::components::ui::{Button, ButtonVariant, Chip, IconType, Select, SelectOption, Switch, TextField};
 use crate::pump::{Pump, use_store};
 
 /// The selection the coordinator holds, plus what is in flight.
@@ -88,10 +88,9 @@ pub fn AgentLauncherPane() -> Element {
     let auto_launch_pump = pump.clone();
     rsx! {
         div {
-            class: "settings-pane",
-            style: "max-width: 560px;",
+            class: "settings-pane max-w-xl",
             "data-testid": "agent-launcher-pane",
-            p { class: "md-body-s", style: "color: var(--md-sys-color-on-surface-variant); margin: 0 0 var(--md-space-4);",
+            p { class: "text-sm text-muted-foreground mb-4",
                 "Pick the agent Roost auto-launches in new terminals. Applies to every device."
             }
             Select {
@@ -103,12 +102,12 @@ pub fn AgentLauncherPane() -> Element {
                 on_change: move |value| choose(choose_pump.clone(), value, draft),
             }
             if selected == CUSTOM_AGENT_ID {
-                div { style: "display: flex; align-items: flex-end; gap: var(--md-space-3); margin-block-start: var(--md-space-4);",
+                div { class: "flex items-end gap-3 mt-4",
                     TextField {
                         test_id: "agent-custom-command",
                         label: "Custom command",
                         placeholder: "e.g. aider --model sonnet",
-                        style: "flex: 1 1 auto;",
+                        class: "flex-1",
                         value: custom.clone(),
                         on_input: move |value| draft.write().custom = value,
                     }
@@ -121,20 +120,20 @@ pub fn AgentLauncherPane() -> Element {
                     }
                 }
             }
-            div { style: "display: flex; align-items: center; gap: var(--md-space-3); margin-block-start: var(--md-space-5);",
-                Chip { label: resolved.glyph.clone(), icon: "extension" }
-                span { class: "md-body-m", style: "font-weight: 600;", {resolved.label.clone()} }
-                code { style: "font-family: var(--font-mono);",
+            div { class: "flex items-center gap-3 mt-5",
+                Chip { label: resolved.glyph.clone(), icon: Some(IconType::Puzzle) }
+                span { class: "font-semibold", {resolved.label.clone()} }
+                code { class: "font-mono",
                     {format!("{}\u{23ce}", resolved.command)}
                 }
             }
-            div { style: "display: flex; align-items: center; gap: var(--md-space-3); margin-block-start: var(--md-space-5);",
+            div { class: "flex items-center gap-3 mt-5",
                 Switch {
                     test_id: "agent-auto-launch-toggle",
-                    label: "Auto-launch agent in new terminal windows",
+                    aria_label: "Auto-launch agent in new terminal windows",
                     checked: auto_launch,
                     disabled: saving,
-                    on_change: move |enabled| set_auto_launch(auto_launch_pump.clone(), enabled, draft),
+                    on_checked_change: move |enabled| set_auto_launch(auto_launch_pump.clone(), enabled, draft),
                 }
             }
         }

@@ -4,7 +4,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::md::{Button, ButtonSize, ButtonVariant, Icon, IconSize};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, Icon, IconType, Markdown, Shimmer};
 
 #[component]
 pub(super) fn ThinkingBlock(text: String, live: bool, globally_visible: bool) -> Element {
@@ -12,6 +12,8 @@ pub(super) fn ThinkingBlock(text: String, live: bool, globally_visible: bool) ->
     let mut manually_changed = use_signal(|| false);
     let started_ms = use_hook(now_ms);
     let mut observed_seconds = use_signal(|| 0_u64);
+    let mut shimmering = use_signal(|| live);
+    use_effect(use_reactive((&live,), move |(live,)| shimmering.set(live)));
     let mut clock = use_future(use_reactive((&live,), move |(live,)| async move {
         if live {
             loop {
@@ -53,34 +55,41 @@ pub(super) fn ThinkingBlock(text: String, live: bool, globally_visible: bool) ->
     };
     rsx! {
         if globally_visible || live {
-            section { class: "agent-chat__thinking", "data-live": live.then_some("true"),
+            section { class: "flex flex-col gap-1 text-sm", "data-live": live.then_some("true"),
                 Button {
-                variant: ButtonVariant::Ghost,
-                size: ButtonSize::Sm,
-                class: "agent-chat__thinking-toggle",
-                aria_expanded: (expanded() && globally_visible).to_string(),
-                disabled: !globally_visible,
-                onclick: move |_| {
-                    manually_changed.set(true);
-                    expanded.set(!expanded());
-                },
-                Icon { name: "psychology", size: IconSize::Sm }
-                span { class: if live { "agent-chat__shimmer" } else { "" }, "{label}" }
-                Icon { name: if expanded() && globally_visible { "expand_less" } else { "expand_more" }, size: IconSize::Sm }
-            }
-                if expanded() && globally_visible {
-                div { class: "agent-chat__thinking-content",
-                    if omitted_live_lines {
-                        p { class: "agent-chat__thinking-tail-note", "Earlier lines are omitted from the live preview." }
+                    variant: ButtonVariant::Ghost,
+                    size: ButtonSize::Sm,
+                    class: "justify-start text-muted-foreground",
+                    aria_expanded: (expanded() && globally_visible).to_string(),
+                    disabled: !globally_visible,
+                    onclick: move |_| {
+                        manually_changed.set(true);
+                        expanded.set(!expanded());
+                    },
+                    Icon { icon: IconType::Brain, class: "size-4" }
+                    if live {
+                        Shimmer { loading: shimmering, "{label}" }
+                    } else {
+                        span { "{label}" }
                     }
-                    div { class: "agent-chat__thinking-text agent-chat__markdown", dangerous_inner_html: super::markdown::markdown_to_safe_html(&tail) }
-                    Button {
-                        variant: ButtonVariant::Link,
-                        class: "agent-chat__thinking-copy",
-                        onclick: move |_: MouseEvent| { crate::components::notifications::clipboard::copy_text(&copy_text); },
-                        "Copy thought"
+                    Icon {
+                        icon: if expanded() && globally_visible { IconType::ChevronUp } else { IconType::ChevronDown },
+                        class: "size-4",
                     }
                 }
+                if expanded() && globally_visible {
+                    div { class: "flex flex-col gap-2 border-l border-border pl-3 text-muted-foreground",
+                        if omitted_live_lines {
+                            p { class: "text-xs text-muted-foreground", "Earlier lines are omitted from the live preview." }
+                        }
+                        Markdown { class: "text-muted-foreground", html: super::markdown::markdown_to_safe_html(&tail) }
+                        Button {
+                            variant: ButtonVariant::Link,
+                            class: "self-start",
+                            onclick: move |_: MouseEvent| { crate::components::notifications::clipboard::copy_text(&copy_text); },
+                            "Copy thought"
+                        }
+                    }
                 }
             }
         }

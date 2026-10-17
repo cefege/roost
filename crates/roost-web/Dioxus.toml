@@ -25,29 +25,20 @@ title = "Roost"
 # router path the Playwright specs navigate to.
 base_path = "/"
 
-# The eleven stylesheets v2 imports eagerly, in v2's import order, which is
-# load-bearing: `theme-vars.css` declares every token the rest `var()` into,
-# `md/tokens.css` pulls `md/controls.css` through its own `@import`, and
-# `gamepad.css` has to come after `tv.css` or the coarse-pointer overrides win.
-# `md/icon.css`, `md/overlays.css` and `pairing/Onboarding.css` are NOT here:
-# v2 reached them through lazy chunks, and here the component that owns each
-# one attaches it when it mounts.
+# Load order is load-bearing: `theme-vars.css` declares every token the rest
+# `var()` into, and `gamepad.css` has to come after `tv.css` or the
+# coarse-pointer overrides win. `NotificationDock.css` is attached by the
+# notification dock when it mounts.
 [web.resource]
 style = [
   "/styles/tailwind.css",
   "/styles/theme-vars.css",
-  "/components/Settings/md/tokens.css",
   "/styles/sidebar.css",
   "/styles/voice-input.css",
-  "/styles/settings-dense.css",
-  "/styles/drive.css",
+  "/components/terminal/TerminalStartupOverlay.css",
   "/styles/workbench-shell.css",
   "/styles/workbench-sidebar.css",
   "/styles/workbench-tabs.css",
-  "/styles/agent-chat.css",
-  "/styles/agent-goal.css",
-  "/styles/agent-settings.css",
-  "/styles/agent-model-hub.css",
   "/styles/tv.css",
   "/styles/gamepad.css",
 ]

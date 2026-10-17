@@ -12,7 +12,7 @@ use roost_client_core::ClientEvent;
 use roost_client_core::store::sidebar::SidebarIntent;
 
 use super::shell_metrics::workbench_title;
-use crate::components::md::IconButton;
+use crate::components::ui::{IconButton, IconType};
 use crate::pump::use_pump;
 use crate::router_state::use_location;
 
@@ -26,15 +26,15 @@ pub fn MobileTopBar(
     let pump = use_pump();
     let title = workbench_title(&path, session_title.as_deref(), session_folder.as_deref());
     rsx! {
-        header { class: "mobile-topbar", "data-testid": "mobile-topbar",
+        header { class: "mobile-topbar gap-2 h-[var(--md-space-9)] shrink-0 px-2", "data-testid": "mobile-topbar",
             IconButton {
-                class: "mobile-topbar__menu",
-                icon: "menu",
+                class: "mobile-topbar__menu shrink-0",
+                icon: IconType::Menu,
                 label: "Open sidebar",
                 "data-testid": "mobile-topbar-menu",
                 onclick: move |_| pump.dispatch(ClientEvent::Sidebar(SidebarIntent::OpenDrawer)),
             }
-            span { class: "mobile-topbar__title", {title} }
+            span { class: "mobile-topbar__title flex-1 min-w-0 truncate", {title} }
         }
     }
 }

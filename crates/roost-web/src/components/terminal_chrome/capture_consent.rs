@@ -9,7 +9,10 @@
 use dioxus::prelude::*;
 use roost_protocol::terminal_capture::TERMINAL_CAPTURE_LIMITS;
 
-use crate::components::md::{Button, ButtonVariant, Dialog};
+use crate::components::ui::{
+    Button, ButtonVariant, Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader,
+    DialogTitle, StatusDot,
+};
 
 /// Which of the two capture actions is awaiting consent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,51 +72,52 @@ pub fn TerminalCaptureConsentDialog(
     rsx! {
         Dialog {
             open: true,
-            on_close: move |_| on_cancel.call(()),
-            test_id: Some("ctx-debug-consent".to_owned()),
-            headline: kind.headline().to_owned(),
-            actions: rsx! {
-                Button {
-                    variant: ButtonVariant::Outline,
-                    "data-testid": "ctx-debug-consent-cancel",
-                    onclick: move |_| on_cancel.call(()),
-                    "Cancel"
-                }
-                Button {
-                    variant: ButtonVariant::Default,
-                    "data-testid": "ctx-debug-consent-confirm",
-                    onclick: move |_| on_confirm.call(kind),
-                    "{kind.confirm_label()}"
+            on_open_change: move |open: bool| {
+                if !open {
+                    on_cancel.call(());
                 }
             },
-            div {
-                style: "display: grid; gap: var(--md-space-3);",
-                p {
-                    class: "md-body-m",
-                    style: "margin: 0;",
-                    "Terminal text and raw PTY output are recorded. They may contain secrets — \
-                     passwords, tokens, file contents — and are readable by anyone who can sign \
-                     in as you."
+            DialogContent { test_id: "ctx-debug-consent",
+                DialogHeader {
+                    DialogTitle { "{kind.headline()}" }
                 }
-                p {
-                    class: "md-body-m",
-                    style: "margin: 0;",
-                    "The bundle is written on the machine that owns this terminal, downloaded only \
-                     through your authenticated session, and deleted after at most \
-                     {retention_hours} hours."
+                DialogBody {
+                    p { class: "m-0 text-sm text-muted-foreground",
+                        "Terminal text and raw PTY output are recorded. They may contain secrets — \
+                         passwords, tokens, file contents — and are readable by anyone who can sign \
+                         in as you."
+                    }
+                    p { class: "m-0 text-sm text-muted-foreground",
+                        "The bundle is written on the machine that owns this terminal, downloaded only \
+                         through your authenticated session, and deleted after at most \
+                         {retention_hours} hours."
+                    }
+                    p { class: "m-0 text-sm text-muted-foreground",
+                        "Confirming grants a {lease_minutes}-minute debugging lease for this terminal \
+                         only. No other session is recorded, and an expired lease must be started \
+                         again."
+                    }
+                    p {
+                        class: "m-0 text-sm text-muted-foreground",
+                        "data-testid": "ctx-debug-consent-prehistory",
+                        "{kind.prehistory()}"
+                    }
                 }
-                p {
-                    class: "md-body-m",
-                    style: "margin: 0;",
-                    "Confirming grants a {lease_minutes}-minute debugging lease for this terminal \
-                     only. No other session is recorded, and an expired lease must be started \
-                     again."
-                }
-                p {
-                    class: "md-body-m",
-                    "data-testid": "ctx-debug-consent-prehistory",
-                    style: "margin: 0;",
-                    "{kind.prehistory()}"
+                DialogFooter {
+                    Button {
+                        variant: ButtonVariant::Outline,
+                        class: None,
+                        "data-testid": "ctx-debug-consent-cancel",
+                        onclick: move |_| on_cancel.call(()),
+                        "Cancel"
+                    }
+                    Button {
+                        variant: ButtonVariant::Default,
+                        class: None,
+                        "data-testid": "ctx-debug-consent-confirm",
+                        onclick: move |_| on_confirm.call(kind),
+                        "{kind.confirm_label()}"
+                    }
                 }
             }
         }
@@ -134,11 +138,10 @@ pub fn CaptureStateRow(phase: CapturePhase, detail: Option<String>) -> Element {
         div {
             "data-testid": "ctx-capture-state-row",
             role: "presentation",
-            class: "md-label-s",
+            class: "flex items-center gap-2 px-4 py-2 text-sm text-muted-foreground",
             "data-phase": phase.as_str(),
-            style: "display: flex; align-items: center; gap: var(--md-space-2); padding: var(--md-space-2) var(--md-space-4); color: var(--text-lo);",
-            crate::components::md::StatusDot { status: phase.dot_status().to_owned(), title: Some(label.clone()) }
-            span { class: "md-label-s", "{label}" }
+            StatusDot { status: phase.dot_status().to_owned(), title: Some(label.clone()) }
+            span { "{label}" }
         }
     }
 }

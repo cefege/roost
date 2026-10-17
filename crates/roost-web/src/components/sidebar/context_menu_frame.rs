@@ -10,11 +10,10 @@ use std::rc::Rc;
 use dioxus::prelude::*;
 
 use crate::components::context_menu::ctx_menu_surface_style;
-use crate::components::md;
+use crate::components::ui::dom::{FocusOpener, focused_element, restore_focus};
 
-/// Above the scrim (99) that dismisses it.
+/// Above the scrim that dismisses it.
 const MENU_Z_INDEX: u32 = 100;
-const SCRIM_STYLE: &str = "position: fixed; inset: 0; z-index: 99;";
 
 /// A row menu at viewport (`x`, `y`) holding `children` items.
 #[component]
@@ -32,11 +31,11 @@ pub fn ContextMenuFrame(
     // moving and Escape has nothing to hand focus to. Captured BEFORE the first
     // edge is focused, because that focus move is what would otherwise become
     // the remembered opener.
-    let opener: Rc<RefCell<Option<md::dom::FocusOpener>>> =
-        use_hook(|| Rc::new(RefCell::new(md::dom::focused_element())));
+    let opener: Rc<RefCell<Option<FocusOpener>>> =
+        use_hook(|| Rc::new(RefCell::new(focused_element())));
     use_drop(move || {
         if let Some(opener) = opener.borrow().as_ref() {
-            md::dom::restore_focus(opener);
+            restore_focus(opener);
         }
     });
     #[cfg(target_arch = "wasm32")]
@@ -52,7 +51,7 @@ pub fn ContextMenuFrame(
     let key_menu_id = menu_id.clone();
     rsx! {
         div {
-            style: SCRIM_STYLE,
+            class: "fixed inset-0 z-[99]",
             onclick: move |event: MouseEvent| {
                 event.stop_propagation();
                 on_close.call(());

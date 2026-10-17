@@ -19,16 +19,18 @@ pub(super) struct RunStyle {
 }
 
 impl RunStyle {
-    /// The run's classes, empty for unstyled text.
+    /// The run's classes, empty for unstyled text. Every class is a literal so
+    /// the Tailwind scan sees it.
     pub fn classes(self) -> String {
-        let mut classes = Vec::new();
-        let color = self.color.map(|index| format!("agent-chat__ansi-{index}"));
-        classes.extend(color.as_deref());
+        let mut classes: Vec<&'static str> = Vec::new();
+        if let Some(index) = self.color {
+            classes.push(color_class(index));
+        }
         for (on, class) in [
-            (self.bold, "agent-chat__ansi-bold"),
-            (self.dim, "agent-chat__ansi-dim"),
-            (self.italic, "agent-chat__ansi-italic"),
-            (self.underline, "agent-chat__ansi-underline"),
+            (self.bold, "font-bold"),
+            (self.dim, "opacity-60"),
+            (self.italic, "italic"),
+            (self.underline, "underline"),
         ] {
             if on {
                 classes.push(class);
@@ -81,6 +83,30 @@ impl RunStyle {
             }
             index += 1;
         }
+    }
+}
+
+/// The class for one of the 16 terminal colours, read from the palette bridge
+/// so the colour follows the theme rather than a fixed hue.
+fn color_class(index: u8) -> &'static str {
+    match index {
+        0 => "text-[var(--term-color-0)]",
+        1 => "text-[var(--term-color-1)]",
+        2 => "text-[var(--term-color-2)]",
+        3 => "text-[var(--term-color-3)]",
+        4 => "text-[var(--term-color-4)]",
+        5 => "text-[var(--term-color-5)]",
+        6 => "text-[var(--term-color-6)]",
+        7 => "text-[var(--term-color-7)]",
+        8 => "text-[var(--term-color-8)]",
+        9 => "text-[var(--term-color-9)]",
+        10 => "text-[var(--term-color-10)]",
+        11 => "text-[var(--term-color-11)]",
+        12 => "text-[var(--term-color-12)]",
+        13 => "text-[var(--term-color-13)]",
+        14 => "text-[var(--term-color-14)]",
+        15 => "text-[var(--term-color-15)]",
+        _ => "",
     }
 }
 
@@ -268,7 +294,7 @@ mod tests {
         assert_eq!(lines[1].runs[1].style, RunStyle::default());
         assert_eq!(
             red_bold.classes(),
-            "agent-chat__ansi-1 agent-chat__ansi-bold"
+            "text-[var(--term-color-1)] font-bold"
         );
     }
 

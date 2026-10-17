@@ -52,9 +52,9 @@ pub fn css_px_var(mounted: &MountedData, name: &str) -> f64 {
         .unwrap_or(0.0)
 }
 
-/// Every `.df-tab` box under a strip's rail, in DOM order.
+/// Every tab box under a strip's rail, in DOM order.
 pub fn tab_rects(rail: &MountedData) -> Vec<TabRect> {
-    let Some(tabs) = element(rail).and_then(|rail| rail.query_selector_all(".df-tab").ok()) else {
+    let Some(tabs) = element(rail).and_then(|rail| rail.query_selector_all("[data-deck-tab]").ok()) else {
         return Vec::new();
     };
     (0..tabs.length())
@@ -72,7 +72,7 @@ pub fn rail_overflowing(rail: &MountedData) -> bool {
         return false;
     };
     let bounds = box_of(element.get_bounding_client_rect());
-    let Ok(tabs) = element.query_selector_all(".df-tab") else {
+    let Ok(tabs) = element.query_selector_all("[data-deck-tab]") else {
         return false;
     };
     (0..tabs.length()).any(|index| {
@@ -85,7 +85,7 @@ pub fn rail_overflowing(rail: &MountedData) -> bool {
 /// Scroll the active tab into the rail's view.
 pub fn reveal_active_tab(rail: &MountedData) {
     let Some(tab) = element(rail).and_then(|rail| {
-        rail.query_selector(".df-tab[data-active='true']")
+        rail.query_selector("[data-deck-tab][data-active='true']")
             .ok()
             .flatten()
     }) else {
@@ -99,7 +99,7 @@ pub fn reveal_active_tab(rail: &MountedData) {
 
 /// Focus a tab's select button without scrolling the page.
 pub fn focus_tab_select(session_id: &str) {
-    let selector = format!("[data-testid=\"tab-{session_id}\"] .workbench-pane-tab__select");
+    let selector = format!("[data-testid=\"tab-{session_id}\"] [data-tab-select]");
     let Some(button) = web_sys::window()
         .and_then(|window| window.document())
         .and_then(|document| document.query_selector(&selector).ok().flatten())
@@ -277,10 +277,10 @@ impl SizeWatch {
         }
     }
 
-    /// Stop watching everything, then watch every `.df-tab` under `rail`.
+    /// Stop watching everything, then watch every tab box under `rail`.
     pub fn watch_tabs_only(&self, rail: &MountedData) {
         self.observer.disconnect();
-        let Some(tabs) = element(rail).and_then(|rail| rail.query_selector_all(".df-tab").ok())
+        let Some(tabs) = element(rail).and_then(|rail| rail.query_selector_all("[data-deck-tab]").ok())
         else {
             return;
         };

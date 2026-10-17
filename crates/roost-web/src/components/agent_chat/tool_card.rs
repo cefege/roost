@@ -18,7 +18,7 @@ use super::tool_view::{
     preview_window, state_label, status_name, tool_state,
 };
 use super::write_view::WriteBody;
-use crate::components::md::{Button, ButtonVariant, Icon, IconSize, StatusDot};
+use crate::components::ui::{Button, ButtonVariant, Icon, Spinner, StatusDot};
 
 #[component]
 pub fn ToolCard(
@@ -95,7 +95,7 @@ pub fn ToolCard(
     } else if tool_name == "write" && !failed && !content.is_empty() {
         rsx! { WriteBody { content: content.clone(), open, on_expand: on_body_expand } }
     } else if failed && output.is_empty() {
-        rsx! { p { class: "agent-chat__step-empty", "Tool execution failed." } }
+        rsx! { p { class: "m-0 text-xs text-muted-foreground", "Tool execution failed." } }
     } else if output.is_empty() {
         rsx! {}
     } else {
@@ -123,37 +123,37 @@ pub fn ToolCard(
     let command_text = command.clone();
     let output_text = output.clone();
     rsx! {
-        div { class: "agent-chat__step", "data-state": state, "data-tool": tool_name.clone(),
-            div { class: "agent-chat__step-head",
-                span { class: "agent-chat__step-icon", Icon { name: icon, size: IconSize::Sm } }
-                span { class: "agent-chat__step-verb", "{verb}" }
+        div { class: "flex min-w-0 flex-col gap-1 rounded-md border border-border p-2 data-[state=error]:border-destructive/40", "data-state": state, "data-tool": tool_name.clone(),
+            div { class: "flex min-w-0 items-center gap-2 text-sm text-muted-foreground",
+                span { class: "inline-flex flex-none items-center gap-1", Icon { icon, class: "size-4" } }
+                span { class: "flex-none font-medium text-foreground", "{verb}" }
                 if !target.is_empty() {
-                    code { class: "agent-chat__step-target", title: target.clone(), "{target}" }
+                    code { class: target_class(&tool_name), title: target.clone(), "{target}" }
                 }
                 if diff_stats.added > 0 || diff_stats.removed > 0 {
-                    span { class: "agent-chat__step-stats",
+                    span { class: "flex-none font-mono text-xs text-muted-foreground",
                         "["
-                        span { class: "agent-chat__stat-added", "+{diff_stats.added}" }
+                        span { class: "text-[var(--status-ok)]", "+{diff_stats.added}" }
                         "/"
-                        span { class: "agent-chat__stat-removed", "−{diff_stats.removed}" }
+                        span { class: "text-[var(--status-err)]", "−{diff_stats.removed}" }
                         "]"
                     }
                 }
-                span { class: "agent-chat__step-state",
+                span { class: state_text_class(state),
                     if state == "running" {
-                        span { class: "agent-chat__spinner", role: "status", "aria-label": "Running" }
+                        span { class: "inline-flex", role: "status", "aria-label": "Running", Spinner { class: "size-3" } }
                     } else {
-                        StatusDot { status: status_name(state).to_string(), title: state_text.to_string() }
+                        StatusDot { status: status_name(state).to_string(), title: Some(state_text.to_string()) }
                         span { "{state_text}" }
                     }
                 }
             }
             if let Some(text) = intent {
-                p { class: "agent-chat__step-intent", "{text}" }
+                p { class: "m-0 break-words text-xs italic text-muted-foreground", "{text}" }
             }
             {body}
             if tool_name == "edit" && !diff_text.is_empty() && !notes.is_empty() {
-                pre { class: "agent-chat__step-notes", "{notes}" }
+                pre { class: "m-0 whitespace-pre-wrap break-words py-1 font-mono text-xs text-muted-foreground", "{notes}" }
             }
             if timed_out {
                 AgentAlert { tone: AlertTone::Warning, p { "Execution timed out." } }
@@ -167,19 +167,19 @@ pub fn ToolCard(
                 TaskRows { child_ids: child_ids.clone(), open: agents_expanded, on_expand: on_agents_expand }
             }
             if has_details {
-                details { class: "agent-chat__step-detail-disclosure",
-                    summary { "Details" }
-                    div { class: "agent-chat__step-body",
+                details { class: "group",
+                    summary { class: "cursor-pointer py-1 text-xs text-muted-foreground", "Details" }
+                    div { class: "flex flex-col gap-2 pb-2",
                         if !facts.is_empty() {
-                            ul { class: "agent-chat__step-facts", for fact in facts { li { "{fact}" } } }
+                            ul { class: "m-0 flex list-none flex-wrap gap-x-4 gap-y-2 p-0 text-xs text-muted-foreground", for fact in facts { li { "{fact}" } } }
                         }
                         if !args_json.is_empty() && args_json != "{}" {
-                            pre { class: "agent-chat__step-pre", "{args_json}" }
+                            pre { class: "m-0 whitespace-pre-wrap break-words font-mono text-xs", "{args_json}" }
                         }
                         if !details_json.is_empty() && details_json != "{}" {
-                            pre { class: "agent-chat__step-pre", "{details_json}" }
+                            pre { class: "m-0 whitespace-pre-wrap break-words font-mono text-xs", "{details_json}" }
                         }
-                        div { class: "agent-chat__step-actions",
+                        div { class: "flex flex-wrap gap-2",
                             if copy_command {
                                 Button { variant: ButtonVariant::Link, onclick: move |_| { crate::components::notifications::clipboard::copy_text(&command_text); }, "Copy command" }
                             }
@@ -205,4 +205,21 @@ fn string_field(json: &str, key: &str) -> String {
                 .map(str::to_owned)
         })
         .unwrap_or_default()
+}
+
+/// The target's ink: a search pattern takes the accent, a path the full foreground.
+fn target_class(tool_name: &str) -> &'static str {
+    match tool_name {
+        "grep" | "glob" | "find" => "min-w-0 flex-1 truncate font-mono text-xs text-primary",
+        _ => "min-w-0 flex-1 truncate font-mono text-xs text-foreground",
+    }
+}
+
+/// The state word's ink: errors and timeouts draw in their status colour.
+fn state_text_class(state: &str) -> &'static str {
+    match state {
+        "error" => "ml-auto inline-flex flex-none items-center gap-1 text-xs text-destructive",
+        "timeout" => "ml-auto inline-flex flex-none items-center gap-1 text-xs text-[var(--status-warn)]",
+        _ => "ml-auto inline-flex flex-none items-center gap-1 text-xs text-muted-foreground",
+    }
 }

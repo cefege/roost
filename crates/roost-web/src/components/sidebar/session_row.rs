@@ -19,9 +19,9 @@ use super::rel_time_tick::use_rel_time_now;
 use super::row_swipe::{RowSwipe, SwipeRelease};
 use super::session_row_context_menu::SessionRowContextMenu;
 use super::session_row_flat::{SessionRowFacts, SessionRowFlat};
-use crate::components::md::list_row::is_in_app_navigation_click;
-use crate::components::md::{IconButton, IconButtonSize};
 use crate::components::notifications::notify_target::{ring_attribute, use_notify_target};
+use crate::components::ui::list::is_in_app_navigation_click;
+use crate::components::ui::{ButtonSize, Icon, IconButton, IconType};
 use crate::platform::BrowserWorkerPaths;
 use crate::platform::worker_paths::short_worker_path;
 use crate::pump::{Pump, use_store};
@@ -107,11 +107,12 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
     let href = format!("/s/{session_id}");
     let offset = swipe.read().offset_x();
     let tracking = swipe.read().tracking();
-    let transition = if tracking {
-        "none"
+    // The row follows the finger without easing while tracking, and eases back
+    // to rest once the touch releases.
+    let row_motion_class = if tracking {
+        "transition-none"
     } else {
-        "transform var(--md-sys-motion-duration-short4, 200ms) \
-         var(--md-sys-motion-easing-emphasized-decelerate, cubic-bezier(0.05, 0.7, 0.1, 1))"
+        "transition-transform duration-200 ease-out"
     };
     let close = {
         let pump = pump.clone();
@@ -134,24 +135,15 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
         }
     };
     rsx! {
-        div { class: "df-row-swipe",
-            div { class: "df-row-del", "aria-hidden": "true", style: "width: {(-offset).max(0.0)}px;",
-                svg {
-                    width: "18",
-                    height: "18",
-                    view_box: "0 0 24 24",
-                    fill: "none",
-                    stroke: "currentColor",
-                    stroke_width: "2",
-                    stroke_linecap: "round",
-                    stroke_linejoin: "round",
-                    "aria-hidden": "true",
-                    path { d: "M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" }
-                    path { d: "M10 11v6M14 11v6" }
-                }
+        div { class: "relative overflow-hidden", "data-swipe-row": "true",
+            div {
+                class: "absolute inset-y-0 right-0 flex items-center justify-center overflow-hidden bg-destructive text-destructive-foreground",
+                "aria-hidden": "true",
+                style: "width: {(-offset).max(0.0)}px;",
+                Icon { icon: IconType::Trash2, class: "size-4" }
             }
             div {
-                class: "df-row",
+                class: "group relative flex min-w-0 items-start gap-3 bg-sidenav px-3 py-2 hover:bg-accent/50 data-[cursor=on]:bg-accent/50 data-[selected=focused]:bg-accent {row_motion_class}",
                 "data-testid": "sidebar-session-row",
                 "data-session-id": session_id.clone(),
                 "data-worker-fp": facts.worker_fp.clone(),
@@ -161,8 +153,7 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
                 "data-density": "flat",
                 "data-swiping": tracking.then_some("1"),
                 "data-notify-target": ringing,
-                style: "padding-left: var(--md-space-3); --avatar-bg: {facts.avatar}; \
-                        transform: translateX({offset}px); transition: {transition};",
+                style: "--avatar-bg: {facts.avatar}; transform: translateX({offset}px);",
                 title: "{facts.title} — {facts.flat.cwd} — right-click for actions",
                 oncontextmenu: move |event: MouseEvent| {
                     event.prevent_default();
@@ -196,9 +187,8 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
                 },
                 a {
                     href: href.clone(),
-                    class: "df-row__primary",
+                    class: "absolute inset-0 z-10",
                     "aria-label": "Open {facts.title}",
-                    style: "position: absolute; inset: 0; z-index: 1;",
                     onclick: move |event: MouseEvent| {
                         if swipe.write().take_swiped() {
                             event.prevent_default();
@@ -213,18 +203,17 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
                         navigate.call(href.clone());
                     },
                 }
-                span { class: "df-row__visual", style: "display: contents; pointer-events: none;",
-                    span { class: "df-leading", "aria-hidden": "true", "$" }
+                span { class: "pointer-events-none contents",
+                    span { class: "shrink-0 font-mono text-xs text-muted-foreground", "aria-hidden": "true", "$" }
                     SessionRowFlat { facts: facts.flat.clone() }
                 }
                 IconButton {
-                    icon: "close",
+                    icon: IconType::X,
                     label: "Close pane",
-                    size: IconButtonSize::IconSm,
-                    class: "df-action df-action-always",
+                    size: ButtonSize::IconSm,
+                    class: "relative z-20 shrink-0 pointer-events-auto",
                     "data-testid": "session-close-{session_id}",
                     title: "Close pane",
-                    style: "--md-icon-button-icon-size: var(--md-label-l-size); position: relative; z-index: 2; pointer-events: auto;",
                     onclick: move |event: MouseEvent| {
                         event.stop_propagation();
                         event.prevent_default();
@@ -234,7 +223,7 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
             }
             // A sibling of the row, not a child: the row's swipe `transform`
             // makes it the containing block of a `position: fixed` menu, and
-            // `.df-row-swipe`'s `overflow: hidden` then clips the menu to one
+            // the wrapper's `overflow-hidden` then clips the menu to one
             // row's height.
             if let Some((x, y)) = menu_at() {
                 SessionRowContextMenu {

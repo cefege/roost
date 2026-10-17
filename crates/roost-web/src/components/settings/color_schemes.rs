@@ -8,7 +8,10 @@ use dioxus::web::WebEventExt as _;
 use roost_client_core::KeyValueStore as _;
 use wasm_bindgen::JsCast as _;
 
-use crate::components::md::{Button, ButtonVariant, Card, Select, SelectOption, TextField};
+use crate::components::ui::{
+    Button, ButtonVariant, Card, CardContent, CardHeader, CardTitle, Input, InputType, Select,
+    SelectOption, TextField,
+};
 use crate::platform::LocalStorageKeyValueStore;
 use crate::terminal_schemes::{TerminalPalette, TerminalScheme, built_in_schemes, parse_scheme};
 
@@ -70,8 +73,11 @@ pub fn TerminalColorSchemes() -> Element {
         .collect();
 
     rsx! {
-        Card { title: "Color scheme",
-            div { style: "display: flex; flex-direction: column; gap: var(--md-space-3);",
+        Card {
+            CardHeader {
+                CardTitle { "Color scheme" }
+            }
+            CardContent { class: "flex flex-col gap-3",
                 Select {
                     test_id: "terminal-color-scheme-select",
                     label: "Color scheme",
@@ -79,7 +85,7 @@ pub fn TerminalColorSchemes() -> Element {
                     options,
                     on_change: move |value| selected.set(value),
                 }
-                p { class: "md-body-s", style: "color: var(--md-sys-color-on-surface-variant); margin: 0;",
+                p { class: "text-sm text-muted-foreground",
                     "Changes only the terminal palette; app chrome keeps its Light, Dark, or System theme. Applies to every open terminal on this device."
                 }
                 for scheme in built_in_schemes().iter() {
@@ -101,12 +107,12 @@ pub fn TerminalColorSchemes() -> Element {
                     placeholder: Some("Windows Terminal JSON, iTerm2 .itermcolors XML, kitty or Ghostty key/value".to_owned()),
                     on_input: move |value| { draft.set(value); error.set(None); },
                 }
-                input {
-                    r#type: "file",
+                Input {
                     accept: ".json,.itermcolors,.conf,.txt",
-                    "aria-label": "Import terminal color scheme file",
-                    "data-testid": "terminal-scheme-file",
-                    onchange: move |event| {
+                    r#type: InputType::File,
+                    aria_label: "Import terminal color scheme file",
+                    test_id: "terminal-scheme-file",
+                    onchange: move |event: FormEvent| {
                         let Some(web_event) = event.try_as_web_event() else { return; };
                         let Some(file) = web_event.target()
                             .and_then(|target| target.dyn_into::<web_sys::HtmlInputElement>().ok())
@@ -123,7 +129,7 @@ pub fn TerminalColorSchemes() -> Element {
                     },
                 }
                 if let Some(message) = error() {
-                    p { class: "md-body-s", role: "alert", style: "color: var(--md-sys-color-error); margin: 0;", "{message}" }
+                    p { class: "text-sm text-destructive", role: "alert", "{message}" }
                 }
                 Button {
                     variant: ButtonVariant::Default,
@@ -173,21 +179,19 @@ fn SchemeSwatch(
     let delete_test_id = format!("terminal-scheme-delete-{scheme_id}");
     let preview_label = format!("{scheme_name} palette preview");
     rsx! {
-        div {
-            style: "display: flex; align-items: center; gap: var(--md-space-2);",
-            "data-testid": "terminal-scheme-swatch",
-            "data-selected": selected,
+        div { class: "flex items-center gap-2", "data-testid": "terminal-scheme-swatch", "data-selected": selected,
             div {
                 role: "img",
                 "aria-label": preview_label,
-                style: format!("display: flex; height: var(--md-space-4); flex: 1; overflow: hidden; border-radius: var(--md-shape-xs); background: {}; color: {};", palette.background.css(), palette.foreground.css()),
+                class: "flex h-4 flex-1 overflow-hidden rounded-xs",
+                style: format!("background: {}; color: {};", palette.background.css(), palette.foreground.css()),
                 for color in palette.ansi.iter() {
-                    span { style: format!("flex: 1; background: {};", color.css()), " " }
+                    span { class: "flex-1", style: format!("background: {};", color.css()), " " }
                 }
-                span { style: format!("flex: 2; background: {};", palette.cursor.css()), " " }
-                span { style: format!("flex: 2; background: {};", palette.selection_background.css()), " " }
+                span { class: "flex-[2]", style: format!("background: {};", palette.cursor.css()), " " }
+                span { class: "flex-[2]", style: format!("background: {};", palette.selection_background.css()), " " }
             }
-            span { class: "md-body-s", "{scheme_name}" }
+            span { class: "text-sm", "{scheme_name}" }
             if let Some(on_delete) = on_delete {
                 Button {
                     variant: ButtonVariant::Ghost,

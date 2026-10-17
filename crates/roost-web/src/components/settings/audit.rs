@@ -16,7 +16,10 @@ use roost_client_core::client::rpc::calls::settings::audit::AuditLogRow;
 use roost_client_core::client::rpc::calls::settings::audit::{AuditLogPage, ListAuditRows};
 
 use super::format::{format_timestamp, short_identifier};
-use crate::components::md::{Button, ButtonVariant, Card, EmptyState, TextField};
+use crate::components::ui::{
+    Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyState,
+    IconType, TextField,
+};
 use crate::pump::{Pump, use_store};
 
 /// How many rows a page asks for.
@@ -53,11 +56,13 @@ pub fn AuditLogPane() -> Element {
         .collect();
     rsx! {
         div {
-            class: "settings-pane",
-            style: "display: flex; flex-direction: column; gap: var(--md-space-5);",
+            class: "flex flex-col gap-5",
             "data-testid": "audit-pane",
-            Card { title: "Filter",
-                div { style: "display: flex; flex-direction: column; gap: var(--md-space-3);",
+            Card {
+                CardHeader {
+                    CardTitle { "Filter" }
+                }
+                CardContent { class: "flex flex-col gap-3",
                     TextField {
                         label: "Caller fingerprint".to_owned(),
                         placeholder: "authorized key fingerprint".to_owned(),
@@ -79,36 +84,42 @@ pub fn AuditLogPane() -> Element {
                 }
             }
             Card {
-                title: "Audit log",
-                supporting: "Newest first. Rows arrive from the coordinator's own table; the live feed keeps this tab's rows fresh.",
-                if let Some(message) = state.error.clone() {
-                    p { role: "alert", class: "md-body-m", style: "color: var(--md-sys-color-error); margin: 0 0 var(--md-space-3);", {message} }
-                }
-                if !state.loaded {
-                    span { class: "md-body-m", style: "color: var(--md-sys-color-on-surface-variant);", "Loading…" }
-                } else if rows.is_empty() {
-                    EmptyState {
-                        icon: "history",
-                        title: "No audit rows",
-                        supporting: "Nothing has matched yet. Widen the filter, or drive some coordinator traffic.",
+                CardHeader {
+                    CardTitle { "Audit log" }
+                    CardDescription {
+                        "Newest first. Rows arrive from the coordinator's own table; the live feed keeps this tab's rows fresh."
                     }
-                } else {
-                    div { style: "display: flex; flex-direction: column;",
-                        for row in rows {
-                            AuditTableRow { row }
+                }
+                CardContent { class: "flex flex-col gap-3",
+                    if let Some(message) = state.error.clone() {
+                        p { role: "alert", class: "m-0 text-sm text-destructive", {message} }
+                    }
+                    if !state.loaded {
+                        span { class: "text-sm text-muted-foreground", "Loading…" }
+                    } else if rows.is_empty() {
+                        EmptyState {
+                            icon: IconType::History,
+                            title: "No audit rows",
+                            supporting: "Nothing has matched yet. Widen the filter, or drive some coordinator traffic.",
+                        }
+                    } else {
+                        div { class: "flex flex-col",
+                            for row in rows {
+                                AuditTableRow { row }
+                            }
                         }
                     }
-                }
-                if state.next_cursor.is_some() {
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        "data-testid": "audit-load-more",
-                        disabled: state.loading_more,
-                        onclick: {
-                            let cursor = state.next_cursor.clone();
-                            move |_| load_more(pump.clone(), cursor.clone(), view)
-                        },
-                        if state.loading_more { "Loading…" } else { "Load more" }
+                    if state.next_cursor.is_some() {
+                        Button {
+                            variant: ButtonVariant::Ghost,
+                            "data-testid": "audit-load-more",
+                            disabled: state.loading_more,
+                            onclick: {
+                                let cursor = state.next_cursor.clone();
+                                move |_| load_more(pump.clone(), cursor.clone(), view)
+                            },
+                            if state.loading_more { "Loading…" } else { "Load more" }
+                        }
                     }
                 }
             }
@@ -119,32 +130,33 @@ pub fn AuditLogPane() -> Element {
 /// One row, in the table anatomy the pane's own card supplies.
 #[component]
 fn AuditTableRow(row: AuditLogRow) -> Element {
-    let tone = if row.status < 300 {
-        "color: var(--md-sys-color-on-secondary-container); background: var(--md-sys-color-secondary-container);"
+    let tone_class = if row.status < 300 {
+        "bg-secondary text-secondary-foreground"
     } else if row.status < 400 {
-        "color: var(--md-sys-color-on-surface); background: var(--md-sys-color-surface-container-high);"
+        "bg-muted text-foreground"
     } else if row.status < 500 {
-        "color: var(--md-sys-color-on-tertiary-container); background: var(--md-sys-color-tertiary-container);"
+        "bg-accent text-accent-foreground"
     } else {
-        "color: var(--md-on-primary); background: var(--md-sys-color-error);"
+        "bg-destructive text-destructive-foreground"
     };
-    let status_style = format!("padding: 2px 8px; border-radius: var(--md-shape-full); {tone}");
     rsx! {
-        div { class: "md-list-row", "data-testid": "audit-row", "data-status": row.status.to_string(),
-            span { style: "font-family: var(--font-mono); min-width: 10ch; color: var(--md-sys-color-on-surface-variant);",
+        div {
+            class: "flex w-full items-center gap-4 px-4 py-2 text-sm",
+            "data-testid": "audit-row",
+            "data-status": row.status.to_string(),
+            span { class: "min-w-[10ch] font-mono text-muted-foreground",
                 {format_timestamp(row.ts)}
             }
-            span { style: "font-family: var(--font-mono); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;",
-                title: row.path.clone(),
+            span { class: "min-w-0 flex-1 truncate font-mono", title: row.path.clone(),
                 {row.method.clone()}
             }
-            span { style: "font-family: var(--font-mono); color: var(--md-sys-color-on-surface-variant);",
+            span { class: "font-mono text-muted-foreground",
                 {row.path.clone()}
             }
-            span { class: "md-label-s", style: status_style,
+            span { class: "rounded-full px-2 py-0.5 text-xs font-medium {tone_class}",
                 {row.status.to_string()}
             }
-            span { class: "md-label-s", style: "color: var(--md-sys-color-on-surface-variant);",
+            span { class: "text-xs font-medium text-muted-foreground",
                 {row.caller_label.clone().unwrap_or_else(|| {
                     short_identifier(row.caller_fp.as_deref().unwrap_or("no caller"), 12)
                 })}

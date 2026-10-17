@@ -22,6 +22,7 @@ pub mod query;
 use dioxus::prelude::*;
 
 use crate::components::global_search::query::{SearchRouteQuery, SearchScope};
+use crate::components::ui::{Command, CommandInput, CommandItem, Icon, IconType};
 use crate::components::terminal::dom::{now_ms, sleep_ms};
 use crate::pump::use_store;
 use crate::router_state::{use_location, use_navigate};
@@ -81,69 +82,77 @@ pub fn GlobalSearchOverlay() -> Element {
 
     rsx! {
         section {
-            class: "df-search-page",
+            class: "flex flex-1 flex-col overflow-hidden",
             "data-testid": "global-search-page",
-            aria_labelledby: Some("global-search-title".to_owned()),
-            style: "flex: 1; display: flex; flex-direction: column; overflow: hidden;",
-            div { class: "df-search-header",
-                h1 { id: "global-search-title", class: "md-headline-s", style: "margin: 0;",
+            "aria-labelledby": "global-search-title",
+            div { class: "flex flex-col gap-3 p-4",
+                h1 { id: "global-search-title", class: "m-0 text-2xl font-semibold",
                     "Search sessions"
                 }
-                p { class: "md-body-m", style: "margin: 0;",
+                p { class: "m-0 text-sm text-muted-foreground",
                     "Find sessions by metadata and search retained terminal content across every machine."
                 }
-                crate::components::md::TextField {
-                    value: route_query.text.clone(),
-                    label: Some(route_query.search_label().to_owned()),
-                    placeholder: Some(match route_query.scope {
-                        SearchScope::All => "Title, path, or terminal text…",
-                        SearchScope::Attention => "Title, path, agent status…",
-                    }.to_owned()),
-                    test_id: Some("global-search-input".to_owned()),
-                    autofocus: true,
-                    on_input: {
-                        let query = route_query.clone();
-                        move |text: String| update.call(query.with_text(&text))
-                    },
-                }
-                div { role: "group", "aria-label": "Search scope",
-                    style: "display: flex; gap: var(--md-space-2); flex-wrap: wrap;",
-                    crate::components::md::Chip {
-                        label: "All sessions".to_owned(),
-                        icon: Some((if route_query.scope == SearchScope::All { "check" } else { "terminal" }).to_owned()),
-                        selected: Some(route_query.scope == SearchScope::All),
-                        test_id: Some("global-search-scope-all".to_owned()),
-                        onclick: {
+                Command {
+                    should_filter: false,
+                    class: "gap-3 overflow-visible text-foreground",
+                    CommandInput {
+                        value: route_query.text.clone(),
+                        aria_label: route_query.search_label().to_owned(),
+                        placeholder: match route_query.scope {
+                            SearchScope::All => "Title, path, or terminal text…",
+                            SearchScope::Attention => "Title, path, agent status…",
+                        },
+                        test_id: "global-search-input",
+                        autofocus: true,
+                        class: "rounded-md border border-border bg-background px-3",
+                        on_search_change: {
                             let query = route_query.clone();
-                            move |_| update.call(SearchRouteQuery { scope: SearchScope::All, ..query.clone() })
+                            move |text: String| update.call(query.with_text(&text))
                         },
                     }
-                    crate::components::md::Chip {
-                        label: "Needs attention".to_owned(),
-                        icon: Some((if route_query.scope == SearchScope::Attention { "check" } else { "notifications" }).to_owned()),
-                        selected: Some(route_query.scope == SearchScope::Attention),
-                        test_id: Some("global-search-scope-attention".to_owned()),
-                        onclick: {
-                            let query = route_query.clone();
-                            move |_| update.call(SearchRouteQuery { scope: SearchScope::Attention, ..query.clone() })
-                        },
-                    }
-                    if route_query.scope == SearchScope::All {
-                        crate::components::md::Chip {
-                            label: "Match terminal case".to_owned(),
-                            icon: Some((if route_query.case_sensitive { "check" } else { "match_case" }).to_owned()),
-                            selected: Some(route_query.case_sensitive),
-                            test_id: Some("global-search-case-sensitive".to_owned()),
-                            onclick: {
+                    div { role: "group", "aria-label": "Search scope", class: "flex flex-wrap gap-2",
+                        CommandItem {
+                            value: "all-sessions",
+                            selected: route_query.scope == SearchScope::All,
+                            test_id: "global-search-scope-all",
+                            class: "rounded-full border border-border px-3 py-1.5",
+                            on_select: {
                                 let query = route_query.clone();
-                                move |_| update.call(SearchRouteQuery { case_sensitive: !query.case_sensitive, ..query.clone() })
+                                move |()| update.call(SearchRouteQuery { scope: SearchScope::All, ..query.clone() })
                             },
+                            Icon { icon: IconType::Terminal, class: "size-4" }
+                            "All sessions"
+                        }
+                        CommandItem {
+                            value: "needs-attention",
+                            selected: route_query.scope == SearchScope::Attention,
+                            test_id: "global-search-scope-attention",
+                            class: "rounded-full border border-border px-3 py-1.5",
+                            on_select: {
+                                let query = route_query.clone();
+                                move |()| update.call(SearchRouteQuery { scope: SearchScope::Attention, ..query.clone() })
+                            },
+                            Icon { icon: IconType::Bell, class: "size-4" }
+                            "Needs attention"
+                        }
+                        if route_query.scope == SearchScope::All {
+                            CommandItem {
+                                value: "match-case",
+                                selected: route_query.case_sensitive,
+                                test_id: "global-search-case-sensitive",
+                                class: "rounded-full border border-border px-3 py-1.5",
+                                on_select: {
+                                    let query = route_query.clone();
+                                    move |()| update.call(SearchRouteQuery { case_sensitive: !query.case_sensitive, ..query.clone() })
+                                },
+                                Icon { icon: IconType::CaseSensitive, class: "size-4" }
+                                "Match terminal case"
+                            }
                         }
                     }
                 }
             }
-            div { class: "df-search-scroll",
-                style: "flex: 1; overflow: auto; display: flex; flex-direction: column; gap: var(--md-space-4);",
+            div { class: "flex flex-1 flex-col gap-4 overflow-auto p-4",
                 if route_query.scope == SearchScope::All {
                     content::ContentResults { route_query: route_query.clone() }
                 }

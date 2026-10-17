@@ -9,7 +9,7 @@
 //! `__auto__` detects. English is first because it is the default and the only
 //! mode keyterm biasing applies to.
 
-use crate::components::md::SelectOption;
+use crate::components::ui::SelectOption;
 
 /// `(code, label)`, in the coordinator's own order.
 pub const LANGUAGES: [(&str, &str); 89] = [

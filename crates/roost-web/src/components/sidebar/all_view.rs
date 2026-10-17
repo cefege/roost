@@ -15,12 +15,12 @@ pub fn AllView(active: bool, query: String) -> Element {
     let no_machines = pump.core().borrow().store().workers.is_empty();
     let folder_list_active = active && !no_machines;
     rsx! {
-        div { class: "df-all-view workbench-sidebar-content", "data-testid": "all-view",
+        div { class: "flex min-h-0 flex-1 flex-col", "data-testid": "all-view",
             if no_machines {
                 SidebarEmptyState { kind: EmptyStateKind::NoMachines }
             } else {
                 div {
-                    class: "workbench-sidebar-folder-list",
+                    class: "flex min-h-0 flex-1 flex-col data-[active=false]:hidden",
                     "data-active": if folder_list_active { "true" } else { "false" },
                     inert: (!folder_list_active).then_some(true),
                     "aria-hidden": (!folder_list_active).then_some("true"),

@@ -6,7 +6,9 @@ use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
 use roost_client_core::store::sidebar::SidebarIntent;
 
-use crate::components::md::{ListRow, StatusDot};
+use crate::components::ui::IconType;
+use crate::components::ui::list::ListRow;
+use crate::components::ui::status::StatusDot;
 use crate::pump::use_store;
 use crate::router_state::use_navigate;
 
@@ -49,26 +51,34 @@ pub fn AgentConversationRow(
         roost_protocol::wire::agent_chat::AgentRunState::Failed => ("warn", "Failed"),
         roost_protocol::wire::agent_chat::AgentRunState::Idle => ("idle", "Idle"),
     };
+    // Under a folder the row sits in the tree's indent and one dense line tall,
+    // so the tree reads as one list. The `group` root lets the texts recolor
+    // with the selection, as the session rows do.
+    let row_class = if compact {
+        "group ps-9 gap-2 min-h-7"
+    } else {
+        "group"
+    };
     rsx! {
         ListRow {
-            leading_icon: "smart_toy",
-            headline: rsx! { span { class: "workbench-sidebar-agent-conversation__title", "{conversation.title}" } },
+            leading_icon: Some(IconType::Bot),
+            headline: rsx! { span { class: "min-w-0 truncate text-sm text-foreground group-data-[selected=true]:text-accent-foreground", "{conversation.title}" } },
             // Under a folder the row is one line, like the session rows: the
             // model is the chat's business, not the tree's.
-            support: (!compact).then(|| rsx! { span { class: "workbench-sidebar-agent-conversation__model", "{model_name}" } }),
-            trailing: rsx! {
+            support: (!compact).then(|| rsx! { span { class: "min-w-0 truncate text-xs text-muted-foreground group-data-[selected=true]:text-accent-foreground", "{model_name}" } }),
+            trailing: Some(rsx! {
                 StatusDot {
                     status: status.to_owned(),
-                    title: status_title.to_owned(),
+                    title: Some(status_title.to_owned()),
                 }
-            },
-            href: href.clone(),
-            on_navigate: navigate_to_agent,
+            }),
+            href: Some(href.clone()),
+            on_navigate: Some(navigate_to_agent),
             selected,
             aria_current: selected.then_some("page".to_owned()),
             dense: compact,
-            test_id: "sidebar-agent-conversation-{conversation_id}",
-            class: compact.then(|| "workbench-sidebar-agent-conversation".to_owned()),
+            test_id: Some(format!("sidebar-agent-conversation-{conversation_id}")),
+            class: Some(row_class.to_owned()),
         }
     }
 }

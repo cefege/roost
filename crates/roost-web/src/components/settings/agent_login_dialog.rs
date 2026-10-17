@@ -10,8 +10,9 @@ use roost_client_core::client::rpc::calls::agent_chat::{
 };
 
 use crate::components::agent_chat::agent_alert::ERROR_TEXT_CLASS;
-use crate::components::md::{
-    Button, ButtonVariant, Dialog, IconButton, IconButtonSize, Surface, SurfaceRadius, TextField,
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Dialog, DialogBody, DialogContent, DialogHeader,
+    DialogTitle, IconButton, IconType, Surface, SurfaceRadius, TextField,
 };
 use crate::pump::{Pump, use_store};
 use roost_protocol::wire::agent_chat::{LoginPromptType, LoginState, LoginStatus};
@@ -113,100 +114,109 @@ pub fn AgentLoginDialog(
     rsx! {
         Dialog {
             open: true,
-            headline: "Sign in to provider".to_owned(),
-            test_id: "agent-login-dialog",
-            on_close: move |_| cancel_login(cancel_pump.clone(), close_id.clone(), on_close, error),
-            div { class: "agent-settings__dialog-body",
-                if let Some(value) = current {
-                    for notice in value.notices {
-                        Surface {
-                            key: "{notice.notice_type:?}-{notice.message}",
-                            border: true,
-                            pad: Some(3),
-                            radius: SurfaceRadius::Md,
-                            p { class: "md-body-m", "{notice.message}" }
-                            if notice.notice_type == roost_protocol::wire::agent_chat::LoginNoticeType::AuthUrl {
-                                if let Some(url) = notice.url {
-                                    SignInUrl { url }
-                                }
-                            }
-                            if notice.notice_type == roost_protocol::wire::agent_chat::LoginNoticeType::DeviceCode {
-                                if let Some(code) = notice.code {
-                                    p { class: "agent-settings__device-code", "{code}" }
-                                }
-                            }
-                        }
-                    }
-                    if value.state == LoginStatus::Waiting { p { class: "md-body-s", "Waiting for the provider…" } }
-                    if value.state == LoginStatus::Done { p { class: "md-body-s", "Sign-in complete." } }
-                    if value.state == LoginStatus::Failed {
-                        div { class: "agent-settings__login-failed", role: "alert",
-                            p { class: ERROR_TEXT_CLASS, {value.error.unwrap_or_else(|| "Sign-in failed.".to_owned())} }
-                            p { class: "md-body-s",
-                                "A code works once, and only for the most recent sign-in link. Start over for a fresh link."
-                            }
-                            Button {
-                                icon: "refresh",
-                                "data-testid": "agent-login-restart",
-                                onclick: move |_| on_restart.call(()),
-                                "Start over"
-                            }
-                        }
-                    }
-                } else {
-                    p { class: "md-body-s", "Connecting to provider…" }
+            on_open_change: move |open: bool| {
+                if !open {
+                    cancel_login(cancel_pump.clone(), close_id.clone(), on_close, error);
                 }
-                if !error_message.is_empty() {
-                    p { class: ERROR_TEXT_CLASS, role: "alert", {error_message} }
+            },
+            DialogContent { test_id: "agent-login-dialog",
+                DialogHeader {
+                    DialogTitle { "Sign in to provider" }
                 }
-                if let Some(prompt) = prompt {
-                    if prompt.prompt_type == LoginPromptType::ManualCode {
-                        p { class: "agent-settings__manual-instruction md-body-m",
-                            "Enter the code shown by the provider to finish signing in."
-                        }
-                    }
-                    p { class: "md-body-s", {prompt.message} }
-                    if prompt.prompt_type == LoginPromptType::Select {
-                        div { class: "agent-settings__select-options", role: "group", "aria-label": "Choose an option",
-                            for option in prompt.options {
-                                {
-                                    let selected = answer() == option;
-                                    let option_answer = option.clone();
-                                    rsx! {
-                                        Button {
-                                            key: "{option}",
-                                            variant: if selected { ButtonVariant::Secondary } else { ButtonVariant::Outline },
-                                            onclick: move |_| answer.set(option_answer.clone()),
-                                            "{option}"
+                DialogBody {
+                    div { class: "flex flex-col gap-3",
+                        if let Some(value) = current {
+                            for notice in value.notices {
+                                Surface {
+                                    key: "{notice.notice_type:?}-{notice.message}",
+                                    border: true,
+                                    pad: Some(3),
+                                    radius: SurfaceRadius::Md,
+                                    p { class: "text-base", "{notice.message}" }
+                                    if notice.notice_type == roost_protocol::wire::agent_chat::LoginNoticeType::AuthUrl {
+                                        if let Some(url) = notice.url {
+                                            SignInUrl { url }
+                                        }
+                                    }
+                                    if notice.notice_type == roost_protocol::wire::agent_chat::LoginNoticeType::DeviceCode {
+                                        if let Some(code) = notice.code {
+                                            p { class: "font-mono text-xl tracking-widest", "{code}" }
                                         }
                                     }
                                 }
                             }
-                        }
-                    } else {
-                        TextField {
-                            label: "Response",
-                            input_type: if prompt_type == Some(LoginPromptType::Secret) { "password" } else { "text" },
-                            value: answer(),
-                            on_input: move |value| answer.set(value),
-                        }
-                    }
-                    Button {
-                        disabled: answer().trim().is_empty() || submitting(),
-                        onclick: move |_| respond_login(submit_pump.clone(), submit_id.clone(), prompt_id.clone(), answer(), error, submitting),
-                        if submitting() { "Submitting…" } else { "Submit" }
-                    }
-                }
-                Button {
-                    variant: ButtonVariant::Outline,
-                    onclick: move |_| {
-                        if ended {
-                            on_close.call(status == Some(LoginStatus::Done));
+                            if value.state == LoginStatus::Waiting { p { class: "text-sm text-muted-foreground", "Waiting for the provider…" } }
+                            if value.state == LoginStatus::Done { p { class: "text-sm text-muted-foreground", "Sign-in complete." } }
+                            if value.state == LoginStatus::Failed {
+                                div { class: "flex flex-col gap-2 rounded-md border border-destructive/40 p-3", role: "alert",
+                                    p { class: ERROR_TEXT_CLASS, {value.error.unwrap_or_else(|| "Sign-in failed.".to_owned())} }
+                                    p { class: "text-sm text-muted-foreground",
+                                        "A code works once, and only for the most recent sign-in link. Start over for a fresh link."
+                                    }
+                                    Button {
+                                        icon: Some(IconType::RefreshCw),
+                                        "data-testid": "agent-login-restart",
+                                        onclick: move |_| on_restart.call(()),
+                                        "Start over"
+                                    }
+                                }
+                            }
                         } else {
-                            cancel_login(cancel_button_pump.clone(), cancel_id.clone(), on_close, error);
+                            p { class: "text-sm text-muted-foreground", "Connecting to provider…" }
                         }
-                    },
-                    if ended { "Close" } else { "Cancel" }
+                        if !error_message.is_empty() {
+                            p { class: ERROR_TEXT_CLASS, role: "alert", {error_message} }
+                        }
+                        if let Some(prompt) = prompt {
+                            if prompt.prompt_type == LoginPromptType::ManualCode {
+                                p { class: "text-base font-medium",
+                                    "Enter the code shown by the provider to finish signing in."
+                                }
+                            }
+                            p { class: "text-sm text-muted-foreground", {prompt.message} }
+                            if prompt.prompt_type == LoginPromptType::Select {
+                                div { class: "flex flex-col gap-2", role: "group", "aria-label": "Choose an option",
+                                    for option in prompt.options {
+                                        {
+                                            let selected = answer() == option;
+                                            let option_answer = option.clone();
+                                            rsx! {
+                                                Button {
+                                                    key: "{option}",
+                                                    variant: if selected { ButtonVariant::Secondary } else { ButtonVariant::Outline },
+                                                    onclick: move |_| answer.set(option_answer.clone()),
+                                                    "{option}"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                TextField {
+                                    label: "Response",
+                                    input_type: if prompt_type == Some(LoginPromptType::Secret) { "password" } else { "text" },
+                                    value: answer(),
+                                    on_input: move |value| answer.set(value),
+                                }
+                            }
+                            Button {
+                                disabled: answer().trim().is_empty() || submitting(),
+                                onclick: move |_| respond_login(submit_pump.clone(), submit_id.clone(), prompt_id.clone(), answer(), error, submitting),
+                                if submitting() { "Submitting…" } else { "Submit" }
+                            }
+                        }
+                        Button {
+                            variant: ButtonVariant::Outline,
+                            onclick: move |_| {
+                                if ended {
+                                    on_close.call(status == Some(LoginStatus::Done));
+                                } else {
+                                    cancel_login(cancel_button_pump.clone(), cancel_id.clone(), on_close, error);
+                                }
+                            },
+                            if ended { "Close" } else { "Cancel" }
+                        }
+                    }
                 }
             }
         }
@@ -220,11 +230,11 @@ fn SignInUrl(url: String) -> Element {
     let mut copied = use_signal(|| false);
     rsx! {
         Surface {
-            class: "agent-settings__auth-url",
+            class: "flex items-center gap-2 break-all",
             pad: Some(2),
             radius: SurfaceRadius::Sm,
             a {
-                class: "agent-settings__auth-url-link",
+                class: "min-w-0 flex-1 text-primary underline",
                 href: "{url}",
                 target: "_blank",
                 rel: "noopener noreferrer",
@@ -232,10 +242,10 @@ fn SignInUrl(url: String) -> Element {
                 "{url}"
             }
             IconButton {
-                icon: if copied() { "check" } else { "content_copy" },
+                icon: if copied() { IconType::Check } else { IconType::Copy },
                 label: "Copy sign-in link",
                 title: if copied() { "Copied" } else { "Copy link" },
-                size: IconButtonSize::IconSm,
+                size: ButtonSize::IconSm,
                 "data-testid": "agent-login-url-copy",
                 onclick: {
                     let url = url.clone();

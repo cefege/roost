@@ -27,8 +27,6 @@ pub mod version_banner;
 
 use dioxus::prelude::*;
 
-use crate::components::md::stylesheet::use_md_stylesheet;
-
 /// The dock's own sheet. Not in `Dioxus.toml`'s eager list, exactly as v2
 /// reached its sheet through the lazy chunk that first rendered a notification.
 pub const NOTIFICATION_DOCK_STYLESHEET: &str = "/components/notifications/NotificationDock.css";
@@ -41,7 +39,6 @@ pub const NOTIFICATION_DOCK_STYLESHEET: &str = "/components/notifications/Notifi
 /// inventory.
 #[component]
 pub fn NotificationDock() -> Element {
-    use_md_stylesheet(NOTIFICATION_DOCK_STYLESHEET);
     // The hover ring is provided by `GatedApp`, above the gate: this dock and
     // the shell whose rows are meant to ring are SIBLINGS, so a target
     // provided here could never reach them.
@@ -55,6 +52,7 @@ pub fn NotificationDock() -> Element {
         composer, compact,
     );
     rsx! {
+        link { rel: "stylesheet", href: NOTIFICATION_DOCK_STYLESHEET }
         connection_banner::ConnectionBanner {}
         div {
             class: "roost-notify-dock",

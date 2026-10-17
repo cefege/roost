@@ -9,7 +9,7 @@ use roost_protocol::wire::agent_chat::ModelsCatalog;
 use super::hub_catalog::wrap_index;
 use super::model_hub_actions::{StripCommit, apply_strip_chip};
 use super::strip_chips::{StripChip, StripKey};
-use crate::components::md::Chip;
+use crate::components::ui::Chip;
 use crate::components::settings::model_scope::ModelScope;
 
 /// The footer legend while the strip is open.
@@ -69,11 +69,11 @@ pub(super) fn ModelRoleStrip(
     let on_folder = scope == folder;
     rsx! {
         div {
-            class: "model-hub__strip",
+            class: "flex flex-col gap-2 rounded-md border border-border bg-card p-2",
             role: "group",
             "aria-label": "Assign this model to a role",
             "data-testid": "{STRIP_TEST_ID}",
-            div { class: "model-hub__strip-scope", role: "group", "aria-label": "Role scope",
+            div { class: "flex flex-wrap items-center gap-2", role: "group", "aria-label": "Role scope",
                 Chip {
                     label: "All folders".to_owned(),
                     selected: Some(!on_folder),
@@ -90,7 +90,7 @@ pub(super) fn ModelRoleStrip(
             for (index, chip) in chips.iter().enumerate() {
                 span {
                     key: "{index}",
-                    class: if index == cursor { "model-hub__strip-chip model-hub__strip-chip--cursor" } else { "model-hub__strip-chip" },
+                    class: if index == cursor { "inline-flex rounded-full ring-2 ring-ring ring-offset-2 ring-offset-background" } else { "inline-flex rounded-full" },
                     Chip {
                         label: chip.label.clone(),
                         selected: Some(chip.assigned),

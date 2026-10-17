@@ -5,7 +5,7 @@
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::GoalState;
 
-use crate::components::md::Chip;
+use crate::components::ui::{Chip, IconType};
 
 #[component]
 pub(super) fn GoalDock(
@@ -39,14 +39,14 @@ pub(super) fn GoalDock(
     rsx! {
         Chip {
             label,
-            icon: Some("flag".to_string()),
+            icon: Some(IconType::Flag),
             selected: Some(true),
             title: Some(title),
             test_id: Some("agent-chat-goal".to_string()),
             onclick: Some(EventHandler::new(move |_| { view_request.set(String::new()); on_open.call(()); })),
         }
         if let Some(reason) = waiting {
-            span { class: "agent-chat__goal-fact", "data-testid": "agent-chat-goal-waiting", role: "status", "{reason}" }
+            span { class: "text-sm text-muted-foreground", "data-testid": "agent-chat-goal-waiting", role: "status", "{reason}" }
         }
     }
 }

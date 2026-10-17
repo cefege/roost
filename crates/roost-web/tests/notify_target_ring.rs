@@ -66,7 +66,7 @@ fn RingProbe(session_id: String) -> Element {
     let target = try_use_context::<NotifyTarget>().expect("the root provides the ring");
     PAINTED.set(Some(ring_attribute(&target, &session_id)));
     RENDERS.set(RENDERS.get() + 1);
-    rsx! { div { class: "df-row", "probe" } }
+    rsx! { div { "probe" } }
 }
 
 /// Run the work a write queued, the way the browser runs it: the scopes the

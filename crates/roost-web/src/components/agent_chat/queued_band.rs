@@ -13,11 +13,11 @@ pub(super) fn QueuedBand(messages: Vec<QueuedMessage>) -> Element {
     }
     let count = messages.len();
     rsx! {
-        section { class: "agent-chat__queued", "aria-label": "Queued messages", "data-testid": "agent-chat-queued",
-            p { class: "agent-chat__queued-head", "Queued · {count} · the agent reads them after its current step" }
-            ol { class: "agent-chat__queued-list",
+        section { class: "flex flex-col gap-1 px-5 pb-2 text-sm", "aria-label": "Queued messages", "data-testid": "agent-chat-queued",
+            p { class: "text-xs text-muted-foreground", "Queued · {count} · the agent reads them after its current step" }
+            ol { class: "m-0 flex list-none flex-col gap-1 p-0",
                 for message in messages {
-                    li { key: "{message.id}", class: "agent-chat__queued-row", title: message.text.clone(),
+                    li { key: "{message.id}", class: "truncate text-muted-foreground", title: message.text.clone(),
                         // One line each, as the terminal band shows them.
                         "{message.text.replace('\\n', \" ↵ \")}"
                     }

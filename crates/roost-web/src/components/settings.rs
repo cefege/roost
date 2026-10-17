@@ -34,8 +34,11 @@ mod pane;
 use dioxus::prelude::*;
 
 use crate::components::layout::window_size::use_is_compact;
-use crate::components::md::{EmptyState, Icon, IconButton, List, ListRow, TextField};
 use crate::components::settings_navigation::{SETTINGS_GROUPS, SettingsPaneSpec, settings_pane};
+use crate::components::ui::{
+    Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyMediaVariant, EmptyTitle, Icon,
+    IconButton, IconType, List, ListRow, TextField,
+};
 use crate::router_state::use_navigate;
 use crate::routes::Route;
 
@@ -95,54 +98,53 @@ fn SettingsEditor(active: Option<SettingsPaneSpec>) -> Element {
         return rsx! {};
     };
     rsx! {
-        div { class: "settings-shell",
-            aside { class: "settings-rail", "aria-label": "Settings sections",
-                h1 { class: "settings-rail__title", "Settings" }
-                div { class: "settings-search",
-                    TextField {
-                        value: query(),
-                        on_input: move |value| query.set(value),
-                        input_type: "search",
-                        placeholder: "Search settings…",
-                        aria_label: "Search settings",
-                        test_id: "settings-search",
-                    }
+        div { class: "flex h-full min-h-0 w-full bg-background",
+            aside {
+                class: "flex w-72 shrink-0 flex-col gap-4 overflow-y-auto border-r border-border bg-sidenav p-4",
+                "aria-label": "Settings sections",
+                h1 { class: "px-2 text-lg font-semibold text-foreground", "Settings" }
+                TextField {
+                    value: query(),
+                    on_input: move |value| query.set(value),
+                    input_type: "search",
+                    placeholder: "Search settings…",
+                    aria_label: "Search settings",
+                    test_id: "settings-search",
                 }
                 for (label, panes) in &groups {
-                    section { class: "settings-rail__group",
-                        h2 { class: "settings-rail__group-label", "{label}" }
+                    section { class: "flex flex-col gap-1",
+                        h2 { class: "px-3 text-xs font-medium uppercase tracking-wide text-muted-foreground", "{label}" }
                         for pane in panes {
                             ListRow {
-                                class: "settings-rail__item",
+                                class: "rounded-md",
                                 href: Route::Settings { pane: Some(pane.id.to_string()) }.to_path(),
                                 on_navigate: navigate,
                                 selected: pane.id == active.id,
                                 aria_current: (pane.id == active.id).then(|| "page".to_string()),
                                 test_id: Some(format!("rail-{}", pane.id)),
-                                leading: rsx! { Icon { name: pane.icon.to_string() } },
+                                leading_icon: pane.icon,
                                 headline: rsx! { span { title: pane.description, {pane.label} } },
                             }
                         }
                     }
                 }
                 if groups.is_empty() {
-                    p { class: "settings-search__empty", role: "status", "No matching settings" }
+                    p { class: "px-3 text-sm text-muted-foreground", role: "status", "No matching settings" }
                 }
             }
-            main { class: "settings-main",
-                header { class: "settings-topbar",
+            main { class: "flex min-w-0 flex-1 flex-col",
+                header { class: "flex h-14 shrink-0 items-center gap-2 border-b border-border px-4",
                     IconButton {
-                        class: "settings-topbar__back",
-                        icon: "arrow_back",
+                        icon: IconType::ArrowLeft,
                         label: "Back to app",
                         "data-testid": "settings-back",
                         onclick: move |_| navigate.call(Route::Home.to_path()),
                     }
-                    h1 { class: "settings-topbar__title", {active.title} }
+                    h1 { class: "truncate text-base font-semibold text-foreground", {active.title} }
                 }
-                div { class: "settings-content",
-                    div { class: "settings-content__inner",
-                        p { class: "settings-pane-lead", {active.description} }
+                div { class: "min-h-0 flex-1 overflow-y-auto",
+                    div { class: "mx-auto flex w-full max-w-3xl flex-col gap-6 p-6",
+                        p { class: "text-sm text-muted-foreground", {active.description} }
                         pane::SettingsPane { id: active.id }
                     }
                 }
@@ -158,18 +160,17 @@ fn MobileSettingsList() -> Element {
     let mut query = use_signal(String::new);
     let groups = search_groups(&query());
     rsx! {
-        div { class: "settings-mobile__main",
-            header { class: "settings-topbar",
+        div { class: "flex h-full min-h-0 flex-col bg-background",
+            header { class: "flex h-14 shrink-0 items-center gap-2 border-b border-border px-4",
                 IconButton {
-                    class: "settings-topbar__back",
-                    icon: "arrow_back",
+                    icon: IconType::ArrowLeft,
                     label: "Back to app",
                     "data-testid": "settings-back",
                     onclick: move |_| navigate.call(Route::Home.to_path()),
                 }
-                h1 { class: "settings-topbar__title", "Settings" }
+                h1 { class: "truncate text-base font-semibold text-foreground", "Settings" }
             }
-            div { class: "settings-search settings-search--mobile",
+            div { class: "px-4 py-2",
                 TextField {
                     value: query(),
                     on_input: move |value| query.set(value),
@@ -179,22 +180,21 @@ fn MobileSettingsList() -> Element {
                     test_id: "settings-search",
                 }
             }
-            List { class: "settings-mobile__list",
+            List { class: "gap-4 overflow-y-auto p-2",
                 for (label, panes) in &groups {
-                    div { class: "settings-mobile__group",
-                        h2 { class: "settings-mobile__group-label", "{label}" }
+                    div { class: "flex flex-col",
+                        h2 { class: "px-4 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground", "{label}" }
                         for pane in panes {
                             {
                                 let href = Route::Settings { pane: Some(pane.id.to_string()) }.to_path();
                                 rsx! {
                                     ListRow {
-                                        class: "settings-mobile__row",
                                         test_id: Some(format!("settings-list-{}", pane.id)),
                                         onclick: move |_| navigate.call(href.clone()),
-                                        leading: rsx! { Icon { name: pane.icon.to_string(), class: "settings-mobile__icon" } },
-                                        headline: rsx! { span { class: "settings-mobile__label", {pane.label} } },
-                                        support: rsx! { span { {pane.description} } },
-                                        trailing: rsx! { Icon { name: "chevron_right", class: "settings-mobile__chev" } },
+                                        leading_icon: pane.icon,
+                                        headline: rsx! { {pane.label} },
+                                        support: rsx! { {pane.description} },
+                                        trailing: rsx! { Icon { icon: IconType::ChevronRight, class: "size-4" } },
                                     }
                                 }
                             }
@@ -202,10 +202,14 @@ fn MobileSettingsList() -> Element {
                     }
                 }
                 if groups.is_empty() {
-                    EmptyState {
-                        icon: "search",
-                        title: "No matching settings",
-                        supporting: "Try a section name, model, account or connection.",
+                    Empty {
+                        EmptyHeader {
+                            EmptyMedia { variant: EmptyMediaVariant::Icon,
+                                Icon { icon: IconType::Search }
+                            }
+                            EmptyTitle { "No matching settings" }
+                            EmptyDescription { "Try a section name, model, account or connection." }
+                        }
                     }
                 }
             }
@@ -221,20 +225,19 @@ fn MobileSettingsDetail(spec: Option<SettingsPaneSpec>) -> Element {
         return rsx! {};
     };
     rsx! {
-        div { class: "settings-mobile__main",
-            header { class: "settings-topbar",
+        div { class: "flex h-full min-h-0 flex-col bg-background",
+            header { class: "flex h-14 shrink-0 items-center gap-2 border-b border-border px-4",
                 IconButton {
-                    class: "settings-topbar__back",
-                    icon: "arrow_back",
+                    icon: IconType::ArrowLeft,
                     label: "Back to settings",
                     "data-testid": "settings-detail-back",
                     onclick: move |_| navigate.call(Route::Settings { pane: None }.to_path()),
                 }
-                h1 { class: "settings-topbar__title", {spec.title} }
+                h1 { class: "truncate text-base font-semibold text-foreground", {spec.title} }
             }
-            div { class: "settings-content",
-                div { class: "settings-content__inner",
-                    p { class: "settings-pane-lead", {spec.description} }
+            div { class: "min-h-0 flex-1 overflow-y-auto",
+                div { class: "mx-auto flex w-full max-w-3xl flex-col gap-6 p-6",
+                    p { class: "text-sm text-muted-foreground", {spec.description} }
                     pane::SettingsPane { id: spec.id }
                 }
             }

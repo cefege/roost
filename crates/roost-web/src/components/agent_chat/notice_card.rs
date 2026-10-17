@@ -5,7 +5,7 @@
 use dioxus::prelude::*;
 
 use super::markdown::markdown_to_safe_html;
-use crate::components::md::{Button, ButtonVariant, Card, CardVariant, Icon, IconSize};
+use crate::components::ui::{Button, ButtonVariant, Card, CardContent, CardHeader, CardTitle, CardVariant, Icon, IconType, Markdown};
 use crate::router_state::use_navigate;
 
 #[component]
@@ -14,31 +14,32 @@ pub fn NoticeCard(id: String, level: String, title: String, body: String) -> Ele
         .then(|| fork_target(&body))
         .flatten();
     let navigate = use_navigate();
-    let (severity, icon, tone) = match level.as_str() {
-        "error" => ("Error", "error", "error"),
-        "warn" | "warning" => ("Warning", "warning", "warning"),
-        _ => ("Notice", "info", "info"),
+    let (severity, notice_icon, tone) = match level.as_str() {
+        "error" => ("Error", IconType::CircleAlert, "error"),
+        "warn" | "warning" => ("Warning", IconType::TriangleAlert, "warning"),
+        _ => ("Notice", IconType::Info, "info"),
     };
     let rendered = markdown_to_safe_html(&body);
     let long_body = body.lines().count() > 3 || body.chars().count() > 360;
     rsx! {
         Card {
             key: "{id}",
-            title: Some(title),
             variant: CardVariant::Outlined,
-            class: "agent-chat__notice-card".to_string(),
-            children: rsx! {
-                div { class: "agent-chat__notice-heading", "data-tone": tone,
-                    Icon { name: icon, size: IconSize::Sm }
+            CardHeader {
+                CardTitle { "{title}" }
+            }
+            CardContent {
+                div { class: "flex items-center gap-2 text-sm font-medium data-[tone=error]:text-destructive", "data-tone": tone,
+                    Icon { icon: notice_icon, class: "size-4" }
                     strong { "{severity}" }
                 }
                 if long_body {
-                    details { class: "agent-chat__notice-details",
-                        summary { "Details" }
-                        div { class: "agent-chat__markdown", dangerous_inner_html: rendered }
+                    details { class: "text-sm",
+                        summary { class: "cursor-pointer text-muted-foreground", "Details" }
+                        Markdown { html: rendered }
                     }
                 } else if !body.is_empty() {
-                    div { class: "agent-chat__markdown", dangerous_inner_html: rendered }
+                    Markdown { html: rendered }
                 }
                 if let Some(conversation_id) = fork_target {
                     Button {
@@ -47,7 +48,7 @@ pub fn NoticeCard(id: String, level: String, title: String, body: String) -> Ele
                         "Open fork"
                     }
                 }
-            },
+            }
         }
     }
 }

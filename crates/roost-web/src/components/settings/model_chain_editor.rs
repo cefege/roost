@@ -7,8 +7,9 @@ use dioxus::prelude::*;
 
 use crate::components::agent_chat::model_picker::{ModelPicker, PickerOption};
 use crate::components::layout::window_size::use_is_compact;
-use crate::components::md::{
-    Button, ButtonSize, ButtonVariant, Dialog, IconButton, IconButtonSize, List, ListRow, StatusDot,
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Dialog, DialogBody, DialogContent, DialogHeader,
+    DialogTitle, IconButton, IconType, List, ListRow, StatusDot,
 };
 use crate::components::settings::model_chain::{move_entry, push_entry, split_thinking};
 
@@ -27,9 +28,9 @@ pub fn ModelChainEditor(
     let compact = use_is_compact();
     // A phone gets the picker as a bottom sheet, within a thumb's reach.
     let dialog_class = if compact {
-        "model-chain__dialog roost-sheet--bottom roost-sheet--kb"
+        "top-auto bottom-0 left-0 right-0 w-full max-w-none max-h-[70vh] translate-x-0 translate-y-0 rounded-t-2xl rounded-b-none"
     } else {
-        "model-chain__dialog"
+        "max-w-md"
     };
     let mut adding = use_signal(|| false);
     let mut editing = use_signal(|| None::<usize>);
@@ -50,12 +51,12 @@ pub fn ModelChainEditor(
         .cloned()
         .collect();
     rsx! {
-        div { class: "model-chain", "data-testid": "{test_id}",
+        div { class: "flex flex-col gap-2", "data-testid": "{test_id}",
             if chain.is_empty() {
-                p { class: "model-chain__inherit", "Inherits {inherited_label}" }
+                p { class: "text-xs text-muted-foreground m-0", "Inherits {inherited_label}" }
             }
             if entry_count > 0 {
-                List { contained: true, class: "model-chain__list",
+                List { contained: true,
                     for (index, entry) in chain.iter().enumerate() {
                         {
                             let (base, thinking) = split_thinking(entry, &thinking_levels);
@@ -101,9 +102,9 @@ pub fn ModelChainEditor(
                                     test_id: row_test_id,
                                     trailing: Some(rsx! {
                                         IconButton {
-                                            icon: "arrow_upward".to_owned(),
+                                            icon: IconType::ArrowUp,
                                             label: format!("Move {role_title} candidate {} up", index + 1),
-                                            size: IconButtonSize::IconSm,
+                                            size: ButtonSize::IconSm,
                                             disabled: index == 0,
                                             onclick: move |_| {
                                                 let mut next = up_chain.clone();
@@ -113,9 +114,9 @@ pub fn ModelChainEditor(
                                             },
                                         }
                                         IconButton {
-                                            icon: "arrow_downward".to_owned(),
+                                            icon: IconType::ArrowDown,
                                             label: format!("Move {role_title} candidate {} down", index + 1),
-                                            size: IconButtonSize::IconSm,
+                                            size: ButtonSize::IconSm,
                                             disabled: index + 1 == entry_count,
                                             onclick: move |_| {
                                                 let mut next = down_chain.clone();
@@ -125,9 +126,9 @@ pub fn ModelChainEditor(
                                             },
                                         }
                                         IconButton {
-                                            icon: "close".to_owned(),
+                                            icon: IconType::X,
                                             label: format!("Remove {role_title} candidate {}", index + 1),
-                                            size: IconButtonSize::IconSm,
+                                            size: ButtonSize::IconSm,
                                             onclick: move |_| {
                                                 let mut next = remove_chain.clone();
                                                 next.remove(index);
@@ -144,42 +145,47 @@ pub fn ModelChainEditor(
             Button {
                 variant: ButtonVariant::Outline,
                 size: ButtonSize::Sm,
-                icon: "add".to_owned(),
+                icon: IconType::Plus,
                 disabled: addable.is_empty(),
                 title: if options.is_empty() { "Connect a provider to choose a model" } else if addable.is_empty() { "Every available model is already in this chain" } else { "Search and choose the next model" },
-                class: "model-chain__add".to_owned(),
                 "data-testid": format!("{test_id}-add"),
                 onclick: move |_| { editing.set(None); adding.set(true); },
                 if entry_count == 0 { "Choose model" } else { "Add fallback" }
             }
-            if adding() {
-                Dialog {
-                    open: true,
-                    headline: Some(if editing().is_some() { format!("Change {role_title}") } else { format!("Choose {role_title}") }),
-                    on_close: move |_| adding.set(false),
-                    class: dialog_class.to_owned(),
+            Dialog {
+                open: adding(),
+                on_open_change: move |open: bool| adding.set(open),
+                DialogContent {
+                    class: dialog_class,
                     test_id: format!("{test_id}-dialog"),
-                    ModelPicker {
-                        options: addable.clone(),
-                        selected: selected_entry.clone(),
-                        placeholder: "Search models and engines".to_owned(),
-                        test_id: format!("{test_id}-picker"),
-                        autofocus: !compact,
-                        on_choose: move |selector: String| {
-                            let mut next = chain.clone();
-                            if let Some(index) = editing() {
-                                let Some(entry) = next.get_mut(index) else { adding.set(false); return; };
-                                let effort = split_thinking(entry, &thinking_levels).1;
-                                *entry = match effort {
-                                    Some(level) => format!("{selector}:{level}"),
-                                    None => selector,
-                                };
-                                on_change.call(next);
-                            } else if push_entry(&mut next, &selector) {
-                                on_change.call(next);
-                            }
-                            adding.set(false);
-                        },
+                    DialogHeader {
+                        DialogTitle {
+                            if editing().is_some() { "Change {role_title}" } else { "Choose {role_title}" }
+                        }
+                    }
+                    DialogBody {
+                        ModelPicker {
+                            options: addable.clone(),
+                            selected: selected_entry.clone(),
+                            placeholder: "Search models and engines".to_owned(),
+                            test_id: format!("{test_id}-picker"),
+                            autofocus: !compact,
+                            on_choose: move |selector: String| {
+                                let mut next = chain.clone();
+                                if let Some(index) = editing() {
+                                    let Some(entry) = next.get_mut(index) else { adding.set(false); return; };
+                                    let effort = split_thinking(entry, &thinking_levels).1;
+                                    *entry = match effort {
+                                        Some(level) => format!("{selector}:{level}"),
+                                        None => selector,
+                                    };
+                                    on_change.call(next);
+                                } else if push_entry(&mut next, &selector) {
+                                    on_change.call(next);
+                                }
+                                adding.set(false);
+                            },
+                        }
                     }
                 }
             }

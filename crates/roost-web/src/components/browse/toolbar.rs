@@ -14,9 +14,9 @@ use roost_protocol::wire::Worker;
 use crate::components::context_menu::{
     AnchoredMenuPos, CtxMenuItem, anchored_menu_surface_style, use_floating_menu_dismiss,
 };
-use crate::components::md::{
-    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconButtonSize, IconSize, StatusDot,
-    Surface, SurfaceRadius,
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, StatusDot, Surface,
+    SurfaceRadius,
 };
 
 /// The machine menu's element id, so its dismissal and focus are addressable.
@@ -63,20 +63,27 @@ pub fn BrowseToolbar(
     );
     let selected_fp = server_fp.clone();
     rsx! {
-        Surface { class: "df-browse-header", level: 2, radius: SurfaceRadius::None,
+        Surface {
+            class: Some("flex min-w-0 items-center gap-2 px-2 py-1".to_owned()),
+            level: 2,
+            radius: SurfaceRadius::None,
             IconButton {
-                size: IconButtonSize::IconSm,
+                size: ButtonSize::IconSm,
                 "data-testid": "browse-close",
-                icon: "close",
-                label: "Close".to_owned(),
-                title: "Close".to_owned(),
+                icon: IconType::X,
+                label: "Close",
+                title: "Close",
                 onclick: move |_| on_close.call(()),
             }
-            div { class: "df-browse-header-title",
-                span { class: "df-browse-header-folder md-title-s", "data-testid": "browse-folder-name",
+            div { class: "flex min-w-0 flex-1 flex-col",
+                span {
+                    class: "truncate text-sm font-medium",
+                    "data-testid": "browse-folder-name",
                     {folder_name}
                 }
-                span { class: "df-browse-header-machine md-label-s", "data-testid": "browse-machine",
+                span {
+                    class: "flex min-w-0 items-center gap-1 truncate text-xs text-muted-foreground",
+                    "data-testid": "browse-machine",
                     StatusDot { status: if server_online { "ok".to_owned() } else { "idle".to_owned() } }
                     {server_label.clone()}
                 }
@@ -84,44 +91,44 @@ pub fn BrowseToolbar(
             if online_workers.len() > 1 {
                 Button {
                     id: SERVER_TRIGGER_ID,
-                    class: "df-browse-server",
+                    class: Some("max-w-40 truncate".to_owned()),
                     size: ButtonSize::Sm,
+                    variant: ButtonVariant::Ghost,
                     "data-testid": "browse-server",
                     "aria-haspopup": "menu",
                     "aria-controls": SERVER_MENU_ID,
                     "aria-expanded": server_menu_open.to_string(),
                     title: server_label.clone(),
                     onclick: move |_| on_toggle_server_menu.call(()),
-                    Icon { name: "unfold_more", size: IconSize::Sm }
+                    Icon { icon: IconType::ChevronsUpDown, class: "size-3" }
                 }
             }
             IconButton {
-                class: "df-browse-toggle",
-                size: IconButtonSize::IconSm,
+                class: Some("data-[active=true]:bg-accent".to_owned()),
+                size: ButtonSize::IconSm,
                 "data-testid": "browse-filter-toggle",
-                icon: "search",
-                label: "Filter this folder".to_owned(),
-                title: "Filter this folder".to_owned(),
+                icon: IconType::Search,
+                label: "Filter this folder",
+                title: "Filter this folder",
                 "data-active": filter_open.then_some("true"),
                 "aria-pressed": filter_open.to_string(),
                 onclick: move |_| on_toggle_filter.call(()),
             }
             IconButton {
-                class: "df-browse-toggle",
-                size: IconButtonSize::IconSm,
+                class: Some("data-[active=true]:bg-accent".to_owned()),
+                size: ButtonSize::IconSm,
                 "data-testid": "browse-show-files",
-                icon: "description",
-                label: "Show files in this folder".to_owned(),
-                title: "Show files in this folder".to_owned(),
+                icon: IconType::FileText,
+                label: "Show files in this folder",
+                title: "Show files in this folder",
                 "data-active": show_files.then_some("true"),
                 "aria-pressed": show_files.to_string(),
                 onclick: move |_| on_toggle_show_files.call(()),
             }
             Button {
-                class: "df-browse-new",
                 variant: ButtonVariant::Secondary,
                 size: ButtonSize::Sm,
-                icon: Some("create_new_folder".to_owned()),
+                icon: Some(IconType::FolderPlus),
                 "data-testid": "browse-new",
                 title: "New folder",
                 disabled: !ready,
@@ -133,7 +140,7 @@ pub fn BrowseToolbar(
             if let Some(position) = server_menu_pos {
                 div {
                     id: SERVER_MENU_ID,
-                    class: "df-menu-enter df-browse-server-menu",
+                    class: "df-menu-enter z-50 flex max-h-[60vh] min-w-48 flex-col gap-0.5 overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md",
                     "data-testid": "browse-server-menu",
                     role: "menu",
                     "aria-labelledby": SERVER_TRIGGER_ID,
@@ -165,14 +172,14 @@ fn ServerOption(worker: Worker, selected: bool, on_select: EventHandler<String>)
     rsx! {
         CtxMenuItem {
             testid: "browse-server-option".to_owned(),
-            class: "df-browse-server-option",
+            class: "flex w-full items-center gap-2",
             selected,
             title: label.clone(),
             onclick: move |_| on_select.call(worker_fp.clone()),
             StatusDot { status: "ok".to_owned() }
-            span { class: "df-browse-server-option-label", {label} }
+            span { class: "min-w-0 flex-1 truncate text-left", {label} }
             if selected {
-                Icon { name: "check", size: IconSize::Sm }
+                Icon { icon: IconType::Check, class: "size-3" }
             }
         }
     }

@@ -71,7 +71,7 @@ pub fn TerminalCard(
     let transition = if swiping() {
         "none"
     } else {
-        "transform var(--md-sys-motion-duration-short4, 200ms) var(--md-sys-motion-easing-emphasized-decelerate, cubic-bezier(0.05, 0.7, 0.1, 1)), opacity var(--md-sys-motion-duration-short4, 200ms) var(--md-sys-motion-easing-emphasized-decelerate, cubic-bezier(0.05, 0.7, 0.1, 1))"
+        "transform 200ms cubic-bezier(0.05, 0.7, 0.1, 1), opacity 200ms cubic-bezier(0.05, 0.7, 0.1, 1)"
     };
     let style = format!(
         "transform: translateX({dx}px); opacity: {}; transition: {transition};",

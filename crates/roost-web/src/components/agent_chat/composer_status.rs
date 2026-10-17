@@ -5,7 +5,7 @@
 use dioxus::prelude::*;
 
 use super::agent_alert::AgentAlert;
-use crate::components::md::{Button, ButtonVariant};
+use crate::components::ui::{Button, ButtonVariant};
 
 #[component]
 pub(super) fn ComposerErrorBanner(
@@ -37,8 +37,8 @@ pub(super) fn ComposerErrorBanner(
     let has_details = error_text.len() > 80 || error_text.lines().count() > 1;
     rsx! {
         AgentAlert { test_id: "agent-chat-pinned-error",
-            div { class: "agent-chat__pinned-error-head",
-                strong { "{headline}" }
+            div { class: "flex flex-wrap items-center gap-2",
+                strong { class: "min-w-0 flex-1 break-words font-semibold", "{headline}" }
                 if has_details {
                     Button {
                         variant: ButtonVariant::Ghost,
@@ -57,9 +57,13 @@ pub(super) fn ComposerErrorBanner(
                 }
             }
             if details_open() && has_details {
-                pre { id: "agent-chat-pinned-error-details", class: "agent-chat__pinned-error-details", "{error_text}" }
+                pre {
+                    id: "agent-chat-pinned-error-details",
+                    class: "m-0 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-2 font-mono text-xs text-foreground",
+                    "{error_text}"
+                }
             }
-            div { class: "agent-chat__pinned-error-actions",
+            div { class: "flex flex-wrap items-center gap-2",
                 if running {
                     Button {
                         variant: ButtonVariant::Destructive,

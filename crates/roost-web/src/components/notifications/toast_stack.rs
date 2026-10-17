@@ -11,7 +11,7 @@ use super::notify_target::NotifyTarget;
 use super::store_write::write_store;
 use super::toast_card::ToastCard;
 use crate::components::layout::window_size::use_is_compact;
-use crate::components::md::{Button, ButtonSize, ButtonVariant, StatusDot, Surface, SurfaceRadius};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, StatusDot, Surface, SurfaceRadius};
 use crate::pump::use_store;
 
 /// Cards a pointer layout shows before the rest fold into the overflow bar —
@@ -90,7 +90,7 @@ pub fn ToastStack() -> Element {
 
     rsx! {
         div {
-            class: "roost-toast-stack",
+            class: "flex flex-col gap-2 data-[expanded=true]:[max-block-size:calc(100dvh_-_var(--roost-notify-dock-lift)_-_6rem)] data-[expanded=true]:overflow-y-auto data-[expanded=true]:overscroll-contain",
             role: "region",
             "aria-label": "Notifications",
             "data-testid": "toast-stack",
@@ -101,12 +101,12 @@ pub fn ToastStack() -> Element {
                     elevation: 2,
                     radius: SurfaceRadius::Md,
                     border: true,
-                    class: "roost-toast-overflow",
+                    class: "flex items-center gap-2 py-1 pr-1 pl-3",
                     test_id: Some("toast-overflow".to_owned()),
                     if folded_error {
                         StatusDot { status: "error".to_owned() }
                     }
-                    span { class: "md-label-m roost-toast-overflow__label", "{label}" }
+                    span { class: "min-w-0 flex-1 text-xs font-medium leading-4 text-muted-foreground", "{label}" }
                     Button {
                         variant: ButtonVariant::Ghost,
                         size: if compact { ButtonSize::Sm } else { ButtonSize::Xs },

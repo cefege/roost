@@ -11,7 +11,7 @@ use roost_client_core::store::shell_intent::ShellIntent;
 
 use super::pane_handle::PaneHandle;
 use super::pane_state::PaneUi;
-use crate::components::md::{Button, ButtonSize, ButtonVariant, Icon};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, Icon, IconType};
 use crate::pump::Pump;
 
 /// The key grid. `placement` is `sheet` for the floating sheet and `tray` for
@@ -115,7 +115,7 @@ fn key_cell(cell: NavCell) -> Element {
             onmousedown: keep_focus,
             onclick: move |event| press.call(event),
             if let Some(icon) = face_icon(face) {
-                Icon { name: icon.to_owned(), class: Some("term-nav__icon".to_owned()) }
+                Icon { icon, class: "term-nav__icon" }
             }
             if let Some(label) = label {
                 span { class: "term-nav__label", "{label}" }
@@ -124,8 +124,8 @@ fn key_cell(cell: NavCell) -> Element {
     }
 }
 
-/// The ligature a cell draws, if it draws one.
-fn face_icon(face: KeyFace) -> Option<&'static str> {
+/// The glyph a cell draws, if it draws one.
+fn face_icon(face: KeyFace) -> Option<IconType> {
     match face {
         KeyFace::Icon(icon) | KeyFace::IconAndLabel(icon, _) => Some(icon),
         KeyFace::Label(_) => None,
@@ -203,7 +203,7 @@ fn grid_cells(
             "back",
             "nav-backspace",
             "Backspace",
-            KeyFace::Icon("backspace"),
+            KeyFace::Icon(IconType::Delete),
             "Backspace",
         ),
         key("home", "nav-home", "Home", KeyFace::Label("home"), "Home"),
@@ -211,7 +211,7 @@ fn grid_cells(
             "up",
             "nav-up",
             "Up arrow",
-            KeyFace::Icon("keyboard_arrow_up"),
+            KeyFace::Icon(IconType::ChevronUp),
             "ArrowUp",
         ),
         key("end", "nav-end", "End", KeyFace::Label("end"), "End"),
@@ -219,35 +219,35 @@ fn grid_cells(
             "pgup",
             "nav-pgup",
             "Page up",
-            KeyFace::Icon("keyboard_double_arrow_up"),
+            KeyFace::Icon(IconType::ChevronsUp),
             "PageUp",
         ),
         key(
             "left",
             "nav-left",
             "Left arrow",
-            KeyFace::Icon("keyboard_arrow_left"),
+            KeyFace::Icon(IconType::ChevronLeft),
             "ArrowLeft",
         ),
         key(
             "down",
             "nav-down",
             "Down arrow",
-            KeyFace::Icon("keyboard_arrow_down"),
+            KeyFace::Icon(IconType::ChevronDown),
             "ArrowDown",
         ),
         key(
             "right",
             "nav-right",
             "Right arrow",
-            KeyFace::Icon("keyboard_arrow_right"),
+            KeyFace::Icon(IconType::ChevronRight),
             "ArrowRight",
         ),
         key(
             "pgdn",
             "nav-pgdn",
             "Page down",
-            KeyFace::Icon("keyboard_double_arrow_down"),
+            KeyFace::Icon(IconType::ChevronsDown),
             "PageDown",
         ),
         NavCell {
@@ -265,14 +265,14 @@ fn grid_cells(
             "enter",
             "nav-enter",
             "Enter",
-            KeyFace::Icon("keyboard_return"),
+            KeyFace::Icon(IconType::CornerDownLeft),
             "Enter",
         ),
         NavCell {
             area: "mouse",
             test_id: "nav-mouse",
             aria_label: "Toggle mouse forwarding",
-            face: KeyFace::IconAndLabel("mouse", if mouse_forward { "on" } else { "off" }),
+            face: KeyFace::IconAndLabel(IconType::Mouse, if mouse_forward { "on" } else { "off" }),
             latched: Some(mouse_forward),
             press: {
                 let pump = pump.clone();
@@ -304,14 +304,14 @@ struct NavCell {
     press: EventHandler<MouseEvent>,
 }
 
-/// A cell's face: a word, a Material ligature, or — for the one cell that states
+/// A cell's face: a word, a Lucide glyph, or — for the one cell that states
 /// its own value — both.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum KeyFace {
     /// An uppercased word or a bare glyph.
     Label(&'static str),
-    /// A Material Symbols ligature, drawn by `icon.css`.
-    Icon(&'static str),
+    /// A Lucide glyph drawn by `ui::Icon`.
+    Icon(IconType),
     /// The mouse toggle: its glyph plus the value it states.
-    IconAndLabel(&'static str, &'static str),
+    IconAndLabel(IconType, &'static str),
 }

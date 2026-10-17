@@ -6,13 +6,13 @@ pub mod host;
 
 use dioxus::prelude::*;
 
-use crate::components::md::{IconButton, IconButtonSize};
+use crate::components::ui::{ButtonSize, IconButton, IconType};
 use crate::pump::use_store;
 
 /// Download `path` from `worker_fp`. The transfer card on the dock reports the
 /// run, with the coordinator route chip: chunk reads exist only there.
 #[component]
-pub fn DownloadButton(worker_fp: String, path: String, size: IconButtonSize) -> Element {
+pub fn DownloadButton(worker_fp: String, path: String, size: ButtonSize) -> Element {
     let pump = use_store();
     let label = match host::download_file_name(&path) {
         Some(name) => format!("Download {name}"),
@@ -24,7 +24,7 @@ pub fn DownloadButton(worker_fp: String, path: String, size: IconButtonSize) -> 
     };
     rsx! {
         IconButton {
-            icon: "download",
+            icon: IconType::Download,
             label,
             size,
             "data-testid": "file-download",

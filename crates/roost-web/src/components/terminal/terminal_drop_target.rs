@@ -12,7 +12,7 @@ use dioxus::prelude::*;
 use super::dom::{now_ms, sleep_ms};
 use super::pane_handle::PaneHandle;
 use super::pane_state::PaneFlags;
-use crate::components::md::{Icon, IconSize, Surface, SurfaceRadius};
+use crate::components::ui::{Icon, IconType};
 use crate::components::terminal_chrome::attachment_picker::ChosenFile;
 use crate::components::terminal_chrome::file_drop_dom::{
     PaneDropTarget, install_pane_drop_listeners,
@@ -90,18 +90,13 @@ pub fn TerminalDropOverlay(active: bool) -> Element {
     }
     rsx! {
         div {
+            class: "absolute inset-0 z-[6] flex items-center justify-center p-6 pointer-events-none bg-background/60 outline-2 outline-dashed outline-primary -outline-offset-2",
             "data-testid": "terminal-drop-overlay",
             "aria-hidden": "true",
-            style: "position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: var(--md-space-6); pointer-events: none; z-index: 6; background: color-mix(in srgb, var(--md-scrim) 35%, transparent); outline: 2px dashed var(--md-primary); outline-offset: calc(var(--md-space-2) * -1);",
-            Surface {
-                level: 2,
-                elevation: 3,
-                radius: SurfaceRadius::Lg,
-                pad: 5,
-                border: true,
-                style: "display: flex; align-items: center; gap: var(--md-space-3); color: var(--md-sys-color-on-surface);",
-                Icon { name: "upload", size: IconSize::Lg, style: "color: var(--md-primary);" }
-                span { class: "md-title-s", "Drop to upload to this terminal" }
+            div {
+                class: "flex items-center gap-3 rounded-lg border border-border bg-card p-6 text-card-foreground shadow-md",
+                Icon { icon: IconType::Upload, class: "size-6 text-primary" }
+                span { class: "text-base font-medium", "Drop to upload to this terminal" }
             }
         }
     }

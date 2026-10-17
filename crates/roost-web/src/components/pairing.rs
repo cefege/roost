@@ -1,32 +1,7 @@
-//! The browser pairing surface: the whole page, for a browser that is not
-//! trusted and for one that is.
-//!
-//! ONE COMPONENT, TWO HALVES. v2 renders the same onboarding component in the
-//! unauthorized branch of the access gate and at `/pair`
-//! (`Onboarding.tsx:109-154`), and which half draws is decided by
-//! `browser_access_state`: an unauthorized browser gets the requester panel, an
-//! authorized one gets the pending requests to approve. Splitting it into two
-//! entry points would mean two places that decide the same question, and they
-//! would disagree the first time a browser moved between them.
-//!
-//! The two halves are not two features. A requester asks and polls; an approver
-//! generates a code and watches the requester prove it. They share the
-//! coordinator's statuses, so they share the wording (`pairing::status`) and the
-//! failure classification (`pairing::failure`): a `verification_failed` the
-//! requester reads as "too many incorrect codes" and the approver reads as "this
-//! browser is done" is one server fact and must not become two sentences.
-//!
-//! The ceremony's stages and its two tab-scoped records are NOT here: they are
-//! `roost_client_core::client::auth`'s, and this module drives them rather than
-//! restating them. The pending rows are the store's, filled by the Sync `Pair`
-//! domain. Ported from `apps/web/src/components/pairing/*` and the two
-//! providers beside it.
-//!
-//! WHAT IS NOT HERE. The unauthorized branch mounts no notification dock, so
-//! its outcomes render as inline notices rather than as toasts. The authorized
-//! branch does have one, and the "New browser paired" announcement comes from
-//! the Sync fold (`handle_sync/fold_controls.rs:85-111`) — raising it here as
-//! well would say it twice.
+//! The browser pairing surface: the page an untrusted browser sees, and the
+//! approver's page once it is trusted. One component draws both, because
+//! `browser_access_state` decides which half a browser gets. The requester and
+//! approver ceremonies are owned by `PairSurface` so they survive access changes.
 
 mod approval_card;
 mod approval_dialog;
@@ -48,7 +23,6 @@ pub use requester::{PairingRequester, use_pairing_requester};
 use dioxus::prelude::*;
 use roost_client_core::store::BrowserAccessState;
 
-use crate::components::md::stylesheet::use_md_stylesheet;
 use crate::pump::use_store;
 
 /// The pairing surface, mounted ONCE for the life of the document.
@@ -68,9 +42,12 @@ use crate::pump::use_store;
 ///   because an unpaired reader has no other surface to reach;
 /// - `Authorized` and on `/pair` → the approver list;
 /// - `Authorized` anywhere else → no page, but the code dialog still stands.
+///
+/// The authorized branch mounts a notification dock, and the "New browser
+/// paired" announcement comes from the Sync fold (`handle_sync/fold_controls.rs`);
+/// raising it here as well would say it twice.
 #[component]
 pub fn PairSurface() -> Element {
-    use_md_stylesheet(notices::ONBOARDING_STYLESHEET_HREF);
     let pump = use_store();
     let path = crate::router_state::use_location();
     let requester = use_pairing_requester();
@@ -92,10 +69,11 @@ pub fn PairSurface() -> Element {
     rsx! {
         if draws_page {
             div {
-                class: "onboarding-root",
+                class: "onboarding-root box-border flex h-dvh w-full min-w-0 flex-col overflow-x-hidden overflow-y-auto px-4 py-5 min-[600px]:px-6 min-[600px]:py-7",
                 "data-testid": "onboarding",
                 "data-embedded": "false",
-                div { class: "onboarding-panel",
+                div {
+                    class: "onboarding-panel mx-auto flex w-full min-w-0 max-w-[var(--roost-dialog-max-inline-size)] flex-col gap-5",
                     if authorized {
                         ApproverPanel { approver: approver.clone(), has_workers }
                     } else {
@@ -139,10 +117,10 @@ fn RequesterPanel(requester: PairingRequester) -> Element {
     let request_error = state.request_failure.clone();
     rsx! {
         PairingPageHeader {
-            title: "Pair this browser".to_string(),
+            title: "Pair this browser".to_owned(),
             body: Some(
                 "This browser needs approval before it can access your Roost workspace."
-                    .to_string(),
+                    .to_owned(),
             ),
         }
         request_card::RequestAccessCard { requester: requester.clone() }
@@ -150,7 +128,7 @@ fn RequesterPanel(requester: PairingRequester) -> Element {
             PairingStatusNotice {
                 tone: NoticeTone::Error,
                 message,
-                test_id: Some("onboarding-request-error".to_string()),
+                test_id: Some("onboarding-request-error".to_owned()),
             }
         }
         other_options::PairingOtherOptions { requester }
@@ -163,9 +141,9 @@ fn RequesterPanel(requester: PairingRequester) -> Element {
 #[component]
 fn ApproverPanel(approver: approver::PairApprover, has_workers: bool) -> Element {
     rsx! {
-        PairingPageHeader { title: "Browser pairing".to_string(), body: None }
+        PairingPageHeader { title: "Browser pairing".to_owned(), body: None }
         if !has_workers {
-            p { class: "md-body-m pairing-header__body",
+            p { class: "m-0 text-sm text-muted-foreground",
                 "This browser is authorized, but no machines have registered as workers yet."
             }
         }

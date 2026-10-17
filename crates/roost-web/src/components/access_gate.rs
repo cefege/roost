@@ -1,8 +1,8 @@
 //! The two screens that exist before a protected surface does: the checking
 //! screen, and the refusal. Ported from
 //! `apps/web/src/components/pairing/AccessCheckingScreen.tsx`'s slot in App.tsx's
-//! `RootShell` switch, and from the `.access-checking` rules in
-//! `assets/styles/workbench-shell.css`.
+//! `RootShell` switch, and from the `.access-checking` rules that
+//! `assets/styles/workbench-shell.css` carried, now Tailwind classes.
 //!
 //! THE REFUSAL IS NOT THE PAIRING PAGE. `components::pairing::PairSurface` is:
 //! the root mounts it above the gate, so an unpaired reader at `/`, at
@@ -20,7 +20,13 @@
 
 use dioxus::prelude::*;
 
-use crate::components::md::Icon;
+use crate::components::ui::{Icon, IconType};
+
+/// The full-height centring frame both refusal screens share. The TV overscan
+/// variant keeps the padding `tv.css` gave `.access-checking` for `data-tv`.
+pub const CHECKING_CLASS: &str = "flex min-h-dvh w-full items-center justify-center p-6 [[data-tv=true]_&]:py-[var(--tv-overscan-block)] [[data-tv=true]_&]:px-[var(--tv-overscan-inline)]";
+/// The bordered card that holds the message.
+pub const CARD_CLASS: &str = "flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm text-card-foreground";
 
 /// The screen shown while the coordinator has not answered.
 ///
@@ -30,9 +36,9 @@ use crate::components::md::Icon;
 #[component]
 pub fn CheckingScreen() -> Element {
     rsx! {
-        div { class: "access-checking", "data-testid": "access-checking",
-            div { class: "access-checking__card", role: "status", "aria-live": "polite",
-                Icon { name: "hourglass_top", filled: false }
+        div { class: CHECKING_CLASS, "data-testid": "access-checking",
+            div { class: CARD_CLASS, role: "status", "aria-live": "polite",
+                Icon { icon: IconType::Hourglass, class: "size-4" }
                 span { "Checking access…" }
             }
         }
@@ -49,12 +55,12 @@ pub fn CheckingScreen() -> Element {
 pub fn UnauthorizedScreen(on_navigate: EventHandler<String>) -> Element {
     let pair_path = crate::routes::Route::Pair.to_path();
     rsx! {
-        div { class: "access-checking", "data-testid": "access-unauthorized",
-            div { class: "access-checking__card", role: "alert",
-                Icon { name: "lock", filled: false }
+        div { class: CHECKING_CLASS, "data-testid": "access-unauthorized",
+            div { class: CARD_CLASS, role: "alert",
+                Icon { icon: IconType::Lock, class: "size-4" }
                 span { "This browser is not authorized on this coordinator." }
                 a { href: pair_path.clone(), onclick: move |_| on_navigate.call(pair_path.clone()),
-                    "data-testid": "access-unauthorized-pair",
+                    "data-testid": "access-unauthorized-pair", class: "underline",
                     "Pair this browser"
                 }
             }

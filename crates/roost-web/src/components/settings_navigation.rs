@@ -2,6 +2,8 @@
 //! The Settings shell and `/design` specimen share this definition.
 //! Route ids stay stable when labels change; retired panes have no aliases.
 
+use crate::components::ui::IconType;
+
 /// One settings pane: its route id, rail label, icon and page title.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SettingsPaneSpec {
@@ -9,8 +11,8 @@ pub struct SettingsPaneSpec {
     pub id: &'static str,
     /// The rail label.
     pub label: &'static str,
-    /// The rail icon ligature.
-    pub icon: &'static str,
+    /// The rail icon.
+    pub icon: IconType,
     /// The pane's title bar text.
     pub title: &'static str,
     /// Explains the pane in search results and under its page title.
@@ -31,7 +33,7 @@ pub struct SettingsRailGroup {
 const fn pane(
     id: &'static str,
     label: &'static str,
-    icon: &'static str,
+    icon: IconType,
     title: &'static str,
     description: &'static str,
     search_terms: &'static str,
@@ -54,7 +56,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "machines",
                 "Machines",
-                "desktop_mac",
+                IconType::Laptop,
                 "Machines",
                 "Connected computers, folders and worker availability.",
                 "workers computers",
@@ -62,7 +64,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "connection",
                 "Connection",
-                "lan",
+                IconType::Network,
                 "Connection",
                 "Coordinator address, connection health and reconnect options.",
                 "server offline reconnect",
@@ -70,7 +72,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "devices",
                 "Paired devices",
-                "devices",
+                IconType::Smartphone,
                 "Paired devices",
                 "Browsers and phones that can access Roost. Review or revoke access.",
                 "pairing browsers phones access",
@@ -83,7 +85,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "launcher",
                 "Agent launcher",
-                "rocket_launch",
+                IconType::Rocket,
                 "Agent launcher",
                 "The agent command used when opening a terminal session.",
                 "omp command launch",
@@ -91,7 +93,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "models",
                 "Models & accounts",
-                "smart_toy",
+                IconType::Bot,
                 "Models & accounts",
                 "Models for chat and tasks, folder defaults, advisor reviews and provider accounts.",
                 "advisor adviser planning delegated quick side tasks decisions fallback chains session thinking effort btw compact web search",
@@ -99,7 +101,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "mcp",
                 "Tool integrations",
-                "extension",
+                IconType::Puzzle,
                 "Tool integrations",
                 "MCP relays that connect agents to external tools and services.",
                 "external tools relay",
@@ -112,7 +114,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "terminal",
                 "Terminal",
-                "terminal",
+                IconType::Terminal,
                 "Terminal",
                 "Font, cursor, rendering and terminal interaction.",
                 "scrollback keyboard rendering",
@@ -120,7 +122,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "voice",
                 "Voice",
-                "mic",
+                IconType::Mic,
                 "Voice dictation",
                 "Speech recognition, language and microphone input.",
                 "dictation audio",
@@ -128,7 +130,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "theme",
                 "Appearance",
-                "palette",
+                IconType::Palette,
                 "Appearance",
                 "Theme, color scheme and how the workbench looks.",
                 "dark light colors",
@@ -136,7 +138,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "notifications",
                 "Notifications",
-                "notifications",
+                IconType::Bell,
                 "Notifications",
                 "Alerts when agents need attention or finish their work.",
                 "sound alerts",
@@ -149,7 +151,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "attachments",
                 "Files",
-                "folder_open",
+                IconType::FolderOpen,
                 "Files",
                 "Uploaded files and session attachments.",
                 "uploads downloads",
@@ -157,7 +159,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "audit",
                 "Audit log",
-                "history",
+                IconType::History,
                 "Audit log",
                 "Recorded access and administrative activity.",
                 "security activity",
@@ -165,7 +167,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "metrics",
                 "Diagnostics",
-                "monitoring",
+                IconType::Activity,
                 "Diagnostics",
                 "Service metrics and resource usage.",
                 "health performance",

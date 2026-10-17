@@ -53,11 +53,15 @@ pub fn SessionRowFlat(facts: SessionRowFacts) -> Element {
         format!("server: {server_label} — offline / not running")
     };
     rsx! {
-        span { class: "df-flat-body",
-            span { class: "df-flat-top",
-                span { class: "df-label df-flat-headline", "data-testid": "session-headline-{session_id}", {headline} }
+        span { class: "flex min-w-0 flex-1 flex-col gap-0.5",
+            span { class: "flex min-w-0 items-baseline gap-2",
                 span {
-                    class: "df-flat-time",
+                    class: "min-w-0 flex-1 truncate text-sm text-foreground group-data-[selected=focused]:text-accent-foreground",
+                    "data-testid": "session-headline-{session_id}",
+                    {headline}
+                }
+                span {
+                    class: "shrink-0 text-xs tabular-nums text-muted-foreground group-data-[selected=focused]:text-accent-foreground",
                     "data-testid": "session-reltime-{session_id}",
                     title: if open { "Opened" } else { "Closed" },
                     {rel_time}
@@ -65,31 +69,39 @@ pub fn SessionRowFlat(facts: SessionRowFacts) -> Element {
             }
             if let Some(subtitle) = subtitle {
                 span {
-                    class: "df-flat-subtitle",
+                    class: "min-w-0 truncate font-mono text-xs text-muted-foreground group-data-[selected=focused]:text-accent-foreground",
                     "data-testid": "session-subtitle-{session_id}",
                     title: subtitle.clone(),
                     {subtitle.clone()}
                 }
             }
-            span { class: "df-flat-supporting",
+            span { class: "flex min-w-0 items-center gap-2 text-xs text-muted-foreground group-data-[selected=focused]:text-accent-foreground [&>*+*]:before:me-1 [&>*+*]:before:content-['·']",
                 ServerChip {
                     online: server_online,
                     label: server_label,
                     title: server_title,
                     test_id: format!("session-server-{session_id}"),
                 }
-                span { class: "df-flat-path", "data-testid": "session-path-{session_id}", title: cwd,
-                    FolderGlyph { size: 11, class: "df-flat-folder-icon" }
-                    span { class: "df-flat-path-text", {short_cwd} }
+                span {
+                    class: "flex min-w-0 items-center gap-1 font-mono",
+                    "data-testid": "session-path-{session_id}",
+                    title: cwd,
+                    FolderGlyph { size: 11, class: "shrink-0" }
+                    span { class: "min-w-0 truncate", {short_cwd} }
                 }
             }
-            span { class: "df-flat-activity",
+            span { class: "flex flex-wrap items-center gap-1.5",
                 AgentStatusIndicator { session_id: session_id.clone() }
                 crate::components::terminal_bell_mark::TerminalBellMark { session_id: session_id.clone() }
                 crate::components::terminal_signal_marks::TerminalProgressMark { session_id: session_id.clone() }
                 crate::components::terminal_signal_marks::TerminalUserVarBadges { session_id: session_id.clone() }
                 if !server_online {
-                    span { class: "df-stage-text", "data-stage": "offline", "data-testid": "session-offline-{session_id}", "offline" }
+                    span {
+                        class: "text-xs text-muted-foreground",
+                        "data-stage": "offline",
+                        "data-testid": "session-offline-{session_id}",
+                        "offline"
+                    }
                 }
                 ViewersChip { session_id: session_id.clone() }
             }

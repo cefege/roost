@@ -23,8 +23,9 @@ use roost_client_core::client::rpc::calls::settings::transcription::{
 };
 
 use super::voice_languages::{language_options, stored_or_default};
-use crate::components::md::{
-    Button, ButtonVariant, Card, Icon, IconSize, Select, StatusDot, SwitchRow, TextField,
+use crate::components::ui::{
+    Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader, CardTitle, Icon,
+    IconType, Select, StatusDot, SwitchRow, TextField,
 };
 use crate::pump::{Pump, use_store};
 
@@ -83,18 +84,17 @@ pub fn VoicePane() -> Element {
     let provider_status = if configured { "ok" } else { "warn" };
     rsx! {
         div {
-            class: "settings-pane",
-            style: "display: flex; flex-direction: column; gap: var(--md-space-5);",
+            class: "flex flex-col gap-5",
             "data-testid": "settings-transcription-pane",
-            Card { class: "settings-hero", test_id: "transcription-status",
-                div { style: "display: flex; align-items: center; gap: var(--md-space-4);",
-                    Icon { name: "mic", filled: true, size: IconSize::Lg }
-                    div { style: "flex: 1; min-width: 0;",
-                        div { style: "display: flex; align-items: center; gap: var(--md-space-2);",
-                            StatusDot { status: provider_status }
-                            span { class: "md-title-m", {provider_name} }
+            Card { "data-testid": "transcription-status",
+                CardContent { class: "flex items-center gap-4",
+                    Icon { icon: IconType::Mic, class: "size-6 text-primary" }
+                    div { class: "min-w-0 flex-1",
+                        div { class: "flex items-center gap-2",
+                            StatusDot { status: provider_status.to_owned() }
+                            span { class: "text-base font-medium", {provider_name} }
                         }
-                        div { class: "md-body-s", style: "color: var(--md-sys-color-on-surface-variant);",
+                        div { class: "text-sm text-muted-foreground",
                             if configured {
                                 "Live Deepgram transcription for your authenticated owner devices."
                             } else {
@@ -104,35 +104,42 @@ pub fn VoicePane() -> Element {
                     }
                 }
             }
-            Card { title: "Dictation",
-                SwitchRow {
-                    test_id: "keyterm-biasing-toggle",
-                    headline: "Bias dictation to on-screen terms",
-                    support: "Feeds the terminal's visible text, your recent commands, and learned project jargon to Deepgram as keyterms — so names like Kysely, tailnet, or coordFactory transcribe correctly. Turn off to A/B against plain transcription. This device only; next recording.",
-                    checked: keyterm_biasing,
-                    on_change: move |on| bias_pump.dispatch(ClientEvent::Shell(ShellIntent::SetKeytermBiasing { on })),
+            Card {
+                CardHeader { CardTitle { "Dictation" } }
+                CardContent { class: "flex flex-col gap-3",
+                    SwitchRow {
+                        test_id: Some("keyterm-biasing-toggle".to_owned()),
+                        headline: "Bias dictation to on-screen terms".to_owned(),
+                        support: Some("Feeds the terminal's visible text, your recent commands, and learned project jargon to Deepgram as keyterms — so names like Kysely, tailnet, or coordFactory transcribe correctly. Turn off to A/B against plain transcription. This device only; next recording.".to_owned()),
+                        checked: keyterm_biasing,
+                        on_checked_change: move |on| bias_pump.dispatch(ClientEvent::Shell(ShellIntent::SetKeytermBiasing { on })),
+                    }
                 }
             }
             Card {
-                title: "API key",
-                supporting: "Stored on the coordinator. For direct Deepgram dictation, Roost returns the configured key to this authenticated admin browser, which connects to Deepgram directly. Leave it empty to use the browser's built-in speech.",
-                div { style: "display: flex; flex-direction: column; gap: var(--md-space-4);",
+                CardHeader {
+                    CardTitle { "API key" }
+                    CardDescription {
+                        "Stored on the coordinator. For direct Deepgram dictation, Roost returns the configured key to this authenticated admin browser, which connects to Deepgram directly. Leave it empty to use the browser's built-in speech."
+                    }
+                }
+                CardContent { class: "flex flex-col gap-4",
                     TextField {
-                        test_id: "transcription-deepgram-key",
-                        label: "Deepgram API key",
+                        test_id: Some("transcription-deepgram-key".to_owned()),
+                        label: Some("Deepgram API key".to_owned()),
                         input_type: Some("password".to_owned()),
-                        placeholder: key_placeholder,
+                        placeholder: Some(key_placeholder),
                         value: state.key.clone(),
                         on_input: move |value| view.write().key = value,
                     }
                     Select {
-                        test_id: "transcription-language",
-                        label: "Language",
+                        test_id: Some("transcription-language".to_owned()),
+                        label: Some("Language".to_owned()),
                         value: language,
                         options: language_options(),
                         on_change: move |value| view.write().language = value,
                     }
-                    div { style: "display: flex; align-items: center; flex-wrap: wrap; gap: var(--md-space-3);",
+                    div { class: "flex flex-wrap items-center gap-3",
                         Button {
                             variant: ButtonVariant::Default,
                             "data-testid": "transcription-save",
@@ -142,7 +149,7 @@ pub fn VoicePane() -> Element {
                         }
                         Button {
                             variant: ButtonVariant::Secondary,
-                            icon: "check_circle",
+                            icon: Some(IconType::CircleCheck),
                             "data-testid": "transcription-test",
                             disabled: state.testing || !configured,
                             onclick: move |_| test(test_pump.clone(), view),
@@ -158,19 +165,18 @@ pub fn VoicePane() -> Element {
                             }
                         }
                         if state.saved {
-                            span { class: "md-body-s", "data-testid": "transcription-saved",
-                                style: "color: var(--md-sys-color-primary);", "Saved"
-                            }
+                            span { class: "text-sm text-primary", "data-testid": "transcription-saved", "Saved" }
                         }
                     }
                     if let Some(message) = state.test_result.clone() {
-                        span { class: "md-body-s", "data-testid": "transcription-test-result",
-                            style: if state.test_ok { "color: var(--status-ok);" } else { "color: var(--md-sys-color-error);" },
+                        span {
+                            class: if state.test_ok { "text-sm text-success" } else { "text-sm text-destructive" },
+                            "data-testid": "transcription-test-result",
                             {message}
                         }
                     }
                     if let Some(message) = refusal {
-                        p { role: "alert", class: "md-body-s", style: "color: var(--md-sys-color-error);", {message} }
+                        p { role: "alert", class: "m-0 text-sm text-destructive", {message} }
                     }
                 }
             }

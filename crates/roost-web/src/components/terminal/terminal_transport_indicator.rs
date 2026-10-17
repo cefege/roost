@@ -6,7 +6,7 @@
 use dioxus::prelude::*;
 use roost_client_core::store::terminal_transport::session_terminal_transport_presentation;
 
-use crate::components::md::Chip;
+use crate::components::ui::Chip;
 use crate::pump::use_store;
 
 /// The chip.
@@ -28,7 +28,7 @@ pub fn TerminalTransportIndicator(session_id: String) -> Element {
             "aria-label": "Terminal transport",
             Chip {
                 label: presentation.label.to_owned(),
-                title: presentation.description.to_owned(),
+                title: Some(presentation.description.to_owned()),
             }
         }
     }

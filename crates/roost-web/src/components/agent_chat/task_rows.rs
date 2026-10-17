@@ -6,7 +6,7 @@
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::AgentRunState;
 
-use crate::components::md::{Button, ButtonSize, ButtonVariant, List, ListRow, StatusDot};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, List, ListRow, StatusDot};
 use crate::pump::use_store;
 use crate::router_state::use_navigate;
 
@@ -112,18 +112,18 @@ pub fn TaskRows(child_ids: Vec<String>, open: bool, on_expand: EventHandler<bool
     let shown_rows = &resolved[hidden_count..];
     let can_collapse = open && resolved.len() > VISIBLE_AGENT_ROWS;
     rsx! {
-        nav { class: "agent-chat__task-children", aria_label: "Subagent conversations",
+        nav { class: "min-w-0", aria_label: "Subagent conversations",
             List {
                 for (child_id, agent, title, status) in shown_rows.iter().cloned() {
                     ListRow {
                         key: "{child_id}",
                         dense: true,
-                        class: "agent-chat__task-child",
+                        class: "min-h-0 gap-2 px-3 py-1",
                         href: crate::routes::agent_href(&child_id),
                         on_navigate: navigate,
                         headline: rsx! { "{agent}: {title}" },
                         support: rsx! {
-                            StatusDot { status: status.dot_status().to_string(), title: status.label().to_string() }
+                            StatusDot { status: status.dot_status().to_string(), title: Some(status.label().to_string()) }
                             span { "{status.label()}" }
                         },
                     }
@@ -131,12 +131,12 @@ pub fn TaskRows(child_ids: Vec<String>, open: bool, on_expand: EventHandler<bool
             }
         }
         if hidden_count > 0 {
-            p { class: "agent-chat__task-hidden", "{summary}" }
-            Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "agent-chat__step-more",
+            p { class: "m-0 text-xs text-muted-foreground", "{summary}" }
+            Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "self-start",
                 onclick: move |_| on_expand.call(true), "Show all" }
         }
         if can_collapse {
-            Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "agent-chat__step-more",
+            Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "self-start",
                 onclick: move |_| on_expand.call(false), "Collapse" }
         }
     }

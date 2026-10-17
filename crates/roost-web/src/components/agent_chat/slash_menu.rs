@@ -12,7 +12,7 @@ use roost_protocol::wire::agent_chat::{
 
 use super::model_controls::supports_reasoning;
 use super::model_hub::hub_logic::model_argument_values;
-use crate::components::md::{List, ListRow, Surface};
+use crate::components::ui::{List, ListRow, Surface};
 
 #[cfg(target_arch = "wasm32")]
 use web_sys::{ScrollIntoViewOptions, ScrollLogicalPosition};
@@ -288,52 +288,63 @@ pub fn SlashMenu(
     // to say; while a list is open its rows already carry it.
     let usage_line = state.argument_command.filter(|_| state.options.is_empty());
     rsx! {
-        div { class: "agent-chat__slash-menu", "data-testid": "agent-chat-command-menu",
+        div {
+            class: "absolute inset-x-0 bottom-full z-10 mb-2",
+            "data-testid": "agent-chat-command-menu",
             onmousedown: move |event: MouseEvent| event.prevent_default(),
             // The composer's level, so the selected row's container color reads
             // against it; the elevation is what lifts it off the transcript.
-            Surface { class: "agent-chat__slash-panel", level: 1, elevation: 2, border: true,
-            if let Some(command) = usage_line {
-                p { class: "agent-chat__slash-usage", "data-testid": "agent-chat-command-usage",
-                    span { class: "agent-chat__slash-args",
-                        "/{command.name}"
-                        if !command.args.is_empty() {
-                            " {command.args}"
+            Surface {
+                class: Some("max-h-[min(calc(var(--md-space-9)_*_7),40dvh)] overflow-y-auto overscroll-contain py-1".to_owned()),
+                level: 1,
+                elevation: 2,
+                border: true,
+                if let Some(command) = usage_line {
+                    p { class: "px-3 py-2 text-xs text-muted-foreground", "data-testid": "agent-chat-command-usage",
+                        span { class: "font-mono",
+                            "/{command.name}"
+                            if !command.args.is_empty() {
+                                " {command.args}"
+                            }
                         }
+                        " {command.summary}"
                     }
-                    " {command.summary}"
-                }
-            } else {
-                div { id: "{listbox}", role: "listbox", aria_label: "Commands",
-                    style: "--slash-name-chars: {name_chars}",
-                    List {
-                        for (idx, option) in state.options.iter().enumerate() {
-                            ListRow {
-                                key: "{idx}-{option.text}",
-                                id: Some(option_id(&conversation_id, idx)),
-                                role: Some("option".to_string()),
-                                aria_selected: Some(if idx == selected { "true" } else { "false" }.to_string()),
-                                tabindex: Some(-1),
-                                test_id: Some(format!("agent-slash-option-{idx}")),
-                                class: Some("agent-chat__slash-row".to_string()),
-                                headline: rsx! { span { class: "agent-chat__slash-name", "{option.label}" } },
-                                support: (!option.usage.is_empty() || !option.summary.is_empty()).then(|| rsx! {
-                                    span {
-                                        if !option.usage.is_empty() {
-                                            span { class: "agent-chat__slash-args", "{option.usage}" }
-                                            " "
+                } else {
+                    div {
+                        id: "{listbox}",
+                        role: "listbox",
+                        aria_label: "Commands",
+                        style: "--slash-name-chars: {name_chars}",
+                        List {
+                            for (idx, option) in state.options.iter().enumerate() {
+                                ListRow {
+                                    key: "{idx}-{option.text}",
+                                    id: Some(option_id(&conversation_id, idx)),
+                                    role: Some("option".to_string()),
+                                    aria_selected: Some(if idx == selected { "true" } else { "false" }.to_string()),
+                                    tabindex: Some(-1),
+                                    test_id: Some(format!("agent-slash-option-{idx}")),
+                                    class: Some("gap-2 px-3".to_string()),
+                                    headline: rsx! {
+                                        div { class: "flex min-w-0 flex-col font-mono md:grid md:grid-cols-[calc(var(--slash-name-chars)_*_1ch)_minmax(0,1fr)] md:items-baseline",
+                                            span { class: "min-w-0 truncate", "{option.label}" }
+                                            span { class: "line-clamp-2 min-w-0 whitespace-normal font-normal text-muted-foreground",
+                                                if !option.usage.is_empty() {
+                                                    span { "{option.usage}" }
+                                                    " "
+                                                }
+                                                "{option.summary}"
+                                            }
                                         }
-                                        "{option.summary}"
-                                    }
-                                }),
-                                selected: idx == selected,
-                                dense: true,
-                                onclick: EventHandler::new(move |_| on_choose.call(idx)),
+                                    },
+                                    selected: idx == selected,
+                                    dense: true,
+                                    onclick: Some(EventHandler::new(move |_| on_choose.call(idx))),
+                                }
                             }
                         }
                     }
                 }
-            }
             }
         }
     }

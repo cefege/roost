@@ -97,7 +97,7 @@ mod touch {
                         .target()
                         .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
                         .and_then(|element| {
-                            element.closest(".df-tab-bar, .df-row-swipe").ok().flatten()
+                            element.closest(".df-tab-bar, [data-swipe-row]").ok().flatten()
                         })
                         .is_some();
                     let open = pump.core().borrow().store().ui.sidebar_open;

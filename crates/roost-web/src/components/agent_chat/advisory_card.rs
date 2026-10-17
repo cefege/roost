@@ -4,31 +4,30 @@
 
 use dioxus::prelude::*;
 
-use crate::components::md::{Card, CardVariant, Icon, IconSize};
+use crate::components::ui::{Card, CardContent, CardSize, CardVariant, Icon, IconType};
 
 #[component]
 pub fn AdvisoryCard(id: String, severity: String, note: String, delivered: bool) -> Element {
-    let (label, tone) = match severity.as_str() {
-        "blocker" => ("Blocker", "error"),
-        "concern" => ("Concern", "warning"),
-        _ => ("Nit", "info"),
+    let (label, tone_class, icon) = match severity.as_str() {
+        "blocker" => ("Blocker", "text-destructive", IconType::CircleAlert),
+        "concern" => ("Concern", "text-warning", IconType::TriangleAlert),
+        _ => ("Nit", "text-info", IconType::Info),
     };
     rsx! {
         Card {
             key: "{id}",
-            title: Some(label.to_string()),
+            size: CardSize::Sm,
             variant: CardVariant::Outlined,
-            class: "agent-chat__advisory-card".to_string(),
-            children: rsx! {
-                div { class: "agent-chat__advisory-heading", "data-tone": tone,
-                    Icon { name: if tone == "error" { "error" } else if tone == "warning" { "warning" } else { "info" }, size: IconSize::Sm }
+            CardContent { class: Some("flex flex-col gap-2".to_owned()),
+                div { class: "flex items-center gap-2 font-medium {tone_class}",
+                    Icon { icon, class: tone_class }
                     strong { "{label}" }
                 }
-                p { "{note}" }
+                p { class: "m-0 text-sm text-foreground", "{note}" }
                 if !delivered {
-                    p { class: "agent-chat__advisory-pending", "Not delivered yet" }
+                    p { class: "m-0 text-sm text-muted-foreground", "Not delivered yet" }
                 }
-            },
+            }
         }
     }
 }

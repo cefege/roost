@@ -6,7 +6,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::md::{Button, ButtonSize, ButtonVariant, Surface};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant};
 
 /// The notice.
 #[component]
@@ -18,27 +18,23 @@ pub fn TerminalOfflineNotice(
     rsx! {
         div {
             "data-testid": "terminal-offline-notice",
-            style: "position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: var(--md-space-6); pointer-events: none; z-index: 5;",
+            class: "absolute inset-0 z-[5] flex items-center justify-center p-6 pointer-events-none",
             // A discrete state change, safe to announce; the grid itself never
             // gets a live region, or a streaming pane floods the reader.
-            Surface {
-                level: 1,
-                elevation: 2,
-                pad: 5,
-                border: true,
-                aria_live: "polite",
-                style: "width: min(100%, 45ch); display: flex; flex-direction: column; gap: var(--md-space-3); color: var(--md-sys-color-on-surface); text-align: center; pointer-events: auto;",
-                div { class: "md-title-s", "This terminal isn't responding" }
+            div {
+                class: "pointer-events-auto flex w-[min(100%,45ch)] flex-col gap-3 rounded-lg border border-border bg-card p-6 text-center text-card-foreground shadow-md",
+                "aria-live": "polite",
+                div { class: "text-base font-medium", "This terminal isn't responding" }
                 div {
-                    class: "md-body-m",
-                    style: "color: var(--md-sys-color-on-surface-variant);",
+                    class: "text-sm text-muted-foreground",
                     "Its process may have stopped. The tab stays put so you keep your place."
                 }
                 div {
-                    style: "display: flex; gap: var(--md-space-2); justify-content: center; margin-top: var(--md-space-1); flex-wrap: wrap;",
+                    class: "mt-1 flex flex-wrap justify-center gap-2",
                     Button {
                         variant: ButtonVariant::Outline,
                         size: ButtonSize::Sm,
+                        class: None,
                         "data-testid": "terminal-offline-retry",
                         onclick: move |_| on_retry.call(()),
                         "Retry"
@@ -47,6 +43,7 @@ pub fn TerminalOfflineNotice(
                         Button {
                             variant: ButtonVariant::Default,
                             size: ButtonSize::Sm,
+                            class: None,
                             "data-testid": "terminal-offline-open-sibling",
                             onclick: move |_| on_open_sibling.call(()),
                             "Open another terminal here"

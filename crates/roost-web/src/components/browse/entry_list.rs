@@ -16,8 +16,9 @@ use roost_client_core::store::browse_entries::{BrowseEntry, relative_entry_time}
 use crate::components::browse::BrowseStatus;
 use crate::components::browse::dom::RESULTS_ID;
 use crate::components::download::DownloadButton;
-use crate::components::md::{
-    Button, ButtonVariant, Chip, EmptyState, IconButtonSize, List, ListLayout, ListRow, Skeleton,
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Chip, EmptyState, IconType, List, ListLayout, ListRow,
+    Skeleton,
 };
 use crate::platform::worker_paths::palette::child_path;
 use crate::terminal_href::child_file_href;
@@ -62,7 +63,6 @@ pub fn BrowseEntryList(
     on_clear_filter: EventHandler<()>,
     on_retry: EventHandler<()>,
 ) -> Element {
-    let now_ms = now_ms;
     let nothing_to_show = folders.is_empty() && (!show_files || files.is_empty());
     let filtering = !filter.trim().is_empty();
     let mut rows: Vec<Element> = Vec::new();
@@ -78,13 +78,13 @@ pub fn BrowseEntryList(
         rows.push(rsx! {
             ListRow {
                 dense: true,
-                leading_icon: Some("folder".to_owned()),
+                leading_icon: Some(IconType::Folder),
                 headline: rsx! { span { title: name.clone(), {name.clone()} } },
                 support: Some(rsx! { {support} }),
                 trailing: terminals.map(|count| rsx! {
                     Chip {
                         label: count.to_string(),
-                        icon: Some("terminal".to_owned()),
+                        icon: Some(IconType::Terminal),
                         title: Some(format!("{count} terminal{}", if count == 1 { "" } else { "s" })),
                         small: true,
                     }
@@ -111,24 +111,27 @@ pub fn BrowseEntryList(
             // The Download button sits beside the row's anchor, not inside it:
             // a button nested in a link is not a separate control.
             rows.push(rsx! {
-                div { style: "display: flex; align-items: center; gap: var(--md-space-1); min-width: 0;",
-                    div { style: "flex: 1 1 auto; min-width: 0;",
+                div { class: "flex min-w-0 items-center gap-1",
+                    div { class: "min-w-0 flex-1",
                         ListRow {
                             dense: true,
-                            leading_icon: Some("description".to_owned()),
+                            leading_icon: Some(IconType::FileText),
                             headline: rsx! { span { title: name.clone(), {name.clone()} } },
                             support: Some(rsx! { {support} }),
                             href,
                             test_id: Some("browse-file-row".to_owned()),
                         }
                     }
-                    DownloadButton { worker_fp: server_fp.clone(), path: file_path, size: IconButtonSize::IconSm }
+                    DownloadButton { worker_fp: server_fp.clone(), path: file_path, size: ButtonSize::IconSm }
                 }
             });
         }
     }
     rsx! {
-        div { class: "df-browse-area", id: RESULTS_ID, tabindex: "-1",
+        div {
+            class: "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2 outline-none",
+            id: RESULTS_ID,
+            tabindex: "-1",
             if let Some(header) = header {
                 {header}
             }
@@ -142,14 +145,14 @@ pub fn BrowseEntryList(
                                 }
                             }
                         }
-                        div { class: "df-browse-loading-caption md-label-s", {loading_caption} }
+                        div { class: "px-2 py-1 text-sm text-muted-foreground", {loading_caption} }
                     }
                 },
                 BrowseStatus::Error => rsx! {
                     div { "data-testid": "browse-listing-error", role: "status", "aria-live": "polite",
                         EmptyState {
-                            icon: "cloud_off".to_owned(),
-                            title: "Couldn't read this folder".to_owned(),
+                            icon: IconType::CloudOff,
+                            title: "Couldn't read this folder",
                             supporting: error_message.clone(),
                             action: rsx! {
                                 Button {
@@ -165,21 +168,21 @@ pub fn BrowseEntryList(
                 BrowseStatus::Offline => rsx! {
                     div { "data-testid": "browse-offline",
                         EmptyState {
-                            icon: "cloud_off".to_owned(),
-                            title: "Machine offline".to_owned(),
-                            supporting: Some("Reconnect to this machine to browse its folders.".to_owned()),
+                            icon: IconType::CloudOff,
+                            title: "Machine offline",
+                            supporting: "Reconnect to this machine to browse its folders.",
                         }
                     }
                 },
                 BrowseStatus::Ready if nothing_to_show && filtering => rsx! {
                     div { "data-testid": "browse-no-matches",
                         EmptyState {
-                            icon: "search_off".to_owned(),
-                            title: "No matches".to_owned(),
-                            supporting: Some(format!(
+                            icon: IconType::SearchX,
+                            title: "No matches",
+                            supporting: format!(
                                 "Nothing in this folder matches \u{201c}{}\u{201d}.",
                                 filter.trim()
-                            )),
+                            ),
                             action: rsx! {
                                 Button {
                                     variant: ButtonVariant::Secondary,
@@ -194,12 +197,9 @@ pub fn BrowseEntryList(
                 BrowseStatus::Ready if nothing_to_show => rsx! {
                     div { "data-testid": "browse-empty",
                         EmptyState {
-                            icon: "folder_open".to_owned(),
-                            title: "Empty folder".to_owned(),
-                            supporting: Some(
-                                "No subfolders here. Create one, or open a terminal in this folder."
-                                    .to_owned()
-                            ),
+                            icon: IconType::FolderOpen,
+                            title: "Empty folder",
+                            supporting: "No subfolders here. Create one, or open a terminal in this folder.",
                         }
                     }
                 },

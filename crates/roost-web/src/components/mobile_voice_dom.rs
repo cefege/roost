@@ -10,6 +10,7 @@
 #[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
 
+use crate::components::ui::IconType;
 use dioxus::prelude::*;
 
 use crate::pump::Pump;
@@ -176,13 +177,13 @@ pub fn web_sys_window_secure() -> bool {
     false
 }
 
-/// The icon glyph for one state, verbatim the ligature names v2 used.
-pub fn mic_icon(state: VoiceState) -> &'static str {
+/// The icon for one state.
+pub fn mic_icon(state: VoiceState) -> IconType {
     match state {
-        VoiceState::Idle => "mic",
-        VoiceState::Starting => "progress_activity",
-        VoiceState::Listening => "stop",
-        VoiceState::Finalizing => "keyboard_return",
+        VoiceState::Idle => IconType::Mic,
+        VoiceState::Starting => IconType::LoaderCircle,
+        VoiceState::Listening => IconType::Square,
+        VoiceState::Finalizing => IconType::CornerDownLeft,
     }
 }
 

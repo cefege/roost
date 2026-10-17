@@ -5,12 +5,11 @@
 //! transform does not confine it. Ports `WorkspaceTabsSheet` from
 //! `apps/web/src/components/deck/MobileDeckBar.tsx`.
 
-use crate::components::md::IconButton;
+use crate::components::ui::{Icon, IconButton, IconType, StatusDot};
 use dioxus::prelude::*;
 use roost_client_core::store::selectors::session_by_id;
 
 use super::workspace_tabs_menu::WorkspaceTabsMenu;
-use crate::components::md::{Icon, IconSize, StatusDot};
 use crate::components::terminal::terminal_card::TerminalCard;
 use crate::pump::use_store;
 
@@ -90,15 +89,13 @@ pub fn WorkspaceTabsSheet(
     let heading = sheet_heading(selection_mode(), selected_ids.read().len(), tab_ids.len());
     rsx! {
         div {
-            class: "workspace-tabs-sheet",
+            class: "workspace-tabs-sheet fixed inset-0 z-[60] flex flex-col bg-background pt-[env(safe-area-inset-top,0px)]",
             "data-testid": "workspace-tabs-sheet",
-            style: "position: fixed; inset: 0; z-index: 60; background: var(--md-surface-container-lowest); display: flex; flex-direction: column; padding-top: env(safe-area-inset-top, 0px);",
             div {
-                class: "workspace-tabs-head",
-                style: "display: flex; align-items: center; gap: var(--md-space-2); height: calc(var(--md-space-9) + var(--md-space-2)); flex-shrink: 0; padding: 0 var(--md-space-2); border-bottom: var(--workbench-border-width) solid var(--border-subtle); color: var(--text-hi);",
+                class: "workspace-tabs-head flex items-center gap-2 h-[calc(var(--md-space-9)+var(--md-space-2))] shrink-0 px-2 border-b border-border text-foreground",
                 if !selection_mode() {
                     IconButton {
-                        icon: "arrow_back",
+                        icon: IconType::ArrowLeft,
                         label: "Close terminal grid",
                         "data-testid": "workspace-tabs-back",
                         onclick: move |_| on_close_sheet.call(()),
@@ -116,13 +113,13 @@ pub fn WorkspaceTabsSheet(
                     }
                 } else {
                     IconButton {
-                        icon: "close",
+                        icon: IconType::X,
                         label: "Exit selection",
                         "data-testid": "workspace-tabs-selection-exit",
                         onclick: move |_| exit_selection(),
                     }
                 }
-                span { style: "flex: 1 1 0; font-size: var(--md-title-m-size); font-weight: var(--md-title-s-weight);", "{heading}" }
+                span { class: "flex-1 basis-0 text-base font-medium", "{heading}" }
                 WorkspaceTabsMenu {
                     selection_mode: selection_mode(),
                     on_close_all: close_all,
@@ -178,7 +175,7 @@ pub fn WorkspaceTabsSheet(
                                     "data-testid": "workspace-agent-card-{conversation.id}",
                                     aria_current: (tab_id == selected_tab).then_some("page"),
                                     onclick: move |_| on_select.call(tab_id.clone()),
-                                    Icon { name: "smart_toy", size: IconSize::Sm }
+                                    Icon { icon: IconType::Bot, class: "size-4 shrink-0" }
                                     span { "{conversation.title}" }
                                     StatusDot { status: status.to_owned() }
                                 }

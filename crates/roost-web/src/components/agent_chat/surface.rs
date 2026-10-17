@@ -15,8 +15,12 @@ use super::model_controls::{ModelSetup, ModelSetupCard};
 use super::model_hub::ModelHub;
 use super::surface_state::{assistant_is_streaming, latest_todo, loop_status};
 use super::working_row::{WorkingRow, working_label};
-use crate::components::md::{ButtonVariant, EmptyState, IconButton, IconButtonSize, Skeleton};
+use crate::components::ui::{ButtonSize, ButtonVariant, EmptyState, IconButton, IconType, Skeleton};
 use crate::pump::use_store;
+
+const ROOT_CLASS: &str = "relative flex h-full w-full min-h-0 min-w-0 flex-col bg-background text-foreground";
+const TRANSCRIPT_CLASS: &str = "min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable_both-edges] px-5 pt-4 pb-6";
+const COLUMN_CLASS: &str = "mx-auto w-full max-w-3xl";
 
 #[cfg(target_arch = "wasm32")]
 use super::surface_fetch::{fetch_events_or_snapshot, fetch_snapshot};
@@ -146,7 +150,7 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
         }
     });
     if not_found() {
-        return rsx! { EmptyState { icon: "smart_toy", title: "This conversation no longer exists" } };
+        return rsx! { EmptyState { icon: IconType::Bot, title: "This conversation no longer exists" } };
     }
     let Some(conversation) = conversation else {
         return rsx! { LoadingTranscript {} };
@@ -164,7 +168,7 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
         AgentChatHeader { conversation: conversation.clone(), online, usage, pump: pump.clone() }
     };
     let Some(transcript) = transcript else {
-        return rsx! { div { class: "agent-chat", {header} LoadingTranscript {} } };
+        return rsx! { div { class: ROOT_CLASS, {header} LoadingTranscript {} } };
     };
     let running = transcript.run_state == AgentRunState::Running;
     let setup = ModelSetup::from_catalog(catalog.read().as_ref(), catalog_failed());
@@ -194,10 +198,10 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
         }
     };
     rsx! {
-        div { class: "agent-chat",
+        div { class: ROOT_CLASS,
             {header}
             div {
-                class: "agent-chat__transcript",
+                class: TRANSCRIPT_CLASS,
                 role: "log",
                 "aria-live": "polite",
                 "aria-relevant": "additions text",
@@ -213,11 +217,11 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
                     }
                 },
                 onclick: move |event: MouseEvent| copy_code_block(&event),
-                div { class: "agent-chat__column",
+                div { class: COLUMN_CLASS,
                     super::transcript::AgentTranscriptView { transcript: transcript.clone(), conversation_id: conversation_id.clone(), pump: pump.clone(), draft }
                 }
             }
-            div { class: "agent-chat__dock",
+            div { class: "relative flex w-full shrink-0 flex-col gap-3 mx-auto max-w-3xl px-5 pb-4 before:absolute before:inset-x-0 before:bottom-full before:h-6 before:pointer-events-none before:bg-linear-to-t before:from-background before:to-transparent before:content-['']",
                 if running {
                     WorkingRow {
                         label: if assistant_is_streaming(&transcript) { "Writing…".to_string() } else { working_label(&transcript.items) },
@@ -225,12 +229,12 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
                 }
                 if !pinned_to_bottom() {
                     IconButton {
-                        icon: "arrow_downward",
+                        icon: IconType::ArrowDown,
                         label: "Jump to the latest message",
                         title: "Jump to latest",
                         variant: ButtonVariant::Secondary,
-                        size: IconButtonSize::IconSm,
-                        class: "agent-chat__jump",
+                        size: ButtonSize::IconSm,
+                        class: "absolute bottom-full left-1/2 z-10 mb-2 -translate-x-1/2 shadow-md",
                         onclick: move |_| {
                             pinned_to_bottom.set(true);
                             #[cfg(target_arch = "wasm32")]
@@ -251,12 +255,12 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
 #[component]
 fn LoadingTranscript() -> Element {
     rsx! {
-        div { class: "agent-chat__transcript", "aria-busy": "true",
-            div { class: "agent-chat__column agent-chat__loading",
-                Skeleton { class: Some("agent-chat__loading-user".to_string()) }
-                Skeleton { class: Some("agent-chat__loading-line".to_string()) }
-                Skeleton { class: Some("agent-chat__loading-line".to_string()) }
-                Skeleton { class: Some("agent-chat__loading-short".to_string()) }
+        div { class: TRANSCRIPT_CLASS, "aria-busy": "true",
+            div { class: "mx-auto flex w-full max-w-3xl flex-col gap-3",
+                Skeleton { class: "ml-auto h-8 w-2/5" }
+                Skeleton { class: "h-4 w-full" }
+                Skeleton { class: "h-4 w-full" }
+                Skeleton { class: "h-4 w-3/5" }
             }
         }
     }
@@ -321,7 +325,7 @@ fn copy_code_block(event: &MouseEvent) {
             return;
         };
         let code = button
-            .closest(".agent-chat__code")
+            .closest("[data-code-block]")
             .ok()
             .flatten()
             .and_then(|block| block.query_selector("code").ok().flatten())

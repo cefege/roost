@@ -11,7 +11,10 @@ use roost_client_core::ClientEvent;
 use roost_client_core::store::shell_dialogs::{RenameDialogRequest, RenameTarget};
 use roost_client_core::store::shell_intent::ShellIntent;
 
-use crate::components::md::{Button, ButtonVariant, Dialog, TextField};
+use crate::components::ui::{
+    Button, ButtonVariant, Dialog, DialogBody, DialogClose, DialogContent, DialogFooter,
+    DialogHeader, DialogTitle, TextField,
+};
 use crate::pump::{Pump, use_store};
 
 /// The dialog's default title.
@@ -55,55 +58,62 @@ pub fn RenameDialogHost() -> Element {
         let pump = pump.clone();
         move |()| pump.dispatch(ClientEvent::Shell(ShellIntent::CloseRenameDialog))
     };
-    let cancel = close.clone();
+    let on_open_change = EventHandler::new(move |is_open: bool| {
+        if !is_open {
+            close(());
+        }
+    });
     let folder_target = matches!(open.target, RenameTarget::FolderWorkspace { .. });
     let mut reset = commit.clone();
     let mut confirm = commit.clone();
     let mut on_enter = commit;
+    let title = open.headline.clone().unwrap_or_else(|| RENAME_TERMINAL_HEADLINE.to_owned());
     rsx! {
-        Dialog {
-            open: true,
-            on_close: close,
-            headline: open.headline.clone().unwrap_or_else(|| RENAME_TERMINAL_HEADLINE.to_owned()),
-            actions: rsx! {
-                if open.has_custom {
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        "data-testid": "rename-reset",
-                        onclick: move |_| reset(String::new()),
-                        "Reset to auto"
+        Dialog { open: true, on_open_change,
+            DialogContent { class: "sm:max-w-md",
+                DialogHeader {
+                    DialogTitle { {title} }
+                }
+                DialogBody {
+                    TextField {
+                        value: name(),
+                        on_input: move |value: String| name.set(value),
+                        label: "Custom name".to_owned(),
+                        test_id: "rename-input".to_owned(),
+                        class: "w-full".to_owned(),
+                        autofocus: true,
+                        onkeydown: move |event: KeyboardEvent| {
+                            if event.key() == Key::Enter {
+                                event.prevent_default();
+                                on_enter(name.peek().clone());
+                            }
+                        },
+                    }
+                    p { class: "text-sm text-muted-foreground",
+                        if folder_target {
+                            "Names this folder as a workspace. Shows on every device you're signed in on."
+                        } else {
+                            "Overrides the auto title. Stays until you change it — agent/terminal title updates won't touch it. Clear it to go back to auto."
+                        }
                     }
                 }
-                span { style: "flex: 1;" }
-                Button { variant: ButtonVariant::Outline, onclick: move |_| cancel(()), "Cancel" }
-                Button {
-                    variant: ButtonVariant::Default,
-                    "data-testid": "rename-confirm",
-                    disabled: busy(),
-                    onclick: move |_| confirm(name.peek().clone()),
-                    if busy() { "Renaming…" } else { "Rename" }
-                }
-            },
-            div { style: "display: flex; flex-direction: column; gap: var(--md-space-3); min-width: min(320px, 80vw);",
-                TextField {
-                    value: name(),
-                    on_input: move |value: String| name.set(value),
-                    label: "Custom name",
-                    test_id: "rename-input",
-                    style: "width: 100%;",
-                    autofocus: true,
-                    onkeydown: move |event: KeyboardEvent| {
-                        if event.key() == Key::Enter {
-                            event.prevent_default();
-                            on_enter(name.peek().clone());
+                DialogFooter {
+                    if open.has_custom {
+                        Button {
+                            variant: ButtonVariant::Ghost,
+                            "data-testid": "rename-reset",
+                            onclick: move |_| reset(String::new()),
+                            "Reset to auto"
                         }
-                    },
-                }
-                div { class: "md-body-s", style: "color: var(--md-sys-color-on-surface-variant);",
-                    if folder_target {
-                        "Names this folder as a workspace. Shows on every device you're signed in on."
-                    } else {
-                        "Overrides the auto title. Stays until you change it — agent/terminal title updates won't touch it. Clear it to go back to auto."
+                    }
+                    span { class: "sm:flex-1" }
+                    DialogClose { "Cancel" }
+                    Button {
+                        variant: ButtonVariant::Default,
+                        "data-testid": "rename-confirm",
+                        disabled: busy(),
+                        onclick: move |_| confirm(name.peek().clone()),
+                        if busy() { "Renaming…" } else { "Rename" }
                     }
                 }
             }

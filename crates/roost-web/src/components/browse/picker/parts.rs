@@ -15,7 +15,7 @@ use crate::components::browse::listing;
 use crate::components::browse::path_bar::CrumbMenuPos;
 use crate::components::browse::picker::NewFolderForm;
 use crate::components::context_menu::{AnchoredMenuPos, anchored_menu_pos};
-use crate::components::md::{Chip, SectionTitle};
+use crate::components::ui::{Chip, IconType, SectionTitle};
 use crate::platform::worker_paths::palette::child_path;
 use crate::pump::Pump;
 
@@ -38,7 +38,7 @@ pub fn recents_header(view: &BrowseView, on_pick: EventHandler<String>) -> Optio
         chips.push(rsx! {
             Chip {
                 label,
-                icon: Some("folder".to_owned()),
+                icon: Some(IconType::Folder),
                 title: Some(recent.clone()),
                 test_id: Some("browse-recent".to_owned()),
                 onclick: move |_| on_pick.call(target.clone()),
@@ -46,7 +46,7 @@ pub fn recents_header(view: &BrowseView, on_pick: EventHandler<String>) -> Optio
         });
     }
     Some(rsx! {
-        div { class: "df-browse-recents",
+        div { class: "flex flex-wrap items-center gap-2 px-2 py-1",
             SectionTitle { "Recent" }
             {chips.into_iter()}
         }

@@ -14,8 +14,11 @@ use roost_client_core::store::sidebar::folder_groups::build_folder_groups;
 
 use super::agent_conversation_row::AgentConversationRow;
 use crate::components::agents::agent_status_indicator::AgentStatusIndicator;
-use crate::components::md::{EmptyState, List, ListRow, StatusDot};
 use crate::components::notifications::notify_target::{ring_attribute, use_notify_target};
+use crate::components::ui::empty::EmptyState;
+use crate::components::ui::list::{List, ListRow};
+use crate::components::ui::status::StatusDot;
+use crate::components::ui::IconType;
 use crate::platform::BrowserWorkerPaths;
 use crate::pump::use_store;
 use crate::route_session::active_session_for_path;
@@ -84,13 +87,16 @@ pub fn SidebarAgents(query: String) -> Element {
     };
     let filter_active = !normalize_navigation_search_query(&query).is_empty();
     rsx! {
-        section { class: "workbench-sidebar-agents", "data-testid": "sidebar-agents", "aria-label": "Agents",
+        section {
+            class: "flex min-h-0 flex-1 flex-col overflow-y-auto py-1",
+            "data-testid": "sidebar-agents",
+            "aria-label": "Agents",
             if groups.is_empty() && agent_conversation_ids.is_empty() {
                 if filter_active {
-                    EmptyState { icon: "search_off", title: "No matching agents", supporting: "Try a different filter." }
+                    EmptyState { icon: IconType::SearchX, title: "No matching agents", supporting: "Try a different filter." }
                 } else {
                     EmptyState {
-                        icon: "smart_toy",
+                        icon: IconType::Bot,
                         title: "No active agents",
                         supporting: "Active coding agents appear here while their terminal sessions remain open.",
                     }
@@ -98,13 +104,13 @@ pub fn SidebarAgents(query: String) -> Element {
             }
             if !agent_conversation_ids.is_empty() {
                 section {
-                    class: "workbench-sidebar-agents__group",
+                    class: "flex flex-col gap-1",
                     "data-testid": "sidebar-agent-conversations",
                     "aria-label": "Roost agent",
-                    h3 { class: "workbench-sidebar-agents__group-title",
-                        span { class: "workbench-sidebar-agents__group-name", "Roost agent" }
+                    h3 { class: "flex min-w-0 items-baseline gap-2 px-4 pt-2 pb-1 text-xs font-medium text-muted-foreground",
+                        span { class: "workbench-sidebar-agents__group-name min-w-0 truncate", "Roost agent" }
                     }
-                    List { class: "workbench-sidebar-agents__list",
+                    List { class: "px-2",
                         for conversation_id in agent_conversation_ids {
                             AgentConversationRow {
                                 key: "{conversation_id}",
@@ -118,22 +124,23 @@ pub fn SidebarAgents(query: String) -> Element {
             for group in groups {
                 section {
                     key: "{group.folder.key}",
-                    class: "workbench-sidebar-agents__group",
+                    class: "flex flex-col gap-1",
                     "data-testid": "sidebar-agent-group-{group.folder.key}",
                     "data-folder-key": group.folder.key.clone(),
                     "aria-label": "{group.folder.name} on {group.folder.server}",
-                    h3 { class: "workbench-sidebar-agents__group-title",
-                        span { class: "workbench-sidebar-agents__group-name", {group.folder.name.clone()} }
-                        span { class: "workbench-sidebar-agents__group-server", {group.folder.server.clone()} }
+                    h3 { class: "flex min-w-0 items-baseline gap-2 px-4 pt-2 pb-1 text-xs font-medium text-muted-foreground",
+                        span { class: "workbench-sidebar-agents__group-name min-w-0 truncate", {group.folder.name.clone()} }
+                        span { class: "workbench-sidebar-agents__group-server min-w-0 truncate font-normal", {group.folder.server.clone()} }
                     }
-                    List { class: "workbench-sidebar-agents__list",
+                    List { class: "px-2",
                         for row in group.rows {
                             div {
                                 key: "{row.document.session_id}",
-                                class: "workbench-sidebar-agents__row",
+                                class: "block rounded-md",
                                 "data-notify-target": notify_target.as_ref().and_then(|target| {
                                     ring_attribute(target, &row.document.session_id)
                                 }),
+                                "data-notify-ring": "child",
                                 onclick: {
                                     let pump = pump.clone();
                                     let session_id = row.document.session_id.clone();
@@ -150,7 +157,7 @@ pub fn SidebarAgents(query: String) -> Element {
                                     }
                                 },
                                 ListRow {
-                                    leading_icon: "terminal",
+                                    leading_icon: Some(IconType::Terminal),
                                     headline: rsx! {
                                         span {
                                             "data-testid": "sidebar-agent-title-{row.document.session_id}",
@@ -158,8 +165,8 @@ pub fn SidebarAgents(query: String) -> Element {
                                             {row.document.display_title.clone()}
                                         }
                                     },
-                                    support: rsx! {
-                                        span { class: "workbench-sidebar-agents__metadata",
+                                    support: Some(rsx! {
+                                        span { class: "flex min-w-0 flex-wrap items-center gap-2",
                                             span { "data-testid": "sidebar-agent-id-{row.document.session_id}",
                                                 {row.status.common.agent_id.as_str().to_owned()}
                                             }
@@ -168,20 +175,20 @@ pub fn SidebarAgents(query: String) -> Element {
                                                 span { "data-testid": "sidebar-agent-availability-{row.document.session_id}", "Unavailable" }
                                             }
                                         }
-                                    },
-                                    trailing: rsx! {
-                                        span { class: "workbench-sidebar-agents__trailing",
+                                    }),
+                                    trailing: Some(rsx! {
+                                        span { class: "flex shrink-0 items-center gap-2",
                                             AgentStatusIndicator { session_id: row.document.session_id.clone(), compact: true }
                                             StatusDot {
-                                                status: if row.document.available { "ok" } else { "offline" },
-                                                title: if row.document.available { "Available" } else { "Machine unavailable" },
+                                                status: if row.document.available { "ok".to_owned() } else { "offline".to_owned() },
+                                                title: Some(if row.document.available { "Available".to_owned() } else { "Machine unavailable".to_owned() }),
                                             }
                                         }
-                                    },
-                                    href: row.document.href.clone(),
+                                    }),
+                                    href: Some(row.document.href.clone()),
                                     on_navigate: navigate,
                                     selected: active_session_id.as_deref() == Some(row.document.session_id.as_str()),
-                                    test_id: "sidebar-agent-row-{row.document.session_id}",
+                                    test_id: Some(format!("sidebar-agent-row-{}", row.document.session_id)),
                                 }
                             }
                         }

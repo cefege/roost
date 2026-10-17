@@ -17,8 +17,8 @@ use super::sidebar_agents::SidebarAgents;
 use super::sidebar_new_terminal::SidebarNewTerminal;
 use super::sidebar_search::SidebarSearch;
 use crate::components::layout::window_size::use_is_compact;
-use crate::components::md::{Button, ButtonSize, ButtonVariant, IconButton, IconButtonSize};
 use crate::components::term_font_stepper::TermFontStepper;
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, IconButton, IconType};
 use crate::platform::browser_platform::{PlatformShortcut, platform_shortcut_label};
 use crate::pump::use_store;
 use crate::router_state::use_navigate;
@@ -94,25 +94,25 @@ pub fn SidebarRoot() -> Element {
     let close_drawer = pump.clone();
 
     rsx! {
-        div { class: "workbench-sidebar-root", "data-testid": "sidebar-root",
+        div { class: "flex h-full min-h-0 flex-col bg-sidenav text-foreground", "data-testid": "sidebar-root",
             div {
-                div { class: "workbench-sidebar-header",
+                div { class: "flex items-center gap-2 px-2 pt-2",
                     if compact {
                         IconButton {
-                            icon: "close",
+                            icon: IconType::X,
                             label: "Close sidebar",
                             onclick: move |_| close_drawer.dispatch(ClientEvent::Sidebar(SidebarIntent::CloseDrawer)),
                             "data-testid": "brand-row-collapse",
                         }
                     }
                     div {
-                        class: "workbench-sidebar-selector",
+                        class: "inline-flex min-w-0 flex-1 rounded-md bg-muted p-0.5",
                         "data-testid": "sidebar-selector",
                         role: "group",
                         "aria-label": "Sidebar view",
                         Button {
                             id: "sidebar-view-folders",
-                            class: "workbench-sidebar-selector__control",
+                            class: "min-w-0 flex-1 data-[selected=true]:bg-background data-[selected=true]:text-foreground data-[selected=true]:shadow-sm",
                             "data-selected": selected(folders_selected),
                             "data-testid": "sidebar-view-folders",
                             size: ButtonSize::Sm,
@@ -123,7 +123,7 @@ pub fn SidebarRoot() -> Element {
                         }
                         Button {
                             id: "sidebar-view-agents",
-                            class: "workbench-sidebar-selector__control",
+                            class: "min-w-0 flex-1 data-[selected=true]:bg-background data-[selected=true]:text-foreground data-[selected=true]:shadow-sm",
                             "data-selected": selected(agents_selected),
                             "data-testid": "sidebar-view-agents",
                             size: ButtonSize::Sm,
@@ -135,7 +135,7 @@ pub fn SidebarRoot() -> Element {
                     }
                     if compact {
                         IconButton {
-                            icon: "settings",
+                            icon: IconType::Settings,
                             label: "Settings",
                             onclick: move |_| {
                                 navigate.call(Route::Settings { pane: Some("devices".to_owned()) }.to_path());
@@ -151,9 +151,9 @@ pub fn SidebarRoot() -> Element {
                     shortcut_label: platform_shortcut_label(PlatformShortcut::SidebarSearch, "⌘F", platform).to_owned(),
                 }
             }
-            div { class: "workbench-sidebar-panels",
+            div { class: "relative grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]",
                 div {
-                    class: "workbench-sidebar-panel workbench-sidebar-panel--folders",
+                    class: "flex min-h-0 flex-col [grid-area:1/1] data-[active=false]:invisible data-[active=false]:pointer-events-none",
                     "data-active": selected(folders_selected),
                     "data-testid": "sidebar-folders",
                     inert: (!folders_active).then_some(true),
@@ -161,7 +161,7 @@ pub fn SidebarRoot() -> Element {
                     AllView { active: folders_active, query: debounced() }
                 }
                 div {
-                    class: "workbench-sidebar-panel workbench-sidebar-panel--agents",
+                    class: "flex min-h-0 flex-col [grid-area:1/1] data-[active=false]:invisible data-[active=false]:pointer-events-none",
                     "data-active": selected(agents_selected),
                     "data-testid": "sidebar-agents-section",
                     inert: (!agents_active).then_some(true),
@@ -170,9 +170,11 @@ pub fn SidebarRoot() -> Element {
                 }
             }
             if compact {
-                div { class: "workbench-sidebar-textsize", "data-testid": "sidebar-text-size",
-                    span { class: "workbench-sidebar-textsize__label md-label-m", "Text size" }
-                    TermFontStepper { test_id: "sidebar-term-font", size: IconButtonSize::IconSm }
+                div {
+                    class: "flex items-center justify-between gap-2 border-t border-border px-3 py-2",
+                    "data-testid": "sidebar-text-size",
+                    span { class: "text-sm font-medium text-muted-foreground", "Text size" }
+                    TermFontStepper { test_id: "sidebar-term-font", size: ButtonSize::IconSm }
                 }
             }
             SidebarNewTerminal {}

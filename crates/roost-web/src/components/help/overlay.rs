@@ -9,8 +9,9 @@
 use dioxus::prelude::*;
 
 use super::shortcuts::{ShortcutEntry, filtered_shortcuts, grouped_shortcuts, reader_platform};
-use crate::components::md::{
-    BindingChip, Button, ButtonVariant, List, ListRow, SectionTitle, Sheet, SheetSide, TextField,
+use crate::components::ui::{
+    BindingChip, Button, ButtonVariant, Dialog, DialogContent, DialogHeader, DialogTitle, Input,
+    List, ListRow, SectionTitle,
 };
 use crate::components::notifications::clipboard::copy_text;
 use crate::components::palette::dom::focus_by_test_id_next_frame;
@@ -23,19 +24,18 @@ pub fn HelpOverlayHost() -> Element {
     // appear when the shortcut sets the flag, and `peek` is a promise not to
     // subscribe, so the host rendered once closed and never came back.
     let open = overlays.help.cloned();
-    let on_close = {
+    let on_open_change = {
         let mut help = overlays.help;
-        EventHandler::new(move |()| help.set(false))
+        EventHandler::new(move |is_open: bool| help.set(is_open))
     };
     rsx! {
-        Sheet {
-            open,
-            on_close,
-            headline: "Keyboard shortcuts",
-            side: SheetSide::Center,
-            class: "roost-dialog--wide roost-dialog--help",
-            if open {
-                HelpOverlayBody {}
+        Dialog { open, on_open_change,
+            DialogContent {
+                class: "flex sm:max-w-[var(--roost-dialog-wide-max-inline-size)] flex-col gap-0 overflow-hidden p-0",
+                DialogHeader { class: "px-5 pt-5 text-start", DialogTitle { "Keyboard shortcuts" } }
+                if open {
+                    HelpOverlayBody {}
+                }
             }
         }
     }
@@ -49,11 +49,10 @@ fn HelpOverlayBody() -> Element {
     let mut filter = use_signal(String::new);
     let platform = reader_platform();
     let groups = grouped_shortcuts(&filtered_shortcuts(&filter(), platform));
-    let on_input = move |value: String| filter.set(value);
     let on_copy = EventHandler::new(|()| copy_diagnostic());
     rsx! {
-        div { class: "roost-help-overlay", "data-testid": "help-overlay",
-            div { class: "roost-help-overlay__tools",
+        div { class: "flex min-h-0 flex-1 flex-col", "data-testid": "help-overlay",
+            div { class: "flex flex-none justify-end px-5 pt-2",
                 Button {
                     variant: ButtonVariant::Secondary,
                     onclick: move |_| on_copy.call(()),
@@ -61,21 +60,19 @@ fn HelpOverlayBody() -> Element {
                     "Copy diagnostic"
                 }
             }
-            div { style: "padding: var(--md-space-3) var(--md-space-5) var(--md-space-2);",
-                TextField {
+            div { class: "flex-none px-5 pt-3 pb-2",
+                Input {
+                    class: "w-full",
                     value: filter(),
-                    on_input,
+                    oninput: move |event: FormEvent| filter.set(event.value()),
                     placeholder: "Filter shortcuts…",
                     aria_label: "Filter shortcuts",
                     test_id: "help-overlay-filter",
-                    style: "inline-size: 100%;",
                 }
             }
-            div { style: "flex: 1 1 auto; min-block-size: 0; overflow-y: auto; padding: var(--md-space-2) var(--md-space-5) var(--md-space-4);",
+            div { class: "min-h-0 flex-1 overflow-y-auto px-5 pt-2 pb-4",
                 if groups.is_empty() {
-                    p { class: "md-body-s", style: "color: var(--text-lo); margin-block-start: var(--md-space-2);",
-                        "No matches."
-                    }
+                    p { class: "mt-2 text-sm text-muted-foreground", "No matches." }
                 }
                 for (category, entries) in groups {
                     ShortcutGroup { category, entries, platform }
@@ -93,7 +90,7 @@ fn ShortcutGroup(
     platform: crate::platform::browser_platform::BrowserPlatform,
 ) -> Element {
     rsx! {
-        section { style: "margin-block-end: var(--md-space-4);",
+        section { class: "mb-4",
             SectionTitle { {category} }
             List {
                 for entry in entries {
@@ -115,9 +112,9 @@ fn ShortcutRow(
     rsx! {
         // The `data-action-id` a caller addresses a row by is not a native list
         // row attribute, so it rides on the wrapper that owns the row's identity.
-        div { class: "roost-help-overlay__action", "data-testid": "help-overlay-action", "data-action-id": action_id,
+        div { "data-testid": "help-overlay-action", "data-action-id": action_id,
             ListRow {
-                headline: rsx! { span { style: "color: var(--text-hi);", {entry.label} } },
+                headline: rsx! { span { class: "text-foreground", {entry.label} } },
                 trailing: rsx! { BindingChip { {binding} } },
             }
         }

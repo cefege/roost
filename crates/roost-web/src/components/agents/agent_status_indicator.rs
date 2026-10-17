@@ -11,7 +11,7 @@ use roost_client_core::client::agents::status_policy::{
 };
 use roost_protocol::wire::SessionId;
 
-use crate::components::md::StatusDot;
+use crate::components::ui::StatusDot;
 use crate::pump::use_store;
 
 /// The `StatusDot` status name a level's dot paints with.
@@ -50,15 +50,11 @@ pub fn AgentStatusIndicator(
         return rsx! {};
     }
     let presentation = agent_status_presentation(level);
-    let class_name = format!(
-        "agent-status {} {}",
-        if compact { "agent-status--compact" } else { "" },
-        class.as_deref().unwrap_or("")
-    );
     let title = (!suppress_tooltip).then(|| agent_status_tooltip(status, acknowledged));
+    let extra_class = class.unwrap_or_default();
     rsx! {
         span {
-            class: class_name.trim().to_owned(),
+            class: "inline-flex items-center gap-1 min-w-0 text-sm text-muted-foreground {extra_class}",
             "data-testid": "agent-status-{session_id}",
             "data-level": agent_status_level_token(level),
             title,
@@ -66,7 +62,7 @@ pub fn AgentStatusIndicator(
             "aria-label": presentation.label,
             StatusDot { status: agent_dot_status_name(presentation.dot_status).to_owned() }
             if !compact {
-                span { class: "agent-status__label", {presentation.label} }
+                span { class: "truncate", {presentation.label} }
             }
         }
     }

@@ -4,9 +4,8 @@
 
 use dioxus::prelude::*;
 
-use super::markdown::TERMINAL_GROUND_STYLE;
 use super::output_lines::{styled_lines, window};
-use crate::components::md::{Button, ButtonSize, ButtonVariant, Surface, SurfaceRadius};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, Surface};
 
 /// The line printed where folded output hides lines. A tail preview names how
 /// much it shows of the whole, since the reader is looking at the latest lines.
@@ -42,14 +41,13 @@ pub fn OutputWindow(
     let can_collapse = open && lines.len() > rows;
     let error = failed.then_some("true");
     rsx! {
-        Surface { radius: SurfaceRadius::Md, style: TERMINAL_GROUND_STYLE.to_string(),
-            class: "agent-chat__step-output-ground",
+        Surface { class: "rounded-md bg-terminal py-2 text-terminal-foreground",
             if hidden > 0 && !from_head {
-                p { class: "agent-chat__step-hint", "{hint}" }
+                p { class: "m-0 px-3 pb-1 text-xs text-muted-foreground", "{hint}" }
             }
-            pre { class: "agent-chat__step-output", "data-error": error,
+            pre { class: "m-0 overflow-x-auto font-mono text-xs leading-5", "data-error": error,
                 for line in window_lines.iter() {
-                    div { class: "agent-chat__out-line", "data-tone": line.tone.attribute(),
+                    div { class: "whitespace-pre-wrap break-words px-3", "data-tone": line.tone.attribute(),
                         for run in line.runs.iter() {
                             span { class: run.style.classes(), "{run.text}" }
                         }
@@ -57,15 +55,15 @@ pub fn OutputWindow(
                 }
             }
             if hidden > 0 && from_head {
-                p { class: "agent-chat__step-hint", "{hint}" }
+                p { class: "m-0 px-3 pt-1 text-xs text-muted-foreground", "{hint}" }
             }
         }
         if hidden > 0 {
-            Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "agent-chat__step-more",
+            Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "self-start",
                 onclick: move |_| on_expand.call(true), "Show all" }
         }
         if can_collapse {
-            Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "agent-chat__step-more",
+            Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "self-start",
                 onclick: move |_| on_expand.call(false), "Collapse" }
         }
     }

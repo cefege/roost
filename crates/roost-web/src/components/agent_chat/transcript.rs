@@ -22,9 +22,9 @@ use super::queued_band::QueuedBand;
 use super::streaming_reveal::StreamingText;
 use super::thinking_block::ThinkingBlock;
 use super::tool_card::ToolCard;
-use crate::components::md::{
-    Button, ButtonVariant, Icon, IconButton, IconButtonSize, IconSize, StatusDot, Surface,
-    SurfaceRadius,
+use crate::components::ui::{
+    Bubble, BubbleAlign, BubbleContent, BubbleVariant, Button, ButtonVariant, IconButton,
+    IconType, Message, MessageAlign, StatusDot,
 };
 use crate::pump::Pump;
 
@@ -62,15 +62,15 @@ pub fn AgentTranscriptView(
     let mut show_thinking = use_signal(|| true);
     let mut expand_tools = use_signal(|| false);
     rsx! {
-        div { class: "agent-chat__items",
+        div { class: "flex flex-col gap-6",
             if has_tools || has_thinking {
-                div { class: "agent-chat__transcript-controls",
+                div { class: "flex flex-wrap items-center justify-end gap-2",
                     if has_thinking {
                         Button {
                             variant: ButtonVariant::Link,
                             aria_expanded: show_thinking().to_string(),
                             onclick: move |_| show_thinking.set(!show_thinking()),
-                            Icon { name: if show_thinking() { "visibility" } else { "visibility_off" }, size: IconSize::Sm }
+                            icon: Some(if show_thinking() { IconType::Eye } else { IconType::EyeOff }),
                             if show_thinking() { "Hide thinking" } else { "Show thinking" }
                         }
                     }
@@ -79,7 +79,7 @@ pub fn AgentTranscriptView(
                             variant: ButtonVariant::Link,
                             aria_expanded: show_tools().to_string(),
                             onclick: move |_| show_tools.set(!show_tools()),
-                            Icon { name: if show_tools() { "visibility" } else { "visibility_off" }, size: IconSize::Sm }
+                            icon: Some(if show_tools() { IconType::Eye } else { IconType::EyeOff }),
                             if show_tools() { "Hide tool activity" } else { "Show tool activity" }
                         }
                         if show_tools() {
@@ -88,7 +88,7 @@ pub fn AgentTranscriptView(
                                 aria_pressed: expand_tools().to_string(),
                                 "data-testid": "agent-chat-expand-tools",
                                 onclick: move |_| expand_tools.set(!expand_tools()),
-                                Icon { name: if expand_tools() { "unfold_less" } else { "unfold_more" }, size: IconSize::Sm }
+                                icon: Some(if expand_tools() { IconType::FoldVertical } else { IconType::UnfoldVertical }),
                                 if expand_tools() { "Fold tool output" } else { "Expand tool output" }
                             }
                         }
@@ -105,7 +105,7 @@ pub fn AgentTranscriptView(
                     },
                     Segment::Steps(_) if !show_tools() => rsx! {},
                     Segment::Steps(steps) => rsx! {
-                        div { key: "{step_group_key(&steps)}", class: "agent-chat__steps",
+                        div { key: "{step_group_key(&steps)}", class: "flex flex-col gap-2",
                             for step in steps {
                                 if let TranscriptItem::Tool { id, tool_name, args_json, output, is_error, running, queued, details_json, children, .. } = step {
                                     ToolCard {
@@ -158,10 +158,6 @@ pub fn AgentTranscriptView(
     }
 }
 
-/// OMP's user card: the accent washed into the panel, with an accent hairline.
-const USER_BUBBLE_TINT: &str = "background: color-mix(in srgb, var(--chat-accent) 12%, var(--surface-2)); \
-     border: var(--workbench-border-width) solid color-mix(in srgb, var(--chat-accent) 35%, transparent);";
-
 #[component]
 fn UserMessage(
     id: String,
@@ -171,8 +167,10 @@ fn UserMessage(
     pump: Pump,
 ) -> Element {
     rsx! {
-        div { class: "agent-chat__user",
-            Surface { class: "agent-chat__user-bubble", level: 2, radius: SurfaceRadius::Md, pad: 3, style: USER_BUBBLE_TINT.to_string(), "{text}" }
+        Message { align: MessageAlign::End,
+            Bubble { variant: BubbleVariant::Tinted, align: BubbleAlign::End, class: "max-w-4/5",
+                BubbleContent { "{text}" }
+            }
             UserMessageActions { conversation_id, item_id: id, text, draft, pump }
         }
     }
@@ -198,7 +196,7 @@ fn AssistantMessage(
         .join("\n\n");
     let has_text = !copy_text.trim().is_empty();
     rsx! {
-        div { class: "agent-chat__assistant", "data-streaming": streaming.then_some("true"),
+        div { class: "group/assistant flex flex-col gap-3", "data-streaming": streaming.then_some("true"),
             for (index, block) in blocks.iter().enumerate() {
                 match block {
                     // Every text block goes through StreamingText under one key,
@@ -214,7 +212,7 @@ fn AssistantMessage(
                 }
             }
             if streaming {
-                div { class: "agent-chat__live-tail", role: "status", "aria-label": "Assistant response is streaming",
+                div { class: "inline-flex items-center gap-2 self-start text-sm text-muted-foreground", role: "status", "aria-label": "Assistant response is streaming",
                     StatusDot { status: "running".to_string() }
                     "Generating response"
                 }
@@ -223,13 +221,12 @@ fn AssistantMessage(
                 AgentAlert { p { "{error}" } }
             }
             if !streaming && has_text {
-                div { class: "agent-chat__message-actions",
+                div { class: "-mt-2 flex gap-1 opacity-0 transition-opacity group-hover/assistant:opacity-100 group-focus-within/assistant:opacity-100 pointer-coarse:opacity-100",
                     IconButton {
-                        icon: "content_copy",
+                        icon: IconType::Copy,
                         label: "Copy response",
                         title: "Copy",
                         variant: ButtonVariant::Ghost,
-                        size: IconButtonSize::Icon,
                         onclick: move |_| {
                             crate::components::notifications::clipboard::copy_text(&copy_text);
                         },

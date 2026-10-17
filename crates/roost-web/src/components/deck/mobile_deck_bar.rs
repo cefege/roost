@@ -14,7 +14,7 @@ use roost_client_core::store::terminal_transport::session_terminal_transport_kin
 
 use super::pane_tab::direct_transport_label;
 use super::workspace_tabs_sheet::WorkspaceTabsSheet;
-use crate::components::md::{Icon, IconButton, StatusDot};
+use crate::components::ui::{Icon, IconButton, IconType, StatusDot};
 use crate::components::terminal::terminal_transport_indicator::TerminalTransportIndicator;
 use crate::pump::use_store;
 use crate::session_naming::session_title;
@@ -79,24 +79,23 @@ pub fn MobileDeckBar(
     let open_drawer = pump.clone();
     rsx! {
         div {
-            class: "mobile-deck-bar",
+            class: "mobile-deck-bar flex items-center gap-2 h-[var(--md-space-9)] shrink-0 px-2 bg-card border-b border-border text-foreground touch-pan-y",
             "data-testid": "mobile-deck-bar",
-            style: "display: flex; align-items: center; gap: var(--md-space-2); height: var(--md-space-9); flex-shrink: 0; padding: 0 var(--md-space-2); background: var(--surface-1); border-bottom: var(--workbench-border-width) solid var(--border-subtle); color: var(--text-hi); touch-action: pan-y;",
             IconButton {
-                icon: "menu",
+                icon: IconType::Menu,
                 label: "Open sidebar",
                 "data-testid": "mobile-deck-bar-menu",
-                style: "flex-shrink: 0;",
+                class: "shrink-0",
                 onclick: move |_| open_drawer.dispatch(ClientEvent::Sidebar(SidebarIntent::OpenDrawer)),
             }
-            div { style: "flex: 1 1 0; min-width: 0; position: relative; overflow: hidden; height: var(--md-space-9);",
+            div { class: "flex-1 basis-0 min-w-0 relative overflow-hidden h-[var(--md-space-9)]",
                 span {
                     title: "{reading.native_title}",
-                    style: "font-size: var(--md-title-s-size); font-weight: var(--md-title-m-weight); line-height: var(--md-space-9); display: flex; align-items: center; gap: var(--md-space-2); width: 100%; min-width: 0;",
+                    class: "flex items-center gap-2 w-full min-w-0 text-base font-medium leading-[var(--md-space-9)]",
                     if reading.agent_status.is_some() {
-                        Icon { name: "smart_toy", size: crate::components::md::IconSize::Sm }
+                        Icon { icon: IconType::Bot, class: "size-4 shrink-0" }
                     }
-                    span { style: "flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;", "{reading.title}" }
+                    span { class: "shrink min-w-0 truncate", "{reading.title}" }
                     if let Some(status) = reading.agent_status.filter(|status| *status != "idle") {
                         StatusDot { status: status.to_owned() }
                     }

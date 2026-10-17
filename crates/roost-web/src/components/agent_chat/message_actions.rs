@@ -3,7 +3,9 @@
 
 use dioxus::prelude::*;
 
-use crate::components::md::{Button, ButtonVariant, Checkbox, Dialog};
+use crate::components::ui::{
+    Button, ButtonVariant, Checkbox, Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle, IconType,
+};
 use crate::pump::Pump;
 
 #[cfg(target_arch = "wasm32")]
@@ -29,25 +31,36 @@ pub fn UserMessageActions(
     let rewind_id = conversation_id.clone();
     let rewind_item = item_id.clone();
     rsx! {
-        div { class: "agent-chat__message-actions",
-            Button { variant: ButtonVariant::Ghost, icon: "replay", onclick: move |_| retry_message(retry_pump.clone(), retry_id.clone(), retry_item.clone(), retry_text.clone()), "Retry" }
-            Button { variant: ButtonVariant::Ghost, icon: "history", onclick: move |_| confirm.set(true), "Rewind to here" }
+        div { class: "flex items-center gap-1",
+            Button { variant: ButtonVariant::Ghost, icon: Some(IconType::RotateCcw), onclick: move |_| retry_message(retry_pump.clone(), retry_id.clone(), retry_item.clone(), retry_text.clone()), "Retry" }
+            Button { variant: ButtonVariant::Ghost, icon: Some(IconType::History), onclick: move |_| confirm.set(true), "Rewind to here" }
         }
-        if confirm() {
-            Dialog {
-                open: true,
-                headline: "Rewind conversation?".to_string(),
-                on_close: move |_| confirm.set(false),
-                actions: rsx! {
+        Dialog { open: confirm(), on_open_change: move |open: bool| confirm.set(open),
+            DialogContent {
+                DialogHeader {
+                    DialogTitle { "Rewind conversation?" }
+                }
+                DialogBody {
+                    p { class: "text-sm text-muted-foreground", "Messages after this point will be removed from the conversation." }
+                    label { class: "flex items-center gap-2 text-sm",
+                        Checkbox {
+                            checked: restore_files(),
+                            aria_label: "Restore files changed after this message",
+                            on_checked_change: move |value: bool| restore_files.set(value),
+                        }
+                        "Restore files changed after this message"
+                    }
+                }
+                DialogFooter {
                     Button { variant: ButtonVariant::Outline, onclick: move |_| confirm.set(false), "Cancel" }
-                    Button { variant: ButtonVariant::Destructive, onclick: move |_| {
-                        confirm.set(false);
-                        rewind_to(rewind_pump.clone(), rewind_id.clone(), rewind_item.clone(), restore_files(), draft);
-                    }, "Rewind" }
-                },
-                div { class: "agent-chat__rewind-confirm",
-                    p { class: "md-body-m", "Messages after this point will be removed from the conversation." }
-                    Checkbox { checked: restore_files(), label: "Restore files changed after this message".to_string(), on_change: move |value| restore_files.set(value) }
+                    Button {
+                        variant: ButtonVariant::Destructive,
+                        onclick: move |_| {
+                            confirm.set(false);
+                            rewind_to(rewind_pump.clone(), rewind_id.clone(), rewind_item.clone(), restore_files(), draft);
+                        },
+                        "Rewind"
+                    }
                 }
             }
         }

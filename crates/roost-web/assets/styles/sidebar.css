@@ -25,34 +25,6 @@
   font-display: swap;
 }
 
-/* M3 type ramp + icons, self-hosted (was Google Fonts CDN <link> in
-   index.html — dropped so a tailnet-only / offline box renders M3 without
-   reaching fonts.googleapis.com). Both are variable fonts; the wght/opsz
-   ranges below match the retired CDN css2 query so font-variation-settings
-   in md/tokens.css still resolve. Roboto Flex woff2 is basic-Latin subset
-   (94 glyphs) — non-ASCII UI text falls back to the system-ui stack in
-   --md-font. Material Symbols Rounded is instanced to FILL=0:1 only
-   (GRAD/wght/opsz pinned) — 5.3 MB → 534 KB, all 6579 glyphs kept, filled
-   vs outline preserved; the wght/opsz font-variation-settings in
-   md/tokens.css resolve to the pinned single value. Re-instance via
-   `fonttools varLib.instancer <upstream> GRAD=0 wght=400 opsz=24 FILL=0:1`.
-   ponytail: glyph-subset to ~40 KB only if FILL-fidelity codepoint refactor
-   ever pays for itself; instancing alone is the lazy 90% win. */
-@font-face {
-  font-family: 'Roboto Flex';
-  src: url('/fonts/RobotoFlex.woff2') format('woff2-variations');
-  font-weight: 100 1000;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Material Symbols Rounded';
-  src: url('/fonts/MaterialSymbolsRounded.woff2') format('woff2-variations');
-  font-weight: 400;
-  font-style: normal;
-  font-display: block;
-}
-
 /* Terminal palette bridge → Roost theme engine.
    Cell spans use --term-color-0..15; point those names at the canonical theme
    tokens so an existing grid repaints without rebuilding row DOM.
@@ -805,11 +777,8 @@
   font: var(--md-body-m-weight) var(--md-body-m-size)/var(--md-body-m-line) var(--md-font);
 }
 
-/* M3 context-menu enter motion + state-layers (M3 wave 2).
-   Applied to SessionRowContextMenu / TerminalContextMenu
-   panels — they used to SNAP open via bare <Show> with no motion. The panel
-   scales 0.95→1 + fades in on mount; menu items get CSS :hover/:active
-   state-layers instead of inline-JS onMouseEnter/Leave. */
+/* Menu panel entrance for the anchored menus (deck, browse, agent chat). The
+   panel scales 0.95→1 on mount instead of snapping open. */
 /* transform-only entrance — never animate opacity (rAF-throttle / WAAPI
    freeze can forwards-fill a fade at 0 → invisible menu). */
 @keyframes df-menu-enter {
@@ -820,28 +789,6 @@
   transform-origin: top right;
   animation: df-menu-enter var(--md-sys-motion-duration-short4)
     var(--md-sys-motion-easing-emphasized-decelerate);
-}
-/* Menu item state-layer — replaces inline onMouseEnter/Leave JS. */
-.df-menu-item {
-  display: block;
-  inline-size: 100%;
-  padding: var(--md-space-1) var(--md-space-2);
-  border: 0;
-  border-radius: var(--md-shape-xs);
-  background: transparent;
-  color: var(--text-hi);
-  cursor: pointer;
-  font: inherit;
-  text-align: left;
-  transition: background-color var(--md-sys-motion-duration-short2) var(--md-sys-motion-easing-standard);
-}
-.df-menu-item:disabled { cursor: default; opacity: 0.4; }
-.df-menu-item--danger { color: var(--md-error); }
-.df-menu-item:hover { background: var(--md-state-hover); }
-.df-menu-item:active { background: var(--md-state-pressed); }
-.df-menu-item:focus-visible {
-  background: var(--md-state-focus);
-  outline: none;
 }
 
 /* Terminal bell: a brief primary-tinted flash over a pane whose session rang

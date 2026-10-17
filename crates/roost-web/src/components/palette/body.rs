@@ -26,7 +26,8 @@ use super::list_keys;
 use super::outcome;
 use super::pieces::{PaletteFooter, PaletteRow};
 use crate::components::help::shortcuts::reader_platform;
-use crate::components::md::TextField;
+use crate::components::ui::field::scoped_element_id;
+use crate::components::ui::{Command, CommandInput, CommandList};
 use crate::keyboard_shortcuts::ShortcutOverlays;
 use crate::platform::browser_platform::{PlatformShortcut, platform_shortcut_label};
 use crate::platform::worker_paths::BrowserWorkerPaths;
@@ -37,15 +38,6 @@ use crate::route_session::active_session_for_path;
 const INPUT_TEST_ID: &str = "command-palette-input";
 const ITEM_TEST_ID: &str = "command-palette-item";
 
-/// The field's own look: the search row draws the border and the spacing, so the
-/// control inside it is a bare line of text.
-const SEARCH_CONTROL_STYLE: &str = "background: transparent; border: 0; outline: none; color: var(--text-hi); \
-     flex: 1; min-inline-size: 0; font: var(--md-body-m-weight) var(--md-body-m-size) / var(--md-body-m-line) var(--md-font);";
-const SEARCH_CHORD_STYLE: &str = "color: var(--text-lo); \
-     font: var(--md-body-m-weight) var(--md-body-m-size) / var(--md-body-m-line) var(--md-font);";
-const EMPTY_STYLE: &str = "padding: var(--md-space-5) var(--md-space-4); text-align: center; color: var(--text-lo); \
-     font: var(--md-body-s-weight) var(--md-body-s-size) / var(--md-body-s-line) var(--md-font);";
-
 /// The search, the results, and the legend. Mounted only while open.
 #[component]
 pub fn PaletteBody(pump: Pump, overlays: ShortcutOverlays) -> Element {
@@ -53,6 +45,7 @@ pub fn PaletteBody(pump: Pump, overlays: ShortcutOverlays) -> Element {
     let mut active_index = use_signal(|| 0_usize);
     let navigate = crate::router_state::use_navigate();
     let path = crate::router_state::use_location();
+    let list_id = use_hook(|| scoped_element_id("command-palette-list"));
 
     let items = {
         let core = pump.core();
@@ -112,27 +105,26 @@ pub fn PaletteBody(pump: Pump, overlays: ShortcutOverlays) -> Element {
         move || dom::scroll_row_into_view(ITEM_TEST_ID, active_index())
     });
 
-    let on_input = move |value: String| query.set(value);
     let chord = platform_shortcut_label(PlatformShortcut::CommandPalette, "⌘K", reader_platform())
         .to_owned();
     let highlighted = active_index();
     rsx! {
-        div { class: "roost-command-palette",
-            div { class: "roost-command-palette__search",
-                span { style: SEARCH_CHORD_STYLE, {chord} }
-                TextField {
+        Command { should_filter: false, class: "flex min-h-0 flex-1 flex-col",
+            div { class: "flex flex-none items-center gap-3 border-b border-border py-3 pr-14 pl-4",
+                span { class: "text-sm text-muted-foreground", {chord} }
+                CommandInput {
+                    class: "min-w-0 flex-1 h-auto border-0 bg-transparent px-0 py-0 text-sm text-foreground shadow-none focus-visible:border-transparent focus-visible:ring-0",
                     value: query(),
-                    on_input,
+                    on_search_change: move |value: String| query.set(value),
                     placeholder: "Jump to session, workspace, or action…",
                     aria_label: "Jump to session, workspace, or action",
-                    test_id: INPUT_TEST_ID.to_owned(),
-                    style: "flex: 1 1 auto; min-inline-size: 0;",
-                    control_style: Some(SEARCH_CONTROL_STYLE.to_owned()),
+                    aria_controls: list_id.clone(),
+                    test_id: INPUT_TEST_ID,
                 }
             }
-            div { class: "roost-command-palette__results", "data-testid": "command-palette-results",
+            CommandList { id: list_id, class: "min-h-0 flex-1 max-h-none",
                 if !has_results {
-                    div { style: EMPTY_STYLE, "No matches" }
+                    div { class: "px-4 py-5 text-center text-sm text-muted-foreground", "No matches" }
                 }
                 for (index, item) in filtered.into_iter().enumerate() {
                     PaletteRow {

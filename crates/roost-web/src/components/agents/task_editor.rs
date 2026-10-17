@@ -15,7 +15,7 @@ use roost_client_core::client::rpc::calls::tasks::EnqueueTask;
 use roost_protocol::wire::Worker;
 use serde_json::{Value, json};
 
-use crate::components::md::{Button, ButtonVariant, Select, SelectOption, TextField};
+use crate::components::ui::{Button, ButtonVariant, Select, SelectOption, TextField};
 use crate::pump::{Pump, use_store};
 
 /// The option that pins no machine: the coordinator picks one that is reachable.
@@ -29,17 +29,6 @@ pub const BODY_REQUIRED_MESSAGE: &str = "Describe what the agent should do first
 /// The test id the queue-task dialog's form is addressed by, shared with the
 /// mount test that reads it off the mutation stream.
 pub const EDITOR_TEST_ID: &str = "task-editor";
-
-/// A body and a folder path read as code.
-const MONO_STYLE: &str = "font-family: var(--font-mono);";
-/// The form's own column.
-const FORM_STYLE: &str = "display: flex; flex-direction: column; \
-     gap: var(--md-space-3); min-inline-size: min(360px, 80vw);";
-/// The refusal line under the fields.
-const ERROR_STYLE: &str = "color: var(--md-sys-color-error); \
-     font: var(--md-label-s-weight) var(--md-label-s-size) / var(--md-label-s-line) var(--md-font);";
-/// The buttons' row.
-const ACTIONS_STYLE: &str = "display: flex; gap: var(--md-space-2); justify-content: flex-end;";
 
 /// The priority the reader has not touched.
 const DEFAULT_PRIORITY: i64 = 0;
@@ -166,9 +155,8 @@ pub fn TaskEditor(
 
     rsx! {
         div {
-            class: "roost-task-editor",
+            class: "flex flex-col gap-3 min-w-80 max-w-full",
             "data-testid": EDITOR_TEST_ID,
-            style: FORM_STYLE,
             onkeydown: move |event: KeyboardEvent| {
                 if event.key() == Key::Enter && (event.modifiers().meta() || event.modifiers().ctrl())
                 {
@@ -177,58 +165,58 @@ pub fn TaskEditor(
                 }
             },
             TextField {
-                test_id: "task-editor-body",
-                label: "Prompt",
+                test_id: Some("task-editor-body".to_owned()),
+                label: Some("Prompt".to_owned()),
                 input_type: Some("textarea".to_owned()),
                 rows: Some(4),
                 value: body(),
                 on_input: on_body,
-                placeholder: "Describe what the agent should do…",
+                placeholder: Some("Describe what the agent should do…".to_owned()),
             }
             TextField {
-                test_id: "task-editor-cwd",
-                label: "Working directory",
+                test_id: Some("task-editor-cwd".to_owned()),
+                label: Some("Working directory".to_owned()),
                 value: cwd(),
                 on_input: on_cwd,
-                placeholder: "/Users/you/code/repo",
-                control_style: Some(MONO_STYLE.to_owned()),
+                placeholder: Some("/Users/you/code/repo".to_owned()),
+                control_class: Some("font-mono".to_owned()),
             }
             if has_workers {
                 Select {
-                    test_id: "task-editor-worker",
-                    label: "Worker (optional)",
+                    test_id: Some("task-editor-worker".to_owned()),
+                    label: Some("Worker (optional)".to_owned()),
                     value: worker_fp(),
                     options,
                     on_change: on_worker,
                 }
             }
             TextField {
-                test_id: "task-editor-priority",
-                label: "Priority",
+                test_id: Some("task-editor-priority".to_owned()),
+                label: Some("Priority".to_owned()),
                 input_type: Some("number".to_owned()),
                 value: priority(),
                 on_input: on_priority,
                 min: Some(-100.0),
                 max: Some(100.0),
-                style: "inline-size: 8ch;",
+                class: Some("w-24".to_owned()),
             }
             TextField {
-                test_id: "task-editor-completion-check",
-                label: "Completion check (shell cmd, optional)",
+                test_id: Some("task-editor-completion-check".to_owned()),
+                label: Some("Completion check (shell cmd, optional)".to_owned()),
                 value: completion(),
                 on_input: on_completion,
-                placeholder: "gh pr view --json state -q .state | grep MERGED",
-                control_style: Some(MONO_STYLE.to_owned()),
+                placeholder: Some("gh pr view --json state -q .state | grep MERGED".to_owned()),
+                control_class: Some("font-mono".to_owned()),
             }
             if let Some(message) = error() {
                 div {
                     "data-testid": "task-editor-error",
                     role: "alert",
-                    style: ERROR_STYLE,
+                    class: "text-sm text-destructive",
                     {message}
                 }
             }
-            div { style: ACTIONS_STYLE,
+            div { class: "flex justify-end gap-2",
                 if show_cancel {
                     if let Some(cancel) = cancel_handler {
                         Button {

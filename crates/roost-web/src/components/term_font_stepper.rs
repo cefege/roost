@@ -7,8 +7,8 @@
 
 use dioxus::prelude::*;
 
-use crate::components::md::class_list::class_list;
-use crate::components::md::{Button, ButtonSize, ButtonVariant, IconButton, IconButtonSize};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, IconButton, IconType};
+use tw_merge::tw_merge;
 use crate::pump::use_store;
 use crate::term_font_size::{
     TermFontStepState, reset_term_font, step_term_font, use_device_default_term_font_px,
@@ -21,8 +21,8 @@ pub struct TermFontStepperProps {
     /// `{stem}-size` and `{stem}-larger`.
     pub test_id: String,
     /// The two step buttons' square size.
-    #[props(default)]
-    pub size: IconButtonSize,
+    #[props(default = ButtonSize::Icon)]
+    pub size: ButtonSize,
     /// An extra class on the group.
     pub class: Option<String>,
     /// Stack larger · size · smaller top to bottom, for the narrow rail.
@@ -47,23 +47,23 @@ pub fn TermFontStepper(props: TermFontStepperProps) -> Element {
         format!("Terminal text size {px}px; reset to {default_px}px")
     };
     let value_size = match props.size {
-        IconButtonSize::IconXs => ButtonSize::Xs,
-        IconButtonSize::IconSm => ButtonSize::Sm,
-        IconButtonSize::Icon => ButtonSize::Default,
-        IconButtonSize::IconLg => ButtonSize::Lg,
+        ButtonSize::IconXs => ButtonSize::Xs,
+        ButtonSize::IconSm => ButtonSize::Sm,
+        ButtonSize::IconLg => ButtonSize::Lg,
+        _ => ButtonSize::Default,
     };
     rsx! {
         div {
-            class: class_list([
+            class: tw_merge!(
                 "term-font-stepper",
                 if props.vertical { "term-font-stepper--vertical" } else { "" },
-                props.class.as_deref().unwrap_or(""),
-            ]),
+                props.class.as_deref().unwrap_or("")
+            ),
             role: "group",
             "aria-label": "Terminal text size",
             if props.vertical {
                 IconButton {
-                    icon: "text_increase",
+                    icon: IconType::AArrowUp,
                     label: "Larger terminal text",
                     size: props.size,
                     "data-testid": format!("{stem}-larger"),
@@ -82,7 +82,7 @@ pub fn TermFontStepper(props: TermFontStepperProps) -> Element {
                     {format!("{px}px")}
                 }
                 IconButton {
-                    icon: "text_decrease",
+                    icon: IconType::AArrowDown,
                     label: "Smaller terminal text",
                     size: props.size,
                     "data-testid": format!("{stem}-smaller"),
@@ -92,7 +92,7 @@ pub fn TermFontStepper(props: TermFontStepperProps) -> Element {
                 }
             } else {
                 IconButton {
-                    icon: "text_decrease",
+                    icon: IconType::AArrowDown,
                     label: "Smaller terminal text",
                     size: props.size,
                     "data-testid": format!("{stem}-smaller"),
@@ -111,7 +111,7 @@ pub fn TermFontStepper(props: TermFontStepperProps) -> Element {
                     {format!("{px}px")}
                 }
                 IconButton {
-                    icon: "text_increase",
+                    icon: IconType::AArrowUp,
                     label: "Larger terminal text",
                     size: props.size,
                     "data-testid": format!("{stem}-larger"),

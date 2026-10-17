@@ -10,7 +10,7 @@ use crate::components::context_menu::{
     AnchoredMenuPos, CtxMenuItem, MenuFocusEdge, anchored_menu_pos, anchored_menu_surface_style,
     use_floating_menu_dismiss,
 };
-use crate::components::md::IconButton;
+use crate::components::ui::{IconButton, IconType};
 
 const TRIGGER_ID: &str = "workspace-tabs-menu-trigger";
 const MENU_ID: &str = "workspace-tabs-menu-popup";
@@ -50,7 +50,7 @@ pub fn WorkspaceTabsMenu(
     rsx! {
         IconButton {
             id: TRIGGER_ID,
-            icon: "more_vert",
+            icon: IconType::EllipsisVertical,
             label: "More options",
             "data-testid": "workspace-tabs-menu",
             menu_popup: "menu",

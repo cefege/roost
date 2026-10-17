@@ -14,7 +14,8 @@
 
 use dioxus::prelude::*;
 
-use crate::components::md::Icon;
+use crate::components::access_gate::{CARD_CLASS, CHECKING_CLASS};
+use crate::components::ui::{Icon, IconType};
 use crate::routes::Route;
 
 /// A path the grammar recognises whose surface this build does not carry.
@@ -24,9 +25,9 @@ use crate::routes::Route;
 #[component]
 pub fn NotServed(path: String) -> Element {
     rsx! {
-        section { class: "access-checking", "data-testid": "route-not-served",
-            div { class: "access-checking__card", role: "status",
-                Icon { name: "construction", filled: false }
+        section { class: CHECKING_CLASS, "data-testid": "route-not-served",
+            div { class: CARD_CLASS, role: "status",
+                Icon { icon: IconType::Construction, class: "size-4" }
                 div {
                     span { "This build does not carry the surface for " }
                     code { {path} }
@@ -41,9 +42,9 @@ pub fn NotServed(path: String) -> Element {
 pub fn NotFound(path: String, on_navigate: EventHandler<String>) -> Element {
     let home_path = Route::Home.to_path();
     rsx! {
-        section { class: "access-checking", "data-testid": "route-not-found",
-            div { class: "access-checking__card", role: "status",
-                Icon { name: "link_off", filled: false }
+        section { class: CHECKING_CLASS, "data-testid": "route-not-found",
+            div { class: CARD_CLASS, role: "status",
+                Icon { icon: IconType::Link2Off, class: "size-4" }
                 div {
                     span { "No route matches " }
                     code { {path} }

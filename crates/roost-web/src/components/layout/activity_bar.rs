@@ -11,7 +11,7 @@
 use dioxus::prelude::*;
 
 use super::shell_metrics::{Destination, active_destination};
-use crate::components::md::{Icon, IconButtonSize};
+use crate::components::ui::{ButtonSize, Icon};
 use crate::components::term_font_stepper::TermFontStepper;
 use crate::router_state::{use_location, use_navigate};
 
@@ -53,7 +53,7 @@ pub fn ActivityBar(on_toggle_sidebar: EventHandler<()>) -> Element {
             div { class: "workbench-activity-bar__group workbench-activity-bar__group--bottom",
                 TermFontStepper {
                     test_id: "rail-term-font",
-                    size: IconButtonSize::IconSm,
+                    size: ButtonSize::IconSm,
                     vertical: true,
                     class: "workbench-activity-bar__textsize",
                 }
@@ -100,7 +100,7 @@ fn ActivityItem(
                     navigate.call(target.clone());
                 }
             },
-            Icon { name: destination.icon(), filled: is_active }
+            Icon { icon: destination.icon(), class: "size-4 shrink-0" }
             span { class: "workbench-activity-bar__label", {destination.label()} }
         }
     }

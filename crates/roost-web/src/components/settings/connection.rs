@@ -14,7 +14,10 @@ use roost_client_core::KeyValueStore;
 
 use std::rc::Rc;
 
-use crate::components::md::{Button, ButtonVariant, Card, EmptyState, Icon, ListRow, TextField};
+use crate::components::ui::{
+    Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyState,
+    Icon, IconType, ListRow, TextField,
+};
 use crate::platform::location::reload_document;
 use crate::platform::storage::LocalStorageKeyValueStore;
 
@@ -81,90 +84,99 @@ pub fn ConnectionPane() -> Element {
     let rows = saved().clone();
     rsx! {
         div {
-            class: "settings-pane",
-            style: "display: flex; flex-direction: column; gap: var(--md-space-5);",
+            class: "flex flex-col gap-5",
             "data-testid": "settings-connection-pane",
             Card {
-                title: "Connection",
-                supporting: "Which coordinator this browser talks to. The default is the server that opened this page. Add a direct address such as localhost or another coordinator's origin.",
-                p { class: "md-body-s", style: "color: var(--md-sys-color-on-surface-variant);",
-                    "Cloudflare Access addresses must be opened directly in the browser, not configured here."
+                CardHeader {
+                    CardTitle { "Connection" }
+                    CardDescription {
+                        "Which coordinator this browser talks to. The default is the server that opened this page. Add a direct address such as localhost or another coordinator's origin."
+                    }
                 }
-                ListRow {
-                    test_id: "coord-default",
-                    leading: rsx! { Icon { name: "home".to_owned() } },
-                    headline: rsx! { "This server (default)" },
-                    support: rsx! {
-                        if active.is_empty() { "Connected" } else { "Same origin that served this page" }
-                    },
-                    selected: active.is_empty(),
-                    trailing: rsx! {
-                        if active.is_empty() {
-                            Icon { name: "check".to_owned() }
-                        } else {
-                            Button {
-                                variant: ButtonVariant::Ghost,
-                                onclick: {
-                                    let storage = storage.clone();
-                                    move |_| switch_to(&storage, "")
-                                },
-                                "Use"
-                            }
-                        }
-                    },
-                }
-                for coordinator in rows {
+                CardContent { class: "flex flex-col gap-3",
+                    p { class: "m-0 text-sm text-muted-foreground",
+                        "Cloudflare Access addresses must be opened directly in the browser, not configured here."
+                    }
                     ListRow {
-                        test_id: Some(format!("coord-row-{}", coordinator.url)),
-                        leading: rsx! { Icon { name: "dns".to_owned() } },
-                        headline: rsx! { {coordinator.name.clone()} },
-                        support: rsx! {
-                            if active == coordinator.url {
-                                {format!("{} · Connected", coordinator.url)}
+                        test_id: Some("coord-default".to_owned()),
+                        leading_icon: Some(IconType::House),
+                        headline: rsx! { "This server (default)" },
+                        support: Some(rsx! {
+                            if active.is_empty() { "Connected" } else { "Same origin that served this page" }
+                        }),
+                        selected: active.is_empty(),
+                        trailing: Some(rsx! {
+                            if active.is_empty() {
+                                Icon { icon: IconType::Check }
                             } else {
-                                {coordinator.url.clone()}
-                            }
-                        },
-                        selected: active == coordinator.url,
-                        trailing: rsx! {
-                            if active != coordinator.url {
                                 Button {
                                     variant: ButtonVariant::Ghost,
                                     onclick: {
                                         let storage = storage.clone();
-                                        let url = coordinator.url.clone();
-                                        move |_| switch_to(&storage, &url)
+                                        move |_| switch_to(&storage, "")
                                     },
                                     "Use"
                                 }
-                            } else {
-                                Icon { name: "check".to_owned() }
                             }
-                            Button {
-                                variant: ButtonVariant::Ghost,
-                                icon: "delete",
-                                "aria-label": "Remove",
-                                onclick: {
-                                    let storage = storage.clone();
-                                    let url = coordinator.url.clone();
-                                    move |_| remove_coordinator(&storage, saved, &url)
-                                },
-                            }
-                        },
+                        }),
                     }
-                }
-                if saved().is_empty() {
-                    EmptyState {
-                        icon: "lan",
-                        title: "No saved coordinators",
-                        supporting: "Add one below to reach a coord that isn't the server that served this page.",
+                    for coordinator in rows {
+                        ListRow {
+                            test_id: Some(format!("coord-row-{}", coordinator.url)),
+                            leading_icon: Some(IconType::Server),
+                            headline: rsx! { {coordinator.name.clone()} },
+                            support: Some(rsx! {
+                                if active == coordinator.url {
+                                    {format!("{} · Connected", coordinator.url)}
+                                } else {
+                                    {coordinator.url.clone()}
+                                }
+                            }),
+                            selected: active == coordinator.url,
+                            trailing: Some(rsx! {
+                                if active != coordinator.url {
+                                    Button {
+                                        variant: ButtonVariant::Ghost,
+                                        onclick: {
+                                            let storage = storage.clone();
+                                            let url = coordinator.url.clone();
+                                            move |_| switch_to(&storage, &url)
+                                        },
+                                        "Use"
+                                    }
+                                } else {
+                                    Icon { icon: IconType::Check }
+                                }
+                                Button {
+                                    variant: ButtonVariant::Ghost,
+                                    icon: Some(IconType::Trash2),
+                                    "aria-label": "Remove",
+                                    onclick: {
+                                        let storage = storage.clone();
+                                        let url = coordinator.url.clone();
+                                        move |_| remove_coordinator(&storage, saved, &url)
+                                    },
+                                }
+                            }),
+                        }
+                    }
+                    if saved().is_empty() {
+                        EmptyState {
+                            icon: IconType::Network,
+                            title: "No saved coordinators",
+                            supporting: "Add one below to reach a coord that isn't the server that served this page.",
+                        }
                     }
                 }
             }
             Card {
-                title: "Add a coordinator",
-                supporting: "Give it a name and its full address. The address must be reachable from this device.",
-                div { style: "display: flex; flex-direction: column; gap: var(--md-space-3);",
+                CardHeader {
+                    CardTitle { "Add a coordinator" }
+                    CardDescription {
+                        "Give it a name and its full address. The address must be reachable from this device."
+                    }
+                }
+                CardContent { class: "flex flex-col gap-3",
                     TextField {
                         label: "Name (optional)".to_owned(),
                         placeholder: "Home fleet".to_owned(),
@@ -178,12 +190,12 @@ pub fn ConnectionPane() -> Element {
                         on_input: move |value| url.set(value),
                     }
                     if !error().is_empty() {
-                        div { class: "md-body-s", style: "color: var(--md-sys-color-error);", {error()} }
+                        div { class: "text-sm text-destructive", {error()} }
                     }
                     div {
                         Button {
                             variant: ButtonVariant::Default,
-                            icon: "add",
+                            icon: Some(IconType::Plus),
                             onclick: {
                                 let storage = storage.clone();
                                 move |_| add_coordinator(&storage, saved, name, url, error)

@@ -6,7 +6,7 @@
 use dioxus::prelude::*;
 use roost_protocol::terminal_signals::{TerminalProgress, TerminalUserVar};
 
-use crate::components::md::{Chip, ProgressBar};
+use crate::components::ui::{Chip, Progress};
 use crate::pump::use_store;
 
 /// Badges shown inline; the rest are listed in the last badge's tooltip.
@@ -83,7 +83,7 @@ pub fn TerminalProgressMark(session_id: String) -> Element {
             "data-state": state,
             "data-testid": "terminal-progress-{session_id}",
             title: label.clone(),
-            ProgressBar { value, label: label.clone() }
+            Progress { value, label: label.clone(), class: "w-12" }
         }
     }
 }
@@ -111,7 +111,7 @@ pub fn TerminalUserVarBadges(session_id: String) -> Element {
                 Chip {
                     key: "{index}",
                     small: true,
-                    title: if index == last { all.clone().unwrap_or_else(|| badge.clone()) } else { badge.clone() },
+                    title: Some(if index == last { all.clone().unwrap_or_else(|| badge.clone()) } else { badge.clone() }),
                     label: badge,
                 }
             }

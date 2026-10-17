@@ -17,11 +17,10 @@ use super::notify_target::NotifyTarget;
 use super::store_write::write_store;
 use crate::components::deck::deck_dom;
 use crate::components::layout::window_size::use_is_compact;
-use crate::components::md::{
-    Button, ButtonSize, ButtonVariant, IconButton, IconButtonSize, StatusDot, Surface,
-    SurfaceRadius,
-};
 use crate::components::terminal::dom::{now_ms, sleep_ms};
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, IconButton, IconType, StatusDot, Surface, SurfaceRadius,
+};
 use crate::pump::{Pump, use_store};
 use crate::router_state::use_navigate;
 use crate::terminal_href::terminal_href;
@@ -38,12 +37,13 @@ const fn dot_status(kind: ToastKind) -> &'static str {
     }
 }
 
-/// The accent the countdown bar drains in.
-const fn accent(kind: ToastKind) -> &'static str {
+/// The countdown bar's classes: its theme status role and placement. Each arm is
+/// a full literal so Tailwind scans it.
+const fn countdown_class(kind: ToastKind) -> &'static str {
     match kind {
-        ToastKind::Ok => "var(--status-ok)",
-        ToastKind::Warn => "var(--status-warn)",
-        ToastKind::Err => "var(--md-sys-color-error)",
+        ToastKind::Ok => "absolute inset-x-0 bottom-0 h-[var(--workbench-border-width)] origin-left bg-success",
+        ToastKind::Warn => "absolute inset-x-0 bottom-0 h-[var(--workbench-border-width)] origin-left bg-warning",
+        ToastKind::Err => "absolute inset-x-0 bottom-0 h-[var(--workbench-border-width)] origin-left bg-destructive",
     }
 }
 
@@ -210,7 +210,7 @@ pub fn ToastCard(toast_id: ToastId) -> Element {
             show_copy: toast.kind == ToastKind::Err || toast.details.is_some(),
             copied,
             button_size: if compact { ButtonSize::Sm } else { ButtonSize::Xs },
-            icon_size: if compact { IconButtonSize::IconSm } else { IconButtonSize::IconXs },
+            icon_size: if compact { ButtonSize::IconSm } else { ButtonSize::IconXs },
             on_reveal: reveal,
             on_copy: copy,
             on_dismiss: dismiss,
@@ -223,17 +223,15 @@ pub fn ToastCard(toast_id: ToastId) -> Element {
     let is_error = toast.kind == ToastKind::Err;
     let window_ms = toast.kind.default_ttl_ms();
     let held_now = held();
-    let accent_color = accent(toast.kind);
     let dot = dot_status(toast.kind).to_owned();
 
     rsx! {
         div {
-            class: "roost-toast-slot",
+            class: "roost-toast-slot animate-[roost-toast-in_200ms_cubic-bezier(0,0,0,1)] motion-reduce:animate-none select-text",
             "data-testid": "toast",
             "data-kind": kind_name,
             "data-compact": if compact { "true" } else { "false" },
             "data-dismiss-held": held_now.then_some("true"),
-            style: "user-select: text;",
             onmouseenter: move |event: MouseEvent| hold.call(event),
             onmouseleave: move |event: MouseEvent| release.call(event),
             onfocusin: move |event: FocusEvent| hold_focus.call(event),
@@ -243,18 +241,16 @@ pub fn ToastCard(toast_id: ToastId) -> Element {
                 elevation: 3,
                 radius: SurfaceRadius::Md,
                 border: true,
-                class: "roost-toast",
+                class: "relative flex flex-col gap-2 overflow-hidden p-3 text-foreground whitespace-pre-wrap [word-break:break-word]",
                 role: Some(if is_error { "alert".to_owned() } else { "status".to_owned() }),
                 aria_live: Some(if is_error { "assertive" } else { "polite" }.to_owned()),
                 aria_atomic: Some("true".to_owned()),
-                style: "display: flex; flex-direction: column; gap: var(--md-space-2); padding: var(--md-space-3); color: var(--md-sys-color-on-surface); white-space: pre-wrap; word-break: break-word;".to_owned(),
                 div {
-                    style: "display: flex; align-items: flex-start; gap: var(--md-space-2);",
+                    class: "flex items-start gap-2",
                     StatusDot { status: dot }
                     span {
-                        class: "md-body-m",
+                        class: "line-clamp-4 min-w-0 flex-1 select-text overflow-hidden text-sm leading-5",
                         title: headline.clone(),
-                        style: "flex: 1; min-width: 0; user-select: text; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;",
                         "{headline}"
                     }
                     if !compact {
@@ -264,22 +260,22 @@ pub fn ToastCard(toast_id: ToastId) -> Element {
                 if let Some(detail) = details.as_ref() {
                     pre {
                         "data-testid": "toast-details",
-                        class: "md-body-s",
-                        style: "margin: 0; padding: var(--md-space-2); background: var(--md-sys-color-surface-container-highest); border-radius: var(--md-shape-xs); font-family: var(--term-font-family); color: var(--md-sys-color-on-surface-variant); white-space: pre-wrap; word-break: break-word; max-height: calc(var(--md-space-9) * 3); overflow: auto; user-select: text;",
+                        class: "m-0 max-h-36 overflow-auto select-text rounded bg-muted p-2 text-xs leading-4 text-muted-foreground whitespace-pre-wrap [word-break:break-word] [font-family:var(--term-font-family)]",
                         "{detail}"
                     }
                 }
                 if compact {
                     div {
-                        style: "display: flex; justify-content: flex-end; align-items: center; gap: var(--md-space-2);",
+                        class: "flex items-center justify-end gap-2",
                         {action}
                     }
                 }
                 if let Some(window) = window_ms {
                     span {
                         "aria-hidden": "true",
+                        class: countdown_class(toast.kind),
                         style: format!(
-                            "position: absolute; inset: auto 0 0; height: var(--workbench-border-width); background: {accent_color}; transform-origin: left center; animation: roost-toast-countdown {window}ms linear forwards; animation-play-state: {};",
+                            "animation-name: roost-countdown-drain; animation-duration: {window}ms; animation-timing-function: linear; animation-fill-mode: forwards; animation-play-state: {};",
                             if held_now { "paused" } else { "running" },
                         ),
                     }
@@ -329,7 +325,7 @@ fn ToastActionRow(
     show_copy: bool,
     copied: Signal<bool>,
     button_size: ButtonSize,
-    icon_size: IconButtonSize,
+    icon_size: ButtonSize,
     on_reveal: EventHandler<MouseEvent>,
     on_copy: EventHandler<MouseEvent>,
     on_dismiss: EventHandler<MouseEvent>,
@@ -341,7 +337,7 @@ fn ToastActionRow(
                 variant: ButtonVariant::Ghost,
                 size: button_size,
                 title: label.clone(),
-                style: "flex-shrink: 0;",
+                class: "shrink-0",
                 onclick: move |event: MouseEvent| {
                     event.stop_propagation();
                     on_reveal.call(event);
@@ -354,7 +350,7 @@ fn ToastActionRow(
                 variant: ButtonVariant::Ghost,
                 size: button_size,
                 title: if copied_now { "Copied to clipboard" } else { "Copy full message" },
-                style: "flex-shrink: 0;",
+                class: "shrink-0",
                 onclick: move |event: MouseEvent| {
                     event.stop_propagation();
                     on_copy.call(event);
@@ -363,7 +359,7 @@ fn ToastActionRow(
             }
         }
         IconButton {
-            icon: "close",
+            icon: IconType::X,
             label: "Dismiss",
             title: "Dismiss",
             size: icon_size,

@@ -34,7 +34,7 @@ use super::shell_metrics::{
     CoordinatorState, coordinator_health_from_link, coordinator_state, session_context,
     workbench_title,
 };
-use crate::components::md::StatusDot;
+use crate::components::ui::StatusDot;
 use crate::platform::visibility::page_visible;
 
 /// One dot-and-word reading.
@@ -328,7 +328,7 @@ mod tests {
         ] {
             let name = agent_dot_status(dot);
             assert!(
-                crate::components::md::status_dot::status_dot_token(name).starts_with("--"),
+                crate::components::ui::status::status_dot_token_known(name).is_some(),
                 "{name} is not a status the dot styles a rule for"
             );
         }

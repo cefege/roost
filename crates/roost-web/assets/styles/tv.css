@@ -36,9 +36,6 @@ html[data-tv="true"] {
   --row-h: 44px;
 }
 
-[data-tv="true"] .md-icon { font-size: var(--md-title-m-size); }
-[data-tv="true"] .md-icon--sm { font-size: var(--md-body-l-size); }
-[data-tv="true"] .md-icon--lg { font-size: var(--md-headline-s-size); }
 
 /* Overscan: the shell is box-sizing:border-box at height:100svh, so inner
    padding shrinks the grid instead of overflowing it. */
@@ -70,13 +67,13 @@ html[data-tv="true"] {
 
 /* Focus must be unmistakable at 3 m — it is the only cursor a remote has. */
 [data-tv="true"] :focus-visible {
-  outline: var(--md-space-1) solid var(--workbench-focus-ring);
-  outline-offset: var(--md-space-1);
+  outline: 4px solid var(--workbench-focus-ring);
+  outline-offset: 4px;
 }
 
 [data-tv="true"] .wterm:focus-visible {
-  outline: var(--md-space-1) solid var(--workbench-pane-focus);
-  outline-offset: calc(var(--md-space-1) * -1);
+  outline: 4px solid var(--workbench-pane-focus);
+  outline-offset: -4px;
 }
 
 /* The input tray: on a television the terminal keys sit on the composer bar's
@@ -86,7 +83,7 @@ html[data-tv="true"] {
    never cover the prompt and the PTY is never resized for them. */
 [data-tv="true"] {
   --term-tray-key: var(--control-touch-target);
-  --term-tray-height: calc(var(--term-tray-key) * 2 + var(--md-space-1) * 3);
+  --term-tray-height: calc(var(--term-tray-key) * 2 + 12px);
 }
 [data-tv="true"] .term-nav[data-placement="tray"] {
   position: absolute;
@@ -111,16 +108,16 @@ html[data-tv="true"] {
   grid-template-columns: auto minmax(0, 1fr) auto auto auto;
 }
 [data-tv="true"] .term-chat__keys[data-open="true"] {
-  background: var(--md-sys-color-secondary-container);
-  color: var(--md-sys-color-on-secondary-container);
+  background: var(--secondary-container);
+  color: var(--on-secondary-container);
 }
 
 /* The dock is viewport-fixed outside .workbench-shell's overscan padding, and a
    television reports every env(safe-area-inset-*) as 0px, so its own gutters do
    not clear the cropped bezel. */
 [data-tv="true"] .roost-notify-dock {
-  left: calc(var(--roost-main-left) + var(--tv-overscan-inline) + var(--md-space-3));
-  right: calc(var(--tv-overscan-inline) + var(--md-space-3));
+  left: calc(var(--roost-main-left) + var(--tv-overscan-inline) + 12px);
+  right: calc(var(--tv-overscan-inline) + 12px);
   --roost-notify-dock-overscan: var(--tv-overscan-block);
 }
 
@@ -131,8 +128,8 @@ html[data-tv="true"] {
 }
 
 [data-tv="true"] .term-chat__dock {
-  left: calc(var(--roost-main-left, 0px) + var(--tv-overscan-inline) + var(--md-space-2));
-  right: calc(var(--tv-overscan-inline) + var(--md-space-2));
+  left: calc(var(--roost-main-left, 0px) + var(--tv-overscan-inline) + 8px);
+  right: calc(var(--tv-overscan-inline) + 8px);
   bottom: calc(var(--term-chat-dock-offset) + var(--tv-overscan-block));
 }
 /* Only the viewport-fixed dock is inset for overscan. A pane-placed dock is
@@ -145,7 +142,7 @@ html[data-tv="true"] {
 }
 
 [data-tv="true"] .term-nav-toggle {
-  right: calc(var(--tv-overscan-inline) + var(--md-space-4));
+  right: calc(var(--tv-overscan-inline) + 16px);
   bottom: calc(var(--tv-overscan-block) + 152px);
 }
 
@@ -177,7 +174,7 @@ html[data-tv="true"] {
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  padding: var(--md-space-5);
+  padding: 20px;
 }
 
 
@@ -191,21 +188,21 @@ html[data-tv="true"] {
 [data-tv="true"] .tv-home-board__card {
   min-height: 10rem;
   justify-content: center;
-  padding: var(--md-space-5);
+  padding: 20px;
 }
 
 [data-tv="true"] .tv-home-board__card--unseen {
-  border-inline-start: var(--md-space-2) solid var(--md-sys-color-primary);
+  border-inline-start: 8px solid var(--accent);
 }
 
 [data-tv="true"] .tv-home-board__status {
   display: flex;
   align-items: center;
-  gap: var(--md-space-3);
-  margin-block-start: var(--md-space-3);
+  gap: 12px;
+  margin-block-start: 12px;
 }
 
 [data-tv="true"] .tv-home-board__attention {
-  color: var(--md-sys-color-primary);
-  font-weight: var(--md-label-l-weight);
+  color: var(--accent);
+  font-weight: 500;
 }

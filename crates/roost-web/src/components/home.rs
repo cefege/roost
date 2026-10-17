@@ -15,7 +15,7 @@ use roost_client_core::store::sidebar::SidebarIntent;
 use crate::components::brand_mark::{BrandMark, HOME_MARK_SIZE};
 use crate::components::layout::title_bar::PRODUCT;
 use crate::components::layout::window_size::{use_is_compact, use_tv_layout};
-use crate::components::md::{Icon, IconButton};
+use crate::components::ui::{Icon, IconButton, IconType};
 use crate::components::tv_home_board::TvHomeBoard;
 use crate::pump::use_store;
 
@@ -99,7 +99,7 @@ pub fn HomeLanding(reader_platform: BrowserPlatform) -> Element {
             div { class: "home-landing-head",
                 if compact && !drawer_open {
                     IconButton {
-                        icon: "menu",
+                        icon: IconType::Menu,
                         label: "Open sidebar",
                         "data-testid": "home-open-sidebar",
                         onclick: move |_| pump.dispatch(ClientEvent::Sidebar(SidebarIntent::OpenDrawer)),
@@ -120,7 +120,7 @@ pub fn HomeLanding(reader_platform: BrowserPlatform) -> Element {
             }
             div { class: "home-landing-empty", "data-testid": "home-empty",
                 div { class: "home-landing-empty-icon",
-                    Icon { name: "terminal", filled: true }
+                    Icon { icon: IconType::Terminal, class: "size-6 shrink-0" }
                 }
                 div { class: "home-landing-empty-title", "Open a workspace" }
                 div { class: "home-landing-empty-sub",

@@ -9,7 +9,10 @@ use roost_protocol::wire::agent_chat::ProviderEntry;
 use roost_client_core::client::rpc::calls::agent_chat::{SetAgentApiKey, StartAgentLogin};
 
 use crate::components::agent_chat::agent_alert::ERROR_TEXT_CLASS;
-use crate::components::md::{Button, ButtonVariant, Dialog, TextField};
+use crate::components::ui::{
+    Button, ButtonVariant, Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, IconType,
+    TextField,
+};
 use crate::pump::{Pump, use_store};
 
 use super::agent_login_dialog::AgentLoginDialog;
@@ -54,55 +57,65 @@ pub fn AgentConnectDialog(
     let save_pump = pump.clone();
     let provider_name = provider.name.clone();
     let is_oauth = provider.supports_oauth && provider.id != "exa" && !change_key;
+    let title = if change_key {
+        format!("Change {} API key", provider.name)
+    } else {
+        format!("Connect {}", provider.name)
+    };
     rsx! {
         Dialog {
             open: true,
-            headline: if change_key {
-                format!("Change {} API key", provider.name)
-            } else {
-                format!("Connect {}", provider.name)
+            on_open_change: move |open: bool| {
+                if !open {
+                    on_close.call(false);
+                }
             },
-            test_id: "agent-connect-dialog",
-            on_close: move |_| on_close.call(false),
-            div { class: "agent-settings__dialog-body",
-                p { class: "md-body-s",
-                    if change_key {
-                        "Enter a replacement API key for {provider_name}."
-                    } else if is_oauth {
-                        "Sign in with your {provider_name} subscription, or paste an API key."
-                    } else {
-                        "Connect {provider_name} with an API key."
+            DialogContent { test_id: "agent-connect-dialog",
+                DialogHeader {
+                    DialogTitle { "{title}" }
+                }
+                DialogBody {
+                    div { class: "flex flex-col gap-3",
+                        p { class: "text-sm text-muted-foreground",
+                            if change_key {
+                                "Enter a replacement API key for {provider_name}."
+                            } else if is_oauth {
+                                "Sign in with your {provider_name} subscription, or paste an API key."
+                            } else {
+                                "Connect {provider_name} with an API key."
+                            }
+                        }
+                        if is_oauth {
+                            Button {
+                                variant: ButtonVariant::Default,
+                                icon: Some(IconType::LogIn),
+                                onclick: move |_| begin_oauth(oauth_pump.clone(), oauth_provider_id.clone(), login_id, error),
+                                "Sign in with {provider.name}"
+                            }
+                            p { class: "text-sm text-muted-foreground", "or use an API key" }
+                        }
+                        TextField {
+                            label: "API key",
+                            input_type: "password",
+                            autocomplete: "new-password",
+                            value: api_key(),
+                            on_input: move |value| api_key.set(value),
+                        }
+                        Button {
+                            variant: if is_oauth { ButtonVariant::Outline } else { ButtonVariant::Default },
+                            disabled: api_key().trim().is_empty(),
+                            onclick: move |_| save_key(save_pump.clone(), save_provider_id.clone(), api_key(), error, on_close),
+                            "Save API key"
+                        }
+                        if !error().is_empty() {
+                            p { class: ERROR_TEXT_CLASS, role: "alert", {error()} }
+                        }
+                        Button {
+                            variant: ButtonVariant::Link,
+                            onclick: move |_| on_close.call(false),
+                            "Cancel"
+                        }
                     }
-                }
-                if is_oauth {
-                    Button {
-                        variant: ButtonVariant::Default,
-                        icon: "login",
-                        onclick: move |_| begin_oauth(oauth_pump.clone(), oauth_provider_id.clone(), login_id, error),
-                        "Sign in with {provider.name}"
-                    }
-                    p { class: "agent-settings__support", "or use an API key" }
-                }
-                TextField {
-                    label: "API key",
-                    input_type: "password",
-                    autocomplete: "new-password",
-                    value: api_key(),
-                    on_input: move |value| api_key.set(value),
-                }
-                Button {
-                    variant: if is_oauth { ButtonVariant::Outline } else { ButtonVariant::Default },
-                    disabled: api_key().trim().is_empty(),
-                    onclick: move |_| save_key(save_pump.clone(), save_provider_id.clone(), api_key(), error, on_close),
-                    "Save API key"
-                }
-                if !error().is_empty() {
-                    p { class: ERROR_TEXT_CLASS, role: "alert", {error()} }
-                }
-                Button {
-                    variant: ButtonVariant::Link,
-                    onclick: move |_| on_close.call(false),
-                    "Cancel"
                 }
             }
         }

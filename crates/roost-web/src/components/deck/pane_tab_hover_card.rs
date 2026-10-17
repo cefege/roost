@@ -13,8 +13,7 @@ use super::deck_dom::{ClientBox, DeckContainer};
 use super::inline_style::px;
 use super::pane_tab::direct_transport_label;
 use crate::components::agents::agent_status_indicator::AgentStatusIndicator;
-use crate::components::md::surface::SurfaceRadius;
-use crate::components::md::{Icon, IconSize, Surface};
+use crate::components::ui::{Icon, IconType, Surface, SurfaceRadius};
 use crate::platform::worker_paths::short_worker_path;
 use crate::pump::use_store;
 use crate::session_naming::{program_subtitle, session_title};
@@ -78,25 +77,25 @@ pub fn PaneTabHoverCard(session_id: String, anchor: ClientBox) -> Element {
             level: 3,
             elevation: 3,
             radius: SurfaceRadius::Md,
-            class: "df-tab-hovercard",
+            class: "fixed z-[70] pointer-events-none flex flex-col gap-1.5 w-[var(--workbench-tab-hovercard-width)] p-3 text-sm starting:opacity-0 transition-opacity duration-150 motion-reduce:transition-none",
             test_id: "tab-hovercard",
             style: format!("left: {left}; top: {top};"),
-            div { class: "df-tab-hovercard-head",
-                Icon { name: "terminal", size: IconSize::Sm }
-                span { class: "df-tab-hovercard-title", "{reading.title}" }
+            div { class: "flex items-center gap-2 min-w-0",
+                Icon { icon: IconType::Terminal, class: "size-4 shrink-0 text-muted-foreground" }
+                span { class: "flex-1 min-w-0 truncate font-medium", "{reading.title}" }
                 AgentStatusIndicator { session_id: session_id.clone() }
             }
             if let Some(subtitle) = reading.subtitle {
-                div { class: "df-tab-hovercard-line", "{subtitle}" }
+                div { class: "truncate text-muted-foreground", "{subtitle}" }
             }
             if let Some(direct) = reading.direct {
-                div { class: "df-tab-hovercard-chip", title: direct,
-                    Icon { name: "bolt", size: IconSize::Sm }
+                div { class: "inline-flex items-center gap-1 self-start text-warning", title: direct,
+                    Icon { icon: IconType::Zap, class: "size-4 shrink-0" }
                     "{direct}"
                 }
             }
-            div { class: "df-tab-hovercard-cwd", "{reading.cwd}" }
-            div { class: "df-tab-hovercard-preview", "data-preview": "false",
+            div { class: "truncate text-xs font-mono text-muted-foreground", "{reading.cwd}" }
+            div { class: "mt-1 h-[calc(var(--md-space-9)*2)] overflow-hidden rounded-[var(--md-shape-sm)] bg-[var(--terminal-grid-bg)]", "data-preview": "false",
                 div { class: "terminal-card-preview-text" }
             }
         }

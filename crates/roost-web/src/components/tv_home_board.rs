@@ -12,8 +12,11 @@ use roost_client_core::store::sidebar::documents::store_navigation_documents;
 use roost_protocol::wire::SessionStatus;
 
 use crate::components::agents::agent_status_indicator::AgentStatusIndicator;
-use crate::components::md::list_row::is_in_app_navigation_click;
-use crate::components::md::{Card, CardVariant, Chip, EmptyState};
+use crate::components::ui::list::is_in_app_navigation_click;
+use crate::components::ui::{
+    Card, CardContent, CardDescription, CardHeader, CardTitle, CardVariant, Chip, EmptyState,
+    IconType,
+};
 use crate::platform::BrowserWorkerPaths;
 use crate::pump::use_store;
 use crate::router_state::use_navigate;
@@ -100,7 +103,7 @@ pub fn TvHomeBoard() -> Element {
         main { class: "tv-home-board", "data-testid": "tv-home-board", aria_label: "Open sessions",
             if sessions.is_empty() {
                 EmptyState {
-                    icon: "terminal",
+                    icon: IconType::Terminal,
                     title: "No open sessions",
                     supporting: Some("Open a workspace to see its sessions here.".to_owned()),
                     action: None,
@@ -125,28 +128,32 @@ pub fn TvHomeBoard() -> Element {
                             navigate.call(href.clone());
                         },
                         Card {
-                            title: Some(document.display_title.clone()),
-                            supporting: Some(format!("{} · {}", document.worker_label, document.cwd)),
                             variant: CardVariant::Elevated,
                             class: Some(if document.agent_unseen || needs_operator_input(document) { "tv-home-board__card tv-home-board__card--unseen" } else { "tv-home-board__card" }.to_owned()),
-                            test_id: Some(format!("tv-home-card-{}", document.session_id)),
-                            div { class: "tv-home-board__status",
-                                if let Some(attention) = document.agent_attention {
-                                    span { class: "tv-home-board__attention", {match attention {
-                                        NavigationSearchAttention::Blocked => "Needs input",
-                                        NavigationSearchAttention::Done => "Unseen completion",
-                                    }}}
-                                }
-                                if matches!(document.agent_status.as_deref(), Some("blocked" | "working" | "done" | "idle")) {
-                                    AgentStatusIndicator { session_id: document.session_id.clone() }
-                                } else {
-                                    Chip {
-                                        label: "No agent status".to_owned(),
-                                        icon: Some("info".to_owned()),
-                                        selected: None,
-                                        onclick: None,
-                                        title: None,
-                                        test_id: Some(format!("tv-home-status-{}", document.session_id)),
+                            "data-testid": "tv-home-card-{document.session_id}",
+                            CardHeader {
+                                CardTitle { {document.display_title.clone()} }
+                                CardDescription { {format!("{} · {}", document.worker_label, document.cwd)} }
+                            }
+                            CardContent {
+                                div { class: "tv-home-board__status",
+                                    if let Some(attention) = document.agent_attention {
+                                        span { class: "tv-home-board__attention", {match attention {
+                                            NavigationSearchAttention::Blocked => "Needs input",
+                                            NavigationSearchAttention::Done => "Unseen completion",
+                                        }}}
+                                    }
+                                    if matches!(document.agent_status.as_deref(), Some("blocked" | "working" | "done" | "idle")) {
+                                        AgentStatusIndicator { session_id: document.session_id.clone() }
+                                    } else {
+                                        Chip {
+                                            label: "No agent status".to_owned(),
+                                            icon: Some(IconType::Info),
+                                            selected: None,
+                                            onclick: None,
+                                            title: None,
+                                            test_id: Some(format!("tv-home-status-{}", document.session_id)),
+                                        }
                                     }
                                 }
                             }

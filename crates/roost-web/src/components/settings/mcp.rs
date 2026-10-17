@@ -3,7 +3,7 @@
 //! Ports `apps/web/src/components/Settings/McpPane.tsx` and the inline
 //! `apps/web/src/components/agents/McpRelayEditor.tsx` it opens. Depends on
 //! `roost-client-core`'s `McpList`/`McpCreate`/`McpDelete` calls and on the
-//! `md` primitives.
+//! `ui` primitives.
 //!
 //! The rendered list is seeded from the store's `mcp_relays` projection — the
 //! same rows v2's root store held — and re-read from `McpList`, so a
@@ -21,8 +21,10 @@ use roost_client_core::client::rpc::calls::settings::mcp::{
 use roost_client_core::store::shell_intent::ShellIntent;
 use roost_protocol::wire::McpRelay;
 
-use crate::components::md::{
-    Button, ButtonVariant, Card, EmptyState, Icon, List, ListRow, Select, SelectOption, TextField,
+use crate::components::ui::{
+    Badge, BadgeVariant, Button, ButtonVariant, Card, CardAction, CardContent, CardDescription,
+    CardHeader, CardTitle, EmptyState, Icon, IconType, List, ListRow, Select, SelectOption,
+    TextField,
 };
 use crate::pump::{Pump, use_store};
 
@@ -75,69 +77,78 @@ pub fn McpPane() -> Element {
     };
     rsx! {
         div {
-            class: "settings-pane",
-            style: "display: flex; flex-direction: column; gap: var(--md-space-5);",
+            class: "flex flex-col gap-5",
             "data-testid": "settings-mcp-pane",
             Card {
-                title: "MCP relays",
-                supporting: "Bridge agents to external tools and data sources. Each relay points at an MCP server (binary path or URL); agents on any worker can call it.",
-                trailing: has_relays.then(|| rsx! {
-                    Button {
-                        variant: ButtonVariant::Default,
-                        icon: "add",
-                        "data-testid": "mcp-add-btn",
-                        onclick: move |_| editing.set(true),
-                        "Add relay"
+                CardHeader {
+                    CardTitle { "MCP relays" }
+                    CardDescription {
+                        "Bridge agents to external tools and data sources. Each relay points at an MCP server (binary path or URL); agents on any worker can call it."
                     }
-                }),
-                if editor_open {
-                    RelayEditor {
-                        on_save,
-                        on_cancel: move |_| editing.set(false),
-                    }
-                }
-                if let Some(message) = view().delete_error.clone() {
-                    p { class: "md-body-s", style: "color: var(--md-sys-color-error);", {message} }
-                }
-                if let Some(message) = view().load_error.clone() {
-                    div {
-                        style: "display: flex; align-items: center; gap: var(--md-space-2);",
-                        "data-testid": "mcp-load-err",
-                        Icon { name: "error", style: "color: var(--md-sys-color-error);" }
-                        span { class: "md-body-m", style: "color: var(--md-sys-color-error);",
-                            "Failed to load relays: {message}"
+                    if has_relays {
+                        CardAction {
+                            Button {
+                                variant: ButtonVariant::Default,
+                                icon: Some(IconType::Plus),
+                                "data-testid": "mcp-add-btn",
+                                onclick: move |_| editing.set(true),
+                                "Add relay"
+                            }
                         }
-                        Button {
-                            variant: ButtonVariant::Ghost,
-                            "data-testid": "mcp-reload-btn",
-                            onclick: on_reload,
-                            "Retry"
+                    }
+                }
+                CardContent {
+                    if editor_open {
+                        RelayEditor {
+                            on_save,
+                            on_cancel: move |_| editing.set(false),
+                        }
+                    }
+                    if let Some(message) = view().delete_error.clone() {
+                        p { class: "text-sm text-destructive", {message} }
+                    }
+                    if let Some(message) = view().load_error.clone() {
+                        div { class: "flex items-center gap-2", "data-testid": "mcp-load-err",
+                            Icon { icon: IconType::CircleAlert, class: "size-4 shrink-0 text-destructive".to_owned() }
+                            span { class: "text-sm text-destructive",
+                                "Failed to load relays: {message}"
+                            }
+                            Button {
+                                variant: ButtonVariant::Ghost,
+                                "data-testid": "mcp-reload-btn",
+                                onclick: on_reload,
+                                "Retry"
+                            }
                         }
                     }
                 }
             }
             if has_relays {
                 Card {
-                    List { contained: true,
-                        for relay in view().relays.to_vec() {
-                            RelayRow { relay, view, confirming, pump: row_pump.clone() }
+                    CardContent {
+                        List { contained: true,
+                            for relay in view().relays.to_vec() {
+                                RelayRow { relay, view, confirming, pump: row_pump.clone() }
+                            }
                         }
                     }
                 }
             } else {
                 Card {
-                    EmptyState {
-                        icon: "extension",
-                        title: "No MCP relays configured",
-                        supporting: "Add a relay to make MCP-served tools available to every agent on every machine.",
-                        action: (!editor_open).then(|| rsx! {
-                            Button {
-                                variant: ButtonVariant::Default,
-                                icon: "add",
-                                onclick: move |_| editing.set(true),
-                                "Add relay"
-                            }
-                        }),
+                    CardContent {
+                        EmptyState {
+                            icon: IconType::Puzzle,
+                            title: "No MCP relays configured",
+                            supporting: "Add a relay to make MCP-served tools available to every agent on every machine.",
+                            action: (!editor_open).then(|| rsx! {
+                                Button {
+                                    variant: ButtonVariant::Default,
+                                    icon: Some(IconType::Plus),
+                                    onclick: move |_| editing.set(true),
+                                    "Add relay"
+                                }
+                            }),
+                        }
                     }
                 }
             }
@@ -180,15 +191,15 @@ fn RelayRow(
     rsx! {
         ListRow {
             test_id: Some(format!("mcp-relay-row-{id}")),
-            leading_icon: Some(if kind == "sse" { "cloud".to_owned() } else { "terminal".to_owned() }),
+            leading_icon: Some(if kind == "sse" { IconType::Cloud } else { IconType::Terminal }),
             headline: rsx! {
-                span { style: "display: flex; align-items: center; gap: var(--md-space-2);",
+                span { class: "flex items-center gap-2",
                     {relay.label.clone()}
-                    span { class: "md-label-s", style: "padding: 2px 8px; border-radius: var(--md-shape-full); background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container); text-transform: uppercase;", {kind.clone()} }
+                    Badge { variant: BadgeVariant::Accent, class: "uppercase".to_owned(), {kind.clone()} }
                 }
             },
-            support: (!target.is_empty()).then(|| rsx! { span { style: "font-family: var(--font-mono);", {target} } }),
-            trailing: rsx! {
+            support: (!target.is_empty()).then(|| rsx! { span { class: "font-mono", {target} } }),
+            trailing: Some(rsx! {
                 if is_confirming {
                     Button {
                         variant: ButtonVariant::Destructive,
@@ -205,13 +216,13 @@ fn RelayRow(
                 } else {
                     Button {
                         variant: ButtonVariant::Destructive,
-                        icon: "delete_outline",
+                        icon: Some(IconType::Trash2),
                         "data-testid": format!("mcp-delete-{id}"),
                         onclick: on_remove,
                         "Remove"
                     }
                 }
-            },
+            }),
         }
     }
 }
@@ -237,19 +248,18 @@ fn RelayEditor(
     };
     rsx! {
         div {
-            class: "settings-mcp-editor",
-            style: "display: flex; flex-direction: column; gap: var(--md-space-2); padding: var(--md-space-3); border-radius: var(--md-shape-sm); border: 1px solid var(--md-sys-color-outline-variant); background: var(--md-elev-1);",
+            class: "flex flex-col gap-2 rounded-md border border-border bg-card p-3",
             "data-testid": "mcp-relay-editor",
             TextField {
-                test_id: "mcp-editor-label",
-                label: "Relay name",
-                placeholder: "e.g. filesystem",
+                test_id: "mcp-editor-label".to_owned(),
+                label: "Relay name".to_owned(),
+                placeholder: "e.g. filesystem".to_owned(),
                 value: label(),
                 on_input: move |value| label.set(value),
             }
             Select {
-                test_id: "mcp-editor-kind",
-                label: "Kind",
+                test_id: "mcp-editor-kind".to_owned(),
+                label: "Kind".to_owned(),
                 value: kind(),
                 on_change: move |value| kind.set(value),
                 options: vec![
@@ -258,13 +268,13 @@ fn RelayEditor(
                 ],
             }
             TextField {
-                test_id: "mcp-editor-target",
-                label: target_label,
-                placeholder: target_placeholder,
+                test_id: "mcp-editor-target".to_owned(),
+                label: target_label.to_owned(),
+                placeholder: target_placeholder.to_owned(),
                 value: target(),
                 on_input: move |value| target.set(value),
             }
-            div { style: "display: flex; gap: var(--md-space-2);",
+            div { class: "flex gap-2",
                 Button {
                     variant: ButtonVariant::Default,
                     "data-testid": "mcp-editor-save",

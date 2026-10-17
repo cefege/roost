@@ -21,8 +21,9 @@ use roost_client_core::client::rpc::calls::settings::attachments::{
 };
 
 use super::format::{expiry_label, format_age, is_expiring};
-use crate::components::md::{
-    Button, ButtonVariant, Card, EmptyState, Icon, IconSize, List, ListRow, Select, SelectOption,
+use crate::components::ui::{
+    Badge, BadgeVariant, Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader,
+    CardTitle, EmptyState, Icon, IconType, List, ListRow, Select, SelectOption,
 };
 use crate::display_format::format_bytes;
 use crate::pump::{Pump, use_store};
@@ -81,54 +82,64 @@ pub fn AttachmentsPane() -> Element {
     let state = view();
     rsx! {
         div {
-            class: "settings-pane",
-            style: "display: flex; flex-direction: column; gap: var(--md-space-5);",
+            class: "flex flex-col gap-5",
             "data-testid": "attachments-pane",
             Card {
-                title: "Attachments",
-                supporting: "Files dropped into a terminal land in .roost/media inside the session's folder (git-ignored). They're deleted after 7 days.",
-                div { class: "md-form-row",
-                    Select {
-                        label: "Session",
-                        value: selected(),
-                        options: sessions,
-                        on_change: move |value| {
-                            selected.set(value);
-                            let mut view = view.write();
-                            view.entries.clear();
-                            view.loaded = false;
-                            view.error = None;
-                        },
+                CardHeader {
+                    CardTitle { "Attachments" }
+                    CardDescription {
+                        "Files dropped into a terminal land in .roost/media inside the session's folder (git-ignored). They're deleted after 7 days."
                     }
                 }
-                if let Some(message) = state.status.clone() {
-                    div { class: "md-body-m", style: "display: inline-flex; align-items: center; gap: var(--md-space-2); color: var(--md-sys-color-on-surface-variant);",
-                        Icon { name: "info".to_owned(), size: IconSize::Sm }
-                        {message}
+                CardContent {
+                    div { class: "flex items-end gap-3",
+                        Select {
+                            label: "Session".to_owned(),
+                            value: selected(),
+                            options: sessions,
+                            on_change: move |value| {
+                                selected.set(value);
+                                let mut view = view.write();
+                                view.entries.clear();
+                                view.loaded = false;
+                                view.error = None;
+                            },
+                        }
                     }
-                }
-                if let Some(message) = state.error.clone() {
-                    p { role: "alert", class: "md-body-m", style: "color: var(--md-sys-color-error); margin: 0;", {message} }
+                    if let Some(message) = state.status.clone() {
+                        div { class: "inline-flex items-center gap-2 text-sm text-muted-foreground",
+                            Icon { icon: IconType::Info, class: "size-4".to_owned() }
+                            {message}
+                        }
+                    }
+                    if let Some(message) = state.error.clone() {
+                        p { role: "alert", class: "text-sm text-destructive", {message} }
+                    }
                 }
             }
-            Card { title: "Files",
-                if !state.loaded {
-                    span { class: "md-body-m", style: "color: var(--md-sys-color-on-surface-variant);", "Loading…" }
-                } else if state.entries.is_empty() {
-                    EmptyState {
-                        icon: "folder_open",
-                        title: "No attachments yet",
-                        supporting: "Drop a file into the terminal to attach it. The path lands here and you can re-inject it anytime.",
-                    }
-                } else {
-                    List { contained: true,
-                        for entry in state.entries.iter() {
-                            AttachmentRow {
-                                entry: entry.clone(),
-                                now_ms,
-                                session: selected(),
-                                view,
-                                pump: pump.clone(),
+            Card {
+                CardHeader {
+                    CardTitle { "Files" }
+                }
+                CardContent {
+                    if !state.loaded {
+                        span { class: "text-sm text-muted-foreground", "Loading…" }
+                    } else if state.entries.is_empty() {
+                        EmptyState {
+                            icon: IconType::FolderOpen,
+                            title: "No attachments yet",
+                            supporting: "Drop a file into the terminal to attach it. The path lands here and you can re-inject it anytime.",
+                        }
+                    } else {
+                        List { contained: true,
+                            for entry in state.entries.iter() {
+                                AttachmentRow {
+                                    entry: entry.clone(),
+                                    now_ms,
+                                    session: selected(),
+                                    view,
+                                    pump: pump.clone(),
+                                }
                             }
                         }
                     }
@@ -179,67 +190,62 @@ fn AttachmentRow(
     rsx! {
         ListRow {
             leading_icon: Some(icon_for_file(&filename)),
-            headline: rsx! { span { style: "font-family: var(--font-mono);", {filename.clone()} } },
-            support: rsx! {
-                span { style: "display: inline-flex; gap: var(--md-space-3); align-items: center;",
+            headline: rsx! { span { class: "font-mono", {filename.clone()} } },
+            support: Some(rsx! {
+                span { class: "inline-flex items-center gap-3",
                     span { {format_bytes(entry.size_bytes as f64)} }
                     span { {format_age(now_ms, entry.mtime_ms)} }
-                    span { class: "md-label-s", style: "padding: 2px 8px; border-radius: var(--md-shape-full);",
-                        style: if is_expiring(now_ms, entry.mtime_ms) {
-                            "background: var(--md-sys-color-error); color: var(--md-on-primary);"
-                        } else {
-                            "background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);"
-                        },
+                    Badge {
+                        variant: if is_expiring(now_ms, entry.mtime_ms) { BadgeVariant::Destructive } else { BadgeVariant::Secondary },
                         {expiry}
                     }
                 }
-            },
-            trailing: rsx! {
+            }),
+            trailing: Some(rsx! {
                 Button {
                     variant: ButtonVariant::Ghost,
-                    icon: "content_paste_go",
+                    icon: Some(IconType::ClipboardPaste),
                     "data-testid": format!("attachments-inject-{filename}"),
                     onclick: on_inject,
                     "Inject"
                 }
                 Button {
                     variant: ButtonVariant::Ghost,
-                    icon: "content_copy",
+                    icon: Some(IconType::Copy),
                     "data-testid": format!("attachments-copy-{filename}"),
                     onclick: on_copy,
                     "Copy"
                 }
                 Button {
                     variant: ButtonVariant::Destructive,
-                    icon: "delete_outline",
+                    icon: Some(IconType::Trash2),
                     "data-testid": format!("attachments-delete-{filename}"),
                     onclick: on_delete,
                     "Delete"
                 }
-            },
+            }),
         }
     }
 }
 
 /// The glyph a file's extension earns.
-fn icon_for_file(filename: &str) -> String {
+fn icon_for_file(filename: &str) -> IconType {
     let extension = filename
         .rsplit_once('.')
         .map(|(_, tail)| tail.to_ascii_lowercase())
         .unwrap_or_default();
     match extension.as_str() {
-        "png" | "jpg" | "jpeg" | "gif" | "webp" | "avif" | "svg" | "heic" => "image",
-        "mp4" | "mov" | "mkv" | "webm" => "movie",
-        "mp3" | "wav" | "ogg" | "flac" | "m4a" => "audio_file",
-        "pdf" => "picture_as_pdf",
-        "zip" | "tar" | "gz" | "tgz" | "rar" | "7z" => "folder_zip",
-        "md" | "txt" | "log" => "description",
-        "json" | "yaml" | "yml" | "toml" | "csv" => "data_object",
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "avif" | "svg" | "heic" => IconType::FileImage,
+        "mp4" | "mov" | "mkv" | "webm" => IconType::FileVideo,
+        "mp3" | "wav" | "ogg" | "flac" | "m4a" => IconType::FileAudio,
+        "pdf" => IconType::FileText,
+        "zip" | "tar" | "gz" | "tgz" | "rar" | "7z" => IconType::FileArchive,
+        "md" | "txt" | "log" => IconType::FileText,
+        "json" | "yaml" | "yml" | "toml" | "csv" => IconType::FileJson,
         "ts" | "tsx" | "js" | "jsx" | "rs" | "py" | "go" | "c" | "cpp" | "h" | "html" | "css"
-        | "swift" | "rb" => "code",
-        _ => "draft",
+        | "swift" | "rb" => IconType::Code,
+        _ => IconType::File,
     }
-    .to_owned()
 }
 
 /// The last path segment, or the whole path when it has no separator.

@@ -12,6 +12,7 @@ pub mod terminal_menu;
 
 use std::cell::Cell;
 use std::rc::Rc;
+use tw_merge::tw_merge;
 
 use dioxus::prelude::*;
 
@@ -196,10 +197,7 @@ pub fn menu_key_action(key: &str, current: Option<usize>, count: usize) -> MenuK
 #[component]
 pub fn CtxMenuSeparator() -> Element {
     rsx! {
-        div {
-            role: "separator",
-            style: "border: 0 solid var(--md-outline-variant); border-block-start-width: var(--workbench-border-width); margin: var(--md-space-1) 0;",
-        }
+        div { role: "separator", class: "my-1 border-t border-border" }
     }
 }
 
@@ -249,17 +247,16 @@ pub fn CtxMenuItem(
     }
 }
 
-/// `df-menu-item`, its danger modifier, then any caller class.
+/// The item's Tailwind row classes, its danger tint, then any caller class.
+/// `tw_merge` lets a caller's `hover:bg-*` or `rounded-*` replace the base
+/// utility; plain concatenation leaves both in the sheet and the generation
+/// order, not the caller, picks the winner.
 pub fn menu_item_class(danger: bool, extra: Option<&str>) -> String {
-    let mut class = String::from("df-menu-item");
-    if danger {
-        class.push_str(" df-menu-item--danger");
-    }
-    if let Some(extra) = extra.filter(|extra| !extra.is_empty()) {
-        class.push(' ');
-        class.push_str(extra);
-    }
-    class
+    let tone = if danger { "text-destructive" } else { "text-foreground" };
+    let base = format!(
+        "flex w-full cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm {tone} outline-none hover:bg-accent focus:bg-accent active:bg-accent data-[highlighted=true]:bg-accent disabled:pointer-events-none disabled:opacity-50"
+    );
+    tw_merge!(base.as_str(), extra.unwrap_or("")).to_string()
 }
 
 /// Outside-click and Escape dismissal for the calling menu's lifetime. A click

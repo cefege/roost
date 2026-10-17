@@ -105,6 +105,10 @@ fn has_hex_color(line: &str) -> bool {
 }
 
 fn has_px_font_size(line: &str) -> bool {
+    has_declared_px_font_size(line) || has_arbitrary_px_text_size(line)
+}
+
+fn has_declared_px_font_size(line: &str) -> bool {
     let lowered = line.to_ascii_lowercase().replace(['-', ' '], "");
     let Some(at) = lowered.find("fontsize:") else {
         return false;
@@ -112,6 +116,19 @@ fn has_px_font_size(line: &str) -> bool {
     let value = lowered[at + "fontsize:".len()..].trim_start_matches(['\'', '"']);
     let digits: String = value.chars().take_while(char::is_ascii_digit).collect();
     !digits.is_empty() && value[digits.len()..].starts_with("px")
+}
+
+/// Tailwind's arbitrary `text-[13px]` is the class spelling of a px font size,
+/// bypassing the type scale exactly as `font-size: 13px` would.
+fn has_arbitrary_px_text_size(line: &str) -> bool {
+    line.match_indices("text-[").any(|(at, opener)| {
+        let value = &line[at + opener.len()..];
+        let digits = value
+            .chars()
+            .take_while(|character| character.is_ascii_digit() || *character == '.')
+            .count();
+        digits > 0 && value[digits..].starts_with("px]")
+    })
 }
 
 pub fn run(update_baseline: bool) -> RatchetOutcome {
@@ -167,6 +184,14 @@ mod tests {
         assert!(has_px_font_size("    font-size: 14px;"));
         assert!(!has_px_font_size("    padding: 14px;"));
         assert!(!has_px_font_size("    font-size: var(--md-size-3);"));
+    }
+
+    #[test]
+    fn a_tailwind_arbitrary_px_text_size_counts() {
+        assert!(has_px_font_size(r#"class: "text-[13px] font-medium","#));
+        assert!(has_px_font_size(r#"class: "text-[12.5px]","#));
+        assert!(!has_px_font_size(r#"class: "text-sm text-[var(--x)]","#));
+        assert!(!has_px_font_size(r#"class: "w-[13px]","#));
     }
 
     #[test]

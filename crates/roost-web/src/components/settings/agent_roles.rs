@@ -8,14 +8,14 @@ use roost_protocol::wire::agent_chat::{AgentSettingsView, ModelsCatalog};
 
 use crate::components::agent_chat::model_picker::PickerOption;
 use crate::components::agent_chat::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
-use crate::components::md::{Button, ButtonSize, ButtonVariant, Card, Chip, SwitchRow};
-use crate::components::settings::model_chain::{join_chain, parse_chain};
-use crate::components::settings::model_chain_editor::ModelChainEditor;
 use crate::components::settings::model_scope::{
-    KnownFolder, ModelScope, RoleSource, known_folders, role_source, role_value, scope_from_id,
-    scope_id, scope_label, with_role_value,
+    KnownFolder, ModelScope, known_folders, scope_from_id, scope_id, scope_label,
 };
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, IconType, SwitchRow};
 use crate::pump::{Pump, use_store};
+
+mod rows;
+use rows::{RoleContext, RoleRow, role_row};
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::client::rpc::calls::agent_chat::{GetAgentSettings, SetAgentSettings};
 
@@ -120,7 +120,7 @@ pub fn AgentRoles(
         error,
     };
     rsx! {
-        div { class: "agent-settings__scope", "data-testid": "agent-model-scope",
+        div { class: "flex flex-wrap items-center gap-3", "data-testid": "agent-model-scope",
             ToolbarMenu {
                 menu_key: "model-scope".to_owned(),
                 trigger: ToolbarTrigger::Picker { label: scope_label(&active, &folders) },
@@ -128,11 +128,11 @@ pub fn AgentRoles(
                 items: scope_items,
                 on_choose: move |choice: String| scope.set(scope_from_id(&choice)),
             }
-            p { class: "agent-settings__scope-help",
+            p { class: "basis-full text-sm text-muted-foreground",
                 "A folder's chain replaces the all-folders chain for that role only. A role with no chain inherits."
             }
             if folders.is_empty() {
-                p { class: "agent-settings__scope-help",
+                p { class: "basis-full text-sm text-muted-foreground",
                     "Open a folder or start a conversation to customize its models."
                 }
             }
@@ -146,7 +146,7 @@ pub fn AgentRoles(
         Button {
             variant: ButtonVariant::Ghost,
             size: ButtonSize::Sm,
-            icon: if specialized() { "expand_less" } else { "expand_more" },
+            icon: Some(if specialized() { IconType::ChevronUp } else { IconType::ChevronDown }),
             "aria-expanded": specialized().to_string(),
             "aria-controls": "agent-work-role-models",
             "data-testid": "agent-work-role-expand",
@@ -155,41 +155,24 @@ pub fn AgentRoles(
             if specialized() { "Hide work-role overrides" } else { "Customize by task" }
         }
         if specialized() {
-            div { id: "agent-work-role-models", class: "agent-settings__role-cards",
+            div { id: "agent-work-role-models", class: "flex flex-col gap-3",
                 for (role, title, purpose, inherits) in ROLES.into_iter().skip(1) {
                     {role_row(RoleRow { role, title, purpose, inherits }, &context)}
                 }
             }
         }
         SwitchRow {
-            test_id: "agent-advisor-default",
-            headline: "Advisor reviews every turn by default",
+            test_id: Some("agent-advisor-default".to_owned()),
+            headline: "Advisor reviews every turn by default".to_owned(),
             support: Some("Conversations use the advisor unless individually overridden.".to_owned()),
             checked: current.advisor_enabled,
-            on_change: move |enabled| {
+            on_checked_change: move |enabled| {
                 let mut updated = current.clone();
                 updated.advisor_enabled = enabled;
                 save_settings(pump.clone(), updated, settings, error);
             },
         }
     }
-}
-
-struct RoleRow {
-    role: &'static str,
-    title: &'static str,
-    purpose: &'static str,
-    inherits: &'static str,
-}
-
-/// What a role row reads and writes, shared by every row in the pane.
-struct RoleContext<'a> {
-    current: &'a AgentSettingsView,
-    scope: &'a ModelScope,
-    catalog: &'a ModelsCatalog,
-    pump: Pump,
-    settings: Signal<AgentSettingsView>,
-    error: Signal<String>,
 }
 
 /// Saved overrides remain reachable after their last conversation is deleted.
@@ -272,89 +255,6 @@ fn provider_name(catalog: &ModelsCatalog, provider_id: &str) -> String {
         .iter()
         .find(|provider| provider.id == provider_id)
         .map_or_else(|| provider_id.to_owned(), |provider| provider.name.clone())
-}
-
-/// The source chip's text and tooltip. In all-folders scope a role is only ever
-/// set or not; in a folder it can also come from the all-folders chain.
-fn source_chip(source: RoleSource, is_folder: bool) -> (String, String) {
-    match (source, is_folder) {
-        (RoleSource::Folder, _) => (
-            "This folder".to_owned(),
-            "This folder's own chain runs".to_owned(),
-        ),
-        (RoleSource::Global, true) => (
-            "All folders".to_owned(),
-            "Inherited from the all-folders chain".to_owned(),
-        ),
-        (RoleSource::Global, false) => ("Set".to_owned(), "Saved for all folders".to_owned()),
-        (RoleSource::Unset, _) => (
-            "Not set".to_owned(),
-            "Nothing saved; the inherited choice runs".to_owned(),
-        ),
-    }
-}
-
-fn role_row(row: RoleRow, context: &RoleContext<'_>) -> Element {
-    let RoleRow {
-        role,
-        title,
-        purpose,
-        inherits,
-    } = row;
-    let chain = parse_chain(&role_value(context.current, context.scope, role).unwrap_or_default());
-    let source = role_source(context.current, context.scope, role);
-    let is_folder = matches!(context.scope, ModelScope::Folder { .. });
-    let (source_text, source_title) = source_chip(source, is_folder);
-    let options = role_options(context.catalog, role);
-    let thinking_levels = context.catalog.thinking_levels.clone();
-    let settings = context.settings;
-    let error = context.error;
-    let edit_current = context.current.clone();
-    let edit_scope = context.scope.clone();
-    let edit_pump = context.pump.clone();
-    let reset_current = context.current.clone();
-    let reset_scope = context.scope.clone();
-    let reset_pump = context.pump.clone();
-    let show_reset = is_folder && source == RoleSource::Folder;
-    rsx! {
-        Card {
-            key: "{role}",
-            title: title.to_owned(),
-            supporting: purpose.to_owned(),
-            test_id: format!("agent-role-{role}"),
-            trailing: rsx! {
-                Chip {
-                    label: source_text,
-                    title: Some(source_title),
-                    test_id: Some(format!("agent-role-{role}-source")),
-                }
-                if show_reset {
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        size: ButtonSize::Sm,
-                        "data-testid": "agent-role-{role}-use-all-folders",
-                        onclick: move |_| {
-                            let updated = with_role_value(&reset_current, &reset_scope, role, None);
-                            save_settings(reset_pump.clone(), updated, settings, error);
-                        },
-                        "Use all-folders chain"
-                    }
-                }
-            },
-            ModelChainEditor {
-                role_title: title.to_owned(),
-                chain,
-                options,
-                thinking_levels,
-                inherited_label: inherits.to_owned(),
-                test_id: format!("agent-role-{role}-chain"),
-                on_change: move |next: Vec<String>| {
-                    let updated = with_role_value(&edit_current, &edit_scope, role, Some(join_chain(&next)));
-                    save_settings(edit_pump.clone(), updated, settings, error);
-                },
-            }
-        }
-    }
 }
 
 pub fn load_settings(pump: Pump, settings: Signal<AgentSettingsView>, error: Signal<String>) {

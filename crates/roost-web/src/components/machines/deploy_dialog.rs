@@ -21,16 +21,11 @@ use dioxus::prelude::*;
 use super::deploy_calls::{check_enrollment, copy_command, mint_join_command};
 use super::deploy_state::{DeployError, DeployModel, DeployPhase};
 use super::local_access_guide::{MachineLocalAccessGuide, RECHECK_LABEL};
-use crate::components::md::{
-    Button, ButtonVariant, Dialog, StatusDot, Surface, SurfaceRadius, TextField,
+use crate::components::ui::{
+    Button, ButtonVariant, Dialog, DialogBody, DialogClose, DialogContent, DialogFooter,
+    DialogHeader, DialogTitle, StatusDot, Surface, SurfaceRadius, TextField,
 };
 use crate::pump::use_store;
-
-const STACK_STYLE: &str = "display: grid; gap: var(--md-space-4);";
-const SUPPORT_STYLE: &str = "margin: 0; color: var(--md-sys-color-on-surface-variant);";
-const COMMAND_STYLE: &str = "overflow-wrap: anywhere;";
-const ERROR_ROW_STYLE: &str = "display: flex; align-items: flex-start; gap: var(--md-space-2);";
-const ERROR_TITLE_STYLE: &str = "margin: 0; color: var(--md-sys-color-error);";
 
 /// The dialog. Mounted by the machines pane when the reader asks to add a
 /// machine, and unmounted by that pane's dismissal.
@@ -72,17 +67,9 @@ pub fn MachineDeployDialog(on_close: EventHandler<()>) -> Element {
                 onclick: move |_| copy_command(model),
                 if copied { "Copied" } else { "Copy command" }
             }
-            Button {
-                variant: ButtonVariant::Outline,
-                onclick: move |_| close.call(()),
-                "Done"
-            }
+            DialogClose { "Done" }
         } else {
-            Button {
-                variant: ButtonVariant::Outline,
-                onclick: move |_| close.call(()),
-                "Cancel"
-            }
+            DialogClose { "Cancel" }
             if generates {
                 Button {
                     variant: ButtonVariant::Default,
@@ -116,12 +103,18 @@ pub fn MachineDeployDialog(on_close: EventHandler<()>) -> Element {
     rsx! {
         Dialog {
             open: true,
-            on_close: move |()| close.call(()),
-            headline: Some("Add Machine".to_owned()),
-            test_id: Some("machine-deploy-dialog".to_owned()),
-            show_close_button: Some(true),
-            actions: Some(actions),
-            {body}
+            on_open_change: move |open: bool| {
+                if !open {
+                    close.call(());
+                }
+            },
+            DialogContent { test_id: "machine-deploy-dialog", show_close_button: true,
+                DialogHeader {
+                    DialogTitle { "Add Machine" }
+                }
+                DialogBody { {body} }
+                DialogFooter { {actions} }
+            }
         }
     }
 }
@@ -132,12 +125,12 @@ pub fn MachineDeployDialog(on_close: EventHandler<()>) -> Element {
 fn EnrollmentForm(model: DeployModel, mut label: Signal<String>) -> Element {
     let minting = model.phase() == DeployPhase::Minting;
     rsx! {
-        div { style: STACK_STYLE,
+        div { class: "grid gap-4",
             if let Some(coordinator_url) = model.coordinator_url() {
                 Surface { level: 1, radius: SurfaceRadius::Sm, pad: 3, border: true,
-                    div { style: STACK_STYLE,
-                        p { class: "md-label-m", style: SUPPORT_STYLE, "Enrollment address" }
-                        code { class: "md-body-m", style: COMMAND_STYLE, {coordinator_url} }
+                    div { class: "grid gap-4",
+                        p { class: "m-0 text-xs font-medium text-muted-foreground", "Enrollment address" }
+                        code { class: "break-all font-mono text-sm", {coordinator_url} }
                     }
                 }
             }
@@ -164,17 +157,17 @@ fn GeneratedCommand(model: DeployModel) -> Element {
     };
     let coordinator_url = model.coordinator_url().unwrap_or_default().to_owned();
     rsx! {
-        div { style: STACK_STYLE,
-            p { class: "md-body-m", style: SUPPORT_STYLE,
+        div { class: "grid gap-4",
+            p { class: "m-0 text-sm text-muted-foreground",
                 {"Run this on the target machine, over its normal terminal, SSH session or cloud \
                   console. It must be able to reach "}
-                code { style: COMMAND_STYLE, {coordinator_url} }
+                code { class: "break-all font-mono text-xs text-foreground", {coordinator_url} }
                 {"."}
             }
             Surface { level: 1, radius: SurfaceRadius::Sm, pad: 3, border: true,
-                code { class: "md-body-s", style: COMMAND_STYLE, {command} }
+                code { class: "break-all font-mono text-xs", {command} }
             }
-            p { class: "md-body-m", style: SUPPORT_STYLE,
+            p { class: "m-0 text-sm text-muted-foreground",
                 "This one-use command expires after 24 hours. Treat it as a secret, and run it only \
                  on the machine you want to add."
             }
@@ -191,11 +184,11 @@ fn DeployRefusal(error: DeployError) -> Element {
             role: Some("alert".to_owned()),
             aria_live: Some("polite".to_owned()),
             aria_atomic: Some("true".to_owned()),
-            div { style: ERROR_ROW_STYLE,
+            div { class: "flex items-start gap-2",
                 StatusDot { status: "error".to_owned(), title: Some("Error".to_owned()) }
-                div { style: STACK_STYLE, "data-machine-deploy-error-kind": kind.attribute(),
-                    p { class: "md-title-s", style: ERROR_TITLE_STYLE, {error.title} }
-                    p { class: "md-body-s", style: SUPPORT_STYLE, {error.detail} }
+                div { class: "grid gap-4", "data-machine-deploy-error-kind": kind.attribute(),
+                    p { class: "m-0 text-sm font-medium text-destructive", {error.title} }
+                    p { class: "m-0 text-xs text-muted-foreground", {error.detail} }
                 }
             }
         }

@@ -12,7 +12,9 @@ use std::collections::BTreeSet;
 
 use dioxus::prelude::*;
 
-use crate::components::md::{BindingChip, Chip, Sheet, SheetSide, Surface, SurfaceRadius};
+use crate::components::ui::{
+    BindingChip, Chip, Dialog, DialogContent, DialogHeader, DialogTitle, Surface, SurfaceRadius,
+};
 use crate::input_nav::pad_bindings::{PAD_CONTROL_GUIDE, PadAction, PadControlGuide};
 use crate::input_nav::{NavModality, PadHeld};
 
@@ -159,22 +161,23 @@ pub fn ControllerMap() -> Element {
     // in for games never asked for a controller UI.
     let pad_seen = modality.is_some_and(|modality| modality.peek().pad_input_seen());
     let open = *overlays.controller_map.peek() && pad_seen;
-    let on_close = {
+    let on_open_change = {
         let mut controller_map = overlays.controller_map;
-        EventHandler::new(move |()| controller_map.set(false))
+        EventHandler::new(move |is_open: bool| controller_map.set(is_open))
     };
     rsx! {
-        Sheet {
+        Dialog {
             open,
-            on_close,
-            headline: "Controller map",
-            side: SheetSide::Center,
-            class: "roost-dialog--controller-map",
-            if open {
-                ControllerMapBody {
-                    held: held
-                        .and_then(|held| held.try_read().ok().map(|value| value.cloned()))
-                        .unwrap_or_default(),
+            on_open_change,
+            DialogContent {
+                class: "sm:max-w-[65rem]",
+                DialogHeader { DialogTitle { "Controller map" } }
+                if open {
+                    ControllerMapBody {
+                        held: held
+                            .and_then(|held| held.try_read().ok().map(|value| value.cloned()))
+                            .unwrap_or_default(),
+                    }
                 }
             }
         }
@@ -197,10 +200,15 @@ fn ControllerMapBody(held: PadHeld) -> Element {
         .collect();
     let caption = caption_for(&caps);
     rsx! {
-        div { class: "pad-map-shell", "data-testid": "controller-map",
-            Surface { level: 2, elevation: 1, radius: SurfaceRadius::Lg, pad: 5, class: "pad-map",
+        div { class: "flex flex-col gap-4", "data-testid": "controller-map",
+            Surface {
+                level: 2,
+                elevation: 1,
+                radius: SurfaceRadius::Lg,
+                pad: 5,
+                class: "pad-map grid grid-cols-[minmax(0,1fr)_minmax(0,0.7fr)_minmax(0,1.3fr)] items-start gap-4",
                 for cluster in PAD_MAP_CLUSTERS {
-                    div { class: "pad-map__cluster", "data-cluster": cluster,
+                    div { class: "pad-map__cluster flex flex-col gap-2", "data-cluster": cluster,
                         for slot in PAD_MAP_SLOTS.iter().filter(|slot| slot.cluster == cluster) {
                             PadCallout {
                                 cap: slot.cap.to_owned(),
@@ -211,17 +219,17 @@ fn ControllerMapBody(held: PadHeld) -> Element {
                     }
                 }
             }
-            p { class: "md-body-s pad-map__caption", "data-testid": "controller-map-caption", {caption} }
+            p { class: "m-0 min-h-8 text-sm text-[var(--text-mid)]", "data-testid": "controller-map-caption", {caption} }
             if !unnamed.is_empty() {
-                div { class: "pad-map__extras",
+                div { class: "flex flex-wrap items-center gap-2",
                     for index in unnamed {
                         PadCallout { cap: format!("Button {index}"), held: true, guide: None }
                     }
                 }
             }
-            div { class: "pad-map__footer",
+            div { class: "flex flex-wrap items-center gap-2",
                 Chip { label: "B, Esc or Start closes".to_owned(), icon: None, selected: None, onclick: None, title: None, test_id: None }
-                span { class: "md-label-s pad-map__note",
+                span { class: "text-xs text-muted-foreground",
                     "Xbox labels — the same caps on any standard-mapping pad."
                 }
             }
@@ -243,10 +251,14 @@ fn PadCallout(cap: String, held: bool, guide: Option<PadControlGuide>) -> Elemen
     let data_cap = cap.clone();
     let title = detail;
     rsx! {
-        div { class: "pad-map__callout", "data-cap": data_cap, "data-held": if held { "true" } else { "false" }, title,
+        div {
+            class: "pad-map__callout group flex flex-col items-start gap-1 rounded-lg border border-border bg-card p-2 data-[held=true]:border-primary data-[held=true]:bg-accent",
+            "data-cap": data_cap,
+            "data-held": if held { "true" } else { "false" },
+            title,
             BindingChip { {cap} }
-            span { class: "md-title-s pad-map__label", {label} }
-            span { class: "md-label-s pad-map__detail", {detail} }
+            span { class: "text-sm font-medium text-foreground group-data-[held=true]:text-accent-foreground", {label} }
+            span { class: "pad-map__detail text-xs text-muted-foreground", {detail} }
         }
     }
 }

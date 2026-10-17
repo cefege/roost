@@ -9,7 +9,7 @@ use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
 use roost_client_core::deck::DeckIntent;
 
-use crate::components::md::{Button, ButtonSize, ButtonVariant, Surface, SurfaceRadius};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, Surface, SurfaceRadius};
 use crate::pump::use_store;
 
 /// One card per close that is still inside its window.
@@ -60,21 +60,19 @@ fn UndoSnackbar(entry: roost_client_core::store::pending_close::PendingClose) ->
                 level: 3,
                 elevation: 4,
                 radius: SurfaceRadius::Md,
-                style: "position: relative; display: flex; align-items: center; gap: var(--md-space-3); color: var(--md-sys-color-on-surface); padding: var(--md-space-3) var(--md-space-2) var(--md-space-3) var(--md-space-4); overflow: hidden;".to_owned(),
+                class: "relative flex items-center gap-3 overflow-hidden py-3 pr-2 pl-4 text-foreground",
                 div {
-                    style: "flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--md-space-1);",
+                    class: "flex min-w-0 flex-1 flex-col gap-1",
                     span {
                         "data-testid": "undo-snackbar-text",
-                        class: "md-body-m",
-                        style: "white-space: nowrap; overflow: hidden; text-overflow: ellipsis;",
-                        span { class: "md-label-l", "{entry.labels.terminal_name}" }
+                        class: "truncate text-sm leading-5",
+                        span { class: "font-medium", "{entry.labels.terminal_name}" }
                         " closed"
                     }
                     if !sub.is_empty() {
                         span {
                             "data-testid": "undo-snackbar-sub",
-                            class: "md-body-s",
-                            style: "white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--md-sys-color-on-surface-variant);",
+                            class: "truncate text-xs leading-4 text-muted-foreground",
                             "{sub}"
                         }
                     }
@@ -88,7 +86,8 @@ fn UndoSnackbar(entry: roost_client_core::store::pending_close::PendingClose) ->
                 }
                 span {
                     "aria-hidden": "true",
-                    style: "position: absolute; inset: auto 0 0; height: var(--workbench-border-width); background: var(--md-sys-color-primary); transform-origin: left center; animation: undo-snackbar-bar var(--roost-undo-window-ms, 5000ms) linear forwards;".to_owned(),
+                    class: "absolute inset-x-0 bottom-0 h-[var(--workbench-border-width)] origin-left bg-primary",
+                    style: "animation-name: roost-countdown-drain; animation-duration: var(--roost-undo-window-ms, 5000ms); animation-timing-function: linear; animation-fill-mode: forwards;",
                 }
             }
         }

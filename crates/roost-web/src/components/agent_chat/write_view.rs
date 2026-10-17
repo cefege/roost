@@ -4,9 +4,8 @@
 
 use dioxus::prelude::*;
 
-use super::markdown::TERMINAL_GROUND_STYLE;
 use super::output_lines::window;
-use crate::components::md::{Button, ButtonSize, ButtonVariant, Surface, SurfaceRadius};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, Surface};
 
 /// Lines of written content shown before folding, matching OMP's write preview.
 pub(super) const WRITE_PREVIEW_LINES: usize = 6;
@@ -45,26 +44,25 @@ pub fn WriteBody(content: String, open: bool, on_expand: EventHandler<bool>) -> 
     let can_collapse = open && preview.total > WRITE_PREVIEW_LINES;
     let gutter_style = format!("--write-gutter: {};", preview.gutter);
     rsx! {
-        Surface { radius: SurfaceRadius::Md, style: TERMINAL_GROUND_STYLE.to_string(),
-            class: "agent-chat__write-ground",
-            pre { class: "agent-chat__write", style: gutter_style,
+        Surface { class: "rounded-md bg-terminal py-2 text-terminal-foreground",
+            pre { class: "m-0 overflow-x-auto font-mono text-xs", style: gutter_style,
                 for (number, line) in preview.lines.iter() {
-                    div { class: "agent-chat__write-line", key: "{number}",
-                        span { class: "agent-chat__write-gutter", "{number}" }
-                        span { class: "agent-chat__write-text", "{line}" }
+                    div { class: "flex whitespace-pre", key: "{number}",
+                        span { class: "min-w-[calc(var(--write-gutter)*1ch)] select-none pr-3 text-right text-muted-foreground", "{number}" }
+                        span { class: "whitespace-pre-wrap break-words", "{line}" }
                     }
                 }
             }
             if preview.hidden > 0 {
-                p { class: "agent-chat__step-hint", "{hint}" }
+                p { class: "m-0 px-3 pt-1 text-xs text-muted-foreground", "{hint}" }
             }
         }
         if preview.hidden > 0 {
-            Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "agent-chat__step-more",
+            Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "self-start",
                 onclick: move |_| on_expand.call(true), "Show all" }
         }
         if can_collapse {
-            Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "agent-chat__step-more",
+            Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "self-start",
                 onclick: move |_| on_expand.call(false), "Collapse" }
         }
     }

@@ -9,9 +9,9 @@ use roost_protocol::wire::agent_chat::{AccountEntry, AccountKind, AccountUsageWi
 use super::agent_provider_status::{AccountHealth, ProviderSummary};
 use super::format::time_until;
 use crate::components::agent_chat::agent_alert::ERROR_TEXT_CLASS;
-use crate::components::md::{
-    Button, ButtonSize, ButtonVariant, Card, CardVariant, Chip, List, ListRow, MetricTile,
-    SectionTitle, StatusDot,
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Card, CardAction, CardContent, CardDescription,
+    CardHeader, CardTitle, CardVariant, Chip, IconType, List, ListRow, MetricTile, SectionTitle, StatusDot,
 };
 use crate::pump::{Pump, use_store};
 #[cfg(target_arch = "wasm32")]
@@ -40,17 +40,19 @@ pub fn ConnectedProviderCard(
     rsx! {
         Card {
             variant: CardVariant::Outlined,
-            class: "agent-settings__provider-card",
-            test_id: Some(format!("agent-provider-{}", summary.provider.id)),
-            title: Some(summary.provider.name.clone()),
-            supporting: Some(format!("{counts} · {state}")),
-            trailing: rsx! {
-                div { class: "agent-settings__provider-actions",
-                    StatusDot { status: health.dot().to_owned(), size: 10, title: Some(health_title(&health, now_ms)) }
-                    Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm, icon: "add", onclick: move |_| on_add.call(()), "Add account" }
+            class: Some("gap-3".to_owned()),
+            "data-testid": format!("agent-provider-{}", summary.provider.id),
+            CardHeader {
+                CardTitle { "{summary.provider.name}" }
+                CardDescription { "{counts} · {state}" }
+                CardAction {
+                    div { class: "flex items-center gap-2",
+                        StatusDot { status: health.dot().to_owned(), size: 10, title: Some(health_title(&health, now_ms)) }
+                        Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm, icon: Some(IconType::Plus), onclick: move |_| on_add.call(()), "Add account" }
+                    }
                 }
-            },
-            children: rsx! {
+            }
+            CardContent {
                 if !summary.accounts.is_empty() {
                     List { contained: true,
                         for account in summary.accounts.clone() {
@@ -61,7 +63,7 @@ pub fn ConnectedProviderCard(
                 if !models.is_empty() {
                     ModelPreview { models }
                 }
-            },
+            }
         }
     }
 }
@@ -84,16 +86,16 @@ fn AccountRow(account: AccountEntry, now_ms: u64, on_removed: EventHandler<()>) 
             leading: rsx! { StatusDot { status: health.dot().to_owned(), title: Some(health_title(&health, now_ms)) } },
             headline: rsx! { "{account.label}" },
             support: rsx! {
-                div { class: "agent-settings__support-stack",
+                div { class: "flex flex-col gap-2",
                     div { "{kind_label(account.kind)} · {health_title(&health, now_ms)}" }
                     if !windows.is_empty() {
-                        div { class: "md-metric-grid",
+                        div { class: "grid grid-cols-1 gap-2 sm:grid-cols-2",
                             for window in windows {
                                 UsageWindow { key: "{window.name}", window, now_ms }
                             }
                         }
                     }
-                    if let Some(note) = note { div { class: "agent-settings__support", "{note}" } }
+                    if let Some(note) = note { div { class: "text-sm text-muted-foreground", "{note}" } }
                     if !error().is_empty() {
                         p { class: ERROR_TEXT_CLASS, role: "alert", {error()} }
                     }
@@ -107,7 +109,7 @@ fn AccountRow(account: AccountEntry, now_ms: u64, on_removed: EventHandler<()>) 
                         "Remove"
                     }
                 } else {
-                    Button { variant: ButtonVariant::Ghost, size: ButtonSize::Sm, icon: "delete", onclick: move |_| confirming.set(true), "Remove" }
+                    Button { variant: ButtonVariant::Ghost, size: ButtonSize::Sm, icon: Some(IconType::Trash2), onclick: move |_| confirming.set(true), "Remove" }
                 }
             },
         }
@@ -145,14 +147,14 @@ fn ModelPreview(models: Vec<ModelEntry>) -> Element {
         total.min(MODEL_PREVIEW)
     };
     rsx! {
-        div { class: "agent-settings__model-preview",
+        div { class: "flex flex-col gap-2",
             SectionTitle { "Models" }
-            div { class: "agent-settings__model-chips",
+            div { class: "flex flex-wrap items-center gap-2",
                 for model in models.into_iter().take(shown) {
                     Chip {
                         key: "{model.model_id}",
                         label: model.name.clone(),
-                        icon: model.reasoning.then(|| "psychology".to_owned()),
+                        icon: model.reasoning.then_some(IconType::Brain),
                         selected: None,
                     }
                 }

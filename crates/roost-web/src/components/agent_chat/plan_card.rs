@@ -5,8 +5,7 @@
 use dioxus::prelude::*;
 
 use super::markdown::markdown_to_safe_html;
-use crate::components::md::text_field::TEXTAREA_TYPE;
-use crate::components::md::{Button, ButtonVariant, Card, TextField};
+use crate::components::ui::{Button, ButtonVariant, Card, CardContent, CardHeader, CardTitle, Markdown, Textarea};
 use crate::pump::{Pump, use_store};
 use crate::router_state::use_navigate;
 
@@ -40,12 +39,13 @@ pub fn PlanCard(
     rsx! {
         Card {
             key: "{id}",
-            title: Some(title),
-            class: "agent-chat__plan-card",
-            children: rsx! {
-                div { class: "agent-chat__markdown", dangerous_inner_html: rendered }
+            CardHeader {
+                CardTitle { "{title}" }
+            }
+            CardContent {
+                Markdown { html: rendered }
                 if proposed {
-                    div { class: "agent-chat__plan-actions",
+                    div { class: "flex flex-wrap items-center gap-2",
                         Button { variant: ButtonVariant::Default,
                             onclick: move |_| decide(approve_pump.clone(), approve_id.clone(), approve_item.clone(), "approve", String::new()),
                             "Approve"
@@ -59,8 +59,14 @@ pub fn PlanCard(
                         Button { variant: ButtonVariant::Ghost, onclick: open_refine, "Refine…" }
                     }
                     if refine() {
-                        div { class: "agent-chat__plan-refine",
-                            TextField { value: feedback(), on_input: move |value| feedback.set(value), label: None, input_type: Some(TEXTAREA_TYPE.to_string()), aria_label: Some("Plan refinement".to_string()), rows: Some(3), class: Some("agent-chat__plan-refine-field".to_string()) }
+                        div { class: "flex w-full flex-col items-start gap-2",
+                            Textarea {
+                                class: "w-full",
+                                value: feedback(),
+                                rows: 3,
+                                aria_label: "Plan refinement",
+                                oninput: move |event: FormEvent| feedback.set(event.value()),
+                            }
                             Button {
                                 variant: ButtonVariant::Default,
                                 onclick: move |_| {
@@ -72,7 +78,7 @@ pub fn PlanCard(
                         }
                     }
                 }
-            },
+            }
         }
     }
 }

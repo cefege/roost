@@ -1,17 +1,6 @@
-//! "Pair a phone": a paired browser mints a one-shot browser grant and shows
-//! its `#pair=` link as a QR code, so a phone camera opens Roost and pairs with
-//! no typing.
-//!
-//! Mounted by Settings → Devices and by the approver half of the pairing page.
-//! Depends on `settings::bootstrap::MintBootstrap` for the grant,
-//! `machines::enrollment_origin` for the origin a phone can reach,
-//! `roost_platform::browser_pairing_link` for the link the boot captures, and
-//! `pairing::phone_qr` for the drawing.
-//!
-//! NOTHING IS MINTED UNTIL ASKED. A grant is a live credential for 24 hours, so
-//! opening the pane mints none; one press mints exactly one, and the press is
-//! disabled while it is in flight. The redemption, its one-shot claim and its
-//! expiry are the coordinator's, unchanged: this card only carries the grant.
+//! "Pair a phone": a paired browser mints a one-shot browser grant and shows its
+//! `#pair=` link as a QR code, so a phone camera opens Roost and pairs with no
+//! typing. Mounted by Settings → Devices and by the approver half of the pairing page.
 
 use dioxus::prelude::*;
 #[cfg(target_arch = "wasm32")]
@@ -23,9 +12,11 @@ use roost_client_core::client::rpc::calls::settings::machines::GetCoordinatorIde
 use super::phone_qr::pairing_qr_svg;
 #[cfg(target_arch = "wasm32")]
 use crate::components::machines::enrollment_origin::{EnrollmentDecision, enrollment_decision};
-use crate::components::md::{Button, ButtonVariant, Card};
 use crate::components::notifications::clipboard;
 use crate::components::terminal::dom::{now_ms, sleep_ms};
+use crate::components::ui::{
+    Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader, CardTitle, IconType,
+};
 use crate::pump::{Pump, use_store};
 
 /// The label the coordinator records against a grant this card mints, shown in
@@ -60,7 +51,9 @@ enum PhonePairing {
     Failed(String),
 }
 
-/// The card.
+/// The card. Opening the pane mints nothing: one press mints one grant, and the
+/// press is disabled while that grant is in flight, so a second press cannot
+/// spend a second credential.
 #[component]
 pub fn PhonePairingCard() -> Element {
     let pump = use_store();
@@ -75,38 +68,48 @@ pub fn PhonePairingCard() -> Element {
     let current = state();
     let mint = move |_| mint_phone_grant(pump.clone(), state);
     rsx! {
-        Card {
-            title: "Pair a phone",
-            supporting: "Scan this code with the phone's camera. Roost opens and pairs it — no typing.",
-            test_id: "phone-pairing-card",
-            match current {
-                PhonePairing::Idle => rsx! {
-                    Button {
-                        variant: ButtonVariant::Default,
-                        icon: "qr_code_2",
-                        "data-testid": "phone-pairing-show",
-                        onclick: mint,
-                        "Show pairing code"
-                    }
-                },
-                PhonePairing::Minting => rsx! {
-                    Button { variant: ButtonVariant::Default, icon: "qr_code_2", disabled: true, "Generating…" }
-                },
-                PhonePairing::Ready(pairing) => rsx! {
-                    ScannableCode { pairing, clock_ms: clock(), on_regenerate: mint }
-                },
-                PhonePairing::Unreachable(message) => rsx! {
-                    p { class: "md-body-m", "data-testid": "phone-pairing-unreachable", style: "color: var(--md-sys-color-on-surface-variant); margin: 0;",
-                        {message}
-                    }
-                    Button { variant: ButtonVariant::Secondary, onclick: mint, "Check again" }
-                },
-                PhonePairing::Failed(message) => rsx! {
-                    p { role: "alert", class: "md-body-m", style: "color: var(--md-sys-color-error); margin: 0;",
-                        {message}
-                    }
-                    Button { variant: ButtonVariant::Secondary, onclick: mint, "Try again" }
-                },
+        Card { "data-testid": "phone-pairing-card",
+            CardHeader {
+                CardTitle { "Pair a phone" }
+                CardDescription {
+                    "Scan this code with the phone's camera. Roost opens and pairs it — no typing."
+                }
+            }
+            CardContent {
+                match current {
+                    PhonePairing::Idle => rsx! {
+                        Button {
+                            variant: ButtonVariant::Default,
+                            icon: Some(IconType::QrCode),
+                            "data-testid": "phone-pairing-show",
+                            onclick: mint,
+                            "Show pairing code"
+                        }
+                    },
+                    PhonePairing::Minting => rsx! {
+                        Button {
+                            variant: ButtonVariant::Default,
+                            icon: Some(IconType::QrCode),
+                            disabled: true,
+                            "Generating…"
+                        }
+                    },
+                    PhonePairing::Ready(pairing) => rsx! {
+                        ScannableCode { pairing, clock_ms: clock(), on_regenerate: mint }
+                    },
+                    PhonePairing::Unreachable(message) => rsx! {
+                        p {
+                            class: "m-0 text-sm text-muted-foreground",
+                            "data-testid": "phone-pairing-unreachable",
+                            {message}
+                        }
+                        Button { variant: ButtonVariant::Secondary, onclick: mint, "Check again" }
+                    },
+                    PhonePairing::Failed(message) => rsx! {
+                        p { role: "alert", class: "m-0 text-sm text-destructive", {message} }
+                        Button { variant: ButtonVariant::Secondary, onclick: mint, "Try again" }
+                    },
+                }
             }
         }
     }
@@ -125,28 +128,28 @@ fn ScannableCode(
     let remaining = expiry_phrase(clock_ms, pairing.expires_at_ms);
     let link = pairing.link.clone();
     rsx! {
-        div { style: "display: flex; flex-wrap: wrap; align-items: center; gap: var(--md-space-5);",
+        div { class: "flex flex-wrap items-center gap-5",
             if let Some(remaining) = remaining.clone() {
                 div {
                     role: "img",
                     "aria-label": "QR code that pairs a phone with this Roost",
                     "data-testid": "phone-pairing-qr",
-                    style: "color: var(--qr-module); background: var(--qr-field); border-radius: var(--md-shape-sm); line-height: 0; flex-shrink: 0;",
+                    class: "shrink-0 rounded-sm leading-none [background-color:var(--qr-field)] [color:var(--qr-module)]",
                     title: remaining,
                     dangerous_inner_html: pairing.qr_svg.clone(),
                 }
             }
-            div { style: "display: flex; flex-direction: column; gap: var(--md-space-3); min-width: 0;",
-                p { class: "md-body-m", "data-testid": "phone-pairing-expiry", style: "margin: 0;",
+            div { class: "flex min-w-0 flex-col gap-3",
+                p { class: "m-0 text-sm text-foreground", "data-testid": "phone-pairing-expiry",
                     {remaining.unwrap_or_else(|| "This code has expired.".to_owned())}
                 }
-                p { class: "md-body-s", style: "color: var(--md-sys-color-on-surface-variant); margin: 0;",
+                p { class: "m-0 text-xs text-muted-foreground",
                     "It works once: whoever opens it first pairs, so show it only to the phone you mean."
                 }
-                div { style: "display: flex; flex-wrap: wrap; gap: var(--md-space-2);",
+                div { class: "flex flex-wrap gap-2",
                     Button {
                         variant: ButtonVariant::Secondary,
-                        icon: "refresh",
+                        icon: Some(IconType::RefreshCw),
                         "data-testid": "phone-pairing-regenerate",
                         onclick: move |event| {
                             copied.set(false);
@@ -156,7 +159,7 @@ fn ScannableCode(
                     }
                     Button {
                         variant: ButtonVariant::Ghost,
-                        icon: "content_copy",
+                        icon: Some(IconType::Copy),
                         onclick: move |_| copied.set(clipboard::copy_text(&link)),
                         if copied() { "Link copied" } else { "Copy link" }
                     }

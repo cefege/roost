@@ -2,6 +2,8 @@
 //! slice of output visible while folded (OMP's per-tool preview windows), and
 //! the executor facts. The component is `tool_card`.
 
+use crate::components::ui::IconType;
+
 /// Which end of the output a folded preview keeps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PreviewEdge {
@@ -29,19 +31,19 @@ pub(super) fn preview_window(tool_name: &str) -> (usize, PreviewEdge) {
 /// An error keeps at most this many rows folded, as OMP's transcript does.
 pub(super) const ERROR_ROWS: usize = 8;
 
-/// The icon and verb for a call in its current state.
-pub(super) fn presentation(tool_name: &str, active: bool) -> (&'static str, String) {
+/// The Lucide icon and verb for a call in its current state.
+pub(super) fn presentation(tool_name: &str, active: bool) -> (IconType, String) {
     let (icon, running_verb, finished_verb) = match tool_name {
-        "bash" => ("terminal", "Running", "Ran"),
-        "read" => ("description", "Reading", "Read"),
-        "edit" => ("edit", "Editing", "Edited"),
-        "write" => ("edit_document", "Writing", "Wrote"),
-        "grep" | "find" | "glob" | "lsp" => ("search", "Searching", "Searched"),
-        "task" => ("account_tree", "Starting", "Started"),
-        "propose_plan" => ("assignment", "Drafting", "Drafted"),
-        "wait" => ("schedule", "Waiting", "Waited"),
-        "job" => ("work", "Job", "Job"),
-        _ => ("build", tool_name, tool_name),
+        "bash" => (IconType::Terminal, "Running", "Ran"),
+        "read" => (IconType::FileText, "Reading", "Read"),
+        "edit" => (IconType::Pencil, "Editing", "Edited"),
+        "write" => (IconType::FilePen, "Writing", "Wrote"),
+        "grep" | "find" | "glob" | "lsp" => (IconType::Search, "Searching", "Searched"),
+        "task" => (IconType::ListTree, "Starting", "Started"),
+        "propose_plan" => (IconType::ClipboardList, "Drafting", "Drafted"),
+        "wait" => (IconType::Clock, "Waiting", "Waited"),
+        "job" => (IconType::Briefcase, "Job", "Job"),
+        _ => (IconType::Hammer, tool_name, tool_name),
     };
     (
         icon,

@@ -14,6 +14,7 @@ use roost_web::components::context_menu::MenuFocusEdge;
 use roost_web::components::machines::machine_identity::{
     LinuxDistributionBrand, machine_identity_presentation,
 };
+use roost_web::components::ui::IconType;
 use roost_web::components::sidebar::row_swipe::{RowSwipe, SwipeRelease};
 use roost_web::components::sidebar::session_row::session_row_is_active;
 use roost_web::components::sidebar::sidebar_new_terminal::{
@@ -114,7 +115,7 @@ fn a_verified_macbook_shows_its_apple_chip() {
         Some("Apple M3 Pro"),
         None,
     )));
-    assert_eq!((mac.icon, mac.label.as_str()), ("laptop_mac", "MacBook"));
+    assert_eq!((mac.icon, mac.label.as_str()), (IconType::Laptop, "MacBook"));
     assert_eq!(mac.apple_chip_badge.as_deref(), Some("M3 Pro"));
     assert_eq!(mac.title, "MacBook · Apple M3 Pro");
     let desktop = machine_identity_presentation(Some(&worker(
@@ -125,7 +126,7 @@ fn a_verified_macbook_shows_its_apple_chip() {
     )));
     assert_eq!(
         (desktop.icon, desktop.apple_chip_badge),
-        ("desktop_mac", None)
+        (IconType::Monitor, None)
     );
 }
 
@@ -175,7 +176,7 @@ fn a_worker_reported_windows_laptop_differs_from_a_desktop() {
     )));
     assert_eq!(
         (laptop.icon, laptop.label.as_str()),
-        ("laptop_windows", "Windows laptop")
+        (IconType::Laptop, "Windows laptop")
     );
     let desktop = machine_identity_presentation(Some(&worker(
         WorkerOs::Win32,
@@ -185,7 +186,7 @@ fn a_worker_reported_windows_laptop_differs_from_a_desktop() {
     )));
     assert_eq!(
         (desktop.icon, desktop.label.as_str()),
-        ("desktop_windows", "Windows PC")
+        (IconType::Monitor, "Windows PC")
     );
     assert_eq!(machine_identity_presentation(None).label, "Computer");
 }

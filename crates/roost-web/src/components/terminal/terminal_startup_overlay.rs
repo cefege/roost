@@ -1,9 +1,8 @@
 //! The one card shown while a terminal pane is opening: a constant eyebrow, a
 //! single determinate meter, one friendly step line, and the technical detail
 //! collapsed until a step is slow or stuck. Rendered by `CellTerminal`; its
-//! clock is `startup_overlay_state`. Ports the component of
-//! `apps/web/src/components/terminal/TerminalStartupOverlay.tsx` and attaches
-//! its byte-for-byte copied `TerminalStartupOverlay.css`.
+//! `apps/web/src/components/terminal/TerminalStartupOverlay.tsx`. Its layout is
+//! Tailwind; only the entry/exit keyframes stay in `TerminalStartupOverlay.css`.
 
 use dioxus::prelude::*;
 use roost_web_terminal::startup_progress::{StartupChunks, terminal_startup_chunk_detail};
@@ -11,16 +10,10 @@ use roost_web_terminal::startup_progress::{StartupChunks, terminal_startup_chunk
 use super::dom::{now_ms, page_visible, sleep_ms};
 use super::pane_status::{TerminalStartupNotice, stage_attribute};
 use super::startup_overlay_state::StartupOverlayState;
-use crate::components::md::stylesheet::use_md_stylesheet;
-use crate::components::md::{Surface, SurfaceRadius};
-
-/// The card's stylesheet, served from `assets/components/terminal/`.
-pub const STARTUP_OVERLAY_STYLESHEET_HREF: &str = "/components/terminal/TerminalStartupOverlay.css";
 
 /// The card, or nothing once the journey completed.
 #[component]
 pub fn TerminalStartupOverlay(notice: Option<TerminalStartupNotice>) -> Element {
-    use_md_stylesheet(STARTUP_OVERLAY_STYLESHEET_HREF);
     let mut clock = use_signal(StartupOverlayState::default);
     use_effect(use_reactive((&notice,), move |(notice,)| {
         clock.write().set_notice(notice, now_ms());
@@ -54,7 +47,7 @@ pub fn TerminalStartupOverlay(notice: Option<TerminalStartupNotice>) -> Element 
     let elapsed = state.elapsed_seconds();
     rsx! {
         div {
-            class: "terminal-startup",
+            class: "terminal-startup absolute inset-0 z-[5] flex items-center justify-center p-6 pointer-events-none",
             "data-testid": "terminal-loading-status",
             "data-stage": stage_attribute(held.stage),
             "data-session-id": held.session_id.clone(),
@@ -62,63 +55,58 @@ pub fn TerminalStartupOverlay(notice: Option<TerminalStartupNotice>) -> Element 
             "data-percent": "{percent}",
             "data-phase": if state.finishing() { "complete" } else { "loading" },
             div {
-                class: "terminal-startup__announce",
+                class: "absolute h-px w-px overflow-hidden whitespace-nowrap border-0 p-0 -m-px",
                 role: "status",
                 "aria-live": "polite",
                 "aria-atomic": "true",
                 "{title}. {detail}"
             }
-            Surface {
-                level: 1,
-                elevation: 2,
-                radius: SurfaceRadius::Lg,
-                pad: 6,
-                border: true,
-                class: "terminal-startup__card",
+            div {
+                class: "flex w-[min(100%,38ch)] flex-col gap-3 rounded-lg border border-border bg-card p-6 text-center text-card-foreground shadow-md",
                 div {
-                    class: "terminal-startup__eyebrow md-label-m",
+                    class: "text-sm font-medium uppercase tracking-wide text-muted-foreground",
                     "data-testid": "terminal-loading-title",
                     "Opening terminal"
                 }
                 div {
-                    class: "terminal-startup__percent md-headline-s",
+                    class: "text-2xl font-semibold tabular-nums",
                     "data-testid": "terminal-loading-percent",
                     "{percent}%"
                 }
                 div {
-                    class: "terminal-startup__track",
+                    class: "h-1 w-full overflow-hidden rounded-full bg-muted",
                     "data-testid": "terminal-loading-progress",
                     role: "progressbar",
                     "aria-valuemin": "0",
                     "aria-valuemax": "100",
                     "aria-valuenow": "{percent}",
                     div {
-                        class: "terminal-startup__fill",
+                        class: "h-full rounded-full bg-primary transition-[width] duration-[250ms] ease-linear",
                         "data-testid": "terminal-loading-progress-fill",
                         style: fill,
                     }
                 }
                 div {
-                    class: "terminal-startup__step md-body-s",
+                    class: "text-sm text-muted-foreground",
                     "data-testid": "terminal-loading-detail",
                     "{step_label}"
                 }
                 div {
-                    class: "terminal-startup__details",
+                    class: "flex flex-col gap-1 border-t border-border pt-3 text-sm text-muted-foreground [&[hidden]]:hidden",
                     "data-testid": "terminal-loading-details",
                     hidden: !state.slow(),
-                    div { class: "md-body-s", "data-testid": "terminal-loading-technical", "{held.detail}" }
+                    div { class: "text-sm", "data-testid": "terminal-loading-technical", "{held.detail}" }
                     if let Some(part) = chunk_detail {
-                        div { class: "md-label-m", "data-testid": "terminal-loading-progress-label", "{part}" }
+                        div { class: "text-sm font-medium", "data-testid": "terminal-loading-progress-label", "{part}" }
                     }
                     div {
-                        class: "md-label-m",
+                        class: "text-sm font-medium",
                         "data-testid": "terminal-loading-elapsed",
                         "aria-hidden": "true",
                         "This step has taken {elapsed}s"
                     }
                     if let Some(reason) = held.stuck_reason.clone() {
-                        div { class: "md-body-s", "data-testid": "terminal-loading-stuck-reason", "{reason}" }
+                        div { class: "text-sm", "data-testid": "terminal-loading-stuck-reason", "{reason}" }
                     }
                 }
             }

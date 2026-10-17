@@ -1,27 +1,25 @@
 //! `WorkbenchShellSpecimen`: the static workbench reference on `/design` — the
 //! title bar, activity rail, sidebar with its selector and action bar, the
-//! editor with its tab strip, and the status bar, in the shell's own classes.
-//! Ported from `apps/web/src/components/design/WorkbenchShellSpecimen.tsx`;
-//! `gallery.rs` mounts it. It is markup only: the live shell is
-//! `components/layout`, and nothing here is wired to the store.
+//! editor with its tab strip, and the status bar. Markup only: `gallery.rs`
+//! mounts it, and the live shell is `components/layout`.
 
 use dioxus::prelude::*;
 
-use crate::components::md::{
-    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconButtonSize, IconSize, StatusDot,
-    Surface, SurfaceRadius,
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, StatusDot, Surface,
+    SurfaceRadius,
 };
 
 /// The specimen's grid: rail, sidebar and editor between the title and status
-/// bars, sized by the shell's own tokens.
-const SPECIMEN_GRID_STYLE: &str = "display: grid; \
-     grid-template-columns: var(--workbench-activity-width) minmax(var(--md-space-9), 1fr) minmax(var(--md-space-9), 2fr); \
-     grid-template-rows: var(--workbench-titlebar-height) minmax(calc(var(--md-space-9) * 4), 1fr) var(--workbench-statusbar-height); \
-     grid-template-areas: \"titlebar titlebar titlebar\" \"activity sidebar editor\" \"statusbar statusbar statusbar\"; \
-     min-height: calc(var(--md-space-9) * 6); overflow: hidden; background: var(--workbench-editor);";
+/// bars. Track sizes come from the shell's tokens so the specimen cannot drift
+/// from the live shell's geometry.
+const SPECIMEN_GRID_CLASS: &str = "grid min-h-[18rem] overflow-hidden \
+    grid-cols-[var(--workbench-activity-width)_minmax(3rem,1fr)_minmax(3rem,2fr)] \
+    grid-rows-[var(--workbench-titlebar-height)_minmax(12rem,1fr)_var(--workbench-statusbar-height)] \
+    bg-[var(--workbench-editor)]";
 
-/// One editor tab: its select button and close button, in the tab strip's
-/// classes. `name` is the accessible name; `label` is the visible title.
+/// One editor tab: its select button and close button. `name` is the accessible
+/// name; `label` is the visible title.
 #[component]
 fn SpecimenTab(
     test_id: String,
@@ -32,22 +30,23 @@ fn SpecimenTab(
 ) -> Element {
     rsx! {
         div {
-            class: "df-tab workbench-pane-tab",
+            class: "flex h-8 min-w-0 shrink-0 items-center gap-1 rounded-t-md px-1 text-sm text-muted-foreground data-[active=true]:bg-[var(--workbench-editor)] data-[active=true]:text-foreground data-[focused=true]:ring-1 data-[focused=true]:ring-ring",
             "data-testid": test_id,
             "data-active": active.to_string(),
             "data-focused": focused.then_some("true"),
             Button {
                 variant: ButtonVariant::Ghost,
-                class: "workbench-pane-tab__select",
+                size: ButtonSize::Sm,
+                class: "min-w-0 flex-1 justify-start gap-2 px-2 font-normal",
                 "aria-label": "Select {name}",
-                Icon { name: "terminal", size: IconSize::Sm, class: "workbench-pane-tab__icon" }
-                span { class: "df-tab-label workbench-pane-tab__label", {label} }
+                Icon { icon: IconType::Terminal, class: "size-3.5 shrink-0" }
+                span { class: "truncate", {label} }
             }
             IconButton {
-                icon: "close",
-                label: "Close {name}",
-                size: IconButtonSize::IconSm,
-                class: "df-tab-close workbench-pane-tab__close",
+                icon: IconType::X,
+                label: format!("Close {name}"),
+                size: ButtonSize::IconSm,
+                class: "shrink-0",
             }
         }
     }
@@ -57,33 +56,26 @@ fn SpecimenTab(
 #[component]
 pub fn WorkbenchShellSpecimen() -> Element {
     rsx! {
-        Surface { level: 0, radius: SurfaceRadius::Xs, border: true, style: SPECIMEN_GRID_STYLE,
+        Surface { level: 0, radius: SurfaceRadius::Xs, border: true, class: SPECIMEN_GRID_CLASS,
             header {
-                class: "workbench-titlebar",
-                style: "grid-column: 1 / -1; display: flex; align-items: center; \
-                        padding: 0 var(--md-space-3); background: var(--workbench-titlebar);",
-                div {
-                    class: "workbench-titlebar__left",
-                    style: "display: flex; align-items: center; gap: var(--md-space-3);",
-                    Icon { name: "terminal", filled: true }
-                    span { style: "font-size: var(--md-title-s-size); font-weight: var(--md-title-s-weight);", "Roost" }
-                    span { style: "color: var(--text-lo); font-size: var(--md-label-m-size);", "Sessions" }
+                class: "workbench-titlebar col-span-full flex items-center bg-[var(--workbench-titlebar)] px-3",
+                div { class: "workbench-titlebar__left flex items-center gap-3",
+                    Icon { icon: IconType::Terminal, class: "size-4" }
+                    span { class: "text-base font-semibold", "Roost" }
+                    span { class: "text-sm text-muted-foreground", "Sessions" }
                 }
             }
             nav {
-                class: "workbench-activity-bar",
+                class: "workbench-activity-bar flex flex-col items-center gap-2 bg-[var(--workbench-activity)] p-2",
                 "aria-label": "Workbench activity",
-                style: "display: flex; flex-direction: column; align-items: center; gap: var(--md-space-2); \
-                        padding: var(--md-space-2); background: var(--workbench-activity);",
-                Icon { style: "color: var(--workbench-active);", name: "terminal", filled: true }
-                Icon { name: "search" }
-                Icon { name: "folder" }
-                span { style: "flex: 1;" }
-                Icon { name: "settings" }
+                Icon { icon: IconType::Terminal, class: "size-5 text-[var(--workbench-active)]" }
+                Icon { icon: IconType::Search, class: "size-5 text-muted-foreground" }
+                Icon { icon: IconType::Folder, class: "size-5 text-muted-foreground" }
+                span { class: "flex-1" }
+                Icon { icon: IconType::Settings, class: "size-5 text-muted-foreground" }
             }
             aside {
-                class: "workbench-sidebar-region workbench-sidebar workbench-sidebar-root",
-                style: "display: grid; background: var(--workbench-sidebar);",
+                class: "workbench-sidebar-region workbench-sidebar workbench-sidebar-root grid bg-[var(--workbench-sidebar)]",
                 div { class: "workbench-sidebar-header",
                     div { class: "workbench-sidebar-selector", role: "group", "aria-label": "Sidebar view",
                         Button {
@@ -106,14 +98,12 @@ pub fn WorkbenchShellSpecimen() -> Element {
                 }
                 div { class: "workbench-sidebar-panels",
                     div { class: "workbench-sidebar-panel workbench-sidebar-panel--folders", "data-active": "true",
-                        div {
-                            style: "display: flex; flex-direction: column; gap: var(--md-space-2); \
-                                    padding: var(--md-space-3); color: var(--text-hi);",
-                            div { style: "display: flex; align-items: center; gap: var(--md-space-2); font-size: var(--md-body-s-size);",
+                        div { class: "flex flex-col gap-2 p-3 text-foreground",
+                            div { class: "flex items-center gap-2 text-sm",
                                 StatusDot { status: "running" }
                                 span { "roost · main" }
                             }
-                            div { style: "color: var(--text-lo); font-size: var(--md-label-s-size);", "~/projects/roost" }
+                            div { class: "text-xs text-muted-foreground", "~/projects/roost" }
                         }
                     }
                 }
@@ -121,48 +111,42 @@ pub fn WorkbenchShellSpecimen() -> Element {
                     Button { class: "workbench-sidebar-actionbar__machine", variant: ButtonVariant::Ghost, size: ButtonSize::Sm,
                         StatusDot { status: "ok" }
                         span { class: "workbench-sidebar-actionbar__machine-label", "mini" }
-                        Icon { name: "expand_more", class: "workbench-sidebar-actionbar__machine-chevron", size: IconSize::Sm }
+                        Icon { icon: IconType::ChevronDown, class: "workbench-sidebar-actionbar__machine-chevron size-3.5" }
                     }
-                    Button { class: "workbench-sidebar-actionbar__new", variant: ButtonVariant::Default, size: ButtonSize::Sm, icon: "add", "aria-label": "New terminal", "New" }
+                    Button { class: "workbench-sidebar-actionbar__new", variant: ButtonVariant::Default, size: ButtonSize::Sm, icon: IconType::Plus, "aria-label": "New terminal", "New" }
                 }
                 footer { class: "workbench-sidebar-actionbar", "aria-label": "One machine online",
                     span { class: "workbench-sidebar-actionbar__machine",
                         StatusDot { status: "ok" }
                         span { class: "workbench-sidebar-actionbar__machine-label", "desktop-pc" }
                     }
-                    Button { class: "workbench-sidebar-actionbar__new", variant: ButtonVariant::Default, size: ButtonSize::Sm, icon: "add", "aria-label": "New terminal", "New" }
+                    Button { class: "workbench-sidebar-actionbar__new", variant: ButtonVariant::Default, size: ButtonSize::Sm, icon: IconType::Plus, "aria-label": "New terminal", "New" }
                 }
             }
             main {
-                class: "workbench-editor-region",
-                style: "display: grid; grid-template-rows: var(--workbench-tab-strip-height) minmax(0, 1fr); min-width: 0;",
-                div { class: "workbench-pane-tab-strip", "aria-label": "Workbench tabs",
-                    div { class: "df-tab-bar workbench-pane-tab-strip__tabs",
+                class: "workbench-editor-region grid min-w-0 grid-rows-[var(--workbench-tab-strip-height)_minmax(0,1fr)]",
+                div { class: "workbench-pane-tab-strip flex min-w-0 items-center gap-1 border-b border-border bg-card px-1", "aria-label": "Workbench tabs",
+                    div { class: "workbench-pane-tab-strip__tabs flex min-w-0 items-center gap-1 overflow-x-auto",
                         SpecimenTab { test_id: "tab-roost-main", name: "roost main", label: "roost · main", active: true, focused: false }
                         SpecimenTab { test_id: "tab-roost-logs", name: "worker logs", label: "worker logs", active: false, focused: true }
                     }
-                    IconButton { icon: "add", label: "New terminal", size: IconButtonSize::IconSm, class: "df-tab-new" }
-                    div { class: "df-tab-filler workbench-pane-tab-strip__filler" }
-                    div { class: "workbench-pane-tab-strip__actions", role: "toolbar", "aria-label": "Terminal actions",
+                    IconButton { icon: IconType::Plus, label: "New terminal", size: ButtonSize::IconSm, class: "shrink-0" }
+                    div { class: "workbench-pane-tab-strip__filler min-w-0 flex-1" }
+                    div { class: "workbench-pane-tab-strip__actions flex shrink-0 items-center", role: "toolbar", "aria-label": "Terminal actions",
                         IconButton {
-                            icon: "keyboard_arrow_down",
+                            icon: IconType::ChevronDown,
                             label: "All terminals in this pane",
-                            size: IconButtonSize::IconSm,
-                            class: "df-tab-overflow",
+                            size: ButtonSize::IconSm,
+                            class: "shrink-0",
                         }
                     }
                 }
-                div {
-                    style: "padding: var(--md-space-4); color: var(--terminal-grid-fg); \
-                            font-family: var(--term-font-family); font-size: var(--md-body-s-size);",
+                div { class: "p-4 text-sm text-[var(--terminal-grid-fg)] [font-family:var(--term-font-family)]",
                     "$ roost status"
                 }
             }
             footer {
-                class: "workbench-status-bar",
-                style: "grid-column: 1 / -1; display: flex; align-items: center; gap: var(--md-space-3); \
-                        padding: 0 var(--md-space-3); background: var(--workbench-status); \
-                        color: var(--text-mid); font-size: var(--md-label-s-size);",
+                class: "workbench-status-bar col-span-full flex items-center gap-3 bg-[var(--workbench-status)] px-3 text-xs text-muted-foreground",
                 StatusDot { status: "ok" }
                 span { "Synced" }
                 span { "1 session" }

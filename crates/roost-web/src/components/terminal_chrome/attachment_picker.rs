@@ -6,12 +6,8 @@ use dioxus::prelude::*;
 
 use super::dom;
 use super::upload_tray::{extension_label, format_file_size};
-use crate::components::md::focus_scope::VISUALLY_HIDDEN_STYLE;
-use crate::components::md::form_field::scoped_element_id;
-use crate::components::md::{
-    ButtonVariant, Icon, IconButton, IconButtonSize, IconSize, List, ListRow, Surface,
-    SurfaceRadius,
-};
+use crate::components::ui::field::scoped_element_id;
+use crate::components::ui::{ButtonSize, ButtonVariant, Icon, IconButton, IconType};
 
 /// One chosen file: its name, length and the browser's handle to it. The
 /// bytes are read a chunk at a time while the upload runs, so a large video is
@@ -108,15 +104,13 @@ pub fn AttachmentPreview(files: Vec<ChosenFile>, on_remove: EventHandler<usize>)
         return rsx! {};
     }
     rsx! {
-        Surface {
-            level: 2,
-            elevation: 2,
-            radius: SurfaceRadius::Sm,
-            test_id: Some("attachment-preview-strip".to_owned()),
-            role: Some("list".to_owned()),
-            aria_labelledby: Some(label_id.clone()),
-            span { id: label_id, style: VISUALLY_HIDDEN_STYLE, "Attachments staged for sending" }
-            List {
+        div {
+            class: "rounded-md bg-card p-1 shadow-sm",
+            "data-testid": "attachment-preview-strip",
+            role: "list",
+            "aria-labelledby": label_id.clone(),
+            span { id: label_id, class: "sr-only", "Attachments staged for sending" }
+            div { class: "flex flex-col gap-1",
                 for (index, file) in files.into_iter().enumerate() {
                     StagedAttachmentRow { key: "{index}-{file.name}", file, index, on_remove }
                 }
@@ -127,59 +121,44 @@ pub fn AttachmentPreview(files: Vec<ChosenFile>, on_remove: EventHandler<usize>)
 
 #[component]
 fn StagedAttachmentRow(file: ChosenFile, index: usize, on_remove: EventHandler<usize>) -> Element {
-    let leading = if let Some(source) = file.preview_url.as_ref() {
-        Some(rsx! {
-            img {
-                "data-testid": "attachment-preview",
-                src: source,
-                alt: "",
-                style: "width: var(--md-space-9); height: var(--md-space-9); border-radius: var(--md-shape-sm); object-fit: cover;",
-            }
-        })
-    } else {
-        Some(rsx! {
-            span {
-                class: "md-label-s",
-                style: "display: grid; place-items: center; width: var(--md-space-9); height: var(--md-space-9); border-radius: var(--md-shape-sm); background: var(--md-sys-color-surface-container-high);",
-                if video_file(&file) {
-                    Icon { name: "movie".to_owned(), size: IconSize::Sm }
-                } else {
-                    "{extension_label(&file.name)}"
-                }
-            }
-        })
-    };
     let name = file.name.clone();
-    let headline = rsx! {
-        span {
-            title: name.clone(),
-            style: "overflow: hidden; text-overflow: ellipsis; white-space: nowrap;",
-            "{name}"
-        }
-    };
-    let support = rsx! { span { "{format_file_size(file.size_bytes)}" } };
-    let trailing = rsx! {
-        IconButton {
-            icon: "close",
-            label: "Remove {name}",
-            title: "Remove {name}",
-            variant: ButtonVariant::Ghost,
-            size: IconButtonSize::IconSm,
-            onclick: move |_| on_remove.call(index),
-        }
-    };
+    let size_label = format_file_size(file.size_bytes);
+    let is_video = video_file(&file);
     rsx! {
         div {
             tabindex: "0",
             role: "listitem",
             "data-testid": "staged-attachment",
-            aria_label: "{name}, {format_file_size(file.size_bytes)}",
-            ListRow {
-                leading,
-                headline,
-                support: Some(support),
-                trailing: Some(trailing),
-                dense: true,
+            "aria-label": "{name}, {size_label}",
+            class: "flex min-w-0 items-center gap-2 rounded-sm px-2 py-1",
+            if let Some(source) = file.preview_url.as_ref() {
+                img {
+                    "data-testid": "attachment-preview",
+                    class: "size-9 shrink-0 rounded-sm object-cover",
+                    src: source,
+                    alt: "",
+                }
+            } else {
+                span { class: "grid size-9 shrink-0 place-items-center rounded-sm bg-muted text-xs text-muted-foreground",
+                    if is_video {
+                        Icon { icon: IconType::Film, class: "size-4" }
+                    } else {
+                        "{extension_label(&file.name)}"
+                    }
+                }
+            }
+            div { class: "min-w-0 flex-1",
+                span { class: "block truncate", title: name.clone(), "{name}" }
+                span { class: "block text-xs text-muted-foreground", "{size_label}" }
+            }
+            IconButton {
+                icon: IconType::X,
+                label: "Remove {name}",
+                title: "Remove {name}",
+                variant: ButtonVariant::Ghost,
+                size: ButtonSize::IconSm,
+                class: None,
+                onclick: move |_| on_remove.call(index),
             }
         }
     }

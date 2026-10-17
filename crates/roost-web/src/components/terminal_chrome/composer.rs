@@ -32,7 +32,7 @@ use crate::voice::send_gate::SendGate;
 
 use crate::components::layout::portal::Portal;
 use crate::components::layout::window_size::use_is_compact;
-use crate::components::md::{ButtonVariant, IconButton, IconButtonSize};
+use crate::components::ui::{ButtonSize, ButtonVariant, IconButton, IconType};
 use crate::components::terminal::pane_handle::PaneHandle;
 
 /// What a submission is doing, for the status line under the field.
@@ -301,12 +301,12 @@ pub fn TerminalComposer(
                 "data-compact": if compact { "true" } else { "false" },
                 "data-keys": key_tray.is_some().then_some("true"),
                 IconButton {
-                    icon: "attach_file",
+                    icon: IconType::Paperclip,
                     label: "Attach files",
                     title: "Attach files",
                     variant: ButtonVariant::Ghost,
-                    size: IconButtonSize::IconLg,
-                    class: "term-chat__ctl term-chat__attach",
+                    size: ButtonSize::IconLg,
+                    class: Some("term-chat__ctl term-chat__attach".to_owned()),
                     "data-testid": "chat-attach",
                     "aria-disabled": disabled.then_some("true"),
                     onmousedown: keep_keyboard,
@@ -351,11 +351,11 @@ pub fn TerminalComposer(
                 }
                 if dictation_for_send.send_gate().offers_send() {
                 IconButton {
-                    icon: "send",
+                    icon: IconType::Send,
                     label: "Send to terminal",
                     variant: ButtonVariant::Default,
-                    size: IconButtonSize::IconLg,
-                    class: "term-chat__ctl term-chat__send",
+                    size: ButtonSize::IconLg,
+                    class: Some("term-chat__ctl term-chat__send".to_owned()),
                     "data-testid": "chat-send",
                     "aria-disabled": disabled.then_some("true"),
                     onmousedown: keep_keyboard,

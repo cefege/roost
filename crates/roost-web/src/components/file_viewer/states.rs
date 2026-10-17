@@ -12,7 +12,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::md::{Button, ButtonVariant, EmptyState};
+use crate::components::ui::{Button, ButtonVariant, EmptyState, IconType};
 
 use super::state::MAX_VIEWED_FILE_BYTES;
 
@@ -35,7 +35,7 @@ pub fn LoadingCaption() -> Element {
             "data-testid": "file-viewer-sheet-loading",
             role: "status",
             "aria-live": "polite",
-            style: "color: var(--text-lo); font-size: var(--md-body-s-size); flex: 0 0 auto;",
+            class: "flex-none text-sm text-muted-foreground",
             "Loading file…"
         }
     }
@@ -56,12 +56,12 @@ pub fn UnavailableRegion(on_go_home: EventHandler<()>) -> Element {
             "aria-label": UNAVAILABLE_LABEL,
             "aria-atomic": "true",
             tabindex: "-1",
-            style: "flex: 1 1 auto; min-height: 0; overflow-y: auto;",
+            class: "flex-auto min-h-0 overflow-y-auto",
             EmptyState {
-                icon: "draft".to_owned(),
+                icon: IconType::FileX,
                 title: "File unavailable".to_owned(),
                 supporting: Some("This file isn't available on this coordinator.".to_owned()),
-                action: rsx! {
+                action: Some(rsx! {
                     Button {
                         variant: ButtonVariant::Secondary,
                         "data-testid": "file-viewer-unavailable-home",
@@ -69,7 +69,7 @@ pub fn UnavailableRegion(on_go_home: EventHandler<()>) -> Element {
                         onclick: move |_| on_go_home.call(()),
                         "Go home"
                     }
-                },
+                }),
             }
         }
     }
@@ -86,7 +86,7 @@ pub fn FailureNotice(message: String) -> Element {
             "data-testid": "file-viewer-sheet-error",
             role: "status",
             "aria-live": "polite",
-            style: "color: var(--color-err); font-size: var(--md-body-s-size);",
+            class: "text-sm text-destructive",
             {message}
         }
     }
@@ -101,7 +101,7 @@ pub fn BinaryNotice(byte_size: u64) -> Element {
             "data-testid": "file-viewer-sheet-binary",
             role: "status",
             "aria-live": "polite",
-            style: "color: var(--color-warn); font-size: var(--md-body-s-size);",
+            class: "text-sm text-warning",
             {format!("binary file ({byte_size} bytes) — not renderable as text")}
         }
     }
@@ -114,9 +114,10 @@ pub fn EmptyNotice() -> Element {
     rsx! {
         div { "data-testid": "file-viewer-sheet-empty",
             EmptyState {
-                icon: "insert_drive_file".to_owned(),
+                icon: IconType::File,
                 title: "This file is empty".to_owned(),
                 supporting: Some("There is nothing in it to read.".to_owned()),
+                action: None,
             }
         }
     }
@@ -129,11 +130,12 @@ pub fn TooLargeNotice(byte_size: u64) -> Element {
     rsx! {
         div { "data-testid": "file-viewer-sheet-too-large",
             EmptyState {
-                icon: "insert_drive_file".to_owned(),
+                icon: IconType::File,
                 title: "This file is too large to open".to_owned(),
                 supporting: Some(format!(
                     "It is {byte_size} bytes, and a preview reads up to {MAX_VIEWED_FILE_BYTES} bytes."
                 )),
+                action: None,
             }
         }
     }
@@ -146,17 +148,17 @@ pub fn DirectoryNotice(path: String, on_browse: EventHandler<()>) -> Element {
     rsx! {
         div { "data-testid": "file-viewer-sheet-directory",
             EmptyState {
-                icon: "folder".to_owned(),
+                icon: IconType::Folder,
                 title: "This is a folder".to_owned(),
                 supporting: Some(format!("{path} is a folder, not a file.")),
-                action: rsx! {
+                action: Some(rsx! {
                     Button {
                         variant: ButtonVariant::Secondary,
                         "data-testid": "file-viewer-sheet-open-folder",
                         onclick: move |_| on_browse.call(()),
                         "Browse this folder"
                     }
-                },
+                }),
             }
         }
     }

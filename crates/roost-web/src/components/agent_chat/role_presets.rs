@@ -11,8 +11,8 @@ use roost_protocol::wire::agent_chat::{
 
 use super::model_controls::{Configure, configure};
 use super::role_switch::{pin_hides, with_applied_preset, with_saved_preset};
-use crate::components::md::{Button, ButtonSize, ButtonVariant, Chip, TextField};
 use crate::components::settings::agent_roles::save_settings;
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, Chip, IconType, TextField};
 use crate::pump::Pump;
 
 #[component]
@@ -50,7 +50,7 @@ pub(super) fn RolePresets(
     };
     let mut save_on_enter = save.clone();
     rsx! {
-        div { class: "agent-chat__roles-presets", role: "group", "aria-label": "Presets",
+        div { class: "flex flex-wrap items-center gap-2", role: "group", "aria-label": "Presets",
             "data-testid": "agent-roles-presets",
             for (preset_name, roles) in presets {
                 {
@@ -61,7 +61,7 @@ pub(super) fn RolePresets(
                         Chip {
                             key: "{preset_name}",
                             label: preset_name.clone(),
-                            icon: is_active.then(|| "check".to_owned()),
+                            icon: is_active.then_some(IconType::Check),
                             selected: Some(is_active),
                             test_id: Some(format!("agent-roles-preset-{preset_name}")),
                             title: Some(if is_active {
@@ -86,7 +86,7 @@ pub(super) fn RolePresets(
             if !naming() {
                 Chip {
                     label: "Save as…".to_owned(),
-                    icon: Some("add".to_owned()),
+                    icon: Some(IconType::Plus),
                     test_id: Some("agent-roles-preset-save".to_owned()),
                     title: Some("Save these roles as a preset".to_owned()),
                     onclick: Some(EventHandler::new(move |_| naming.set(true))),
@@ -94,7 +94,7 @@ pub(super) fn RolePresets(
             }
         }
         if naming() {
-            div { class: "agent-chat__roles-preset-save",
+            div { class: "flex flex-wrap items-center gap-2",
                 TextField {
                     value: name(),
                     on_input: move |text: String| name.set(text),

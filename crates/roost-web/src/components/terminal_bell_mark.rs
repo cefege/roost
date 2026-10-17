@@ -5,7 +5,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::md::{Icon, IconSize};
+use crate::components::ui::{Icon, IconType};
 use crate::pump::use_store;
 
 /// The bell, or nothing when `session_id` has no unseen ring.
@@ -29,7 +29,7 @@ pub fn TerminalBellMark(session_id: String) -> Element {
             role: "img",
             "aria-label": "Bell rang",
             title: "Bell rang",
-            Icon { name: "notifications_active", size: IconSize::Sm }
+            Icon { icon: IconType::BellRing, class: "size-3" }
         }
     }
 }

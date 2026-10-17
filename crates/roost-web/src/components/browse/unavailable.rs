@@ -9,7 +9,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::md::{Button, ButtonVariant, EmptyState};
+use crate::components::ui::{Button, ButtonVariant, EmptyState, IconType};
 
 /// The region's element id, so the page can put focus on it when it appears.
 pub const REGION_ID: &str = "browse-worker-unavailable";
@@ -22,7 +22,7 @@ pub const LABEL: &str = "Machine unavailable. This machine isn't available on th
 pub fn MachineUnavailable(on_go_home: EventHandler<()>) -> Element {
     rsx! {
         div {
-            class: "df-browse-area",
+            class: "flex min-h-0 flex-1 items-center justify-center p-6 outline-none",
             id: REGION_ID,
             "data-testid": REGION_ID,
             role: "status",
@@ -31,9 +31,9 @@ pub fn MachineUnavailable(on_go_home: EventHandler<()>) -> Element {
             "aria-atomic": "true",
             tabindex: "-1",
             EmptyState {
-                icon: "folder_off".to_owned(),
-                title: "Machine unavailable".to_owned(),
-                supporting: Some("This machine isn't available on this coordinator.".to_owned()),
+                icon: IconType::FolderX,
+                title: "Machine unavailable",
+                supporting: "This machine isn't available on this coordinator.",
                 action: rsx! {
                     Button {
                         variant: ButtonVariant::Secondary,

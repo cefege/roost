@@ -11,6 +11,8 @@
 
 use roost_client_core::sync::redial::SYNC_STALE_TIMEOUT_MS;
 
+use crate::components::ui::IconType;
+
 /// Material 3's window size class, at the boundaries the whole SPA uses.
 ///
 /// Named for the layout decision, not the number: the desktop/compact split is
@@ -75,14 +77,14 @@ impl Destination {
         Destination::Help,
     ];
 
-    /// The Material Symbols ligature the rail draws for this destination.
-    pub const fn icon(self) -> &'static str {
+    /// The Lucide icon the rail draws for this destination.
+    pub const fn icon(self) -> IconType {
         match self {
-            Self::Sessions => "terminal",
-            Self::Search => "search",
-            Self::Files => "folder_open",
-            Self::Settings => "settings",
-            Self::Help => "help",
+            Self::Sessions => IconType::Terminal,
+            Self::Search => IconType::Search,
+            Self::Files => IconType::FolderOpen,
+            Self::Settings => IconType::Settings,
+            Self::Help => IconType::CircleHelp,
         }
     }
 

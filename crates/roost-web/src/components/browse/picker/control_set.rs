@@ -7,7 +7,7 @@
 use dioxus::prelude::*;
 
 use crate::components::browse::dom;
-use crate::components::md::focus_scope::AutoFocusRequest;
+use crate::components::ui::focus_scope::AutoFocusRequest;
 
 /// Every handler the four bands and the two dialogs report back through.
 #[derive(Clone, PartialEq)]

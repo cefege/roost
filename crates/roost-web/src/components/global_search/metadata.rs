@@ -21,7 +21,7 @@ use roost_client_core::store::navigation::{NavigationSearchAttention, Navigation
 use roost_client_core::store::sidebar::documents::store_navigation_documents;
 
 use crate::components::global_search::query::{SearchRouteQuery, SearchScope};
-use crate::components::md::{EmptyState, List, ListRow, StatusDot, Surface, SurfaceRadius};
+use crate::components::ui::{EmptyState, IconType, List, ListRow, StatusDot};
 use crate::components::settings::format::relative_time;
 use crate::platform::worker_paths::BrowserWorkerPaths;
 use crate::pump::use_store;
@@ -54,32 +54,29 @@ pub fn MetadataResults(route_query: SearchRouteQuery) -> Element {
     let summary = metadata_summary(route_query.scope, rows.len(), &route_query.text);
 
     rsx! {
-        Surface { class: "df-search-metadata", level: 1, radius: SurfaceRadius::Lg,
-            pad: 4,
-            border: true,
-            aria_labelledby: Some("global-search-metadata-title".to_owned()),
-            style: "display: flex; flex-direction: column; gap: var(--md-space-2);",
-            h2 { id: "global-search-metadata-title", class: "md-title-m", style: "margin: 0;",
+        section { class: "flex flex-col gap-2 rounded-xl border border-border bg-card p-4 text-card-foreground",
+            "aria-labelledby": "global-search-metadata-title",
+            h2 { id: "global-search-metadata-title", class: "m-0 text-lg font-semibold",
                 match route_query.scope {
                     SearchScope::Attention => "Agent attention",
                     SearchScope::All => "Session metadata",
                 }
             }
-            div { class: "md-label-m", role: "status", "aria-live": "polite", "aria-atomic": "true",
+            div { class: "text-sm font-medium", role: "status", "aria-live": "polite", "aria-atomic": "true",
                 {summary}
             }
             if rows.is_empty() {
                 EmptyState {
-                    icon: (match route_query.scope {
-                        SearchScope::Attention => "notifications_none",
-                        SearchScope::All => "search_off",
-                    }).to_owned(),
+                    icon: match route_query.scope {
+                        SearchScope::Attention => IconType::BellOff,
+                        SearchScope::All => IconType::SearchX,
+                    },
                     title: empty_title(route_query.scope, &route_query.text),
                     supporting: Some(empty_supporting(route_query.scope, &route_query.text).to_owned()),
                 }
             } else {
                 div { "data-testid": "global-search-results",
-                    style: "display: flex; flex-direction: column; gap: var(--md-space-2);",
+                    class: "flex flex-col gap-2",
                     List { contained: true,
                         for document in rows.iter() {
                             MetadataRow {
@@ -133,14 +130,14 @@ fn MetadataRow(
     };
     rsx! {
         ListRow {
-            leading_icon: Some("terminal".to_owned()),
+            leading_icon: Some(IconType::Terminal),
             headline: rsx! {
                 span { "data-testid": format!("global-search-title-{session_id}"),
                     {document.display_title.clone()}
                 }
             },
             support: rsx! {
-                span { style: "display: flex; flex-direction: column; gap: var(--md-space-1);",
+                span { class: "flex flex-col gap-1",
                     span { {document.cwd.clone()} }
                     if !metadata.is_empty() {
                         span { {metadata} }
@@ -151,7 +148,7 @@ fn MetadataRow(
                 }
             },
             trailing: rsx! {
-                span { style: "display: flex; align-items: center; gap: var(--md-space-2); white-space: nowrap;",
+                span { class: "flex items-center gap-2 whitespace-nowrap",
                     if let Some(label) = attention_label(document.agent_attention) {
                         span { "data-testid": format!("global-search-attention-{session_id}"),
                             {label}

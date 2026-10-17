@@ -1,25 +1,23 @@
 //! The collapsed "Other pairing options": manual redemption of a one-time setup
 //! token, and creating a new device key for a browser the coordinator revoked.
-//!
-//! Ported from `apps/web/src/components/pairing/PairingOtherOptions.tsx` and
-//! the redeem it calls (`store/auth/redeemPairToken.ts:30-53`). This is the same
-//! road the `#pair=` fragment takes at boot (`pump/boot.rs:71-106`): the
-//! fragment is only a delivery convenience, and a token an operator hands over
-//! as text has to be redeemable from the page.
+//! The redeem is the road the `#pair=` fragment takes at boot, because a token an
+//! operator hands over as text has to be redeemable from the page too.
 
 use dioxus::prelude::*;
 use roost_client_core::client::auth::redeem::AuthRedeemBrowserRequest;
 use roost_client_core::client::rpc::calls::pairing::RedeemPairToken;
 
-use crate::components::md::form_field::scoped_element_id;
-use crate::components::md::stylesheet::use_md_stylesheet;
-use crate::components::md::{Button, ButtonSize, ButtonVariant, Card, CardVariant, TextField};
+use crate::components::ui::field::scoped_element_id;
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Card, CardAction, CardContent, CardHeader, CardTitle,
+    CardVariant, IconType, TextField,
+};
 use crate::platform::device_key::WebDeviceKey;
 use crate::platform::self_label::current_browser_self_label;
 use crate::pump::{Pump, use_pump};
 
 use super::failure::describe;
-use super::notices::{NoticeTone, ONBOARDING_STYLESHEET_HREF, PairingStatusNotice};
+use super::notices::{NoticeTone, PairingStatusNotice};
 use super::requester::PairingRequester;
 
 /// The prefix every setup token carries, which is also what makes a paste
@@ -29,7 +27,6 @@ const SETUP_TOKEN_PREFIX: &str = "roost_bt_";
 /// The disclosure, and the two roads out of the gate that need no approver.
 #[component]
 pub fn PairingOtherOptions(requester: PairingRequester) -> Element {
-    use_md_stylesheet(ONBOARDING_STYLESHEET_HREF);
     let pump: Pump = use_pump();
     let mut open = use_signal(|| false);
     let mut setup_token = use_signal(String::new);
@@ -91,38 +88,41 @@ pub fn PairingOtherOptions(requester: PairingRequester) -> Element {
     let reset_busy = *resetting.read();
     let reset_message = reset_error.read().clone();
     rsx! {
-        Card {
-            title: "Other pairing options",
-            variant: CardVariant::Outlined,
-            trailing: rsx! {
-                Button {
-                    variant: ButtonVariant::Ghost,
-                    size: ButtonSize::Sm,
-                    icon: Some(if expanded { "expand_less".to_string() } else { "expand_more".to_string() }),
-                    "aria-expanded": expanded.to_string(),
-                    "aria-controls": panel_id.clone(),
-                    "data-testid": "pairing-other-options-toggle",
-                    onclick: move |_| open.toggle(),
-                    if expanded { "Hide" } else { "Show" }
-                }
-            },
-            if expanded {
-                div {
-                    id: panel_id,
-                    class: "pairing-options__panel",
-                    "data-testid": "pairing-other-options-panel",
-                    SetupTokenSection {
-                        token: token_value.clone(),
-                        redeeming: *redeeming.read(),
-                        redeem_error: redeem_error.read().clone(),
-                        paired: *paired.read(),
-                        on_token: move |value: String| setup_token.set(value),
-                        on_redeem: move |_| redeem.call(token_value.trim().to_string()),
+        Card { variant: CardVariant::Outlined,
+            CardHeader {
+                CardTitle { "Other pairing options" }
+                CardAction {
+                    Button {
+                        variant: ButtonVariant::Ghost,
+                        size: ButtonSize::Sm,
+                        icon: if expanded { Some(IconType::ChevronUp) } else { Some(IconType::ChevronDown) },
+                        "aria-expanded": expanded.to_string(),
+                        "aria-controls": panel_id.clone(),
+                        "data-testid": "pairing-other-options-toggle",
+                        onclick: move |_| open.toggle(),
+                        if expanded { "Hide" } else { "Show" }
                     }
-                    KeyRecoverySection {
-                        busy: reset_busy,
-                        error: reset_message,
-                        on_reset: move |_| reset_key.call(()),
+                }
+            }
+            if expanded {
+                CardContent {
+                    div {
+                        id: panel_id,
+                        class: "flex min-w-0 flex-col gap-5",
+                        "data-testid": "pairing-other-options-panel",
+                        SetupTokenSection {
+                            token: token_value.clone(),
+                            redeeming: *redeeming.read(),
+                            redeem_error: redeem_error.read().clone(),
+                            paired: *paired.read(),
+                            on_token: move |value: String| setup_token.set(value),
+                            on_redeem: move |_| redeem.call(token_value.trim().to_string()),
+                        }
+                        KeyRecoverySection {
+                            busy: reset_busy,
+                            error: reset_message,
+                            on_reset: move |_| reset_key.call(()),
+                        }
                     }
                 }
             }
@@ -141,17 +141,17 @@ fn SetupTokenSection(
     on_redeem: EventHandler<()>,
 ) -> Element {
     rsx! {
-        div { class: "pairing-options__section",
-            span { class: "md-title-s pairing-options__heading",
+        div { class: "flex min-w-0 flex-col gap-3",
+            span { class: "text-sm font-medium text-foreground",
                 "Use a one-time setup token"
             }
             TextField {
                 value: token.clone(),
                 on_input: move |value: String| on_token.call(value),
-                label: Some("Setup token".to_string()),
+                label: Some("Setup token".to_owned()),
                 placeholder: Some(format!("{SETUP_TOKEN_PREFIX}…")),
-                test_id: Some("onboarding-setup-token-input".to_string()),
-                autocomplete: Some("off".to_string()),
+                test_id: Some("onboarding-setup-token-input".to_owned()),
+                autocomplete: Some("off".to_owned()),
             }
             div {
                 Button {
@@ -172,7 +172,7 @@ fn SetupTokenSection(
             if paired {
                 PairingStatusNotice {
                     tone: NoticeTone::Ok,
-                    message: "Browser paired. Opening Roost…".to_string(),
+                    message: "Browser paired. Opening Roost…".to_owned(),
                     test_id: None,
                 }
             }
@@ -184,12 +184,11 @@ fn SetupTokenSection(
 #[component]
 fn KeyRecoverySection(busy: bool, error: Option<String>, on_reset: EventHandler<()>) -> Element {
     rsx! {
-        div { class: "pairing-options__section",
-            "data-testid": "pairing-key-recovery",
-            span { class: "md-title-s pairing-options__heading",
+        div { class: "flex min-w-0 flex-col gap-3", "data-testid": "pairing-key-recovery",
+            span { class: "text-sm font-medium text-foreground",
                 "Recover a rejected browser key"
             }
-            p { class: "md-body-m pairing-options__supporting",
+            p { class: "m-0 text-sm text-muted-foreground",
                 "If this browser was previously paired and revoked, create a new local device key before requesting access again."
             }
             div {

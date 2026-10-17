@@ -15,8 +15,8 @@ use crate::components::agent_chat::agent_alert::ERROR_TEXT_CLASS;
 use crate::components::agent_chat::model_controls::thinking_label;
 use crate::components::agent_chat::model_picker::ModelPicker;
 use crate::components::file_viewer::dom::focus_by_id;
-use crate::components::md::{Button, ButtonSize, ButtonVariant, Chip, TextField};
 use crate::components::settings::agent_roles::role_options;
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, Chip, IconType, TextField};
 use crate::pump::Pump;
 
 /// The footer's key legend: the keys this view runs.
@@ -87,16 +87,16 @@ pub fn HubRolesView(
     rsx! {
         div {
             id: ROOT_ID,
-            class: "model-hub-roles",
+            class: "flex min-h-0 flex-1 flex-col gap-2 outline-none",
             tabindex: "0",
             role: "region",
             "aria-label": "Model roles",
             onkeydown: move |event: KeyboardEvent| handle_key(&key_context, &event),
-            p { class: "model-hub-roles__status", "Model roles — f adds a fallback, x clears a role" }
+            p { class: "text-sm text-muted-foreground", "Model roles — f adds a fallback, x clears a role" }
             if !error_text.is_empty() {
                 p { class: ERROR_TEXT_CLASS, "{error_text}" }
             }
-            div { class: "model-hub-roles__tabs", role: "tablist", "aria-label": "Role filter",
+            div { class: "flex flex-wrap gap-1", role: "tablist", "aria-label": "Role filter",
                 for choice in RoleTab::ALL {
                     TabButton {
                         key: "{choice.label()}",
@@ -111,7 +111,7 @@ pub fn HubRolesView(
                     }
                 }
             }
-            div { class: "model-hub-roles__presets", role: "group", "aria-label": "Presets",
+            div { class: "flex flex-wrap items-center gap-2", role: "group", "aria-label": "Presets",
                 for name in names {
                     PresetChip {
                         key: "{name}",
@@ -126,7 +126,7 @@ pub fn HubRolesView(
                 if !naming() {
                     Chip {
                         label: "Save as…".to_owned(),
-                        icon: Some("add".to_owned()),
+                        icon: Some(IconType::Plus),
                         test_id: Some("agent-hub-roles-preset-save".to_owned()),
                         title: Some("Save these roles as a preset".to_owned()),
                         onclick: Some(EventHandler::new(move |_| {
@@ -136,7 +136,7 @@ pub fn HubRolesView(
                 }
             }
             if naming() {
-                div { class: "model-hub-roles__preset-save",
+                div { class: "flex flex-wrap items-end gap-2",
                     TextField {
                         value: preset_name(),
                         on_input: move |text: String| {
@@ -173,7 +173,7 @@ pub fn HubRolesView(
                     }
                 }
             }
-            div { class: "model-hub-roles__list", role: "listbox", "aria-label": "Roles", tabindex: "0", "aria-activedescendant": format!("agent-hub-roles-option-{cursor_row}"),
+            div { class: "flex min-h-0 flex-1 flex-col overflow-y-auto rounded-md border border-border", role: "listbox", "aria-label": "Roles", tabindex: "0", "aria-activedescendant": format!("agent-hub-roles-option-{cursor_row}"),
                 for (position, row) in rows.iter().cloned().enumerate() {
                     RoleRowLine {
                         key: "{position}",
@@ -190,7 +190,7 @@ pub fn HubRolesView(
                 }
             }
             if let Some(target) = picker_target {
-                div { class: "model-hub-roles__picker",
+                div { class: "shrink-0",
                     ModelPicker {
                         options: role_options(&catalog, target.role()),
                         selected: picker_selected,
@@ -205,7 +205,7 @@ pub fn HubRolesView(
                     }
                 }
             }
-            p { class: "model-hub-roles__keys", "{KEY_LEGEND}" }
+            p { class: "shrink-0 border-t border-border pt-2 text-xs text-muted-foreground", "{KEY_LEGEND}" }
         }
     }
 }
@@ -217,7 +217,7 @@ fn TabButton(choice: RoleTab, selected: bool, on_select: EventHandler<()>) -> El
         Button {
             variant: if selected { ButtonVariant::Secondary } else { ButtonVariant::Ghost },
             size: ButtonSize::Sm,
-            class: "model-hub-roles__tab".to_owned(),
+            class: "rounded-full",
             role: "tab",
             "aria-selected": if selected { "true" } else { "false" },
             onclick: move |_| on_select.call(()),
@@ -234,7 +234,7 @@ fn PresetChip(is_active: bool, name: String, on_apply: EventHandler<String>) -> 
     rsx! {
         Chip {
             label,
-            icon: is_active.then(|| "check".to_owned()),
+            icon: if is_active { Some(IconType::Check) } else { None },
             selected: Some(is_active),
             test_id: Some(test_id),
             title: Some(format!("Use {name} for every role, in all folders")),
@@ -256,14 +256,19 @@ fn RoleRowLine(
 ) -> Element {
     let option_id = format!("agent-hub-roles-option-{position}");
     let aria_selected = if selected { "true" } else { "false" };
+    let row_class = if selected {
+        "flex flex-wrap items-center gap-2 px-2 py-1 bg-accent text-accent-foreground cursor-pointer"
+    } else {
+        "flex flex-wrap items-center gap-2 px-2 py-1 hover:bg-accent/50 cursor-pointer"
+    };
     match row {
         RolesRow::Separator => rsx! {
-            div { class: "model-hub-roles__separator", role: "presentation", "aria-hidden": "true" }
+            div { class: "my-1 h-px bg-border", role: "presentation", "aria-hidden": "true" }
         },
         RolesRow::NewFallback => rsx! {
             div {
                 id: option_id,
-                class: "model-hub-roles__row model-hub-roles__row--add",
+                class: "{row_class} text-muted-foreground",
                 role: "option",
                 "aria-selected": aria_selected,
                 onclick: move |_| on_activate.call(()),
@@ -276,7 +281,7 @@ fn RoleRowLine(
             rsx! {
                 div {
                     id: option_id,
-                    class: "model-hub-roles__row",
+                    class: "{row_class}",
                     role: "option",
                     "aria-selected": aria_selected,
                     onclick: move |_| on_activate.call(()),
@@ -294,15 +299,15 @@ fn RoleRowLine(
             rsx! {
                 div {
                     id: option_id,
-                    class: "model-hub-roles__row model-hub-roles__row--fallback",
+                    class: "{row_class} pl-6",
                     role: "option",
                     "aria-selected": aria_selected,
                     onclick: move |_| on_activate.call(()),
-                    span { class: "model-hub-roles__index", "{index}." }
-                    span { class: "model-hub-roles__provider", "{provider}" }
-                    span { class: "model-hub-roles__model", "{model}" }
+                    span { class: "font-mono text-xs text-muted-foreground", "{index}." }
+                    span { class: "text-muted-foreground", "{provider}" }
+                    span { class: "font-medium", "{model}" }
                     if let Some(label) = level_label {
-                        span { class: "model-hub-roles__thinking", "{label}" }
+                        span { class: "text-xs text-muted-foreground", "{label}" }
                     }
                 }
             }
@@ -319,20 +324,20 @@ fn leader_row_value(catalog: &ModelsCatalog, settings: &AgentSettingsView, role:
             let (provider, model) = split_provider(base);
             let level_label = level.map(thinking_label);
             rsx! {
-                span { class: "model-hub-roles__provider", "{provider}" }
-                span { class: "model-hub-roles__model", "{model}" }
+                span { class: "text-muted-foreground", "{provider}" }
+                span { class: "font-medium", "{model}" }
                 if let Some(label) = level_label {
-                    span { class: "model-hub-roles__thinking", "{label}" }
+                    span { class: "text-xs text-muted-foreground", "{label}" }
                 }
             }
         }
         LeaderValue::Auto => rsx! {
-            span { class: "model-hub-roles__inherits", "auto" }
+            span { class: "text-muted-foreground italic", "auto" }
         },
         LeaderValue::Unset => {
             let inherits = role_inherits(role);
             rsx! {
-                span { class: "model-hub-roles__inherits", "inherits {inherits}" }
+                span { class: "text-muted-foreground italic", "inherits {inherits}" }
             }
         }
     }
@@ -343,12 +348,13 @@ fn split_provider(selector: &str) -> (&str, &str) {
     selector.split_once('/').unwrap_or(("", selector))
 }
 
+/// Tone colours come from the theme roles so the tags follow the active scheme.
 fn tone_class(tone: RoleTone) -> &'static str {
     match tone {
-        RoleTone::Ok => "model-hub-roles__tag model-hub-roles__tag--ok",
-        RoleTone::Warn => "model-hub-roles__tag model-hub-roles__tag--warn",
-        RoleTone::Accent => "model-hub-roles__tag model-hub-roles__tag--accent",
-        RoleTone::Muted => "model-hub-roles__tag model-hub-roles__tag--muted",
-        RoleTone::Dim => "model-hub-roles__tag model-hub-roles__tag--dim",
+        RoleTone::Ok => "rounded px-1.5 font-mono text-xs text-success",
+        RoleTone::Warn => "rounded px-1.5 font-mono text-xs text-warning",
+        RoleTone::Accent => "rounded px-1.5 font-mono text-xs text-primary",
+        RoleTone::Muted => "rounded px-1.5 font-mono text-xs text-muted-foreground",
+        RoleTone::Dim => "rounded px-1.5 font-mono text-xs text-muted-foreground/60",
     }
 }

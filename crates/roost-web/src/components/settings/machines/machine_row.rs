@@ -22,8 +22,8 @@ use roost_protocol::fleet_update::{
 use roost_protocol::wire::{HostMetrics, Worker};
 
 use crate::components::machines::machine_identity_mark::MachineIdentityMark;
-use crate::components::md::{
-    Button, ButtonVariant, Chip, ListRow, MetricTile, StatusDot, TextField,
+use crate::components::ui::{
+    Button, ButtonVariant, Chip, IconType, ListRow, MetricTile, StatusDot, TextField,
 };
 use crate::display_format::{format_bytes, format_speed};
 use crate::pump::Pump;
@@ -73,12 +73,12 @@ pub fn MachineRowView(
     let status = if online { "ok" } else { "offline" }.to_owned();
     let status_title = if online { "Online" } else { "Offline" }.to_owned();
     rsx! {
-        div { class: "machines-worker", "data-testid": format!("machines-worker-row-{fingerprint}"),
+        div { class: "flex flex-col", "data-testid": format!("machines-worker-row-{fingerprint}"),
             ListRow {
-                leading: rsx! { MachineIdentityMark { worker: Some(identity), context_title: None } },
+                leading: Some(rsx! { MachineIdentityMark { worker: Some(identity), context_title: None } }),
                 headline: rsx! { {worker.label.clone()} },
-                support: rsx! { {support_line(&worker, online, now_ms)} },
-                trailing: rsx! {
+                support: Some(rsx! { {support_line(&worker, online, now_ms)} }),
+                trailing: Some(rsx! {
                     StatusDot {
                         status: status,
                         title: Some(status_title),
@@ -93,7 +93,7 @@ pub fn MachineRowView(
                     }
                     Button {
                         variant: ButtonVariant::Destructive,
-                        icon: "delete_outline",
+                        icon: Some(IconType::Trash2),
                         "aria-label": format!("Remove {}", worker.label),
                         "data-testid": format!("machines-delete-quick-btn-{fingerprint}"),
                         disabled: state.busy,
@@ -101,7 +101,7 @@ pub fn MachineRowView(
                     }
                     Button {
                         variant: ButtonVariant::Ghost,
-                        icon: if state.details { "expand_less" } else { "expand_more" },
+                        icon: Some(if state.details { IconType::ChevronUp } else { IconType::ChevronDown }),
                         "aria-expanded": state.details,
                         onclick: move |_| {
                             let mut row = row.write();
@@ -110,11 +110,11 @@ pub fn MachineRowView(
                         },
                         "Details"
                     }
-                }
+                }),
             }
             if state.details {
-                div { class: "machines-worker-details", id: format!("machines-worker-details-{fingerprint}"),
-                    div { class: "machines-worker-details__identity",
+                div { class: "flex flex-col gap-3 px-4 pb-3", id: format!("machines-worker-details-{fingerprint}"),
+                    div { class: "flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground",
                         span { {liveness_line(&worker, online, now_ms)} }
                         span { {worker.reachable_addr.clone().unwrap_or_else(|| "Address unknown".to_owned())} }
                         span { {format!("Fingerprint {}", short_identifier(&fingerprint, 12))} }
@@ -126,17 +126,17 @@ pub fn MachineRowView(
                         RenameForm { fingerprint: fingerprint.clone(), row, pump: pump.clone() }
                     }
                     if let Some(message) = state.error.clone() {
-                        p { class: "md-body-s", style: "color: var(--md-sys-color-error);", {message} }
+                        p { class: "text-sm text-destructive", {message} }
                     }
                     if online {
                         if let Some(metrics) = worker.host_metrics.clone() {
                             MetricTiles { metrics }
                         }
                     }
-                    div { class: "machines-worker-details__actions",
+                    div { class: "flex flex-wrap items-center gap-2",
                         Button {
                             variant: ButtonVariant::Ghost,
-                            icon: "edit",
+                            icon: Some(IconType::Pencil),
                             "data-testid": format!("machines-rename-btn-{fingerprint}"),
                             onclick: move |_| {
                                 let mut row = row.write();
@@ -146,7 +146,7 @@ pub fn MachineRowView(
                             "Rename"
                         }
                         if state.confirming {
-                            span { class: "md-body-s", "data-testid": format!("machines-delete-explanation-{fingerprint}"),
+                            span { class: "text-sm text-muted-foreground", "data-testid": format!("machines-delete-explanation-{fingerprint}"),
                                 "Removes this credential; saved terminals and workspaces stay offline."
                             }
                             Button {
@@ -169,7 +169,7 @@ pub fn MachineRowView(
                         } else {
                             Button {
                                 variant: ButtonVariant::Destructive,
-                                icon: "delete_outline",
+                                icon: Some(IconType::Trash2),
                                 "data-testid": format!("machines-delete-btn-{fingerprint}"),
                                 disabled: state.busy,
                                 onclick: move |_| row.write().confirming = true,
@@ -197,14 +197,13 @@ fn RenameForm(fingerprint: String, mut row: Signal<MachineRow>, pump: Pump) -> E
     };
     rsx! {
         form {
-            class: "settings-inline-form",
-            style: "display: flex; gap: var(--md-space-2); align-items: center;",
+            class: "flex items-center gap-2",
             "data-testid": form_test_id,
             onsubmit: move |event| event.prevent_default(),
             TextField {
-                test_id: "machines-rename-input",
-                label: "Label",
-                style: "flex: 1; min-width: 0;",
+                test_id: "machines-rename-input".to_owned(),
+                label: "Label".to_owned(),
+                class: "flex-1".to_owned(),
                 value: state.label.clone(),
                 on_input: on_input,
             }
@@ -231,16 +230,16 @@ fn MetricTiles(metrics: HostMetrics) -> Element {
     let memory_ratio = ratio(metrics.mem_used_bytes, metrics.mem_total_bytes);
     let disk_ratio = ratio(metrics.disk_used_bytes, metrics.disk_total_bytes);
     rsx! {
-        div { class: "md-metric-grid",
+        div { class: "grid grid-cols-2 gap-3",
             MetricTile {
-                icon: "memory",
+                icon: Some(IconType::Cpu),
                 label: "CPU",
                 value: format!("{:.0}%", metrics.cpu_pct),
                 support: None,
                 ratio: Some(metrics.cpu_pct / 100.0),
             }
             MetricTile {
-                icon: "memory_alt",
+                icon: Some(IconType::MemoryStick),
                 label: "Memory",
                 value: percent(memory_ratio),
                 support: Some(format!(
@@ -251,7 +250,7 @@ fn MetricTiles(metrics: HostMetrics) -> Element {
                 ratio: memory_ratio,
             }
             MetricTile {
-                icon: "hard_drive",
+                icon: Some(IconType::HardDrive),
                 label: "Disk",
                 value: percent(disk_ratio),
                 support: Some(format!(
@@ -262,7 +261,7 @@ fn MetricTiles(metrics: HostMetrics) -> Element {
                 ratio: disk_ratio,
             }
             MetricTile {
-                icon: "network_check",
+                icon: Some(IconType::Network),
                 label: "Network",
                 value: format_speed((metrics.net_rx_bps + metrics.net_tx_bps) as f64),
                 support: Some(format!(

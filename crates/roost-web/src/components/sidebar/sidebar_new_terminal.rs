@@ -10,7 +10,7 @@ use crate::components::context_menu::{
     AnchoredMenuPos, CtxMenuItem, MenuFocusEdge, MenuFocusRequest, anchored_menu_pos,
     anchored_menu_surface_style, attempt_menu_focus, focus_menu_edge, use_floating_menu_dismiss,
 };
-use crate::components::md::{Button, ButtonSize, ButtonVariant, Icon, IconSize, StatusDot};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, Icon, IconType, StatusDot};
 use crate::new_terminal_target::{
     default_new_terminal_worker_fp, effective_new_terminal_target, online_workers_by_label,
 };
@@ -167,11 +167,13 @@ pub fn SidebarNewTerminal() -> Element {
     };
     let new_target = target_fp.clone();
     rsx! {
-        footer { class: "workbench-sidebar-actionbar", "data-testid": "sidebar-new-terminal",
+        footer {
+            class: "flex items-center gap-2 border-t border-border bg-sidenav p-2",
+            "data-testid": "sidebar-new-terminal",
             if online.len() > 1 {
                 Button {
                     id: MACHINE_TRIGGER_ID,
-                    class: "workbench-sidebar-actionbar__machine",
+                    class: "min-w-0 flex-1 justify-start gap-2 px-2",
                     variant: ButtonVariant::Ghost,
                     size: ButtonSize::Sm,
                     "data-testid": "sidebar-new-terminal-machine",
@@ -200,24 +202,24 @@ pub fn SidebarNewTerminal() -> Element {
                             MachineTriggerKeyAction::Ignore => {}
                         }
                     },
-                    StatusDot { status: "ok" }
-                    span { class: "workbench-sidebar-actionbar__machine-label", {target_label.clone()} }
-                    Icon { name: "expand_more", class: "workbench-sidebar-actionbar__machine-chevron", size: IconSize::Sm }
+                    StatusDot { status: "ok".to_owned() }
+                    span { class: "min-w-0 truncate text-sm text-foreground", {target_label.clone()} }
+                    Icon { icon: IconType::ChevronDown, class: "size-4 shrink-0 text-muted-foreground" }
                 }
             } else if !target_label.is_empty() {
                 span {
-                    class: "workbench-sidebar-actionbar__machine",
+                    class: "flex min-w-0 flex-1 items-center gap-2 px-2 text-sm text-foreground",
                     "data-testid": "sidebar-new-terminal-machine-label",
                     title: target_label.clone(),
-                    StatusDot { status: "ok" }
-                    span { class: "workbench-sidebar-actionbar__machine-label", {target_label.clone()} }
+                    StatusDot { status: "ok".to_owned() }
+                    span { class: "min-w-0 truncate", {target_label.clone()} }
                 }
             }
             Button {
-                class: "workbench-sidebar-actionbar__new",
+                class: "shrink-0",
                 variant: ButtonVariant::Default,
                 size: ButtonSize::Sm,
-                icon: "add",
+                icon: IconType::Plus,
                 "data-testid": "sidebar-new-terminal-button",
                 "aria-label": "New terminal",
                 title: "New terminal in a folder",
@@ -232,7 +234,7 @@ pub fn SidebarNewTerminal() -> Element {
             if let (true, Some(anchor)) = (menu_open(), menu_anchor()) {
                 div {
                     id: MACHINE_MENU_ID,
-                    class: "df-menu-enter workbench-sidebar-actionbar__machine-menu",
+                    class: "flex min-w-40 flex-col gap-0.5 overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md",
                     "data-testid": "sidebar-new-terminal-machine-menu",
                     role: "menu",
                     "aria-labelledby": MACHINE_TRIGGER_ID,
@@ -261,7 +263,7 @@ pub fn SidebarNewTerminal() -> Element {
                     for (fp, label) in online.iter().cloned() {
                         CtxMenuItem {
                             key: "{fp}",
-                            class: "workbench-sidebar-actionbar__machine-option",
+                            class: "gap-2",
                             testid: "sidebar-new-terminal-machine-option",
                             selected: target_fp.as_deref() == Some(fp.as_str()),
                             title: label.clone(),
@@ -276,10 +278,10 @@ pub fn SidebarNewTerminal() -> Element {
                                     super::dom::focus_by_id(MACHINE_TRIGGER_ID);
                                 }
                             },
-                            StatusDot { status: "ok" }
-                            span { class: "workbench-sidebar-actionbar__machine-option-label", {label.clone()} }
+                            StatusDot { status: "ok".to_owned() }
+                            span { class: "min-w-0 flex-1 truncate", {label.clone()} }
                             if target_fp.as_deref() == Some(fp.as_str()) {
-                                Icon { name: "check", class: "workbench-sidebar-actionbar__machine-option-check", size: IconSize::Sm }
+                                Icon { icon: IconType::Check, class: "size-4 shrink-0" }
                             }
                         }
                     }

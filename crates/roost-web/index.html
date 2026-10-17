@@ -11,10 +11,8 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2" />
     <!-- Terminal cols/rows come from the measured JetBrains Mono cell.
          Preloading removes the window where fallback metrics publish the
-         wrong initial view geometry. MaterialSymbols is font-display:block;
-         its preload only shortens FOIT. -->
+         wrong initial view geometry. -->
     <link rel="preload" as="font" type="font/woff2" crossorigin href="/fonts/JetBrainsMonoNerdFontMono-Regular.woff2" />
-    <link rel="preload" as="font" type="font/woff2" crossorigin href="/fonts/MaterialSymbolsRounded.woff2" />
     <!-- The loader fetches the wasm only once its module script has run;
          preloading starts the download with the HTML. dx substitutes a
          relative `{wasm_path}`, so it is rooted here: a session route is not

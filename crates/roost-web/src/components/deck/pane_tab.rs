@@ -10,9 +10,7 @@ use dioxus::prelude::*;
 use roost_client_core::TerminalTransport;
 use roost_client_core::store::terminal_transport::session_terminal_transport_kind;
 
-use crate::components::md::{
-    Button, ButtonVariant, Icon, IconButton, IconButtonSize, IconSize, StatusDot,
-};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, StatusDot};
 
 /// v2 `sessionTerminalTransportLabel`: the tooltip for a DIRECT carrier, and
 /// nothing for the coordinator or an unconfirmed one.
@@ -96,8 +94,9 @@ pub fn PaneTab(
     let style = (!style.is_empty()).then_some(style);
     rsx! {
         div {
-            class: "df-tab workbench-pane-tab",
+            class: "group/tab relative inline-flex items-center gap-1 px-1 box-border h-full self-stretch flex-[0_1_auto] w-[var(--workbench-tab-width-max)] min-w-[var(--workbench-tab-width-min)] max-w-[var(--workbench-tab-width-max)] overflow-hidden cursor-pointer touch-pan-y border-0 border-t border-r border-solid border-t-transparent border-r-[var(--workbench-tab-border)] bg-[var(--workbench-tab-strip)] text-[var(--workbench-tab-inactive-foreground)] text-sm transition-colors duration-150 not-data-[active=true]:hover:bg-[var(--workbench-tab-hover)] not-data-[active=true]:hover:text-[var(--workbench-tab-hover-foreground)] data-[active=true]:bg-[var(--workbench-editor)] data-[active=true]:text-[var(--workbench-tab-active-foreground)] data-[active=true]:border-t-[var(--workbench-focus-ring)] group-data-[focused=false]/strip:data-[active=true]:text-[var(--workbench-tab-unfocused-active-foreground)] group-data-[focused=false]/strip:data-[active=true]:border-t-transparent data-[dragging=true]:z-[4] data-[dragging=true]:bg-card data-[dragging=true]:shadow-md data-[dragging=true]:cursor-grabbing data-[closing=true]:!min-w-0 data-[closing=true]:!max-w-0 data-[closing=true]:!px-0 data-[closing=true]:z-0 data-[closing=true]:opacity-0 data-[closing=true]:pointer-events-none data-[closing=true]:overflow-hidden data-[closing=true]:transition-[max-width,min-width,padding,opacity] data-[closing=true]:duration-[220ms] @container/pane-tab",
             "data-testid": "tab-{session_id}",
+            "data-deck-tab": "true",
             "data-active": if active { "true" } else { "false" },
             "data-dragging": if dragging { "true" } else { "false" },
             "data-closing": if closing { "true" } else { "false" },
@@ -113,21 +112,21 @@ pub fn PaneTab(
             onmouseleave: move |_| on_hover_end.call(()),
             Button {
                 variant: ButtonVariant::Ghost,
-                class: "workbench-pane-tab__select",
+                class: "flex flex-1 min-w-0 h-full items-center gap-1 p-0 rounded-none border-0 bg-transparent text-inherit font-normal text-start cursor-pointer hover:bg-transparent hover:text-inherit dark:hover:bg-transparent group-data-[packed=true]/strip:justify-center",
                 "aria-label": title.clone(),
+                "data-tab-select": "true",
                 "aria-current": active.then_some("page"),
                 title: native_tooltip,
                 onpointerdown: move |event| on_pointer_down.call(event),
                 onclick: move |_| on_select.call(()),
                 Icon {
-                    name: if agent_status.is_some() { "smart_toy" } else { "terminal" },
-                    size: IconSize::Sm,
-                    class: "workbench-pane-tab__icon",
+                    icon: if agent_status.is_some() { IconType::Bot } else { IconType::Terminal },
+                    class: "size-4 shrink-0 text-muted-foreground group-data-[packed=true]/strip:group-data-[active=true]/tab:hidden",
                 }
                 if direct.is_some() {
-                    Icon { name: "bolt", size: IconSize::Sm, class: "workbench-pane-tab__local" }
+                    Icon { icon: IconType::Zap, class: "size-4 shrink-0 text-warning @max-[120px]/pane-tab:hidden" }
                 }
-                span { class: "df-tab-label workbench-pane-tab__label", "{title}" }
+                span { class: "flex-1 min-w-0 truncate group-data-[packed=true]/strip:hidden", "{title}" }
                 if let Some(status) = agent_status {
                     StatusDot { status: status.to_owned() }
                 } else {
@@ -141,10 +140,10 @@ pub fn PaneTab(
                 }
             }
             IconButton {
-                icon: "close",
+                icon: IconType::X,
                 label: if agent_status.is_some() { "Close agent" } else { "Close terminal" },
-                size: IconButtonSize::IconSm,
-                class: "df-tab-close workbench-pane-tab__close",
+                size: ButtonSize::IconSm,
+                class: "shrink-0 size-6 text-muted-foreground opacity-0 pointer-events-none transition-opacity duration-150 hover:text-foreground group-hover/tab:opacity-100 group-hover/tab:pointer-events-auto group-focus-within/tab:opacity-100 group-data-[active=true]/tab:opacity-100 group-data-[active=true]/tab:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto group-data-[packed=true]/strip:hidden group-data-[packed=true]/strip:group-data-[active=true]/tab:inline-flex",
                 "data-testid": "tab-close-{session_id}",
                 onclick: move |event| on_close.call(event),
             }

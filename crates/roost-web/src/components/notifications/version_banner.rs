@@ -10,8 +10,8 @@
 
 use dioxus::prelude::*;
 
-use crate::components::md::{
-    Button, ButtonSize, ButtonVariant, Icon, IconSize, Surface, SurfaceRadius,
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Icon, IconType, Surface, SurfaceRadius,
 };
 use crate::components::terminal::dom::{page_visible, sleep_ms};
 
@@ -54,27 +54,22 @@ pub fn VersionBanner() -> Element {
     rsx! {
         div {
             "data-testid": "version-banner",
-            style: "position: fixed; bottom: var(--md-space-4); left: var(--md-space-4); z-index: 49;",
+            class: "fixed bottom-4 left-4 z-[49]",
             Surface {
                 level: 2,
                 elevation: 3,
                 radius: SurfaceRadius::Md,
-                style: "display: flex; align-items: flex-start; gap: var(--md-space-3); padding: var(--md-space-3) var(--md-space-4); max-width: min(42ch, calc(100vw - var(--md-space-8))); border: var(--workbench-border-width) solid var(--md-sys-color-primary); color: var(--md-sys-color-on-surface);".to_owned(),
-                Icon {
-                    name: "arrow_upward",
-                    size: IconSize::Sm,
-                    style: Some("flex-shrink: 0; color: var(--md-sys-color-primary);".to_owned()),
-                }
+                class: "flex items-start gap-3 border-[length:var(--workbench-border-width)] border-primary px-4 py-3 text-foreground max-w-[min(42ch,calc(100vw_-_2.5rem))]",
+                Icon { icon: IconType::ArrowUp, class: "size-4 shrink-0 text-primary" }
                 div {
-                    style: "display: flex; flex-direction: column; gap: var(--md-space-2);",
-                    span { class: "md-title-s", "Roost just updated" }
+                    class: "flex flex-col gap-2",
+                    span { class: "text-sm font-medium", "Roost just updated" }
                     span {
-                        class: "md-body-s",
-                        style: "color: var(--md-sys-color-on-surface-variant);",
+                        class: "text-xs leading-4 text-muted-foreground",
                         "A newer version is ready. Your sessions are safe — reload when convenient."
                     }
                     div {
-                        style: "display: flex; gap: var(--md-space-2); margin-top: var(--md-space-1);",
+                        class: "mt-1 flex gap-2",
                         Button {
                             variant: ButtonVariant::Default,
                             size: ButtonSize::Sm,

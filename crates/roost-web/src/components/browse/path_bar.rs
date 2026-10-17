@@ -15,11 +15,11 @@ use dioxus::prelude::*;
 use crate::components::context_menu::{
     CtxMenuItem, MenuFocusEdge, ctx_menu_surface_style, focus_menu_edge, use_floating_menu_dismiss,
 };
-use crate::components::md::{
-    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconButtonSize, IconSize, Surface,
-    SurfaceRadius, TextField,
-};
 use crate::platform::worker_paths::palette::CrumbView;
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, Surface, SurfaceRadius,
+    TextField,
+};
 
 /// The collapsed trail's element id.
 pub const CRUMBS_ID: &str = "browse-crumbs";
@@ -93,7 +93,7 @@ pub fn BrowsePathBar(
         menu_items.push(rsx! {
             CtxMenuItem {
                 testid: "browse-crumb-menu-item".to_owned(),
-                class: "df-browse-crumb-menu-item",
+                class: "flex w-full items-center gap-2 text-left",
                 title: crumb.path.clone(),
                 onclick: move |_| on_navigate.call(target.clone()),
                 span { {crumb.label.clone()} }
@@ -101,14 +101,18 @@ pub fn BrowsePathBar(
         });
     }
     rsx! {
-        Surface { class: "df-browse-path", level: 1, radius: SurfaceRadius::None,
+        Surface {
+            class: Some("flex min-w-0 items-center gap-1 px-2 py-1".to_owned()),
+            level: 1,
+            radius: SurfaceRadius::None,
             if filter_open {
                 TextField {
-                    class: "df-browse-filter",
+                    class: Some("min-w-0 flex-1".to_owned()),
+                    control_class: Some("h-8".to_owned()),
                     id: Some(crate::components::browse::dom::FILTER_ID.to_owned()),
                     value: filter.clone(),
                     on_input: move |value: String| on_filter.call(value),
-                    placeholder: "Filter this folder".to_owned(),
+                    placeholder: Some("Filter this folder".to_owned()),
                     aria_label: Some("Filter this folder".to_owned()),
                     test_id: Some("browse-filter".to_owned()),
                     onkeydown: move |event: KeyboardEvent| {
@@ -119,60 +123,63 @@ pub fn BrowsePathBar(
                     },
                 }
                 IconButton {
-                    size: IconButtonSize::IconSm,
+                    size: ButtonSize::IconSm,
                     "data-testid": "browse-filter-close",
-                    icon: "close",
-                    label: "Close filter".to_owned(),
-                    title: "Close filter".to_owned(),
+                    icon: IconType::X,
+                    label: "Close filter",
+                    title: "Close filter",
                     onclick: move |_| on_close_filter.call(()),
                 }
             } else {
                 IconButton {
-                    size: IconButtonSize::IconSm,
+                    size: ButtonSize::IconSm,
                     "data-testid": "browse-back",
-                    icon: "arrow_back",
-                    label: "Back".to_owned(),
-                    title: "Back".to_owned(),
+                    icon: IconType::ArrowLeft,
+                    label: "Back",
+                    title: "Back",
                     disabled: !back_enabled,
                     onclick: move |_| on_back.call(()),
                 }
                 IconButton {
-                    size: IconButtonSize::IconSm,
+                    size: ButtonSize::IconSm,
                     "data-testid": "browse-forward",
-                    icon: "arrow_forward",
-                    label: "Forward".to_owned(),
-                    title: "Forward".to_owned(),
+                    icon: IconType::ArrowRight,
+                    label: "Forward",
+                    title: "Forward",
                     disabled: !forward_enabled,
                     onclick: move |_| on_forward.call(()),
                 }
                 IconButton {
-                    size: IconButtonSize::IconSm,
+                    size: ButtonSize::IconSm,
                     "data-testid": "browse-up",
-                    icon: "arrow_upward",
-                    label: "Parent folder".to_owned(),
-                    title: "Parent folder".to_owned(),
+                    icon: IconType::ArrowUp,
+                    label: "Parent folder",
+                    title: "Parent folder",
                     disabled: !up_enabled,
                     onclick: move |_| on_up.call(()),
                 }
                 IconButton {
-                    size: IconButtonSize::IconSm,
+                    size: ButtonSize::IconSm,
                     "data-testid": "browse-home",
-                    icon: "home",
-                    label: "Home folder".to_owned(),
-                    title: "Home folder".to_owned(),
+                    icon: IconType::House,
+                    label: "Home folder",
+                    title: "Home folder",
                     onclick: move |_| on_home.call(()),
                 }
-                div { class: "df-browse-crumbs", id: CRUMBS_ID, "data-testid": "browse-crumbs",
+                div {
+                    class: "relative flex min-w-0 flex-1 items-center gap-1 overflow-hidden whitespace-nowrap",
+                    id: CRUMBS_ID,
+                    "data-testid": "browse-crumbs",
                     for (index, view) in crumb_views.iter().enumerate() {
                         if index > 0 {
-                            Icon { name: "chevron_right", size: IconSize::Sm, class: "df-browse-crumb-sep" }
+                            Icon { icon: IconType::ChevronRight, class: "size-3 shrink-0 text-muted-foreground" }
                         }
                         match view {
                             CrumbView::Crumb(crumb) => {
                                 let target = crumb.path.clone();
                                 rsx! {
                                     Button {
-                                        class: "df-browse-crumb",
+                                        class: Some("max-w-48 truncate".to_owned()),
                                         variant: if index == last_index { ButtonVariant::Secondary } else { ButtonVariant::Ghost },
                                         size: ButtonSize::Sm,
                                         "data-testid": "browse-crumb",
@@ -187,12 +194,11 @@ pub fn BrowsePathBar(
                             CrumbView::Ellipsis(_) => rsx! {
                                 IconButton {
                                     id: CRUMB_OVERFLOW_ID,
-                                    class: "df-browse-crumb-overflow",
                                     "data-testid": "browse-crumb-overflow",
-                                    size: IconButtonSize::IconSm,
-                                    icon: "more_horiz",
-                                    label: "Show hidden folders".to_owned(),
-                                    title: "Show hidden folders".to_owned(),
+                                    size: ButtonSize::IconSm,
+                                    icon: IconType::Ellipsis,
+                                    label: "Show hidden folders",
+                                    title: "Show hidden folders",
                                     menu_popup: Some("menu".to_owned()),
                                     controls_id: Some(CRUMB_MENU_ID.to_owned()),
                                     expanded: Some(menu_open),
@@ -220,13 +226,15 @@ pub fn BrowsePathBar(
                         }
                     }
                 }
-                div { class: "df-browse-crumbs-measure", id: CRUMBS_MEASURE_ID, "aria-hidden": "true",
+                div {
+                    class: "pointer-events-none invisible absolute top-0 left-0 flex items-center gap-1 whitespace-nowrap",
+                    id: CRUMBS_MEASURE_ID,
+                    "aria-hidden": "true",
                     for (index, crumb) in crumbs.iter().enumerate() {
                         if index > 0 {
-                            Icon { name: "chevron_right", size: IconSize::Sm, class: "df-browse-crumb-sep df-browse-crumb-sep-mirror" }
+                            Icon { icon: IconType::ChevronRight, class: "size-3 shrink-0" }
                         }
                         Button {
-                            class: "df-browse-crumb",
                             variant: ButtonVariant::Ghost,
                             size: ButtonSize::Sm,
                             "data-mirror-crumb": "true",
@@ -234,12 +242,11 @@ pub fn BrowsePathBar(
                             {crumb.label.clone()}
                         }
                     }
-                    Icon { name: "chevron_right", size: IconSize::Sm, class: "df-browse-crumb-sep" }
+                    Icon { icon: IconType::ChevronRight, class: "size-3 shrink-0" }
                     IconButton {
-                        class: "df-browse-crumb-overflow",
-                        size: IconButtonSize::IconSm,
-                        icon: "more_horiz",
-                        label: "Show hidden folders".to_owned(),
+                        size: ButtonSize::IconSm,
+                        icon: IconType::Ellipsis,
+                        label: "Show hidden folders",
                         "data-mirror-overflow": "true",
                         tabindex: "-1",
                     }
@@ -250,7 +257,7 @@ pub fn BrowsePathBar(
             if let Some(position) = menu_pos {
                 div {
                     id: CRUMB_MENU_ID,
-                    class: "df-menu-enter df-browse-crumb-menu",
+                    class: "df-menu-enter z-50 flex max-h-[60vh] min-w-48 flex-col gap-0.5 overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md",
                     "data-testid": "browse-crumb-menu",
                     role: "menu",
                     "aria-labelledby": CRUMB_OVERFLOW_ID,

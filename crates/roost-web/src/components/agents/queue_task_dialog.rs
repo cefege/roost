@@ -13,7 +13,7 @@ use roost_client_core::ClientEvent;
 use roost_client_core::store::shell_intent::ShellIntent;
 
 use super::task_editor::TaskEditor;
-use crate::components::md::Dialog;
+use crate::components::ui::{Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle};
 use crate::pump::use_store;
 
 /// The dialog's headline.
@@ -49,18 +49,27 @@ pub fn QueueTaskDialogHost() -> Element {
     rsx! {
         Dialog {
             open: true,
-            on_close: close,
-            headline: Some(QUEUE_TASK_HEADLINE.to_owned()),
-            // The editor's own band carries Cancel and Queue, so a close button
-            // above them would be a third way out of a form with two answers.
-            show_close_button: Some(false),
-            TaskEditor {
-                default_body: dialog.prefill_body,
-                default_cwd: dialog.prefill_cwd,
-                default_worker_fp: dialog.prefill_worker_fp,
-                on_enqueued: Some(enqueued),
-                on_cancel: Some(cancelled),
-                show_cancel: true,
+            on_open_change: move |open: bool| {
+                if !open {
+                    close.call(());
+                }
+            },
+            DialogContent { show_close_button: Some(false),
+                // The editor's own band carries Cancel and Queue, so a close button
+                // above them would be a third way out of a form with two answers.
+                DialogHeader {
+                    DialogTitle { "{QUEUE_TASK_HEADLINE}" }
+                }
+                DialogBody {
+                    TaskEditor {
+                        default_body: dialog.prefill_body,
+                        default_cwd: dialog.prefill_cwd,
+                        default_worker_fp: dialog.prefill_worker_fp,
+                        on_enqueued: Some(enqueued),
+                        on_cancel: Some(cancelled),
+                        show_cancel: true,
+                    }
+                }
             }
         }
     }

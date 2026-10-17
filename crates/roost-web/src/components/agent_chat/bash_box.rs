@@ -31,16 +31,16 @@ pub fn BashBody(
     let first_shown_index = hidden_command;
     let hint = format!("… {hidden_command} earlier lines");
     rsx! {
-        div { class: "agent-chat__bash-command",
+        div { class: "flex min-w-0 flex-col px-3 pt-2 font-mono text-xs text-foreground",
             if hidden_command > 0 {
-                p { class: "agent-chat__step-hint", "{hint}" }
+                p { class: "m-0 px-3 text-xs text-muted-foreground", "{hint}" }
             }
             for (offset, line) in shown_command.iter().enumerate() {
-                div { class: "agent-chat__bash-line", key: "{offset}",
+                div { class: "whitespace-pre-wrap break-words", key: "{offset}",
                     if first_shown_index + offset == 0 {
-                        span { class: "agent-chat__bash-prompt", "$ " }
+                        span { class: "text-primary", "$ " }
                     }
-                    span { class: "agent-chat__bash-text", "{line}" }
+                    span { "{line}" }
                 }
             }
         }
@@ -56,7 +56,7 @@ pub fn BashBody(
             }
         }
         if !footer.is_empty() {
-            p { class: "agent-chat__bash-footer", "{footer}" }
+            p { class: "m-0 px-3 pt-1 text-xs text-muted-foreground", "{footer}" }
         }
     }
 }

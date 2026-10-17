@@ -13,9 +13,7 @@ use super::agent_provider_list::AvailableProviders;
 use super::agent_provider_status::{ProviderSummary, provider_summaries};
 use super::agent_roles::{AgentRoles, load_settings, save_settings};
 use crate::components::agent_chat::agent_alert::ERROR_TEXT_CLASS;
-use crate::components::md::{
-    Button, ButtonSize, ButtonVariant, EmptyState, IconButton, IconButtonSize, Skeleton, TextField,
-};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, EmptyState, IconButton, IconType, Skeleton, TextField};
 use crate::pump::{Pump, use_store};
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::client::rpc::calls::agent_chat::{
@@ -59,9 +57,9 @@ pub fn AgentModelsPane() -> Element {
     let mut reload = move |()| refresh += 1;
     let Some(catalog_value) = catalog() else {
         return rsx! {
-            div { class: "settings-pane agent-settings", "data-testid": "agent-models-pane",
+            div { class: "settings-pane", "data-testid": "agent-models-pane",
                 if !error().is_empty() { p { class: ERROR_TEXT_CLASS, role: "alert", {error()} } }
-                Skeleton { class: "agent-settings__skeleton-tile" }
+                Skeleton { class: "h-24 w-full" }
             }
         };
     };
@@ -76,14 +74,14 @@ pub fn AgentModelsPane() -> Element {
             .filter(|summary| KEYED_ENGINES.contains(&summary.provider.id.as_str()))
             .collect();
     rsx! {
-        div { class: "settings-pane agent-settings", "data-testid": "agent-models-pane",
+        div { class: "settings-pane", "data-testid": "agent-models-pane",
             if !error().is_empty() { p { class: ERROR_TEXT_CLASS, role: "alert", {error()} } }
             nav { class: "settings-tabs", role: "tablist", "aria-label": "Model settings",
-                for (key, label, icon) in [("models", "Models", "smart_toy"), ("accounts", "Provider accounts", "key"), ("search", "Web search", "travel_explore")] {
+                for (key, label, icon) in [("models", "Models", IconType::Bot), ("accounts", "Provider accounts", IconType::Key), ("search", "Web search", IconType::Globe)] {
                     Button {
                         variant: if section() == key { ButtonVariant::Secondary } else { ButtonVariant::Ghost },
                         size: ButtonSize::Sm,
-                        icon,
+                        icon: Some(icon),
                         id: format!("agent-settings-tab-{key}"),
                         role: "tab",
                         "aria-selected": (section() == key).to_string(),
@@ -102,15 +100,15 @@ pub fn AgentModelsPane() -> Element {
                 role: "tabpanel",
                 "aria-labelledby": format!("agent-settings-tab-{}", section()),
                 if section() == "models" {
-                    section { class: "agent-settings__section", "data-testid": "agent-model-roles",
-                        p { class: "agent-settings__support",
+                    section { class: "flex flex-col gap-4", "data-testid": "agent-model-roles",
+                        p { class: "text-sm text-muted-foreground",
                             "Choose a default once. Override a task or folder only when you need to. The chat picker changes one session."
                         }
                         if signed_in.is_empty() {
                             Button {
                                 variant: ButtonVariant::Outline,
                                 size: ButtonSize::Sm,
-                                icon: "add_link",
+                                icon: Some(IconType::Link),
                                 onclick: move |_| section.set("accounts"),
                                 "Connect a model provider"
                             }
@@ -118,21 +116,21 @@ pub fn AgentModelsPane() -> Element {
                         AgentRoles { catalog: catalog_value.clone(), settings, error }
                     }
                 } else if section() == "accounts" {
-                    section { class: "agent-settings__section", "data-testid": "agent-connected-providers",
-                        div { class: "agent-settings__section-head",
-                            h2 { class: "agent-settings__section-title", "Connected providers" }
-                            span { class: "agent-settings__count", {plural(signed_in.len(), "provider", "providers")} }
-                            IconButton { icon: "refresh", label: "Refresh accounts and usage", title: "Refresh accounts and usage", size: IconButtonSize::IconSm, class: "agent-settings__section-action", onclick: move |_| reload(()) }
+                    section { class: "flex flex-col gap-4", "data-testid": "agent-connected-providers",
+                        div { class: "flex flex-wrap items-center gap-2",
+                            h2 { class: "text-base font-semibold", "Connected providers" }
+                            span { class: "text-sm text-muted-foreground", {plural(signed_in.len(), "provider", "providers")} }
+                            IconButton { icon: IconType::RefreshCw, label: "Refresh accounts and usage", title: "Refresh accounts and usage", size: ButtonSize::IconSm, class: "ml-auto", onclick: move |_| reload(()) }
                         }
                         if signed_in.is_empty() {
                             EmptyState {
-                                icon: "link_off",
+                                icon: IconType::Link2Off,
                                 title: "Connect your first model provider",
                                 supporting: "Use an existing subscription or add an API key. Then choose a model in the Models section.",
                                 action: quick_sign_in(&not_signed_in, connect_provider),
                             }
                         } else {
-                            div { class: "agent-settings__provider-cards",
+                            div { class: "flex flex-col gap-3",
                                 for summary in signed_in {
                                     ConnectedProviderCard {
                                         key: "{summary.provider.id}",
@@ -149,16 +147,16 @@ pub fn AgentModelsPane() -> Element {
                             }
                         }
                     }
-                    section { class: "agent-settings__section", "data-testid": "agent-available-providers",
-                        div { class: "agent-settings__section-head",
-                            h2 { class: "agent-settings__section-title", "Add a provider" }
+                    section { class: "flex flex-col gap-4", "data-testid": "agent-available-providers",
+                        div { class: "flex flex-wrap items-center gap-2",
+                            h2 { class: "text-base font-semibold", "Add a provider" }
                         }
                         AvailableProviders { providers: not_signed_in, on_connect: move |provider| connect_provider.set(Some(provider)) }
                     }
                 } else {
-                    section { class: "agent-settings__section", "data-testid": "agent-web-search",
-                        h2 { class: "agent-settings__section-title", "Search services" }
-                        p { class: "agent-settings__support", "Keyless engines work out of the box. Connect a service below to use its search API; engine order lives under Models → Customize by task." }
+                    section { class: "flex flex-col gap-4", "data-testid": "agent-web-search",
+                        h2 { class: "text-base font-semibold", "Search services" }
+                        p { class: "text-sm text-muted-foreground", "Keyless engines work out of the box. Connect a service below to use its search API; engine order lives under Models → Customize by task." }
                         for summary in web_search.iter().filter(|summary| summary.provider.configured).cloned() {
                             ConnectedProviderCard {
                                 key: "{summary.provider.id}",
@@ -224,12 +222,12 @@ fn quick_sign_in(
         return None;
     }
     Some(rsx! {
-        div { class: "agent-settings__quick-sign-in",
+        div { class: "flex flex-wrap items-center gap-2",
             for provider in oauth {
                 Button {
                     key: "{provider.id}",
                     variant: ButtonVariant::Default,
-                    icon: "login",
+                    icon: Some(IconType::LogIn),
                     onclick: {
                         let provider = provider.clone();
                         move |_| connect_provider.set(Some(provider.clone()))

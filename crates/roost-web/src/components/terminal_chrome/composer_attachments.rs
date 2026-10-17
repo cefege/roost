@@ -6,7 +6,7 @@ use dioxus::prelude::*;
 
 use super::attachment_picker::{AttachmentPreview, ChosenFile};
 use super::dom;
-use crate::components::md::{Button, ButtonSize, ButtonVariant};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, IconType};
 
 /// Show staged files and actions above the composer's field.
 #[component]
@@ -32,23 +32,24 @@ pub fn StagedAttachments(
     // empty area stays clickable; everything it shows must opt back in, or the
     // staged rows' remove buttons and Cancel/Send never receive a click.
     rsx! {
-        div { style: "display: contents; pointer-events: auto;",
+        div { class: "contents pointer-events-auto",
             AttachmentPreview {
                 files: staged.clone(),
                 on_remove: remove,
             }
-            div {
-                style: "display: flex; justify-content: flex-end; gap: var(--md-space-2);",
+            div { class: "flex justify-end gap-2",
                 Button {
                     variant: ButtonVariant::Outline,
                     size: ButtonSize::Sm,
+                    class: None,
                     onclick: move |_| clear_staged_files(staged_files),
                     "Cancel"
                 }
                 Button {
                     variant: ButtonVariant::Default,
                     size: ButtonSize::Sm,
-                    icon: "send",
+                    class: None,
+                    icon: Some(IconType::Send),
                     onclick: move |_| send_staged_files(staged_files, on_send_uploads),
                     if staged.len() == 1 { "Send 1 file" } else { "Send {staged.len()} files" }
                 }

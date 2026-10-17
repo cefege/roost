@@ -8,15 +8,14 @@
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{INTENT_FIELD, TranscriptItem, intent_label};
 
-use super::shimmer::ShimmerLabel;
-use crate::components::md::Spinner;
 use crate::components::terminal::dom::{now_ms, sleep_ms};
+use crate::components::ui::Shimmer;
 #[cfg(target_arch = "wasm32")]
 use crate::motion::view_transition::prefers_reduced_motion;
 
 const SPINNER_FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const SPINNER_FRAME_MS: u64 = 80;
-const SHIMMER_TICK_MS: u64 = 33;
+const FRAME_TICK_MS: u64 = 33;
 const REDUCED_TICK_MS: u64 = 1_000;
 const IDLE_LABEL: &str = "Working…";
 
@@ -99,7 +98,7 @@ pub(crate) fn WorkingRow(label: String) -> Element {
             sleep_ms(if reduced {
                 REDUCED_TICK_MS
             } else {
-                SHIMMER_TICK_MS
+                FRAME_TICK_MS
             })
             .await;
             clock_ms.set(now_ms());
@@ -113,19 +112,18 @@ pub(crate) fn WorkingRow(label: String) -> Element {
         (elapsed_ms / SPINNER_FRAME_MS) as usize % SPINNER_FRAMES.len()
     };
     let spinner = SPINNER_FRAMES.get(frame_index).copied().unwrap_or('⠋');
-    let elapsed_seconds = elapsed_ms as f64 / 1_000.0;
+    let shimmering = use_signal(|| true);
 
     rsx! {
-        div {
-            class: "agent-chat__working",
-            Spinner { frame: spinner }
-            span { class: "agent-chat__working-elapsed", "{format_duration(elapsed_ms)}" }
-            span { class: "agent-chat__working-sep", "aria-hidden": "true", " · " }
+        div { class: "flex items-center gap-2 text-sm text-muted-foreground",
+            span { class: "font-mono", "aria-hidden": "true", "{spinner}" }
+            span { class: "tabular-nums", "{format_duration(elapsed_ms)}" }
+            span { "aria-hidden": "true", " · " }
             span { role: "status",
                 if reduced {
-                    span { class: "agent-chat__working-label", "{label}" }
+                    span { "{label}" }
                 } else {
-                    ShimmerLabel { text: label, elapsed_seconds }
+                    Shimmer { loading: shimmering, "{label}" }
                 }
             }
         }

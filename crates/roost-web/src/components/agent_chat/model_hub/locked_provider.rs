@@ -5,7 +5,7 @@ use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{ModelsCatalog, ProviderEntry};
 
 use super::hub_logic::HubView;
-use crate::components::md::{Button, ButtonSize, ButtonVariant, EmptyState};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, EmptyState, IconType};
 
 /// The locked provider's view: its sign-in, which the Enter key also starts.
 #[component]
@@ -30,10 +30,10 @@ pub(super) fn LockedProvider(
     let mut open = open;
     rsx! {
         EmptyState {
-            icon: "lock",
-            title: "{label} is not signed in",
-            supporting: "Sign in to use its models in this chat and in model roles.",
-            action: rsx! {
+            icon: IconType::Lock,
+            title: format!("{label} is not signed in"),
+            supporting: Some("Sign in to use its models in this chat and in model roles.".to_owned()),
+            action: Some(rsx! {
                 Button {
                     variant: ButtonVariant::Default,
                     size: ButtonSize::Default,
@@ -44,7 +44,7 @@ pub(super) fn LockedProvider(
                     },
                     "Sign in to {label}"
                 }
-            },
+            }),
         }
     }
 }

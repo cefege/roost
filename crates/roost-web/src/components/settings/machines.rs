@@ -17,7 +17,10 @@ use dioxus::prelude::*;
 use roost_protocol::wire::Worker;
 
 use crate::components::machines::deploy_dialog::MachineDeployDialog;
-use crate::components::md::{Button, ButtonVariant, Card, EmptyState, List};
+use crate::components::ui::{
+    Button, ButtonVariant, Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle,
+    EmptyState, IconType, List,
+};
 use crate::pump::use_store;
 
 /// The pane.
@@ -41,37 +44,43 @@ pub fn MachinesPane() -> Element {
     let count = workers.len();
     rsx! {
         div {
-            class: "settings-pane",
+            class: "flex flex-col gap-5",
             "data-testid": "settings-machines-pane",
             Card {
-                title: "Machines",
-                supporting: if count == 1 { "1 machine".to_owned() } else { format!("{count} machines") },
-                trailing: rsx! {
-                    Button {
-                        variant: ButtonVariant::Default,
-                        icon: "add",
-                        "data-testid": "machines-add-btn",
-                        onclick: move |_| {
-                            enrolling.set(true);
-                            tracing::info!(target: "settings", "machine enrollment dialog opened");
-                        },
-                        "Add machine"
+                CardHeader {
+                    CardTitle { "Machines" }
+                    CardDescription {
+                        {if count == 1 { "1 machine".to_owned() } else { format!("{count} machines") }}
                     }
-                },
-                if workers.is_empty() {
-                    EmptyState {
-                        icon: "desktop_mac",
-                        title: "No machines yet",
-                        supporting: "Add a machine to start spawning sessions.",
+                    CardAction {
+                        Button {
+                            variant: ButtonVariant::Default,
+                            icon: Some(IconType::Plus),
+                            "data-testid": "machines-add-btn",
+                            onclick: move |_| {
+                                enrolling.set(true);
+                                tracing::info!(target: "settings", "machine enrollment dialog opened");
+                            },
+                            "Add machine"
+                        }
                     }
-                } else {
-                    List { contained: true,
-                        for worker in workers {
-                            machine_row::MachineRowView {
-                                worker,
-                                coord_sha: coord_sha.clone(),
-                                now_ms,
-                                pump: pump.clone(),
+                }
+                CardContent {
+                    if workers.is_empty() {
+                        EmptyState {
+                            icon: IconType::Monitor,
+                            title: "No machines yet",
+                            supporting: "Add a machine to start spawning sessions.",
+                        }
+                    } else {
+                        List { contained: true,
+                            for worker in workers {
+                                machine_row::MachineRowView {
+                                    worker,
+                                    coord_sha: coord_sha.clone(),
+                                    now_ms,
+                                    pump: pump.clone(),
+                                }
                             }
                         }
                     }

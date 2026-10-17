@@ -1,50 +1,40 @@
 //! Presentational pieces of the command palette: the kind badge, one result row
 //! and the keyboard-legend footer. Called by `palette::body` only; depends on
-//! `md` primitives and `roost_client_core::store::palette`. Ports
+//! `ui` primitives and `roost_client_core::store::palette`. Ports
 //! `CommandPalettePieces.tsx` and the row markup of `CommandPaletteBody.tsx`.
 //!
-//! Every value here is a token, including the badge's 10px/14px ramp: the
-//! design ratchet rejects a raw value, and `--md-label-s-*` is the ramp the rest
-//! of the chrome already uses for a caps label.
+//! Every colour is a theme role and every size a type-scale step, so the palette
+//! reads like the rest of the chrome in both themes. Each class string is a
+//! complete literal: Tailwind scans the source for them.
 
 use dioxus::prelude::*;
 use roost_client_core::store::palette::{ItemKind, PaletteItem};
 
-use crate::components::md::{BindingChip, Button, ButtonVariant};
+use crate::components::ui::{BindingChip, CommandItem};
 
 /// The badge's stroke and text, one colour per kind.
-const fn kind_color(kind: ItemKind) -> &'static str {
+const fn kind_classes(kind: ItemKind) -> &'static str {
     match kind {
-        ItemKind::Session => "var(--status-info)",
-        ItemKind::Workspace => "var(--status-ok)",
-        ItemKind::Action => "var(--text-lo)",
+        ItemKind::Session => "border-info text-info",
+        ItemKind::Workspace => "border-success text-success",
+        ItemKind::Action => "border-muted-foreground text-muted-foreground",
     }
 }
-
-const BADGE_STYLE: &str = "background: transparent; border: 1px solid; border-radius: var(--md-shape-xs); \
-     padding: 0 var(--md-space-1); flex-shrink: 0; letter-spacing: 0.04em; \
-     font: var(--md-label-s-weight) var(--md-label-s-size) / var(--md-label-s-line) var(--md-font); \
-     text-transform: uppercase; white-space: nowrap;";
 
 /// The kind of a row, in caps.
 #[component]
 pub fn KindBadge(kind: ItemKind) -> Element {
-    let color = kind_color(kind);
+    let classes = kind_classes(kind);
     rsx! {
-        span { style: "{BADGE_STYLE} border-color: {color}; color: {color};", {kind.as_str()} }
+        span { class: "inline-flex shrink-0 items-center rounded-md border px-1 text-xs tracking-wider whitespace-nowrap uppercase {classes}",
+            {kind.as_str()}
+        }
     }
 }
 
-/// The shared shape of a result row; only the colours differ.
-const ROW_STYLE: &str = "inline-size: 100%; display: flex; align-items: center; justify-content: space-between; \
-     gap: var(--md-space-3); padding: var(--md-space-2) var(--md-space-4); border: none; text-align: start; \
-     font: var(--md-body-m-weight) var(--md-body-m-size) / var(--md-body-m-line) var(--md-font);";
-const ROW_IDLE_STYLE: &str = "background: transparent; color: var(--md-on-surface);";
-const ROW_ACTIVE_STYLE: &str =
-    "background: var(--md-secondary-container); color: var(--md-on-secondary-container);";
-const ROW_LABEL_STYLE: &str = "overflow: hidden; text-overflow: ellipsis; white-space: nowrap;";
-const ROW_HINT_STYLE: &str = "color: var(--text-lo); flex-shrink: 0; overflow: hidden; \
-     text-overflow: ellipsis; white-space: nowrap; font: var(--md-label-s-weight) var(--md-label-s-size) / var(--md-label-s-line) var(--md-font);";
+/// The row's own styling. The highlight comes from `aria-selected`, which
+/// `CommandItem` sets from its `selected` prop, so no active/idle class pair.
+const ROW_CLASS: &str = "h-auto w-full justify-between gap-3 rounded-none px-4 py-2 text-start font-normal whitespace-normal text-foreground aria-selected:bg-accent aria-selected:text-accent-foreground";
 
 /// One result: what it is, what it is called, and the dimmer hint beside it.
 #[component]
@@ -54,52 +44,43 @@ pub fn PaletteRow(
     active: bool,
     on_select: EventHandler<PaletteItem>,
 ) -> Element {
-    let state = if active {
-        ROW_ACTIVE_STYLE
-    } else {
-        ROW_IDLE_STYLE
-    };
     let hint = item.hint.clone();
     let label = item.label.clone();
     let kind = item.kind;
     let selected = item.clone();
     rsx! {
-        Button {
-            variant: ButtonVariant::Ghost,
-            style: "{ROW_STYLE} {state}",
-            onclick: move |_| on_select.call(selected.clone()),
-            // `data-index` is what a host reads to follow the pointer with the
-            // cursor: `md::Button` forwards native attributes but declares no
-            // `onmouseenter`, so the row cannot carry the listener itself.
+        CommandItem {
+            class: ROW_CLASS.to_owned(),
+            value: index.to_string(),
+            selected: active,
+            show_check: false,
+            on_select: move |_: ()| on_select.call(selected.clone()),
+            test_id: "command-palette-item",
+            // `data-index` is what the host reads to follow the pointer with the
+            // cursor; `CommandItem` forwards native attributes for it.
             "data-index": index.to_string(),
-            "data-testid": "command-palette-item",
             "data-kind": kind.as_str(),
-            span { style: "display: flex; align-items: center; gap: var(--md-space-2); min-inline-size: 0;",
+            span { class: "flex min-w-0 items-center gap-2",
                 KindBadge { kind }
-                span { style: ROW_LABEL_STYLE, {label} }
+                span { class: "truncate", {label} }
             }
             if let Some(hint) = hint {
-                span { style: ROW_HINT_STYLE, {hint} }
+                span { class: "shrink-0 truncate text-xs text-muted-foreground", {hint} }
             }
         }
     }
 }
-
-const FOOTER_STYLE: &str = "display: flex; align-items: center; justify-content: space-between; \
-     gap: var(--md-space-3); padding: var(--md-space-2) var(--md-space-4); \
-     border-block-start: var(--workbench-border-width) solid var(--md-sys-color-outline-variant); \
-     background: var(--md-sys-color-surface-container); \
-     font: var(--md-label-s-weight) var(--md-label-s-size) / var(--md-label-s-line) var(--md-font); \
-     color: var(--md-sys-color-on-surface-variant);";
 
 /// The legend under the results: what the arrows do, and whether there is
 /// anything to open yet.
 #[component]
 pub fn PaletteFooter(has_results: bool) -> Element {
     rsx! {
-        div { "data-testid": "command-palette-footer", style: FOOTER_STYLE,
+        div {
+            class: "flex items-center justify-between gap-3 border-t border-border bg-card px-4 py-2 text-xs text-muted-foreground",
+            "data-testid": "command-palette-footer",
             span { if has_results { "Select to open" } else { "Type to search" } }
-            div { style: "display: flex; align-items: center; gap: var(--md-space-3);",
+            div { class: "flex items-center gap-3",
                 FooterEntry { caps: vec!["↑", "↓"], label: "navigate" }
                 FooterEntry { caps: vec!["↵"], label: "open" }
                 FooterEntry { caps: vec!["esc"], label: "close" }
@@ -112,7 +93,7 @@ pub fn PaletteFooter(has_results: bool) -> Element {
 #[component]
 fn FooterEntry(caps: Vec<&'static str>, label: &'static str) -> Element {
     rsx! {
-        span { style: "display: flex; align-items: center; gap: var(--md-space-1);",
+        span { class: "flex items-center gap-1",
             for cap in caps {
                 BindingChip { {cap} }
             }

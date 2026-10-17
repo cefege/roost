@@ -24,11 +24,12 @@ use crate::components::agents::agent_status_indicator::agent_dot_status_name;
 use crate::components::browse::folder_glyph::FolderGlyph;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::machines::machine_identity_mark::MachineIdentityMark;
-use crate::components::md::list_row::is_in_app_navigation_click;
-use crate::components::md::{IconButton, IconButtonSize, StatusDot};
 use crate::components::notifications::notify_target::{
     folder_ring_attribute, open_tab_session_ids, use_notify_target,
 };
+use crate::components::ui::list::is_in_app_navigation_click;
+use crate::components::ui::status::StatusDot;
+use crate::components::ui::{ButtonSize, IconButton, IconType};
 use crate::platform::BrowserWorkerPaths;
 use crate::pump::use_store;
 use crate::router_state::{use_location, use_navigate};
@@ -112,11 +113,12 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
     let show_rollup = rollup.total > 0 && rollup.level != AgentStatusLevel::Unknown;
     rsx! {
         div {
-            class: "df-row",
+            class: "group relative flex min-w-0 items-start gap-3 rounded-md px-3 py-2 hover:bg-accent/50 data-[selected=focused]:bg-accent data-[cursor=on]:bg-accent/50",
             title: group.spawn_cwd.clone(),
             "data-density": "flat",
             "data-testid": "folder-row-{group.key}",
             "data-selected": if selected { "focused" } else { "" },
+            "data-cursor": cursor.then_some("on"),
             "data-notify-target": ringing,
             style: "--avatar-bg: {avatar_background(&group.key)}",
             oncontextmenu: move |event: MouseEvent| {
@@ -127,9 +129,8 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
             },
             a {
                 href: href.clone(),
-                class: "df-row__primary",
+                class: "absolute inset-0 z-10",
                 "aria-label": "Open {group.name}",
-                style: "position: absolute; inset: 0; z-index: 1;",
                 onclick: move |event: MouseEvent| {
                     if has_sessions {
                         pump.dispatch(ClientEvent::Sidebar(SidebarIntent::RecordNavigation {
@@ -147,21 +148,21 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
                     }
                 },
             }
-            span { class: "df-row__visual", style: "display: contents; pointer-events: none;",
-                span { class: "df-leading df-leading--machine",
+            span { class: "pointer-events-none contents",
+                span { class: "flex shrink-0 items-center",
                     MachineIdentityMark { worker: worker.clone(), context_title: group.spawn_cwd.clone() }
                 }
-                span { class: "df-flat-body",
-                    span { class: "df-flat-top",
-                        span { class: "df-label df-flat-headline", title: group.spawn_cwd.clone(), {group.name.clone()} }
-                        span { class: "df-flat-time", {rel_time_since(now_ms, group.latest_activity)} }
+                span { class: "flex min-w-0 flex-1 flex-col gap-0.5",
+                    span { class: "flex min-w-0 items-baseline gap-2",
+                        span { class: "min-w-0 truncate text-sm font-medium text-foreground group-data-[selected=focused]:text-accent-foreground", title: group.spawn_cwd.clone(), {group.name.clone()} }
+                        span { class: "shrink-0 text-xs tabular-nums text-muted-foreground group-data-[selected=focused]:text-accent-foreground", {rel_time_since(now_ms, group.latest_activity)} }
                     }
                     if !group.subtitle.is_empty() {
-                        span { class: "df-flat-subtitle", {group.subtitle.clone()} }
+                        span { class: "truncate text-xs text-muted-foreground group-data-[selected=focused]:text-accent-foreground", {group.subtitle.clone()} }
                     }
                     if show_rollup {
                         span {
-                            class: "agent-status-rollup",
+                            class: "agent-status-rollup flex items-center gap-1.5 text-xs text-muted-foreground",
                             "data-level": agent_status_level_token(rollup.level),
                             "data-testid": "folder-agent-status-{group.key}",
                             StatusDot {
@@ -170,13 +171,13 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
                             span { {format_agent_status_counts(&rollup.counts)} }
                         }
                     }
-                    span { class: "df-flat-supporting",
+                    span { class: "flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-muted-foreground",
                         if !compact || !group.online {
                             ServerChip { online: group.online, label: group.server.clone(), title: None, test_id: None }
                         }
                         if !compact {
-                            span { class: "df-flat-path", title: panes_title,
-                                FolderGlyph { size: 11, class: "df-flat-folder-icon" }
+                            span { class: "inline-flex items-center gap-1", title: panes_title,
+                                FolderGlyph { size: 11, class: "shrink-0" }
                                 span { "{pane_count}" }
                             }
                         }
@@ -205,13 +206,12 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
                 }
             }
             IconButton {
-                icon: "more_vert",
+                icon: IconType::EllipsisVertical,
                 label: "Folder actions",
-                size: IconButtonSize::IconSm,
-                class: "df-action",
+                size: ButtonSize::IconSm,
+                class: "relative z-20 shrink-0 pointer-events-auto",
                 "data-testid": "folder-more-{group.key}",
                 title: "Folder actions",
-                style: "--md-icon-button-icon-size: var(--md-label-l-size); position: relative; z-index: 2; pointer-events: auto;",
                 onclick: move |event: MouseEvent| {
                     event.stop_propagation();
                     event.prevent_default();

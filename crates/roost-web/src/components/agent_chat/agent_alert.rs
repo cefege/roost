@@ -5,10 +5,10 @@
 
 use dioxus::prelude::*;
 
-use crate::components::md::{Icon, IconSize, Surface, SurfaceRadius};
+use crate::components::ui::{Icon, IconType, Surface, SurfaceRadius};
 
 /// The class of an inline error line under a control or a command.
-pub const ERROR_TEXT_CLASS: &str = "agent-chat__error-text";
+pub const ERROR_TEXT_CLASS: &str = "text-sm text-destructive";
 
 /// What an alert reports. An error interrupts the reader; a warning waits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -25,21 +25,19 @@ pub fn AgentAlert(
     children: Element,
 ) -> Element {
     let (icon, role, icon_class) = match tone {
-        AlertTone::Error => (
-            "error",
-            "alert",
-            "agent-chat__alert-icon agent-chat__alert-icon--error",
-        ),
-        AlertTone::Warning => (
-            "warning",
-            "status",
-            "agent-chat__alert-icon agent-chat__alert-icon--warning",
-        ),
+        AlertTone::Error => (IconType::CircleAlert, "alert", "text-destructive"),
+        AlertTone::Warning => (IconType::TriangleAlert, "status", "text-warning"),
     };
     rsx! {
-        Surface { role, class: "agent-chat__alert", border: true, radius: SurfaceRadius::Md, pad: 3, test_id,
-            Icon { name: icon, size: IconSize::Sm, class: icon_class }
-            div { class: "agent-chat__alert-body", {children} }
+        Surface {
+            role: Some(role.to_owned()),
+            class: Some("flex items-start gap-2 text-sm text-foreground".to_owned()),
+            border: true,
+            radius: SurfaceRadius::Md,
+            pad: Some(3),
+            test_id,
+            Icon { icon, class: icon_class }
+            div { class: "min-w-0 flex-1", {children} }
         }
     }
 }

@@ -1,60 +1,34 @@
-//! The `/design` gallery's token sections: colour swatches, the type ramp, and
-//! the spacing, shape and elevation scales. Ported from the `Swatch`, `RampRow`
-//! and sections 1–5 of `apps/web/src/components/design/DesignGallery.tsx`;
-//! `gallery.rs` mounts each inside a `GallerySection`. The catalogs they draw
-//! are `catalog.rs`'s.
+//! The `/design` gallery's token sections: colour swatches, the type scale, and
+//! the spacing, radius and elevation scales. Each draws its specimens from the
+//! `catalog` tables, whose classes are complete utility literals Tailwind
+//! scans; `gallery.rs` mounts each inside a `GallerySection`.
 
 use dioxus::prelude::*;
 
 use super::catalog::{
-    COLOR_GROUPS, ELEV_STEPS, RAMP_STEPS, SHAPE_STEPS, SPACE_STEPS, gallery_grid_style,
+    COLOR_GROUPS, ColorRole, ELEVATION_STEPS, SHAPE_STEPS, SPACE_BARS, SWATCH_GRID_CLASS,
+    Specimen, TILE_GRID_CLASS, TYPE_STEPS,
 };
-use crate::components::md::SectionTitle;
+use crate::components::ui::SectionTitle;
 
-/// The swatch grid's minimum column: two large spaces plus a medium one.
-const SWATCH_COLUMN: &str = "calc(var(--md-space-9) * 2 + var(--md-space-6))";
-
-/// A monospace caption in the label-small ramp, naming a token.
-const TOKEN_CAPTION_STYLE: &str = "color: var(--text-mid); font-family: var(--font-mono); \
-     font-size: var(--md-label-s-size); line-height: var(--md-label-s-line);";
-
-/// One colour token: a chip painted with it and its name.
+/// One colour role: a chip painted with it, and its name.
 #[component]
-fn Swatch(token: String) -> Element {
+fn Swatch(role: ColorRole) -> Element {
     rsx! {
-        div { style: "display: flex; flex-direction: column; gap: var(--md-space-1); min-width: 0;",
-            div {
-                style: "height: calc(var(--md-space-7) + var(--md-space-6)); background: var({token}); \
-                        border-radius: var(--md-shape-sm); \
-                        border: var(--workbench-border-width) solid var(--md-outline-variant);",
-            }
-            span {
-                style: "font-size: var(--md-label-s-size); line-height: var(--md-label-s-line); \
-                        color: var(--text-mid); font-family: var(--font-mono); overflow-wrap: anywhere;",
-                {token.clone()}
-            }
+        div { class: "flex min-w-0 flex-col gap-1",
+            div { class: "h-12 rounded-sm border border-border {role.class}" }
+            span { class: "font-mono text-xs break-words text-muted-foreground", "{role.name}" }
         }
     }
 }
 
-/// One type-ramp step: its name and a sample line set in it.
+/// One type-scale step: its name and a sample line set in it.
 #[component]
-fn RampRow(step: String) -> Element {
+fn RampRow(step: Specimen) -> Element {
     rsx! {
-        div {
-            style: "display: flex; align-items: baseline; gap: var(--md-space-4); \
-                    padding: var(--md-space-2) 0; \
-                    border-bottom: var(--workbench-border-width) solid var(--md-outline-variant);",
-            span {
-                style: "flex-shrink: 0; width: calc(var(--md-space-9) * 2 + var(--md-space-3)); \
-                        font-size: var(--md-label-m-size); line-height: var(--md-label-m-line); \
-                        color: var(--text-lo); font-family: var(--font-mono);",
-                {step.clone()}
-            }
-            span {
-                style: "color: var(--text-hi); font-size: var(--md-{step}-size); \
-                        line-height: var(--md-{step}-line); font-weight: var(--md-{step}-weight); \
-                        min-width: 0; overflow-wrap: anywhere;",
+        div { class: "flex items-baseline gap-4 border-b border-border py-2",
+            span { class: "w-24 shrink-0 font-mono text-xs text-muted-foreground", "{step.label}" }
+            span { class: "min-w-0 break-words text-foreground {step.class}",
                 "Roost — one tab, your whole fleet"
             }
         }
@@ -66,11 +40,11 @@ fn RampRow(step: String) -> Element {
 pub fn ColorRoles() -> Element {
     rsx! {
         for group in COLOR_GROUPS {
-            div { style: "margin-bottom: var(--md-space-5);",
+            div { class: "mb-5",
                 SectionTitle { {group.title} }
-                div { style: gallery_grid_style(SWATCH_COLUMN),
-                    for token in group.tokens {
-                        Swatch { token: *token }
+                div { class: SWATCH_GRID_CLASS,
+                    for role in group.roles {
+                        Swatch { role: *role }
                     }
                 }
             }
@@ -78,11 +52,11 @@ pub fn ColorRoles() -> Element {
     }
 }
 
-/// The type ramp, largest first.
+/// The type scale, largest first.
 #[component]
 pub fn TypeRamp() -> Element {
     rsx! {
-        for step in RAMP_STEPS {
+        for step in TYPE_STEPS {
             RampRow { step }
         }
     }
@@ -92,19 +66,11 @@ pub fn TypeRamp() -> Element {
 #[component]
 pub fn SpacingScale() -> Element {
     rsx! {
-        div { style: "display: flex; flex-direction: column; gap: var(--md-space-2);",
-            for step in SPACE_STEPS {
-                div { style: "display: flex; align-items: center; gap: var(--md-space-3);",
-                    span {
-                        style: "width: calc(var(--md-space-9) * 2); flex-shrink: 0; color: var(--text-lo); \
-                                font-size: var(--md-label-m-size); line-height: var(--md-label-m-line); \
-                                font-family: var(--font-mono);",
-                        "--md-space-{step}"
-                    }
-                    div {
-                        style: "height: var(--md-space-4); width: var(--md-space-{step}); \
-                                background: var(--md-primary); border-radius: var(--md-shape-xs);",
-                    }
+        div { class: "flex flex-col gap-2",
+            for bar in SPACE_BARS {
+                div { class: "flex items-center gap-3",
+                    span { class: "w-24 shrink-0 font-mono text-xs text-muted-foreground", "{bar.label}" }
+                    div { class: bar.class }
                 }
             }
         }
@@ -115,18 +81,11 @@ pub fn SpacingScale() -> Element {
 #[component]
 pub fn ShapeScale() -> Element {
     rsx! {
-        div { style: gallery_grid_style(SWATCH_COLUMN),
+        div { class: SWATCH_GRID_CLASS,
             for shape in SHAPE_STEPS {
-                div {
-                    style: "display: flex; flex-direction: column; gap: var(--md-space-2); align-items: center;",
-                    div {
-                        style: "width: calc(var(--md-space-9) * 2 - var(--md-space-2)); \
-                                height: calc(var(--md-space-9) * 2 - var(--md-space-2)); \
-                                background: var(--md-primary-container); \
-                                border: var(--workbench-border-width) solid var(--md-outline); \
-                                border-radius: var(--md-shape-{shape});",
-                    }
-                    span { style: TOKEN_CAPTION_STYLE, "--md-shape-{shape}" }
+                div { class: "flex flex-col items-center gap-2",
+                    div { class: shape.class }
+                    span { class: "font-mono text-xs text-muted-foreground", "{shape.label}" }
                 }
             }
         }
@@ -137,16 +96,9 @@ pub fn ShapeScale() -> Element {
 #[component]
 pub fn ElevationScale() -> Element {
     rsx! {
-        div { style: gallery_grid_style("calc(var(--md-space-9) * 3)"),
-            for step in ELEV_STEPS {
-                div {
-                    style: "height: calc(var(--md-space-9) * 2 - var(--md-space-2)); display: flex; \
-                            align-items: center; justify-content: center; background: var(--surface-2); \
-                            border-radius: var(--md-shape-md); box-shadow: var(--md-elev-{step}); \
-                            color: var(--text-mid); font-family: var(--font-mono); \
-                            font-size: var(--md-label-s-size); line-height: var(--md-label-s-line);",
-                    "--md-elev-{step}"
-                }
+        div { class: TILE_GRID_CLASS,
+            for step in ELEVATION_STEPS {
+                div { class: step.class, "{step.label}" }
             }
         }
     }

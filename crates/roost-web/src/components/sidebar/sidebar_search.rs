@@ -5,7 +5,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::md::{Icon, IconButton, IconButtonSize, IconSize};
+use crate::components::ui::{ButtonSize, Icon, IconButton, IconType};
 
 /// The id `SidebarRoot` focuses on Cmd-F.
 pub const SIDEBAR_SEARCH_INPUT_ID: &str = "sidebar-search-input";
@@ -21,11 +21,13 @@ pub fn SidebarSearch(
 ) -> Element {
     let has_query = !query.is_empty();
     rsx! {
-        div { class: "df-search workbench-sidebar-search", "data-testid": "sidebar-search-wrapper",
-            Icon { name: "search", class: "workbench-sidebar-search__icon", size: IconSize::Sm }
+        div {
+            class: "flex items-center gap-2 border-b border-border px-3 py-2 text-muted-foreground",
+            "data-testid": "sidebar-search-wrapper",
+            Icon { icon: IconType::Search, class: "size-4 shrink-0" }
             input {
                 id: SIDEBAR_SEARCH_INPUT_ID,
-                class: "workbench-sidebar-search__input",
+                class: "min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground",
                 r#type: "text",
                 value: query,
                 oninput: move |event: FormEvent| on_change.call(event.value()),
@@ -42,17 +44,17 @@ pub fn SidebarSearch(
             }
             if has_query {
                 IconButton {
-                    icon: "close",
+                    icon: IconType::X,
                     label: "Clear search",
-                    size: IconButtonSize::IconSm,
-                    class: "workbench-sidebar-search__clear",
+                    size: ButtonSize::IconSm,
+                    class: "shrink-0",
                     onclick: move |_| on_change.call(String::new()),
                     title: "Clear (Esc)",
                     "data-testid": "sidebar-search-clear",
                 }
             } else {
                 span {
-                    class: "df-search-kbd workbench-sidebar-search__shortcut",
+                    class: "shrink-0 rounded-sm border border-border px-1 font-mono text-xs text-muted-foreground",
                     "aria-hidden": "true",
                     {shortcut_label}
                 }

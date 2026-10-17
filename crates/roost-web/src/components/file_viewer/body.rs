@@ -10,7 +10,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::md::{Button, ButtonSize, ButtonVariant};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, ScrollArea};
 use crate::syntax_lite::Token;
 
 use super::state::token_color;
@@ -19,17 +19,9 @@ use super::state::token_color;
 /// lets the target marker be placed by arithmetic on the line number.
 const ROW_HEIGHT_PX: u32 = 20;
 
-/// The gutter the line number sits in, so the text starts in the same column on
-/// every row whatever the file's line count is.
-const GUTTER_MIN_WIDTH: &str = "36px";
-
 /// How long a copied line shows its tick or cross before the row goes back to
 /// `#`. v2's copy feedback window.
 pub const COPY_FEEDBACK_MS: u32 = 1500;
-
-/// The one rule the control needs and an inline style cannot: a row's control
-/// is invisible until the row is under the pointer.
-const COPY_HOVER_RULE: &str = ".fvs-line:hover .fvs-copy-btn { opacity: 1 !important; }";
 
 /// What a line's copy-link control is showing right now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,15 +59,17 @@ pub fn FileBody(
     let marker_top_px =
         u32::try_from(target_line.saturating_sub(1)).unwrap_or_default() * ROW_HEIGHT_PX;
     rsx! {
-        style { {COPY_HOVER_RULE} }
-        div {
-            "data-testid": "file-viewer-sheet-body",
-            style: "overflow-y: auto; font-family: var(--font-mono); font-size: var(--md-body-s-size); flex: 1 1 auto; min-height: 0; background: var(--bg-base); border-radius: var(--md-shape-xs); padding: var(--md-space-2); position: relative;",
+        ScrollArea { class: "flex-auto min-h-0 bg-terminal rounded-sm font-mono text-sm",
             div {
-                "data-testid": "file-viewer-sheet-target-marker",
-                style: "position: absolute; left: 0; width: 3px; top: {marker_top_px}px; height: {ROW_HEIGHT_PX}px; background: var(--color-warn);"
+                "data-testid": "file-viewer-sheet-body",
+                class: "relative p-2",
+                div {
+                    "data-testid": "file-viewer-sheet-target-marker",
+                    class: "absolute left-0 w-0.75 bg-warning",
+                    style: "top: {marker_top_px}px; height: {ROW_HEIGHT_PX}px;"
+                }
+                {rows.into_iter()}
             }
-            {rows.into_iter()}
         }
     }
 }
@@ -91,16 +85,17 @@ fn FileBodyLine(
     on_copy: EventHandler<usize>,
 ) -> Element {
     let label = format!("Copy link to line {number}");
+    let glyph_color = copy_glyph_color(copied);
     rsx! {
         div {
             "data-line": "{number}",
             "data-testid": "file-viewer-sheet-line-{number}",
-            class: "fvs-line",
+            class: "group flex gap-3 relative",
             style: row_style(is_target),
             span {
                 "data-testid": "file-viewer-sheet-line-num-{number}",
                 "data-target": is_target.then_some("true"),
-                style: "color: var(--text-lo); min-width: {GUTTER_MIN_WIDTH}; text-align: right; user-select: none; flex-shrink: 0;",
+                class: "min-w-9 text-right text-muted-foreground select-none shrink-0",
                 "{number}"
             }
             match tokens {
@@ -110,11 +105,11 @@ fn FileBodyLine(
             Button {
                 variant: ButtonVariant::Ghost,
                 size: ButtonSize::Xs,
-                class: "fvs-copy-btn",
+                class: "ml-auto shrink-0 min-h-0 px-1 text-xs opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
                 "data-testid": "file-viewer-sheet-copy-link-{number}",
                 title: label.clone(),
                 "aria-label": label,
-                style: copy_button_style(copied),
+                style: "color: {glyph_color};",
                 onclick: move |_| on_copy.call(number),
                 {copy_glyph(copied)}
             }
@@ -127,20 +122,18 @@ fn FileBodyLine(
 /// thousand controls.
 fn row_style(is_target: bool) -> String {
     let highlight = if is_target {
-        "background: color-mix(in srgb, var(--ansi-bright-yellow) 10%, transparent);"
+        "background-color: color-mix(in srgb, var(--ansi-bright-yellow) 10%, transparent);"
     } else {
         ""
     };
-    format!(
-        "display: flex; gap: var(--md-space-3); line-height: {ROW_HEIGHT_PX}px; position: relative; {highlight}"
-    )
+    format!("line-height: {ROW_HEIGHT_PX}px; {highlight}")
 }
 
 /// The line's text, one span per token so each run is painted in its own colour.
 fn highlighted_line(tokens: &[Token]) -> Element {
     rsx! {
         span {
-            style: "white-space: pre;",
+            class: "whitespace-pre",
             for token in tokens {
                 span { style: "color: {token_color(token.kind)};", {token.text.clone()} }
             }
@@ -151,7 +144,7 @@ fn highlighted_line(tokens: &[Token]) -> Element {
 /// The line's text, unhighlighted.
 fn plain_line(line: &str) -> Element {
     rsx! {
-        span { style: "color: var(--syntax-plain); white-space: pre;", {line} }
+        span { class: "whitespace-pre text-(--syntax-plain)", {line} }
     }
 }
 
@@ -165,14 +158,12 @@ fn copy_glyph(copied: Option<CopiedLine>) -> &'static str {
     }
 }
 
-/// The control's own styling, including the colour its glyph is in right now.
-fn copy_button_style(copied: Option<CopiedLine>) -> String {
-    let color = match copied {
+/// The colour of the control's glyph right now: the tick and the cross take the
+/// clipboard's verdict, and the `#` stays quiet until a copy happens.
+fn copy_glyph_color(copied: Option<CopiedLine>) -> &'static str {
+    match copied {
         Some(CopiedLine { ok: true, .. }) => "var(--color-ok)",
         Some(CopiedLine { ok: false, .. }) => "var(--color-err)",
         None => "var(--text-lo)",
-    };
-    format!(
-        "margin-left: auto; flex-shrink: 0; min-height: 0; padding: 0 var(--md-space-1); font-size: var(--md-label-s-size); background: none; border: none; opacity: 0; color: {color};"
-    )
+    }
 }

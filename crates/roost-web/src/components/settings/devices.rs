@@ -22,7 +22,10 @@ use roost_client_core::client::rpc::calls::settings::devices::{ListDevices, Revo
 use roost_client_core::store::shell_intent::ShellIntent;
 
 use super::format::format_timestamp;
-use crate::components::md::{Button, ButtonVariant, Card, EmptyState, List, ListRow};
+use crate::components::ui::{
+    Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyState,
+    IconType, List, ListRow,
+};
 use crate::components::pairing::PhonePairingCard;
 use crate::pump::{Pump, use_store};
 use crate::router_state::use_navigate;
@@ -51,47 +54,58 @@ pub fn DevicesPane() -> Element {
     let state = view();
     rsx! {
         div {
-            class: "settings-pane",
-            style: "display: flex; flex-direction: column; gap: var(--md-space-5);",
+            class: "flex flex-col gap-5",
             "data-testid": "settings-devices-pane",
             Card {
-                title: "Authorized devices",
-                supporting: "Browsers authorized to access this coordinator. Revocation is permanent for that key.",
-                if !state.loaded && state.error.is_none() {
-                    p { class: "md-body-m", "aria-live": "polite", style: "color: var(--md-sys-color-on-surface-variant); margin: 0;",
-                        "Loading devices…"
+                CardHeader {
+                    CardTitle { "Authorized devices" }
+                    CardDescription {
+                        "Browsers authorized to access this coordinator. Revocation is permanent for that key."
                     }
                 }
-                if let Some(message) = state.error.clone() {
-                    p { role: "alert", class: "md-body-m", style: "color: var(--md-sys-color-error); margin: 0;",
-                        {message}
+                CardContent {
+                    if !state.loaded && state.error.is_none() {
+                        p { class: "text-sm text-muted-foreground", "aria-live": "polite",
+                            "Loading devices…"
+                        }
                     }
-                }
-                if state.loaded && state.error.is_none() && state.devices.is_empty() {
-                    EmptyState {
-                        icon: "devices",
-                        title: "No browser devices",
-                        supporting: "Pair a browser below, then refresh this list.",
+                    if let Some(message) = state.error.clone() {
+                        p { role: "alert", class: "text-sm text-destructive",
+                            {message}
+                        }
                     }
-                }
-                if !state.devices.is_empty() {
-                    List {
-                        for device in state.devices.iter() {
-                            DeviceRow { device: device.clone(), view, pump: pump.clone() }
+                    if state.loaded && state.error.is_none() && state.devices.is_empty() {
+                        EmptyState {
+                            icon: IconType::MonitorSmartphone,
+                            title: "No browser devices",
+                            supporting: "Pair a browser below, then refresh this list.",
+                        }
+                    }
+                    if !state.devices.is_empty() {
+                        List {
+                            for device in state.devices.iter() {
+                                DeviceRow { device: device.clone(), view, pump: pump.clone() }
+                            }
                         }
                     }
                 }
             }
             PhonePairingCard {}
             Card {
-                title: "Approve a browser",
-                supporting: "A browser that requested access waits on the pairing page until you approve it with the code it shows.",
-                Button {
-                    variant: ButtonVariant::Secondary,
-                    icon: "devices",
-                    "data-testid": "settings-pair-device",
-                    onclick: move |_| navigate.call(Route::Pair.to_path()),
-                    "Open pairing"
+                CardHeader {
+                    CardTitle { "Approve a browser" }
+                    CardDescription {
+                        "A browser that requested access waits on the pairing page until you approve it with the code it shows."
+                    }
+                }
+                CardContent {
+                    Button {
+                        variant: ButtonVariant::Secondary,
+                        icon: Some(IconType::MonitorSmartphone),
+                        "data-testid": "settings-pair-device",
+                        onclick: move |_| navigate.call(Route::Pair.to_path()),
+                        "Open pairing"
+                    }
                 }
             }
         }
@@ -112,26 +126,26 @@ fn DeviceRow(device: AuthorizedDevice, view: Signal<DevicesView>, pump: Pump) ->
     rsx! {
         ListRow {
             test_id: Some(format!("authorized-device-{fingerprint}")),
-            leading_icon: Some(if device.is_self { "devices".to_owned() } else { "laptop_chromebook".to_owned() }),
+            leading_icon: Some(if device.is_self { IconType::MonitorSmartphone } else { IconType::Laptop }),
             headline: rsx! {
-                span { style: "display: inline-flex; align-items: baseline; gap: var(--md-space-2); max-width: 100%;",
-                    span { style: "overflow: hidden; text-overflow: ellipsis;", {label.clone()} }
+                span { class: "inline-flex max-w-full items-baseline gap-2",
+                    span { class: "overflow-hidden text-ellipsis", {label.clone()} }
                     if device.is_self {
-                        span { class: "md-label-s", style: "color: var(--md-sys-color-primary); flex-shrink: 0;", "This device" }
+                        span { class: "shrink-0 text-xs font-medium text-primary", "This device" }
                     }
                 }
             },
-            support: rsx! {
-                span { style: "display: block; overflow-wrap: anywhere;",
-                    span { style: "font-family: var(--term-font-family);", {fingerprint.clone()} }
+            support: Some(rsx! {
+                span { class: "block [overflow-wrap:anywhere]",
+                    span { class: "font-mono", {fingerprint.clone()} }
                     span { " · " }
                     time { datetime: format_timestamp(device.added_at_ms / 1_000) }
                 }
-                span { style: "display: block; overflow-wrap: anywhere;", {provenance.clone()} }
-            },
-            trailing: rsx! {
+                span { class: "block [overflow-wrap:anywhere]", {provenance.clone()} }
+            }),
+            trailing: Some(rsx! {
                 if device.is_self {
-                    span { class: "md-label-s", style: "color: var(--md-sys-color-on-surface-variant);", "You cannot revoke this browser" }
+                    span { class: "text-xs text-muted-foreground", "You cannot revoke this browser" }
                 } else {
                     Button {
                         variant: ButtonVariant::Secondary,
@@ -145,7 +159,7 @@ fn DeviceRow(device: AuthorizedDevice, view: Signal<DevicesView>, pump: Pump) ->
                         if busy { "Revoking…" } else { "Revoke" }
                     }
                 }
-            },
+            }),
         }
     }
 }

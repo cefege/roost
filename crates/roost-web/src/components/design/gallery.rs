@@ -1,12 +1,11 @@
 //! `DesignGallery`: the single visual reference for the Roost design system —
-//! the workbench shell specimen, every colour token, the type, spacing, shape
-//! and elevation scales, and live examples of every shared primitive on one
-//! `/design` page. Ported from `apps/web/src/components/design/DesignGallery.tsx`;
-//! `app.rs` routes `/design` here.
+//! the workbench shell specimen, every colour role, the type, spacing, shape and
+//! elevation scales, and live examples of every shared `ui` primitive on one
+//! `/design` page. `app.rs` routes `/design` here.
 //!
-//! HARD RULE: colours and font sizes come ONLY from theme tokens via `var(--…)`.
-//! The raw-value ratchet (`xtask/src/design_raw.rs`) fails a raw hex, `rgb()` or
-//! px font size in this tree.
+//! Colours, radii and type come from the Tailwind theme roles in `tailwind.css`
+//! (`bg-card`, `text-muted-foreground`, `rounded-lg`, …), never raw values, so a
+//! specimen tracks the theme the product uses.
 
 use dioxus::prelude::*;
 
@@ -17,25 +16,28 @@ use super::overlay_states::DesignOverlayStates;
 use super::settings_navigation_specimen::SettingsNavigationSpecimen;
 use super::token_sections::{ColorRoles, ElevationScale, ShapeScale, SpacingScale, TypeRamp};
 use super::workbench_shell_specimen::WorkbenchShellSpecimen;
-use crate::components::md::{Surface, SurfaceRadius};
+use crate::components::ui::{Surface, SurfaceRadius};
 
 /// The gallery root's `data-testid`, the one `app::ServedSurface::Design` names.
 pub const DESIGN_GALLERY_TEST_ID: &str = "design-gallery";
 
 /// The page's own frame: full height, its own scroll, the base surface.
-const GALLERY_STYLE: &str = "min-height: 100vh; overflow-y: auto; background: var(--bg-base); \
-     color: var(--text-hi); padding: var(--md-space-6); box-sizing: border-box;";
+const GALLERY_CLASS: &str = "box-border min-h-screen overflow-y-auto bg-background p-6 text-foreground";
 
-/// A gallery section's title, in the title-large ramp.
+/// A gallery section's title.
+const SECTION_HEADER_CLASS: &str = "mt-0 mb-4 text-xl font-semibold text-foreground";
+
+/// A gallery section's lead paragraph.
+const LEAD_TEXT_CLASS: &str = "mt-0 mb-4 text-sm text-muted-foreground";
+
+/// A gallery section's own surface, spaced from the next section.
+const SECTION_SURFACE_CLASS: &str = "mb-6 block";
+
+/// A gallery section's title, rendered as an `h2`.
 #[component]
 pub fn GallerySectionHeader(children: Element) -> Element {
     rsx! {
-        h2 {
-            style: "color: var(--text-hi); margin: 0 0 var(--md-space-4); \
-                    font-size: var(--md-title-l-size); line-height: var(--md-title-l-line); \
-                    font-weight: var(--md-title-l-weight);",
-            {children}
-        }
+        h2 { class: SECTION_HEADER_CLASS, {children} }
     }
 }
 
@@ -49,7 +51,7 @@ pub fn GallerySection(title: String, children: Element) -> Element {
             radius: SurfaceRadius::Lg,
             pad: 6,
             border: true,
-            style: "display: block; margin-bottom: var(--md-space-6);",
+            class: SECTION_SURFACE_CLASS,
             GallerySectionHeader { {title} }
             {children}
         }
@@ -60,23 +62,15 @@ pub fn GallerySection(title: String, children: Element) -> Element {
 #[component]
 pub fn DesignGallery(on_navigate: EventHandler<String>) -> Element {
     rsx! {
-        div { style: GALLERY_STYLE, "data-testid": DESIGN_GALLERY_TEST_ID,
-            header { style: "margin-bottom: var(--md-space-6);",
-                h1 {
-                    style: "margin: 0; color: var(--text-hi); font-size: var(--md-display-s-size); \
-                            line-height: var(--md-display-s-line); font-weight: var(--md-display-s-weight);",
-                    "Design system"
-                }
-                p {
-                    style: "margin: var(--md-space-2) 0 0; color: var(--text-mid); \
-                            font-size: var(--md-body-m-size); line-height: var(--md-body-m-line);",
+        div { class: GALLERY_CLASS, "data-testid": DESIGN_GALLERY_TEST_ID,
+            header { class: "mb-6",
+                h1 { class: "m-0 text-3xl font-semibold text-foreground", "Design system" }
+                p { class: "mt-2 mb-0 text-base text-muted-foreground",
                     "Every token + primitive on one page. Colors + type are token-only."
                 }
             }
             GallerySection { title: "Canonical workbench shell",
-                p {
-                    style: "margin: 0 0 var(--md-space-4); color: var(--text-mid); \
-                            font-size: var(--md-body-s-size); line-height: var(--md-body-s-line);",
+                p { class: LEAD_TEXT_CLASS,
                     "Title bar, activity rail, primary sidebar, terminal editor, and truthful status bar share one contiguous desktop surface."
                 }
                 WorkbenchShellSpecimen {}

@@ -9,7 +9,8 @@ use crate::components::context_menu::{
 };
 #[cfg(target_arch = "wasm32")]
 use crate::components::context_menu::{MenuFocusEdge, focus_menu_edge};
-use crate::components::md::{Icon, IconSize};
+use crate::components::ui::dom::viewport_height;
+use crate::components::ui::{Icon, IconType};
 /// The actions this menu exposes, with stable test identifiers.
 pub const TERMINAL_MENU_ITEMS: &[(&str, &str)] = &[
     ("ctx-copy-selection", "Copy"),
@@ -93,7 +94,6 @@ pub fn TerminalFloatingMenu(
             "aria-label": "Terminal actions",
             "data-testid": "terminal-context-menu",
             "data-variant": "floating",
-            class: "df-menu-enter",
             style: ctx_menu_surface_style(
                 left,
                 top,
@@ -105,7 +105,7 @@ pub fn TerminalFloatingMenu(
                 };
                 let viewport = (
                     crate::components::deck::deck_dom::viewport_width(),
-                    crate::components::md::dom::viewport_height().unwrap_or(0.0),
+                    viewport_height().unwrap_or(0.0),
                 );
                 origin.set(fit_menu_origin((x, y), (rect.width(), rect.height()), viewport));
             },
@@ -127,7 +127,7 @@ pub fn TerminalFloatingMenu(
                 CtxMenuItem {
                     testid: "ctx-start-agent",
                     onclick: move |_| on_start_agent.call(()),
-                    Icon { name: "smart_toy", size: IconSize::Sm }
+                    Icon { icon: IconType::Bot, class: "size-4" }
                     "Start agent here"
                 }
             }
@@ -162,9 +162,10 @@ pub fn TerminalActionSheet(
     }
     rsx! {
         div {
+            class: "fixed inset-0 z-40 opacity-50",
             "data-testid": "terminal-context-sheet-backdrop",
             "aria-hidden": "true",
-            style: "position: fixed; inset: 0; background: var(--md-scrim); opacity: 0.5; z-index: 40;",
+            style: "background: var(--md-scrim);",
             onclick: move |_event: MouseEvent| on_cancel.call(()),
         }
         div {
@@ -173,6 +174,7 @@ pub fn TerminalActionSheet(
             "aria-label": "Terminal actions",
             "data-testid": "terminal-context-menu",
             "data-variant": "sheet",
+            class: "box-border select-none overflow-y-auto rounded-t-lg border-t border-border bg-card pt-3 text-foreground shadow-lg",
             style: sheet_style,
             onkeydown: move |event: KeyboardEvent| run_terminal_menu_key(
                 &event,
@@ -193,7 +195,7 @@ pub fn TerminalActionSheet(
                 SheetItem {
                     testid: "ctx-start-agent",
                     on_activate: move |_| on_start_agent.call(()),
-                    Icon { name: "smart_toy", size: IconSize::Sm }
+                    Icon { icon: IconType::Bot, class: "size-4" }
                     "Start agent here"
                 }
             }
@@ -218,19 +220,19 @@ fn run_terminal_menu_key(event: &KeyboardEvent, menu_id: &str, on_escape: impl F
     let _ = (event, menu_id, on_escape);
 }
 
-const SHEET_STYLE: &str = "position: fixed; left: 0; right: 0; bottom: max(var(--kb-offset), 0px); z-index: 41; box-sizing: border-box; background: var(--bg-elev-2); border-top: var(--workbench-border-width) solid var(--border-strong); border-radius: var(--md-shape-md) var(--md-shape-md) 0 0; box-shadow: var(--md-elev-5); padding: var(--md-space-3) 0 calc(env(safe-area-inset-bottom, 0px) + var(--md-space-4)); max-height: calc(100dvh - max(var(--kb-offset), 0px) - var(--md-space-4)); overflow-y: auto; user-select: none; color: var(--text-hi);";
-const TV_SHEET_STYLE: &str = "position: fixed; left: var(--tv-overscan-inline); right: var(--tv-overscan-inline); bottom: calc(max(var(--kb-offset), 0px) + var(--tv-overscan-block)); z-index: 41; box-sizing: border-box; background: var(--bg-elev-2); border-top: var(--workbench-border-width) solid var(--border-strong); border-radius: var(--md-shape-md) var(--md-shape-md) 0 0; box-shadow: var(--md-elev-5); padding: var(--md-space-3) 0 calc(env(safe-area-inset-bottom, 0px) + var(--md-space-4)); max-height: calc(100dvh - max(var(--kb-offset), 0px) - var(--tv-overscan-block) - var(--md-space-4)); overflow-y: auto; user-select: none; color: var(--text-hi);";
+// Only the placement lives inline: the bottom offset tracks the on-screen
+// keyboard and the TV overscan, which change at runtime.
+const SHEET_STYLE: &str = "position: fixed; left: 0; right: 0; bottom: max(var(--kb-offset), 0px); z-index: 41; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--md-space-4)); max-height: calc(100dvh - max(var(--kb-offset), 0px) - var(--md-space-4));";
+const TV_SHEET_STYLE: &str = "position: fixed; left: var(--tv-overscan-inline); right: var(--tv-overscan-inline); bottom: calc(max(var(--kb-offset), 0px) + var(--tv-overscan-block)); z-index: 41; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--md-space-4)); max-height: calc(100dvh - max(var(--kb-offset), 0px) - var(--tv-overscan-block) - var(--md-space-4));";
 
 #[component]
 fn SheetItem(testid: String, on_activate: EventHandler<MouseEvent>, children: Element) -> Element {
-    let class = crate::components::context_menu::menu_item_class(false, None);
     rsx! {
         button {
             r#type: "button",
             role: "menuitem",
-            class,
+            class: "flex w-full cursor-default select-none items-center gap-3 px-4 py-3 text-left text-base text-foreground outline-none hover:bg-accent focus:bg-accent",
             "data-testid": testid,
-            style: "display: flex; align-items: center; width: 100%; padding: var(--md-space-3) var(--md-space-4);",
             onclick: move |event: MouseEvent| on_activate.call(event),
             {children}
         }

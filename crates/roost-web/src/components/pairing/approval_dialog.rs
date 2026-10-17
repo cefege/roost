@@ -1,22 +1,18 @@
-//! The one place a generated verification code is ever shown.
-//!
-//! Ported from `apps/web/src/components/pairing/PairVerificationCodeDialog.tsx`.
-//! It is presentational: the code, the lifecycle state, and every dismissal
-//! routed to one cancel callback that the approver turns into a `PairDeny`.
-//! There is no other close affordance, because a close that did not withdraw
-//! the approval would leave a live six-digit code the coordinator still honours
-//! with nobody holding the other half.
+//! The one place a generated verification code is shown. It is presentational:
+//! the code, the lifecycle state, and every dismissal route into one cancel
+//! callback that the approver turns into a `PairDeny`. There is no other close
+//! affordance: a close that did not withdraw the approval would leave a live
+//! six-digit code the coordinator still honours.
 
 use dioxus::prelude::*;
 
 use super::approver::{CodeDialogState, PairApprover};
-use super::notices::{NoticeTone, PairingStatusNotice, STATUS_NOTICE_STYLESHEET_HREF};
+use super::notices::{NoticeTone, PairingStatusNotice};
 use super::status::group_verification_code;
-use crate::components::md::stylesheet::use_md_stylesheet;
-use crate::components::md::{Button, ButtonVariant, Dialog, Surface, SurfaceRadius};
-
-/// The dialog's own sheet, served from `assets/components/pairing/`.
-pub const CODE_DIALOG_STYLESHEET_HREF: &str = "/components/pairing/PairVerificationCodeDialog.css";
+use crate::components::ui::{
+    Button, ButtonVariant, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter,
+    DialogHeader, DialogTitle, Surface, SurfaceRadius,
+};
 
 /// The code, the state, and the two ways out of it.
 #[component]
@@ -27,8 +23,6 @@ pub fn PairVerificationCodeDialog(
     on_cancel: EventHandler<()>,
     on_reload: EventHandler<()>,
 ) -> Element {
-    use_md_stylesheet(CODE_DIALOG_STYLESHEET_HREF);
-    use_md_stylesheet(STATUS_NOTICE_STYLESHEET_HREF);
     let reload_required = state == CodeDialogState::ReloadRequired;
     let cancelling = state == CodeDialogState::Cancelling;
     let subject = if requester_label.trim().is_empty() {
@@ -36,60 +30,66 @@ pub fn PairVerificationCodeDialog(
     } else {
         requester_label.clone()
     };
-    let description = rsx! {
-        span {
-            "Enter this code on {subject}."
-            if !reload_required {
-                " This window closes automatically when pairing completes."
-            }
-        }
-    };
-    let actions = rsx! {
-        if reload_required {
-            Button {
-                "data-testid": "pair-verification-code-reload",
-                onclick: move |_| on_reload.call(()),
-                "Reload page"
-            }
-        }
-        Button {
-            variant: ButtonVariant::Outline,
-            "data-testid": "pair-verification-code-cancel",
-            disabled: cancelling,
-            "aria-busy": cancelling.to_string(),
-            onclick: move |_| on_cancel.call(()),
-            if cancelling { "Cancelling…" } else { "Cancel request" }
-        }
-    };
     rsx! {
         Dialog {
             open: true,
-            on_close: move |()| on_cancel.call(()),
-            headline: Some("Finish pairing".to_string()),
-            description: Some(description),
-            actions: Some(actions),
-            test_id: Some("pair-verification-code-dialog".to_string()),
-            show_close_button: Some(true),
-            Surface {
-                level: 2,
-                radius: SurfaceRadius::Sm,
-                pad: 4,
-                border: true,
-                test_id: Some("pair-verification-code".to_string()),
-                role: "status",
-                aria_live: "polite",
-                aria_atomic: "true",
-                code { class: "md-display-s pair-code-dialog__code",
-                    {group_verification_code(&verification_code)}
+            on_open_change: move |open: bool| {
+                if !open {
+                    on_cancel.call(());
                 }
-            }
-            if reload_required {
-                div { class: "pair-code-dialog__notice",
-                    PairingStatusNotice {
-                        tone: NoticeTone::Error,
-                        message: "This page can no longer follow the pairing. Reload it to continue."
-                            .to_string(),
-                        test_id: None,
+            },
+            DialogContent { test_id: "pair-verification-code-dialog", show_close_button: true,
+                DialogHeader {
+                    DialogTitle { "Finish pairing" }
+                    DialogDescription {
+                        span {
+                            "Enter this code on {subject}."
+                            if !reload_required {
+                                " This window closes automatically when pairing completes."
+                            }
+                        }
+                    }
+                }
+                DialogBody {
+                    Surface {
+                        level: 2,
+                        radius: SurfaceRadius::Sm,
+                        pad: 4,
+                        border: true,
+                        test_id: Some("pair-verification-code".to_owned()),
+                        role: Some("status".to_owned()),
+                        aria_live: Some("polite".to_owned()),
+                        aria_atomic: Some("true".to_owned()),
+                        code { class: "block m-0 text-center text-3xl font-semibold text-foreground select-text",
+                            {group_verification_code(&verification_code)}
+                        }
+                    }
+                    if reload_required {
+                        div { class: "mt-3",
+                            PairingStatusNotice {
+                                tone: NoticeTone::Error,
+                                message: "This page can no longer follow the pairing. Reload it to continue."
+                                    .to_string(),
+                                test_id: None,
+                            }
+                        }
+                    }
+                }
+                DialogFooter {
+                    if reload_required {
+                        Button {
+                            "data-testid": "pair-verification-code-reload",
+                            onclick: move |_| on_reload.call(()),
+                            "Reload page"
+                        }
+                    }
+                    Button {
+                        variant: ButtonVariant::Outline,
+                        "data-testid": "pair-verification-code-cancel",
+                        disabled: cancelling,
+                        "aria-busy": cancelling.to_string(),
+                        onclick: move |_| on_cancel.call(()),
+                        if cancelling { "Cancelling…" } else { "Cancel request" }
                     }
                 }
             }

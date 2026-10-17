@@ -20,8 +20,8 @@ use super::slash_menu::{
     SlashAccept, SlashMenu, accept_action, initial_selection, listbox_id, option_id,
     scroll_option_into_view, slash_menu_state, slash_sources,
 };
-use crate::components::md::Surface;
 use crate::components::settings::agent_connect_dialog::AgentConnectDialog;
+use crate::components::ui::{InputPromptTextarea, Surface};
 use crate::pump::Pump;
 use crate::router_state::use_navigate;
 
@@ -173,9 +173,53 @@ pub fn AgentComposer(
     // A tap or click on a row does what Enter does on it: runs a command that
     // needs nothing more, completes one that needs an argument.
     let pick = accept;
+    let capture_field = EventHandler::new(move |event: MountedEvent| field.set(Some(event.data())));
+    let handle_draft_input = EventHandler::new(move |value: String| {
+        let next = slash_menu_state(&value, &sources_for_input);
+        selected_option.set(next.as_ref().map_or(0, |state| initial_selection(state, &value)));
+        menu_dismissed.set(false);
+    });
+    let handle_draft_key = EventHandler::new(move |event: KeyboardEvent| {
+        let key = event.key().to_string();
+        if menu_open && key == "Escape" {
+            event.prevent_default();
+            menu_dismissed.set(true);
+            return;
+        }
+        if options_open {
+            match key.as_str() {
+                "ArrowDown" | "ArrowUp" => {
+                    event.prevent_default();
+                    let next = if key == "ArrowDown" {
+                        (selected + 1) % option_count
+                    } else {
+                        selected.checked_sub(1).unwrap_or(option_count - 1)
+                    };
+                    selected_option.set(next);
+                    scroll_option_into_view(&key_conversation, next);
+                    return;
+                }
+                "Tab" => {
+                    event.prevent_default();
+                    if let Some(text) = &selected_text {
+                        fill_draft(draft, selected_option, text);
+                    }
+                    return;
+                }
+                _ => {}
+            }
+        }
+    });
+    let submit_draft = EventHandler::new(move |()| {
+        if options_open {
+            accept.call(selected);
+        } else {
+            send.call(());
+        }
+    });
     rsx! {
         div {
-            class: "agent-chat__composer",
+            class: "relative flex flex-col gap-1 data-disabled:opacity-60",
             "data-disabled": disabled.then_some("true"),
             "data-testid": "agent-chat-composer",
             if let Some(state) = menu.clone().filter(|_| menu_open) {
@@ -186,73 +230,35 @@ pub fn AgentComposer(
                     on_choose: pick,
                 }
             }
-            Surface { class: "agent-chat__composer-panel", level: 1, elevation: 1, border: true, pad: Some(3),
+            Surface {
+                class: Some("flex min-w-0 flex-col gap-1 focus-within:outline-1 focus-within:outline-solid focus-within:outline-offset-1 focus-within:outline-primary".to_owned()),
+                level: 1,
+                elevation: 1,
+                border: true,
+                pad: Some(3),
                 ComposerErrorBanner {
                     error: run_error,
                     running,
                     on_stop: stop,
                     on_switch_model: switch_model,
                 }
-                textarea {
-                    class: "agent-chat__input",
-                    "data-testid": "agent-chat-input",
-                    "aria-label": "Message the agent",
+                InputPromptTextarea {
+                    value: draft,
+                    placeholder,
+                    aria_label: "Message the agent",
+                    disabled,
+                    class: "min-h-6 max-h-60 py-1 px-0 text-base leading-6",
+                    on_mounted: capture_field,
+                    on_keydown: handle_draft_key,
+                    on_input: handle_draft_input,
+                    on_submit: submit_draft,
                     role: "combobox",
                     "aria-autocomplete": "list",
                     "aria-expanded": if options_open { "true" } else { "false" },
                     "aria-controls": options_open.then(|| listbox.clone()),
                     "aria-activedescendant": options_open.then(|| option_id(&conversation_id, selected)),
                     rows: "1",
-                    placeholder,
-                    disabled,
-                    value: "{draft}",
-                    onmounted: move |event: MountedEvent| field.set(Some(event.data())),
-                    oninput: move |event: FormEvent| {
-                        let value = event.value();
-                        let next = slash_menu_state(&value, &sources_for_input);
-                        selected_option.set(next.as_ref().map_or(0, |state| initial_selection(state, &value)));
-                        draft.set(value);
-                        menu_dismissed.set(false);
-                    },
-                    onkeydown: move |event: KeyboardEvent| {
-                        let key = event.key().to_string();
-                        if menu_open && key == "Escape" {
-                            event.prevent_default();
-                            menu_dismissed.set(true);
-                            return;
-                        }
-                        if options_open {
-                            match key.as_str() {
-                                "ArrowDown" | "ArrowUp" => {
-                                    event.prevent_default();
-                                    let next = if key == "ArrowDown" {
-                                        (selected + 1) % option_count
-                                    } else {
-                                        selected.checked_sub(1).unwrap_or(option_count - 1)
-                                    };
-                                    selected_option.set(next);
-                                    scroll_option_into_view(&key_conversation, next);
-                                    return;
-                                }
-                                "Tab" => {
-                                    event.prevent_default();
-                                    if let Some(text) = &selected_text {
-                                        fill_draft(draft, selected_option, text);
-                                    }
-                                    return;
-                                }
-                                _ => {}
-                            }
-                        }
-                        if key == "Enter" && !event.modifiers().contains(Modifiers::SHIFT) && !event.is_composing() {
-                            event.prevent_default();
-                            if options_open {
-                                accept.call(selected);
-                            } else {
-                                send.call(());
-                            }
-                        }
-                    },
+                    "data-testid": "agent-chat-input",
                 }
                 if let Some(message) = command_error() {
                     p { class: ERROR_TEXT_CLASS, role: "alert", "data-testid": "agent-command-error", "{message}" }

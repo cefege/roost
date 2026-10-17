@@ -5,6 +5,7 @@
 //! markup emitted is markup this file writes.
 
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd, html};
+use crate::components::ui::{ButtonSize, ButtonVariant, button_class};
 
 /// The attribute the transcript's click delegation looks for on a Copy button.
 pub const COPY_CODE_ATTRIBUTE: &str = "data-copy-code";
@@ -98,8 +99,8 @@ fn code_html(code: &str, highlighted: bool) -> String {
             match token.kind {
                 crate::syntax_lite::TokenKind::Plain => html.push_str(&text),
                 kind => {
-                    html.push_str("<span class=\"agent-chat__tok-");
-                    html.push_str(kind.as_str());
+                    html.push_str("<span class=\"");
+                    html.push_str(token_class(kind));
                     html.push_str("\">");
                     html.push_str(&text);
                     html.push_str("</span>");
@@ -108,6 +109,18 @@ fn code_html(code: &str, highlighted: bool) -> String {
         }
     }
     html
+}
+
+/// The colour of a `syntax_lite` token, from the theme's syntax palette.
+fn token_class(kind: crate::syntax_lite::TokenKind) -> &'static str {
+    use crate::syntax_lite::TokenKind;
+    match kind {
+        TokenKind::Keyword => "text-[var(--syntax-keyword)]",
+        TokenKind::String => "text-[var(--syntax-string)]",
+        TokenKind::Number => "text-[var(--syntax-number)]",
+        TokenKind::Comment => "italic text-[var(--syntax-comment)]",
+        TokenKind::Plain => "",
+    }
 }
 
 fn escape_html(text: &str) -> String {
@@ -135,25 +148,14 @@ fn code_block_open(kind: &CodeBlockKind<'_>) -> String {
         language.as_str()
     };
     // The block lives in sanitized `innerHTML`, where no component can mount, so
-    // the chrome takes the primitives' own class and style helpers. The terminal
+    // its chrome carries the primitives' class recipes as literals. The terminal
     // ground stays: code reads as terminal output.
-    let button_class = crate::components::md::button::button_class(
-        crate::components::md::ButtonVariant::Ghost,
-        crate::components::md::ButtonSize::Xs,
-        Some("agent-chat__code-copy"),
-    );
-    let wrapper_style = crate::components::md::surface::surface_style(
-        1,
-        0,
-        crate::components::md::SurfaceRadius::Md,
-        None,
-        true,
-        Some(TERMINAL_GROUND_STYLE),
-    );
+    let copy_class = button_class(ButtonVariant::Ghost, ButtonSize::Xs, Some("text-inherit"));
     format!(
-        "<div class=\"agent-chat__code\" style=\"{wrapper_style}\"><div class=\"agent-chat__code-bar\">\
-         <span class=\"agent-chat__code-language\">{label}</span>\
-         <button type=\"button\" class=\"{button_class}\" {COPY_CODE_ATTRIBUTE}>Copy</button>\
+        "<div data-code-block class=\"my-4 overflow-hidden rounded-md border border-border bg-terminal text-terminal-foreground\">\
+         <div class=\"flex items-center justify-between gap-2 px-3 pt-2\">\
+         <span class=\"font-mono text-xs text-muted-foreground\">{label}</span>\
+         <button type=\"button\" class=\"{copy_class}\" {COPY_CODE_ATTRIBUTE}>Copy</button>\
          </div><pre><code>"
     )
 }
@@ -195,7 +197,7 @@ mod tests {
     #[test]
     fn fenced_code_gets_a_labelled_copyable_block_with_escaped_contents() {
         let html = markdown_to_safe_html("```rust\nlet x = \"<b>\";\n```");
-        assert!(html.contains("agent-chat__code-language\">rust<"), "{html}");
+        assert!(html.contains(">rust</span>"), "{html}");
         assert!(html.contains("data-copy-code"), "{html}");
         assert!(html.contains("&lt;b&gt;"), "{html}");
         assert!(!html.contains("<b>"), "{html}");
@@ -205,16 +207,19 @@ mod tests {
     fn known_languages_get_token_colours_and_unknown_ones_stay_plain() {
         let html = markdown_to_safe_html("```rust\nlet x = \"<b>\"; // done\n```");
         assert!(
-            html.contains("<span class=\"agent-chat__tok-keyword\">let</span>"),
+            html.contains("<span class=\"text-[var(--syntax-keyword)]\">let</span>"),
             "{html}"
         );
         assert!(
-            html.contains("<span class=\"agent-chat__tok-string\">&quot;&lt;b&gt;&quot;</span>"),
+            html.contains(
+                "<span class=\"text-[var(--syntax-string)]\">&quot;&lt;b&gt;&quot;</span>"
+            ),
             "{html}"
         );
-        assert!(html.contains("agent-chat__tok-comment"), "{html}");
+        assert!(html.contains("text-[var(--syntax-comment)]"), "{html}");
         let plain = markdown_to_safe_html("```text\nlet x = 1\n```");
-        assert!(!plain.contains("agent-chat__tok-"), "{plain}");
+        let plain_code = plain.split("<code>").nth(1).unwrap_or_default();
+        assert!(!plain_code.contains("<span"), "{plain}");
     }
 
     #[test]

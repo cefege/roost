@@ -7,7 +7,7 @@ use dioxus::prelude::*;
 use super::diff_model::{
     COLLAPSED_HUNKS, COLLAPSED_LINES, DiffRow, RowKind, WordRun, fold, gutter_width, parse_unified,
 };
-use crate::components::md::{Button, ButtonSize, ButtonVariant};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant};
 
 #[component]
 pub fn DiffBody(diff: String, open: bool, on_expand: EventHandler<bool>) -> Element {
@@ -25,18 +25,18 @@ pub fn DiffBody(diff: String, open: bool, on_expand: EventHandler<bool>) -> Elem
         capped
     };
     rsx! {
-        div { class: "agent-chat__diff", style: "--diff-gutter: {gutter};",
+        div { class: "overflow-x-auto rounded-md border border-border font-mono text-xs leading-5", style: "--diff-gutter: {gutter};",
             for (idx, row) in folded.rows.iter().enumerate() {
                 DiffLine { key: "{idx}", row: row.clone() }
             }
         }
         if overflows && !open {
-            p { class: "agent-chat__step-hint", "{hint}" }
-            Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "agent-chat__step-more",
+            p { class: "m-0 px-3 py-1 text-xs text-muted-foreground", "{hint}" }
+            Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "self-start",
                 onclick: move |_| on_expand.call(true), "Show all" }
         }
         if overflows && open {
-            Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "agent-chat__step-more",
+            Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "self-start",
                 onclick: move |_| on_expand.call(false), "Collapse" }
         }
     }
@@ -47,8 +47,8 @@ fn DiffLine(row: DiffRow) -> Element {
     let kind = kind_name(row.kind);
     if matches!(row.kind, RowKind::File | RowKind::Hunk) {
         return rsx! {
-            div { class: "agent-chat__diff-row agent-chat__diff-meta", "data-kind": kind,
-                span { class: "agent-chat__diff-text", "{row.text}" }
+            div { class: "flex min-w-full bg-muted py-0.5 text-muted-foreground", "data-kind": kind,
+                span { class: "min-w-0 flex-1 whitespace-pre-wrap break-all px-3", "{row.text}" }
             }
         };
     }
@@ -66,17 +66,17 @@ fn DiffLine(row: DiffRow) -> Element {
         row.runs.clone()
     };
     rsx! {
-        div { class: "agent-chat__diff-row", "data-kind": kind,
-            span { class: "agent-chat__diff-gutter", "{line_no}" }
-            span { class: "agent-chat__diff-sign", "{sign}" }
-            span { class: "agent-chat__diff-text",
+        div { class: "flex min-w-full data-[kind=added]:bg-primary/10 data-[kind=removed]:bg-destructive/10", "data-kind": kind,
+            span { class: "w-[calc(var(--diff-gutter)*1ch)] flex-none select-none pr-2 text-right text-muted-foreground", "{line_no}" }
+            span { class: "w-4 flex-none select-none text-center data-[kind=added]:text-primary data-[kind=removed]:text-destructive", "data-kind": kind, "{sign}" }
+            span { class: "min-w-0 flex-1 whitespace-pre-wrap break-all pr-3",
                 for run in runs.iter() {
-                    span { "data-changed": run.changed.then_some("true"),
+                    span { class: "data-[changed=true]:bg-primary/25", "data-changed": run.changed.then_some("true"),
                         for piece in visible_pieces(&run.text) {
                             {match piece {
                                 Piece::Text(text) => rsx! { span { "{text}" } },
-                                Piece::Tab => rsx! { span { class: "agent-chat__diff-tab", "→" } },
-                                Piece::Space => rsx! { span { class: "agent-chat__diff-space", "·" } },
+                                Piece::Tab => rsx! { span { class: "text-muted-foreground opacity-60", "→" } },
+                                Piece::Space => rsx! { span { class: "text-muted-foreground opacity-60", "·" } },
                             }}
                         }
                     }

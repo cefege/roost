@@ -19,7 +19,8 @@ use roost_protocol::wire::{Session, SessionKind};
 use super::agent_conversation_row::AgentConversationRow;
 use super::folder_row::FolderRow;
 use super::session_row::SessionRow;
-use crate::components::md::EmptyState;
+use crate::components::ui::IconType;
+use crate::components::ui::empty::EmptyState;
 use crate::platform::BrowserWorkerPaths;
 use crate::pump::{Pump, use_store};
 use crate::route_session::active_session_for_path;
@@ -88,16 +89,16 @@ pub fn FolderList(active: bool, query: String) -> Element {
     publish_cursor_targets(&pump, active, visible_ids);
 
     rsx! {
-        div { class: "workbench-sidebar-folder-list__body", "data-testid": "folder-list",
+        div { class: "flex min-h-0 flex-1 flex-col overflow-y-auto py-1", "data-testid": "folder-list",
             if !filtering {
                 if groups.is_empty() {
                     EmptyState {
-                        icon: "folder_off",
+                        icon: IconType::FolderX,
                         title: "No folders yet",
                         supporting: "Open a terminal to add your first folder.",
                     }
                 } else {
-                    div { class: "df-flat-group",
+                    div { class: "flex flex-col",
                         for group in groups {
                             FolderRow {
                                 key: "{group.key}",
@@ -120,12 +121,12 @@ pub fn FolderList(active: bool, query: String) -> Element {
                 }
             } else if filtered_ids.is_empty() {
                 EmptyState {
-                    icon: "search_off",
+                    icon: IconType::SearchX,
                     title: "No matches",
                     supporting: format!("Nothing matches \"{query}\". Esc clears the search."),
                 }
             } else {
-                div { class: "df-flat-group",
+                div { class: "flex flex-col",
                     for session_id in filtered_ids {
                         SessionRow {
                             key: "{session_id}",

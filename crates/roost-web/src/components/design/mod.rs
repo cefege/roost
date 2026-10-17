@@ -1,8 +1,8 @@
-//! The `/design` gallery: every token and every md primitive on one page, the
-//! visual reference new surfaces are matched against. Ported from
-//! `apps/web/src/components/design/*`; `app.rs` routes `/design` to
-//! [`DesignGallery`]. The specimens here are static markup over the shipped
-//! primitives in `components/md`; none of them reads the store.
+//! The `/design` gallery: every colour role, the type, spacing, radius and
+//! elevation scales, and every `components/ui` primitive on one page, the visual
+//! reference new surfaces are matched against. `app.rs` routes `/design` to
+//! [`DesignGallery`]. The specimens are static markup over the shipped `ui`
+//! primitives and Tailwind theme roles; none of them reads the store.
 
 pub mod catalog;
 pub mod content_primitives;

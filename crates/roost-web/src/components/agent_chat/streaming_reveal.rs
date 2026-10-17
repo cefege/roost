@@ -8,6 +8,7 @@ use dioxus::prelude::*;
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::markdown::markdown_to_safe_html;
+use crate::components::ui::Markdown;
 
 /// One display frame at OMP's 30 fps reveal clock.
 const FRAME_MS: u64 = 33;
@@ -61,10 +62,10 @@ pub(super) fn StreamingText(text: String, live: bool) -> Element {
     let typing = live || revealed < total;
     let visible = grapheme_prefix(&text, revealed);
     rsx! {
-        div {
-            class: "agent-chat__markdown",
+        Markdown {
+            class: "[&[data-streaming]>:last-child]:after:inline-block [&[data-streaming]>:last-child]:after:h-4 [&[data-streaming]>:last-child]:after:w-2 [&[data-streaming]>:last-child]:after:ml-1 [&[data-streaming]>:last-child]:after:rounded-xs [&[data-streaming]>:last-child]:after:align-text-bottom [&[data-streaming]>:last-child]:after:bg-current [&[data-streaming]>:last-child]:after:content-['']",
             "data-streaming": typing.then_some("true"),
-            dangerous_inner_html: markdown_to_safe_html(visible),
+            html: markdown_to_safe_html(visible),
         }
     }
 }

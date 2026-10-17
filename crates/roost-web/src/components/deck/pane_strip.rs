@@ -20,7 +20,7 @@ use super::pane_tab_list::PaneTabList;
 use super::pane_tab_new_menu::PaneTabNewMenu;
 use crate::components::context_menu::AnchoredMenuPos;
 use crate::components::layout::window_size::use_is_compact;
-use crate::components::md::{IconButton, IconButtonSize};
+use crate::components::ui::{ButtonSize, IconButton, IconType};
 use crate::components::terminal::terminal_transport_indicator::TerminalTransportIndicator;
 /// How long a pointer rests on a tab before its hover card opens, ms.
 const HOVER_DWELL_MS: u32 = 450;
@@ -119,7 +119,7 @@ pub fn PaneStrip(
             "data-focused": if focused { "true" } else { "false" },
             "data-dragging": if drag.is_some() { "true" } else { "false" },
             div {
-                class: "df-tab-bar workbench-pane-tab-strip__tabs",
+                class: "df-tab-bar group/strip workbench-pane-tab-strip__tabs",
                 "data-focused": if focused { "true" } else { "false" },
                 "data-dragging": if drag.is_some() { "true" } else { "false" },
                 "data-packed": if overflowing() { "true" } else { "false" },
@@ -196,7 +196,7 @@ pub fn PaneStrip(
                 },
             }
             div {
-                class: "df-tab-filler workbench-pane-tab-strip__filler",
+                class: "flex-1 min-w-0 self-stretch",
                 "data-testid": "tab-filler",
                 title: "Double-click to open a new terminal in this folder",
                 onpointerdown: move |event: PointerEvent| {
@@ -216,13 +216,13 @@ pub fn PaneStrip(
             if !matches!(roost_client_core::deck::tab::DeckTab::parse(&selected_tab), Some(roost_client_core::deck::tab::DeckTab::Agent(_))) {
                 TerminalTransportIndicator { session_id: selected_tab.clone() }
             }
-            div { class: "workbench-pane-tab-strip__actions", role: "toolbar", "aria-label": "Terminal actions",
+            div { class: "flex items-center gap-1 shrink-0", role: "toolbar", "aria-label": "Terminal actions",
                 if overflowing() {
                     IconButton {
-                        icon: "keyboard_arrow_down",
+                        icon: IconType::ChevronDown,
                         label: "All terminals in this pane",
-                        size: IconButtonSize::IconSm,
-                        class: "df-tab-overflow workbench-pane-tab-control",
+                        size: ButtonSize::IconSm,
+                        class: "shrink-0 size-[var(--workbench-tab-action-size)] p-0 rounded-none border-0 bg-[var(--workbench-tab-strip)] text-muted-foreground hover:text-foreground",
                         "data-testid": "tab-overflow",
                         id: "tab-overflow-{pane_id}",
                         menu_popup: "menu",

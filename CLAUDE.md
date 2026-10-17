@@ -267,27 +267,44 @@ fork" link).
 
 ## Design system (web) — cohesion by construction
 
-New UI MUST be cohesive by construction, not by memory. Three rules,
+New UI MUST be cohesive by construction, not by memory. The UI layer is
+**rust-ui** (rust-ui.com, `github.com/rust-ui/ui`): a shadcn-style registry
+for Dioxus 0.7 + Tailwind v4 whose components are copied into the web crate's
+`ui` component directory and adapted to these rules. Three rules,
 mechanically enforced so drift can't return:
 
 1. **No raw values.** No hex / `rgb()` / px font-size in components —
-   reference tokens: `--surface-0..3`, `--text-hi/mid/lo`, `--md-*` roles,
-   `--md-space-1..9`, the `--md-*-size/line/weight` type ramp, `--md-shape-*`,
-   `--md-elev-0..5`. ALL declared ONCE in the token stylesheets in the web crate's
-   assets directory. The token files DECLARE values, so they are the
-   only files exempt from the check; everything else references them through
-   `var(--…)`. Enforced by `cargo xtask lint`'s design ratchet against
-   `xtask/design-raw-baseline.json`: a NEW raw value fails the build. After
-   migrating a file down, re-snapshot with
+   including Tailwind arbitrary values (`text-[13px]`, `bg-[#fff]`). Colour
+   through the Tailwind roles (`bg-background`, `bg-card`, `bg-primary`,
+   `text-muted-foreground`, `border-border`, `bg-accent`, `bg-destructive`, …),
+   which `crates/roost-web/tailwind.css`'s `@theme inline` block bridges onto
+   the canonical theme tokens, so every theme reflows every utility; type
+   through the `text-xs…` scale. Token files (`theme-vars.css`,
+   `tailwind.css`, the palettes in `themes.rs`/`agents.rs`) DECLARE values
+   and are the only files exempt. Enforced by `cargo xtask lint`'s design
+   ratchet against `xtask/design-raw-baseline.json`: a NEW raw value fails the
+   build. After migrating a file down, re-snapshot with
    `cargo xtask lint --update-design-baseline`.
-2. **Primitives first.** Compose from the ported Material primitives in the web
-   crate's `md` component directory (`Surface`, `StatusDot`, `Sheet`,
-   `Button`, `IconButton`, `Card`, `List` + `ListRow`, `Chip`, `Dialog`,
-   `MetricTile`, `EmptyState`, …), one per file — don't hand-roll a
-   `<div style>` or a `<button>`. `StatusDot` is THE status indicator. `Surface`
-   is THE panel.
-3. **One visual reference.** The `/design` route renders every token and
-   primitive. New surfaces match it.
+2. **Components first.** Compose from `ui` (`Button`, `IconButton`, `Card`,
+   `Surface`, `StatusDot`, `Badge`, `Dialog`, `Sheet`, `Drawer`, `Popover`,
+   `DropdownMenu`, `ContextMenu`, `Command`, `Select`, `Tabs`, `Item`,
+   `Sidenav`, `Message`, `InputPrompt`, `Icon`, …) — don't hand-roll a
+   `<div style>`, a `<button>`, a menu, or a new stylesheet rule a utility can
+   express. A missing component is ported from the rust-ui registry into `ui`,
+   never forked into a surface. Ported components keep rust-ui's names and
+   class recipes but never its inline `script {}`/`eval` behaviour (the CSP
+   blocks both; behaviour is Rust), never a `static` id counter, and are
+   controlled (`open` + `on_open_change`) and unmounted when closed. Icons are
+   Lucide through `ui::Icon { icon: IconType::… }`. Tailwind reads classes
+   out of the `.rs` sources, so a class is always a complete literal — never
+   assembled with `format!`.
+3. **One visual reference.** The `/design` route renders every colour role
+   and `ui` component. New surfaces match it.
+
+`dx build`/`dx serve` compile `tailwind.css` into
+`assets/styles/tailwind.css` (generated, gitignored). Its utilities sit in
+cascade layers, so any unlayered hand-written rule beats them regardless of
+order.
 
 Process: run the **`design-reviewer`** subagent
 (`.claude/agents/design-reviewer.md`) on every `crates/roost-web/` UI diff

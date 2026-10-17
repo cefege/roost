@@ -1,6 +1,6 @@
 //! The folder picker's page: one machine's directory, its history, and the
 //! terminal-launch flow, with the toolbar, path band, entry grid, launch bar and
-//! new-folder dialog composed around them. Desktop gets the centred `Sheet`; a
+//! new-folder dialog composed around them. Desktop gets the centred `Dialog`; a
 //! phone paints the same content with no overlay, so the entries own the screen.
 //!
 //! The state it moves is the store's `BrowseState`, reached only through
@@ -30,7 +30,7 @@ use crate::components::browse::view::{PickerReading, read_picker};
 use crate::components::browse::{BrowseStatus, newest_session_cwd};
 use crate::components::context_menu::AnchoredMenuPos;
 use crate::components::layout::window_size::use_is_compact;
-use crate::components::md::{Sheet, SheetSide};
+use crate::components::ui::{Dialog, DialogContent, DialogTitle};
 use crate::pump::{Pump, use_store};
 use crate::router_state::use_navigate;
 
@@ -151,15 +151,16 @@ pub fn BrowsePicker(worker_fp: String) -> Element {
     }
     let close = EventHandler::new(move |()| navigate.call("/".to_owned()));
     rsx! {
-        Sheet {
+        Dialog {
             open: true,
-            on_close: close,
-            headline: "Browse folders".to_owned(),
-            side: SheetSide::Center,
-            class: Some("roost-dialog--wide roost-dialog--browse".to_owned()),
-            show_close_button: false,
-            on_open_auto_focus: Some(EventHandler::new(control_set::keep_sheet_focus)),
-            {content}
+            on_open_change: move |still_open: bool| if !still_open { close.call(()) },
+            DialogContent {
+                class: Some("flex h-[min(85vh,48rem)] w-[min(64rem,calc(100%-2rem))] max-w-none flex-col gap-0 overflow-hidden p-0".to_owned()),
+                show_close_button: Some(false),
+                on_open_auto_focus: Some(EventHandler::new(control_set::keep_sheet_focus)),
+                DialogTitle { class: Some("sr-only".to_owned()), "Browse folders" }
+                {content}
+            }
         }
     }
 }

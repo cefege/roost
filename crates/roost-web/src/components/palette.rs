@@ -1,4 +1,4 @@
-//! The overlay host: the ⌘K sheet, and the Start-button controller map beside
+//! The overlay host: the ⌘K overlay, and the Start-button controller map beside
 //! it. Ports `apps/web/src/components/palette/CommandPalette.tsx` and the
 //! mounting of `ControllerMap` from `App.tsx`; the body is `palette::body`.
 //!
@@ -7,8 +7,9 @@
 //! open, so a WebSocket tick does nothing at all to a reader who is not looking
 //! at it, and reopening starts from an empty query with the field focused.
 //!
-//! Mounted by `app::AuthorizedOverlays` beside the rename dialog and the
-//! notification dock.
+//! A compact window gets the bottom sheet, a wider one a centred dialog. Mounted
+//! by `app::AuthorizedOverlays` beside the rename dialog and the notification
+//! dock.
 
 pub mod body;
 pub mod controller_map;
@@ -23,7 +24,10 @@ use dioxus::prelude::*;
 use self::body::PaletteBody;
 use self::controller_map::ControllerMap;
 use crate::components::layout::window_size::use_is_compact;
-use crate::components::md::{AutoFocusRequest, Sheet, SheetSide};
+use crate::components::ui::{
+    AutoFocusRequest, Dialog, DialogContent, DialogHeader, DialogTitle, Sheet, SheetContent,
+    SheetHeader, SheetSide, SheetTitle,
+};
 
 /// The command palette, and the controller map that shares its mount point.
 #[component]
@@ -37,30 +41,39 @@ pub fn CommandPalette() -> Element {
     // and left it there, so both the chord and the pad's X button set the flag
     // and no dialog ever appeared.
     let open = overlays.palette.cloned();
-    let side = if compact {
-        SheetSide::Bottom
-    } else {
-        SheetSide::Center
-    };
-    let on_close = {
+    let on_open_change = {
         let mut palette = overlays.palette;
-        EventHandler::new(move |()| palette.set(false))
+        EventHandler::new(move |open: bool| palette.set(open))
     };
     // The dialog's own auto-focus would land on the focus trap's first tabbable
     // element, which is the close button; the body owns where focus goes.
     let on_open_auto_focus =
         EventHandler::new(|request: AutoFocusRequest| request.prevent_default());
     rsx! {
-        Sheet {
-            open,
-            on_close,
-            headline: "Command palette",
-            side,
-            class: "roost-dialog--wide roost-dialog--command-palette",
-            test_id: Some("command-palette".to_string()),
-            on_open_auto_focus,
-            if open {
-                PaletteBody { pump, overlays }
+        if compact {
+            Sheet { open, on_open_change,
+                SheetContent {
+                    side: SheetSide::Bottom,
+                    class: "flex flex-col overflow-hidden p-0",
+                    test_id: "command-palette",
+                    on_open_auto_focus,
+                    SheetHeader { class: "sr-only", SheetTitle { "Command palette" } }
+                    if open {
+                        PaletteBody { pump, overlays }
+                    }
+                }
+            }
+        } else {
+            Dialog { open, on_open_change,
+                DialogContent {
+                    class: "flex sm:max-w-[var(--roost-dialog-wide-max-inline-size)] flex-col overflow-hidden p-0",
+                    test_id: "command-palette",
+                    on_open_auto_focus,
+                    DialogHeader { class: "sr-only", DialogTitle { "Command palette" } }
+                    if open {
+                        PaletteBody { pump, overlays }
+                    }
+                }
             }
         }
         ControllerMap {}

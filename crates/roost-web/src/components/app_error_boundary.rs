@@ -6,7 +6,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::md::{Button, ButtonSize, ButtonVariant, Icon, Surface};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, Icon, IconType};
 
 /// The diagnostic a reader copies, as pretty JSON (v2's payload shape).
 pub fn diagnostic_payload(url: &str, user_agent: &str, time_iso: &str, error: &str) -> String {
@@ -68,23 +68,17 @@ fn ErrorFallback(message: String, errors: ErrorContext) -> Element {
     rsx! {
         div {
             "data-testid": "error-boundary",
-            style: "min-height: 100dvh; min-width: 100vw; display: grid; place-items: center; padding: var(--md-space-6); background: var(--surface-0); color: var(--md-sys-color-on-surface);",
-            Surface {
-                level: 1,
-                elevation: 3,
-                pad: 6,
-                border: true,
-                style: "width: min(100%, 64ch); display: flex; flex-direction: column; gap: var(--md-space-4);",
-                div { style: "display: flex; align-items: center; gap: var(--md-space-2);",
-                    Icon { name: "error", style: "color: var(--md-sys-color-error);" }
-                    h1 { class: "md-title-m", style: "margin: 0; color: var(--md-sys-color-error);", "Unexpected error" }
+            class: "grid min-h-dvh w-full place-items-center bg-background p-6 text-foreground",
+            div { class: "flex w-full max-w-[64ch] flex-col gap-4 rounded-xl border border-border bg-card p-6 text-card-foreground",
+                div { class: "flex items-center gap-2",
+                    Icon { icon: IconType::CircleAlert, class: "size-4 text-destructive" }
+                    h1 { class: "m-0 text-lg font-semibold text-destructive", "Unexpected error" }
                 }
                 p {
-                    class: "md-body-s",
-                    style: "margin: 0; font-family: var(--font-mono); word-break: break-all; white-space: pre-wrap; user-select: text; color: var(--md-sys-color-on-surface-variant);",
+                    class: "m-0 font-mono text-xs break-all whitespace-pre-wrap select-text text-muted-foreground",
                     {message}
                 }
-                div { style: "display: flex; gap: var(--md-space-2); flex-wrap: wrap;",
+                div { class: "flex flex-wrap gap-2",
                     Button {
                         variant: ButtonVariant::Outline,
                         size: ButtonSize::Sm,

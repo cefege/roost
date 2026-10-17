@@ -38,7 +38,6 @@ mod role_presets;
 mod role_switch;
 mod role_switcher;
 mod role_thinking;
-mod shimmer;
 mod slash_menu;
 mod streaming_reveal;
 mod surface;

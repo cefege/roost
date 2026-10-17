@@ -30,7 +30,6 @@ use model_hub_actions::{
 use model_role_strip::{ModelRoleStrip, OpenStrip, STRIP_FOOTER, run_strip_key};
 use strip_chips::{strip_key, strip_view_chips};
 
-use crate::components::md::TextField;
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{
     AgentSettingsView, ConversationSummary, ModelsCatalog, ProviderEntry,
@@ -44,9 +43,17 @@ use self::hub_logic::{HubView, hub_sections};
 use self::model_hub_keys::to_hub_key;
 use self::roles::HubRolesView;
 use super::agent_alert::ERROR_TEXT_CLASS;
-use crate::components::md::{Dialog, Skeleton};
 use crate::components::settings::agent_roles::load_settings;
+use crate::components::ui::{
+    Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle, Skeleton,
+    TextField,
+};
 use crate::pump::Pump;
+
+/// The hub's dialog is wider and taller than a standard dialog so the sidebar,
+/// the rows and the role editor each keep their own scroll region.
+const HUB_DIALOG_CLASS: &str =
+    "w-[min(calc(100vw-2rem),64rem)] h-[min(85dvh,56rem)] max-w-none sm:max-w-none";
 
 #[component]
 pub fn ModelHub(
@@ -80,14 +87,23 @@ pub fn ModelHub(
     if !open() {
         return rsx! {};
     }
-    let close = move |()| open.set(false);
+    let close = move |next: bool| {
+        if !next {
+            open.set(false);
+        }
+    };
     let Some(catalog) = catalog else {
         return rsx! {
-            Dialog { open: true, on_close: close, headline: "Models".to_owned(),
-                class: "roost-dialog--wide model-hub model-hub--split".to_owned(),
-                test_id: "agent-model-hub".to_owned(),
-                div { class: "model-hub__loading", role: "status", "aria-label": "Loading models",
-                    for index in 0..4 { Skeleton { key: "{index}", class: "model-hub__skeleton" } }
+            Dialog { open: true, on_open_change: close,
+                DialogContent { class: HUB_DIALOG_CLASS, test_id: "agent-model-hub",
+                    DialogHeader {
+                        DialogTitle { "Models" }
+                    }
+                    DialogBody { class: "min-h-0 flex-1 gap-0 p-5",
+                        div { class: "flex flex-col gap-2", role: "status", "aria-label": "Loading models",
+                            for index in 0..4 { Skeleton { key: "{index}", class: "h-8" } }
+                        }
+                    }
                 }
             }
         };
@@ -225,126 +241,131 @@ pub fn ModelHub(
 
     let sidebar_sections = sections.clone();
     rsx! {
-        Dialog { open: true, on_close: close, headline: "Models".to_owned(),
-            description: rsx! { "Set the roles every chat starts from, or pick this chat's model." },
-            class: "roost-dialog--wide model-hub model-hub--split".to_owned(),
-            test_id: "agent-model-hub".to_owned(),
-            div {
-                id: HUB_ROOT_ID,
-                class: "model-hub__frame",
-                tabindex: "-1",
-                onkeydown: on_key,
-                div { class: "model-hub__layout",
-                    nav { class: "model-hub__sidebar", "aria-label": "Model views",
-                        HubSidebar {
-                            sections: sidebar_sections,
-                            current: current.clone(),
-                            focused: focus == HubFocus::Scope,
-                            roles_assigned,
-                            roles_total,
-                            on_select: move |target: HubView| {
-                                view.set(target);
-                                selected.set(0);
-                                focus_pane.set(HubFocus::List);
-                                refocus_frame();
-                            },
-                        }
-                    }
-                    section { class: "model-hub__content",
-                        if !error().is_empty() {
-                            div { class: "model-hub__error",
-                                p { class: ERROR_TEXT_CLASS, role: "alert", "{error}" }
-                            }
-                        }
-                        if matches!(current, HubView::Roles) {
-                            HubRolesView {
-                                catalog: catalog.clone(),
-                                settings,
-                                error,
-                                pump: pump.clone(),
-                                conversation: conversation.clone(),
-                                focused: focus == HubFocus::List,
-                            }
-                        } else if locked {
-                            LockedProvider { catalog: catalog.clone(), view: current.clone(), connect_provider, open }
-                        } else {
-                            p { class: "model-hub__status", "{status}" }
-                            KindTabs {
-                                kinds: kinds.clone(),
-                                active: current_kind.clone(),
-                                on_select: move |next: String| {
-                                    kind.set(next);
-                                    selected.set(0);
-                                },
-                            }
-                            div { class: "model-hub__search",
-                                TextField {
-                                    class: "model-hub__search-field".to_owned(),
-                                    input_type: "search".to_owned(),
-                                    value: search.clone(),
-                                    placeholder: "Search models".to_owned(),
-                                    aria_label: "Search models".to_owned(),
-                                    test_id: "agent-model-hub-picker".to_owned(),
-                                    autocomplete: "off".to_owned(),
-                                    // The field owns printable keys and Backspace, so the hub's key ladder
-                                    // does not also apply them to the query.
-                                    onkeydown: move |event: KeyboardEvent| {
-                                        if matches!(event.key(), Key::Character(_) | Key::Backspace) {
-                                            event.stop_propagation();
-                                        }
-                                    },
-                                    on_input: move |text: String| {
-                                        query.set(text);
+        Dialog { open: true, on_open_change: close,
+            DialogContent { class: HUB_DIALOG_CLASS, test_id: "agent-model-hub",
+                DialogHeader {
+                    DialogTitle { "Models" }
+                    DialogDescription { "Set the roles every chat starts from, or pick this chat's model." }
+                }
+                DialogBody { class: "min-h-0 flex-1 gap-0 overflow-hidden p-0",
+                    div {
+                        id: HUB_ROOT_ID,
+                        class: "flex min-h-0 flex-1 flex-col gap-2 p-5 outline-none",
+                        tabindex: "-1",
+                        onkeydown: on_key,
+                        div { class: "grid min-h-0 flex-1 grid-cols-[minmax(10rem,14rem)_minmax(0,1fr)] gap-4 max-[40rem]:grid-cols-[minmax(0,1fr)] max-[40rem]:grid-rows-[auto_minmax(0,1fr)]",
+                            nav { class: "min-h-0 overflow-y-auto overscroll-contain max-[40rem]:max-h-36", "aria-label": "Model views",
+                                HubSidebar {
+                                    sections: sidebar_sections,
+                                    current: current.clone(),
+                                    focused: focus == HubFocus::Scope,
+                                    roles_assigned,
+                                    roles_total,
+                                    on_select: move |target: HubView| {
+                                        view.set(target);
                                         selected.set(0);
+                                        focus_pane.set(HubFocus::List);
+                                        refocus_frame();
                                     },
                                 }
                             }
-                            ModelRows {
-                                rows: rows.clone(),
-                                selected: index,
-                                current: current_selector.clone(),
-                                on_select: move |next: usize| {
-                                    selected.set(next);
-                                    refocus_frame();
-                                },
-                                on_activate: move |next: usize| {
-                                    selected.set(next);
-                                    focus_pane.set(HubFocus::List);
-                                    refocus_frame();
-                                    if let Some(selector) = activate_row(
-                                        &view(),
-                                        &click_catalog,
-                                        &click_rows,
-                                        next,
-                                        &mut open,
-                                        &mut connect_provider,
-                                    ) {
-                                        strip.set(Some(opened_strip(&settings(), &click_folder, selector)));
+                            section { class: "flex min-h-0 min-w-0 flex-col gap-2 overflow-y-auto overscroll-contain",
+                                if !error().is_empty() {
+                                    div { class: "shrink-0",
+                                        p { class: ERROR_TEXT_CLASS, role: "alert", "{error}" }
                                     }
-                                },
-                            }
-                            if let Some((open_strip, chips)) = &strip_view {
-                                ModelRoleStrip {
-                                    chips: chips.clone(),
-                                    cursor: open_strip.cursor,
-                                    scope: open_strip.scope.clone(),
-                                    folder: folder.clone(),
-                                    on_activate: move |chip_index: usize| {
-                                        activate_strip_chip(
-                                            &click_commit,
-                                            &strip_catalog,
-                                            click_current.as_deref(),
-                                            chip_index,
-                                        );
-                                    },
-                                    on_scope: move |next_scope| rescope_strip(strip, next_scope),
+                                }
+                                if matches!(current, HubView::Roles) {
+                                    HubRolesView {
+                                        catalog: catalog.clone(),
+                                        settings,
+                                        error,
+                                        pump: pump.clone(),
+                                        conversation: conversation.clone(),
+                                        focused: focus == HubFocus::List,
+                                    }
+                                } else if locked {
+                                    LockedProvider { catalog: catalog.clone(), view: current.clone(), connect_provider, open }
+                                } else {
+                                    p { class: "shrink-0 text-sm text-muted-foreground", "{status}" }
+                                    KindTabs {
+                                        kinds: kinds.clone(),
+                                        active: current_kind.clone(),
+                                        on_select: move |next: String| {
+                                            kind.set(next);
+                                            selected.set(0);
+                                        },
+                                    }
+                                    div { class: "shrink-0",
+                                        TextField {
+                                            class: "w-full",
+                                            input_type: "search".to_owned(),
+                                            value: search.clone(),
+                                            placeholder: "Search models".to_owned(),
+                                            aria_label: "Search models".to_owned(),
+                                            test_id: "agent-model-hub-picker".to_owned(),
+                                            autocomplete: "off".to_owned(),
+                                            // The field owns printable keys and Backspace, so the hub's key ladder
+                                            // does not also apply them to the query.
+                                            onkeydown: move |event: KeyboardEvent| {
+                                                if matches!(event.key(), Key::Character(_) | Key::Backspace) {
+                                                    event.stop_propagation();
+                                                }
+                                            },
+                                            on_input: move |text: String| {
+                                                query.set(text);
+                                                selected.set(0);
+                                            },
+                                        }
+                                    }
+                                    ModelRows {
+                                        rows: rows.clone(),
+                                        selected: index,
+                                        current: current_selector.clone(),
+                                        on_select: move |next: usize| {
+                                            selected.set(next);
+                                            refocus_frame();
+                                        },
+                                        on_activate: move |next: usize| {
+                                            selected.set(next);
+                                            focus_pane.set(HubFocus::List);
+                                            refocus_frame();
+                                            if let Some(selector) = activate_row(
+                                                &view(),
+                                                &click_catalog,
+                                                &click_rows,
+                                                next,
+                                                &mut open,
+                                                &mut connect_provider,
+                                            ) {
+                                                strip.set(Some(opened_strip(&settings(), &click_folder, selector)));
+                                            }
+                                        },
+                                    }
+                                    if let Some((open_strip, chips)) = &strip_view {
+                                        ModelRoleStrip {
+                                            chips: chips.clone(),
+                                            cursor: open_strip.cursor,
+                                            scope: open_strip.scope.clone(),
+                                            folder: folder.clone(),
+                                            on_activate: move |chip_index: usize| {
+                                                activate_strip_chip(
+                                                    &click_commit,
+                                                    &strip_catalog,
+                                                    click_current.as_deref(),
+                                                    chip_index,
+                                                );
+                                            },
+                                            on_scope: move |next_scope| rescope_strip(strip, next_scope),
+                                        }
+                                    }
+                                    ModelDetail { row: selected_row }
                                 }
                             }
-                            ModelDetail { row: selected_row }
                         }
+                        footer { class: "shrink-0 border-t border-border pt-2 text-xs text-muted-foreground", "aria-live": "polite", "{footer}" }
                     }
                 }
-                footer { class: "model-hub__footer", "aria-live": "polite", "{footer}" }
             }
         }
     }

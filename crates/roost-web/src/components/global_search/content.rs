@@ -20,9 +20,7 @@ use roost_web_terminal::find::hits::PreferredMatch;
 use roost_web_terminal::find::intent::TerminalFindIntentOptions;
 
 use crate::components::global_search::{driver, query::SearchRouteQuery};
-use crate::components::md::{
-    Button, ButtonVariant, EmptyState, List, ListRow, Surface, SurfaceRadius,
-};
+use crate::components::ui::{Button, ButtonVariant, EmptyState, IconType, List, ListRow};
 use crate::platform::worker_paths::BrowserWorkerPaths;
 use crate::pump::{Pump, use_store};
 use crate::router_state::use_navigate;
@@ -74,14 +72,12 @@ pub fn ContentResults(route_query: SearchRouteQuery) -> Element {
     };
 
     rsx! {
-        Surface { class: "df-search-content", level: 1, radius: SurfaceRadius::Lg,
-            pad: 4,
-            aria_labelledby: Some("global-content-search-title".to_owned()),
-            style: "display: flex; flex-direction: column; gap: var(--md-space-3);",
-            h2 { id: "global-content-search-title", class: "md-title-m", style: "margin: 0;",
+        section { class: "flex flex-col gap-3 rounded-xl border border-border bg-card p-4 text-card-foreground",
+            "aria-labelledby": "global-content-search-title",
+            h2 { id: "global-content-search-title", class: "m-0 text-lg font-semibold",
                 "Terminal content"
             }
-            div { class: "md-body-m", role: "status", "aria-live": "polite", "aria-atomic": "true",
+            div { class: "text-sm", role: "status", "aria-live": "polite", "aria-atomic": "true",
                 "data-testid": "global-content-summary",
                 {summary(&results, &rows, waiting, &route_query.text)}
             }
@@ -89,7 +85,7 @@ pub fn ContentResults(route_query: SearchRouteQuery) -> Element {
                 if rows.is_empty() {
                     if !waiting {
                         EmptyState {
-                            icon: (if results.error.is_some() { "error" } else { "search_off" }).to_owned(),
+                            icon: if results.error.is_some() { IconType::CircleAlert } else { IconType::SearchX },
                             title: if results.error.is_some() {
                                 "Terminal content search failed".to_owned()
                             } else if incomplete {
@@ -107,7 +103,7 @@ pub fn ContentResults(route_query: SearchRouteQuery) -> Element {
                             action: results.retryable.then(|| rsx! {
                                 Button {
                                     variant: ButtonVariant::Secondary,
-                                    icon: Some("refresh".to_owned()),
+                                    icon: Some(IconType::RefreshCw),
                                     "data-testid": "global-content-retry",
                                     onclick: {
                                         let pump = pump.clone();
@@ -133,34 +129,32 @@ pub fn ContentResults(route_query: SearchRouteQuery) -> Element {
                     }
                 }
                 if incomplete {
-                    Surface { class: "df-search-incomplete", level: 2,
-                            radius: SurfaceRadius::Md, pad: 3,
-                            test_id: Some("global-content-incomplete".to_owned()),
-                            role: Some((if results.error.is_some() { "alert" } else { "status" }).to_owned()),
-                            aria_live: Some((if results.error.is_some() { "assertive" } else { "polite" }).to_owned()),
-                            style: "display: flex; flex-direction: column; gap: var(--md-space-2);",
-                            span { class: "md-title-s", "Search incomplete" }
+                    div { class: "flex flex-col gap-2 rounded-md border border-border bg-background p-3",
+                            "data-testid": "global-content-incomplete",
+                            role: if results.error.is_some() { "alert" } else { "status" },
+                            "aria-live": if results.error.is_some() { "assertive" } else { "polite" },
+                            span { class: "text-sm font-medium", "Search incomplete" }
                             if results.next_cursor.is_some() {
-                                span { class: "md-body-m", "More retained terminal rows are available." }
+                                span { class: "text-sm", "More retained terminal rows are available." }
                             }
                             if results.eligible_sessions > 0
                                 && results.searched_sessions < results.eligible_sessions {
-                                span { class: "md-body-m", "data-testid": "global-content-unsearched",
+                                span { class: "text-sm", "data-testid": "global-content-unsearched",
                                     "{unsearched} of {eligible} eligible {unsearched_noun} not searched."
                                 }
                             }
                             if results.truncated && results.next_cursor.is_none() {
-                                span { class: "md-body-m",
+                                span { class: "text-sm",
                                     "The bounded page ended before every retained row could be searched."
                                 }
                             }
                             if missing > 0 {
-                                span { class: "md-body-m",
+                                span { class: "text-sm",
                                     "{missing} {missing_noun} sessions no longer present in the current session list."
                                 }
                             }
                             for partial in results.partials.iter() {
-                                span { class: "md-body-m",
+                                span { class: "text-sm",
                                     "data-testid": format!("global-content-partial-{}", partial.session_id.as_str()),
                                     {partial_line(partial, &documents)}
                                 }
@@ -169,10 +163,10 @@ pub fn ContentResults(route_query: SearchRouteQuery) -> Element {
                 }
                 if results.next_cursor.is_some() && results.error.is_none() {
                     div { role: "group", "aria-label": "Terminal content pagination",
-                        style: "display: flex; justify-content: center;",
+                        class: "flex justify-center",
                         Button {
                             variant: ButtonVariant::Secondary,
-                            icon: Some("expand_more".to_owned()),
+                            icon: Some(IconType::ChevronDown),
                             disabled: waiting,
                             "data-testid": "global-content-load-more",
                             onclick: {
@@ -198,17 +192,17 @@ fn ContentRow(row: JoinedMatch, index: usize, on_open: EventHandler<()>) -> Elem
     let session_id = document.session_id.clone();
     rsx! {
         ListRow {
-            leading_icon: Some("find_in_page".to_owned()),
+            leading_icon: Some(IconType::FileSearch),
             headline: rsx! {
                 span { "data-testid": format!("global-content-title-{session_id}"),
                     {document.display_title.clone()}
                 }
             },
             support: rsx! {
-                span { style: "display: flex; flex-direction: column; gap: var(--md-space-1);",
+                span { class: "flex flex-col gap-1",
                     span {
                         "data-testid": format!("global-content-preview-{session_id}-{index}"),
-                        style: "white-space: pre-wrap; overflow-wrap: anywhere;",
+                        class: "whitespace-pre-wrap [overflow-wrap:anywhere]",
                         {row.candidate.preview.clone()}
                     }
                     span { "{document.cwd} · {document.worker_label}" }

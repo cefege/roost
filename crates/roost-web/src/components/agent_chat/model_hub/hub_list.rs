@@ -1,12 +1,13 @@
 //! The models hub's model-browsing markup: the sidebar of views, the kind tabs,
-//! the search field, the list of model rows with their metric cells, and the
-//! detail lines for the selected row. Pure rendering over `BrowseRow`s; the
-//! frame in `model_hub.rs` owns the selection and handles the keys.
+//! the list of model rows with their metric cells, and the detail lines for the
+//! selected row. Pure rendering over `BrowseRow`s; the frame in `model_hub.rs`
+//! owns the selection and handles the keys.
 
 use dioxus::prelude::*;
 
 use super::hub_browse::{BrowseRow, MODEL_KIND_TABS};
 use super::hub_logic::{HubSection, HubView};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, Icon, IconType, ListRow};
 
 /// The sidebar: Roles, Recent, All models, then each provider. Locked
 /// providers are muted and mark the sign-in they need.
@@ -20,7 +21,12 @@ pub fn HubSidebar(
     on_select: EventHandler<HubView>,
 ) -> Element {
     rsx! {
-        div { class: "model-hub__sidebar-list", role: "listbox", "aria-label": "Model views", tabindex: "0", "aria-activedescendant": format!("agent-model-hub-view-{}", current.id()),
+        div {
+            class: "flex flex-col gap-1",
+            role: "listbox",
+            "aria-label": "Model views",
+            tabindex: "0",
+            "aria-activedescendant": format!("agent-model-hub-view-{}", current.id()),
             for section in sections.iter() {
                 {
                     let view = section.view.clone();
@@ -32,23 +38,23 @@ pub fn HubSidebar(
                     } else {
                         section.count.map(|count| count.to_string()).unwrap_or_default()
                     };
-                    let mut row_class = String::from("model-hub__view");
-                    if selected && focused { row_class.push_str(" model-hub__view--active"); }
-                    if locked { row_class.push_str(" model-hub__view--locked"); }
+                    let row_class = if locked { "text-muted-foreground" } else { "" };
                     rsx! {
-                        div {
+                        ListRow {
                             key: "{section.view.id()}",
                             id: "agent-model-hub-view-{section.view.id()}",
-                            class: "{row_class}",
                             role: "option",
-                            "aria-selected": selected.to_string(),
-                            "data-testid": "agent-model-hub-view-{section.view.id()}",
+                            aria_selected: selected.to_string(),
+                            test_id: "agent-model-hub-view-{section.view.id()}",
+                            selected: selected && focused,
+                            dense: true,
+                            class: row_class,
+                            leading: rsx! { Icon { icon, class: "size-4" } },
+                            headline: rsx! { "{section.label}" },
+                            trailing: if count.is_empty() { None } else { Some(rsx! {
+                                span { class: "text-xs tabular-nums text-muted-foreground", "{count}" }
+                            }) },
                             onclick: move |_| on_select.call(view.clone()),
-                            span { class: "model-hub__view-icon", "aria-hidden": "true", "{icon}" }
-                            span { class: "model-hub__view-label", "{section.label}" }
-                            if !count.is_empty() {
-                                span { class: "model-hub__view-count", "{count}" }
-                            }
                         }
                     }
                 }
@@ -57,15 +63,16 @@ pub fn HubSidebar(
     }
 }
 
-/// The OMP sidebar glyph for a view: ✦ roles, ⏱ recent, ⬢ all, ● provider,
-/// ○ a provider still to sign in to.
-fn view_icon(view: &HubView, locked: bool) -> &'static str {
+/// The icon for a view: sparkles for roles, a clock for recent, layers for all
+/// models, a filled circle for a signed-in provider, a dashed one for a provider
+/// still to sign in to.
+fn view_icon(view: &HubView, locked: bool) -> IconType {
     match view {
-        HubView::Roles => "✦",
-        HubView::Recent => "⏱",
-        HubView::All => "⬢",
-        HubView::Provider(_) if locked => "○",
-        HubView::Provider(_) => "●",
+        HubView::Roles => IconType::Sparkles,
+        HubView::Recent => IconType::Clock,
+        HubView::All => IconType::Layers,
+        HubView::Provider(_) if locked => IconType::CircleDashed,
+        HubView::Provider(_) => IconType::Circle,
     }
 }
 
@@ -74,17 +81,19 @@ fn view_icon(view: &HubView, locked: bool) -> &'static str {
 #[component]
 pub fn KindTabs(kinds: Vec<String>, active: String, on_select: EventHandler<String>) -> Element {
     rsx! {
-        div { class: "model-hub__kinds", role: "tablist", "aria-label": "Model kind",
+        div { class: "flex flex-wrap items-center gap-1", role: "tablist", "aria-label": "Model kind",
             for kind in MODEL_KIND_TABS.iter().filter(|kind| kinds.iter().any(|known| known == *kind)) {
                 {
                     let kind_value = (*kind).to_owned();
                     let selected = *kind == active;
+                    let variant = if selected { ButtonVariant::Secondary } else { ButtonVariant::Ghost };
                     rsx! {
-                        button {
+                        Button {
                             key: "{kind}",
-                            r#type: "button",
+                            variant,
+                            size: ButtonSize::Sm,
+                            class: "rounded-full",
                             role: "tab",
-                            class: if selected { "model-hub__kind model-hub__kind--active" } else { "model-hub__kind" },
                             "aria-selected": selected.to_string(),
                             "data-testid": "agent-model-hub-kind-{kind}",
                             onclick: move |_| on_select.call(kind_value.clone()),
@@ -102,7 +111,9 @@ pub fn KindTabs(kinds: Vec<String>, active: String, on_select: EventHandler<Stri
 const MODEL_ROWS_TEST_ID: &str = "agent-model-hub-rows";
 
 /// The model rows: a cursor on the selected row, `provider/` dimmed, the name,
-/// a ✓ on the chat's current model, and the metric cells right-aligned.
+/// a ✓ on the chat's current model, and the metric cells right-aligned. The
+/// metric cells are shown from the room the list has (`@container/rows`), so the
+/// model name keeps its width on a narrow dialog.
 #[component]
 pub fn ModelRows(
     rows: Vec<BrowseRow>,
@@ -118,7 +129,7 @@ pub fn ModelRows(
     let active_option = rows.get(selected).map(|row| row_option_id(&row.selector));
     rsx! {
         div {
-            class: "model-hub__rows",
+            class: "@container/rows flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain",
             id: "agent-model-hub-rows",
             "data-testid": "{MODEL_ROWS_TEST_ID}",
             role: "listbox",
@@ -129,53 +140,62 @@ pub fn ModelRows(
                 {
                     let is_selected = index == selected;
                     let is_current = current.as_deref() == Some(row.selector.as_str());
-                    let row_class = if is_selected { "model-hub__row model-hub__row--selected" } else { "model-hub__row" };
                     let row_id = row_option_id(&row.selector);
                     rsx! {
-                        div {
+                        ListRow {
                             key: "{row.selector}",
                             id: "{row_id}",
-                            class: "{row_class}",
                             role: "option",
-                            "aria-selected": is_selected.to_string(),
-                            "data-testid": "agent-model-hub-row-{row.selector}",
+                            aria_selected: is_selected.to_string(),
+                            test_id: "agent-model-hub-row-{row.selector}",
+                            selected: is_selected,
+                            dense: true,
+                            class: "whitespace-nowrap",
+                            leading: rsx! {
+                                span { class: "inline-flex size-4 items-center justify-center text-primary", "aria-hidden": "true",
+                                    if is_selected {
+                                        Icon { icon: IconType::ChevronRight, class: "size-4" }
+                                    }
+                                }
+                            },
+                            headline: rsx! {
+                                span { class: "truncate",
+                                    span { class: "text-muted-foreground", "{row.provider}/" }
+                                    span { "{row.model_id}" }
+                                    if !row.name.is_empty() && row.name != row.model_id {
+                                        span { class: "text-muted-foreground", " {row.name}" }
+                                    }
+                                    if is_current {
+                                        span { class: "text-success", "aria-label": "Current model", " ✓" }
+                                    }
+                                }
+                            },
+                            trailing: rsx! {
+                                span { class: "flex gap-3 tabular-nums text-muted-foreground",
+                                    if has_intel {
+                                        span { class: "min-w-[4ch] text-right", "{row.intelligence}" }
+                                    }
+                                    if has_speed {
+                                        span { class: "hidden min-w-[7ch] text-right @[38rem]/rows:inline", "{row.speed}" }
+                                    }
+                                    if has_context {
+                                        span { class: "hidden min-w-[7ch] text-right @[24rem]/rows:inline", "{row.context}" }
+                                    }
+                                    if has_cost {
+                                        span { class: "hidden min-w-[10ch] text-right @[30rem]/rows:inline", "{row.cost}" }
+                                    }
+                                }
+                            },
                             onclick: move |_| {
                                 if is_selected { on_activate.call(index) } else { on_select.call(index) }
                             },
-                            span { class: "model-hub__cursor", "aria-hidden": "true",
-                                if is_selected { "❯" }
-                            }
-                            span { class: "model-hub__name",
-                                span { class: "model-hub__provider", "{row.provider}/" }
-                                span { class: "model-hub__model", "{row.model_id}" }
-                                if !row.name.is_empty() && row.name != row.model_id {
-                                    span { class: "model-hub__display", " {row.name}" }
-                                }
-                                if is_current {
-                                    span { class: "model-hub__current", "aria-label": "Current model", " ✓" }
-                                }
-                            }
-                            span { class: "model-hub__metrics",
-                                if has_intel {
-                                    span { class: "model-hub__metric model-hub__metric--intel", "{row.intelligence}" }
-                                }
-                                if has_speed {
-                                    span { class: "model-hub__metric model-hub__metric--speed", "{row.speed}" }
-                                }
-                                if has_context {
-                                    span { class: "model-hub__metric model-hub__metric--ctx", "{row.context}" }
-                                }
-                                if has_cost {
-                                    span { class: "model-hub__metric model-hub__metric--cost", "{row.cost}" }
-                                }
-                            }
                         }
                     }
                 }
             }
         }
         if rows.is_empty() {
-            p { class: "model-hub__empty", "No models match." }
+            p { class: "px-2 py-3 text-sm text-muted-foreground", "No models match." }
         }
     }
 }
@@ -215,17 +235,17 @@ pub fn ModelDetail(row: Option<BrowseRow>) -> Element {
     };
     let roles = row.roles.join(" · ");
     rsx! {
-        div { class: "model-hub__detail-facts", "data-testid": "agent-model-hub-detail",
-            span { class: "model-hub__detail-name", "{row.name}" }
-            span { class: "model-hub__detail-sep", " · " }
+        div { class: "flex flex-wrap items-baseline text-sm text-muted-foreground", "data-testid": "agent-model-hub-detail",
+            span { class: "font-semibold text-foreground", "{row.name}" }
+            span { class: "whitespace-pre", " · " }
             span { "{price}" }
             for fact in facts.iter() {
-                span { class: "model-hub__detail-sep", " · " }
+                span { class: "whitespace-pre", " · " }
                 span { "{fact}" }
             }
         }
         if !roles.is_empty() {
-            div { class: "model-hub__detail-roles", "● {roles}" }
+            div { class: "text-xs text-primary", "● {roles}" }
         }
     }
 }

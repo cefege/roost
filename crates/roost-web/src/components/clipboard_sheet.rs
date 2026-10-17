@@ -15,8 +15,10 @@ use roost_client_core::store::Store;
 use roost_client_core::store::selectors::session_by_id;
 use roost_client_core::store::toasts::{ToastId, ToastKind, ToastOptions, ToastSource, add_toast};
 
-use crate::components::md::{
-    Button, ButtonVariant, Dialog, EmptyState, IconButton, List, ListRow, Sheet, SheetSide,
+use crate::components::ui::{
+    AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+    AlertDialogHeader, AlertDialogTitle, Button, ButtonVariant, Dialog, DialogContent, DialogHeader,
+    DialogTitle, EmptyState, IconButton, IconType, List, ListRow,
 };
 use crate::components::notifications::clipboard::copy_text;
 use crate::components::notifications::store_write::write_store;
@@ -52,10 +54,6 @@ pub fn ClipboardSheet() -> Element {
     let open = overlays.clipboard_history.cloned();
     let mut selected = use_signal(|| 0usize);
     let mut confirm_clear = use_signal(|| false);
-    let on_close = {
-        let mut visible = overlays.clipboard_history;
-        EventHandler::new(move |()| visible.set(false))
-    };
 
     let _ = pump.revision().read();
     let (rows, target_session) = {
@@ -133,68 +131,71 @@ pub fn ClipboardSheet() -> Element {
     };
 
     let clear_pump = pump.clone();
+    let on_open_change = {
+        let mut visible = overlays.clipboard_history;
+        EventHandler::new(move |next: bool| visible.set(next))
+    };
     rsx! {
-        Sheet {
-            open,
-            on_close,
-            headline: "Clipboard history",
-            side: SheetSide::Center,
-            class: "roost-dialog--wide",
-            test_id: Some("clipboard-history".to_owned()),
-            div {
-                tabindex: "0",
-                "data-testid": "clipboard-history-list",
-                onkeydown: on_keydown,
-                if rows.is_empty() {
-                    EmptyState {
-                        icon: "content_paste",
-                        title: "Nothing copied yet",
-                        supporting: Some("Text you copy in any Roost terminal, on any device, appears here.".to_owned()),
-                    }
-                } else {
-                    div { class: "roost-clipboard-history__actions",
-                        Button {
-                            variant: ButtonVariant::Ghost,
-                            onclick: move |_| confirm_clear.set(true),
-                            "Clear all"
+        Dialog { open, on_open_change: on_open_change.clone(),
+            DialogContent { class: "sm:max-w-2xl", test_id: "clipboard-history",
+                DialogHeader {
+                    DialogTitle { "Clipboard history" }
+                }
+                div {
+                    tabindex: "0",
+                    "data-testid": "clipboard-history-list",
+                    class: "flex flex-col gap-2",
+                    onkeydown: on_keydown,
+                    if rows.is_empty() {
+                        EmptyState {
+                            icon: IconType::ClipboardPaste,
+                            title: "Nothing copied yet",
+                            supporting: Some("Text you copy in any Roost terminal, on any device, appears here.".to_owned()),
                         }
-                    }
-                    List {
-                        for (index, row) in rows.into_iter().enumerate() {
-                            ClipboardRow {
-                                key: "{row.id}",
-                                row,
-                                selected: index == *selected.read(),
-                                on_copy: copy.clone(),
-                                on_paste: paste.clone(),
-                                on_delete: delete.clone(),
+                    } else {
+                        div { class: "flex justify-end",
+                            Button {
+                                variant: ButtonVariant::Ghost,
+                                onclick: move |_| confirm_clear.set(true),
+                                "Clear all"
+                            }
+                        }
+                        List {
+                            for (index, row) in rows.into_iter().enumerate() {
+                                ClipboardRow {
+                                    key: "{row.id}",
+                                    row,
+                                    selected: index == *selected.read(),
+                                    on_copy: copy.clone(),
+                                    on_paste: paste.clone(),
+                                    on_delete: delete.clone(),
+                                }
                             }
                         }
                     }
                 }
             }
         }
-        Dialog {
+        AlertDialog {
             open: *confirm_clear.read(),
-            on_close: move |()| confirm_clear.set(false),
-            headline: Some("Clear clipboard history?".to_owned()),
-            description: rsx! { "Every entry is removed for every device. This cannot be undone." },
-            actions: rsx! {
-                Button {
-                    variant: ButtonVariant::Ghost,
-                    onclick: move |_| confirm_clear.set(false),
-                    "Cancel"
+            on_open_change: move |next: bool| confirm_clear.set(next),
+            AlertDialogContent {
+                AlertDialogHeader {
+                    AlertDialogTitle { "Clear clipboard history?" }
+                    AlertDialogDescription { "Every entry is removed for every device. This cannot be undone." }
                 }
-                Button {
-                    variant: ButtonVariant::Destructive,
-                    onclick: move |_| {
-                        confirm_clear.set(false);
-                        clear_history(clear_pump.clone());
-                    },
-                    "Clear all"
+                AlertDialogFooter {
+                    AlertDialogCancel { "Cancel" }
+                    Button {
+                        variant: ButtonVariant::Destructive,
+                        onclick: move |_| {
+                            confirm_clear.set(false);
+                            clear_history(clear_pump.clone());
+                        },
+                        "Clear all"
+                    }
                 }
-            },
-            {rsx! {}}
+            }
         }
     }
 }
@@ -214,21 +215,21 @@ fn ClipboardRow(
     rsx! {
         ListRow {
             selected,
-            headline: rsx! { pre { class: "roost-clipboard-history__preview", "{row.preview}" } },
+            headline: rsx! { pre { class: "m-0 font-mono text-xs whitespace-pre-wrap break-words", "{row.preview}" } },
             support: Some(rsx! { "{row.source}" }),
             trailing: Some(rsx! {
                 IconButton {
-                    icon: "content_copy",
+                    icon: IconType::Copy,
                     label: "Copy",
                     onclick: move |_| on_copy.call(copy_text.clone()),
                 }
                 IconButton {
-                    icon: "keyboard_return",
+                    icon: IconType::CornerDownLeft,
                     label: "Paste into the terminal",
                     onclick: move |_| on_paste.call(paste_text.clone()),
                 }
                 IconButton {
-                    icon: "delete",
+                    icon: IconType::Trash2,
                     label: "Delete",
                     onclick: move |_| on_delete.call(delete_id.clone()),
                 }

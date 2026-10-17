@@ -1,18 +1,18 @@
 //! One pending pair request, with its provenance and its two answers.
 //!
-//! Ported from `apps/web/src/components/pairing/PairRequestCard.tsx`. The raw
-//! user agent and the request id sit behind a per-card "Technical details"
-//! disclosure, because both are evidence an approver checks and neither is
-//! something to read before deciding.
+//! The raw user agent and the request id sit behind a per-card "Technical
+//! details" disclosure, because both are evidence an approver checks and neither
+//! is something to read before deciding.
 
 use dioxus::prelude::*;
 use roost_client_core::store::PairRequest;
 
-use crate::components::md::form_field::scoped_element_id;
-use crate::components::md::{
-    Button, ButtonSize, ButtonVariant, Card, CardVariant, Chip, List, ListRow, StatusDot,
-};
 use crate::components::terminal::dom::now_ms;
+use crate::components::ui::field::scoped_element_id;
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Card, CardContent, CardDescription, CardFooter, CardHeader,
+    CardTitle, CardVariant, Chip, IconType, List, ListRow, StatusDot,
+};
 
 use super::approver::PairApprover;
 
@@ -45,116 +45,111 @@ pub fn PairRequestCard(request: PairRequest, busy: bool, approver: PairApprover)
         let label = label.clone();
         move |_event: MouseEvent| approver.approve(&ephemeral_id, &label, expires_at_ms)
     };
+    let details_expanded = *details_open.read();
     rsx! {
         div { "data-testid": "pair-request-card", "data-ephemeral-id": ephemeral_id.clone(),
-            Card {
-                title: "New browser wants to pair",
-                supporting: Some(
-                    "Review the browser and network details before allowing access.".to_string()
-                ),
-                variant: CardVariant::Elevated,
-                List {
-                    contained: true,
-                    ListRow {
-                        leading_icon: Some("devices".to_string()),
-                        test_id: Some("pair-request-device".to_string()),
-                        headline: rsx! { span { class: "md-body-m", {label.clone()} } },
-                        trailing: if device_type.is_empty() {
-                            None
-                        } else {
-                            Some(rsx! {
-                                Chip {
-                                    label: device_type.clone(),
-                                    icon: None,
-                                    selected: None,
-                                    onclick: None,
-                                    title: None,
-                                    test_id: None,
+            Card { variant: CardVariant::Elevated,
+                CardHeader {
+                    CardTitle { "New browser wants to pair" }
+                    CardDescription {
+                        "Review the browser and network details before allowing access."
+                    }
+                }
+                CardContent {
+                    List { contained: true,
+                        ListRow {
+                            leading_icon: Some(IconType::MonitorSmartphone),
+                            test_id: Some("pair-request-device".to_owned()),
+                            headline: rsx! { span { class: "text-sm", {label.clone()} } },
+                            trailing: if device_type.is_empty() {
+                                None
+                            } else {
+                                Some(rsx! { Chip { label: device_type.clone() } })
+                            },
+                        }
+                        ListRow {
+                            leading_icon: Some(IconType::MapPin),
+                            test_id: Some("pair-request-location".to_owned()),
+                            headline: rsx! { span { class: "text-sm", {location_label(&request)} } },
+                        }
+                        ListRow {
+                            leading_icon: Some(IconType::Network),
+                            test_id: Some("pair-request-network".to_owned()),
+                            headline: rsx! { span { class: "text-sm", {network_label(&request)} } },
+                        }
+                        ListRow {
+                            leading_icon: Some(IconType::ShieldCheck),
+                            test_id: Some("pair-request-identity".to_owned()),
+                            headline: rsx! {
+                                span { class: "inline-flex items-center gap-2 text-sm",
+                                    StatusDot { status: identity_status(&request).to_owned() }
+                                    span { {identity_label(&request)} }
                                 }
-                            })
-                        },
+                            },
+                        }
+                        ListRow {
+                            leading_icon: Some(IconType::Clock),
+                            test_id: Some("pair-request-expiry".to_owned()),
+                            headline: rsx! {
+                                span { class: "text-sm", {expiry_label(request.expires_at_ms, now)} }
+                            },
+                            support: Some(rsx! {
+                                span { class: "text-xs text-muted-foreground", {relative_age(request.created_at_ms, now)} }
+                            }),
+                        }
                     }
-                    ListRow {
-                        leading_icon: Some("location_on".to_string()),
-                        test_id: Some("pair-request-location".to_string()),
-                        headline: rsx! { span { class: "md-body-m", {location_label(&request)} } },
+                    div { class: "mt-3",
+                        Button {
+                            variant: ButtonVariant::Ghost,
+                            size: ButtonSize::Sm,
+                            icon: if details_expanded { Some(IconType::ChevronUp) } else { Some(IconType::ChevronDown) },
+                            "aria-expanded": details_expanded.to_string(),
+                            "aria-controls": details_id.clone(),
+                            "data-testid": "pair-request-technical-details-toggle",
+                            onclick: move |_| details_open.toggle(),
+                            "Technical details"
+                        }
                     }
-                    ListRow {
-                        leading_icon: Some("lan".to_string()),
-                        test_id: Some("pair-request-network".to_string()),
-                        headline: rsx! { span { class: "md-body-m", {network_label(&request)} } },
-                    }
-                    ListRow {
-                        leading_icon: Some("verified_user".to_string()),
-                        test_id: Some("pair-request-identity".to_string()),
-                        headline: rsx! {
-                            span { class: "md-body-m",
-                                StatusDot { status: identity_status(&request).to_string() }
-                                span { {identity_label(&request)} }
-                            }
-                        },
-                    }
-                    ListRow {
-                        leading_icon: Some("schedule".to_string()),
-                        test_id: Some("pair-request-expiry".to_string()),
-                        headline: rsx! {
-                            span { class: "md-body-m", {expiry_label(request.expires_at_ms, now)} }
-                        },
-                        support: Some(rsx! {
-                            span { class: "md-body-s", {relative_age(request.created_at_ms, now)} }
-                        }),
-                    }
-                }
-                div {
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        size: ButtonSize::Sm,
-                        icon: Some(if *details_open.read() { "expand_less".to_string() } else { "expand_more".to_string() }),
-                        "aria-expanded": details_open.read().to_string(),
-                        "aria-controls": details_id.clone(),
-                        "data-testid": "pair-request-technical-details-toggle",
-                        onclick: move |_| details_open.toggle(),
-                        "Technical details"
-                    }
-                }
-                if *details_open.read() {
-                    div { id: details_id.clone(),
-                        List {
-                            contained: true,
-                            ListRow {
-                                leading_icon: Some("language".to_string()),
-                                test_id: Some("pair-request-user-agent".to_string()),
-                                headline: rsx! { span { class: "md-label-m", "User agent" } },
-                                support: Some(rsx! {
-                                    span { class: "md-body-s", {user_agent_label(&request)} }
-                                }),
-                            }
-                            ListRow {
-                                leading_icon: Some("key".to_string()),
-                                test_id: Some("pair-request-id".to_string()),
-                                headline: rsx! { span { class: "md-label-m", "Request ID" } },
-                                support: Some(rsx! {
-                                    code { class: "md-body-s", {request.ephemeral_id.clone()} }
-                                }),
+                    if details_expanded {
+                        div { id: details_id.clone(), class: "mt-3",
+                            List { contained: true,
+                                ListRow {
+                                    leading_icon: Some(IconType::Languages),
+                                    test_id: Some("pair-request-user-agent".to_owned()),
+                                    headline: rsx! { span { class: "text-sm font-medium", "User agent" } },
+                                    support: Some(rsx! {
+                                        span { class: "text-xs break-all", {user_agent_label(&request)} }
+                                    }),
+                                }
+                                ListRow {
+                                    leading_icon: Some(IconType::KeyRound),
+                                    test_id: Some("pair-request-id".to_owned()),
+                                    headline: rsx! { span { class: "text-sm font-medium", "Request ID" } },
+                                    support: Some(rsx! {
+                                        code { class: "text-xs break-all", {request.ephemeral_id.clone()} }
+                                    }),
+                                }
                             }
                         }
                     }
                 }
-                div { role: "group", "aria-label": "Pair request actions",
-                    Button {
-                        variant: ButtonVariant::Outline,
-                        icon: Some("close".to_string()),
-                        "data-testid": "pair-card-dismiss",
-                        disabled: busy,
-                        onclick: on_deny,
-                        "Deny"
-                    }
-                    Button {
-                        icon: Some("check".to_string()),
-                        "data-testid": "pair-card-approve",
-                        disabled: busy,
-                        onclick: on_approve,
-                        if busy { "Approving…" } else { "Approve" }
+                CardFooter {
+                    div { class: "flex flex-wrap gap-2", role: "group", "aria-label": "Pair request actions",
+                        Button {
+                            variant: ButtonVariant::Outline,
+                            icon: Some(IconType::X),
+                            "data-testid": "pair-card-dismiss",
+                            disabled: busy,
+                            onclick: on_deny,
+                            "Deny"
+                        }
+                        Button {
+                            icon: Some(IconType::Check),
+                            "data-testid": "pair-card-approve",
+                            disabled: busy,
+                            onclick: on_approve,
+                            if busy { "Approving…" } else { "Approve" }
+                        }
                     }
                 }
             }

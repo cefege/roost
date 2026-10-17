@@ -9,7 +9,7 @@ use roost_protocol::wire::agent_chat::{ConversationSummary, GoalState, ModelsCat
 use super::composer_commands::{advisor_title, report_command, submit_direct_command};
 use super::goal_dock::GoalDock;
 use super::model_controls::AgentModelControls;
-use crate::components::md::{ButtonVariant, Chip, IconButton, IconButtonSize};
+use crate::components::ui::{ButtonVariant, Chip, IconButton, IconType};
 use crate::pump::Pump;
 
 #[component]
@@ -45,21 +45,20 @@ pub(super) fn ComposerFooter(
     let advisor_pump = pump.clone();
     let advisor_conversation = conversation.id.clone();
     rsx! {
-        div { class: "agent-chat__composer-footer",
-            div { class: "agent-chat__composer-tools",
+        div { class: "flex items-center justify-between gap-2",
+            div { class: "flex min-w-0 flex-wrap items-center gap-1",
                 IconButton {
-                    icon: "add",
+                    icon: IconType::Plus,
                     label: "Show agent commands",
                     title: "Commands",
                     variant: ButtonVariant::Ghost,
-                    size: IconButtonSize::Icon,
                     "data-testid": "agent-chat-commands",
                     expanded: Some(commands_open),
                     controls_id: Some(listbox),
                     onclick: move |_| on_commands.call(()),
                 }
                 if conversation.mode == "plan" {
-                    Chip { label: "Plan".to_string(), icon: Some("assignment".to_string()), selected: Some(true),
+                    Chip { label: "Plan".to_string(), icon: Some(IconType::ClipboardList), selected: Some(true),
                         title: Some("Plan mode is on. Select to turn it off.".to_string()),
                         onclick: Some(EventHandler::new(move |_| {
                             submit_direct_command(plan_pump.clone(), plan_conversation.clone(), "/plan".to_string(), report)
@@ -67,7 +66,7 @@ pub(super) fn ComposerFooter(
                     }
                 }
                 if conversation.advisor || advisor_pending() {
-                    Chip { label: "Advisor".to_string(), icon: Some("psychology".to_string()), selected: Some(conversation.advisor),
+                    Chip { label: "Advisor".to_string(), icon: Some(IconType::Brain), selected: Some(conversation.advisor),
                         title: Some(advisor_title(conversation.advisor, advisor_pending()).to_string()),
                         test_id: Some("agent-advisor-toggle".to_string()),
                         disabled: advisor_pending(),
@@ -83,28 +82,26 @@ pub(super) fn ComposerFooter(
                 }
                 GoalDock { goal, view_request: goal_view_request, on_open: on_goal_open }
             }
-            div { class: "agent-chat__composer-send",
+            div { class: "flex shrink-0 items-center gap-1",
                 AgentModelControls { conversation: conversation.clone(), catalog, catalog_failed, pump }
                 if running {
                     IconButton {
-                        icon: "stop",
+                        icon: IconType::Square,
                         label: "Stop the agent",
                         title: "Stop",
                         variant: ButtonVariant::Secondary,
-                        size: IconButtonSize::Icon,
-                        class: "agent-chat__action",
+                        class: Some("aria-disabled:pointer-events-none aria-disabled:opacity-40".to_owned()),
                         "data-testid": "agent-chat-stop",
                         onclick: move |_| on_stop.call(()),
                     }
                 }
                 if !running || has_draft {
                     IconButton {
-                        icon: "arrow_upward",
+                        icon: IconType::ArrowUp,
                         label: if running { "Steer the agent" } else { "Send message" },
                         title: if running { "Steer" } else { "Send" },
                         variant: ButtonVariant::Default,
-                        size: IconButtonSize::Icon,
-                        class: "agent-chat__action",
+                        class: Some("aria-disabled:pointer-events-none aria-disabled:opacity-40".to_owned()),
                         "data-testid": "agent-chat-send",
                         "aria-disabled": (disabled || !has_draft).then_some("true"),
                         onclick: move |_| on_send.call(()),

@@ -10,7 +10,7 @@ use crate::components::context_menu::{
     AnchoredMenuPos, CtxMenuItem, MenuFocusEdge, anchored_menu_pos, anchored_menu_surface_style,
     use_floating_menu_dismiss,
 };
-use crate::components::md::{Icon, IconButton, IconButtonSize};
+use crate::components::ui::{ButtonSize, Icon, IconButton, IconType};
 
 #[component]
 pub fn PaneTabNewMenu(
@@ -52,10 +52,10 @@ pub fn PaneTabNewMenu(
     let mut close_on_click = close_menu.clone();
     rsx! {
         IconButton {
-            icon: "add",
+            icon: IconType::Plus,
             label: "New tab",
-            size: IconButtonSize::IconSm,
-            class: "df-tab-new workbench-pane-tab-control",
+            size: ButtonSize::IconSm,
+            class: "shrink-0 text-muted-foreground",
             "data-testid": "tab-new",
             id: trigger_id.clone(),
             menu_popup: "menu",
@@ -132,20 +132,20 @@ fn NewTabMenuSurface(
                 deck_dom::run_menu_keys(&event, &keys_menu_id, move || on_close.call(true), move || on_close.call(false));
             },
             CtxMenuItem { testid: "tab-new-terminal", onclick: move |_| on_new_terminal.call(()),
-                NewTabRow { icon: "terminal", label: "New terminal" }
+                NewTabRow { icon: IconType::Terminal, label: "New terminal" }
             }
             CtxMenuItem { testid: "tab-new-agent", onclick: move |_| on_new_agent.call(()),
-                NewTabRow { icon: "smart_toy", label: "New agent" }
+                NewTabRow { icon: IconType::Bot, label: "New agent" }
             }
         }
     }
 }
 
 #[component]
-fn NewTabRow(icon: &'static str, label: &'static str) -> Element {
+fn NewTabRow(icon: IconType, label: &'static str) -> Element {
     rsx! {
-        span { class: "workbench-pane-tab-new-row",
-            Icon { name: icon }
+        span { class: "flex items-center gap-2",
+            Icon { icon, class: "size-4 shrink-0 text-muted-foreground" }
             span { "{label}" }
         }
     }

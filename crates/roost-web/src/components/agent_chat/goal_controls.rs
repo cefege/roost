@@ -7,8 +7,9 @@ use roost_protocol::wire::agent_chat::GoalState;
 
 use super::agent_alert::ERROR_TEXT_CLASS;
 use super::composer_commands::submit_direct_command;
-use crate::components::md::{
-    Button, ButtonVariant, Dialog, ProgressBar, StatusDot, Surface, TextField,
+use crate::components::ui::{
+    Button, ButtonVariant, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter,
+    DialogHeader, DialogTitle, Progress, StatusDot, Surface, TextField,
 };
 use crate::pump::Pump;
 
@@ -82,29 +83,31 @@ pub(super) fn GoalControls(
     let drop_id = conversation_id.clone();
     let status_content = if let Some(state) = goal.as_ref() {
         rsx! {
-            Surface { class: "agent-goal__details", test_id: "agent-goal-status", level: 1, pad: Some(3), border: true,
-                span { class: "agent-goal__status", "data-status": state.status.as_str(),
+            Surface { class: Some("flex flex-col gap-2".to_owned()), test_id: Some("agent-goal-status".to_owned()), level: 1, pad: Some(3), border: true,
+                span { class: "inline-flex items-center gap-2 text-sm font-medium", "data-status": state.status.as_str(),
                     StatusDot { status: status_indicator.to_string() }
                     "{goal_status_label(state.status.as_str())}"
                 }
-                p { class: "agent-goal__objective", "{state.objective}" }
-                p { class: "agent-goal__accounting",
+                p { class: "text-sm text-foreground break-words", "{state.objective}" }
+                p { class: "text-xs text-muted-foreground",
                     "Tokens: {state.tokens_used}"
                     if let Some(limit) = state.token_budget { " / {limit} ({limit.saturating_sub(state.tokens_used)} remaining)" }
                     " · Time: {format_duration(state.time_used_seconds)}"
                 }
                 if let Some(limit) = state.token_budget {
-                    ProgressBar { value: Some(state.tokens_used as f64 / limit.max(1) as f64), label: "Token budget used".to_string(), meter: true }
+                    Progress { value: Some(state.tokens_used as f64 / limit.max(1) as f64), label: "Token budget used", meter: true }
                 }
-                if let Some(report) = &state.report { section { class: "agent-goal__report", h3 { "Report" } p { "{report}" } } }
-                if let Some(reason) = &state.waiting_reason { p { class: "agent-goal__waiting", role: "status", "{reason}" } }
+                if let Some(report) = &state.report {
+                    section { class: "flex flex-col gap-1", h3 { class: "text-sm font-medium", "Report" } p { class: "text-sm text-foreground break-words", "{report}" } }
+                }
+                if let Some(reason) = &state.waiting_reason { p { class: "text-sm text-muted-foreground", role: "status", "{reason}" } }
                 if state.status.as_str() == "active" && state.waiting_reason.is_some() {
-                    p { class: "agent-goal__continuation-hint", "Send a message in the composer to re-arm goal continuation." }
+                    p { class: "text-xs text-muted-foreground", "Send a message in the composer to re-arm goal continuation." }
                 }
             }
         }
     } else {
-        rsx! { p { class: "agent-goal__empty", "No goal is set. Choose an objective to begin." } }
+        rsx! { p { class: "text-sm text-muted-foreground", "No goal is set. Choose an objective to begin." } }
     };
     let paused_goal = current_status == "paused";
     let manages_goal = matches!(current_status, "active" | "paused" | "budget_limited");
@@ -120,66 +123,79 @@ pub(super) fn GoalControls(
         GoalDialogView::Budget => "Adjust token budget",
         GoalDialogView::ConfirmDrop => "Drop this goal?",
     };
+    let mut close_dialog = move || {
+        open.set(false);
+        view.set(if has_goal { GoalDialogView::Main } else { GoalDialogView::Objective });
+    };
     rsx! {
         Dialog {
             open: open(),
-            on_close: move |_| { open.set(false); view.set(if has_goal { GoalDialogView::Main } else { GoalDialogView::Objective }); },
-            headline: Some(title.to_string()),
-            test_id: Some("agent-goal-dialog".to_string()),
-            description: Some(rsx! { p { "Goal changes are sent to the agent runtime and reflected here from its transcript." } }),
-            actions: Some(rsx! {
-                if view() == GoalDialogView::Main {
-                    if !has_goal || matches!(current_status, "complete" | "dropped") {
-                        Button { variant: ButtonVariant::Default, "data-testid": "agent-goal-edit", onclick: move |_| view.set(GoalDialogView::Objective), "Set objective" }
-                    }
-                    if matches!(current_status, "active" | "budget_limited") {
-                        Button { variant: ButtonVariant::Default, "data-testid": "agent-goal-pause", disabled: disabled || pending(), onclick: move |_| dispatch_goal(pause_pump.clone(), pause_id.clone(), "/goal pause".to_string(), pending, view, on_result), "Pause" }
-                    }
-                    if paused_goal {
-                        Button { variant: ButtonVariant::Default, "data-testid": "agent-goal-resume", disabled: disabled || pending(), onclick: move |_| dispatch_goal(resume_pump.clone(), resume_id.clone(), "/goal resume".to_string(), pending, view, on_result), "Resume" }
-                    }
-                    if can_replace {
-                        Button { variant: ButtonVariant::Outline, "data-testid": "agent-goal-edit", onclick: move |_| view.set(GoalDialogView::Objective), "Replace objective" }
-                    }
-                    if manages_goal {
-                        Button { variant: ButtonVariant::Outline, "data-testid": "agent-goal-budget", disabled: paused_goal || pending(), onclick: move |_| { budget.set(initial_budget.clone()); view.set(GoalDialogView::Budget); }, "Adjust budget" }
-                        Button { variant: ButtonVariant::Destructive, "data-testid": "agent-goal-drop", disabled: pending(), onclick: move |_| view.set(GoalDialogView::ConfirmDrop), "Drop" }
-                        Button { variant: ButtonVariant::Ghost, "data-testid": "agent-goal-refresh", disabled: disabled || pending(), onclick: move |_| dispatch_goal(refresh_pump.clone(), refresh_id.clone(), "/goal show".to_string(), pending, view, on_result), "Refresh status" }
+            on_open_change: move |next: bool| {
+                if !next {
+                    close_dialog();
+                }
+            },
+            DialogContent { test_id: "agent-goal-dialog",
+                DialogHeader {
+                    DialogTitle { "{title}" }
+                    DialogDescription {
+                        p { "Goal changes are sent to the agent runtime and reflected here from its transcript." }
                     }
                 }
+                DialogBody {
+                    if view() == GoalDialogView::Main { {status_content} }
+                    if view() == GoalDialogView::Objective {
+                        TextField { value: objective(), on_input: move |value| objective.set(value), label: Some("Objective".to_string()), placeholder: Some("What should the agent accomplish?".to_string()), input_type: Some("textarea".to_string()), rows: Some(4), test_id: Some("agent-goal-objective".to_string()) }
+                        if goal.as_ref().is_some_and(|state| state.status.as_str() == "paused") { p { role: "alert", "Resume or drop the paused goal before replacing it." } }
+                    }
+                    if view() == GoalDialogView::Budget {
+                        p { "Set a positive token limit, or enter off to remove the limit. Usage is retained." }
+                        TextField { value: budget(), on_input: move |value| budget.set(value), label: Some("Token budget".to_string()), placeholder: Some("e.g. 50000 or off".to_string()), input_type: Some("text".to_string()), test_id: Some("agent-goal-budget-value".to_string()) }
+                        if goal.as_ref().is_some_and(|state| state.status.as_str() == "paused") { p { role: "alert", "Resume the goal before changing its budget." } }
+                    }
+                    if view() == GoalDialogView::ConfirmDrop { p { "Dropping disables this goal. Its status and report remain in the session history." } }
+                    if let Some(message) = command_error() { p { class: ERROR_TEXT_CLASS, role: "alert", "{message}" } }
+                }
+                DialogFooter {
+                    if view() == GoalDialogView::Main {
+                        if !has_goal || matches!(current_status, "complete" | "dropped") {
+                            Button { variant: ButtonVariant::Default, "data-testid": "agent-goal-edit", onclick: move |_| view.set(GoalDialogView::Objective), "Set objective" }
+                        }
+                        if matches!(current_status, "active" | "budget_limited") {
+                            Button { variant: ButtonVariant::Default, "data-testid": "agent-goal-pause", disabled: disabled || pending(), onclick: move |_| dispatch_goal(pause_pump.clone(), pause_id.clone(), "/goal pause".to_string(), pending, view, on_result), "Pause" }
+                        }
+                        if paused_goal {
+                            Button { variant: ButtonVariant::Default, "data-testid": "agent-goal-resume", disabled: disabled || pending(), onclick: move |_| dispatch_goal(resume_pump.clone(), resume_id.clone(), "/goal resume".to_string(), pending, view, on_result), "Resume" }
+                        }
+                        if can_replace {
+                            Button { variant: ButtonVariant::Outline, "data-testid": "agent-goal-edit", onclick: move |_| view.set(GoalDialogView::Objective), "Replace objective" }
+                        }
+                        if manages_goal {
+                            Button { variant: ButtonVariant::Outline, "data-testid": "agent-goal-budget", disabled: paused_goal || pending(), onclick: move |_| { budget.set(initial_budget.clone()); view.set(GoalDialogView::Budget); }, "Adjust budget" }
+                            Button { variant: ButtonVariant::Destructive, "data-testid": "agent-goal-drop", disabled: pending(), onclick: move |_| view.set(GoalDialogView::ConfirmDrop), "Drop" }
+                            Button { variant: ButtonVariant::Ghost, "data-testid": "agent-goal-refresh", disabled: disabled || pending(), onclick: move |_| dispatch_goal(refresh_pump.clone(), refresh_id.clone(), "/goal show".to_string(), pending, view, on_result), "Refresh status" }
+                        }
+                    }
                     Button { variant: ButtonVariant::Ghost, onclick: move |_| open.set(false), "Close" }
-                if view() == GoalDialogView::Objective {
-                    Button { variant: ButtonVariant::Outline, onclick: move |_| { if has_goal { view.set(GoalDialogView::Main); } else { open.set(false); } }, "Cancel" }
-                    Button { variant: ButtonVariant::Default, "data-testid": "agent-goal-submit", disabled: disabled || pending() || objective().trim().is_empty() || paused_goal, onclick: move |_| {
-                        dispatch_goal(set_pump.clone(), set_id.clone(), format!("/goal set {}", objective().trim()), pending, view, on_result);
-                    }, if can_replace { "Replace goal" } else { "Start goal" } }
+                    if view() == GoalDialogView::Objective {
+                        Button { variant: ButtonVariant::Outline, onclick: move |_| { if has_goal { view.set(GoalDialogView::Main); } else { open.set(false); } }, "Cancel" }
+                        Button { variant: ButtonVariant::Default, "data-testid": "agent-goal-submit", disabled: disabled || pending() || objective().trim().is_empty() || paused_goal, onclick: move |_| {
+                            dispatch_goal(set_pump.clone(), set_id.clone(), format!("/goal set {}", objective().trim()), pending, view, on_result);
+                        }, if can_replace { "Replace goal" } else { "Start goal" } }
+                    }
+                    if view() == GoalDialogView::Budget {
+                        Button { variant: ButtonVariant::Outline, onclick: move |_| view.set(GoalDialogView::Main), "Cancel" }
+                        Button { variant: ButtonVariant::Default, "data-testid": "agent-goal-budget-submit", disabled: disabled || pending() || !valid_budget(&budget()) || paused_goal, onclick: move |_| {
+                            dispatch_goal(budget_pump.clone(), budget_id.clone(), format!("/goal budget {}", normalize_budget(&budget())), pending, view, on_result);
+                        }, "Save budget" }
+                    }
+                    if view() == GoalDialogView::ConfirmDrop {
+                        Button { variant: ButtonVariant::Outline, disabled: pending(), onclick: move |_| view.set(GoalDialogView::Main), "Cancel" }
+                        Button { variant: ButtonVariant::Destructive, "data-testid": "agent-goal-confirm-drop", disabled: disabled || pending(), onclick: move |_| {
+                            dispatch_goal(drop_pump.clone(), drop_id.clone(), "/goal drop".to_string(), pending, view, on_result);
+                        }, "Drop goal" }
+                    }
                 }
-                if view() == GoalDialogView::Budget {
-                    Button { variant: ButtonVariant::Outline, onclick: move |_| view.set(GoalDialogView::Main), "Cancel" }
-                    Button { variant: ButtonVariant::Default, "data-testid": "agent-goal-budget-submit", disabled: disabled || pending() || !valid_budget(&budget()) || paused_goal, onclick: move |_| {
-                        dispatch_goal(budget_pump.clone(), budget_id.clone(), format!("/goal budget {}", normalize_budget(&budget())), pending, view, on_result);
-                    }, "Save budget" }
-                }
-                if view() == GoalDialogView::ConfirmDrop {
-                    Button { variant: ButtonVariant::Outline, disabled: pending(), onclick: move |_| view.set(GoalDialogView::Main), "Cancel" }
-                    Button { variant: ButtonVariant::Destructive, "data-testid": "agent-goal-confirm-drop", disabled: disabled || pending(), onclick: move |_| {
-                        dispatch_goal(drop_pump.clone(), drop_id.clone(), "/goal drop".to_string(), pending, view, on_result);
-                    }, "Drop goal" }
-                }
-            }),
-            div { class: "agent-goal__dialog-body",
-                if view() == GoalDialogView::Main { {status_content} }
-                if view() == GoalDialogView::Objective {
-                    TextField { value: objective(), on_input: move |value| objective.set(value), label: Some("Objective".to_string()), placeholder: Some("What should the agent accomplish?".to_string()), input_type: Some("textarea".to_string()), rows: Some(4), test_id: "agent-goal-objective" }
-                    if goal.as_ref().is_some_and(|state| state.status.as_str() == "paused") { p { role: "alert", "Resume or drop the paused goal before replacing it." } }
-                }
-                if view() == GoalDialogView::Budget {
-                    p { "Set a positive token limit, or enter off to remove the limit. Usage is retained." }
-                    TextField { value: budget(), on_input: move |value| budget.set(value), label: Some("Token budget".to_string()), placeholder: Some("e.g. 50000 or off".to_string()), input_type: Some("text".to_string()), test_id: "agent-goal-budget-value" }
-                    if goal.as_ref().is_some_and(|state| state.status.as_str() == "paused") { p { role: "alert", "Resume the goal before changing its budget." } }
-                }
-                if view() == GoalDialogView::ConfirmDrop { p { "Dropping disables this goal. Its status and report remain in the session history." } }
-                if let Some(message) = command_error() { p { class: ERROR_TEXT_CLASS, role: "alert", "{message}" } }
             }
         }
     }

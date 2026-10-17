@@ -12,7 +12,7 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-use super::md::{ButtonVariant, IconButton, IconButtonSize};
+use crate::components::ui::{ButtonSize, ButtonVariant, IconButton, IconType};
 #[cfg(not(target_arch = "wasm32"))]
 use super::mobile_voice_dom::warm_mic_for;
 use super::mobile_voice_dom::{
@@ -30,6 +30,12 @@ use crate::voice::keyterms::ContextReader;
 use crate::voice::ownership::{VoiceSlot, with_slot};
 use crate::voice::state::LiveTranscript;
 use crate::voice::state::{VoiceEffect, VoiceEvent, VoiceMachine, VoiceState};
+
+/// The mic FAB. Recording morphs it to an error-coloured rounded square, so the
+/// state is readable without relying on colour alone (the icon also changes).
+const VOICE_MIC_CLASS: &str = "size-14 rounded-full bg-primary text-primary-foreground shadow-md transition-all data-[recording=true]:rounded-xl data-[recording=true]:bg-destructive data-[recording=true]:text-destructive-foreground data-[starting=true]:opacity-70 data-[starting=true]:[&>svg]:animate-spin data-[finalizing=true]:opacity-60 data-[finalizing=true]:[&>svg]:animate-pulse";
+/// The discard FAB: a smaller tonal circle beside the mic.
+const VOICE_DISCARD_CLASS: &str = "size-10 rounded-full bg-secondary text-secondary-foreground shadow-md";
 
 /// The composer this mic belongs to.
 #[component]
@@ -158,11 +164,11 @@ pub fn MobileVoiceInput(
             div { class: "voice-input__cluster",
                 if state.is_dictating() && owns {
                     IconButton {
-                        icon: "close",
+                        icon: IconType::X,
                         label: "Discard recording",
                         variant: ButtonVariant::Ghost,
-                        size: IconButtonSize::IconLg,
-                        class: "voice-fab voice-fab--discard",
+                        size: ButtonSize::IconLg,
+                        class: Some(VOICE_DISCARD_CLASS.to_owned()),
                         "data-testid": "voice-discard",
                         "type": "button",
                         onmousedown: keep_keyboard,
@@ -176,8 +182,8 @@ pub fn MobileVoiceInput(
                     icon: mic_icon(state),
                     label: mic_label(state),
                     variant: ButtonVariant::Secondary,
-                    size: IconButtonSize::IconLg,
-                    class: "voice-fab",
+                    size: ButtonSize::IconLg,
+                    class: Some(VOICE_MIC_CLASS.to_owned()),
                     "data-testid": "voice-mic",
                     "type": "button",
                     "data-recording": bool_attr(state == VoiceState::Listening),

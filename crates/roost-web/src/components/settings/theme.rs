@@ -17,7 +17,7 @@ use roost_client_core::ClientEvent;
 use roost_client_core::KeyValueStore;
 use roost_client_core::store::shell_intent::ShellIntent;
 
-use crate::components::md::{Button, ButtonVariant, Icon, Select, SelectOption};
+use crate::components::ui::{Button, ButtonVariant, Icon, IconType, Select, SelectOption};
 use crate::input_nav::modality::{ModeChoice, NavModality};
 #[cfg(target_arch = "wasm32")]
 use crate::input_nav::{set_pad_mode_choice, set_tv_mode_choice};
@@ -50,7 +50,7 @@ struct ThemeEntry {
 /// straight from the theme so a row cannot advertise a colour the engine does
 /// not write.
 fn swatch_style(swatch: &str) -> String {
-    format!("width: 16px; height: 32px; background: {swatch};")
+    format!("background: {swatch};")
 }
 
 fn swatches_for(theme_id: &str) -> Vec<&'static str> {
@@ -179,48 +179,40 @@ pub fn ThemePane() -> Element {
     };
     rsx! {
         div {
-            class: "settings-pane",
-            style: "max-width: 560px;",
+            class: "flex max-w-xl flex-col gap-5",
             "data-testid": "theme-pane",
-            div { style: "margin-block-end: var(--md-space-5);",
-                Select {
-                    test_id: "tv-mode-select",
-                    label: "TV mode",
-                    value: tv_choice.as_str().to_owned(),
-                    options: vec![
-                        SelectOption::new("auto", "Auto (detect TV browser)"),
-                        SelectOption::new("on", "On"),
-                        SelectOption::new("off", "Off"),
-                    ],
-                    on_change: on_tv_change,
-                }
+            Select {
+                test_id: "tv-mode-select",
+                label: "TV mode",
+                value: tv_choice.as_str().to_owned(),
+                options: vec![
+                    SelectOption::new("auto", "Auto (detect TV browser)"),
+                    SelectOption::new("on", "On"),
+                    SelectOption::new("off", "Off"),
+                ],
+                on_change: on_tv_change,
             }
-            div { style: "margin-block-end: var(--md-space-5);",
-                Select {
-                    test_id: "pad-mode-select",
-                    label: "Game controller",
-                    value: pad_choice.as_str().to_owned(),
-                    options: vec![
-                        SelectOption::new("auto", "Auto (when a controller is used)"),
-                        SelectOption::new("on", "On"),
-                        SelectOption::new("off", "Off"),
-                    ],
-                    on_change: on_pad_change,
-                }
+            Select {
+                test_id: "pad-mode-select",
+                label: "Game controller",
+                value: pad_choice.as_str().to_owned(),
+                options: vec![
+                    SelectOption::new("auto", "Auto (when a controller is used)"),
+                    SelectOption::new("on", "On"),
+                    SelectOption::new("off", "Off"),
+                ],
+                on_change: on_pad_change,
             }
-            p { class: "md-body-s", style: "color: var(--md-sys-color-on-surface-variant); margin: 0 0 var(--md-space-4);",
+            p { class: "text-sm text-muted-foreground",
                 "Pick an appearance. The swatches preview each theme's colors. Applies to this browser profile."
             }
             for (group, rows) in entries() {
-                div { style: "margin-block-end: var(--md-space-5);",
-                    h3 { class: "md-label-s",
-                        style: "color: var(--md-sys-color-on-surface-variant); text-transform: uppercase; margin: 0 0 var(--md-space-2);",
+                div { class: "flex flex-col gap-2",
+                    h3 { class: "text-xs font-medium uppercase tracking-wide text-muted-foreground",
                         {group.label()}
                     }
-                    div { style: "display: flex; flex-direction: column; gap: var(--md-space-2);",
-                        for row in rows {
-                            ThemeRow { entry: row.clone(), selected: row.choice == stored, pump: pump.clone() }
-                        }
+                    for row in rows {
+                        ThemeRow { entry: row.clone(), selected: row.choice == stored, pump: pump.clone() }
                     }
                 }
             }
@@ -239,41 +231,33 @@ fn ThemeRow(entry: ThemeEntry, selected: bool, pump: Pump) -> Element {
         .iter()
         .map(|swatch| swatch_style(swatch))
         .collect();
-    let icon_name = if selected {
-        "check_circle"
+    let icon = if selected {
+        IconType::CircleCheck
     } else {
-        "radio_button_unchecked"
-    }
-    .to_owned();
+        IconType::Circle
+    };
     rsx! {
         Button {
             variant: ButtonVariant::Ghost,
+            class: "w-full justify-start gap-3 text-left",
             "data-testid": format!("theme-row-{choice}"),
             "data-selected": if selected { "true" } else { "false" },
-            style: "display: flex; align-items: center; gap: var(--md-space-3); width: 100%; text-align: left;",
             onclick: move |_| {
                 apply_theme(&ThemeChoice::from_stored(Some(choice.as_str())));
                 pump.dispatch(ClientEvent::Shell(ShellIntent::ActionSucceeded {
                     message: "Theme saved".to_owned(),
                 }));
             },
-            span {
-                style: "display: flex; flex-shrink: 0; border-radius: var(--md-shape-sm); overflow: hidden; border: 1px solid var(--md-sys-color-outline-variant);",
+            span { class: "flex shrink-0 overflow-hidden rounded-md border border-border",
                 for (index, style) in swatch_styles.iter().enumerate() {
-                    span { style: style, key: "{index}" }
+                    span { class: "h-8 w-4", style: style, key: "{index}" }
                 }
             }
-            span { style: "flex: 1; min-width: 0;",
-                span { class: "md-body-m", style: "font-weight: 600; display: block;", {label} }
-                span { class: "md-body-s",
-                    style: "color: var(--md-sys-color-on-surface-variant); display: block;",
-                    {support}
-                }
+            span { class: "flex min-w-0 flex-1 flex-col",
+                span { class: "font-semibold text-foreground", {label} }
+                span { class: "text-sm text-muted-foreground", {support} }
             }
-            Icon {
-                name: icon_name,
-                filled: selected,
-            }
+            Icon { icon, class: "size-4" }
         }
     }
 }

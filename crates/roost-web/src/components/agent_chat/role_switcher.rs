@@ -19,11 +19,11 @@ use super::role_switch::{
 use super::role_thinking::RoleThinking;
 use crate::components::context_menu::use_floating_menu_dismiss;
 use crate::components::layout::window_size::use_is_compact;
-use crate::components::md::{
-    Button, ButtonSize, ButtonVariant, Chip, IconButton, IconButtonSize, List, ListRow, Surface,
-};
 use crate::components::settings::agent_roles::{load_settings, role_options, save_settings};
 use crate::components::settings::model_scope::{ModelScope, with_role_value};
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Chip, IconButton, IconType, List, ListRow, Surface,
+};
 use crate::pump::Pump;
 use crate::router_state::use_navigate;
 
@@ -116,28 +116,28 @@ fn RolePanel(
             let choose_catalog = catalog.clone();
             let thinking_scope = active.clone();
             rsx! {
-                div { class: "agent-chat__roles-head",
+                div { class: "flex items-center gap-2",
                     IconButton {
-                        icon: "arrow_back",
+                        icon: IconType::ArrowLeft,
                         label: "All roles",
                         title: "All roles",
                         variant: ButtonVariant::Ghost,
-                        size: IconButtonSize::IconSm,
+                        size: ButtonSize::IconSm,
                         "data-testid": "agent-roles-back",
                         onclick: move |_| editing.set(None),
                     }
-                    span { class: "agent-chat__roles-title", "{line.title}" }
+                    span { class: "text-sm font-semibold", "{line.title}" }
                 }
-                p { class: "agent-chat__roles-purpose", "{line.purpose}" }
-                // Material filter chips: the chosen one carries the check.
-                div { class: "agent-chat__roles-scope", role: "group", "aria-label": "Applies to",
+                p { class: "text-sm text-muted-foreground", "{line.purpose}" }
+                // Filter chips: the chosen one carries the check.
+                div { class: "flex flex-wrap items-center gap-2", role: "group", "aria-label": "Applies to",
                     Chip { label: "All folders".to_owned(), selected: Some(!on_folder),
-                        icon: (!on_folder).then(|| "check".to_owned()),
+                        icon: (!on_folder).then_some(IconType::Check),
                         test_id: Some("agent-roles-scope-global".to_owned()),
                         onclick: Some(EventHandler::new(move |_| scope.set(ModelScope::Global))),
                     }
                     Chip { label: "This folder".to_owned(), selected: Some(on_folder),
-                        icon: on_folder.then(|| "check".to_owned()),
+                        icon: on_folder.then_some(IconType::Check),
                         title: Some(conversation.cwd.clone()),
                         test_id: Some("agent-roles-scope-folder".to_owned()),
                         onclick: Some(EventHandler::new({
@@ -200,14 +200,14 @@ fn RolePanel(
             );
             let settings_pane = crate::routes::settings_pane_href("models");
             rsx! {
-                div { class: "agent-chat__roles-head",
-                    span { class: "agent-chat__roles-title", "Models" }
+                div { class: "flex items-center gap-2",
+                    span { class: "text-sm font-semibold", "Models" }
                     IconButton {
-                        icon: "info",
+                        icon: IconType::Info,
                         label: if show_purpose() { "Hide what each role is for" } else { "Show what each role is for" },
                         title: "What each role is for",
                         variant: if show_purpose() { ButtonVariant::Secondary } else { ButtonVariant::Ghost },
-                        size: IconButtonSize::IconSm,
+                        size: ButtonSize::IconSm,
                         "data-testid": "agent-roles-help",
                         onclick: move |_| show_purpose.toggle(),
                     }
@@ -234,13 +234,13 @@ fn RolePanel(
                         ListRow {
                             key: "{line.role}",
                             test_id: Some(format!("agent-roles-{}", line.role)),
-                            class: Some(if show_purpose() { "agent-chat__roles-row agent-chat__roles-row--explained" } else { "agent-chat__roles-row" }.to_owned()),
+                            class: Some(if show_purpose() { "py-2 items-start" } else { "py-2" }.to_owned()),
                             dense: true,
                             headline: rsx! { span { "{line.title}" } },
                             support: Some(rsx! {
                                 span { "{line.model}" }
                                 if show_purpose() {
-                                    span { class: "agent-chat__roles-purpose", "{line.purpose}" }
+                                    span { class: "text-muted-foreground", "{line.purpose}" }
                                 }
                             }),
                             trailing: (line.this_chat || line.folder_override).then(|| rsx! {
@@ -268,8 +268,8 @@ fn RolePanel(
         }
     };
     rsx! {
-        div { class: "agent-chat__roles", id: "{panel_id}", "data-testid": "agent-roles",
-            Surface { class: "agent-chat__roles-panel", level: 1, elevation: 2, border: true, pad: Some(2),
+        div { class: "flex flex-col gap-2", id: "{panel_id}", "data-testid": "agent-roles",
+            Surface { class: "flex min-w-72 flex-col gap-3", level: 1, elevation: 2, border: true, pad: Some(2),
                 {body}
                 if !error().is_empty() {
                     p { class: ERROR_TEXT_CLASS, role: "alert", "{error}" }

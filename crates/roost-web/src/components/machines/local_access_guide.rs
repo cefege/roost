@@ -10,7 +10,9 @@
 
 use dioxus::prelude::*;
 
-use crate::components::md::{Button, ButtonVariant, Card};
+use crate::components::ui::{
+    Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader, CardTitle,
+};
 
 /// The card's headline, which is also the answer this state gives.
 pub const LOCAL_ACCESS_HEADLINE: &str = "Connect another machine";
@@ -19,13 +21,6 @@ pub const LOCAL_ACCESS_HEADLINE: &str = "Connect another machine";
 pub const RECHECK_LABEL: &str = "Check again";
 
 const SUPPORTING_LINE: &str = "The new machine needs a reachable HTTPS address for this Roost.";
-
-const STACK_STYLE: &str = "display: grid; gap: var(--md-space-4);";
-const LIST_STYLE: &str =
-    "display: grid; gap: var(--md-space-4); margin: 0; padding: 0 0 0 var(--md-space-5);";
-const LIST_ITEM_STYLE: &str = "padding: 0 0 0 var(--md-space-1);";
-const SUPPORT_STYLE: &str = "margin: 0; color: var(--md-sys-color-on-surface-variant);";
-const CODE_STYLE: &str = "overflow-wrap: anywhere;";
 
 /// The four steps, in the order they have to happen.
 ///
@@ -57,50 +52,52 @@ const CHECKING_LABEL: &str = "Checking the coordinator's enrollment address…";
 #[component]
 pub fn MachineLocalAccessGuide(checking: bool, on_recheck: EventHandler<()>) -> Element {
     rsx! {
-        Card {
-            title: LOCAL_ACCESS_HEADLINE,
-            supporting: SUPPORTING_LINE,
-            test_id: Some("machine-deploy-local-only".to_owned()),
-            div { style: STACK_STYLE,
-                if checking {
-                    p { class: "md-body-m", style: SUPPORT_STYLE,
-                        "data-testid": "machine-deploy-pending",
-                        {CHECKING_LABEL}
-                    }
-                } else {
-                    ol { style: LIST_STYLE,
-                        li { style: LIST_ITEM_STYLE,
-                            p { class: "md-body-m", style: SUPPORT_STYLE, {STEP_ONE} }
+        Card { "data-testid": "machine-deploy-local-only",
+            CardHeader {
+                CardTitle { {LOCAL_ACCESS_HEADLINE} }
+                CardDescription { {SUPPORTING_LINE} }
+            }
+            CardContent {
+                div { class: "grid gap-4",
+                    if checking {
+                        p { class: "m-0 text-sm text-muted-foreground", "data-testid": "machine-deploy-pending",
+                            {CHECKING_LABEL}
                         }
-                        li { style: LIST_ITEM_STYLE,
-                            p { class: "md-body-m", style: SUPPORT_STYLE,
-                                {STEP_TWO_LEAD}
-                                code { style: CODE_STYLE, {STEP_TWO_COMMAND} }
-                                {" "}
-                                {STEP_TWO_TAIL}
+                    } else {
+                        ol { class: "m-0 grid list-decimal gap-4 pl-5 text-sm text-muted-foreground",
+                            li { class: "pl-1",
+                                p { class: "m-0", {STEP_ONE} }
+                            }
+                            li { class: "pl-1",
+                                p { class: "m-0",
+                                    {STEP_TWO_LEAD}
+                                    code { class: "break-all font-mono text-xs text-foreground", {STEP_TWO_COMMAND} }
+                                    {" "}
+                                    {STEP_TWO_TAIL}
+                                }
+                            }
+                            li { class: "pl-1",
+                                div { class: "grid gap-4",
+                                    p { class: "m-0", {STEP_THREE_LEAD} }
+                                    code { class: "break-all font-mono text-xs text-foreground", {STEP_THREE_COMMAND} }
+                                    p { class: "m-0", {STEP_THREE_TAIL} }
+                                }
+                            }
+                            li { class: "pl-1",
+                                p { class: "m-0",
+                                    {STEP_FOUR_LEAD}
+                                    strong { {RECHECK_LABEL} }
+                                    {STEP_FOUR_TAIL}
+                                }
                             }
                         }
-                        li { style: LIST_ITEM_STYLE,
-                            div { style: STACK_STYLE,
-                                p { class: "md-body-m", style: SUPPORT_STYLE, {STEP_THREE_LEAD} }
-                                code { class: "md-body-s", style: CODE_STYLE, {STEP_THREE_COMMAND} }
-                                p { class: "md-body-m", style: SUPPORT_STYLE, {STEP_THREE_TAIL} }
+                        div {
+                            Button {
+                                variant: ButtonVariant::Secondary,
+                                "data-testid": "machine-deploy-recheck",
+                                onclick: move |_| on_recheck.call(()),
+                                {RECHECK_LABEL}
                             }
-                        }
-                        li { style: LIST_ITEM_STYLE,
-                            p { class: "md-body-m", style: SUPPORT_STYLE,
-                                {STEP_FOUR_LEAD}
-                                strong { {RECHECK_LABEL} }
-                                {STEP_FOUR_TAIL}
-                            }
-                        }
-                    }
-                    div {
-                        Button {
-                            variant: ButtonVariant::Secondary,
-                            "data-testid": "machine-deploy-recheck",
-                            onclick: move |_| on_recheck.call(()),
-                            {RECHECK_LABEL}
                         }
                     }
                 }

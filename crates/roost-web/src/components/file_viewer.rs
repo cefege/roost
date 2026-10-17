@@ -31,8 +31,10 @@ use roost_client_core::store::root::captured_generation_is_current;
 
 use crate::components::download::DownloadButton;
 use crate::components::layout::shell_style::is_terminal_path;
-use crate::components::md::{AutoFocusRequest, IconButtonSize, Sheet, SheetSide};
 use crate::components::notifications::clipboard;
+use crate::components::ui::{
+    AutoFocusRequest, ButtonSize, Dialog, DialogContent, DialogHeader, DialogTitle,
+};
 use crate::platform::location::current_location;
 use crate::pump::{Pump, use_store};
 use crate::router_state::use_navigate;
@@ -141,22 +143,24 @@ pub fn FileViewer(route: Route) -> Element {
         EventHandler::new(move |()| navigate.call(browse_href(&worker_fp)))
     };
     let current = content();
+    let on_open_change = EventHandler::new(move |open: bool| {
+        if !open {
+            close.call(());
+        }
+    });
     rsx! {
-        Sheet {
+        Dialog {
             open: true,
-            on_close: close,
-            headline: "File preview".to_owned(),
-            side: SheetSide::Center,
-            class: Some("roost-dialog--wide roost-dialog--file-viewer".to_owned()),
-            on_open_auto_focus: Some(EventHandler::new(move |request: AutoFocusRequest| {
-                if scope_unavailable {
-                    request.prevent_default();
-                }
-            })),
-            div {
-                "data-testid": "file-viewer-sheet",
-                class: "roost-file-viewer-sheet",
-                style: "gap: var(--md-space-3);",
+            on_open_change,
+            DialogContent {
+                test_id: "file-viewer-sheet",
+                class: "max-w-180 flex flex-col gap-3 p-5",
+                on_open_auto_focus: Some(EventHandler::new(move |request: AutoFocusRequest| {
+                    if scope_unavailable {
+                        request.prevent_default();
+                    }
+                })),
+                DialogHeader { class: "text-left", DialogTitle { "File preview" } }
                 {header_row(&file_path, &worker_fp, scoped && current.is_downloadable(), current.byte_size())}
                 if scope_pending || (scoped && current.is_loading()) {
                     states::LoadingCaption {}
@@ -203,26 +207,26 @@ pub fn FileViewer(route: Route) -> Element {
 fn header_row(file_path: &str, worker_fp: &str, downloadable: bool, byte_size: u64) -> Element {
     let fingerprint: String = worker_fp.chars().take(FP_HEADER_CHARS).collect();
     rsx! {
-        div { style: "display: flex; align-items: center; gap: var(--md-space-2); flex: 0 0 auto;",
+        div { class: "flex items-center gap-2 flex-none",
             span {
                 "data-testid": "file-viewer-sheet-title",
-                style: "color: var(--text-lo); flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--md-body-s-size); font-family: var(--font-mono);",
+                class: "flex-auto min-w-0 truncate font-mono text-sm text-muted-foreground",
                 {file_path}
             }
             span {
                 "data-testid": "file-viewer-sheet-worker",
-                style: "color: var(--text-lo); font-size: var(--md-label-s-size); font-family: var(--font-mono); white-space: nowrap; flex: 0 0 auto;",
+                class: "flex-none whitespace-nowrap font-mono text-xs text-muted-foreground",
                 {fingerprint}
             }
             if downloadable && byte_size > 0 {
                 span {
                     "data-testid": "file-viewer-sheet-size",
-                    style: "color: var(--text-lo); font-size: var(--md-label-s-size); font-family: var(--font-mono); white-space: nowrap; flex: 0 0 auto;",
+                    class: "flex-none whitespace-nowrap font-mono text-xs text-muted-foreground",
                     {format!("{byte_size} B")}
                 }
             }
             if downloadable {
-                DownloadButton { worker_fp: worker_fp.to_owned(), path: file_path.to_owned(), size: IconButtonSize::IconSm }
+                DownloadButton { worker_fp: worker_fp.to_owned(), path: file_path.to_owned(), size: ButtonSize::IconSm }
             }
         }
     }

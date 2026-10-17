@@ -18,7 +18,9 @@ use roost_client_core::client::rpc::calls::settings::push::GetPushConfig;
 use roost_client_core::store::prefs::notify::NotifyPref;
 use roost_client_core::store::shell_intent::ShellIntent;
 
-use crate::components::md::{Card, Icon, IconSize, SwitchRow};
+use crate::components::ui::{
+    Card, CardContent, CardHeader, CardTitle, Icon, IconType, SwitchRow,
+};
 use crate::components::notifications::agent_notifications::notification_tone::{
     TonePlayer, previewed_kind,
 };
@@ -70,75 +72,78 @@ pub fn NotificationsPane() -> Element {
 
     rsx! {
         div {
-            class: "settings-pane",
-            style: "display: flex; flex-direction: column; gap: var(--md-space-5);",
+            class: "flex flex-col gap-5",
             "data-testid": "settings-notifications-pane",
-            Card { class: "settings-hero", test_id: "notifications-status",
-                div { style: "display: flex; align-items: center; gap: var(--md-space-4);",
-                    Icon { name: "notifications", filled: true, size: IconSize::Lg }
-                    div { style: "flex: 1; min-width: 0;",
-                        div { class: "md-title-m", "Agent notifications" }
-                        div { class: "md-body-s", style: "color: var(--md-sys-color-on-surface-variant);",
+            Card { "data-testid": "notifications-status",
+                CardContent { class: "flex items-center gap-4",
+                    Icon { icon: IconType::Bell, class: "size-6 text-primary" }
+                    div { class: "min-w-0 flex-1",
+                        div { class: "text-base font-medium", "Agent notifications" }
+                        div { class: "text-sm text-muted-foreground",
                             "Know when a background coding agent needs input or finishes. Saved per browser."
                         }
                     }
                 }
             }
-            Card { title: "Surfaces",
-                SwitchRow {
-                    test_id: "notify-in-app-toggle",
-                    headline: "In-app toasts",
-                    support: "Show a delayed toast with a View action when a background agent needs input or finishes.",
-                    checked: prefs.in_app,
-                    on_change: move |value| set_pref(&in_app_pump, NotifyPref::InApp, value),
-                }
-                SwitchRow {
-                    test_id: "notify-desktop-toggle",
-                    headline: "Desktop notifications",
-                    support: row.support,
-                    checked: row.checked,
-                    disabled: row.disabled,
-                    on_change: move |value| toggle_desktop(&desktop_pump, desktop, value),
-                }
+            Card {
+                CardHeader { CardTitle { "Surfaces" } }
+                CardContent { class: "flex flex-col gap-3",
+                    SwitchRow {
+                        test_id: Some("notify-in-app-toggle".to_owned()),
+                        headline: "In-app toasts".to_owned(),
+                        support: Some("Show a delayed toast with a View action when a background agent needs input or finishes.".to_owned()),
+                        checked: prefs.in_app,
+                        on_checked_change: move |value| set_pref(&in_app_pump, NotifyPref::InApp, value),
+                    }
+                    SwitchRow {
+                        test_id: Some("notify-desktop-toggle".to_owned()),
+                        headline: "Desktop notifications".to_owned(),
+                        support: Some(row.support.to_owned()),
+                        checked: row.checked,
+                        disabled: row.disabled,
+                        on_checked_change: move |value| toggle_desktop(&desktop_pump, desktop, value),
+                    }
                 if let Some(message) = error {
-                    p { role: "alert", class: "md-body-s", "data-testid": "notify-desktop-error",
-                        style: "color: var(--md-sys-color-error); margin: 0;",
+                    p { role: "alert", class: "m-0 text-sm text-destructive", "data-testid": "notify-desktop-error",
                         {message}
                     }
                 }
-                p { class: "md-body-s", "data-testid": "notify-ios-home-screen",
-                    style: "color: var(--md-sys-color-on-surface-variant); margin: 0;",
+                p { class: "m-0 text-sm text-muted-foreground", "data-testid": "notify-ios-home-screen",
                     "On iPhone and iPad, Safari delivers notifications only to an installed app: tap Share → Add to Home Screen, open Roost from the Home Screen, then turn this on there."
                 }
                 SwitchRow {
-                    test_id: "notify-command-finished-toggle",
-                    headline: "Notify when a long command finishes",
-                    support: "When a shell command that ran for 10 seconds or more finishes in a terminal you are not looking at, show a toast and play the finished sound.",
+                    test_id: Some("notify-command-finished-toggle".to_owned()),
+                    headline: "Notify when a long command finishes".to_owned(),
+                    support: Some("When a shell command that ran for 10 seconds or more finishes in a terminal you are not looking at, show a toast and play the finished sound.".to_owned()),
                     checked: prefs.command_finished,
-                    on_change: move |value| set_pref(&command_finished_pump, NotifyPref::CommandFinished, value),
+                    on_checked_change: move |value| set_pref(&command_finished_pump, NotifyPref::CommandFinished, value),
                 }
                 SwitchRow {
-                    test_id: "notify-title-badge-toggle",
-                    headline: "Tab title badge",
-                    support: "Prefix the Roost tab title with the number of unseen needs-input and finished states.",
+                    test_id: Some("notify-title-badge-toggle".to_owned()),
+                    headline: "Tab title badge".to_owned(),
+                    support: Some("Prefix the Roost tab title with the number of unseen needs-input and finished states.".to_owned()),
                     checked: prefs.title_badge,
-                    on_change: move |value| set_pref(&title_pump, NotifyPref::TitleBadge, value),
+                    on_checked_change: move |value| set_pref(&title_pump, NotifyPref::TitleBadge, value),
+                }
                 }
             }
-            Card { title: "Sound",
+            Card {
+                CardHeader { CardTitle { "Sound" } }
+                CardContent { class: "flex flex-col gap-3",
                 SwitchRow {
-                    test_id: "notify-blocked-sound-toggle",
-                    headline: "Sound when input is needed",
-                    support: "Play two short ascending tones after a background agent starts waiting for you.",
+                    test_id: Some("notify-blocked-sound-toggle".to_owned()),
+                    headline: "Sound when input is needed".to_owned(),
+                    support: Some("Play two short ascending tones after a background agent starts waiting for you.".to_owned()),
                     checked: prefs.blocked_sound,
-                    on_change: move |value| set_sound_pref(&blocked_pump, &blocked_tones, NotifyPref::BlockedSound, value),
+                    on_checked_change: move |value| set_sound_pref(&blocked_pump, &blocked_tones, NotifyPref::BlockedSound, value),
                 }
                 SwitchRow {
-                    test_id: "notify-done-sound-toggle",
-                    headline: "Sound when finished",
-                    support: "Play a short tone after a background agent or terminal command completes.",
+                    test_id: Some("notify-done-sound-toggle".to_owned()),
+                    headline: "Sound when finished".to_owned(),
+                    support: Some("Play a short tone after a background agent or terminal command completes.".to_owned()),
                     checked: prefs.done_sound,
-                    on_change: move |value| set_sound_pref(&done_pump, &tones, NotifyPref::DoneSound, value),
+                    on_checked_change: move |value| set_sound_pref(&done_pump, &tones, NotifyPref::DoneSound, value),
+                }
                 }
             }
         }

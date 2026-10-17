@@ -7,7 +7,10 @@ use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{ConversationSummary, ModelsCatalog};
 
 use super::toolbar_menu::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
-use crate::components::md::{Button, ButtonVariant, Dialog, StatusDot, UsageRing};
+use crate::components::ui::{
+    Button, ButtonVariant, Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter,
+    DialogHeader, DialogTitle, IconType, StatusDot, UsageRing,
+};
 use crate::pump::Pump;
 
 /// The context window of the model this chat actually runs on, from the
@@ -81,28 +84,32 @@ pub fn AgentChatHeader(
     #[cfg(not(target_arch = "wasm32"))]
     let _ = (&pump, &conversation_id);
     rsx! {
-        header { class: "agent-chat__header",
-            span { class: "agent-chat__title", title: conversation.title.clone(), "{conversation.title}" }
-            span { class: "agent-chat__place", title: "{conversation.worker_label} · {conversation.cwd}",
+        header { class: "flex min-w-0 flex-wrap items-center gap-2 text-sm",
+            span { class: "min-w-0 truncate font-medium text-foreground", title: conversation.title.clone(), "{conversation.title}" }
+            span {
+                class: "flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground",
+                title: "{conversation.worker_label} · {conversation.cwd}",
                 StatusDot {
                     status: if online { "ok".to_string() } else { "offline".to_string() },
                     title: Some(if online { "Machine online" } else { "Machine offline" }.to_string()),
                 }
-                span { class: "agent-chat__place-text", "{place}" }
-                if !online { span { class: "agent-chat__offline", "Offline" } }
+                span { class: "min-w-0 truncate", "{place}" }
+                if !online { span { class: "shrink-0 text-destructive", "Offline" } }
             }
             if let Some(usage) = usage {
-                span { class: "agent-chat__usage", "data-testid": "agent-chat-usage",
+                span {
+                    class: "flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground",
+                    "data-testid": "agent-chat-usage",
                     UsageRing { fraction: usage.fraction, title: Some(usage.title.clone()) }
                     if let Some(fraction) = usage.fraction {
                         span { "{(fraction * 100.0).round() as i64}%" }
                     }
                 }
             }
-            span { class: "agent-chat__header-actions",
+            span { class: "ml-auto flex shrink-0 items-center gap-1",
                 ToolbarMenu {
                     menu_key: "actions",
-                    trigger: ToolbarTrigger::Icon { icon: "more_horiz" },
+                    trigger: ToolbarTrigger::Icon { icon: IconType::Ellipsis },
                     aria_label: "Conversation actions",
                     items: vec![ToolbarMenuItem {
                         danger: true,
@@ -113,22 +120,28 @@ pub fn AgentChatHeader(
             }
             Dialog {
                 open: confirm_delete(),
-                on_close: move |_| confirm_delete.set(false),
-                headline: Some("Delete conversation?".to_string()),
-                actions: Some(rsx! {
-                    Button { variant: ButtonVariant::Outline, onclick: move |_| confirm_delete.set(false), "Cancel" }
-                    Button {
-                        variant: ButtonVariant::Destructive,
-                        "data-testid": "agent-chat-delete-confirm",
-                        onclick: move |_| {
-                            confirm_delete.set(false);
-                            #[cfg(target_arch = "wasm32")]
-                            crate::components::deck::close_agent_tab::close_agent_tab(pump.clone(), conversation_id.clone());
-                        },
-                        "Delete"
+                on_open_change: move |open: bool| confirm_delete.set(open),
+                DialogContent {
+                    DialogHeader {
+                        DialogTitle { "Delete conversation?" }
+                        DialogDescription {
+                            "The transcript is removed from Roost. You can undo for a few seconds after it closes."
+                        }
                     }
-                }),
-                "The transcript is removed from Roost. You can undo for a few seconds after it closes."
+                    DialogFooter {
+                        DialogClose { "Cancel" }
+                        Button {
+                            variant: ButtonVariant::Destructive,
+                            "data-testid": "agent-chat-delete-confirm",
+                            onclick: move |_| {
+                                confirm_delete.set(false);
+                                #[cfg(target_arch = "wasm32")]
+                                crate::components::deck::close_agent_tab::close_agent_tab(pump.clone(), conversation_id.clone());
+                            },
+                            "Delete"
+                        }
+                    }
+                }
             }
         }
     }

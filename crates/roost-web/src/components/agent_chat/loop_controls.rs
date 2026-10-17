@@ -6,7 +6,7 @@ use dioxus::prelude::*;
 
 use super::agent_alert::ERROR_TEXT_CLASS;
 use super::composer_commands::submit_direct_command;
-use crate::components::md::{Chip, IconButton, IconButtonSize};
+use crate::components::ui::{ButtonSize, Chip, IconButton, IconType};
 use crate::pump::Pump;
 
 #[component]
@@ -18,20 +18,20 @@ pub(super) fn LoopControls(status: String, conversation_id: String, pump: Pump) 
         error.set(result.err());
     });
     rsx! {
-        div { class: "agent-chat__loop-controls", "data-testid": "agent-loop-controls",
+        div { class: "flex flex-wrap items-center gap-2", "data-testid": "agent-loop-controls",
             span { role: "status",
                 Chip {
                     label: status,
-                    icon: "repeat",
+                    icon: Some(IconType::Repeat),
                     small: true,
-                    title: "Repeats the request until its limit, condition or Stop. Turn off to stop repeating.",
+                    title: Some("Repeats the request until its limit, condition or Stop. Turn off to stop repeating.".to_owned()),
                 }
             }
             IconButton {
-                icon: "close",
+                icon: IconType::X,
                 label: "Turn off repeat mode",
                 title: "Turn off repeat mode",
-                size: IconButtonSize::IconSm,
+                size: ButtonSize::IconSm,
                 disabled: pending(),
                 "aria-busy": pending().then_some("true"),
                 "data-testid": "agent-loop-disable",
@@ -44,7 +44,9 @@ pub(super) fn LoopControls(status: String, conversation_id: String, pump: Pump) 
                 },
             }
             if let Some(error) = error() {
-                span { class: ERROR_TEXT_CLASS, role: "alert", "{error}" }
+                div { class: "basis-full",
+                    span { class: ERROR_TEXT_CLASS, role: "alert", "{error}" }
+                }
             }
         }
     }

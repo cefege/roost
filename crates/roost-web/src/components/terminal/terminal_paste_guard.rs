@@ -6,7 +6,7 @@
 use dioxus::prelude::*;
 use roost_protocol::terminal_input::count_line_breaks;
 
-use crate::components::md::{Button, ButtonVariant, Dialog};
+use crate::components::ui::{Button, ButtonVariant, Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle};
 
 /// The confirmation for `text`.
 #[component]
@@ -19,26 +19,35 @@ pub fn TerminalPasteGuard(
     rsx! {
         Dialog {
             open: true,
-            on_close: move |_| on_cancel.call(()),
-            headline: "Paste multiple lines?",
-            actions: rsx! {
-                Button {
-                    variant: ButtonVariant::Outline,
-                    "data-testid": "paste-guard-cancel",
-                    onclick: move |_| on_cancel.call(()),
-                    "Cancel"
-                }
-                Button {
-                    variant: ButtonVariant::Default,
-                    "data-testid": "paste-guard-send",
-                    onclick: move |_| on_send.call(text.clone()),
-                    "Paste {lines} lines"
+            on_open_change: move |open: bool| {
+                if !open {
+                    on_cancel.call(());
                 }
             },
-            p {
-                class: "md-body-m",
-                style: "margin: 0;",
-                "This shell has bracketed paste off, so all {lines} lines run as they arrive — you will not get a chance to edit them first."
+            DialogContent {
+                DialogHeader {
+                    DialogTitle { "Paste multiple lines?" }
+                }
+                DialogBody {
+                    p {
+                        class: "m-0 text-sm text-muted-foreground",
+                        "This shell has bracketed paste off, so all {lines} lines run as they arrive — you will not get a chance to edit them first."
+                    }
+                }
+                DialogFooter {
+                    Button {
+                        variant: ButtonVariant::Outline,
+                        "data-testid": "paste-guard-cancel",
+                        onclick: move |_| on_cancel.call(()),
+                        "Cancel"
+                    }
+                    Button {
+                        variant: ButtonVariant::Default,
+                        "data-testid": "paste-guard-send",
+                        onclick: move |_| on_send.call(text.clone()),
+                        "Paste {lines} lines"
+                    }
+                }
             }
         }
     }

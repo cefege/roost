@@ -20,7 +20,7 @@ use crate::components::browse::toolbar::BrowseToolbar;
 use crate::components::browse::unavailable::MachineUnavailable;
 use crate::components::browse::view::PickerReading;
 use crate::components::context_menu::AnchoredMenuPos;
-use crate::components::md::{Button, ButtonVariant, Surface, SurfaceRadius};
+use crate::components::ui::{Button, ButtonVariant, IconType, Surface, SurfaceRadius};
 use crate::pump::Pump;
 
 /// The page's content for the machine in `worker_fp`.
@@ -71,7 +71,7 @@ pub fn PickerRegions(
     let online_workers = reading.online_workers;
     rsx! {
         div {
-            class: "df-browse-page",
+            class: "flex h-full min-h-0 flex-col overflow-hidden bg-card text-card-foreground",
             id: dom::SURFACE_ID,
             "data-testid": "browse-page",
             "data-compact": if compact { "true" } else { "false" },
@@ -140,20 +140,18 @@ pub fn PickerRegions(
                     on_retry,
                 }
             }
-            Surface { class: "df-browse-actions", level: 1, radius: SurfaceRadius::None,
+            Surface { class: Some("flex flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-3".to_owned()), level: 1, radius: SurfaceRadius::None,
                 Button {
-                    class: "df-browse-open",
                     variant: ButtonVariant::Default,
-                    icon: Some("smart_toy".to_owned()),
+                    icon: Some(IconType::Bot),
                     "data-testid": "browse-start-agent",
                     disabled: !view.scoped,
                     onclick: move |_| on_start_agent.call(()),
                     "Start agent here"
                 }
                 Button {
-                    class: "df-browse-open",
                     variant: ButtonVariant::Outline,
-                    icon: Some("terminal".to_owned()),
+                    icon: Some(IconType::Terminal),
                     "data-testid": "browse-open",
                     disabled: !view.scoped,
                     onclick: move |_| on_open_here.call(()),

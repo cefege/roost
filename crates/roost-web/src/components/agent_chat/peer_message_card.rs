@@ -5,7 +5,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::md::{Card, CardVariant};
+use crate::components::ui::{Card, CardContent, CardHeader, CardTitle, CardVariant};
 
 #[component]
 pub fn PeerMessageCard(id: String, from: String, broadcast: bool, text: String) -> Element {
@@ -17,12 +17,13 @@ pub fn PeerMessageCard(id: String, from: String, broadcast: bool, text: String) 
     rsx! {
         Card {
             key: "{id}",
-            title: Some(title),
             variant: CardVariant::Outlined,
-            class: "agent-chat__peer-message".to_string(),
-            children: rsx! {
-                div { class: "agent-chat__peer-message-body", "{text}" }
-            },
+            CardHeader {
+                CardTitle { "{title}" }
+            }
+            CardContent {
+                div { class: "text-sm whitespace-pre-wrap wrap-break-word text-foreground", "{text}" }
+            }
         }
     }
 }

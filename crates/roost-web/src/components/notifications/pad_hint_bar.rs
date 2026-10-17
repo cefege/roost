@@ -9,7 +9,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::md::{BindingChip, Surface, SurfaceRadius};
+use crate::components::ui::{BindingChip, Surface, SurfaceRadius};
 use crate::input_nav::modality::NavModality;
 use crate::input_nav::pad_hints::{PadHintContext, pad_hints};
 
@@ -35,13 +35,12 @@ pub fn PadHintBar() -> Element {
             radius: SurfaceRadius::Md,
             test_id: Some("pad-hint-bar".to_owned()),
             aria_hidden: Some("true".to_owned()),
-            class: Some("pad-hint".to_owned()),
-            style: Some("pointer-events: none;".to_owned()),
+            class: "pad-hint pointer-events-none",
             for hint in hints {
                 span {
                     class: "pad-hint__item",
                     BindingChip { "{hint.cap}" }
-                    span { class: "md-label-s pad-hint__label", "{hint.label}" }
+                    span { class: "text-xs pad-hint__label", "{hint.label}" }
                 }
             }
         }

@@ -30,17 +30,22 @@ pub fn install(
         Closure::<dyn FnMut(web_sys::KeyboardEvent)>::new(move |event: web_sys::KeyboardEvent| {
             let count = rows.borrow().len();
             let cursor = *active_index.peek();
+            // ui::Command's root handler would act on the same press (its own
+            // highlight and Enter); stopping the capture-phase event keeps one owner.
             match event.key().as_str() {
                 "ArrowDown" => {
                     event.prevent_default();
+                    event.stop_propagation();
                     active_index.set((cursor + 1).min(count.saturating_sub(1)));
                 }
                 "ArrowUp" => {
                     event.prevent_default();
+                    event.stop_propagation();
                     active_index.set(cursor.saturating_sub(1));
                 }
                 "Enter" => {
                     event.prevent_default();
+                    event.stop_propagation();
                     let selected = rows.borrow().get(cursor).cloned();
                     if let Some(item) = selected {
                         select.call(item);

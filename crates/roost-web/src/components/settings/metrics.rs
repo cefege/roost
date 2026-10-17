@@ -10,7 +10,10 @@ use dioxus::prelude::*;
 use roost_client_core::client::rpc::calls::settings::metrics::GetMetrics;
 use roost_client_core::client::rpc::calls::settings::metrics::MetricsSnapshot;
 
-use crate::components::md::{Card, EmptyState, Icon, MetricTile};
+use crate::components::ui::{
+    Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyState, Icon, IconType,
+    MetricTile,
+};
 use crate::components::terminal::dom::{page_visible, sleep_ms};
 use crate::pump::{Pump, use_store};
 
@@ -50,44 +53,54 @@ pub fn MetricsPane() -> Element {
     let state = view();
     rsx! {
         div {
-            class: "settings-pane",
-            style: "display: flex; flex-direction: column; gap: var(--md-space-5);",
+            class: "flex flex-col gap-5",
             "data-testid": "metrics-pane",
             Card {
-                title: "Coordinator metrics",
-                supporting: "Live telemetry counters. Refreshes every 5s. Counts reset on coord restart.",
-                if let Some(message) = state.error.clone() {
-                    div { "data-testid": "metrics-error",
-                        style: "display: flex; align-items: center; gap: var(--md-space-2);",
-                        Icon { name: "error", style: "color: var(--md-sys-color-error);" }
-                        span { class: "md-body-m", style: "color: var(--md-sys-color-error);", {message} }
+                CardHeader {
+                    CardTitle { "Coordinator metrics" }
+                    CardDescription {
+                        "Live telemetry counters. Refreshes every 5s. Counts reset on coord restart."
                     }
                 }
-                match state.snapshot.clone() {
-                    Some(snapshot) => rsx! {
-                        div { class: "md-metric-grid", "data-testid": "metrics-summary",
-                            MetricTile { icon: "schedule", label: "Uptime", value: format_uptime(snapshot.uptime_ms), support: None, ratio: None }
-                            MetricTile { icon: "sync_alt", label: "Requests", value: group(snapshot.total_requests), support: None, ratio: None }
-                            MetricTile {
-                                icon: "report",
-                                label: "Errors",
-                                value: group(snapshot.total_errors),
-                                support: Some(if snapshot.total_errors > 0 { "4xx + 5xx responses" } else { "All clear" }.to_owned()),
-                                ratio: None,
-                            }
-                            MetricTile { icon: "trending_down", label: "Error rate", value: error_rate(&snapshot), support: None, ratio: None }
+                CardContent { class: "flex flex-col gap-3",
+                    if let Some(message) = state.error.clone() {
+                        div {
+                            class: "flex items-center gap-2",
+                            "data-testid": "metrics-error",
+                            Icon { icon: IconType::CircleAlert, class: "size-4 text-destructive" }
+                            span { class: "text-sm text-destructive", {message} }
                         }
-                    },
-                    None if state.loading => rsx! {
-                        span { class: "md-body-m", style: "color: var(--md-sys-color-on-surface-variant);", "Loading…" }
-                    },
-                    None => rsx! {},
+                    }
+                    match state.snapshot.clone() {
+                        Some(snapshot) => rsx! {
+                            div { class: "grid grid-cols-2 gap-3 md:grid-cols-4", "data-testid": "metrics-summary",
+                                MetricTile { icon: Some(IconType::Clock), label: "Uptime", value: format_uptime(snapshot.uptime_ms), support: None, ratio: None }
+                                MetricTile { icon: Some(IconType::RefreshCw), label: "Requests", value: group(snapshot.total_requests), support: None, ratio: None }
+                                MetricTile {
+                                    icon: Some(IconType::TriangleAlert),
+                                    label: "Errors",
+                                    value: group(snapshot.total_errors),
+                                    support: Some(if snapshot.total_errors > 0 { "4xx + 5xx responses" } else { "All clear" }.to_owned()),
+                                    ratio: None,
+                                }
+                                MetricTile { icon: Some(IconType::TrendingDown), label: "Error rate", value: error_rate(&snapshot), support: None, ratio: None }
+                            }
+                        },
+                        None if state.loading => rsx! {
+                            span { class: "text-sm text-muted-foreground", "Loading…" }
+                        },
+                        None => rsx! {},
+                    }
                 }
             }
-            Card { title: "Per-route activity",
+            Card {
+                CardHeader {
+                    CardTitle { "Per-route activity" }
+                }
+                CardContent { class: "flex flex-col",
                 if state.snapshot.as_ref().is_some_and(|snapshot| snapshot.routes.is_empty()) {
                     EmptyState {
-                        icon: "monitoring",
+                        icon: IconType::Activity,
                         title: "No requests recorded yet",
                         supporting: "Counters reset on coord restart. Drive some traffic and metrics will appear here within 5 s.",
                     }
@@ -111,6 +124,7 @@ pub fn MetricsPane() -> Element {
                         RouteRow { path: route.0, requests: route.1, errors: route.2, error_percent: route.3 }
                     }
                 }
+                }
             }
         }
     }
@@ -121,14 +135,16 @@ pub fn MetricsPane() -> Element {
 #[component]
 fn RouteRow(path: String, requests: String, errors: String, error_percent: String) -> Element {
     rsx! {
-        div { class: "md-list-row", "data-testid": "metrics-row", "data-route": path.clone(),
-            span { style: "font-family: var(--font-mono); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;",
-                title: path.clone(),
+        div {
+            class: "flex w-full items-center gap-4 px-4 py-2 text-sm",
+            "data-testid": "metrics-row",
+            "data-route": path.clone(),
+            span { class: "min-w-0 flex-1 truncate font-mono", title: path.clone(),
                 {path.clone()}
             }
-            span { style: "font-family: var(--font-mono); color: var(--md-sys-color-on-surface-variant);", {requests.clone()} }
-            span { style: "font-family: var(--font-mono); color: var(--md-sys-color-on-surface-variant);", {errors.clone()} }
-            span { style: "font-family: var(--font-mono); color: var(--md-sys-color-on-surface-variant);", {error_percent.clone()} }
+            span { class: "font-mono text-muted-foreground", {requests.clone()} }
+            span { class: "font-mono text-muted-foreground", {errors.clone()} }
+            span { class: "font-mono text-muted-foreground", {error_percent.clone()} }
         }
     }
 }

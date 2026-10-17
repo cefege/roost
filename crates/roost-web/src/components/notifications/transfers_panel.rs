@@ -7,7 +7,7 @@
 use dioxus::prelude::*;
 
 use super::transfer_row::TransferRow;
-use crate::components::md::{List, Surface, SurfaceElement, SurfaceRadius};
+use crate::components::ui::{List, Surface, SurfaceElement, SurfaceRadius};
 use crate::pump::use_store;
 
 /// The popup, or nothing when no transfer is live.
@@ -36,17 +36,16 @@ pub fn TransfersPanel() -> Element {
             elevation: 3,
             radius: SurfaceRadius::Md,
             border: true,
-            style: "display: flex; flex-direction: column; gap: var(--md-space-1); padding-block-start: var(--md-space-2);",
+            class: "flex flex-col gap-1 pt-2",
             div {
-                style: "display: flex; align-items: center; gap: var(--md-space-2); padding-inline: var(--md-space-4);",
+                class: "flex items-center gap-2 px-4",
                 span {
                     id: "transfer-popup-title",
-                    class: "md-title-s",
-                    style: "flex: 1;",
+                    class: "flex-1 text-sm font-medium",
                     "Transfers"
                 }
                 span {
-                    style: "color: var(--text-lo); font-size: var(--md-label-m-size);",
+                    class: "text-xs text-muted-foreground",
                     "{count}"
                 }
             }

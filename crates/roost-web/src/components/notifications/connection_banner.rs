@@ -10,7 +10,7 @@ use roost_client_core::store::terminal_transport::has_liveness_qualified_direct_
 use roost_client_core::sync::redial::sync_link_answering;
 use roost_client_core::{ClientEvent, TransportControl};
 
-use crate::components::md::{Button, ButtonSize, ButtonVariant, StatusDot, Surface, SurfaceRadius};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, StatusDot, Surface, SurfaceRadius};
 use crate::components::terminal::dom::{page_visible, sleep_ms};
 use crate::pump::{Pump, use_store};
 
@@ -74,11 +74,16 @@ impl BannerReason {
         }
     }
 
-    /// The colour role of the banner's bottom rule, paired with [`Self::status`].
-    const fn rule_color(self) -> &'static str {
+    /// The banner row's classes. The bottom rule carries the same status role
+    /// as [`Self::status`]; each arm is a full literal so Tailwind scans it.
+    const fn surface_class(self) -> &'static str {
         match self {
-            Self::CoordUnreachableDirectLive => "var(--status-warn)",
-            _ => "var(--md-sys-color-error)",
+            Self::CoordUnreachableDirectLive => {
+                "flex items-center justify-center gap-3 border-b border-warning px-4 py-2 text-xs leading-4 text-foreground"
+            }
+            _ => {
+                "flex items-center justify-center gap-3 border-b border-destructive px-4 py-2 text-xs leading-4 text-foreground"
+            }
         }
     }
 }
@@ -151,12 +156,12 @@ pub fn ConnectionBanner() -> Element {
         div {
             "data-testid": "connection-banner",
             "data-banner-reason": verdict.as_str(),
-            style: "position: fixed; inset: 0 0 auto; z-index: 50;",
+            class: "fixed inset-x-0 top-0 z-50",
             Surface {
                 level: 2,
                 elevation: 2,
                 radius: SurfaceRadius::Xs,
-                style: format!("display: flex; align-items: center; justify-content: center; gap: var(--md-space-3); padding: var(--md-space-2) var(--md-space-4); border-bottom: var(--workbench-border-width) solid {}; color: var(--md-sys-color-on-surface); font: var(--md-body-s-weight) var(--md-body-s-size)/var(--md-body-s-line) var(--md-font);", verdict.rule_color()),
+                class: verdict.surface_class(),
                 StatusDot { status: verdict.status().to_owned() }
                 span { "{verdict.message()}" }
                 if verdict.offers_reconnect() {

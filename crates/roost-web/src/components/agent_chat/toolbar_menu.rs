@@ -5,13 +5,10 @@
 
 use dioxus::prelude::*;
 
-use crate::components::context_menu::{
-    AnchoredMenuPos, CtxMenuItem, MenuFocusEdge, anchored_menu_surface_style,
-    use_floating_menu_dismiss,
-};
+use crate::components::context_menu::{CtxMenuItem, MenuFocusEdge, use_floating_menu_dismiss};
 use crate::components::deck::deck_dom::{self, ClientBox, DeckContainer};
-use crate::components::md::{Button, ButtonSize, ButtonVariant, Icon, IconButton, IconButtonSize};
 use crate::components::menu_placement::{MenuPlacement, place_menu};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType};
 
 /// One choice in a toolbar menu.
 #[derive(Debug, Clone, PartialEq)]
@@ -42,7 +39,7 @@ pub enum ToolbarTrigger {
     /// Current value plus a chevron, as a picker.
     Picker { label: String },
     /// A bare icon, as an overflow button.
-    Icon { icon: &'static str },
+    Icon { icon: IconType },
 }
 
 #[component]
@@ -128,7 +125,6 @@ pub fn ToolbarMenu(
             Button {
                 variant: ButtonVariant::Ghost,
                 size: ButtonSize::Sm,
-                class: "agent-chat__picker",
                 id: trigger_id.clone(),
                 "aria-label": aria_label.clone(),
                 "aria-haspopup": "menu",
@@ -138,19 +134,19 @@ pub fn ToolbarMenu(
                 onmounted: move |event: MountedEvent| anchor.set(Some(event.data())),
                 onclick: move |_| toggle(),
                 onkeydown: on_trigger_key,
-                span { class: "agent-chat__picker-label", "{label}" }
-                Icon { name: "expand_more" }
+                span { class: "min-w-0 truncate", "{label}" }
+                Icon { icon: IconType::ChevronDown, class: "size-4" }
             }
         },
         ToolbarTrigger::Icon { icon } => rsx! {
             IconButton {
                 icon,
                 label: aria_label.clone(),
-                size: IconButtonSize::IconSm,
+                size: ButtonSize::IconSm,
                 id: trigger_id.clone(),
-                menu_popup: "menu",
-                controls_id: menu_id.clone(),
-                expanded: open.read().is_some(),
+                menu_popup: Some("menu".to_owned()),
+                controls_id: Some(menu_id.clone()),
+                expanded: Some(open.read().is_some()),
                 title: aria_label.clone(),
                 onmounted: move |event: MountedEvent| anchor.set(Some(event.data())),
                 onclick: move |_| toggle(),
@@ -188,10 +184,9 @@ fn ToolbarMenuSurface(
     on_choose: EventHandler<String>,
     on_close: EventHandler<bool>,
 ) -> Element {
-    // The placement names every edge and the height cap, so the anchored
-    // position is overridden and only the surface chrome is kept.
+    // The placement carries every edge and the height cap as inline longhands,
+    // so the surface only supplies the fixed positioning and the chrome.
     let placement_style = placement.style();
-    let chrome_origin = AnchoredMenuPos { right: 0.0, y: 0.0 };
     use_floating_menu_dismiss(
         EventHandler::new(move |()| on_close.call(false)),
         None,
@@ -203,8 +198,8 @@ fn ToolbarMenuSurface(
             id: menu_id,
             role: "menu",
             "aria-labelledby": trigger_id,
-            class: "df-menu-enter agent-chat__menu",
-            style: anchored_menu_surface_style(chrome_origin, "calc(var(--md-space-7) * 7)", None, &placement_style),
+            class: "df-menu-enter fixed z-50 flex min-w-48 select-none flex-col rounded-md border border-border bg-popover p-1 text-sm text-popover-foreground shadow-md",
+            style: "{placement_style}",
             onkeydown: move |event: KeyboardEvent| {
                 deck_dom::run_menu_keys(&event, &keys_menu_id, move || on_close.call(true), move || on_close.call(false));
             },
@@ -217,13 +212,17 @@ fn ToolbarMenuSurface(
                         let value = item.value.clone();
                         move |_| on_choose.call(value.clone())
                     },
-                    span { class: "agent-chat__menu-row", "data-selected": item.selected.then_some("true"),
-                        span { class: "agent-chat__menu-check",
-                            if item.selected { Icon { name: "check" } }
+                    span {
+                        class: "flex w-full min-w-0 items-center gap-2",
+                        "data-selected": item.selected.then_some("true"),
+                        span { class: "flex size-4 shrink-0 items-center justify-center",
+                            if item.selected {
+                                Icon { icon: IconType::Check, class: "size-4" }
+                            }
                         }
-                        span { class: "agent-chat__menu-label", "{item.label}" }
+                        span { class: "min-w-0 flex-1 truncate text-left", "{item.label}" }
                         if let Some(detail) = item.detail {
-                            span { class: "agent-chat__menu-detail", "{detail}" }
+                            span { class: "shrink-0 text-muted-foreground", "{detail}" }
                         }
                     }
                 }

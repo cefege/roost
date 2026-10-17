@@ -44,12 +44,6 @@ mod global_search_page;
 mod keyboard_shortcuts;
 #[path = "machine_actions.rs"]
 mod machine_actions;
-#[path = "md_dialog.rs"]
-mod md_dialog;
-#[path = "md_primitives.rs"]
-mod md_primitives;
-#[path = "md_select.rs"]
-mod md_select;
 #[path = "mic_unmount_lifecycle.rs"]
 mod mic_unmount_lifecycle;
 #[path = "model_hub_logic.rs"]
@@ -148,6 +142,34 @@ mod tv_modality;
 mod ui_bridge_apply;
 #[path = "ui_bridge_report.rs"]
 mod ui_bridge_report;
+#[path = "ui_button.rs"]
+mod ui_button;
+#[path = "ui_chip.rs"]
+mod ui_chip;
+#[path = "ui_command.rs"]
+mod ui_command;
+#[path = "ui_dialog.rs"]
+mod ui_dialog;
+#[path = "ui_field.rs"]
+mod ui_field;
+#[path = "ui_list.rs"]
+mod ui_list;
+#[path = "ui_progress.rs"]
+mod ui_progress;
+#[path = "ui_select.rs"]
+mod ui_select;
+#[path = "ui_skeleton.rs"]
+mod ui_skeleton;
+#[path = "ui_status.rs"]
+mod ui_status;
+#[path = "ui_surface.rs"]
+mod ui_surface;
+#[path = "ui_tabs.rs"]
+mod ui_tabs;
+#[path = "ui_text_field.rs"]
+mod ui_text_field;
+#[path = "ui_usage_ring.rs"]
+mod ui_usage_ring;
 #[path = "undo_close_card.rs"]
 mod undo_close_card;
 #[path = "voice_draft_settle.rs"]

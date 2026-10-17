@@ -11,7 +11,7 @@ use crate::components::context_menu::{
     AnchoredMenuPos, CtxMenuItem, MenuFocusEdge, anchored_menu_surface_style,
     use_floating_menu_dismiss,
 };
-use crate::components::md::{Icon, IconSize};
+use crate::components::ui::{Icon, IconType};
 use crate::pump::use_store;
 use crate::session_naming::session_title;
 
@@ -98,13 +98,13 @@ pub fn PaneTabList(
         div {
             id: POPUP_ID,
             "data-testid": "tab-list-popup",
-            class: "df-menu-enter workbench-tab-list",
+            class: "df-menu-enter flex flex-col min-w-[var(--workbench-tab-menu-min-width)] max-w-[calc(var(--md-space-9)*8)] p-1 bg-[var(--workbench-tab-menu)] border border-solid border-[var(--workbench-tab-border)] rounded-[var(--md-shape-sm)] shadow-[var(--md-elev-3)] text-foreground",
             "aria-label": "Open terminals in this pane",
             style,
-            div { class: "workbench-tab-list__filter",
-                Icon { name: "search", class: "workbench-tab-list__filter-icon", size: IconSize::Sm }
+            div { class: "flex items-center gap-1 min-h-[var(--workbench-tab-action-size)] px-2 border-b border-solid border-[var(--workbench-tab-border)]",
+                Icon { icon: IconType::Search, class: "size-4 shrink-0 text-muted-foreground" }
                 input {
-                    class: "workbench-tab-list__input",
+                    class: "flex-1 min-w-0 p-0 bg-transparent border-0 text-foreground outline-none",
                     r#type: "text",
                     value: "{filter}",
                     "aria-label": "Filter terminals in this pane",
@@ -155,7 +155,7 @@ pub fn PaneTabList(
             }
             div {
                 id: ITEMS_ID,
-                class: "workbench-tab-list__items",
+                class: "max-h-[calc(var(--md-space-9)*8)] overflow-y-auto py-1",
                 role: "menu",
                 "aria-label": "Open terminals in this pane",
                 onkeydown: {
@@ -169,12 +169,12 @@ pub fn PaneTabList(
                     }
                 },
                 if matches.is_empty() {
-                    div { class: "workbench-tab-list__empty", "No matches" }
+                    div { class: "px-2 py-3 text-muted-foreground", "No matches" }
                 }
                 for (index, (session_id, title)) in matches.into_iter().enumerate() {
                     CtxMenuItem {
                         key: "{session_id}",
-                        class: "workbench-tab-list__item",
+                        class: "flex items-center w-full min-h-[var(--workbench-tab-action-size)] gap-2 px-2 box-border bg-transparent border-0 rounded-[var(--md-shape-xs)] text-foreground text-start cursor-pointer hover:bg-[var(--md-state-hover)] data-[highlighted=true]:bg-[var(--md-state-hover)] focus:bg-[var(--md-state-focus)] focus-visible:outline-none data-[selected=true]:!bg-[var(--md-sys-color-secondary-container)] data-[selected=true]:text-[var(--md-sys-color-on-secondary-container)] aria-[current=page]:!bg-[var(--md-sys-color-secondary-container)] aria-[current=page]:text-[var(--md-sys-color-on-secondary-container)]",
                         testid: "tab-list-item-{session_id}",
                         selected: session_id == selected_tab,
                         highlighted: *highlighted.read() == index,
@@ -184,10 +184,10 @@ pub fn PaneTabList(
                             let session_id = session_id.clone();
                             move |_| choose(session_id.clone())
                         },
-                        Icon { name: if session_id.starts_with("agent:") { "smart_toy" } else { "terminal" }, class: "workbench-tab-list__item-icon", size: IconSize::Sm }
-                        span { class: "workbench-tab-list__item-label", "{title}" }
+                        Icon { icon: if session_id.starts_with("agent:") { IconType::Bot } else { IconType::Terminal }, class: "size-4 shrink-0 text-muted-foreground" }
+                        span { class: "flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap", "{title}" }
                         if session_id == selected_tab {
-                            Icon { name: "check", class: "workbench-tab-list__item-check", size: IconSize::Sm }
+                            Icon { icon: IconType::Check, class: "size-4 shrink-0" }
                         }
                     }
                 }

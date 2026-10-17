@@ -11,8 +11,8 @@ use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{model_family, model_search_text, rank_matches};
 
 use crate::components::file_viewer::dom::focus_by_id;
-use crate::components::md::{
-    Button, ButtonSize, ButtonVariant, Chip, EmptyState, Icon, List, ListRow, SectionTitle,
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Chip, EmptyState, Icon, IconType, List, ListRow, SectionTitle,
     TextField,
 };
 
@@ -145,7 +145,7 @@ pub fn ModelPicker(
         format!("{hidden} older versions hidden")
     };
     rsx! {
-        div { class: "model-picker", "data-testid": "{test_id}",
+        div { class: "flex min-h-0 flex-col gap-2", "data-testid": "{test_id}",
             TextField {
                 value: current_query.clone(),
                 on_input: move |text: String| {
@@ -157,7 +157,6 @@ pub fn ModelPicker(
                 input_type: Some("search".to_owned()),
                 autocomplete: Some("off".to_owned()),
                 autofocus,
-                class: Some("model-picker__search".to_owned()),
                 test_id: Some(format!("{test_id}-search")),
                 id: Some(search_id.clone()),
                 role: "combobox",
@@ -185,10 +184,10 @@ pub fn ModelPicker(
                 },
             }
             if hidden > 0 {
-                div { class: "model-picker__versions",
+                div { class: "flex flex-wrap items-center gap-2",
                     Chip {
                         label: "Latest only".to_owned(),
-                        icon: Some("filter_list".to_owned()),
+                        icon: Some(IconType::ListFilter),
                         selected: Some(!show_all()),
                         small: true,
                         title: Some("Show only the newest version of each model".to_owned()),
@@ -199,12 +198,12 @@ pub fn ModelPicker(
                             active.set(0);
                         })),
                     }
-                    span { class: "model-picker__versions-note", "{versions_note}" }
+                    span { class: "text-xs text-muted-foreground", "{versions_note}" }
                 }
             }
             if older_match {
                 EmptyState {
-                    icon: "history".to_owned(),
+                    icon: IconType::History,
                     title: format!("Only older versions match “{current_query}”."),
                     action: rsx! {
                         Button {
@@ -223,17 +222,17 @@ pub fn ModelPicker(
                 }
             } else if no_matches {
                 EmptyState {
-                    icon: "search_off".to_owned(),
+                    icon: IconType::SearchX,
                     title: format!("No models match “{current_query}”."),
                 }
             }
-            div { id: results_id, class: "model-picker__results", role: "listbox", "aria-label": "Models",
+            div { id: results_id, class: "max-h-[min(50dvh,32rem)] overflow-y-auto overscroll-contain", role: "listbox", "aria-label": "Models",
             for (group, rows) in groups {
                 // A blank group is one the surrounding view already names.
                 if !group.is_empty() {
                     SectionTitle { "{group}" }
                 }
-                List { contained: true, class: "model-picker__group",
+                List { contained: true,
                     for option in rows {
                         {
                             let is_selected = selected.as_deref() == Some(option.selector.as_str());
@@ -245,7 +244,7 @@ pub fn ModelPicker(
                                 ListRow {
                                     headline: rsx! { "{option.name}" },
                                     support: option.detail.as_ref().map(|detail| rsx! { "{detail}" }),
-                                    trailing: is_selected.then(|| rsx! { Icon { name: "check".to_owned() } }),
+                                    trailing: is_selected.then(|| rsx! { Icon { icon: IconType::Check, class: "size-4" } }),
                                     id: option_id,
                                     role: "option",
                                     aria_selected: is_highlighted.to_string(),

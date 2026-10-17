@@ -1,14 +1,13 @@
 //! `DesignControlStates`: the interactive control reference on `/design` —
 //! button variants and sizes, text fields and selects in their default,
-//! disabled and invalid states, chips, and the boolean controls. Ported from
-//! `apps/web/src/components/design/DesignControlStates.tsx`; `gallery.rs`
-//! mounts it. It composes the shipped primitives and reimplements none of their
-//! semantics: the specimens are controlled by the gallery's own signals.
+//! disabled and invalid states, chips, and the boolean controls. `gallery.rs`
+//! mounts it. It composes the shipped `ui` primitives and reimplements none of
+//! their semantics: the specimens are controlled by the gallery's own signals.
 
 use dioxus::prelude::*;
 
-use crate::components::md::{
-    Button, ButtonSize, ButtonVariant, Checkbox, Chip, IconButton, IconButtonSize, List, ListRow,
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Checkbox, Chip, IconButton, IconType, List, ListRow,
     SectionTitle, Select, SelectOption, Switch, SwitchRow, TextField,
 };
 
@@ -21,9 +20,9 @@ pub fn surface_options() -> Vec<SelectOption> {
     ]
 }
 
-/// A wrapping row of controls.
-const CONTROL_ROW_STYLE: &str =
-    "display: flex; flex-wrap: wrap; gap: var(--md-space-3); align-items: center;";
+const CONTROL_ROW_CLASS: &str = "flex flex-wrap items-center gap-3";
+const CONTROL_ROW_SPACED_CLASS: &str = "flex flex-wrap items-center gap-3 mt-3";
+const FIELD_GRID_CLASS: &str = "grid grid-cols-[repeat(auto-fit,minmax(16rem,1fr))] gap-4";
 
 /// The control reference.
 #[component]
@@ -42,10 +41,10 @@ pub fn DesignControlStates() -> Element {
     };
 
     rsx! {
-        div { style: "display: grid; gap: var(--md-space-6);",
+        div { class: "grid gap-6",
             section {
                 SectionTitle { "Buttons" }
-                div { style: CONTROL_ROW_STYLE,
+                div { class: CONTROL_ROW_CLASS,
                     Button { variant: ButtonVariant::Default, "Default" }
                     Button { variant: ButtonVariant::Secondary, "Secondary" }
                     Button { variant: ButtonVariant::Outline, "Outline" }
@@ -53,7 +52,7 @@ pub fn DesignControlStates() -> Element {
                     Button { variant: ButtonVariant::Destructive, "Destructive" }
                     Button { variant: ButtonVariant::Link, "Link" }
                 }
-                div { style: "{CONTROL_ROW_STYLE} margin-top: var(--md-space-3);",
+                div { class: CONTROL_ROW_SPACED_CLASS,
                     Button { size: ButtonSize::Xs, "Extra small" }
                     Button { size: ButtonSize::Sm, "Small" }
                     Button { size: ButtonSize::Default, "Default" }
@@ -61,22 +60,19 @@ pub fn DesignControlStates() -> Element {
                     Button {
                         size: ButtonSize::Icon,
                         variant: ButtonVariant::Secondary,
-                        icon: "close",
+                        icon: IconType::X,
                         "aria-label": "Icon-sized secondary button",
                     }
-                    IconButton { size: IconButtonSize::IconXs, icon: "close", label: "Extra small icon button" }
-                    IconButton { size: IconButtonSize::IconSm, icon: "close", label: "Small icon button" }
-                    IconButton { size: IconButtonSize::Icon, icon: "close", label: "Default icon button" }
-                    IconButton { size: IconButtonSize::IconLg, icon: "close", label: "Large icon button" }
+                    IconButton { size: ButtonSize::IconXs, icon: IconType::X, label: "Extra small icon button" }
+                    IconButton { size: ButtonSize::IconSm, icon: IconType::X, label: "Small icon button" }
+                    IconButton { size: ButtonSize::Icon, icon: IconType::X, label: "Default icon button" }
+                    IconButton { size: ButtonSize::IconLg, icon: IconType::X, label: "Large icon button" }
                 }
             }
 
             section {
                 SectionTitle { "Fields" }
-                div {
-                    style: "display: grid; \
-                            grid-template-columns: repeat(auto-fit, minmax(calc(var(--md-space-9) * 4), 1fr)); \
-                            gap: var(--md-space-4);",
+                div { class: FIELD_GRID_CLASS,
                     TextField {
                         value: text_value(),
                         on_input: move |value: String| text_value.set(value),
@@ -133,11 +129,11 @@ pub fn DesignControlStates() -> Element {
 
             section {
                 SectionTitle { "Chips" }
-                div { style: "display: flex; flex-wrap: wrap; gap: var(--md-space-3);",
-                    Chip { label: "Passive label", icon: "folder" }
+                div { class: CONTROL_ROW_CLASS,
+                    Chip { label: "Passive label", icon: IconType::Folder }
                     Chip {
                         label: chip_label,
-                        icon: "bolt",
+                        icon: IconType::Zap,
                         selected: selected_chip(),
                         onclick: move |_| selected_chip.toggle(),
                     }
@@ -153,8 +149,8 @@ pub fn DesignControlStates() -> Element {
                         trailing: rsx! {
                             Switch {
                                 checked: switch_on(),
-                                on_change: move |value: bool| switch_on.set(value),
-                                label: "Enable switch specimen",
+                                on_checked_change: move |value: bool| switch_on.set(value),
+                                aria_label: "Enable switch specimen",
                             }
                         },
                     }
@@ -164,8 +160,8 @@ pub fn DesignControlStates() -> Element {
                         trailing: rsx! {
                             Checkbox {
                                 checked: checked(),
-                                on_change: move |value: bool| checked.set(value),
-                                label: "Enable checkbox specimen",
+                                on_checked_change: move |value: bool| checked.set(value),
+                                aria_label: "Enable checkbox specimen",
                             }
                         },
                     }
@@ -173,31 +169,41 @@ pub fn DesignControlStates() -> Element {
                         headline: rsx! { "Disabled switch" },
                         support: rsx! { "Unavailable controls preserve their native disabled semantics." },
                         trailing: rsx! {
-                            Switch { checked: false, on_change: move |_| {}, label: "Disabled switch specimen", disabled: true }
+                            Switch {
+                                checked: false,
+                                on_checked_change: move |_| {},
+                                aria_label: "Disabled switch specimen",
+                                disabled: true,
+                            }
                         },
                     }
                     ListRow {
                         headline: rsx! { "Disabled checkbox" },
                         support: rsx! { "Unavailable controls preserve their native disabled semantics." },
                         trailing: rsx! {
-                            Checkbox { checked: true, on_change: move |_| {}, label: "Disabled checkbox specimen", disabled: true }
+                            Checkbox {
+                                checked: true,
+                                on_checked_change: move |_| {},
+                                aria_label: "Disabled checkbox specimen",
+                                disabled: true,
+                            }
                         },
                     }
                 }
-                div { style: "margin-top: var(--md-space-4);",
+                div { class: "mt-4",
                     SectionTitle { "Switch rows" }
-                    div { style: "display: grid; gap: var(--md-space-4);",
+                    div { class: "grid gap-4",
                         SwitchRow {
                             headline: "Switch row",
                             support: "A labelled setting keeps its support text associated with the switch.",
                             checked: switch_row_on(),
-                            on_change: move |value: bool| switch_row_on.set(value),
+                            on_checked_change: move |value: bool| switch_row_on.set(value),
                         }
                         SwitchRow {
                             headline: "Disabled switch row",
                             support: "Unavailable settings retain their native disabled semantics.",
                             checked: false,
-                            on_change: move |_| {},
+                            on_checked_change: move |_| {},
                             disabled: true,
                         }
                     }

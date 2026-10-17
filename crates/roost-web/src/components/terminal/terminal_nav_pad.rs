@@ -15,7 +15,7 @@ use super::pane_handle::PaneHandle;
 use super::pane_state::PaneUi;
 use super::terminal_nav_keys::TerminalKeyGrid;
 use crate::components::layout::portal::Portal;
-use crate::components::md::{ButtonVariant, IconButton, IconButtonSize};
+use crate::components::ui::{ButtonSize, ButtonVariant, IconButton, IconType};
 use crate::pump::Pump;
 
 #[component]
@@ -50,7 +50,7 @@ pub fn TerminalNavPad(
                 icon: key_toggle_icon(open),
                 label: key_toggle_label(open),
                 variant: ButtonVariant::Ghost,
-                size: IconButtonSize::IconLg,
+                size: ButtonSize::IconLg,
                 class: Some("term-nav-toggle".to_owned()),
                 "data-testid": "terminal-nav-toggle",
                 "data-open": if open { "true" } else { "false" },
@@ -65,13 +65,12 @@ pub fn TerminalNavPad(
 
 /// The toggle's glyph: a chevron while the keys are up, the keyboard while
 /// they are not, so the control states what one press will do.
-pub fn key_toggle_icon(open: bool) -> String {
-    (if open {
-        "keyboard_arrow_down"
+pub fn key_toggle_icon(open: bool) -> IconType {
+    if open {
+        IconType::ChevronDown
     } else {
-        "keyboard"
-    })
-    .to_owned()
+        IconType::Keyboard
+    }
 }
 
 /// The toggle's accessible name.

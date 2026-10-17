@@ -10,7 +10,7 @@ use roost_protocol::wire::agent_chat::{ConversationSummary, ModelsCatalog};
 use super::composer_commands::model_picker_trigger_id;
 use super::role_switcher::RoleSwitcher;
 use super::toolbar_menu::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
-use crate::components::md::{Button, ButtonSize, ButtonVariant, Card, CardVariant};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, Card, CardContent, CardHeader, CardTitle, CardVariant, IconType};
 use crate::pump::Pump;
 use crate::router_state::use_navigate;
 
@@ -62,25 +62,25 @@ pub fn AgentModelControls(
     // id is the picker's, so `/model` lands here too.
     let placeholder = match (conversation.model.is_some(), catalog.is_some(), setup) {
         (true, _, _) | (false, true, ModelSetup::Ready) => None,
-        (false, _, ModelSetup::NoProvider) => Some(("Connect a model", "add_link", false)),
-        (false, _, ModelSetup::CatalogFailed) => Some(("Models unavailable", "error", false)),
-        (false, false, ModelSetup::Ready) => Some(("Loading models…", "hourglass_empty", true)),
+        (false, _, ModelSetup::NoProvider) => Some(("Connect a model", IconType::Link, false)),
+        (false, _, ModelSetup::CatalogFailed) => Some(("Models unavailable", IconType::CircleAlert, false)),
+        (false, false, ModelSetup::Ready) => Some(("Loading models…", IconType::Hourglass, true)),
     };
     if let Some((label, icon, waiting)) = placeholder {
         return rsx! {
-            div { class: "agent-chat__model-controls",
+            div { class: "flex flex-wrap items-center gap-1",
                 Button {
                     variant: ButtonVariant::Ghost,
                     size: ButtonSize::Sm,
-                    class: "agent-chat__picker",
+                class: "min-w-0 max-w-full justify-start",
                     id: "{trigger_id}",
-                    icon: icon.to_string(),
+                icon: Some(icon),
                     disabled: waiting,
                     "aria-busy": waiting.then_some("true"),
                     "data-testid": "agent-chat-model-setup",
                     title: "Open Settings → Agents → Models",
                     onclick: move |_| open_settings(),
-                    span { class: "agent-chat__picker-label", "{label}" }
+                    span { class: "truncate", "{label}" }
                 }
             }
         };
@@ -111,18 +111,18 @@ pub fn AgentModelControls(
     let thinking_id = conversation.id.clone();
     let expanded = if picker_open() { "true" } else { "false" };
     rsx! {
-        div { class: "agent-chat__model-controls",
+        div { class: "flex flex-wrap items-center gap-1",
             Button {
                 variant: ButtonVariant::Ghost,
                 size: ButtonSize::Sm,
-                class: "agent-chat__picker",
+                class: "min-w-0 max-w-full justify-start",
                 id: "{trigger_id}",
                 "aria-haspopup": "true",
                 "aria-expanded": expanded,
                 "data-testid": "agent-chat-model-trigger",
                 title: format!("{model_label}. Change the models for this chat and its subagents."),
                 onclick: move |_| picker_open.toggle(),
-                span { class: "agent-chat__picker-label", "{model_label}" }
+                span { class: "truncate", "{model_label}" }
             }
             RoleSwitcher {
                 open: picker_open,
@@ -166,29 +166,31 @@ pub fn ModelSetupCard(setup: ModelSetup, on_retry: EventHandler<()>) -> Element 
     };
     rsx! {
         Card {
-            title: Some(title.to_string()),
             variant: CardVariant::Outlined,
-            class: Some("agent-chat__model-setup".to_string()),
-            test_id: Some("agent-chat-model-setup-card".to_string()),
-            children: rsx! {
-                p { class: "agent-chat__model-setup-body", "{body}" }
-                div { class: "agent-chat__model-setup-actions",
+            class: Some("gap-3".to_string()),
+            "data-testid": "agent-chat-model-setup-card",
+            CardHeader {
+                CardTitle { "{title}" }
+            }
+            CardContent {
+                p { class: "text-sm text-muted-foreground", "{body}" }
+                div { class: "flex flex-wrap gap-2",
                     if setup == ModelSetup::CatalogFailed {
                         Button {
                             variant: ButtonVariant::Outline,
-                            icon: "refresh".to_string(),
+                            icon: Some(IconType::RefreshCw),
                             onclick: move |_| on_retry.call(()),
                             "Try again"
                         }
                     }
                     Button {
-                        icon: "add_link".to_string(),
+                        icon: Some(IconType::Link),
                         onclick: open_settings,
                         "data-testid": "agent-chat-model-setup-open",
                         if setup == ModelSetup::NoProvider { "Connect a model" } else { "Open model settings" }
                     }
                 }
-            },
+            }
         }
     }
 }

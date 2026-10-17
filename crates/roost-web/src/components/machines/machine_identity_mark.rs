@@ -1,5 +1,5 @@
 //! A folder row's leading machine mark: the Linux distribution logo when one is
-//! recognized, otherwise the platform's Material icon, plus the Apple chip
+//! recognized, otherwise the platform's Lucide glyph, plus the Apple chip
 //! badge. Ports `apps/web/src/components/machines/MachineIdentityMark.tsx`;
 //! `FolderList` renders it from the worker record.
 
@@ -8,7 +8,7 @@ use roost_protocol::wire::Worker;
 
 use super::linux_distribution_mark::LinuxDistributionMark;
 use super::machine_identity::machine_identity_presentation;
-use crate::components::md::{Icon, IconSize};
+use crate::components::ui::Icon;
 
 /// The mark for `worker`; `context_title` is appended to the hover text.
 #[component]
@@ -28,7 +28,7 @@ pub fn MachineIdentityMark(worker: Option<Worker>, context_title: Option<String>
             if let Some(brand) = presentation.linux_brand {
                 LinuxDistributionMark { brand }
             } else {
-                Icon { name: presentation.icon.to_owned(), size: IconSize::Sm }
+                Icon { icon: presentation.icon, class: "size-4" }
             }
             if let Some(badge) = presentation.apple_chip_badge {
                 span { class: "machine-identity-mark__chip", {badge} }
