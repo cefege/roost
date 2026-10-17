@@ -1,9 +1,9 @@
 //! `UsageRing`: THE circular fill indicator — a context window or quota read
 //! at a glance, the way a chat client shows it, rather than as a sentence of
 //! numbers. A known fraction draws a ring that fills clockwise from the top;
-//! an unknown one (`None`) draws an empty track. The exact numbers live in
-//! `title`, read on hover or by assistive technology, so the ring itself is
-//! `aria-hidden`.
+//! an unknown one (`None`) draws an empty track. The outer element carries
+//! `role="meter"` and the exact numbers, both for hover (`title`) and for
+//! assistive technology (`aria-valuenow`); the `<svg>` itself is decorative.
 
 use dioxus::prelude::*;
 
@@ -62,10 +62,15 @@ pub fn UsageRing(
     let dash = format!("{circumference:.2} {circumference:.2}");
     rsx! {
         span {
-            "aria-hidden": "true",
+            role: "meter",
+            "aria-label": "Context window used",
+            "aria-valuemin": "0",
+            "aria-valuemax": "100",
+            "aria-valuenow": fraction.map(|fraction| format!("{:.0}", fraction.clamp(0.0, 1.0) * 100.0)),
             title,
             style: "display: inline-flex;",
             svg {
+                "aria-hidden": "true",
                 width: "{size}",
                 height: "{size}",
                 view_box: "0 0 {size} {size}",

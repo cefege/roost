@@ -59,7 +59,7 @@
 .agent-chat__place-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-chat__offline { flex: none; color: var(--md-sys-color-error); }
 .agent-chat__header-actions { display: inline-flex; margin-left: auto; color: var(--md-sys-color-on-surface-variant); }
-/* Gives way before the place line, so the menu button never leaves the row. */
+/* Fixed size; the place text shrinks first, so the ring and menu stay on the row. */
 .agent-chat__header .agent-chat__usage {
   display: inline-flex;
   flex: 0 0 auto;
