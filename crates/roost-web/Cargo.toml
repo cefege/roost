@@ -99,6 +99,7 @@ features = [
   "FileList",
   "FileReader",
   "FocusEvent",
+  "FocusOptions",
   "FormData",
   "GainNode",
   "Gamepad",

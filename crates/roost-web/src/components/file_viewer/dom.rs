@@ -86,7 +86,13 @@ fn focus_element(id: &str) {
     else {
         return;
     };
-    let _ = element.focus();
+    // A plain `.focus()` scrolls the element into view if the browser judges
+    // it out of view, which can snap a scrolled list back to the row that
+    // triggered the refocus. The hub refocuses its own already-visible frame
+    // after a click, so that scroll is pure jank, never a navigation aid.
+    let options = web_sys::FocusOptions::new();
+    options.set_prevent_scroll(true);
+    let _ = element.focus_with_options(&options);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

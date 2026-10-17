@@ -15,8 +15,9 @@
    wheel and drag landed on whichever accidental scroller still had room,
    or nothing. Every box below `.roost-dialog.model-hub--split` must set an
    actual `block-size` or `flex: 1 1 auto; min-block-size: 0;`, never only a
-   `max-block-size`, so the leaf panes (`.model-hub__rows`, `.model-hub-roles__list`)
-   are the only things with room left over to scroll in. */
+   `max-block-size`, so `.model-hub__rows` has room left over to scroll in;
+   `.model-hub__content`'s own bound now does the same job for the Roles
+   editor, which does not itself flex-shrink (see the note above its rule). */
 
 /* ── Shared ── */
 .roost-dialog.model-hub--split {
@@ -54,9 +55,17 @@
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-/* A scrolling column keeps its children at their own height (the role editor
-   scrolls as a whole); only the model list and the picker fill what is left,
-   and their results scroll inside them. */
+/* A scrolling column keeps most children at their own height; the model
+   list fills what is left and scrolls inside that fixed box. The Roles
+   editor (header, tabs, presets, list together) is a nested flex column of
+   its own, which measurement shows does NOT flex-shrink as an item here —
+   a flex item that is itself a multi-child flex container along the same
+   axis keeps its natural content height regardless of `min-block-size: 0`
+   on this element, in both engines tested. `.model-hub__content`'s own
+   `overflow-y: auto` is still a real, bounded scrollport (proven: its
+   clientHeight stays fixed while scrollHeight grows with the role list),
+   so it scrolls the whole editor as one block, same as before this file's
+   dialog-sizing fix — only now that bound is real instead of accidental. */
 .model-hub__content > * { flex-shrink: 0; }
 .model-hub__content > .model-hub__rows { flex: 1 1 auto; min-block-size: 0; }
 .model-hub__content > .model-picker { flex: 1 1 auto; min-block-size: 0; }
@@ -228,7 +237,7 @@
 }
 
 /* ── roles view ── */
-.model-hub-roles { display: flex; flex-direction: column; gap: var(--md-space-2); min-inline-size: 0; outline: none; }
+.model-hub-roles { display: flex; flex-direction: column; gap: var(--md-space-2); min-block-size: 0; min-inline-size: 0; outline: none; }
 .model-hub-roles__status,
 .model-hub-roles__keys { margin: 0; color: var(--md-sys-color-on-surface-variant); font: var(--md-label-l-weight) var(--md-label-l-size)/var(--md-label-l-line) var(--md-font); }
 .model-hub-roles__tabs,
@@ -236,7 +245,12 @@
 .model-hub-roles__preset-save { display: flex; flex-wrap: wrap; gap: var(--md-space-2); align-items: center; }
 .model-hub-roles__tab { font: inherit; background: none; border: 0; color: var(--md-sys-color-on-surface-variant); cursor: pointer; padding: var(--md-space-1) var(--md-space-2); }
 .model-hub-roles__tab[aria-selected="true"] { color: var(--chat-accent); }
-.model-hub-roles__list { display: flex; flex-direction: column; max-block-size: 60vh; overflow-y: auto; }
+/* `.model-hub-roles` (its parent) does not flex-shrink as a nested flex
+   container, measured directly: its clientHeight stays at its natural
+   content size regardless of `min-block-size: 0`. This list is therefore a
+   plain block; `.model-hub__content`'s own bound scrolls the whole editor,
+   proven real (clientHeight fixed, scrollHeight grows with the role count). */
+.model-hub-roles__list { display: flex; flex-direction: column; }
 .model-hub-roles__row { display: flex; gap: var(--md-space-2); align-items: baseline; padding: var(--md-space-1) var(--md-space-2); cursor: pointer; color: var(--md-sys-color-on-surface); }
 .model-hub-roles__row[aria-selected="true"] { background: var(--surface-2); }
 .model-hub-roles__row--fallback { padding-inline-start: var(--md-space-6); }
