@@ -986,7 +986,18 @@ all MainPane screens plus an always-mounted deck host (visibility flip) so `/fil
 deck down. This was the 6th attempt at this class: the prior five "passed" because nothing asserted what the
 reader SEES at first paint, so the smoke now samples the READER'S POSITION during reveal.
 
-**Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
+**Guard** — none — a Rust test is owed.
+`crates/roost-web-terminal/tests/render_geometry.rs` —
+`a_reveal_after_a_parked_view_lands_on_the_live_bottom_not_the_old_one` and
+`a_cold_mount_pins_its_first_full_frame_to_the_bottom_not_the_top` pin only
+the renderer's own apply-and-pin (a dormant pane's fresh viewport-only FULL
+over stale DOM; a brand-new cold mount's first frame). The real sequence —
+`pane_mount`'s `flags_changed` withdrawing the outgoing pane
+(`ClientEvent::ViewHidden`) and publishing the incoming one
+(`ClientEvent::ViewOpened`) synchronously in one Dioxus render, then the
+fresh FULL arriving over the wire asynchronously against whatever
+`reader`/geometry state that gap left behind — is untested, tied to real
+`web_sys` DOM, and is the remaining suspect.
 
 ### Reveal waits on history before the live bottom is readable
 

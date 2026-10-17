@@ -292,3 +292,41 @@ fn render_full_reserves_the_incoming_spacer_before_wiping_painted_history() {
     assert_eq!(spacer_at_wipe, 6000.0 * ROW_PX);
     assert!(height_at_wipe >= pre_scroll_top);
 }
+
+#[test]
+fn a_reveal_after_a_parked_view_lands_on_the_live_bottom_not_the_old_one() {
+    let (container, mut renderer) = mount();
+    seed_held_history_to(&mut renderer, 80, vec![row(0, "v")], rows(250, 500), 750);
+    container.set_scroll_top_raw(bottom_of(&container).max(0.0));
+    renderer.handle_scroll();
+    assert!(renderer.at_bottom());
+    container.reset_scroll_top_writes();
+    // The pane's view was withdrawn while hidden (no frames applied for a
+    // while), and reopening it claims a brand-new epoch whose scrollback grew
+    // far past what is painted -- exactly a reveal after dormancy.
+    let reattached = CellGridFrame {
+        grid_epoch: "test-grid:1".to_string(),
+        sb_base: 6000,
+        ..full_frame(80, vec![row(0, "live-now")], 6000)
+    };
+    assert!(renderer.apply(&reattached));
+    assert_eq!(container.scroll_top(), bottom_of(&container));
+    assert_eq!(container.scroll_top_writes(), 1);
+    assert!(renderer.at_bottom());
+}
+
+#[test]
+fn a_cold_mount_pins_its_first_full_frame_to_the_bottom_not_the_top() {
+    let (container, mut renderer) = mount();
+    // A session evicted from the deck's warm set remounts CellTerminal from
+    // scratch: a fresh renderer, scrollTop 0, no prior frame -- exactly the
+    // state a brand-new tab reveal starts from.
+    let first = CellGridFrame {
+        sb_base: 4000,
+        ..full_frame(80, vec![row(0, "live-now")], 4000)
+    };
+    assert!(renderer.apply(&first));
+    assert_eq!(container.scroll_top(), bottom_of(&container));
+    assert_eq!(container.scroll_top_writes(), 1);
+    assert!(renderer.at_bottom());
+}
