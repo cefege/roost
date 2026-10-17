@@ -1,7 +1,9 @@
-//! The live working row under a running transcript, as OMP's loader draws it:
-//! a braille spinner, the elapsed time since the row appeared, and the running
-//! tool's intent (or "Working…") shimmering. Reduced motion freezes the spinner
-//! and the label and ticks the elapsed time once a second.
+//! The live working row: a braille spinner, the elapsed time since the row
+//! appeared, and the running tool's intent (or "Working…"/"Writing…")
+//! shimmering, as OMP's loader draws it. Pinned in `agent_chat::surface`'s
+//! dock above the composer, so it stays visible for the whole run. Reduced
+//! motion freezes the spinner and the label and ticks the elapsed time once
+//! a second.
 
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{INTENT_FIELD, TranscriptItem, intent_label};

@@ -257,7 +257,11 @@ Node agent-host sidecar (`agent-host/`, its image, Helm container and PVC),
 the pi-env tool tunnel, Pi conversations and the agent-host's stored
 provider logins (not migrated; operators sign in again), and the terminal
 composer's strip of sent-image previews (the operator retired it; an upload
-still types its path and shows its transfer card).
+still types its path and shows its transfer card), and the per-message
+"Fork from here" button on every assistant reply in agent chat (the
+operator retired it; `/fork` and the `AgentChatFork` RPC still fork a
+conversation, surfaced through the "Conversation forked" notice's "Open
+fork" link).
 
 ---
 
