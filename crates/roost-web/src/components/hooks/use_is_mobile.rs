@@ -10,6 +10,8 @@ use super::use_media_query::use_media_query;
 /// Either side under 600 CSS px. `.98` rather than `599px` keeps a fractional
 /// viewport just under the boundary mobile, and the level-3 syntax (not
 /// `width < 600px`) still parses in older Safari and TV browsers.
+/// `assets/styles/theme-vars.css` gates the phone's chat-dock tokens on the
+/// same query.
 pub const MOBILE_QUERY: &str = "(max-width: 599.98px), (max-height: 599.98px)";
 
 /// Whether the window is phone-sized, kept current as it resizes or rotates.

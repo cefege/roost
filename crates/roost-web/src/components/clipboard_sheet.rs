@@ -15,7 +15,7 @@ use roost_client_core::store::Store;
 use roost_client_core::store::selectors::session_by_id;
 use roost_client_core::store::toasts::{ToastId, ToastKind, ToastOptions, ToastSource, add_toast};
 
-use crate::components::hooks::use_copy_clipboard::copy_text;
+use crate::components::hooks::use_copy_clipboard::copy_text_then;
 use crate::components::notifications::store_write::write_store;
 use crate::components::settings::format::relative_time;
 use crate::components::terminal::dom::now_ms;
@@ -272,9 +272,12 @@ fn entry_row(store: &Store, entry: &ClipboardEntry, now: u64) -> EntryRow {
 
 /// Copy locally. Never a new history entry: the text is already in it.
 fn copy_entry(pump: &Pump, text: &str) {
-    if copy_text(text) {
-        notify(pump, "Copied", ToastKind::Ok);
-    }
+    let pump = pump.clone();
+    copy_text_then(text, move |accepted| {
+        if accepted {
+            notify(&pump, "Copied", ToastKind::Ok);
+        }
+    });
 }
 
 fn load_history(pump: Pump) {

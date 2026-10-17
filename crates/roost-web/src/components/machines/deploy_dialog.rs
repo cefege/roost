@@ -56,7 +56,11 @@ pub fn MachineDeployDialog(on_close: EventHandler<()>) -> Element {
 
     let state = model();
     let phase = state.phase();
-    let (copy_command, command_copied) = use_copy_clipboard(None);
+    let (copy_command, copied) = use_copy_clipboard(None);
+    // A re-check or a re-mint replaces the one-time command, so the
+    // confirmation belongs to the command it copied.
+    let mut copied_command = use_signal(|| None::<String>);
+    let command_copied = copied() && copied_command.read().as_deref() == state.deploy_command();
     let guide = state.shows_local_access_guide();
     let minting = phase == DeployPhase::Minting;
     let generates = minting || phase == DeployPhase::Ready;
@@ -67,11 +71,13 @@ pub fn MachineDeployDialog(on_close: EventHandler<()>) -> Element {
                 variant: ButtonVariant::Secondary,
                 "data-testid": "machine-deploy-copy",
                 onclick: move |_| {
-                    if let Some(command) = model.peek().deploy_command() {
-                        copy_command(command);
+                    let command = model.peek().deploy_command().map(str::to_owned);
+                    if let Some(command) = command {
+                        copy_command(&command);
+                        copied_command.set(Some(command));
                     }
                 },
-                if command_copied() { "Copied" } else { "Copy command" }
+                if command_copied { "Copied" } else { "Copy command" }
             }
             DialogClose { "Done" }
         } else {

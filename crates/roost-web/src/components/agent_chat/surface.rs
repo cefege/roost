@@ -334,13 +334,16 @@ fn copy_code_block(event: &MouseEvent) {
             .and_then(|block| block.query_selector("code").ok().flatten())
             .and_then(|code| code.text_content())
             .unwrap_or_default();
-        if crate::components::hooks::use_copy_clipboard::copy_text(&code) {
+        crate::components::hooks::use_copy_clipboard::copy_text_then(&code, move |accepted| {
+            if !accepted {
+                return;
+            }
             button.set_text_content(Some("Copied"));
             wasm_bindgen_futures::spawn_local(async move {
                 crate::components::terminal::dom::sleep_ms(1_500).await;
                 button.set_text_content(Some("Copy"));
             });
-        }
+        });
     }
 }
 

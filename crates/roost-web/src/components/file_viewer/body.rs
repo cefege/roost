@@ -10,7 +10,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, ScrollArea};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, Icon, IconType, ScrollArea};
 use crate::syntax_lite::Token;
 
 use super::state::token_color;
@@ -96,9 +96,10 @@ fn FileBodyLine(
                 title: label.clone(),
                 "aria-label": label,
                 onclick: move |_| on_copy.call(number),
-                span {
-                    class: if copied { "text-success" } else { "text-muted-foreground" },
-                    if copied { "✓" } else { "#" }
+                if copied {
+                    Icon { icon: IconType::Check, class: "size-3 text-success" }
+                } else {
+                    span { class: "text-muted-foreground", "#" }
                 }
             }
         }

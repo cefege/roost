@@ -206,7 +206,9 @@ body {
   }
 }
 
-@media (max-width: 599px), (max-height: 599px) {
+/* The phone boundary: keep in step with `MOBILE_QUERY` in
+   src/components/hooks/use_is_mobile.rs. */
+@media (max-width: 599.98px), (max-height: 599.98px) {
   :root {
     --term-chat-rest-height: 96px;
     --term-chat-dock-rest-offset: calc(env(safe-area-inset-bottom, 0px) + 12px);

@@ -125,9 +125,13 @@ fn ScannableCode(
     clock_ms: u64,
     on_regenerate: EventHandler<MouseEvent>,
 ) -> Element {
-    let (copy_link, link_copied) = use_copy_clipboard(None);
+    let (copy_link, copied) = use_copy_clipboard(None);
+    // "New code" replaces a one-time link, so the confirmation belongs to the
+    // link it copied, not to whichever link the card shows now.
+    let mut copied_link = use_signal(|| None::<String>);
     let remaining = expiry_phrase(clock_ms, pairing.expires_at_ms);
     let link = pairing.link.clone();
+    let link_copied = copied() && copied_link.read().as_deref() == Some(link.as_str());
     rsx! {
         div { class: "flex flex-wrap items-center gap-5",
             if let Some(remaining) = remaining.clone() {
@@ -157,9 +161,12 @@ fn ScannableCode(
                     }
                     Button {
                         variant: ButtonVariant::Ghost,
-                        icon: Some(if link_copied() { IconType::Check } else { IconType::Copy }),
-                        onclick: move |_| copy_link(&link),
-                        if link_copied() { "Link copied" } else { "Copy link" }
+                        icon: Some(if link_copied { IconType::Check } else { IconType::Copy }),
+                        onclick: move |_| {
+                            copied_link.set(Some(link.clone()));
+                            copy_link(&link);
+                        },
+                        if link_copied { "Link copied" } else { "Copy link" }
                     }
                 }
             }

@@ -8,7 +8,7 @@ use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
 use roost_client_core::store::shell_intent::ShellIntent;
 
-use crate::components::hooks::use_copy_clipboard::copy_text;
+use crate::components::hooks::use_copy_clipboard::copy_text_then;
 use crate::components::ui::context_menu::ContextMenuItem;
 use crate::machine_actions::{
     MachineAction, MachineLaunch, MachineMenuKind, NO_REACHABLE_ADDRESS_TOOLTIP, machine_actions,
@@ -83,13 +83,15 @@ fn perform_machine_action(pump: &Pump, action: MachineAction, host: &str) {
             }
         }
         MachineLaunch::CopyText { text } => {
-            if copy_text(&text) {
-                pump.dispatch(ClientEvent::Shell(ShellIntent::ActionSucceeded {
-                    message: format!("Copied {text}"),
-                }));
-            } else {
-                report_failure(pump, action, "the clipboard is unavailable");
-            }
+            let pump = pump.clone();
+            let message = format!("Copied {text}");
+            copy_text_then(&text, move |accepted| {
+                if accepted {
+                    pump.dispatch(ClientEvent::Shell(ShellIntent::ActionSucceeded { message }));
+                } else {
+                    report_failure(&pump, action, "the browser refused the clipboard write");
+                }
+            });
         }
         MachineLaunch::Download {
             file_name,

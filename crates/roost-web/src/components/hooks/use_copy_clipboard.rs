@@ -1,9 +1,9 @@
 //! rust-ui's `use_copy_clipboard`, and the one clipboard write in the client:
 //! a component's Copy button takes the hook and its `copied` flag; a reader
 //! with no component to hold one (a terminal selection, a delegated code
-//! block, a menu item) calls [`copy_text`] or [`copy_text_then`]. Unlike the
-//! registry source, `copied` claims only a write the browser accepted, and its
-//! timer never clears a newer copy's flag or writes a dropped signal.
+//! block, a menu item) calls [`copy_text_then`]. Unlike the registry source,
+//! `copied` rises only once the browser has accepted the write, and its timer
+//! never clears a newer copy's flag or writes a dropped signal.
 
 use dioxus::prelude::*;
 
@@ -13,24 +13,40 @@ use wasm_bindgen::JsCast as _;
 const DEFAULT_TIMEOUT_MS: i32 = 2000;
 
 /// A copy function and whether its last copy is still being shown, for
-/// `timeout_ms` (two seconds when `None`).
+/// `timeout_ms` (two seconds when `None`). The flag rises when the browser
+/// accepts the write; a refused write leaves it down.
 pub fn use_copy_clipboard(timeout_ms: Option<i32>) -> (impl Fn(&str) + Clone, ReadSignal<bool>) {
     let copied = use_signal(|| false);
     let latest = use_hook(|| CopyValue::new(0_u64));
+    // Converted once: every `From<Signal>` allocates a box the scope keeps.
+    let copied_read = use_hook(move || ReadSignal::from(copied));
     let timeout = timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS);
 
     let copy_fn = move |text: &str| {
-        if !copy_text(text) {
-            return;
-        }
-        let (mut copied, mut latest) = (copied, latest);
-        let ticket = *latest.peek() + 1;
-        latest.set(ticket);
-        copied.set(true);
-        clear_after(timeout, ticket, latest, copied);
+        copy_text_then(text, move |accepted| {
+            if accepted {
+                show_copied(timeout, latest, copied);
+            }
+        });
     };
 
-    (copy_fn, copied.into())
+    (copy_fn, copied_read)
+}
+
+/// Raise `copied` for `timeout_ms`. The verdict can land after the component
+/// unmounted, so every write here tolerates a dropped signal.
+fn show_copied(timeout_ms: i32, latest: CopyValue<u64>, copied: Signal<bool>) {
+    let (mut latest, mut copied) = (latest, copied);
+    let Ok(ticket) = latest.try_write().map(|mut latest| {
+        *latest += 1;
+        *latest
+    }) else {
+        return;
+    };
+    if let Ok(mut flag) = copied.try_write() {
+        *flag = true;
+    }
+    clear_after(timeout_ms, ticket, latest, copied);
 }
 
 /// Lower `copied` once `timeout_ms` has passed, unless a newer copy owns it
@@ -57,47 +73,11 @@ fn clear_after(timeout_ms: i32, ticket: u64, latest: CopyValue<u64>, copied: Sig
     let _ = (timeout_ms, ticket, latest, copied);
 }
 
-/// Copy `text`, reporting whether the write was accepted.
-///
-/// A denial is deliberately indistinguishable from success at the call sites
-/// that do not care, and distinguishable at the ones that do — the hook's
-/// `copied` flag, and the menu and history rows that only claim "Copied" when
-/// this returned true.
-pub fn copy_text(text: &str) -> bool {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let Some((clipboard, write_text)) = clipboard_writer() else {
-            return false;
-        };
-        let Ok(written) = write_text
-            .call1(&clipboard, &wasm_bindgen::JsValue::from_str(text))
-            .and_then(|written| written.dyn_into::<js_sys::Promise>())
-        else {
-            return false;
-        };
-        // The write itself resolves later. The synchronous answer is the
-        // capability check, so a denial — permission, insecure context, no
-        // activation — is logged where the caller cannot see it.
-        wasm_bindgen_futures::spawn_local(async move {
-            if let Err(error) = wasm_bindgen_futures::JsFuture::from(written).await {
-                tracing::debug!(target: "clipboard", ?error, "clipboard write refused");
-            }
-        });
-        true
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = text;
-        false
-    }
-}
-
-/// Copy `text` and report the browser's VERDICT once the write settles.
-///
-/// [`copy_text`] answers synchronously and so can only report that the write
-/// was attempted. A write that is not inside a user gesture is the case that
-/// needs the real answer: Safari and Firefox refuse it asynchronously, and the
-/// caller must then offer a Copy button rather than claim the text was copied.
+/// Copy `text` and report the browser's verdict once the write settles:
+/// `true` only for a write the browser accepted. A refusal — no clipboard in
+/// an insecure context, no permission, no user activation (Safari and Firefox
+/// refuse a write outside a gesture asynchronously) — reports `false`, and the
+/// caller then offers a Copy button rather than claim the text was copied.
 pub fn copy_text_then(text: &str, on_settled: impl FnOnce(bool) + 'static) {
     #[cfg(target_arch = "wasm32")]
     {

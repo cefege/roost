@@ -58,6 +58,7 @@ pub fn ToastCard(toast_id: ToastId) -> Element {
     let compact = use_is_compact();
     let notify_target = use_context::<NotifyTarget>();
     let (copy_to_clipboard, copied) = use_copy_clipboard(None);
+    let mut copied_text = use_signal(|| None::<String>);
     let held = use_signal(|| false);
 
     let toast = {
@@ -185,9 +186,14 @@ pub fn ToastCard(toast_id: ToastId) -> Element {
         Some(detail) => format!("{}\n{detail}", toast.msg),
         None => toast.msg.clone(),
     };
-    // A denial leaves the label unchanged: the card text stays selectable.
-    let copy: EventHandler<MouseEvent> =
-        EventHandler::new(move |_event: MouseEvent| copy_to_clipboard(&copy_text));
+    // A toast replaced under its id keeps this card with new text, so the
+    // confirmation belongs to the text it copied. A refusal raises none, and
+    // the card text stays selectable.
+    let copy_confirmed = copied() && copied_text.read().as_deref() == Some(copy_text.as_str());
+    let copy: EventHandler<MouseEvent> = EventHandler::new(move |_event: MouseEvent| {
+        copied_text.set(Some(copy_text.clone()));
+        copy_to_clipboard(&copy_text);
+    });
 
     let action = rsx! {
         ToastActionRow {
@@ -195,7 +201,7 @@ pub fn ToastCard(toast_id: ToastId) -> Element {
             // Copy is noise on a three-word success line; it earns its slot only
             // where there is output worth keeping.
             show_copy: toast.kind == ToastKind::Err || toast.details.is_some(),
-            copied,
+            copied: copy_confirmed,
             button_size: if compact { ButtonSize::Sm } else { ButtonSize::Xs },
             icon_size: if compact { ButtonSize::IconSm } else { ButtonSize::IconXs },
             on_reveal: reveal,
@@ -308,14 +314,13 @@ fn release_toast_dismissal(
 fn ToastActionRow(
     label: Option<String>,
     show_copy: bool,
-    copied: ReadSignal<bool>,
+    copied: bool,
     button_size: ButtonSize,
     icon_size: ButtonSize,
     on_reveal: EventHandler<MouseEvent>,
     on_copy: EventHandler<MouseEvent>,
     on_dismiss: EventHandler<MouseEvent>,
 ) -> Element {
-    let copied_now = copied();
     rsx! {
         if let Some(label) = label.as_ref() {
             Button {
@@ -334,13 +339,13 @@ fn ToastActionRow(
             Button {
                 variant: ButtonVariant::Ghost,
                 size: button_size,
-                title: if copied_now { "Copied to clipboard" } else { "Copy full message" },
+                title: if copied { "Copied to clipboard" } else { "Copy full message" },
                 class: "shrink-0",
                 onclick: move |event: MouseEvent| {
                     event.stop_propagation();
                     on_copy.call(event);
                 },
-                if copied_now { "Copied" } else { "Copy" }
+                if copied { "Copied" } else { "Copy" }
             }
         }
         IconButton {

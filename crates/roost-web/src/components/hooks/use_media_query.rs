@@ -34,7 +34,8 @@ pub fn use_media_query(query: &str) -> ReadSignal<bool> {
     {
         let _listener = use_hook(|| Rc::new(MatchListener::attach(query, is_match)));
     }
-    is_match.into()
+    // Converted once: every `From<Signal>` allocates a box the scope keeps.
+    use_hook(move || ReadSignal::from(is_match))
 }
 
 #[cfg(target_arch = "wasm32")]
