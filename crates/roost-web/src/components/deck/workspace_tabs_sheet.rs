@@ -5,7 +5,7 @@
 
 use crate::components::ui::{
     Button, ButtonVariant, Card, EmptyState, Icon, IconButton, IconType, Sheet, SheetContent,
-    SheetSide, StatusDot,
+    SheetSide, SheetTitle, StatusDot,
 };
 use dioxus::prelude::*;
 use roost_client_core::store::selectors::session_by_id;
@@ -117,6 +117,7 @@ pub fn WorkspaceTabsSheet(
                 show_close_button: false,
                 close_on_backdrop_click: false,
                 class: "bottom-0 h-full flex flex-col overflow-hidden border-0 bg-background p-0 pt-[env(safe-area-inset-top,0px)] shadow-none",
+                SheetTitle { class: "sr-only", "Workspace tabs" }
                 div { class: "flex items-center gap-2 h-14 shrink-0 px-2 border-b border-border text-foreground",
                     if !selection_mode() {
                         IconButton {

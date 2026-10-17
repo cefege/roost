@@ -33,6 +33,12 @@ pub fn SheetTrigger(#[props(into, optional)] class: Option<String>, children: El
     rsx! { DialogTrigger { class, {children} } }
 }
 
+/// A bottom sheet rides above the soft keyboard `--kb-offset` measures and
+/// gives up the height it covers. Inside an editor region that the keyboard
+/// already translates (`data-keyboard-shift`), that translate is the sheet's
+/// containing block, so lifting again would push its top off the screen.
+const BOTTOM_KEYBOARD_LIFT: &str = "bottom-[max(var(--kb-offset),0px)] max-h-[calc(90dvh-max(var(--kb-offset),0px))] in-data-[keyboard-shift=true]:bottom-0";
+
 /// The sheet panel. Each side resets the dialog's centring and sizes the panel
 /// to that edge; the caller's `class` is appended last so it wins a conflict.
 #[component]
@@ -48,9 +54,15 @@ pub fn SheetContent(
     on_close_auto_focus: Option<EventHandler<AutoFocusRequest>>,
     children: Element,
 ) -> Element {
+    let keyboard_lift = if side == SheetSide::Bottom {
+        BOTTOM_KEYBOARD_LIFT
+    } else {
+        ""
+    };
     let merged = tw_merge!(
         side_class(side),
         "bg-card shadow-lg overflow-y-auto overscroll-y-contain",
+        keyboard_lift,
         class.as_deref().unwrap_or("")
     );
     rsx! {

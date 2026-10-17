@@ -83,11 +83,12 @@ pub fn TerminalCard(
 
     rsx! {
         Card {
-            class: Some("relative min-w-0 cursor-pointer overflow-hidden rounded-[24px] border-0 py-0 gap-0 text-left text-foreground shadow-sm [-webkit-tap-highlight-color:transparent] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[active=true]:ring-2 data-[active=true]:ring-primary data-[selected=true]:ring-2 data-[selected=true]:ring-primary".to_owned()),
+            class: Some("relative min-w-0 cursor-pointer overflow-hidden rounded-3xl border-0 py-0 gap-0 text-left text-foreground shadow-sm [-webkit-tap-highlight-color:transparent] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[active=true]:ring-2 data-[active=true]:ring-primary data-[selected=true]:ring-2 data-[selected=true]:ring-primary".to_owned()),
             "data-testid": "terminal-card-{id}",
             "data-active": if active { "true" } else { "false" },
             "data-selected": if selected { "true" } else { "false" },
             role: "button",
+            "aria-pressed": selection_mode.then(|| selected.to_string()),
             tabindex: "0",
             title: "{name}",
             style,
@@ -155,14 +156,14 @@ pub fn TerminalCard(
                 Checkbox {
                     class: Some("absolute top-1.5 right-1.5 z-[1] size-6 rounded-full border-2 bg-card dark:bg-card".to_owned()),
                     checked: selected,
-                    aria_label: "Select terminal session",
                     test_id: format!("terminal-card-check-{id}"),
+                    presentational: true,
                 }
             }
             div { class: "relative m-1 h-40 overflow-hidden rounded-[12px_12px_20px_20px] bg-[var(--surface-0)]",
                 match preview {
                     Some(rows) if !rows.is_empty() => rsx! {
-                        div { class: "block size-full overflow-hidden rounded-[inherit] px-1.5 py-1 font-mono text-[0.4375rem] leading-[1.2] whitespace-pre box-border text-terminal-foreground [&_span]:animate-none!",
+                        div { class: "block size-full overflow-hidden rounded-[inherit] px-1.5 py-1 font-mono text-preview whitespace-pre box-border text-terminal-foreground [&_span]:animate-none!",
                             for (index, row) in rows.iter().enumerate() {
                                 PreviewRow { key: "{index}", row: row.clone() }
                             }

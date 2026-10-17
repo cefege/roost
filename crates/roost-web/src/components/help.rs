@@ -37,7 +37,7 @@ pub fn HelpSurface() -> Element {
         .collect();
     rsx! {
         div { class: "box-border flex h-full min-h-0 w-full flex-col overflow-auto bg-[var(--workbench-editor)] p-6 text-foreground",
-            div { class: "mx-auto max-w-[520px]",
+            div { class: "mx-auto max-w-lg",
                 h2 { class: "mt-0 mb-5 text-xl", "Help / Keybindings" }
                 Table { class: "border-collapse",
                     TableBody {

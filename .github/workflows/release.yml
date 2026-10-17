@@ -244,7 +244,7 @@ jobs:
           test -f target/dx/roost-web/release/web/public/index.html
           # dx compiles crates/roost-web/tailwind.css with its own Tailwind
           # download; a build that skipped it ships a page with no utilities.
-          test -s target/dx/roost-web/release/web/public/styles/tailwind.css
+          grep -q '\.bg-primary' target/dx/roost-web/release/web/public/styles/tailwind.css
       - name: the bundle must carry no test backdoor
         run: |
           set -euo pipefail

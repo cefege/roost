@@ -23,6 +23,10 @@
 
 @theme inline {
   --font-sans: var(--font-ui);
+  /* The miniature terminal preview on tab cards and the tab hover card: a
+     scale step of its own so the preview text is one declared value. */
+  --text-preview: 0.4375rem;
+  --text-preview--line-height: 1.2;
 
   --radius-xs: 0.25rem;
   --radius-sm: 0.375rem;

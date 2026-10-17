@@ -15,6 +15,10 @@ pub enum SeparatorOrientation {
 pub fn Separator(
     #[props(into, optional)] class: Option<String>,
     #[props(default = SeparatorOrientation::default())] orientation: SeparatorOrientation,
+    /// Purely visual: `role="none"`, as Radix's `decorative`. Required inside a
+    /// container whose role admits only specific children, such as a listbox.
+    #[props(default = false)]
+    decorative: bool,
 ) -> Element {
     let orientation_class = match orientation {
         SeparatorOrientation::Horizontal => "w-full h-[1px]",
@@ -27,6 +31,6 @@ pub fn Separator(
     );
 
     rsx! {
-        div { class: "{merged_class}", role: "separator" }
+        div { class: "{merged_class}", role: if decorative { "none" } else { "separator" } }
     }
 }

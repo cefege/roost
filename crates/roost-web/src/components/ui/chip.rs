@@ -14,7 +14,7 @@ pub fn chip_selected_attribute(selected: Option<bool>) -> Option<&'static str> {
 }
 
 const CHIP_RECIPE: &str = "gap-1 rounded-full font-medium [&_svg:not([class*='size-'])]:size-3 data-[selected=true]:border-transparent data-[selected=true]:bg-primary data-[selected=true]:text-primary-foreground";
-const CHIP_INTERACTIVE_RECIPE: &str = "gap-1 rounded-full font-medium [&_svg:not([class*='size-'])]:size-3 data-[selected=true]:border-transparent data-[selected=true]:bg-primary data-[selected=true]:text-primary-foreground cursor-pointer hover:bg-accent disabled:pointer-events-none disabled:opacity-50 aria-busy:cursor-wait";
+const CHIP_INTERACTIVE_RECIPE: &str = "gap-1 rounded-full font-medium [&_svg:not([class*='size-'])]:size-3 data-[selected=true]:border-transparent data-[selected=true]:bg-primary data-[selected=true]:text-primary-foreground cursor-pointer hover:bg-accent disabled:pointer-events-none disabled:opacity-50 aria-busy:cursor-wait any-pointer-coarse:min-h-(--control-touch-target)";
 
 fn chip_class(small: bool, interactive: bool, class: &str) -> String {
     let size = if small {

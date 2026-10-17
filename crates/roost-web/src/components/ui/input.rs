@@ -116,7 +116,7 @@ pub fn Input(
         "focus-visible:border-ring focus-visible:ring-ring/50",
         "focus-visible:ring-2",
         "aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
-        "read-only:bg-muted",
+        "read-only:bg-muted any-pointer-coarse:min-h-(--control-touch-target)",
         class.as_deref().unwrap_or("")
     );
     let aria_invalid_attribute = aria_invalid.then_some("true");

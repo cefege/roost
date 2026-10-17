@@ -68,7 +68,19 @@ pub fn provide_menu_root(root: MenuRoot) -> MenuContext {
         placement: Signal::new(MenuPlacement::Point { x: 0.0, y: 0.0 }),
         focus_request: Signal::new(None),
     });
-    context.root.set(root);
+    // Only a data change is written: a write per render would re-render every
+    // part on every render of the root. The stored `on_open_change` needs no
+    // refresh because Dioxus repoints a re-rendered prop callback in place.
+    let changed = {
+        let current = context.root.peek();
+        current.open != root.open
+            || current.trigger_id != root.trigger_id
+            || current.menu_id != root.menu_id
+            || current.test_id != root.test_id
+    };
+    if changed {
+        context.root.set(root);
+    }
     context
 }
 

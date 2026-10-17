@@ -104,7 +104,7 @@ fn FileBodyLine(
             Button {
                 variant: ButtonVariant::Ghost,
                 size: ButtonSize::Xs,
-                class: "ml-auto shrink-0 min-h-0 px-1 text-xs opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+                class: "ml-auto shrink-0 min-h-0 any-pointer-coarse:min-h-0 px-1 text-xs opacity-0 group-hover:opacity-100 focus-visible:opacity-100 tv:opacity-100 pad:opacity-100",
                 "data-testid": "file-viewer-sheet-copy-link-{number}",
                 title: label.clone(),
                 "aria-label": label,

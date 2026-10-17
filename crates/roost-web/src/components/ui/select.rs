@@ -29,8 +29,8 @@ use super::select_placement::AnchorRect;
 /// The placeholder shown when no option matches the value.
 pub const DEFAULT_SELECT_PLACEHOLDER: &str = "Select an option";
 
-/// Rust/UI's select trigger recipe, verbatim.
-const TRIGGER_CLASS: &str = "w-full p-2 h-9 inline-flex items-center justify-between text-sm font-medium whitespace-nowrap rounded-md transition-colors focus:outline-none focus:ring-1 focus:ring-ring focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&_svg:not(:last-child)]:mr-2 [&_svg:not(:first-child)]:ml-2 [&_svg:not([class*='size-'])]:size-4 border bg-background border-input hover:bg-accent hover:text-accent-foreground";
+/// Rust/UI's select trigger recipe, plus the coarse-pointer touch floor.
+const TRIGGER_CLASS: &str = "w-full p-2 h-9 inline-flex items-center justify-between text-sm font-medium whitespace-nowrap rounded-md transition-colors focus:outline-none focus:ring-1 focus:ring-ring focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&_svg:not(:last-child)]:mr-2 [&_svg:not(:first-child)]:ml-2 [&_svg:not([class*='size-'])]:size-4 border bg-background border-input hover:bg-accent hover:text-accent-foreground any-pointer-coarse:min-h-(--control-touch-target)";
 
 /// Rust/UI's select label, verbatim.
 const LABEL_CLASS: &str = "px-2 py-1.5 text-sm font-medium mb-1";

@@ -251,7 +251,7 @@ fn RoleRowLine(
     let aria_selected = if selected { "true" } else { "false" };
     match row {
         RolesRow::Separator => rsx! {
-            Separator { class: "my-1" }
+            Separator { class: "my-1", decorative: true }
         },
         RolesRow::NewFallback => rsx! {
             ListRow {

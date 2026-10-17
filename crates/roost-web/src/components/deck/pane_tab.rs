@@ -147,7 +147,7 @@ pub fn PaneTab(
                 icon: IconType::X,
                 label: if agent_status.is_some() { "Close agent" } else { "Close terminal" },
                 size: ButtonSize::IconSm,
-                class: "shrink-0 size-6 text-muted-foreground opacity-0 pointer-events-none transition-opacity duration-150 hover:text-foreground group-hover/tab:opacity-100 group-hover/tab:pointer-events-auto group-focus-within/tab:opacity-100 group-data-[active=true]/tab:opacity-100 group-data-[active=true]/tab:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto group-data-[packed=true]/strip:hidden group-data-[packed=true]/strip:group-data-[active=true]/tab:inline-flex",
+                class: "shrink-0 size-6 text-muted-foreground opacity-0 pointer-events-none transition-opacity duration-150 hover:text-foreground group-hover/tab:opacity-100 group-hover/tab:pointer-events-auto group-focus-within/tab:opacity-100 group-data-[active=true]/tab:opacity-100 group-data-[active=true]/tab:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto tv:opacity-100 tv:pointer-events-auto pad:opacity-100 pad:pointer-events-auto group-data-[packed=true]/strip:hidden group-data-[packed=true]/strip:group-data-[active=true]/tab:inline-flex",
                 "data-testid": "tab-close-{session_id}",
                 onclick: move |event| on_close.call(event),
             }
