@@ -13,7 +13,8 @@ use super::interaction_cards::TodoCard;
 use super::loop_controls::LoopControls;
 use super::model_controls::{ModelSetup, ModelSetupCard};
 use super::model_hub::ModelHub;
-use super::surface_state::{latest_todo, loop_status};
+use super::surface_state::{assistant_is_streaming, latest_todo, loop_status};
+use super::working_row::{WorkingRow, working_label};
 use crate::components::md::{ButtonVariant, EmptyState, IconButton, IconButtonSize, Skeleton};
 use crate::pump::use_store;
 
@@ -217,6 +218,11 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
                 }
             }
             div { class: "agent-chat__dock",
+                if running {
+                    WorkingRow {
+                        label: if assistant_is_streaming(&transcript) { "Writing…".to_string() } else { working_label(&transcript.items) },
+                    }
+                }
                 if !pinned_to_bottom() {
                     IconButton {
                         icon: "arrow_downward",

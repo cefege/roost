@@ -640,7 +640,6 @@
 .agent-chat__working-char--low { color: var(--chat-faint); }
 .agent-chat__working-char--mid { color: var(--md-sys-color-on-surface-variant); }
 .agent-chat__working-char--high { color: var(--chat-accent); }
-.agent-chat__working--paused { display: none; }
 
 /* ── alerts ── */
 
@@ -670,6 +669,9 @@
 
 .agent-chat__dock {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-space-3);
   flex: 0 0 auto;
   width: 100%;
   max-width: calc(var(--agent-chat-column) + var(--md-space-5) * 2);

@@ -1,18 +1,15 @@
-//! Retry, rewind and fork controls attached to transcript messages.
+//! Retry and rewind controls attached to transcript messages.
 //! Rewind changes the transcript before any draft is restored to the composer.
 
 use dioxus::prelude::*;
 
 use crate::components::md::{Button, ButtonVariant, Checkbox, Dialog};
 use crate::pump::Pump;
-use crate::router_state::use_navigate;
 
 #[cfg(target_arch = "wasm32")]
 use super::request_ids::new_request_id;
 #[cfg(target_arch = "wasm32")]
-use roost_client_core::client::rpc::calls::agent_chat::{
-    ForkAgentChat, RewindAgentChat, SubmitAgentChat,
-};
+use roost_client_core::client::rpc::calls::agent_chat::{RewindAgentChat, SubmitAgentChat};
 
 #[component]
 pub fn UserMessageActions(
@@ -54,14 +51,6 @@ pub fn UserMessageActions(
                 }
             }
         }
-    }
-}
-
-#[component]
-pub fn ForkMessageAction(conversation_id: String, item_id: String, pump: Pump) -> Element {
-    let navigate = use_navigate();
-    rsx! {
-        Button { variant: ButtonVariant::Ghost, icon: "call_split", onclick: move |_| fork_from(pump.clone(), conversation_id.clone(), item_id.clone(), navigate), "Fork from here" }
     }
 }
 
@@ -112,28 +101,6 @@ fn rewind_to(
     });
     #[cfg(not(target_arch = "wasm32"))]
     let _ = (pump, conversation_id, item_id, restore_files, draft);
-}
-
-fn fork_from(pump: Pump, conversation_id: String, item_id: String, navigate: EventHandler<String>) {
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_futures::spawn_local(async move {
-        match pump
-            .rpc()
-            .call(&ForkAgentChat {
-                conversation_id,
-                item_id,
-                request_id: new_request_id(),
-            })
-            .await
-        {
-            Ok(conversation) => navigate.call(crate::routes::agent_href(&conversation.id)),
-            Err(error) => {
-                tracing::warn!(target: "agent_chat", %error, "agent conversation fork failed")
-            }
-        }
-    });
-    #[cfg(not(target_arch = "wasm32"))]
-    let _ = (pump, conversation_id, item_id, navigate);
 }
 
 #[cfg(target_arch = "wasm32")]

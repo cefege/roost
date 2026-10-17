@@ -88,7 +88,7 @@ fn reduced_motion() -> bool {
 }
 
 #[component]
-pub(crate) fn WorkingRow(label: String, paused: bool) -> Element {
+pub(crate) fn WorkingRow(label: String) -> Element {
     let started_ms = use_hook(now_ms);
     let mut clock_ms = use_signal(now_ms);
     let reduced = reduced_motion();
@@ -115,7 +115,7 @@ pub(crate) fn WorkingRow(label: String, paused: bool) -> Element {
 
     rsx! {
         div {
-            class: if paused { "agent-chat__working agent-chat__working--paused" } else { "agent-chat__working" },
+            class: "agent-chat__working",
             Spinner { frame: spinner }
             span { class: "agent-chat__working-elapsed", "{format_duration(elapsed_ms)}" }
             span { class: "agent-chat__working-sep", "aria-hidden": "true", " · " }

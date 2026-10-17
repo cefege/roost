@@ -14,7 +14,7 @@ use super::advisory_card::AdvisoryCard;
 use super::agent_alert::AgentAlert;
 use super::background_job_box::BackgroundJobBox;
 use super::interaction_cards::{AskCard, BtwCard};
-use super::message_actions::{ForkMessageAction, UserMessageActions};
+use super::message_actions::UserMessageActions;
 use super::notice_card::NoticeCard;
 use super::peer_message_card::PeerMessageCard;
 use super::plan_card::PlanCard;
@@ -22,7 +22,6 @@ use super::queued_band::QueuedBand;
 use super::streaming_reveal::StreamingText;
 use super::thinking_block::ThinkingBlock;
 use super::tool_card::ToolCard;
-use super::working_row::{WorkingRow, working_label};
 use crate::components::md::{
     Button, ButtonVariant, Icon, IconButton, IconButtonSize, IconSize, StatusDot, Surface,
     SurfaceRadius,
@@ -50,8 +49,6 @@ pub fn AgentTranscriptView(
     draft: Signal<String>,
 ) -> Element {
     let segments = segments(&transcript);
-    let streaming = assistant_is_streaming(&transcript);
-    let running = transcript.run_state == AgentRunState::Running;
     let has_tools = transcript
         .items
         .iter()
@@ -104,7 +101,7 @@ pub fn AgentTranscriptView(
                         UserMessage { key: "{id}", id: id.clone(), text: text.clone(), conversation_id: conversation_id.clone(), draft, pump: pump.clone() }
                     },
                     Segment::Assistant(TranscriptItem::Assistant { id, blocks, streaming, error }) => rsx! {
-                        AssistantMessage { key: "{id}", id: id.clone(), blocks: blocks.clone(), streaming: *streaming, error: error.clone(), show_thinking: show_thinking(), conversation_id: conversation_id.clone(), pump: pump.clone() }
+                        AssistantMessage { key: "{id}", blocks: blocks.clone(), streaming: *streaming, error: error.clone(), show_thinking: show_thinking() }
                     },
                     Segment::Steps(_) if !show_tools() => rsx! {},
                     Segment::Steps(steps) => rsx! {
@@ -151,9 +148,6 @@ pub fn AgentTranscriptView(
                     _ => rsx! {},
                 }
             }
-            if running {
-                WorkingRow { label: working_label(&transcript.items), paused: streaming }
-            }
             if transcript.run_state == AgentRunState::Failed {
                 AgentAlert {
                     p { {transcript.error.clone().unwrap_or_else(|| "The agent stopped with an error.".to_string())} }
@@ -186,13 +180,10 @@ fn UserMessage(
 
 #[component]
 fn AssistantMessage(
-    id: String,
     blocks: Vec<TranscriptBlock>,
     streaming: bool,
     error: Option<String>,
     show_thinking: bool,
-    conversation_id: String,
-    pump: Pump,
 ) -> Element {
     let last_thinking = blocks
         .iter()
@@ -231,21 +222,18 @@ fn AssistantMessage(
             if let Some(error) = error {
                 AgentAlert { p { "{error}" } }
             }
-            if !streaming {
+            if !streaming && has_text {
                 div { class: "agent-chat__message-actions",
-                    if has_text {
-                        IconButton {
-                            icon: "content_copy",
-                            label: "Copy response",
-                            title: "Copy",
-                            variant: ButtonVariant::Ghost,
-                            size: IconButtonSize::Icon,
-                            onclick: move |_| {
-                                crate::components::notifications::clipboard::copy_text(&copy_text);
-                            },
-                        }
+                    IconButton {
+                        icon: "content_copy",
+                        label: "Copy response",
+                        title: "Copy",
+                        variant: ButtonVariant::Ghost,
+                        size: IconButtonSize::Icon,
+                        onclick: move |_| {
+                            crate::components::notifications::clipboard::copy_text(&copy_text);
+                        },
                     }
-                    ForkMessageAction { conversation_id: conversation_id.clone(), item_id: id.clone(), pump: pump.clone() }
                 }
             }
         }
@@ -302,21 +290,4 @@ fn step_group_key(steps: &[&TranscriptItem]) -> String {
         Some(TranscriptItem::Tool { id, .. }) => format!("steps-{id}"),
         _ => "steps".to_owned(),
     }
-}
-
-/// Whether the newest visible item is an assistant message still receiving
-/// text. Docked goal/status records are not transcript progress indicators.
-fn assistant_is_streaming(transcript: &Transcript) -> bool {
-    transcript
-        .items
-        .iter()
-        .rev()
-        .find_map(|item| match item {
-            TranscriptItem::Goal { .. }
-            | TranscriptItem::Todo { .. }
-            | TranscriptItem::LoopStatus { .. } => None,
-            TranscriptItem::Assistant { streaming, .. } => Some(*streaming),
-            _ => Some(false),
-        })
-        .unwrap_or(false)
 }

@@ -16,7 +16,7 @@ pub fn LoaderSpecimen() -> Element {
                 Spinner { frame: '⠋' }
                 span { style: "color: var(--text-mid);", "Spinner frame" }
             }
-            WorkingRow { label: "Reading config".to_string(), paused: false }
+            WorkingRow { label: "Reading config".to_string() }
         }
     }
 }
