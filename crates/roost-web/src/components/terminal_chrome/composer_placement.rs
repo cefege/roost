@@ -21,13 +21,4 @@ impl ComposerPlacement {
             Self::Pane => "pane",
         }
     }
-
-    /// The dock's own positioning: the pane dock flows with the pane, and the
-    /// viewport dock is pinned so the shell's bottom chrome can reserve for it.
-    pub const fn position(self) -> &'static str {
-        match self {
-            Self::Viewport => "position: fixed;",
-            Self::Pane => "position: relative;",
-        }
-    }
 }

@@ -64,7 +64,7 @@ pub enum CanonicalToken {
     WbTabHover,
     WbPaneDrop,
     WbPaneFocus,
-    // ANSI 16. Cell spans read these through the `--term-color-N` bridge in `sidebar.css`.
+    // ANSI 16. Cell spans read these through the `--term-color-N` bridge in `terminal-grid.css`.
     AnsiBlack,
     AnsiRed,
     AnsiGreen,

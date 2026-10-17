@@ -12,11 +12,11 @@ use dioxus::prelude::*;
 use super::dom::{now_ms, sleep_ms};
 use super::pane_handle::PaneHandle;
 use super::pane_state::PaneFlags;
-use crate::components::ui::{Icon, IconType};
 use crate::components::terminal_chrome::attachment_picker::ChosenFile;
 use crate::components::terminal_chrome::file_drop_dom::{
     PaneDropTarget, install_pane_drop_listeners,
 };
+use crate::components::ui::{Icon, IconType};
 
 /// How long a file drag may go without a `dragover` before its overlay is
 /// taken down. A drag over the page repeats `dragover` at most every 550 ms

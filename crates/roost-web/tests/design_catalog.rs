@@ -40,8 +40,9 @@ fn declared_properties(css: &str) -> BTreeSet<String> {
 /// The body of the first `@theme inline` block. It holds declarations only, so
 /// the first closing brace ends it.
 fn theme_block(css: &str) -> &str {
-    css.split_once("@theme inline")
-        .map_or("", |(_, rest)| rest.split_once('}').map_or(rest, |(block, _)| block))
+    css.split_once("@theme inline").map_or("", |(_, rest)| {
+        rest.split_once('}').map_or(rest, |(block, _)| block)
+    })
 }
 
 /// The names after `prefix` of every theme property that starts with it.
@@ -61,7 +62,10 @@ fn every_colour_role_in_the_theme_is_swatched_once() {
         .collect();
     assert_eq!(
         swatched_roles.iter().copied().collect::<BTreeSet<_>>(),
-        theme_roles.iter().map(String::as_str).collect::<BTreeSet<_>>(),
+        theme_roles
+            .iter()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>(),
         "the colour swatches must show exactly the roles the theme defines"
     );
     assert_eq!(
@@ -93,8 +97,7 @@ fn every_radius_step_is_defined_by_the_theme() {
         .filter_map(|step| step.label.strip_prefix("rounded-").map(str::to_string))
         .collect();
     assert_eq!(
-        shown_radii,
-        theme_radii,
+        shown_radii, theme_radii,
         "the shape scale must show exactly the radii the theme defines"
     );
 }

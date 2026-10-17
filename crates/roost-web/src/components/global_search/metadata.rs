@@ -21,8 +21,8 @@ use roost_client_core::store::navigation::{NavigationSearchAttention, Navigation
 use roost_client_core::store::sidebar::documents::store_navigation_documents;
 
 use crate::components::global_search::query::{SearchRouteQuery, SearchScope};
-use crate::components::ui::{EmptyState, IconType, List, ListRow, StatusDot};
 use crate::components::settings::format::relative_time;
+use crate::components::ui::{CommandItem, CommandList, EmptyState, Icon, IconType, StatusDot};
 use crate::platform::worker_paths::BrowserWorkerPaths;
 use crate::pump::use_store;
 use crate::router_state::use_navigate;
@@ -77,7 +77,7 @@ pub fn MetadataResults(route_query: SearchRouteQuery) -> Element {
             } else {
                 div { "data-testid": "global-search-results",
                     class: "flex flex-col gap-2",
-                    List { contained: true,
+                    CommandList { class: "flex flex-col gap-2 max-h-none min-h-0 overflow-visible",
                         for document in rows.iter() {
                             MetadataRow {
                                 document: document.clone(),
@@ -129,15 +129,18 @@ fn MetadataRow(
         "Unavailable".to_owned()
     };
     rsx! {
-        ListRow {
-            leading_icon: Some(IconType::Terminal),
-            headline: rsx! {
-                span { "data-testid": format!("global-search-title-{session_id}"),
+        CommandItem {
+            value: session_id.clone(),
+            class: "flex items-start gap-3 rounded-md px-3 py-2.5",
+            test_id: format!("global-search-result-{session_id}"),
+            show_check: false,
+            on_select: move |()| on_open.call(()),
+            Icon { icon: IconType::Terminal, class: "mt-0.5 size-4 shrink-0 text-muted-foreground" }
+            span { class: "flex min-w-0 flex-1 flex-col gap-1",
+                span { class: "text-sm font-medium text-foreground", "data-testid": format!("global-search-title-{session_id}"),
                     {document.display_title.clone()}
                 }
-            },
-            support: rsx! {
-                span { class: "flex flex-col gap-1",
+                span { class: "flex flex-col gap-1 text-xs text-muted-foreground",
                     span { {document.cwd.clone()} }
                     if !metadata.is_empty() {
                         span { {metadata} }
@@ -146,25 +149,21 @@ fn MetadataRow(
                         span { {message} }
                     }
                 }
-            },
-            trailing: rsx! {
-                span { class: "flex items-center gap-2 whitespace-nowrap",
-                    if let Some(label) = attention_label(document.agent_attention) {
-                        span { "data-testid": format!("global-search-attention-{session_id}"),
-                            {label}
-                        }
-                    }
-                    StatusDot {
-                        status: (if document.available { "ok" } else { "offline" }).to_owned(),
-                        title: (if document.available { "Available" } else { "Machine unavailable" }).to_owned(),
-                    }
-                    span { "data-testid": format!("global-search-availability-{session_id}"),
-                        {availability}
+            }
+            span { class: "flex shrink-0 items-center gap-2 whitespace-nowrap text-xs text-muted-foreground",
+                if let Some(label) = attention_label(document.agent_attention) {
+                    span { "data-testid": format!("global-search-attention-{session_id}"),
+                        {label}
                     }
                 }
-            },
-            onclick: move |_| on_open.call(()),
-            test_id: Some(format!("global-search-result-{session_id}")),
+                StatusDot {
+                    status: (if document.available { "ok" } else { "offline" }).to_owned(),
+                    title: (if document.available { "Available" } else { "Machine unavailable" }).to_owned(),
+                }
+                span { "data-testid": format!("global-search-availability-{session_id}"),
+                    {availability}
+                }
+            }
         }
     }
 }

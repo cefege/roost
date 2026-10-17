@@ -21,7 +21,7 @@ use super::floating_mount::{
 };
 use super::pane_handle::{PaneHandle, PaneMountRequest};
 use super::pane_registry::use_pane_registry;
-use super::pane_state::{PaneFlags, PaneUi, presentation_indicator};
+use super::pane_state::{PaneFlags, PaneUi, STREAM_INDICATOR_CLASS, presentation_indicator};
 use super::terminal_drop_target::{TerminalDropOverlay, use_terminal_file_drop};
 use super::terminal_find_bar::TerminalFindBar;
 use super::terminal_jump_to_live::TerminalJumpToLive;
@@ -264,10 +264,11 @@ pub fn CellTerminal(
             "data-testid": "cell-terminal-pane",
             "data-session-id": "{session_id}",
             "data-terminal-transport": (ui.transport)(),
+            class: "data-[bell=ring]:after:pointer-events-none data-[bell=ring]:after:absolute data-[bell=ring]:after:inset-0 data-[bell=ring]:after:bg-primary data-[bell=ring]:after:opacity-0 data-[bell=ring]:after:content-[''] data-[bell=ring]:after:animate-terminal-bell-flash motion-reduce:data-[bell=ring]:after:animate-none motion-reduce:data-[bell=ring]:after:bg-transparent motion-reduce:data-[bell=ring]:after:opacity-100 motion-reduce:data-[bell=ring]:after:shadow-[inset_0_0_0_0.25rem_var(--accent)]",
             style: "position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; overflow: hidden;",
             if let Some((state, title)) = indicator {
                 div {
-                    class: "terminal-stream-indicator",
+                    class: STREAM_INDICATOR_CLASS,
                     "data-testid": "terminal-stream-indicator",
                     "data-state": state,
                     title,

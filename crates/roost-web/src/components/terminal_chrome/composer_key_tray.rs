@@ -5,8 +5,8 @@
 
 use dioxus::prelude::*;
 
-use crate::components::ui::{ButtonSize, ButtonVariant, IconButton};
 use crate::components::terminal::terminal_nav_pad::{key_toggle_icon, key_toggle_label};
+use crate::components::ui::{ButtonSize, ButtonVariant, IconButton};
 
 /// The terminal keys a pane hands its composer, and whether they show.
 #[derive(Clone, PartialEq)]
@@ -42,7 +42,7 @@ pub fn ComposerKeyTray(tray: KeyTray) -> Element {
             label: key_toggle_label(open),
             variant: ButtonVariant::Ghost,
             size: ButtonSize::IconLg,
-            class: Some("term-chat__ctl term-chat__keys".to_owned()),
+            class: Some("!size-(--term-chat-control) !rounded-full tv:data-[open=true]:bg-accent tv:data-[open=true]:text-accent-foreground".to_owned()),
             "data-testid": "chat-keys",
             "data-open": if open { "true" } else { "false" },
             // A press must not pull focus off whatever the D-pad is on.

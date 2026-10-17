@@ -18,7 +18,10 @@ pub fn ScrollArea(#[props(into, optional)] class: Option<String>, children: Elem
 }
 
 #[component]
-pub fn ScrollAreaViewport(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn ScrollAreaViewport(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     let merged = tw_merge!(
         "focus-visible:ring-ring/50 size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:outline-1 overflow-auto",
         class.as_deref().unwrap_or("")
@@ -58,7 +61,10 @@ pub fn ScrollBar(
 
 #[component]
 pub fn ScrollAreaThumb(#[props(into, optional)] class: Option<String>) -> Element {
-    let merged = tw_merge!("bg-border relative flex-1 rounded-full", class.as_deref().unwrap_or(""));
+    let merged = tw_merge!(
+        "bg-border relative flex-1 rounded-full",
+        class.as_deref().unwrap_or("")
+    );
     rsx! { div { class: "{merged}" } }
 }
 

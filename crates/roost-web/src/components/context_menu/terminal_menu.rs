@@ -1,16 +1,22 @@
-//! The terminal context menu, with only actions backed by pane APIs.
-//! Floating desktop menus use roving focus; compact layouts use the same
-//! actions in a naturally focusable bottom sheet.
+//! The terminal context menu, with only actions backed by pane APIs. A desktop
+//! right-click opens a ui `ContextMenu` at the pointer; compact layouts show
+//! the same actions in a bottom sheet, which stays hand-rolled because it is
+//! docked with a scrim rather than anchored to a point.
+
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-use crate::components::context_menu::{
-    CtxMenuItem, ctx_menu_surface_style, use_floating_menu_dismiss,
-};
+use crate::components::context_menu::MenuFocusEdge;
 #[cfg(target_arch = "wasm32")]
-use crate::components::context_menu::{MenuFocusEdge, focus_menu_edge};
-use crate::components::ui::dom::viewport_height;
+use crate::components::context_menu::focus_menu_edge;
+use crate::components::deck::deck_dom;
+use crate::components::ui::context_menu::{ContextMenu, ContextMenuContent, ContextMenuItem};
+use crate::components::ui::dom::{FocusOpener, focused_element, restore_focus, viewport_height};
+use crate::components::ui::menu_overlay::{MenuContext, MenuPlacement, request_open};
 use crate::components::ui::{Icon, IconType};
+
 /// The actions this menu exposes, with stable test identifiers.
 pub const TERMINAL_MENU_ITEMS: &[(&str, &str)] = &[
     ("ctx-copy-selection", "Copy"),
@@ -64,75 +70,118 @@ pub fn fit_menu_origin(
     )
 }
 
-/// The cursor-anchored menu at viewport (`x`, `y`), moved on mount so it fits.
+/// The cursor-anchored menu at viewport (`x`, `y`). Focus returns to the pane
+/// that had it on close, so the terminal keeps receiving keys after an action.
 #[component]
 pub fn TerminalFloatingMenu(
     x: f64,
     y: f64,
-    menu_id: String,
     selection: String,
     on_copy: EventHandler<String>,
-    on_paste: EventHandler<()>,
     on_find: EventHandler<()>,
     on_close: EventHandler<()>,
     #[props(default)] on_start_agent: Option<EventHandler<()>>,
 ) -> Element {
-    use_floating_menu_dismiss(on_close, None, vec![menu_id.clone()]);
+    // A menu that takes focus and never gives it back strands keyboard input on
+    // `body`. The opener is captured before the menu moves focus to its first item.
+    let opener: Rc<RefCell<Option<FocusOpener>>> =
+        use_hook(|| Rc::new(RefCell::new(focused_element())));
+    use_drop(move || {
+        if let Some(opener) = opener.borrow().as_ref() {
+            restore_focus(opener);
+        }
+    });
+    let on_open_change = EventHandler::new(move |open: bool| {
+        if !open {
+            on_close.call(());
+        }
+    });
+    let copy_selection = selection.clone();
+    let has_selection = !selection.is_empty();
+    rsx! {
+        ContextMenu { open: true, on_open_change, test_id: "terminal-context-menu", aria_label: "Terminal actions",
+            FloatingMenuPlacement { key: "{x},{y}", x, y }
+            ContextMenuContent { class: "w-auto min-w-52 flex select-none flex-col",
+                if has_selection {
+                    ContextMenuItem {
+                        test_id: "ctx-copy-selection",
+                        onclick: move |_: MouseEvent| on_copy.call(copy_selection.clone()),
+                        "Copy"
+                    }
+                }
+                if let Some(on_start_agent) = on_start_agent {
+                    ContextMenuItem {
+                        test_id: "ctx-start-agent",
+                        onclick: move |_: MouseEvent| on_start_agent.call(()),
+                        Icon { icon: IconType::Bot, class: "size-4" }
+                        "Start agent here"
+                    }
+                }
+                ContextMenuItem {
+                    test_id: "ctx-find",
+                    onclick: move |_: MouseEvent| on_find.call(()),
+                    "Find"
+                }
+            }
+        }
+    }
+}
+
+/// Places the open floating menu at the pointer and focuses its first item.
+/// The point is written during render, so the first paint is already at the
+/// pointer. The flip past a viewport edge needs the rendered size, so it runs
+/// once the panel has mounted.
+#[component]
+fn FloatingMenuPlacement(x: f64, y: f64) -> Element {
+    let context = try_use_context::<MenuContext>();
+    use_hook(move || {
+        if let Some(context) = context {
+            request_open(
+                context,
+                Some(MenuPlacement::Point { x, y }),
+                Some(MenuFocusEdge::First),
+            );
+        }
+    });
+    use_effect(move || {
+        let Some(context) = context else {
+            return;
+        };
+        let menu_id = context.root.peek().menu_id.clone();
+        let viewport = (deck_dom::viewport_width(), viewport_height().unwrap_or(0.0));
+        let fitted = fit_menu_origin((x, y), rendered_menu_size(&menu_id), viewport);
+        if fitted != (x, y) {
+            request_open(
+                context,
+                Some(MenuPlacement::Point {
+                    x: fitted.0,
+                    y: fitted.1,
+                }),
+                None,
+            );
+        }
+    });
+    rsx! {}
+}
+
+/// The laid-out size of the mounted menu node, so the flip uses the width the
+/// browser gave the surface. Zero off-wasm, which keeps the cursor point.
+fn rendered_menu_size(menu_id: &str) -> (f64, f64) {
     #[cfg(target_arch = "wasm32")]
     {
-        let id = menu_id.clone();
-        use_hook(move || focus_menu_edge(&id, MenuFocusEdge::First));
+        web_sys::window()
+            .and_then(|window| window.document())
+            .and_then(|document| document.get_element_by_id(menu_id))
+            .map(|element| {
+                let rect = element.get_bounding_client_rect();
+                (rect.width(), rect.height())
+            })
+            .unwrap_or((0.0, 0.0))
     }
-    let mut origin = use_signal(|| (x, y));
-    let copy_selection = selection.clone();
-    let key_menu_id = menu_id.clone();
-    let (left, top) = origin();
-    rsx! {
-        div {
-            id: menu_id,
-            role: "menu",
-            "aria-label": "Terminal actions",
-            "data-testid": "terminal-context-menu",
-            "data-variant": "floating",
-            style: ctx_menu_surface_style(
-                left,
-                top,
-                crate::components::context_menu::DEFAULT_MENU_Z_INDEX,
-            ),
-            onmounted: move |event: MountedEvent| async move {
-                let Ok(rect) = event.data().get_client_rect().await else {
-                    return;
-                };
-                let viewport = (
-                    crate::components::deck::deck_dom::viewport_width(),
-                    viewport_height().unwrap_or(0.0),
-                );
-                origin.set(fit_menu_origin((x, y), (rect.width(), rect.height()), viewport));
-            },
-            onclick: move |event: MouseEvent| event.stop_propagation(),
-            oncontextmenu: move |event: MouseEvent| event.prevent_default(),
-            onkeydown: move |event: KeyboardEvent| run_terminal_menu_key(
-                &event,
-                &key_menu_id,
-                move || on_close.call(()),
-            ),
-            if !selection.is_empty() {
-                CtxMenuItem {
-                    testid: "ctx-copy-selection",
-                    onclick: move |_event| on_copy.call(copy_selection.clone()),
-                    "Copy"
-                }
-            }
-            if let Some(on_start_agent) = on_start_agent {
-                CtxMenuItem {
-                    testid: "ctx-start-agent",
-                    onclick: move |_| on_start_agent.call(()),
-                    Icon { icon: IconType::Bot, class: "size-4" }
-                    "Start agent here"
-                }
-            }
-            CtxMenuItem { testid: "ctx-find", onclick: move |_| on_find.call(()), "Find" }
-        }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = menu_id;
+        (0.0, 0.0)
     }
 }
 
@@ -162,10 +211,9 @@ pub fn TerminalActionSheet(
     }
     rsx! {
         div {
-            class: "fixed inset-0 z-40 opacity-50",
+            class: "fixed inset-0 z-40 bg-black opacity-50",
             "data-testid": "terminal-context-sheet-backdrop",
             "aria-hidden": "true",
-            style: "background: var(--md-scrim);",
             onclick: move |_event: MouseEvent| on_cancel.call(()),
         }
         div {
@@ -207,6 +255,7 @@ pub fn TerminalActionSheet(
         }
     }
 }
+
 fn run_terminal_menu_key(event: &KeyboardEvent, menu_id: &str, on_escape: impl FnOnce() + 'static) {
     #[cfg(target_arch = "wasm32")]
     if let Some(native) = event.data().downcast::<web_sys::KeyboardEvent>().cloned()
@@ -221,9 +270,10 @@ fn run_terminal_menu_key(event: &KeyboardEvent, menu_id: &str, on_escape: impl F
 }
 
 // Only the placement lives inline: the bottom offset tracks the on-screen
-// keyboard and the TV overscan, which change at runtime.
-const SHEET_STYLE: &str = "position: fixed; left: 0; right: 0; bottom: max(var(--kb-offset), 0px); z-index: 41; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--md-space-4)); max-height: calc(100dvh - max(var(--kb-offset), 0px) - var(--md-space-4));";
-const TV_SHEET_STYLE: &str = "position: fixed; left: var(--tv-overscan-inline); right: var(--tv-overscan-inline); bottom: calc(max(var(--kb-offset), 0px) + var(--tv-overscan-block)); z-index: 41; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--md-space-4)); max-height: calc(100dvh - max(var(--kb-offset), 0px) - var(--tv-overscan-block) - var(--md-space-4));";
+// keyboard and the TV overscan, which change at runtime. Every property is set
+// in both strings, since a Dioxus style string keeps any key it omits.
+const SHEET_STYLE: &str = "position: fixed; left: 0; right: 0; bottom: max(var(--kb-offset), 0px); z-index: 41; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 1rem); max-height: calc(100dvh - max(var(--kb-offset), 0px) - 1rem);";
+const TV_SHEET_STYLE: &str = "position: fixed; left: var(--tv-overscan-inline); right: var(--tv-overscan-inline); bottom: calc(max(var(--kb-offset), 0px) + var(--tv-overscan-block)); z-index: 41; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 1rem); max-height: calc(100dvh - max(var(--kb-offset), 0px) - var(--tv-overscan-block) - 1rem);";
 
 #[component]
 fn SheetItem(testid: String, on_activate: EventHandler<MouseEvent>, children: Element) -> Element {

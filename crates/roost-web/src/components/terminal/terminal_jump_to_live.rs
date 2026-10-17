@@ -21,14 +21,14 @@ pub fn TerminalJumpToLive(visible: bool, handle: PaneHandle, lift: String) -> El
     }
     rsx! {
         div {
-            class: "term-jump-anchor",
+            class: "relative z-2 h-0 flex-none",
             style: "transform: {lift};",
             IconButton {
                 icon: IconType::ArrowDown,
                 label: "Jump to the latest output",
                 title: "Jump to the latest output",
                 variant: ButtonVariant::Secondary,
-                class: Some("term-jump-to-live".to_owned()),
+                class: Some("absolute inset-x-0 bottom-4 mx-auto rounded-full shadow-md".to_owned()),
                 "data-testid": "terminal-jump-to-live",
                 // Pressed without moving focus: the keyboard stays with the
                 // terminal on a desktop, and no soft keyboard opens on a phone.

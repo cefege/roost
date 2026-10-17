@@ -162,8 +162,8 @@ fn copy_glyph(copied: Option<CopiedLine>) -> &'static str {
 /// clipboard's verdict, and the `#` stays quiet until a copy happens.
 fn copy_glyph_color(copied: Option<CopiedLine>) -> &'static str {
     match copied {
-        Some(CopiedLine { ok: true, .. }) => "var(--color-ok)",
-        Some(CopiedLine { ok: false, .. }) => "var(--color-err)",
+        Some(CopiedLine { ok: true, .. }) => "var(--status-ok)",
+        Some(CopiedLine { ok: false, .. }) => "var(--status-err)",
         None => "var(--text-lo)",
     }
 }

@@ -1,6 +1,6 @@
-//! The page's four side questions, kept beside it for the line cap: where a
-//! floating menu anchors, what the recents strip offers, what Back and Forward
-//! ask the store for, and what a Create press commits.
+//! The page's three side questions, kept beside it for the line cap: what the
+//! recents strip offers, what Back and Forward ask the store for, and what a
+//! Create press commits.
 //!
 //! Called by `browse::picker`. Depends on the store, the path codec and the
 //! coordinator; it holds no state of its own.
@@ -10,11 +10,8 @@ use roost_client_core::store::browse_state::intent::BrowseIntent;
 use roost_client_core::store::folder_name_validation::validate_new_folder_name;
 
 use crate::components::browse::BrowseView;
-use crate::components::browse::dom;
 use crate::components::browse::listing;
-use crate::components::browse::path_bar::CrumbMenuPos;
 use crate::components::browse::picker::NewFolderForm;
-use crate::components::context_menu::{AnchoredMenuPos, anchored_menu_pos};
 use crate::components::ui::{Chip, IconType, SectionTitle};
 use crate::platform::worker_paths::palette::child_path;
 use crate::pump::Pump;
@@ -145,18 +142,4 @@ pub fn commit_new_folder(
         target,
         EventHandler::new(settle),
     );
-}
-
-/// Where the machine switcher sits, measured from its trigger.
-#[must_use]
-pub fn measure_server_anchor(trigger_id: &str) -> Option<AnchoredMenuPos> {
-    let (right, bottom, viewport_width) = dom::trigger_anchor(trigger_id)?;
-    Some(anchored_menu_pos(right, bottom, viewport_width))
-}
-
-/// Where the crumb overflow menu sits, measured from its trigger.
-#[must_use]
-pub fn measure_crumb_anchor(trigger_id: &str) -> Option<CrumbMenuPos> {
-    let (left, top) = dom::trigger_corner(trigger_id)?;
-    Some(CrumbMenuPos { left, top })
 }

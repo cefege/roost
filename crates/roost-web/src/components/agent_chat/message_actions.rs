@@ -4,7 +4,8 @@
 use dioxus::prelude::*;
 
 use crate::components::ui::{
-    Button, ButtonVariant, Checkbox, Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle, IconType,
+    Button, ButtonVariant, Checkbox, Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader,
+    DialogTitle, IconType,
 };
 use crate::pump::Pump;
 

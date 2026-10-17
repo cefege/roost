@@ -22,6 +22,12 @@ pub fn sheet_heading(selection_mode: bool, selected: usize, total: usize) -> Str
     }
 }
 
+/// The delay before a card's entrance animation starts: 50ms per card, capped
+/// at the seventh so a long grid does not hold its tail back for seconds.
+pub fn card_enter_delay_ms(index: usize) -> u64 {
+    (index.min(6) as u64) * 50
+}
+
 /// The grid.
 #[component]
 pub fn WorkspaceTabsSheet(
@@ -87,12 +93,13 @@ pub fn WorkspaceTabsSheet(
         move |()| selected_ids.set(tab_ids.clone())
     };
     let heading = sheet_heading(selection_mode(), selected_ids.read().len(), tab_ids.len());
+    let session_count = sessions.len();
     rsx! {
         div {
             class: "workspace-tabs-sheet fixed inset-0 z-[60] flex flex-col bg-background pt-[env(safe-area-inset-top,0px)]",
             "data-testid": "workspace-tabs-sheet",
             div {
-                class: "workspace-tabs-head flex items-center gap-2 h-[calc(var(--md-space-9)+var(--md-space-2))] shrink-0 px-2 border-b border-border text-foreground",
+                class: "workspace-tabs-head flex items-center gap-2 h-14 shrink-0 px-2 border-b border-border text-foreground",
                 if !selection_mode() {
                     IconButton {
                         icon: IconType::ArrowLeft,
@@ -102,7 +109,7 @@ pub fn WorkspaceTabsSheet(
                     }
                     button {
                         r#type: "button",
-                        class: "mobile-deck-new",
+                        class: "flex size-9 shrink-0 cursor-pointer items-center justify-center gap-1 rounded-[10px] border-0 bg-transparent text-[var(--text-hi)] hover:bg-foreground/8 [-webkit-tap-highlight-color:transparent]",
                         "data-testid": "workspace-tabs-new",
                         "aria-label": "New terminal",
                         title: "New terminal in this folder",
@@ -132,14 +139,14 @@ pub fn WorkspaceTabsSheet(
                 }
             }
             if sessions.is_empty() && agents.is_empty() {
-                div { class: "home-landing-empty", "data-testid": "workspace-tabs-empty", style: "padding-top: calc(var(--md-space-9) + var(--md-space-4));",
-                    div { class: "home-landing-empty-title", "No tabs" }
-                    div { class: "home-landing-empty-sub", "Open one with the + above." }
+                div { class: "flex flex-col items-center gap-3 px-6 pt-16 pb-12 text-center text-muted-foreground", "data-testid": "workspace-tabs-empty",
+                    div { class: "text-base font-medium text-foreground", "No tabs" }
+                    div { class: "max-w-[42ch] text-sm", "Open one with the + above." }
                 }
             } else {
-                div { class: "workspace-tabs-grid", style: "padding: var(--md-space-4); overflow-y: auto; flex: 1 1 0;",
-                    for session in sessions {
-                        div { key: "{session.id.as_str()}", class: "terminal-card-wrap", "data-flip-key": session.id.as_str().to_owned(),
+                div { class: "grid grid-cols-2 content-start gap-2 flex-1 overflow-y-auto p-4",
+                    for (index, session) in sessions.into_iter().enumerate() {
+                        div { key: "{session.id.as_str()}", class: "min-w-0 animate-tc-card-enter motion-reduce:animate-none [animation-fill-mode:backwards]", style: format!("animation-delay: {}ms;", card_enter_delay_ms(index)), "data-flip-key": session.id.as_str().to_owned(),
                             TerminalCard {
                                 active: session.id.as_str() == selected_tab,
                                 selected: selected_ids.read().iter().any(|id| id == session.id.as_str()),
@@ -160,7 +167,7 @@ pub fn WorkspaceTabsSheet(
                             }
                         }
                     }
-                    for conversation in agents {
+                    for (index, conversation) in agents.into_iter().enumerate() {
                         {
                             let tab_id = roost_client_core::deck::agent_tab_id(&conversation.id);
                             let status = match conversation.run_state {
@@ -171,7 +178,8 @@ pub fn WorkspaceTabsSheet(
                             rsx! {
                                 button {
                                     key: "{tab_id}",
-                                    class: "terminal-card-wrap",
+                                    class: "min-w-0 animate-tc-card-enter motion-reduce:animate-none [animation-fill-mode:backwards]",
+                                    style: format!("animation-delay: {}ms;", card_enter_delay_ms(session_count + index)),
                                     "data-testid": "workspace-agent-card-{conversation.id}",
                                     aria_current: (tab_id == selected_tab).then_some("page"),
                                     onclick: move |_| on_select.call(tab_id.clone()),

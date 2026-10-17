@@ -15,10 +15,10 @@ use roost_client_core::store::sidebar::folder_groups::build_folder_groups;
 use super::agent_conversation_row::AgentConversationRow;
 use crate::components::agents::agent_status_indicator::AgentStatusIndicator;
 use crate::components::notifications::notify_target::{ring_attribute, use_notify_target};
+use crate::components::ui::IconType;
 use crate::components::ui::empty::EmptyState;
 use crate::components::ui::list::{List, ListRow};
 use crate::components::ui::status::StatusDot;
-use crate::components::ui::IconType;
 use crate::platform::BrowserWorkerPaths;
 use crate::pump::use_store;
 use crate::route_session::active_session_for_path;
@@ -108,7 +108,7 @@ pub fn SidebarAgents(query: String) -> Element {
                     "data-testid": "sidebar-agent-conversations",
                     "aria-label": "Roost agent",
                     h3 { class: "flex min-w-0 items-baseline gap-2 px-4 pt-2 pb-1 text-xs font-medium text-muted-foreground",
-                        span { class: "workbench-sidebar-agents__group-name min-w-0 truncate", "Roost agent" }
+                        span { class: "min-w-0 truncate", "Roost agent" }
                     }
                     List { class: "px-2",
                         for conversation_id in agent_conversation_ids {
@@ -129,8 +129,8 @@ pub fn SidebarAgents(query: String) -> Element {
                     "data-folder-key": group.folder.key.clone(),
                     "aria-label": "{group.folder.name} on {group.folder.server}",
                     h3 { class: "flex min-w-0 items-baseline gap-2 px-4 pt-2 pb-1 text-xs font-medium text-muted-foreground",
-                        span { class: "workbench-sidebar-agents__group-name min-w-0 truncate", {group.folder.name.clone()} }
-                        span { class: "workbench-sidebar-agents__group-server min-w-0 truncate font-normal", {group.folder.server.clone()} }
+                        span { class: "min-w-0 truncate", {group.folder.name.clone()} }
+                        span { class: "min-w-0 truncate font-normal text-[var(--text-lo)]", {group.folder.server.clone()} }
                     }
                     List { class: "px-2",
                         for row in group.rows {

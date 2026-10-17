@@ -3,8 +3,8 @@
 //! platform and host identity only — never from its mutable label. Ports
 //! `apps/web/src/lib/machineIdentity.ts`; `MachineIdentityMark` renders it.
 
-use roost_protocol::wire::{HostIdentity, Worker, WorkerOs};
 use crate::components::ui::IconType;
+use roost_protocol::wire::{HostIdentity, Worker, WorkerOs};
 
 /// A distribution with a local mark.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,7 +85,11 @@ pub fn machine_identity_presentation(worker: Option<&Worker>) -> MachineIdentity
             let apple_chip_badge = field(|id| id.chip.as_ref()).and_then(apple_chip_badge_for);
             let label = if is_macbook { "MacBook" } else { "Mac" };
             MachineIdentityPresentation {
-                icon: if is_macbook { IconType::Laptop } else { IconType::Monitor },
+                icon: if is_macbook {
+                    IconType::Laptop
+                } else {
+                    IconType::Monitor
+                },
                 label: label.to_owned(),
                 title: match &apple_chip_badge {
                     Some(badge) => format!("{label} · Apple {badge}"),

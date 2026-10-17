@@ -41,9 +41,15 @@ const fn dot_status(kind: ToastKind) -> &'static str {
 /// a full literal so Tailwind scans it.
 const fn countdown_class(kind: ToastKind) -> &'static str {
     match kind {
-        ToastKind::Ok => "absolute inset-x-0 bottom-0 h-[var(--workbench-border-width)] origin-left bg-success",
-        ToastKind::Warn => "absolute inset-x-0 bottom-0 h-[var(--workbench-border-width)] origin-left bg-warning",
-        ToastKind::Err => "absolute inset-x-0 bottom-0 h-[var(--workbench-border-width)] origin-left bg-destructive",
+        ToastKind::Ok => {
+            "absolute inset-x-0 bottom-0 h-[var(--workbench-border-width)] origin-left bg-success"
+        }
+        ToastKind::Warn => {
+            "absolute inset-x-0 bottom-0 h-[var(--workbench-border-width)] origin-left bg-warning"
+        }
+        ToastKind::Err => {
+            "absolute inset-x-0 bottom-0 h-[var(--workbench-border-width)] origin-left bg-destructive"
+        }
     }
 }
 
@@ -223,11 +229,12 @@ pub fn ToastCard(toast_id: ToastId) -> Element {
     let is_error = toast.kind == ToastKind::Err;
     let window_ms = toast.kind.default_ttl_ms();
     let held_now = held();
+    let play_state = if held_now { "paused" } else { "running" };
     let dot = dot_status(toast.kind).to_owned();
 
     rsx! {
         div {
-            class: "roost-toast-slot animate-[roost-toast-in_200ms_cubic-bezier(0,0,0,1)] motion-reduce:animate-none select-text",
+            class: "animate-roost-toast-in motion-reduce:animate-none select-text",
             "data-testid": "toast",
             "data-kind": kind_name,
             "data-compact": if compact { "true" } else { "false" },
@@ -273,11 +280,8 @@ pub fn ToastCard(toast_id: ToastId) -> Element {
                 if let Some(window) = window_ms {
                     span {
                         "aria-hidden": "true",
-                        class: countdown_class(toast.kind),
-                        style: format!(
-                            "animation-name: roost-countdown-drain; animation-duration: {window}ms; animation-timing-function: linear; animation-fill-mode: forwards; animation-play-state: {};",
-                            if held_now { "paused" } else { "running" },
-                        ),
+                        class: "{countdown_class(toast.kind)} animate-roost-countdown-drain motion-reduce:animate-none",
+                        style: "animation-duration: {window}ms; animation-play-state: {play_state};",
                     }
                 }
             }

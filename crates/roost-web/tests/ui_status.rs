@@ -9,7 +9,7 @@ fn every_status_maps_to_its_canonical_token() {
     for (status, token) in [
         ("ok", "--status-ok"),
         ("done", "--status-ok"),
-        ("running", "--md-primary"),
+        ("running", "--accent"),
         ("idle", "--text-lo"),
         ("offline", "--text-lo"),
         ("warn", "--status-warn"),

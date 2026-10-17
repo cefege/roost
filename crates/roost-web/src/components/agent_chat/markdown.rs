@@ -4,15 +4,11 @@
 //! by delegation) and `syntax_lite` colours for a known language. The only
 //! markup emitted is markup this file writes.
 
-use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd, html};
 use crate::components::ui::{ButtonSize, ButtonVariant, button_class};
+use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd, html};
 
 /// The attribute the transcript's click delegation looks for on a Copy button.
 pub const COPY_CODE_ATTRIBUTE: &str = "data-copy-code";
-
-/// The terminal's own ground and ink. Code blocks and tool output share it so
-/// both read as terminal text rather than as chat surfaces.
-pub const TERMINAL_GROUND_STYLE: &str = "background: var(--term-bg); color: var(--term-fg);";
 
 /// Convert chat Markdown to HTML while treating host-provided content as untrusted.
 pub fn markdown_to_safe_html(text: &str) -> String {

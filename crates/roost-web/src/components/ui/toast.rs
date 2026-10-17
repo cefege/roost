@@ -212,7 +212,7 @@ fn ToastItem(entry: ToastEntry) -> Element {
             }
             button {
                 r#type: "button",
-                class: "inline-flex shrink-0 items-center justify-center rounded-md size-6 text-muted-foreground hover:text-foreground cursor-pointer outline-none focus-visible:ring-ring/50 focus-visible:ring-[3px]",
+                class: "inline-flex shrink-0 items-center justify-center rounded-md size-6 text-muted-foreground hover:text-foreground cursor-pointer outline-none focus-visible:ring-ring/50 focus-visible:ring-3",
                 "aria-label": "Dismiss notification",
                 onclick: move |_| handle.dismiss(id),
                 Icon { icon: IconType::X, class: "size-4" }

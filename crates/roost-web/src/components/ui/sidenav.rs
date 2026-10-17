@@ -6,7 +6,9 @@ use dioxus::prelude::*;
 use tw_merge::tw_merge;
 
 use super::sidenav_layout::SidenavInner;
-use super::sidenav_types::{SidenavCollapsible, SidenavContext, SidenavSide, SidenavState, SidenavVariant};
+use super::sidenav_types::{
+    SidenavCollapsible, SidenavContext, SidenavSide, SidenavState, SidenavVariant,
+};
 
 #[component]
 pub fn SidenavWrapper(
@@ -61,8 +63,10 @@ pub fn Sidenav(
         "fixed inset-y-0 z-10 hidden h-svh w-(--sidenav-width) transition-[left,right,width] duration-200 ease-linear md:flex",
         class_value,
         match data_side {
-            SidenavSide::Left => "left-0 group-data-[collapsible=Offcanvas]:left-[calc(var(--sidenav-width)*-1)]",
-            SidenavSide::Right => "right-0 group-data-[collapsible=Offcanvas]:right-[calc(var(--sidenav-width)*-1)]",
+            SidenavSide::Left =>
+                "left-0 group-data-[collapsible=Offcanvas]:left-[calc(var(--sidenav-width)*-1)]",
+            SidenavSide::Right =>
+                "right-0 group-data-[collapsible=Offcanvas]:right-[calc(var(--sidenav-width)*-1)]",
         },
         match variant {
             SidenavVariant::Sidenav => {

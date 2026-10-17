@@ -15,8 +15,8 @@ use roost_client_core::store::sidebar::SidebarIntent;
 use crate::components::brand_mark::{BrandMark, HOME_MARK_SIZE};
 use crate::components::layout::title_bar::PRODUCT;
 use crate::components::layout::window_size::{use_is_compact, use_tv_layout};
-use crate::components::ui::{Icon, IconButton, IconType};
 use crate::components::tv_home_board::TvHomeBoard;
+use crate::components::ui::{Icon, IconButton, IconType};
 use crate::pump::use_store;
 
 /// A shortcut the landing advertises. The Windows binding comes from
@@ -95,8 +95,8 @@ pub fn HomeLanding(reader_platform: BrowserPlatform) -> Element {
     // a second "Open sidebar" under it would be a D-pad stop the reader cannot see.
     let drawer_open = pump.core().borrow().store().ui.sidebar_open;
     rsx! {
-        div { class: "home-landing", "data-testid": "home-landing",
-            div { class: "home-landing-head",
+        div { class: "box-border flex h-full flex-col overflow-y-auto pt-7 pr-[max(1.5rem,env(safe-area-inset-right,0px))] pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] pl-[max(1.5rem,env(safe-area-inset-left,0px))]", "data-testid": "home-landing",
+            div { class: "mb-8 flex items-center gap-3",
                 if compact && !drawer_open {
                     IconButton {
                         icon: IconType::Menu,
@@ -106,26 +106,26 @@ pub fn HomeLanding(reader_platform: BrowserPlatform) -> Element {
                     }
                 }
                 BrandMark { size: HOME_MARK_SIZE }
-                span { class: "home-landing-mark", {PRODUCT} }
+                span { class: "text-xl tracking-[0.5px] text-foreground", {PRODUCT} }
             }
-            p { class: "home-landing-tagline", "data-testid": "home-tagline",
+            p { class: "-mt-4 mb-8 text-xs text-muted-foreground", "data-testid": "home-tagline",
                 "Press "
                 for (index, shortcut) in SHORTCUTS.iter().enumerate() {
                     if index > 0 {
                         " · "
                     }
-                    kbd { class: "home-landing-kbd", {shortcut.glyph(reader_platform)} }
+                    kbd { class: "whitespace-nowrap rounded-xs border border-[var(--workbench-border)] bg-[var(--surface-2)] px-1 text-xs text-muted-foreground", {shortcut.glyph(reader_platform)} }
                     " {shortcut.action}"
                 }
             }
-            div { class: "home-landing-empty", "data-testid": "home-empty",
-                div { class: "home-landing-empty-icon",
+            div { class: "flex flex-col items-center gap-3 px-6 py-9 text-center text-muted-foreground", "data-testid": "home-empty",
+                div { class: "grid size-[calc(var(--control-touch-target)+0.75rem)] place-items-center rounded-2xl border border-[var(--workbench-border)] bg-[var(--surface-1)] text-muted-foreground",
                     Icon { icon: IconType::Terminal, class: "size-6 shrink-0" }
                 }
-                div { class: "home-landing-empty-title", "Open a workspace" }
-                div { class: "home-landing-empty-sub",
+                div { class: "text-base text-foreground", "Open a workspace" }
+                div { class: "max-w-[42ch] text-sm",
                     "Select a workspace from the sidebar, or press "
-                    kbd { class: "home-landing-kbd", {SHORTCUTS[0].glyph(reader_platform)} }
+                    kbd { class: "whitespace-nowrap rounded-xs border border-[var(--workbench-border)] bg-[var(--surface-2)] px-1 text-xs text-muted-foreground", {SHORTCUTS[0].glyph(reader_platform)} }
                     " to open the Command palette."
                 }
             }

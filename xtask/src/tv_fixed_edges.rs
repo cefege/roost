@@ -342,6 +342,8 @@ mod tests {
         assert!(!is_style_file(
             "crates/roost-web/assets/styles/nested/other.css"
         ));
-        assert!(is_style_file("crates/roost-web/assets/styles/sidebar.css"));
+        assert!(is_style_file(
+            "crates/roost-web/assets/styles/terminal-grid.css"
+        ));
     }
 }

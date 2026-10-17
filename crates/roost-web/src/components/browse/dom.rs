@@ -37,49 +37,6 @@ pub fn focus_by_id(id: &str) {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn focus_by_id(_id: &str) {}
 
-/// A trigger's right and bottom edges and the viewport's width, so a menu can
-/// anchor to it. `None` when the trigger is not in the document, which is the
-/// honest answer before the first paint.
-#[cfg(target_arch = "wasm32")]
-#[must_use]
-pub fn trigger_anchor(id: &str) -> Option<(f64, f64, f64)> {
-    let bounds = web_sys::window()
-        .and_then(|window| window.document())
-        .and_then(|document| document.get_element_by_id(id))
-        .map(|element| element.get_bounding_client_rect())?;
-    let viewport_width = web_sys::window()
-        .and_then(|window| window.inner_width().ok())
-        .and_then(|width| width.as_f64())
-        .unwrap_or(bounds.right());
-    Some((bounds.right(), bounds.bottom(), viewport_width))
-}
-
-/// A trigger's right and bottom edges and the viewport's width, so a menu can
-/// anchor to it.
-#[cfg(not(target_arch = "wasm32"))]
-#[must_use]
-pub fn trigger_anchor(_id: &str) -> Option<(f64, f64, f64)> {
-    None
-}
-
-/// A trigger's top-left corner, so a menu can hang below and left-align to it.
-#[cfg(target_arch = "wasm32")]
-#[must_use]
-pub fn trigger_corner(id: &str) -> Option<(f64, f64)> {
-    let bounds = web_sys::window()
-        .and_then(|window| window.document())
-        .and_then(|document| document.get_element_by_id(id))
-        .map(|element| element.get_bounding_client_rect())?;
-    Some((bounds.left(), bounds.bottom()))
-}
-
-/// A trigger's top-left corner, so a menu can hang below and left-align to it.
-#[cfg(not(target_arch = "wasm32"))]
-#[must_use]
-pub fn trigger_corner(_id: &str) -> Option<(f64, f64)> {
-    None
-}
-
 /// Whether the element a key press landed on is `id` or lives inside it.
 ///
 /// Browser-only, and with no host twin on purpose: the picker installs this

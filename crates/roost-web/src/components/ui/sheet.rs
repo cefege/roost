@@ -4,10 +4,11 @@
 //! re-exposed under sheet names.
 
 use dioxus::prelude::*;
+use tw_merge::tw_merge;
 
 use super::dialog::{
-    Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader,
-    DialogTitle, DialogTrigger,
+    Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+    DialogTrigger,
 };
 use super::focus_scope::AutoFocusRequest;
 
@@ -45,9 +46,9 @@ pub fn SheetContent(
     on_close_auto_focus: Option<EventHandler<AutoFocusRequest>>,
     children: Element,
 ) -> Element {
-    let merged = format!(
-        "{} bg-card shadow-lg overflow-y-auto overscroll-y-contain {}",
+    let merged = tw_merge!(
         side_class(side),
+        "bg-card shadow-lg overflow-y-auto overscroll-y-contain",
         class.as_deref().unwrap_or("")
     );
     rsx! {
@@ -74,7 +75,10 @@ pub fn SheetTitle(#[props(into, optional)] class: Option<String>, children: Elem
 }
 
 #[component]
-pub fn SheetDescription(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn SheetDescription(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     rsx! { DialogDescription { class, {children} } }
 }
 
@@ -91,16 +95,16 @@ pub fn SheetClose(#[props(into, optional)] class: Option<String>, children: Elem
 fn side_class(side: SheetSide) -> &'static str {
     match side {
         SheetSide::Top => {
-            "top-0 bottom-auto left-0 right-0 translate-x-0 translate-y-0 w-full h-[400px] max-w-none max-h-none rounded-none"
+            "top-0 bottom-auto left-0 right-0 translate-x-0 translate-y-0 w-full h-100 max-w-none max-h-none rounded-none"
         }
         SheetSide::Bottom => {
-            "top-auto bottom-0 left-0 right-0 translate-x-0 translate-y-0 w-full h-[400px] max-w-none max-h-none rounded-none"
+            "top-auto bottom-0 left-0 right-0 translate-x-0 translate-y-0 w-full h-100 max-w-none max-h-none rounded-none"
         }
         SheetSide::Left => {
-            "top-0 bottom-0 left-0 right-auto translate-x-0 translate-y-0 h-full w-[400px] max-w-none max-h-none rounded-none"
+            "top-0 bottom-0 left-0 right-auto translate-x-0 translate-y-0 h-full w-100 max-w-none max-h-none rounded-none"
         }
         SheetSide::Right => {
-            "top-0 bottom-0 right-0 left-auto translate-x-0 translate-y-0 h-full w-[400px] max-w-none max-h-none rounded-none"
+            "top-0 bottom-0 right-0 left-auto translate-x-0 translate-y-0 h-full w-100 max-w-none max-h-none rounded-none"
         }
     }
 }

@@ -13,7 +13,9 @@ use super::agent_provider_list::AvailableProviders;
 use super::agent_provider_status::{ProviderSummary, provider_summaries};
 use super::agent_roles::{AgentRoles, load_settings, save_settings};
 use crate::components::agent_chat::agent_alert::ERROR_TEXT_CLASS;
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, EmptyState, IconButton, IconType, Skeleton, TextField};
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, EmptyState, IconButton, IconType, Skeleton, TextField,
+};
 use crate::pump::{Pump, use_store};
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::client::rpc::calls::agent_chat::{

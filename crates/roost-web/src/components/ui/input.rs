@@ -100,9 +100,12 @@ pub fn Input(
     #[props(into, optional)] aria_expanded: Option<String>,
     #[props(into, optional)] aria_activedescendant: Option<String>,
     #[props(into, optional)] role: Option<String>,
+    #[props(into, optional)] spellcheck: Option<String>,
+    #[props(into, optional)] autocapitalize: Option<String>,
     #[props(into, optional)] test_id: Option<String>,
     /// The file kinds a `File` input offers, in HTML's `accept` syntax.
-    #[props(into, optional)] accept: Option<String>,
+    #[props(into, optional)]
+    accept: Option<String>,
     #[props(optional)] oninput: Option<EventHandler<FormEvent>>,
     #[props(optional)] onchange: Option<EventHandler<FormEvent>>,
     #[props(optional)] onkeydown: Option<EventHandler<KeyboardEvent>>,
@@ -144,6 +147,8 @@ pub fn Input(
             "aria-activedescendant": aria_activedescendant,
             role,
             "data-testid": test_id,
+            "spellcheck": spellcheck,
+            "autocapitalize": autocapitalize,
             accept,
             oninput: move |event| {
                 if let Some(handler) = &oninput {

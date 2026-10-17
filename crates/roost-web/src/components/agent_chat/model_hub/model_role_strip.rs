@@ -9,8 +9,8 @@ use roost_protocol::wire::agent_chat::ModelsCatalog;
 use super::hub_catalog::wrap_index;
 use super::model_hub_actions::{StripCommit, apply_strip_chip};
 use super::strip_chips::{StripChip, StripKey};
-use crate::components::ui::Chip;
 use crate::components::settings::model_scope::ModelScope;
+use crate::components::ui::Chip;
 
 /// The footer legend while the strip is open.
 pub(super) const STRIP_FOOTER: &str = "←/→ pick · ⏎ apply · ⎋ back to models";

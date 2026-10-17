@@ -12,7 +12,7 @@ use super::context_menu_frame::ContextMenuFrame;
 use super::machine_action_items::MachineActionItems;
 use crate::components::agent_chat::launch_agent;
 use crate::components::browse::listing;
-use crate::components::context_menu::CtxMenuItem;
+use crate::components::ui::context_menu::ContextMenuItem;
 use crate::machine_actions::MachineMenuKind;
 use crate::platform::BrowserWorkerPaths;
 use crate::pump::use_store;
@@ -44,8 +44,8 @@ pub fn FolderRowContextMenu(target: FolderMenuTarget, on_close: EventHandler<()>
     let agent_folder = target.folder_path.clone();
     let agent_pump = pump.clone();
     let agent_navigate = navigate;
+    // Activating an item runs its handler and then the ui closes the menu.
     let on_new_agent = move |_: MouseEvent| {
-        on_close.call(());
         launch_agent(
             agent_pump.clone(),
             agent_worker_fp.clone(),
@@ -58,7 +58,6 @@ pub fn FolderRowContextMenu(target: FolderMenuTarget, on_close: EventHandler<()>
     let terminal_pump = pump.clone();
     let terminal_navigate = navigate;
     let on_new_terminal = move |_: MouseEvent| {
-        on_close.call(());
         listing::launch_terminal(
             terminal_pump.clone(),
             terminal_worker_fp.clone(),
@@ -67,7 +66,7 @@ pub fn FolderRowContextMenu(target: FolderMenuTarget, on_close: EventHandler<()>
         );
     };
     let machine_fp = target.worker_fp.clone();
-    let rename = move |_| {
+    let rename = move |_: MouseEvent| {
         let current_title = {
             let core = pump.core();
             let core = core.borrow();
@@ -80,7 +79,6 @@ pub fn FolderRowContextMenu(target: FolderMenuTarget, on_close: EventHandler<()>
             .map(|workspace| workspace.name.clone())
             .unwrap_or_else(|| target.display_name.clone())
         };
-        on_close.call(());
         pump.dispatch(ClientEvent::Shell(ShellIntent::OpenRenameDialog(
             RenameDialogRequest {
                 current_title,
@@ -98,18 +96,16 @@ pub fn FolderRowContextMenu(target: FolderMenuTarget, on_close: EventHandler<()>
         ContextMenuFrame {
             x: target.x,
             y: target.y,
-            menu_id: "folder-context-menu",
-            label: "Workspace actions",
             test_id: "folder-context-menu",
+            label: "Workspace actions",
             on_close,
-            CtxMenuItem { testid: "folder-ctx-rename", onclick: rename, "Rename…" }
-            CtxMenuItem { testid: "folder-ctx-new-agent", onclick: on_new_agent, "New agent here" }
-            CtxMenuItem { testid: "folder-ctx-new-terminal", onclick: on_new_terminal, "New terminal here" }
+            ContextMenuItem { test_id: "folder-ctx-rename", onclick: rename, "Rename…" }
+            ContextMenuItem { test_id: "folder-ctx-new-agent", onclick: on_new_agent, "New agent here" }
+            ContextMenuItem { test_id: "folder-ctx-new-terminal", onclick: on_new_terminal, "New terminal here" }
             MachineActionItems {
                 worker_fp: machine_fp,
                 menu: MachineMenuKind::Folder,
                 test_id_prefix: "folder-ctx",
-                on_close,
             }
         }
     }

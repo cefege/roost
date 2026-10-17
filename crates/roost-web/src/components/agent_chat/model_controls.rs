@@ -10,7 +10,10 @@ use roost_protocol::wire::agent_chat::{ConversationSummary, ModelsCatalog};
 use super::composer_commands::model_picker_trigger_id;
 use super::role_switcher::RoleSwitcher;
 use super::toolbar_menu::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, Card, CardContent, CardHeader, CardTitle, CardVariant, IconType};
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Card, CardContent, CardHeader, CardTitle, CardVariant,
+    IconType,
+};
 use crate::pump::Pump;
 use crate::router_state::use_navigate;
 
@@ -63,7 +66,9 @@ pub fn AgentModelControls(
     let placeholder = match (conversation.model.is_some(), catalog.is_some(), setup) {
         (true, _, _) | (false, true, ModelSetup::Ready) => None,
         (false, _, ModelSetup::NoProvider) => Some(("Connect a model", IconType::Link, false)),
-        (false, _, ModelSetup::CatalogFailed) => Some(("Models unavailable", IconType::CircleAlert, false)),
+        (false, _, ModelSetup::CatalogFailed) => {
+            Some(("Models unavailable", IconType::CircleAlert, false))
+        }
         (false, false, ModelSetup::Ready) => Some(("Loading models…", IconType::Hourglass, true)),
     };
     if let Some((label, icon, waiting)) = placeholder {

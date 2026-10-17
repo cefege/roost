@@ -8,8 +8,8 @@ use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
 use roost_client_core::store::shell_intent::ShellIntent;
 
-use crate::components::context_menu::CtxMenuItem;
 use crate::components::notifications::clipboard::copy_text;
+use crate::components::ui::context_menu::ContextMenuItem;
 use crate::machine_actions::{
     MachineAction, MachineLaunch, MachineMenuKind, NO_REACHABLE_ADDRESS_TOOLTIP, machine_actions,
     machine_launch, reachable_host,
@@ -20,14 +20,14 @@ use crate::pump::{Pump, use_store};
 
 /// One item per hand-off `worker_fp`'s platform offers in `menu`; nothing for
 /// a machine that offers none or is not in the roster. Each item's test id is
-/// `{test_id_prefix}-{action}{test_id_suffix}`.
+/// `{test_id_prefix}-{action}{test_id_suffix}`. The enclosing menu closes
+/// itself after an item runs.
 #[component]
 pub fn MachineActionItems(
     worker_fp: String,
     menu: MachineMenuKind,
     test_id_prefix: String,
     #[props(default)] test_id_suffix: String,
-    on_close: EventHandler<()>,
 ) -> Element {
     let pump = use_store();
     let machine = {
@@ -45,16 +45,15 @@ pub fn MachineActionItems(
     let title = disabled.then(|| NO_REACHABLE_ADDRESS_TOOLTIP.to_owned());
     rsx! {
         for action in machine_actions(os, menu).iter().copied() {
-            CtxMenuItem {
+            ContextMenuItem {
                 key: "{action.test_id()}",
-                testid: format!("{test_id_prefix}-{}{test_id_suffix}", action.test_id()),
+                test_id: format!("{test_id_prefix}-{}{test_id_suffix}", action.test_id()),
                 disabled,
                 title: title.clone(),
                 onclick: {
                     let pump = pump.clone();
                     let host = host.clone();
-                    move |_| {
-                        on_close.call(());
+                    move |_: MouseEvent| {
                         if let Some(host) = &host {
                             perform_machine_action(&pump, action, host);
                         }

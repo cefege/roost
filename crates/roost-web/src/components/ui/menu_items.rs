@@ -7,10 +7,15 @@ use tw_merge::tw_merge;
 
 use super::menu_overlay::{MenuContext, request_close};
 
+/// One `role="menuitem"` button. `test_id` and `title` are optional DOM hooks;
+/// `onmouseenter` lets a caller keep its own highlighted row in step with the pointer.
 pub fn render_menu_item(
     class: Option<String>,
     disabled: bool,
+    test_id: Option<String>,
+    title: Option<String>,
     onclick: Option<EventHandler<MouseEvent>>,
+    onmouseenter: Option<EventHandler<MouseEvent>>,
     children: Element,
 ) -> Element {
     let Some(context) = try_use_context::<MenuContext>() else {
@@ -27,12 +32,19 @@ pub fn render_menu_item(
             tabindex: "-1",
             disabled,
             "aria-disabled": if disabled { "true" } else { "false" },
+            "data-testid": test_id,
+            title,
             class: merged,
             onclick: move |event: MouseEvent| {
                 if let Some(handler) = onclick {
                     handler.call(event);
                 }
                 request_close(context, true);
+            },
+            onmouseenter: move |event: MouseEvent| {
+                if let Some(handler) = onmouseenter {
+                    handler.call(event);
+                }
             },
             {children}
         }

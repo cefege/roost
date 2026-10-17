@@ -40,7 +40,9 @@ pub fn SidenavMenuButton(
 ) -> Element {
     let base = "peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-hidden ring-sidenav-ring transition-[width,height,padding] hover:bg-sidenav-accent hover:text-sidenav-accent-foreground focus-visible:ring-2 active:bg-sidenav-accent active:text-sidenav-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidenav=menu-action]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 aria-[current=page]:bg-sidenav-accent aria-[current=page]:font-medium aria-[current=page]:text-sidenav-accent-foreground data-[state=open]:hover:bg-sidenav-accent data-[state=open]:hover:text-sidenav-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 group-data-[collapsible=Icon]:size-8! group-data-[collapsible=Icon]:p-0! [&>svg]:stroke-2 aria-[current=page]:[&>svg]:stroke-[2.7]";
     let variant_class = match variant {
-        SidenavMenuButtonVariant::Default => "hover:bg-sidenav-accent hover:text-sidenav-accent-foreground",
+        SidenavMenuButtonVariant::Default => {
+            "hover:bg-sidenav-accent hover:text-sidenav-accent-foreground"
+        }
         SidenavMenuButtonVariant::Outline => {
             "bg-background ring-1 ring-sidenav-border hover:bg-sidenav-accent hover:text-sidenav-accent-foreground hover:ring-sidenav-accent"
         }
@@ -50,7 +52,12 @@ pub fn SidenavMenuButton(
         SidenavMenuButtonSize::Sm => "h-7 text-xs",
         SidenavMenuButtonSize::Lg => "h-12",
     };
-    let merged_class = tw_merge!(base, variant_class, size_class, class.as_deref().unwrap_or(""));
+    let merged_class = tw_merge!(
+        base,
+        variant_class,
+        size_class,
+        class.as_deref().unwrap_or("")
+    );
     let data_variant = match variant {
         SidenavMenuButtonVariant::Default => "Default",
         SidenavMenuButtonVariant::Outline => "Outline",
@@ -134,7 +141,10 @@ pub fn SidenavMenuAction(
 }
 
 #[component]
-pub fn DropdownMenuTriggerEllipsis(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn DropdownMenuTriggerEllipsis(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     let merged_class = tw_merge!(
         "text-sidenav-foreground ring-sidenav-ring hover:bg-sidenav-accent hover:text-sidenav-accent-foreground peer-hover/menu-button:text-sidenav-accent-foreground absolute top-1.5 right-1 flex aspect-square w-5 items-center justify-center rounded-md p-0 outline-hidden transition-transform focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0 after:absolute after:-inset-2 md:after:hidden peer-data-[size=sm]/menu-button:top-1 peer-data-[size=default]/menu-button:top-1.5 peer-data-[size=lg]/menu-button:top-2.5 group-data-[collapsible=Icon]:hidden peer-data-[active=true]/menu-button:text-sidenav-accent-foreground group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100 data-[state=open]:opacity-100 md:opacity-0",
         class.as_deref().unwrap_or("")

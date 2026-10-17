@@ -176,7 +176,10 @@ pub fn AgentComposer(
     let capture_field = EventHandler::new(move |event: MountedEvent| field.set(Some(event.data())));
     let handle_draft_input = EventHandler::new(move |value: String| {
         let next = slash_menu_state(&value, &sources_for_input);
-        selected_option.set(next.as_ref().map_or(0, |state| initial_selection(state, &value)));
+        selected_option.set(
+            next.as_ref()
+                .map_or(0, |state| initial_selection(state, &value)),
+        );
         menu_dismissed.set(false);
     });
     let handle_draft_key = EventHandler::new(move |event: KeyboardEvent| {
@@ -197,14 +200,12 @@ pub fn AgentComposer(
                     };
                     selected_option.set(next);
                     scroll_option_into_view(&key_conversation, next);
-                    return;
                 }
                 "Tab" => {
                     event.prevent_default();
                     if let Some(text) = &selected_text {
                         fill_draft(draft, selected_option, text);
                     }
-                    return;
                 }
                 _ => {}
             }

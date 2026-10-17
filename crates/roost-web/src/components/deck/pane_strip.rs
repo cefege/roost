@@ -16,12 +16,13 @@ use super::pane_strip_double_press::DoublePress;
 use super::pane_strip_gesture::{StripDragOutlets, StripGesture};
 use super::pane_tab::PaneTab;
 use super::pane_tab_hover_card::PaneTabHoverCard;
-use super::pane_tab_list::PaneTabList;
+use super::pane_tab_list::{PaneTabList, TAB_LIST_MENU_ID};
 use super::pane_tab_new_menu::PaneTabNewMenu;
-use crate::components::context_menu::AnchoredMenuPos;
 use crate::components::layout::window_size::use_is_compact;
-use crate::components::ui::{ButtonSize, IconButton, IconType};
 use crate::components::terminal::terminal_transport_indicator::TerminalTransportIndicator;
+use crate::components::ui::{
+    DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, Icon, IconType,
+};
 /// How long a pointer rests on a tab before its hover card opens, ms.
 const HOVER_DWELL_MS: u32 = 450;
 /// How long a closing tab animates out before the close lands, ms.
@@ -47,10 +48,9 @@ pub fn PaneStrip(
     let compact = use_is_compact();
     let gesture = StripGesture::use_strip_gesture();
     let closing = use_signal(BTreeSet::<String>::new);
-    let mut list_open = use_signal(|| None::<AnchoredMenuPos>);
+    let mut list_open = use_signal(|| false);
     let mut hover = use_signal(|| None::<(String, ClientBox)>);
     let overflowing = use_signal(|| false);
-    let mut overflow_button = use_signal(|| None::<Rc<MountedData>>);
     let mut filler_press = use_signal(DoublePress::default);
     let timers: Rc<RefCell<Vec<Timeout>>> = use_hook(Rc::default);
     let hover_timer: Rc<RefCell<Option<Timeout>>> = use_hook(Rc::default);
@@ -109,17 +109,17 @@ pub fn PaneStrip(
         on_drag_end: on_tab_drag_end,
     };
     let hovered = hover.read().clone();
-    let open_position = *list_open.read();
 
     rsx! {
         div {
-            class: "workbench-pane-tab-strip",
+            class: "relative isolate flex min-w-0 h-[var(--workbench-tab-strip-height)] min-h-[var(--workbench-tab-strip-height)] items-center overflow-hidden bg-[var(--workbench-tab-strip)] pe-[var(--workbench-editor-actions-reserve)]",
             "data-testid": "pane-strip-{pane_id}",
             "data-pane-strip": "{pane_id}",
             "data-focused": if focused { "true" } else { "false" },
             "data-dragging": if drag.is_some() { "true" } else { "false" },
             div {
-                class: "df-tab-bar group/strip workbench-pane-tab-strip__tabs",
+                class: "group/strip flex min-w-0 h-full flex-[0_1_auto] items-center overflow-x-auto overflow-y-hidden scrollbar-none data-[dragging=true]:cursor-grabbing data-[dragging=true]:select-none",
+                "data-tab-bar": "true",
                 "data-focused": if focused { "true" } else { "false" },
                 "data-dragging": if drag.is_some() { "true" } else { "false" },
                 "data-packed": if overflowing() { "true" } else { "false" },
@@ -161,7 +161,7 @@ pub fn PaneStrip(
                             let hover_timer = Rc::clone(&hover_timer);
                             let session_id = session_id.clone();
                             move |anchor: ClientBox| {
-                                if !hover_card_available || gesture.drag.peek().is_some() || list_open.peek().is_some() {
+                                if !hover_card_available || gesture.drag.peek().is_some() || *list_open.peek() {
                                     return;
                                 }
                                 let session_id = session_id.clone();
@@ -187,7 +187,6 @@ pub fn PaneStrip(
                 }
             }
             PaneTabNewMenu {
-                pane_id: pane_id.clone(),
                 on_new_terminal: move |_| on_new_tab.call(()),
                 on_new_agent: move |_| {
                     if let Some(on_new_agent) = on_new_agent {
@@ -218,54 +217,42 @@ pub fn PaneStrip(
             }
             div { class: "flex items-center gap-1 shrink-0", role: "toolbar", "aria-label": "Terminal actions",
                 if overflowing() {
-                    IconButton {
-                        icon: IconType::ChevronDown,
-                        label: "All terminals in this pane",
-                        size: ButtonSize::IconSm,
-                        class: "shrink-0 size-[var(--workbench-tab-action-size)] p-0 rounded-none border-0 bg-[var(--workbench-tab-strip)] text-muted-foreground hover:text-foreground",
-                        "data-testid": "tab-overflow",
-                        id: "tab-overflow-{pane_id}",
-                        menu_popup: "menu",
-                        controls_id: "tab-list-popup",
-                        expanded: open_position.is_some(),
-                        title: "All terminals",
-                        onmounted: move |event: MountedEvent| overflow_button.set(Some(event.data())),
-                        onclick: {
+                    DropdownMenu {
+                        open: list_open(),
+                        on_open_change: {
                             let clear_hover = clear_hover.clone();
-                            move |_| {
-                                if list_open.peek().is_some() {
-                                    list_open.set(None);
-                                    return;
+                            move |open: bool| {
+                                if open {
+                                    clear_hover();
                                 }
-                                let Some(anchor) = overflow_button.peek().as_deref().and_then(deck_dom::client_box) else {
-                                    return;
-                                };
-                                clear_hover();
-                                list_open.set(Some(crate::components::context_menu::anchored_menu_pos(
-                                    anchor.left + anchor.width,
-                                    anchor.bottom(),
-                                    deck_dom::viewport_width(),
-                                )));
+                                list_open.set(open);
                             }
                         },
-                    }
-                }
-            }
-            if let Some(position) = open_position {
-                PaneTabList {
-                    position,
-                    tab_ids: tab_ids.clone(),
-                    selected_tab: selected_tab.clone(),
-                    trigger_id: format!("tab-overflow-{pane_id}"),
-                    on_select: move |session_id| on_select.call(session_id),
-                    on_reveal_selected: move |()| {
-                        if let Some(rail) = gesture.rail.peek().as_ref()
-                            && gesture.drag.peek().is_none()
-                        {
-                            deck_dom::reveal_active_tab(rail);
+                        test_id: "tab-list-popup",
+                        trigger_id: "tab-overflow-{pane_id}",
+                        menu_id: TAB_LIST_MENU_ID,
+                        DropdownMenuTrigger {
+                            class: "shrink-0 size-[var(--workbench-tab-action-size)] p-0 rounded-none border-0 bg-[var(--workbench-tab-strip)] text-muted-foreground hover:text-foreground",
+                            test_id: "tab-overflow",
+                            aria_label: "All terminals in this pane",
+                            Icon { icon: IconType::ChevronDown, class: "size-4" }
                         }
-                    },
-                    on_close: move |()| list_open.set(None),
+                        DropdownMenuContent { class: "w-auto min-w-[var(--workbench-tab-menu-min-width)] max-w-96 max-h-96 overflow-y-auto",
+                            PaneTabList {
+                                tab_ids: tab_ids.clone(),
+                                selected_tab: selected_tab.clone(),
+                                on_select: move |session_id| on_select.call(session_id),
+                                on_reveal_selected: move |()| {
+                                    if let Some(rail) = gesture.rail.peek().as_ref()
+                                        && gesture.drag.peek().is_none()
+                                    {
+                                        deck_dom::reveal_active_tab(rail);
+                                    }
+                                },
+                                on_close: move |()| list_open.set(false),
+                            }
+                        }
+                    }
                 }
             }
             if let Some((session_id, anchor)) = hovered.filter(|(id, _)| tab_ids.contains(id)) {

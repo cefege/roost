@@ -2,7 +2,7 @@
 //! reach, as one ordered list in v2's DOM order, because DOM order is the tab
 //! order for anyone walking it with a keyboard and where the controller's
 //! first-key focus starts. Drawn by the floating sheet (`terminal_nav_pad`)
-//! and by the TV input tray inside the composer bar; the stylesheet places the
+//! and by the TV input tray inside the composer bar. The classes place the
 //! cells per `data-placement`. Ports `TerminalNavButtons.tsx`'s grid.
 
 use dioxus::prelude::*;
@@ -39,11 +39,13 @@ pub fn TerminalKeyGrid(
     );
     rsx! {
         div {
-            class: "term-nav",
+            class: "group/nav fixed z-40 box-border max-h-[max(0rem,calc(100dvh_-_env(safe-area-inset-top,0px)_-_env(safe-area-inset-bottom,0px)_-_13.75rem_-_1rem))] right-[calc(env(safe-area-inset-right,0px)_+_1rem)] bottom-[calc(env(safe-area-inset-bottom,0px)_+_13.75rem)] overflow-y-auto rounded-lg bg-popover p-1 shadow-lg pointer-events-auto font-sans animate-voice-dock-enter motion-reduce:animate-none data-[placement=tray]:absolute data-[placement=tray]:inset-x-0 data-[placement=tray]:bottom-full data-[placement=tray]:h-(--term-tray-height) data-[placement=tray]:max-h-none data-[placement=tray]:overflow-visible",
             "data-testid": "terminal-nav-buttons",
             "data-placement": placement,
+            "data-keypad": "true",
             div {
-                class: "term-nav__grid",
+                class: "grid grid-cols-[repeat(4,var(--term-chat-control))] gap-1 [grid-template-areas:'esc_tab_ctrl_alt'_'home_up_end_pgup'_'left_down_right_pgdn'_'back_space_space_ent'_'mouse_mouse_mouse_mouse'] group-data-[placement=tray]/nav:grid-cols-[repeat(9,minmax(0,1fr))] group-data-[placement=tray]/nav:[grid-template-areas:'esc_tab_ctrl_alt_mouse_home_up_end_pgup'_'back_space_space_ent_ent_left_down_right_pgdn']",
+                "data-keypad-grid": "true",
                 for cell in cells {
                     {key_cell(cell)}
                 }
@@ -107,18 +109,19 @@ fn key_cell(cell: NavCell) -> Element {
         Button {
             variant: ButtonVariant::Secondary,
             size: ButtonSize::Icon,
-            class: Some(format!("term-nav__key term-nav__key--{area}")),
+            class: Some("relative !size-(--term-chat-control) !rounded-md shadow-sm transition-[box-shadow,transform] duration-150 active:scale-[0.94] after:pointer-events-none after:absolute after:inset-0 after:bg-current after:opacity-0 after:content-[''] hover:after:opacity-[0.08] active:after:opacity-[0.12] focus-visible:after:opacity-[0.12] data-[area=esc]:[grid-area:esc] data-[area=tab]:[grid-area:tab] data-[area=ctrl]:[grid-area:ctrl] data-[area=alt]:[grid-area:alt] data-[area=back]:[grid-area:back] data-[area=home]:[grid-area:home] data-[area=up]:[grid-area:up] data-[area=end]:[grid-area:end] data-[area=pgup]:[grid-area:pgup] data-[area=left]:[grid-area:left] data-[area=down]:[grid-area:down] data-[area=right]:[grid-area:right] data-[area=pgdn]:[grid-area:pgdn] data-[area=space]:[grid-area:space] data-[area=enter]:[grid-area:ent] data-[area=mouse]:[grid-area:mouse] data-[area=space]:!w-auto data-[area=enter]:!w-auto data-[area=mouse]:!w-auto data-[area=mouse]:gap-2 data-[area=enter]:bg-primary data-[area=enter]:text-primary-foreground data-[area=ctrl][data-active=true]:bg-accent data-[area=ctrl][data-active=true]:text-accent-foreground data-[area=alt][data-active=true]:bg-accent data-[area=alt][data-active=true]:text-accent-foreground data-[area=mouse][data-active=true]:bg-primary data-[area=mouse][data-active=true]:text-primary-foreground group-data-[placement=tray]/nav:!h-(--term-tray-key) group-data-[placement=tray]/nav:!w-auto".to_owned()),
             "data-testid": test_id,
+            "data-area": area,
             "data-active": active.then_some("true"),
             "aria-label": aria_label,
             attributes: latched.map(pressed_attribute).unwrap_or_default(),
             onmousedown: keep_focus,
             onclick: move |event| press.call(event),
             if let Some(icon) = face_icon(face) {
-                Icon { icon, class: "term-nav__icon" }
+                Icon { icon, class: "relative z-1 size-(--term-nav-icon-size) select-none" }
             }
             if let Some(label) = label {
-                span { class: "term-nav__label", "{label}" }
+                span { class: "relative z-1 font-sans text-(length:--term-nav-label-size) leading-(--term-nav-label-line) font-medium tracking-[0.08em] uppercase select-none", "{label}" }
             }
         }
     }
@@ -286,11 +289,11 @@ fn grid_cells(
     ]
 }
 
-/// One cell of the grid: its stylesheet area, its test id, its accessible name,
+/// One cell of the grid: its grid area, its test id, its accessible name,
 /// its face, and whether it is a latch — which is what makes it carry
 /// `data-active` and `aria-pressed` at all.
 struct NavCell {
-    /// The `term-nav__key--*` suffix the stylesheet places the cell by.
+    /// The grid area name the cell's `data-area` carries and the cell class places it by.
     area: &'static str,
     /// The oracle's `data-testid`.
     test_id: &'static str,

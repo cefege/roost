@@ -39,7 +39,7 @@ pub struct PadFocus {
     pub present: bool,
     /// The element is a `.wterm` terminal scroll box.
     pub terminal_box: bool,
-    /// The element is inside the terminal key pad (`.term-nav`).
+    /// The element is inside the terminal key pad (`[data-keypad]`).
     pub in_keypad: bool,
     /// The element is inside a `[role="menu"]` or `[role="dialog"]`.
     pub in_menu_or_dialog: bool,

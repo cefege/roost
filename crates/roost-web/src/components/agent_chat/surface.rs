@@ -15,10 +15,13 @@ use super::model_controls::{ModelSetup, ModelSetupCard};
 use super::model_hub::ModelHub;
 use super::surface_state::{assistant_is_streaming, latest_todo, loop_status};
 use super::working_row::{WorkingRow, working_label};
-use crate::components::ui::{ButtonSize, ButtonVariant, EmptyState, IconButton, IconType, Skeleton};
+use crate::components::ui::{
+    ButtonSize, ButtonVariant, EmptyState, IconButton, IconType, Skeleton,
+};
 use crate::pump::use_store;
 
-const ROOT_CLASS: &str = "relative flex h-full w-full min-h-0 min-w-0 flex-col bg-background text-foreground";
+const ROOT_CLASS: &str =
+    "relative flex h-full w-full min-h-0 min-w-0 flex-col bg-background text-foreground";
 const TRANSCRIPT_CLASS: &str = "min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable_both-edges] px-5 pt-4 pb-6";
 const COLUMN_CLASS: &str = "mx-auto w-full max-w-3xl";
 

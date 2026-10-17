@@ -66,7 +66,9 @@ pub fn TextField(
     let invalid = text_field_invalid(aria_invalid, error.is_some());
     let control_described_by = described_by(
         aria_described_by.as_deref(),
-        description.is_some().then_some(description_element_id.as_str()),
+        description
+            .is_some()
+            .then_some(description_element_id.as_str()),
         error.is_some().then_some(error_element_id.as_str()),
     );
     let aria_invalid_attribute = invalid;

@@ -175,7 +175,7 @@ fn DialogPanel(
         // The scrim takes pointer events so a click behind the dialog never
         // reaches the page, and only dismisses when the caller allows it.
         div {
-            class: "fixed inset-0 z-1000 pointer-events-auto bg-[color-mix(in_srgb,var(--md-scrim)_55%,transparent)]",
+            class: "fixed inset-0 z-1000 pointer-events-auto bg-black/55",
             onpointerdown: move |event: PointerEvent| {
                 if close_on_backdrop_click {
                     event.prevent_default();
@@ -194,7 +194,7 @@ fn DialogPanel(
             "aria-labelledby": "{title_id}",
             "aria-describedby": "{description_id}",
             class: tw_merge!(
-                "bg-background border rounded-2xl shadow-lg p-6 w-full max-w-[calc(100%-2rem)] max-h-[85vh] fixed top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%] z-1000",
+                "bg-background border rounded-2xl shadow-lg p-6 w-full max-w-[calc(100%-2rem)] max-h-[85vh] fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-1000",
                 class.as_deref().unwrap_or("")
             ),
             "data-testid": test_id,

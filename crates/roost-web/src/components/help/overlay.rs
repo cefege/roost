@@ -9,12 +9,12 @@
 use dioxus::prelude::*;
 
 use super::shortcuts::{ShortcutEntry, filtered_shortcuts, grouped_shortcuts, reader_platform};
+use crate::components::notifications::clipboard::copy_text;
+use crate::components::palette::dom::focus_by_test_id_next_frame;
 use crate::components::ui::{
     BindingChip, Button, ButtonVariant, Dialog, DialogContent, DialogHeader, DialogTitle, Input,
     List, ListRow, SectionTitle,
 };
-use crate::components::notifications::clipboard::copy_text;
-use crate::components::palette::dom::focus_by_test_id_next_frame;
 
 /// The Shift+? modal, rendered by the route surface that owns it.
 #[component]

@@ -125,7 +125,11 @@ pub(super) fn GoalControls(
     };
     let mut close_dialog = move || {
         open.set(false);
-        view.set(if has_goal { GoalDialogView::Main } else { GoalDialogView::Objective });
+        view.set(if has_goal {
+            GoalDialogView::Main
+        } else {
+            GoalDialogView::Objective
+        });
     };
     rsx! {
         Dialog {

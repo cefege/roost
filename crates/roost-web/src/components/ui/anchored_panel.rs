@@ -6,7 +6,7 @@
 #[cfg(target_arch = "wasm32")]
 use crate::components::deck::deck_dom::ClientBox;
 #[cfg(target_arch = "wasm32")]
-use crate::components::menu_placement::{place_menu, Horizontal, MenuPlacement, Vertical};
+use crate::components::menu_placement::{Horizontal, MenuPlacement, Vertical, place_menu};
 
 /// Inline `top`/`bottom`/`left`/`right` longhands that place a fixed panel beside the trigger
 /// with id `trigger_id`, read from the live DOM. `None` when the trigger is not mounted.
@@ -59,15 +59,33 @@ pub fn focus_element_by_id(_element_id: &str) {}
 
 #[cfg(target_arch = "wasm32")]
 fn viewport_box(window: &web_sys::Window) -> ClientBox {
-    let width = window.inner_width().ok().and_then(|value| value.as_f64()).unwrap_or(0.0);
-    let height = window.inner_height().ok().and_then(|value| value.as_f64()).unwrap_or(0.0);
-    ClientBox { left: 0.0, top: 0.0, width, height }
+    let width = window
+        .inner_width()
+        .ok()
+        .and_then(|value| value.as_f64())
+        .unwrap_or(0.0);
+    let height = window
+        .inner_height()
+        .ok()
+        .and_then(|value| value.as_f64())
+        .unwrap_or(0.0);
+    ClientBox {
+        left: 0.0,
+        top: 0.0,
+        width,
+        height,
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
 fn client_box_of(element: &web_sys::Element) -> ClientBox {
     let rect = element.get_bounding_client_rect();
-    ClientBox { left: rect.left(), top: rect.top(), width: rect.width(), height: rect.height() }
+    ClientBox {
+        left: rect.left(),
+        top: rect.top(),
+        width: rect.width(),
+        height: rect.height(),
+    }
 }
 
 /// The nearest ancestor that becomes the containing block for `position: fixed`:

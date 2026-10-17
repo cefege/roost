@@ -51,7 +51,7 @@ pub fn TerminalNavPad(
                 label: key_toggle_label(open),
                 variant: ButtonVariant::Ghost,
                 size: ButtonSize::IconLg,
-                class: Some("term-nav-toggle".to_owned()),
+            class: Some("!size-[calc(var(--control-touch-target)_+_0.75rem)] fixed z-40 touch-manipulation right-[calc(env(safe-area-inset-right,0px)_+_1rem)] bottom-[calc(env(safe-area-inset-bottom,0px)_+_9.5rem)] rounded-lg bg-popover text-muted-foreground shadow-lg transition-[background-color,box-shadow,transform] duration-200 after:pointer-events-none after:absolute after:inset-0 after:bg-current after:opacity-0 after:content-[''] hover:after:opacity-[0.08] focus-visible:after:opacity-[0.12] active:after:opacity-[0.12] active:scale-[0.96] data-[open=true]:bg-accent data-[open=true]:text-accent-foreground tv:right-[calc(var(--tv-overscan-inline)_+_1rem)] tv:bottom-[calc(var(--tv-overscan-block)_+_9.5rem)]".to_owned()),
                 "data-testid": "terminal-nav-toggle",
                 "data-open": if open { "true" } else { "false" },
                 // Every press here is one tap into a pane the reader must not be

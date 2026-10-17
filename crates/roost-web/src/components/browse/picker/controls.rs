@@ -10,14 +10,9 @@ use roost_client_core::store::browse_state::intent::BrowseIntent;
 
 use crate::components::browse::dom;
 use crate::components::browse::listing;
-use crate::components::browse::path_bar::CrumbMenuPos;
 use crate::components::browse::picker::control_set::PickerControls;
-use crate::components::browse::picker::parts::{
-    commit_new_folder, history_move, measure_crumb_anchor, measure_server_anchor, recents_header,
-};
-use crate::components::browse::toolbar::SERVER_TRIGGER_ID;
+use crate::components::browse::picker::parts::{commit_new_folder, history_move, recents_header};
 use crate::components::browse::view::PickerReading;
-use crate::components::context_menu::AnchoredMenuPos;
 use crate::pump::Pump;
 use crate::routes::browse_href;
 
@@ -34,9 +29,7 @@ pub fn build_controls(
     retry: Signal<u32>,
     hide_middle: Signal<usize>,
     server_menu_open: Signal<bool>,
-    server_anchor: Signal<Option<AnchoredMenuPos>>,
     crumb_menu_open: Signal<bool>,
-    crumb_anchor: Signal<Option<CrumbMenuPos>>,
     navigate: EventHandler<String>,
 ) -> PickerControls {
     let view = &reading.view;
@@ -89,28 +82,16 @@ pub fn build_controls(
         EventHandler::new(move |target: String| navigate.call(browse_href(&target)));
     let on_toggle_server_menu = EventHandler::new({
         let mut open = server_menu_open;
-        let mut anchor = server_anchor;
         move |()| {
-            if *open.peek() {
-                open.set(false);
-            } else {
-                anchor.set(measure_server_anchor(SERVER_TRIGGER_ID));
-                open.set(true);
-            }
+            let next = !*open.peek();
+            open.set(next);
         }
     });
     let on_toggle_crumb_menu = EventHandler::new({
         let mut open = crumb_menu_open;
-        let mut anchor = crumb_anchor;
         move |()| {
-            if *open.peek() {
-                open.set(false);
-            } else {
-                anchor.set(measure_crumb_anchor(
-                    crate::components::browse::path_bar::CRUMB_OVERFLOW_ID,
-                ));
-                open.set(true);
-            }
+            let next = !*open.peek();
+            open.set(next);
         }
     });
     let on_drill = EventHandler::new({

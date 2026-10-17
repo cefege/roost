@@ -200,7 +200,7 @@ fn update_once(state: &GeometryState) {
     let Some(dock) = state.dock.borrow().clone() else {
         return;
     };
-    let box_element = query(&dock, ".term-chat__box");
+    let box_element = query(&dock, "[data-composer-part=box]");
     retarget_resize(state, box_element.clone(), dock.parent_element());
     let Some(measurement) = measure(&dock, box_element) else {
         return;
@@ -277,7 +277,7 @@ fn measure(
     box_element: Option<web_sys::Element>,
 ) -> Option<PaneMeasurement> {
     let box_element = box_element?;
-    let input = query(dock, ".term-chat__input")?;
+    let input = query(dock, "[data-composer-part=input]")?;
     // A dock with no width is a dock that has not been laid out. Deliberately
     // not zero: a zero would un-grow a composer that is in fact tall.
     if dock.client_width() == 0 {

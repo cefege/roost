@@ -116,12 +116,12 @@ pub fn StatusBar() -> Element {
     .map(|session| session.id.as_str().to_owned());
     rsx! {
         footer {
-            class: "workbench-status-bar",
+            class: "flex min-w-0 items-center gap-3 overflow-hidden border-t border-[var(--workbench-border)] bg-[var(--workbench-status)] px-2 font-medium text-xs text-[var(--text-mid)] [grid-area:statusbar]",
             "data-testid": "workbench-status-bar",
             "aria-label": "Workbench status",
-            div { class: "workbench-status-bar__left",
+            div { class: "contents",
             span {
-                class: "workbench-status-item",
+                class: "inline-flex min-w-0 shrink-0 items-center gap-1 whitespace-nowrap tabular-nums",
                 "data-testid": "workbench-status-sync",
                 "data-status": coordinator.status(),
                 StatusDot { status: coordinator.status().to_string() }
@@ -129,7 +129,7 @@ pub fn StatusBar() -> Element {
             }
                 if let Some(reading) = machine {
                     span {
-                        class: "workbench-status-item workbench-status-item--optional",
+                        class: "inline-flex min-w-0 shrink-0 items-center gap-1 whitespace-nowrap tabular-nums max-[960px]:hidden",
                         "data-testid": "workbench-status-worker",
                         StatusDot { status: reading.status.clone() }
                         span { {reading.label} }
@@ -137,7 +137,7 @@ pub fn StatusBar() -> Element {
                 }
                 if let Some(reading) = agent {
                     span {
-                        class: "workbench-status-item workbench-status-item--optional",
+                        class: "inline-flex min-w-0 shrink-0 items-center gap-1 whitespace-nowrap tabular-nums max-[960px]:hidden",
                         "data-testid": "workbench-status-agent",
                         StatusDot { status: reading.status.clone() }
                         span { {reading.label} }
@@ -145,7 +145,7 @@ pub fn StatusBar() -> Element {
                 }
                 if let Some(context) = context {
                     span {
-                        class: "workbench-status-item workbench-status-item--context",
+                        class: "inline-flex min-w-0 shrink-0 items-center gap-1 overflow-hidden text-ellipsis whitespace-nowrap tabular-nums text-[var(--text-lo)] max-[1100px]:hidden",
                         "data-testid": "workbench-status-context",
                         {context}
                     }
@@ -154,9 +154,9 @@ pub fn StatusBar() -> Element {
                     crate::components::terminal_signal_marks::TerminalUserVarBadges { session_id }
                 }
             }
-            div { class: "workbench-status-bar__right",
+            div { class: "contents",
                 span {
-                    class: "workbench-status-item",
+                    class: "inline-flex min-w-0 shrink-0 items-center gap-1 whitespace-nowrap tabular-nums",
                     "data-testid": "workbench-status-counts",
                     {readings.sessions_worded()}
                     span { "aria-hidden": "true", "·" }
@@ -164,7 +164,7 @@ pub fn StatusBar() -> Element {
                 }
                 if let Some(revision) = readings.revision.clone() {
                     span {
-                        class: "workbench-status-item workbench-status-item--revision",
+                        class: "inline-flex min-w-0 shrink-0 items-center gap-1 ml-auto whitespace-nowrap tabular-nums font-[family-name:var(--font-mono)] text-[var(--text-lo)] max-[1100px]:hidden",
                         "data-testid": "workbench-status-revision",
                         {revision}
                     }

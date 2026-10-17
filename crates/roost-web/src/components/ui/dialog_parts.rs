@@ -35,7 +35,10 @@ pub fn DialogTitle(#[props(into, optional)] class: Option<String>, children: Ele
 
 /// The dialog's accessible description.
 #[component]
-pub fn DialogDescription(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn DialogDescription(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     let context = use_context::<DialogContext>();
     rsx! {
         p {

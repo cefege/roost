@@ -79,11 +79,11 @@ pub fn TerminalProgressMark(session_id: String) -> Element {
     };
     rsx! {
         span {
-            class: "terminal-progress-mark",
+            class: "inline-flex min-w-7 flex-[0_1_6rem] items-center data-[state=error]:[&>div>div]:bg-destructive data-[state=paused]:[&>div>div]:bg-warning",
             "data-state": state,
             "data-testid": "terminal-progress-{session_id}",
             title: label.clone(),
-            Progress { value, label: label.clone(), class: "w-12" }
+            Progress { value, label: label.clone(), class: "w-full" }
         }
     }
 }
@@ -106,7 +106,7 @@ pub fn TerminalUserVarBadges(session_id: String) -> Element {
     let (shown, all) = user_var_badges(&vars);
     let last = shown.len().saturating_sub(1);
     rsx! {
-        span { class: "terminal-user-vars", "data-testid": "terminal-user-vars-{session_id}",
+        span { class: "inline-flex min-w-0 gap-1 overflow-hidden", "data-testid": "terminal-user-vars-{session_id}",
             for (index, badge) in shown.into_iter().enumerate() {
                 Chip {
                     key: "{index}",

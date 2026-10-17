@@ -242,7 +242,7 @@ server-side multiplexers use:
 - **The browser paints that grid as-is.** It parses no VT and never reflows
   (`crates/roost-web-terminal/src/cell_renderer.rs`). Rows are pinned to the
   grid's `cols` in `ch` units, so a wider pane letterboxes instead of
-  stretching (`.cell-grid` in `crates/roost-web/assets/styles/sidebar.css`).
+  stretching (`.cell-grid` in `crates/roost-web/assets/styles/terminal-grid.css`).
   The accepted tradeoff: plain shell history does not rewrap to a narrower
   device; it scrolls sideways.
 - **The agreed width is the SCD** (smallest common denominator) across views
@@ -363,7 +363,8 @@ Paths cited above are not repeated here.
   `docs/phase4-client-contract.md`.
 - **Web:** `crates/roost-web/src/main.rs` (scrubs URL-carried credentials and
   probes the serving origin before mounting); `app.rs`; `routes.rs`;
-  `components/terminal/pane_mount.rs`; `components/md/` (design primitives).
+  `components/terminal/pane_mount.rs`; `components/ui/` (rust-ui components)
+  over the Tailwind theme bridge in `tailwind.css`.
 - **CLI:** `crates/roost-cli/src/lib.rs` (command tree); `quickstart/`;
   `status/`; `doctor/`; `push/`; `update/`. Contract:
   `docs/phase6-cli-contract.md`.

@@ -22,7 +22,8 @@ use crate::components::ui::{Surface, SurfaceRadius};
 pub const DESIGN_GALLERY_TEST_ID: &str = "design-gallery";
 
 /// The page's own frame: full height, its own scroll, the base surface.
-const GALLERY_CLASS: &str = "box-border min-h-screen overflow-y-auto bg-background p-6 text-foreground";
+const GALLERY_CLASS: &str =
+    "box-border min-h-screen overflow-y-auto bg-background p-6 text-foreground";
 
 /// A gallery section's title.
 const SECTION_HEADER_CLASS: &str = "mt-0 mb-4 text-xl font-semibold text-foreground";

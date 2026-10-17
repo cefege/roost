@@ -13,7 +13,7 @@ pub const DEFAULT_STATUS_DOT_SIZE_PX: u32 = 8;
 pub fn status_dot_token_known(status: &str) -> Option<&'static str> {
     match status {
         "ok" | "done" => Some("--status-ok"),
-        "running" => Some("--md-primary"),
+        "running" => Some("--accent"),
         "idle" | "offline" => Some("--text-lo"),
         "warn" => Some("--status-warn"),
         "error" => Some("--status-err"),

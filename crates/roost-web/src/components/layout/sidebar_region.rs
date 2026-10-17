@@ -23,12 +23,12 @@ pub fn SidebarRegion(collapsed: bool, children: Element) -> Element {
     rsx! {
         div {
             id: SIDEBAR_REGION_ID,
-            class: "workbench-sidebar-region",
+            class: "workbench-sidebar-region relative min-h-0 min-w-0 overflow-hidden border-r border-[var(--workbench-border)] bg-[var(--workbench-sidebar)] [grid-area:sidebar] data-[collapsed=true]:border-r-0",
             "data-collapsed": flag,
             "aria-hidden": collapsed.then_some("true"),
             inert: collapsed.then_some(true),
             aside {
-                class: "workbench-sidebar",
+                class: "grid h-full min-h-0 min-w-0 box-border w-[var(--workbench-sidebar-expanded-width)] grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] overflow-hidden border-r border-[var(--workbench-sidebar-border)] bg-[var(--workbench-sidebar)] font-sans text-xs text-[var(--text-mid)]",
                 "data-testid": "sidebar-desktop",
                 "data-collapsed": flag,
                 {children}

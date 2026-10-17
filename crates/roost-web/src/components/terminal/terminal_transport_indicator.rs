@@ -20,7 +20,7 @@ pub fn TerminalTransportIndicator(session_id: String) -> Element {
     };
     rsx! {
         div {
-            class: "terminal-transport-indicator",
+            class: "inline-flex min-w-0 flex-[0_1_auto] items-center overflow-hidden whitespace-nowrap [&>*]:min-h-0 [&>*]:px-2 [&>*]:py-1 [&>*]:text-xs [&>*]:text-muted-foreground",
             "data-testid": "terminal-transport-indicator",
             "data-session-id": "{session_id}",
             "data-terminal-transport": presentation.kind_attribute(),

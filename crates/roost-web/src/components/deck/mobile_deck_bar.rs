@@ -14,8 +14,8 @@ use roost_client_core::store::terminal_transport::session_terminal_transport_kin
 
 use super::pane_tab::direct_transport_label;
 use super::workspace_tabs_sheet::WorkspaceTabsSheet;
-use crate::components::ui::{Icon, IconButton, IconType, StatusDot};
 use crate::components::terminal::terminal_transport_indicator::TerminalTransportIndicator;
+use crate::components::ui::{Icon, IconButton, IconType, StatusDot};
 use crate::pump::use_store;
 use crate::session_naming::session_title;
 
@@ -79,7 +79,7 @@ pub fn MobileDeckBar(
     let open_drawer = pump.clone();
     rsx! {
         div {
-            class: "mobile-deck-bar flex items-center gap-2 h-[var(--md-space-9)] shrink-0 px-2 bg-card border-b border-border text-foreground touch-pan-y",
+            class: "flex items-center gap-2 h-12 shrink-0 px-2 bg-card border-b border-border text-foreground touch-pan-y",
             "data-testid": "mobile-deck-bar",
             IconButton {
                 icon: IconType::Menu,
@@ -88,10 +88,10 @@ pub fn MobileDeckBar(
                 class: "shrink-0",
                 onclick: move |_| open_drawer.dispatch(ClientEvent::Sidebar(SidebarIntent::OpenDrawer)),
             }
-            div { class: "flex-1 basis-0 min-w-0 relative overflow-hidden h-[var(--md-space-9)]",
+            div { class: "flex-1 basis-0 min-w-0 relative overflow-hidden h-12",
                 span {
                     title: "{reading.native_title}",
-                    class: "flex items-center gap-2 w-full min-w-0 text-base font-medium leading-[var(--md-space-9)]",
+                    class: "flex items-center gap-2 w-full min-w-0 text-base font-medium leading-12",
                     if reading.agent_status.is_some() {
                         Icon { icon: IconType::Bot, class: "size-4 shrink-0" }
                     }
@@ -106,7 +106,7 @@ pub fn MobileDeckBar(
             }
             button {
                 r#type: "button",
-                class: "mobile-deck-new",
+                class: "flex size-9 shrink-0 cursor-pointer items-center justify-center gap-1 rounded-[10px] border-0 bg-transparent text-[var(--text-hi)] hover:bg-foreground/8 [-webkit-tap-highlight-color:transparent]",
                 "data-testid": "tab-new",
                 "aria-label": "New terminal — same folder & server",
                 title: "New terminal in this folder",
@@ -117,7 +117,7 @@ pub fn MobileDeckBar(
             }
             button {
                 r#type: "button",
-                class: if badge.fraction { "mobile-deck-count mobile-deck-count--fraction" } else { "mobile-deck-count" },
+                class: if badge.fraction { "flex h-7 w-auto min-w-7 shrink-0 box-border cursor-pointer items-center justify-center gap-1 rounded-md border-[1.5px] border-input bg-transparent px-1 text-xs font-semibold tabular-nums text-foreground hover:bg-foreground/8 [-webkit-tap-highlight-color:transparent]" } else { "flex size-7 shrink-0 box-border cursor-pointer items-center justify-center gap-1 rounded-md border-[1.5px] border-input bg-transparent p-0 text-sm font-semibold text-foreground hover:bg-foreground/8 [-webkit-tap-highlight-color:transparent]" },
                 "data-testid": "mobile-tab-count",
                 "aria-label": "Open terminal grid — {badge.description}",
                 title: "{badge.description}",

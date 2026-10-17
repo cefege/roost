@@ -416,7 +416,7 @@ remain live. Resume re-reads via the keeper pool's history call and seeds
 **Wrong** — switch to alternative terminal cores / upstream the core / patch the WASM "because
 getScrollbackCount returned 0 in my synthetic test".
 
-**Right** — **`.wterm { overflow-y: auto; overflow-x: hidden; }` in `crates/roost-web/assets/styles/sidebar.css`.** The
+**Right** — **`.wterm { overflow-y: auto; overflow-x: hidden; }` in `crates/roost-web/assets/styles/terminal-grid.css`.** The
 core DOES populate scrollback and the renderer DOES emit scrollback row DOM; the only thing missing was the
 container CSS that lets those rows be scrolled. A synthetic test reporting zero scrollback usually means the
 renderer hasn't painted yet (rAF does not fire in background tabs) — force a render before checking. DO NOT
@@ -461,17 +461,16 @@ land, and the same wheel scrolls from a neighbouring pixel.
 **Right** — **a box that only clips text must not swallow the gesture.**
 `overflow: hidden` makes it a scroll container, the global policy then denies
 that container scroll chaining, and a wheel landing on the text is consumed by
-a container with no scroll range instead of reaching the list. Each text clip a
-pointer can land on inside a scroller opts chaining back in with
-`overscroll-behavior-y: auto` (`.md-list-row__headline` in
-`crates/roost-web/assets/components/Settings/md/tokens.css`;
-`.workbench-sidebar-agents__group-name`, `__group-server` and
-`.agent-status-rollup` in `crates/roost-web/assets/styles/workbench-sidebar.css`). It has
-no scroll range of its own, so chaining there can only reach the list, and the
-list's own `none` still stops the chain from reaching the document. Rows that
-cover their whole area with a hit target (`.df-row__primary` in the folders
-list) never showed the defect, which is why it surfaced only in the agents
-list.
+a container with no scroll range instead of reaching the list. Every text clip
+opts chaining back in with `overscroll-behavior-y: auto`: the `truncate`
+utility carries it (`@utility truncate` in `crates/roost-web/tailwind.css`),
+and a clip built another way (`overflow-hidden` on a label) adds
+`overscroll-y-auto`. The global `none` lives in `@layer base` in
+`crates/roost-web/index.html`, because an unlayered rule would beat every
+utility. It has no scroll range of its own, so chaining there can only reach
+the list, and the list's own `none` still stops the chain from reaching the
+document. Rows that cover their whole area with a hit target never showed the
+defect, which is why it surfaced only in the agents list.
 
 **Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
 
@@ -598,7 +597,7 @@ page geometry itself is pure and lives apart in `crates/roost-client-core/src/te
 state (`scrollback.demand_coalesced`, `demand_rearmed`, `demand_retry_deferred`, `demand_retry_woke`) emits one
 `diag()` line, the deferred pair naming the state that used to leave a visible gap unpainted. Unpainted
 placeholders also stop reading as empty — `.cell-grid .cell-sb-gap` / `.cell-sb-spacer` in
-`crates/roost-web/assets/styles/sidebar.css` paint a row-pitch skeleton (paint-only; those elements' inline pixel heights
+`crates/roost-web/assets/styles/terminal-grid.css` paint a row-pitch skeleton (paint-only; those elements' inline pixel heights
 are what every scroll position is derived from, so never give them geometry). The head spacer drops that
 texture only while it lies ENTIRELY below a proven retention floor (`setHistoryFloor` →
 `data-history-floor`, re-derived in `_syncSpacer`): those rows are gone, not loading, and a pending sheet over
@@ -4108,12 +4107,12 @@ that the new one reports empty. So a property the new string omits survives (the
 early compact render), and a shorthand holding `var()` — whose longhands report empty — is erased by
 the re-applied empty longhands (`background: var(--token)`).
 
-**Right** — a dynamic inline style writes longhands only (`md::status_dot::status_dot_style`:
+**Right** — a dynamic inline style writes longhands only (`ui::status::status_dot_style`:
 `background-color`, `border-width`/`border-style`/`border-color`) and names every property it can
 ever set in every branch (`layout::shell_style::editor_style`: `padding-bottom: 0px` when it does not
 reserve).
 
-**Guard** — `crates/roost-web/tests/md_primitives.rs` —
+**Guard** — `crates/roost-web/tests/ui_status.rs` —
 `a_status_dot_never_puts_its_token_in_a_shorthand`; `layout::shell_style::editor_style_tests` —
 `every_editor_style_names_every_property_it_can_set`.
 

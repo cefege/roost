@@ -98,9 +98,12 @@ pub fn keep_caret_visible(field: &MountedData) {
         area.set_scroll_top(area.scroll_height());
     }
     let offset = area.scroll_top();
-    let mirror = area
-        .parent_element()
-        .and_then(|parent| parent.query_selector(".term-chat__ghost").ok().flatten());
+    let mirror = area.parent_element().and_then(|parent| {
+        parent
+            .query_selector("[data-composer-part=ghost]")
+            .ok()
+            .flatten()
+    });
     if let Some(mirror) = mirror
         && let Some(mirror) = mirror.dyn_ref::<web_sys::HtmlElement>()
     {

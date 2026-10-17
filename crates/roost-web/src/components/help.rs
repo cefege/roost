@@ -34,20 +34,20 @@ pub fn HelpSurface() -> Element {
         .map(|entry| (entry.binding_label(platform), entry.label))
         .collect();
     rsx! {
-        div { class: "workbench-help",
-            div { class: "workbench-help__content",
-                h2 { class: "workbench-help__title", "Help / Keybindings" }
-                table { class: "workbench-help__table",
+        div { class: "box-border flex h-full min-h-0 w-full flex-col overflow-auto bg-[var(--workbench-editor)] p-6 text-[var(--text-hi)]",
+            div { class: "mx-auto max-w-[520px]",
+                h2 { class: "mt-0 mb-5 text-xl", "Help / Keybindings" }
+                table { class: "w-full border-collapse text-sm",
                     tbody {
                         for (binding, label) in rows {
-                            tr {
-                                td { class: "workbench-help__key", {binding} }
-                                td { {label} }
+                            tr { class: "border-b border-[var(--workbench-border)]",
+                                td { class: "w-2/5 py-2 pr-4 font-mono text-[var(--workbench-active)]", {binding} }
+                                td { class: "py-2", {label} }
                             }
                         }
                     }
                 }
-                p { class: "workbench-help__hint", "Press Esc to close." }
+                p { class: "mt-5 mb-0 text-xs text-[var(--text-lo)]", "Press Esc to close." }
             }
         }
         HelpOverlayHost {}

@@ -119,24 +119,6 @@ impl DeckContainer {
     }
 }
 
-/// A right-anchored menu position moved from viewport coordinates into the
-/// containing block `container` (whose right edge sits `viewport_width -
-/// right` in from the viewport's).
-pub fn menu_pos_in(
-    pos: crate::components::context_menu::AnchoredMenuPos,
-    container: ClientBox,
-    viewport_width: f64,
-) -> crate::components::context_menu::AnchoredMenuPos {
-    if container.width == 0.0 {
-        return pos;
-    }
-    let right_gap = viewport_width - (container.left + container.width);
-    crate::components::context_menu::AnchoredMenuPos {
-        right: pos.right - right_gap,
-        y: pos.y - container.top,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

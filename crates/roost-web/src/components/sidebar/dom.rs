@@ -9,7 +9,6 @@ use std::rc::Rc;
 use wasm_bindgen::JsCast as _;
 use wasm_bindgen::closure::Closure;
 
-use super::sidebar_new_terminal::{MachineMenuAnchor, machine_menu_anchor};
 use super::sidebar_search::SIDEBAR_SEARCH_INPUT_ID;
 use crate::platform::browser_platform::{
     PlatformShortcut, browser_platform, matches_platform_shortcut, shortcut_key,
@@ -115,54 +114,4 @@ pub async fn sleep_ms(delay_ms: u32) {
         let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, delay);
     }
     let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
-}
-
-/// The upward anchor for the menu under the trigger `trigger_id`.
-pub fn machine_trigger_anchor(trigger_id: &str) -> Option<MachineMenuAnchor> {
-    let window = web_sys::window()?;
-    let rect = window
-        .document()?
-        .get_element_by_id(trigger_id)?
-        .get_bounding_client_rect();
-    let dimension = |read: Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue>| {
-        read.ok().and_then(|value| value.as_f64())
-    };
-    let width = dimension(window.inner_width()).unwrap_or(rect.right());
-    let height = dimension(window.inner_height()).unwrap_or(rect.bottom());
-    Some(machine_menu_anchor(
-        rect.right(),
-        rect.top(),
-        rect.bottom(),
-        width,
-        height,
-    ))
-}
-
-/// Roving focus, activation and Escape inside the menu `menu_id`.
-pub fn run_menu_key_by_id(
-    event: &dioxus::prelude::KeyboardEvent,
-    menu_id: &str,
-    on_escape: impl FnOnce() + 'static,
-) {
-    let Some(native) = event.data().downcast::<web_sys::KeyboardEvent>().cloned() else {
-        return;
-    };
-    let Some(menu) = web_sys::window()
-        .and_then(|window| window.document())
-        .and_then(|document| document.get_element_by_id(menu_id))
-    else {
-        return;
-    };
-    crate::components::context_menu::run_menu_key(&native, &menu, on_escape, || {});
-}
-
-/// Focus the element `id`, when it is focusable.
-pub fn focus_by_id(id: &str) {
-    let element = web_sys::window()
-        .and_then(|window| window.document())
-        .and_then(|document| document.get_element_by_id(id))
-        .and_then(|element| element.dyn_into::<web_sys::HtmlElement>().ok());
-    if let Some(element) = element {
-        let _ = element.focus();
-    }
 }

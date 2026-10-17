@@ -100,7 +100,7 @@ pub fn TvHomeBoard() -> Element {
         })
         .collect();
     rsx! {
-        main { class: "tv-home-board", "data-testid": "tv-home-board", aria_label: "Open sessions",
+        main { class: "flex min-h-0 min-w-0 flex-col overflow-auto p-5", "data-testid": "tv-home-board", aria_label: "Open sessions",
             if sessions.is_empty() {
                 EmptyState {
                     icon: IconType::Terminal,
@@ -111,7 +111,7 @@ pub fn TvHomeBoard() -> Element {
             } else {
                 for (document, href) in sessions {
                     a {
-                        class: "tv-home-board__link",
+                        class: "block min-w-0 no-underline [color:inherit]",
                         href: href.clone(),
                         "data-testid": "tv-home-session-{document.session_id}",
                         "data-unseen": document.agent_unseen,
@@ -129,16 +129,16 @@ pub fn TvHomeBoard() -> Element {
                         },
                         Card {
                             variant: CardVariant::Elevated,
-                            class: Some(if document.agent_unseen || needs_operator_input(document) { "tv-home-board__card tv-home-board__card--unseen" } else { "tv-home-board__card" }.to_owned()),
+                            class: Some(if document.agent_unseen || needs_operator_input(document) { "min-h-40 justify-center p-5 border-s-8 border-s-[var(--accent)]" } else { "min-h-40 justify-center p-5" }.to_owned()),
                             "data-testid": "tv-home-card-{document.session_id}",
                             CardHeader {
                                 CardTitle { {document.display_title.clone()} }
                                 CardDescription { {format!("{} · {}", document.worker_label, document.cwd)} }
                             }
                             CardContent {
-                                div { class: "tv-home-board__status",
+                                div { class: "flex items-center gap-3 mt-3",
                                     if let Some(attention) = document.agent_attention {
-                                        span { class: "tv-home-board__attention", {match attention {
+                                        span { class: "font-medium text-[var(--accent)]", {match attention {
                                             NavigationSearchAttention::Blocked => "Needs input",
                                             NavigationSearchAttention::Done => "Unseen completion",
                                         }}}

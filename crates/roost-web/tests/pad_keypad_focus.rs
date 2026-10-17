@@ -9,7 +9,7 @@ use roost_web::input_nav::keypad_focus::{
 
 #[test]
 fn focuses_the_first_grid_key_once_it_mounts() {
-    assert!(KEYPAD_FIRST_KEY_SELECTOR.contains(".term-nav__grid"));
+    assert!(KEYPAD_FIRST_KEY_SELECTOR.contains("[data-keypad-grid]"));
     let mut retry = FirstKeyFocusRetry::new();
 
     // The microtask attempt finds no sheet yet: one more frame is requested.

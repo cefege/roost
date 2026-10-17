@@ -21,8 +21,7 @@ pub const PEEK_RADIUS_PX: f64 = 28.0;
 /// The FAB's scale at rest.
 pub const NEW_FAB_MIN_SCALE: f64 = 0.5;
 const FAB_PX: f64 = 56.0;
-const SWIPE_DECEL: &str =
-    "var(--md-sys-motion-easing-emphasized-decelerate, cubic-bezier(0.05, 0.7, 0.1, 1))";
+const SWIPE_DECEL: &str = "cubic-bezier(0.05, 0.7, 0.1, 1)";
 const SWIPE_SLIDE_EASE: &str = "cubic-bezier(0.25, 0.46, 0.45, 0.94)";
 
 /// The peeled card at progress `p`.
@@ -133,7 +132,7 @@ fn new_terminal_peel(swipe: &Swipe, width: f64, settle_ms: u64) -> InlineStyle {
     let peek = peek_card(progress);
     let shadow = if progress > 0.0 {
         format!(
-            "0 {}px {}px color-mix(in srgb, var(--md-shadow) {}%, transparent)",
+            "0 {}px {}px color-mix(in srgb, black {}%, transparent)",
             (8.0 * progress).round(),
             (30.0 * progress).round(),
             (50.0 * progress).round()

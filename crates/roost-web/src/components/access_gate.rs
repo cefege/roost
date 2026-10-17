@@ -1,8 +1,8 @@
 //! The two screens that exist before a protected surface does: the checking
 //! screen, and the refusal. Ported from
 //! `apps/web/src/components/pairing/AccessCheckingScreen.tsx`'s slot in App.tsx's
-//! `RootShell` switch, and from the `.access-checking` rules that
-//! `assets/styles/workbench-shell.css` carried, now Tailwind classes.
+//! `RootShell` switch, and from the checking-screen rules the old workbench
+//! stylesheet carried, now Tailwind classes.
 //!
 //! THE REFUSAL IS NOT THE PAIRING PAGE. `components::pairing::PairSurface` is:
 //! the root mounts it above the gate, so an unpaired reader at `/`, at
@@ -23,8 +23,8 @@ use dioxus::prelude::*;
 use crate::components::ui::{Icon, IconType};
 
 /// The full-height centring frame both refusal screens share. The TV overscan
-/// variant keeps the padding `tv.css` gave `.access-checking` for `data-tv`.
-pub const CHECKING_CLASS: &str = "flex min-h-dvh w-full items-center justify-center p-6 [[data-tv=true]_&]:py-[var(--tv-overscan-block)] [[data-tv=true]_&]:px-[var(--tv-overscan-inline)]";
+/// variant keeps the padding the TV mode gives the checking screen.
+pub const CHECKING_CLASS: &str = "flex min-h-dvh w-full items-center justify-center p-6 tv:!py-[var(--tv-overscan-block)] tv:!px-[var(--tv-overscan-inline)]";
 /// The bordered card that holds the message.
 pub const CARD_CLASS: &str = "flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm text-card-foreground";
 

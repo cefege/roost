@@ -21,7 +21,7 @@ pub const PORTAL_ROOT_ID: &str = "roost-portal-root";
 #[component]
 pub fn PortalRoot() -> Element {
     rsx! {
-        div { id: PORTAL_ROOT_ID, class: "roost-portal-root" }
+        div { id: PORTAL_ROOT_ID, class: "contents" }
     }
 }
 
@@ -42,9 +42,9 @@ pub fn Portal(children: Element) -> Element {
         }
     });
     rsx! {
-        div { class: "roost-portal-anchor",
+        div { class: "contents",
             div {
-                class: "roost-portal",
+                class: "contents",
                 onmounted: move |event: MountedEvent| move_into_root(&event.data(), &moved),
                 {children}
             }

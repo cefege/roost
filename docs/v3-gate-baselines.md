@@ -317,7 +317,7 @@ passing for the wrong reason** — green because the defect under test had
 inverted its own guard, so it proved the control worked and proved nothing
 about the property. Only running the row tells you which of the two you have.
 
-**Six raw values remain in `sidebar.css`, and the baseline now says six.** v2
+**Six raw values remain in `terminal-grid.css`, and the baseline now says six.** v2
 baselined this same file at **35** and never drove it to zero, so this is
 inherited debt and the number is going down (35 → 9 → 6). Three mapped with no
 judgement at all; the remaining six are a U-3 design decision and are listed

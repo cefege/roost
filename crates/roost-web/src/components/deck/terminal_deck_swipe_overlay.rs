@@ -29,11 +29,11 @@ pub fn TerminalDeckSwipeOverlay(
     let armed = new_fab_progress(pull.offset, deck_width) >= 1.0;
     rsx! {
         div {
-            class: "deck-new-peek",
+            class: "flex items-center justify-center overflow-hidden bg-card [-webkit-tap-highlight-color:transparent]",
             "data-testid": "deck-new-peek",
             style: new_peek_style(Some(pull), pane_rect, deck_width, strip_height).css(),
             "aria-hidden": "true",
-            div { class: "deck-new-peek__label",
+            div { class: "flex items-center gap-2.5 font-medium text-sm leading-tight tracking-[0.1px] text-muted-foreground",
                 svg { width: "20", height: "20", view_box: "0 0 24 24", fill: "none", stroke: "currentColor", stroke_width: "2.5", stroke_linecap: "round", "aria-hidden": "true",
                     path { d: "M12 5v14M5 12h14" }
                 }
@@ -41,7 +41,7 @@ pub fn TerminalDeckSwipeOverlay(
             }
         }
         div {
-            class: "deck-new-fab",
+            class: "flex items-center justify-center bg-secondary text-secondary-foreground shadow-[0_6px_20px_color-mix(in_srgb,black_45%,transparent)] transition-[background-color,color,box-shadow] duration-150 ease-[cubic-bezier(0.2,0,0,1)] [-webkit-tap-highlight-color:transparent] data-[armed=true]:bg-primary data-[armed=true]:text-primary-foreground data-[armed=true]:shadow-[0_8px_26px_color-mix(in_srgb,black_50%,transparent),0_0_0_12px_color-mix(in_srgb,var(--accent)_18%,transparent)]",
             "data-testid": "deck-new-fab",
             "data-armed": armed.then_some("true"),
             style: new_fab_style(Some(pull), pane_rect, deck_width, strip_height).css(),

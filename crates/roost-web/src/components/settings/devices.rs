@@ -22,11 +22,11 @@ use roost_client_core::client::rpc::calls::settings::devices::{ListDevices, Revo
 use roost_client_core::store::shell_intent::ShellIntent;
 
 use super::format::format_timestamp;
+use crate::components::pairing::PhonePairingCard;
 use crate::components::ui::{
     Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyState,
     IconType, List, ListRow,
 };
-use crate::components::pairing::PhonePairingCard;
 use crate::pump::{Pump, use_store};
 use crate::router_state::use_navigate;
 use crate::routes::Route;

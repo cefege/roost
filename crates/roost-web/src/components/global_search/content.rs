@@ -20,7 +20,10 @@ use roost_web_terminal::find::hits::PreferredMatch;
 use roost_web_terminal::find::intent::TerminalFindIntentOptions;
 
 use crate::components::global_search::{driver, query::SearchRouteQuery};
-use crate::components::ui::{Button, ButtonVariant, EmptyState, IconType, List, ListRow};
+use crate::components::ui::{
+    Button, ButtonGroup, ButtonVariant, Card, CardSize, CommandItem, CommandList, EmptyState, Icon,
+    IconType,
+};
 use crate::platform::worker_paths::BrowserWorkerPaths;
 use crate::pump::{Pump, use_store};
 use crate::router_state::use_navigate;
@@ -72,7 +75,7 @@ pub fn ContentResults(route_query: SearchRouteQuery) -> Element {
     };
 
     rsx! {
-        section { class: "flex flex-col gap-3 rounded-xl border border-border bg-card p-4 text-card-foreground",
+        Card { size: CardSize::Sm, class: Some("px-4".to_owned()), role: "region",
             "aria-labelledby": "global-content-search-title",
             h2 { id: "global-content-search-title", class: "m-0 text-lg font-semibold",
                 "Terminal content"
@@ -115,7 +118,7 @@ pub fn ContentResults(route_query: SearchRouteQuery) -> Element {
                         }
                     }
                 } else {
-                    List { contained: true,
+                    CommandList { class: "flex flex-col gap-2 max-h-none min-h-0 overflow-visible",
                         for (index, row) in rows.iter().enumerate() {
                             ContentRow {
                                 row: row.clone(),
@@ -129,7 +132,7 @@ pub fn ContentResults(route_query: SearchRouteQuery) -> Element {
                     }
                 }
                 if incomplete {
-                    div { class: "flex flex-col gap-2 rounded-md border border-border bg-background p-3",
+                    Card { size: CardSize::Sm, class: Some("px-3 py-3 gap-2".to_owned()),
                             "data-testid": "global-content-incomplete",
                             role: if results.error.is_some() { "alert" } else { "status" },
                             "aria-live": if results.error.is_some() { "assertive" } else { "polite" },
@@ -164,16 +167,18 @@ pub fn ContentResults(route_query: SearchRouteQuery) -> Element {
                 if results.next_cursor.is_some() && results.error.is_none() {
                     div { role: "group", "aria-label": "Terminal content pagination",
                         class: "flex justify-center",
-                        Button {
-                            variant: ButtonVariant::Secondary,
-                            icon: Some(IconType::ChevronDown),
-                            disabled: waiting,
-                            "data-testid": "global-content-load-more",
-                            onclick: {
-                                let pump = pump.clone();
-                                move |_| { driver::take_next_page(&pump); }
-                            },
-                            if waiting { "Loading…" } else { "Load more" }
+                        ButtonGroup {
+                            Button {
+                                variant: ButtonVariant::Secondary,
+                                icon: Some(IconType::ChevronDown),
+                                disabled: waiting,
+                                "data-testid": "global-content-load-more",
+                                onclick: {
+                                    let pump = pump.clone();
+                                    move |_| { driver::take_next_page(&pump); }
+                                },
+                                if waiting { "Loading…" } else { "Load more" }
+                            }
                         }
                     }
                 }
@@ -191,15 +196,18 @@ fn ContentRow(row: JoinedMatch, index: usize, on_open: EventHandler<()>) -> Elem
     };
     let session_id = document.session_id.clone();
     rsx! {
-        ListRow {
-            leading_icon: Some(IconType::FileSearch),
-            headline: rsx! {
-                span { "data-testid": format!("global-content-title-{session_id}"),
+        CommandItem {
+            value: format!("{session_id}-{index}"),
+            class: "flex items-start gap-3 rounded-md px-3 py-2.5",
+            test_id: format!("global-content-result-{session_id}-{index}"),
+            show_check: false,
+            on_select: move |()| on_open.call(()),
+            Icon { icon: IconType::FileSearch, class: "mt-0.5 size-4 shrink-0 text-muted-foreground" }
+            span { class: "flex min-w-0 flex-1 flex-col gap-1",
+                span { class: "text-sm font-medium text-foreground", "data-testid": format!("global-content-title-{session_id}"),
                     {document.display_title.clone()}
                 }
-            },
-            support: rsx! {
-                span { class: "flex flex-col gap-1",
+                span { class: "flex flex-col gap-1 text-xs text-muted-foreground",
                     span {
                         "data-testid": format!("global-content-preview-{session_id}-{index}"),
                         class: "whitespace-pre-wrap [overflow-wrap:anywhere]",
@@ -207,10 +215,8 @@ fn ContentRow(row: JoinedMatch, index: usize, on_open: EventHandler<()>) -> Elem
                     }
                     span { "{document.cwd} · {document.worker_label}" }
                 }
-            },
-            trailing: rsx! { span { "Open find" } },
-            onclick: move |_| on_open.call(()),
-            test_id: Some(format!("global-content-result-{session_id}-{index}")),
+            }
+            span { class: "shrink-0 whitespace-nowrap text-xs text-muted-foreground", "Open find" }
         }
     }
 }

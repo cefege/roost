@@ -8,8 +8,8 @@ use dioxus::prelude::*;
 
 use crate::components::ui::{
     Button, ButtonVariant, Dialog, DialogAction, DialogBody, DialogContent, DialogDescription,
-    DialogFooter, DialogHeader, DialogTitle, IconType, Sheet, SheetContent, SheetHeader,
-    SheetSide, SheetTitle,
+    DialogFooter, DialogHeader, DialogTitle, IconType, Sheet, SheetContent, SheetHeader, SheetSide,
+    SheetTitle,
 };
 
 const BODY_TEXT_CLASS: &str = "m-0 text-sm text-muted-foreground";

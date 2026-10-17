@@ -83,7 +83,7 @@ fn the_floated_card_covers_its_whole_rect_above_the_scrim() {
     );
     assert_eq!(floated.get("height"), Some("800px"));
     assert_eq!(floated.get("z-index"), Some("9"));
-    assert_eq!(floated.get("border-radius"), Some("var(--md-shape-md)"));
+    assert_eq!(floated.get("border-radius"), Some("12px"));
 }
 
 /// A compact slot's bottom edge is the deck's, resolved by CSS from the deck's

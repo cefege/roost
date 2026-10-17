@@ -22,8 +22,8 @@ pub mod query;
 use dioxus::prelude::*;
 
 use crate::components::global_search::query::{SearchRouteQuery, SearchScope};
-use crate::components::ui::{Command, CommandInput, CommandItem, Icon, IconType};
 use crate::components::terminal::dom::{now_ms, sleep_ms};
+use crate::components::ui::{Command, CommandInput, CommandItem, Icon, IconType};
 use crate::pump::use_store;
 use crate::router_state::{use_location, use_navigate};
 
@@ -81,6 +81,7 @@ pub fn GlobalSearchOverlay() -> Element {
     let update = EventHandler::new(move |next: SearchRouteQuery| navigate.call(next.to_path()));
 
     rsx! {
+        Command { should_filter: false, class: "flex flex-1 flex-col overflow-hidden",
         section {
             class: "flex flex-1 flex-col overflow-hidden",
             "data-testid": "global-search-page",
@@ -92,9 +93,7 @@ pub fn GlobalSearchOverlay() -> Element {
                 p { class: "m-0 text-sm text-muted-foreground",
                     "Find sessions by metadata and search retained terminal content across every machine."
                 }
-                Command {
-                    should_filter: false,
-                    class: "gap-3 overflow-visible text-foreground",
+                div { class: "flex flex-col gap-3 text-foreground",
                     CommandInput {
                         value: route_query.text.clone(),
                         aria_label: route_query.search_label().to_owned(),
@@ -158,6 +157,7 @@ pub fn GlobalSearchOverlay() -> Element {
                 }
                 metadata::MetadataResults { route_query: route_query.clone() }
             }
+        }
         }
     }
 }

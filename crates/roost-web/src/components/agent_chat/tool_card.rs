@@ -219,7 +219,9 @@ fn target_class(tool_name: &str) -> &'static str {
 fn state_text_class(state: &str) -> &'static str {
     match state {
         "error" => "ml-auto inline-flex flex-none items-center gap-1 text-xs text-destructive",
-        "timeout" => "ml-auto inline-flex flex-none items-center gap-1 text-xs text-[var(--status-warn)]",
+        "timeout" => {
+            "ml-auto inline-flex flex-none items-center gap-1 text-xs text-[var(--status-warn)]"
+        }
         _ => "ml-auto inline-flex flex-none items-center gap-1 text-xs text-muted-foreground",
     }
 }

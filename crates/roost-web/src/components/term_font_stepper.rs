@@ -8,11 +8,11 @@
 use dioxus::prelude::*;
 
 use crate::components::ui::{Button, ButtonSize, ButtonVariant, IconButton, IconType};
-use tw_merge::tw_merge;
 use crate::pump::use_store;
 use crate::term_font_size::{
     TermFontStepState, reset_term_font, step_term_font, use_device_default_term_font_px,
 };
+use tw_merge::tw_merge;
 
 /// The stepper props.
 #[derive(Props, Clone, PartialEq, Debug)]

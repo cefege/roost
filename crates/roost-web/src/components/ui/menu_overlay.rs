@@ -1,22 +1,42 @@
 //! Shared state behind the controlled `DropdownMenu` and `ContextMenu` roots:
 //! the root context, open and close transitions, focus requests, keyboard
 //! routing and placement. Used by `ui/dropdown_menu.rs`, `ui/context_menu.rs`
-//! and `ui/menu_items.rs`; focus and key routing reuse `deck::deck_dom`.
+//! and `ui/menu_items.rs`; placement reuses `ui::anchored_panel` and focus and
+//! key routing reuse `deck::deck_dom`.
 
 use dioxus::prelude::*;
+use tw_merge::tw_merge;
 
-#[cfg(target_arch = "wasm32")]
-use crate::components::context_menu::anchored_menu_position;
 use crate::components::context_menu::{
-    AnchoredMenuPos, MenuFocusEdge, MenuFocusRequest, attempt_menu_focus, focus_menu_edge,
-    use_floating_menu_dismiss,
+    MenuFocusEdge, MenuFocusRequest, attempt_menu_focus, focus_menu_edge, use_floating_menu_dismiss,
 };
 use crate::components::deck::deck_dom::{focus_by_id, run_menu_keys};
+use crate::components::ui::anchored_panel::anchored_placement_style;
 
-/// Where an open menu sits: under a trigger's right edge, or at a pointer point.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// The side of the trigger a dropdown opens on when both sides have room.
+/// `Below` is the default; `Above` suits a trigger at the bottom of a pane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MenuSide {
+    #[default]
+    Below,
+    Above,
+}
+
+impl MenuSide {
+    /// Whether placement tries the space above the trigger first.
+    pub fn prefers_up(self) -> bool {
+        self == MenuSide::Above
+    }
+}
+
+/// Where an open menu sits: beside its trigger, or at a pointer point.
+#[derive(Debug, Clone, PartialEq)]
 pub enum MenuPlacement {
-    Anchored(AnchoredMenuPos),
+    /// Longhand `top`/`bottom`/`left`/`right`/`max-height` from `anchored_panel`,
+    /// written in the containing block's coordinates so a transformed ancestor
+    /// does not shift the menu.
+    Anchored(String),
+    /// Viewport coordinates of the pointer.
     Point { x: f64, y: f64 },
 }
 
@@ -28,6 +48,8 @@ pub struct MenuRoot {
     pub trigger_id: String,
     pub menu_id: String,
     pub test_id: Option<String>,
+    pub side: MenuSide,
+    pub aria_label: Option<String>,
 }
 
 /// Signals shared by one root and its parts. `Copy` because every field is a signal.
@@ -91,34 +113,25 @@ pub fn request_close(context: MenuContext, restore_focus: bool) {
     }
 }
 
-/// Longhand `top`/`left`/`right` for a placement. Every branch names all three,
-/// so switching placement never leaves a stale edge set.
-pub fn placement_style(placement: MenuPlacement) -> String {
+/// Inline placement for a placement. Both branches name all four edges, so
+/// switching between them never leaves a stale edge set.
+pub fn placement_style(placement: &MenuPlacement) -> String {
     match placement {
-        MenuPlacement::Anchored(position) => {
-            format!("top: {}px; left: auto; right: {}px;", position.y, position.right)
+        MenuPlacement::Anchored(style) => style.clone(),
+        MenuPlacement::Point { x, y } => {
+            format!("top: {y}px; bottom: auto; right: auto; left: {x}px;")
         }
-        MenuPlacement::Point { x, y } => format!("top: {y}px; right: auto; left: {x}px;"),
     }
 }
 
-/// Anchors a menu under the trigger's right edge. Off-wasm there is no layout,
-/// so the origin stands in and the menu is not positioned against a real trigger.
-#[cfg(target_arch = "wasm32")]
-pub fn anchored_placement(trigger_id: &str) -> MenuPlacement {
-    let trigger = web_sys::window()
-        .and_then(|window| window.document())
-        .and_then(|document| document.get_element_by_id(trigger_id));
-    let position = match trigger {
-        Some(element) => anchored_menu_position(&element),
-        None => AnchoredMenuPos { right: 0.0, y: 0.0 },
-    };
-    MenuPlacement::Anchored(position)
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn anchored_placement(_trigger_id: &str) -> MenuPlacement {
-    MenuPlacement::Anchored(AnchoredMenuPos { right: 0.0, y: 0.0 })
+/// Places a menu beside `trigger_id` on `side`, flipping to the other side and
+/// aligning to whichever trigger edge keeps it inside the viewport. Falls back
+/// to the origin when there is no layout to measure (off-wasm, or no trigger).
+pub fn anchored_placement(trigger_id: &str, side: MenuSide) -> MenuPlacement {
+    match anchored_placement_style(trigger_id, side.prefers_up()) {
+        Some(style) => MenuPlacement::Anchored(style),
+        None => MenuPlacement::Point { x: 0.0, y: 0.0 },
+    }
 }
 
 /// The `role="menu"` panel shared by dropdown and context content. Renders
@@ -131,8 +144,12 @@ pub fn MenuSurface(class: String, children: Element) -> Element {
     if !context.root.read().open {
         return rsx! {};
     }
+    let merged = tw_merge!(
+        "animate-menu-enter origin-top-right motion-reduce:animate-none",
+        class.as_str()
+    );
     rsx! {
-        MenuPanel { class, {children} }
+        MenuPanel { class: merged, {children} }
     }
 }
 
@@ -144,7 +161,7 @@ fn MenuPanel(class: String, children: Element) -> Element {
         return rsx! {};
     };
     let root = context.root.read().clone();
-    let style = placement_style(*context.placement.read());
+    let style = placement_style(&context.placement.read());
     use_floating_menu_dismiss(
         EventHandler::new(move |()| request_close(context, false)),
         Some(EventHandler::new(move |()| request_close(context, true))),
@@ -154,13 +171,15 @@ fn MenuPanel(class: String, children: Element) -> Element {
         div {
             id: "{root.menu_id}",
             role: "menu",
-            "aria-labelledby": "{root.trigger_id}",
+            "aria-labelledby": root.aria_label.is_none().then(|| root.trigger_id.clone()),
+            "aria-label": root.aria_label.clone(),
             "data-testid": root.test_id.clone(),
             tabindex: "-1",
             class,
             style: "{style}",
             onmounted: move |_| attempt_pending_focus(context),
             onkeydown: move |event: KeyboardEvent| menu_keydown(context, &event),
+            oncontextmenu: move |event: MouseEvent| event.prevent_default(),
             {children}
         }
     }

@@ -7,11 +7,11 @@ use dioxus::prelude::*;
 
 use crate::components::agent_chat::model_picker::{ModelPicker, PickerOption};
 use crate::components::layout::window_size::use_is_compact;
+use crate::components::settings::model_chain::{move_entry, push_entry, split_thinking};
 use crate::components::ui::{
     Button, ButtonSize, ButtonVariant, Dialog, DialogBody, DialogContent, DialogHeader,
     DialogTitle, IconButton, IconType, List, ListRow, StatusDot,
 };
-use crate::components::settings::model_chain::{move_entry, push_entry, split_thinking};
 
 /// Edits one role's chain. `on_change` receives the whole new chain each time,
 /// so the caller decides how it is saved and scoped.

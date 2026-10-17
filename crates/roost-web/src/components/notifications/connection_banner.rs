@@ -10,8 +10,8 @@ use roost_client_core::store::terminal_transport::has_liveness_qualified_direct_
 use roost_client_core::sync::redial::sync_link_answering;
 use roost_client_core::{ClientEvent, TransportControl};
 
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, StatusDot, Surface, SurfaceRadius};
 use crate::components::terminal::dom::{page_visible, sleep_ms};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, StatusDot, Surface, SurfaceRadius};
 use crate::pump::{Pump, use_store};
 
 /// How often a visible tab re-reads its own liveness. The core redials on its

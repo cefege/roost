@@ -6,8 +6,8 @@
 //! Nothing here reads a clock, a DOM node or the store. The components call
 //! these with values they already hold, which is what lets a size-class
 //! boundary, a title fallback and a coordinator staleness window each be a test
-//! rather than a rendering accident. `AppShell` composes the results; the CSS in
-//! `assets/styles/workbench-shell.css` is what draws them.
+//! rather than a rendering accident. `AppShell` composes the results; the Tailwind
+//! classes in `app_shell.rs` draw them.
 
 use roost_client_core::sync::redial::SYNC_STALE_TIMEOUT_MS;
 

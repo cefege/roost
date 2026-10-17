@@ -11,8 +11,8 @@
 use dioxus::prelude::*;
 
 use super::shell_metrics::{Destination, active_destination};
-use crate::components::ui::{ButtonSize, Icon};
 use crate::components::term_font_stepper::TermFontStepper;
+use crate::components::ui::{ButtonSize, Icon};
 use crate::router_state::{use_location, use_navigate};
 
 /// The DOM id of the Sessions item, where focus goes before a collapse.
@@ -44,18 +44,18 @@ pub fn ActivityBar(on_toggle_sidebar: EventHandler<()>) -> Element {
     ];
     let bottom = [Destination::Settings, Destination::Help];
     rsx! {
-        nav { class: "workbench-activity-bar", "aria-label": "Workbench navigation",
-            div { class: "workbench-activity-bar__group",
+        nav { class: "flex min-h-0 flex-col border-r border-[var(--workbench-border)] bg-[var(--workbench-activity)] [grid-area:activity]", "aria-label": "Workbench navigation",
+            div { class: "flex flex-col",
                 for destination in top {
                     ActivityItem { destination, active, on_toggle_sidebar }
                 }
             }
-            div { class: "workbench-activity-bar__group workbench-activity-bar__group--bottom",
+            div { class: "mt-auto flex flex-col",
                 TermFontStepper {
                     test_id: "rail-term-font",
                     size: ButtonSize::IconSm,
                     vertical: true,
-                    class: "workbench-activity-bar__textsize",
+                    class: "self-center border-b border-[var(--workbench-border)] py-1",
                 }
                 for destination in bottom {
                     ActivityItem { destination, active, on_toggle_sidebar }
@@ -79,7 +79,7 @@ fn ActivityItem(
     rsx! {
         a {
             id: (destination == Destination::Sessions).then_some(SESSIONS_ITEM_ID),
-            class: "workbench-activity-bar__item",
+            class: "relative flex h-[var(--workbench-activity-width)] items-center justify-center text-[var(--text-lo)] no-underline hover:bg-foreground/8 hover:text-[var(--text-hi)] focus-visible:outline focus-visible:outline-[var(--workbench-focus-ring)] focus-visible:-outline-offset-px data-[active=true]:bg-accent data-[active=true]:text-accent-foreground data-[active=true]:before:absolute data-[active=true]:before:inset-y-2 data-[active=true]:before:left-0 data-[active=true]:before:w-px data-[active=true]:before:bg-[var(--workbench-active)]",
             "data-active": if is_active { "true" } else { "false" },
             "data-testid": destination.test_id(),
             href,
@@ -101,7 +101,7 @@ fn ActivityItem(
                 }
             },
             Icon { icon: destination.icon(), class: "size-4 shrink-0" }
-            span { class: "workbench-activity-bar__label", {destination.label()} }
+            span { class: "hidden", {destination.label()} }
         }
     }
 }

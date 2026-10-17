@@ -76,8 +76,10 @@ pub fn FieldGroup(
 
 #[component]
 pub fn FieldContent(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged =
-        tw_merge!("group/field-content flex flex-1 flex-col gap-1.5 leading-snug", class.as_deref().unwrap_or(""));
+    let merged = tw_merge!(
+        "group/field-content flex flex-1 flex-col gap-1.5 leading-snug",
+        class.as_deref().unwrap_or("")
+    );
     rsx! {
         div { "data-name": "FieldContent", class: "{merged}", {children} }
     }
@@ -237,7 +239,10 @@ pub fn FieldError(
     #[props(optional)] children: Option<Element>,
     #[props(optional)] errors: Option<Vec<String>>,
 ) -> Element {
-    let error_class = tw_merge!("text-destructive text-sm font-normal", class.as_deref().unwrap_or(""));
+    let error_class = tw_merge!(
+        "text-destructive text-sm font-normal",
+        class.as_deref().unwrap_or("")
+    );
     if let Some(c) = children {
         return rsx! {
             div { id: id.as_deref(), role: "alert", "data-slot": "field-error", class: "{error_class}", {c} }

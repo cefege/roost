@@ -12,7 +12,10 @@ use crate::components::ui::button::{Button, ButtonSize};
 use crate::components::ui::input_group::{InputGroup, InputGroupAddon, InputGroupAddonAlign};
 
 #[component]
-pub fn InputPromptTools(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn InputPromptTools(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     let merged = tw_merge!("flex items-center gap-1", class.as_deref().unwrap_or(""));
     rsx! { div { "data-name": "InputPromptTools", class: "{merged}", {children} } }
 }
@@ -39,14 +42,13 @@ pub fn InputPromptTextarea(
     #[props(optional)] on_keydown: Option<EventHandler<KeyboardEvent>>,
     #[props(optional)] on_input: Option<EventHandler<String>>,
     #[props(optional)] on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(extends = GlobalAttributes, extends = textarea)]
-    attributes: Vec<Attribute>,
+    #[props(extends = GlobalAttributes, extends = textarea)] attributes: Vec<Attribute>,
 ) -> Element {
     let placeholder = placeholder.unwrap_or_else(|| "Write a message...".to_string());
     let merged = tw_merge!(
         "flex-1 resize-none rounded-none border-0 bg-transparent py-3 px-3 \
          field-sizing-content min-h-13 max-h-48 text-sm shadow-none \
-         focus-visible:ring-0 dark:bg-transparent placeholder:text-muted-foreground \
+         outline-none focus-visible:ring-0 dark:bg-transparent placeholder:text-muted-foreground \
          disabled:cursor-not-allowed disabled:opacity-50",
         class.as_deref().unwrap_or("")
     );
@@ -89,8 +91,14 @@ pub fn InputPromptTextarea(
 
 /// Block-end footer row: tools on the left, submit on the right.
 #[component]
-pub fn InputPromptFooter(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!("border-t px-2 py-2 justify-between gap-1", class.as_deref().unwrap_or(""));
+pub fn InputPromptFooter(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
+    let merged = tw_merge!(
+        "border-t px-2 py-2 justify-between gap-1",
+        class.as_deref().unwrap_or("")
+    );
     rsx! {
         InputGroupAddon { align: InputGroupAddonAlign::BlockEnd, class: merged,
             {children}

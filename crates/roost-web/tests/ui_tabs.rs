@@ -2,14 +2,23 @@
 //! the ends, and the index wraps past either edge.
 
 use dioxus::prelude::Key;
-use roost_web::components::ui::tabs::{next_tab_index, tab_step_for_key, TabStep};
+use roost_web::components::ui::tabs::{TabStep, next_tab_index, tab_step_for_key};
 
 #[test]
 fn arrow_keys_follow_the_tab_orientation() {
-    assert_eq!(tab_step_for_key(&Key::ArrowRight, false), Some(TabStep::Next));
-    assert_eq!(tab_step_for_key(&Key::ArrowLeft, false), Some(TabStep::Previous));
+    assert_eq!(
+        tab_step_for_key(&Key::ArrowRight, false),
+        Some(TabStep::Next)
+    );
+    assert_eq!(
+        tab_step_for_key(&Key::ArrowLeft, false),
+        Some(TabStep::Previous)
+    );
     assert_eq!(tab_step_for_key(&Key::ArrowDown, true), Some(TabStep::Next));
-    assert_eq!(tab_step_for_key(&Key::ArrowUp, true), Some(TabStep::Previous));
+    assert_eq!(
+        tab_step_for_key(&Key::ArrowUp, true),
+        Some(TabStep::Previous)
+    );
     assert_eq!(tab_step_for_key(&Key::ArrowDown, false), None);
     assert_eq!(tab_step_for_key(&Key::Home, true), Some(TabStep::First));
     assert_eq!(tab_step_for_key(&Key::End, false), Some(TabStep::Last));

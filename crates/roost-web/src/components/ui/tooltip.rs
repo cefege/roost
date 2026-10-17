@@ -24,7 +24,7 @@ pub fn TooltipProvider() -> Element {
 #[component]
 pub fn Tooltip(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
     let merged = tw_merge!(
-        "inline-block relative mx-0 whitespace-nowrap transition-all duration-300 ease-in-out group/tooltip my-[5px]",
+        "inline-block relative mx-0 whitespace-nowrap transition-all duration-300 ease-in-out group/tooltip my-1",
         class.as_deref().unwrap_or("")
     );
     rsx! {
@@ -41,17 +41,21 @@ pub fn TooltipContent(
     const SHARED: &str = "absolute opacity-0 transition-all duration-300 ease-in-out pointer-events-none group-hover/tooltip:opacity-100 group-hover/tooltip:pointer-events-auto group-focus-within/tooltip:opacity-100 z-[1000000]";
 
     let (pos_class, arrow_pos_class, pos_str) = match position {
-        TooltipPosition::Top => {
-            ("left-1/2 bottom-full mb-1 -ml-2.5", "left-1/2 bottom-full -mb-2 border-t-foreground/90", "Top")
-        }
+        TooltipPosition::Top => (
+            "left-1/2 bottom-full mb-1 -ml-2.5",
+            "left-1/2 bottom-full -mb-2 border-t-foreground/90",
+            "Top",
+        ),
         TooltipPosition::Right => (
             "bottom-1/2 left-full ml-2.5 -mb-3.5",
             "bottom-1/2 left-full -mr-0.5 -mb-1 border-r-foreground/90",
             "Right",
         ),
-        TooltipPosition::Bottom => {
-            ("left-1/2 top-full mt-1 -ml-2.5", "left-1/2 top-full -mt-2 border-b-foreground/90", "Bottom")
-        }
+        TooltipPosition::Bottom => (
+            "left-1/2 top-full mt-1 -ml-2.5",
+            "left-1/2 top-full -mt-2 border-b-foreground/90",
+            "Bottom",
+        ),
         TooltipPosition::Left => (
             "bottom-1/2 right-full mr-2.5 -mb-3.5",
             "bottom-1/2 right-full -mb-1 -ml-0.5 border-l-foreground/90",
@@ -59,7 +63,11 @@ pub fn TooltipContent(
         ),
     };
 
-    let arrow_class = tw_merge!(SHARED, "bg-transparent border-transparent border-6", arrow_pos_class);
+    let arrow_class = tw_merge!(
+        SHARED,
+        "bg-transparent border-transparent border-6",
+        arrow_pos_class
+    );
     let content_class = tw_merge!(
         SHARED,
         "py-2 px-2.5 text-xs whitespace-nowrap shadow-lg text-background bg-foreground/90",

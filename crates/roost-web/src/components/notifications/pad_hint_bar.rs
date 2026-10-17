@@ -35,12 +35,12 @@ pub fn PadHintBar() -> Element {
             radius: SurfaceRadius::Md,
             test_id: Some("pad-hint-bar".to_owned()),
             aria_hidden: Some("true".to_owned()),
-            class: "pad-hint pointer-events-none",
+            class: "pad-hint pointer-events-none flex w-auto max-w-full flex-wrap items-center justify-center gap-3 self-center",
             for hint in hints {
                 span {
-                    class: "pad-hint__item",
+                    class: "inline-flex items-center gap-1",
                     BindingChip { "{hint.cap}" }
-                    span { class: "text-xs pad-hint__label", "{hint.label}" }
+                    span { class: "text-xs whitespace-nowrap text-[var(--text-mid)]", "{hint.label}" }
                 }
             }
         }

@@ -15,7 +15,7 @@ pub enum SurfaceElement {
     Section,
 }
 
-/// The corner radius, from the `--md-shape-*` scale.
+/// The corner radius, from the theme's radius scale.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SurfaceRadius {
     /// Square corners, for full-bleed stacked bands.
@@ -34,12 +34,12 @@ impl SurfaceRadius {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::None => "rounded-none",
-            Self::Xs => "[border-radius:var(--md-shape-xs)]",
-            Self::Sm => "[border-radius:var(--md-shape-sm)]",
-            Self::Md => "[border-radius:var(--md-shape-md)]",
-            Self::Lg => "[border-radius:var(--md-shape-lg)]",
-            Self::Xl => "[border-radius:var(--md-shape-xl)]",
-            Self::Full => "[border-radius:var(--md-shape-full)]",
+            Self::Xs => "rounded-xs",
+            Self::Sm => "rounded-md",
+            Self::Md => "rounded-lg",
+            Self::Lg => "rounded-2xl",
+            Self::Xl => "rounded-3xl",
+            Self::Full => "rounded-full",
         }
     }
 }
@@ -53,35 +53,35 @@ const MAX_PAD: u8 = 9;
 
 fn level_class(level: u8) -> &'static str {
     match level {
-        0 => "bg-[var(--surface-0)]",
-        1 => "bg-[var(--surface-1)]",
-        2 => "bg-[var(--surface-2)]",
+        0 => "bg-background",
+        1 => "bg-card",
+        2 => "bg-popover",
         _ => "bg-[var(--surface-3)]",
     }
 }
 
 fn elevation_class(elevation: u8) -> &'static str {
     match elevation {
-        0 => "[box-shadow:var(--md-elev-0)]",
-        1 => "[box-shadow:var(--md-elev-1)]",
-        2 => "[box-shadow:var(--md-elev-2)]",
-        3 => "[box-shadow:var(--md-elev-3)]",
-        4 => "[box-shadow:var(--md-elev-4)]",
-        _ => "[box-shadow:var(--md-elev-5)]",
+        0 => "shadow-none",
+        1 => "shadow-xs",
+        2 => "shadow-sm",
+        3 => "shadow-md",
+        4 => "shadow-lg",
+        _ => "shadow-xl",
     }
 }
 
 fn pad_class(pad: u8) -> &'static str {
     match pad {
-        1 => "[padding:var(--md-space-1)]",
-        2 => "[padding:var(--md-space-2)]",
-        3 => "[padding:var(--md-space-3)]",
-        4 => "[padding:var(--md-space-4)]",
-        5 => "[padding:var(--md-space-5)]",
-        6 => "[padding:var(--md-space-6)]",
-        7 => "[padding:var(--md-space-7)]",
-        8 => "[padding:var(--md-space-8)]",
-        _ => "[padding:var(--md-space-9)]",
+        1 => "p-1",
+        2 => "p-2",
+        3 => "p-3",
+        4 => "p-4",
+        5 => "p-5",
+        6 => "p-6",
+        7 => "p-8",
+        8 => "p-10",
+        _ => "p-12",
     }
 }
 
@@ -96,11 +96,7 @@ pub fn surface_classes(
     class: Option<&str>,
 ) -> String {
     let pad_class_name = pad.map_or("", |pad| pad_class(pad.clamp(MIN_PAD, MAX_PAD)));
-    let border_class = if border {
-        "border border-[var(--md-outline-variant)]"
-    } else {
-        ""
-    };
+    let border_class = if border { "border" } else { "" };
     tw_merge!(
         level_class(level.min(MAX_LEVEL)),
         elevation_class(elevation.min(MAX_ELEVATION)),

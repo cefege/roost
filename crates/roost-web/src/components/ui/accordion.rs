@@ -9,14 +9,19 @@ use super::field::scoped_element_id;
 
 #[component]
 pub fn Accordion(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!("divide-y divide-input w-full", class.as_deref().unwrap_or(""));
+    let merged = tw_merge!(
+        "divide-y divide-input w-full",
+        class.as_deref().unwrap_or("")
+    );
     rsx! { div { class: "{merged}", {children} } }
 }
 
 #[component]
 pub fn AccordionItem(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged =
-        tw_merge!("w-full [&:has(>input:checked)>label>svg:last-child]:rotate-180", class.as_deref().unwrap_or(""));
+    let merged = tw_merge!(
+        "w-full [&:has(>input:checked)>label>svg:last-child]:rotate-180",
+        class.as_deref().unwrap_or("")
+    );
     rsx! { div { class: "{merged}", {children} } }
 }
 
@@ -60,7 +65,10 @@ pub fn AccordionTrigger(
 }
 
 #[component]
-pub fn AccordionContent(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn AccordionContent(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     let inner = tw_merge!("p-3 pt-0", class.as_deref().unwrap_or(""));
     rsx! {
         article {
@@ -73,21 +81,35 @@ pub fn AccordionContent(#[props(into, optional)] class: Option<String>, children
 }
 
 #[component]
-pub fn AccordionHeader(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged =
-        tw_merge!("flex gap-2 items-center [&_svg:not([class*='size-'])]:size-4", class.as_deref().unwrap_or(""));
+pub fn AccordionHeader(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
+    let merged = tw_merge!(
+        "flex gap-2 items-center [&_svg:not([class*='size-'])]:size-4",
+        class.as_deref().unwrap_or("")
+    );
     rsx! { div { class: "{merged}", {children} } }
 }
 
 #[component]
-pub fn AccordionTitle(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn AccordionTitle(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     let merged = tw_merge!("text-sm font-medium", class.as_deref().unwrap_or(""));
     rsx! { h4 { class: "{merged}", {children} } }
 }
 
 #[component]
-pub fn AccordionDescription(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!("text-muted-foreground text-sm", class.as_deref().unwrap_or(""));
+pub fn AccordionDescription(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
+    let merged = tw_merge!(
+        "text-muted-foreground text-sm",
+        class.as_deref().unwrap_or("")
+    );
     rsx! { p { class: "{merged}", {children} } }
 }
 

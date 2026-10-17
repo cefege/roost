@@ -41,15 +41,24 @@ pub fn Alert(
 
 #[component]
 pub fn AlertTitle(#[props(into, default)] class: Option<String>, children: Element) -> Element {
-    let class = tw_merge!("mb-1 font-medium tracking-tight leading-none", class.as_deref().unwrap_or(""));
+    let class = tw_merge!(
+        "mb-1 font-medium tracking-tight leading-none",
+        class.as_deref().unwrap_or("")
+    );
     rsx! {
         h4 { class: "{class}", {children} }
     }
 }
 
 #[component]
-pub fn AlertDescription(#[props(into, default)] class: Option<String>, children: Element) -> Element {
-    let class = tw_merge!("text-sm [&_p]:leading-relaxed", class.as_deref().unwrap_or(""));
+pub fn AlertDescription(
+    #[props(into, default)] class: Option<String>,
+    children: Element,
+) -> Element {
+    let class = tw_merge!(
+        "text-sm [&_p]:leading-relaxed",
+        class.as_deref().unwrap_or("")
+    );
     rsx! {
         p { class: "{class}", {children} }
     }

@@ -8,7 +8,10 @@ use tw_merge::tw_merge;
 const GROUP_CLASS: &str = "flex flex-wrap justify-center mt-2";
 
 #[component]
-pub fn RadioButtonText(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn RadioButtonText(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     let merged = tw_merge!(
         "block cursor-pointer bg-transparent text-primary px-3 py-1.5 relative ml-px ring-1 ring-border tracking-wider text-center transition-colors duration-500 peer-checked:bg-primary peer-checked:text-primary-foreground peer-focus-visible:ring-ring",
         class.as_deref().unwrap_or("")

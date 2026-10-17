@@ -1,6 +1,6 @@
 //! The sidebar's native decisions: v2 `apps/web/tests/sessionTitle.test.ts`
 //! and `machineIdentity.test.ts`, plus the row's exact route match, the swipe
-//! release rule, and the upward machine-menu anchor and machine-trigger keys
+//! release rule, and the upward machine-menu placement and machine-trigger keys
 //! from `SessionRow.tsx` and `SidebarNewTerminal.tsx`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -11,15 +11,17 @@ use roost_protocol::wire::{
     WorkerOs,
 };
 use roost_web::components::context_menu::MenuFocusEdge;
+use roost_web::components::deck::deck_dom::ClientBox;
 use roost_web::components::machines::machine_identity::{
     LinuxDistributionBrand, machine_identity_presentation,
 };
-use roost_web::components::ui::IconType;
+use roost_web::components::menu_placement::{Vertical, place_menu};
 use roost_web::components::sidebar::row_swipe::{RowSwipe, SwipeRelease};
 use roost_web::components::sidebar::session_row::session_row_is_active;
 use roost_web::components::sidebar::sidebar_new_terminal::{
-    MachineTriggerKeyAction, machine_menu_anchor, machine_trigger_key_action,
+    MACHINE_MENU_SIDE, MachineTriggerKeyAction, machine_trigger_key_action,
 };
+use roost_web::components::ui::IconType;
 use roost_web::session_naming::{folder_headline, program_subtitle, session_title};
 
 const FP: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -115,7 +117,10 @@ fn a_verified_macbook_shows_its_apple_chip() {
         Some("Apple M3 Pro"),
         None,
     )));
-    assert_eq!((mac.icon, mac.label.as_str()), (IconType::Laptop, "MacBook"));
+    assert_eq!(
+        (mac.icon, mac.label.as_str()),
+        (IconType::Laptop, "MacBook")
+    );
     assert_eq!(mac.apple_chip_badge.as_deref(), Some("M3 Pro"));
     assert_eq!(mac.title, "MacBook · Apple M3 Pro");
     let desktop = machine_identity_presentation(Some(&worker(
@@ -251,11 +256,49 @@ fn a_swipe_closes_only_past_the_threshold_and_a_vertical_drag_never_claims() {
 
 #[test]
 fn the_machine_menu_opens_upward_from_its_trigger() {
-    let anchor = machine_menu_anchor(280.0, 900.0, 932.0, 1_200.0, 1_000.0);
-    assert_eq!(anchor.right, 920.0);
+    let viewport = ClientBox {
+        left: 0.0,
+        top: 0.0,
+        width: 1_200.0,
+        height: 1_000.0,
+    };
+    let trigger = ClientBox {
+        left: 200.0,
+        top: 900.0,
+        width: 80.0,
+        height: 32.0,
+    };
+    assert!(
+        MACHINE_MENU_SIDE.prefers_up(),
+        "the picker is configured to open upward"
+    );
+    let placement = place_menu(trigger, viewport, viewport, MACHINE_MENU_SIDE.prefers_up());
     assert_eq!(
-        anchor.bottom, 104.0,
-        "the anchor gap above the trigger's top"
+        placement.vertical,
+        Vertical::Bottom(104.0),
+        "the bottom edge sits the trigger gap above the trigger's top"
+    );
+}
+
+#[test]
+fn the_machine_menu_drops_below_when_no_room_is_above() {
+    let viewport = ClientBox {
+        left: 0.0,
+        top: 0.0,
+        width: 1_200.0,
+        height: 1_000.0,
+    };
+    let trigger = ClientBox {
+        left: 200.0,
+        top: 100.0,
+        width: 80.0,
+        height: 32.0,
+    };
+    let placement = place_menu(trigger, viewport, viewport, MACHINE_MENU_SIDE.prefers_up());
+    assert_eq!(
+        placement.vertical,
+        Vertical::Top(136.0),
+        "flips below the trigger's bottom edge"
     );
 }
 

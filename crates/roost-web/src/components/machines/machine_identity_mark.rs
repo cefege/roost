@@ -20,7 +20,7 @@ pub fn MachineIdentityMark(worker: Option<Worker>, context_title: Option<String>
     };
     rsx! {
         span {
-            class: "machine-identity-mark",
+            class: "relative inline-flex items-center justify-center",
             "data-linux-brand": presentation.linux_brand.map(|brand| brand.as_str()),
             role: "img",
             "aria-label": presentation.title.clone(),
@@ -31,7 +31,7 @@ pub fn MachineIdentityMark(worker: Option<Worker>, context_title: Option<String>
                 Icon { icon: presentation.icon, class: "size-4" }
             }
             if let Some(badge) = presentation.apple_chip_badge {
-                span { class: "machine-identity-mark__chip", {badge} }
+                span { class: "absolute -bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border border-current bg-[var(--surface-1)] px-1 font-mono text-xs leading-none text-[var(--text-hi)]", {badge} }
             }
         }
     }

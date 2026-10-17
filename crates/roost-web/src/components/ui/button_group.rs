@@ -45,7 +45,10 @@ pub fn ButtonGroup(
 }
 
 #[component]
-pub fn ButtonGroupText(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn ButtonGroupText(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     let merged = tw_merge!(
         "bg-muted flex items-center gap-2 rounded-md border px-4 text-sm font-medium shadow-xs [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4",
         class.as_deref().unwrap_or("")
@@ -57,8 +60,10 @@ pub fn ButtonGroupText(#[props(into, optional)] class: Option<String>, children:
 
 #[component]
 pub fn ButtonGroupSeparator(#[props(into, optional)] class: Option<String>) -> Element {
-    let merged =
-        tw_merge!("relative !m-0 self-stretch data-[orientation=vertical]:h-auto", class.as_deref().unwrap_or(""));
+    let merged = tw_merge!(
+        "relative !m-0 self-stretch data-[orientation=vertical]:h-auto",
+        class.as_deref().unwrap_or("")
+    );
     rsx! {
         Separator {
             class: "{merged}",

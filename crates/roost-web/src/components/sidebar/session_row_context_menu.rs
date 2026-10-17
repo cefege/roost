@@ -14,7 +14,7 @@ use roost_client_core::store::shell_intent::ShellIntent;
 
 use super::context_menu_frame::ContextMenuFrame;
 use super::machine_action_items::MachineActionItems;
-use crate::components::context_menu::{CtxMenuItem, CtxMenuSeparator};
+use crate::components::ui::context_menu::{ContextMenuItem, ContextMenuSeparator};
 use crate::machine_actions::MachineMenuKind;
 use crate::pump::{Pump, use_store};
 use crate::router_state::use_navigate;
@@ -80,11 +80,12 @@ pub fn SessionRowContextMenu(
         };
         (request, offline, session.worker_fp.to_string())
     };
+    // Activating an item runs its handler and then the ui closes the menu, so
+    // the handlers here do not close it themselves.
     let call = {
         let pump = pump.clone();
         let session_id = session_id.clone();
         move |kind: SessionMenuCall| {
-            on_close.call(());
             run_session_call(pump.clone(), session_id.clone(), kind, navigate);
         }
     };
@@ -94,26 +95,24 @@ pub fn SessionRowContextMenu(
         ContextMenuFrame {
             x,
             y,
-            menu_id: "session-context-menu-{session_id}",
-            label: "Terminal actions",
             test_id: "session-context-menu-{session_id}",
+            label: "Terminal actions",
             on_close,
-            CtxMenuItem {
-                testid: "session-ctx-rename-{session_id}",
-                onclick: move |_| {
-                    on_close.call(());
+            ContextMenuItem {
+                test_id: "session-ctx-rename-{session_id}",
+                onclick: move |_: MouseEvent| {
                     rename_pump.dispatch(ClientEvent::Shell(ShellIntent::OpenRenameDialog(rename_request.clone())));
                 },
                 "Rename…"
             }
-            CtxMenuItem {
-                testid: "session-ctx-duplicate-{session_id}",
-                onclick: move |_| duplicate(SessionMenuCall::Duplicate),
+            ContextMenuItem {
+                test_id: "session-ctx-duplicate-{session_id}",
+                onclick: move |_: MouseEvent| duplicate(SessionMenuCall::Duplicate),
                 "Duplicate terminal"
             }
-            CtxMenuItem {
-                testid: "session-ctx-restart-{session_id}",
-                onclick: move |_| restart(SessionMenuCall::Restart),
+            ContextMenuItem {
+                test_id: "session-ctx-restart-{session_id}",
+                onclick: move |_: MouseEvent| restart(SessionMenuCall::Restart),
                 "Restart"
             }
             MachineActionItems {
@@ -121,23 +120,19 @@ pub fn SessionRowContextMenu(
                 menu: MachineMenuKind::Session,
                 test_id_prefix: "session-ctx",
                 test_id_suffix: "-{session_id}",
-                on_close,
             }
-            CtxMenuSeparator {}
-            CtxMenuItem {
-                testid: "session-ctx-delete-{session_id}",
-                danger: true,
-                onclick: move |_| {
-                    on_close.call(());
-                    on_delete.call(());
-                },
+            ContextMenuSeparator {}
+            ContextMenuItem {
+                test_id: "session-ctx-delete-{session_id}",
+                class: "text-destructive hover:text-destructive focus:text-destructive",
+                onclick: move |_: MouseEvent| on_delete.call(()),
                 "Close terminal"
             }
             if worker_offline {
-                CtxMenuItem {
-                    testid: "session-ctx-force-remove-{session_id}",
-                    danger: true,
-                    onclick: move |_| force(SessionMenuCall::ForceRemove),
+                ContextMenuItem {
+                    test_id: "session-ctx-force-remove-{session_id}",
+                    class: "text-destructive hover:text-destructive focus:text-destructive",
+                    onclick: move |_: MouseEvent| force(SessionMenuCall::ForceRemove),
                     "Force remove (worker offline)"
                 }
             }

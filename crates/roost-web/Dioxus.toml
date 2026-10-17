@@ -27,20 +27,16 @@ base_path = "/"
 
 # Load order is load-bearing: `theme-vars.css` declares every token the rest
 # `var()` into, and `gamepad.css` has to come after `tv.css` or the
-# coarse-pointer overrides win. `NotificationDock.css` is attached by the
-# notification dock when it mounts.
+# coarse-pointer overrides win. `NotificationDock.css` carries only the
+# notify-target ring, an attribute selector over surfaces other components render.
 [web.resource]
 style = [
   "/styles/tailwind.css",
   "/styles/theme-vars.css",
-  "/styles/sidebar.css",
-  "/styles/voice-input.css",
-  "/components/terminal/TerminalStartupOverlay.css",
-  "/styles/workbench-shell.css",
-  "/styles/workbench-sidebar.css",
-  "/styles/workbench-tabs.css",
+  "/styles/terminal-grid.css",
   "/styles/tv.css",
   "/styles/gamepad.css",
+  "/components/notifications/NotificationDock.css",
 ]
 
 # dx 0.7 requires the dev table; `dx serve` injects nothing beyond the list above.

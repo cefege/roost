@@ -10,7 +10,7 @@ use super::menu_items::{
     render_menu_group, render_menu_item, render_menu_label, render_menu_separator,
 };
 use super::menu_overlay::{
-    MenuContext, MenuPlacement, MenuRoot, MenuSurface, provide_menu_root, request_open,
+    MenuContext, MenuPlacement, MenuRoot, MenuSide, MenuSurface, provide_menu_root, request_open,
 };
 use crate::components::context_menu::MenuFocusEdge;
 use crate::components::ui::field::scoped_element_id;
@@ -20,6 +20,7 @@ pub fn ContextMenu(
     open: bool,
     on_open_change: EventHandler<bool>,
     #[props(into, optional)] test_id: Option<String>,
+    #[props(into, optional)] aria_label: Option<String>,
     children: Element,
 ) -> Element {
     let trigger_id = use_hook(|| scoped_element_id("context-menu-trigger"));
@@ -30,6 +31,8 @@ pub fn ContextMenu(
         trigger_id,
         menu_id,
         test_id,
+        side: MenuSide::Below,
+        aria_label,
     });
     rsx! {
         {children}
@@ -37,7 +40,10 @@ pub fn ContextMenu(
 }
 
 #[component]
-pub fn ContextMenuTrigger(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn ContextMenuTrigger(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     let Some(context) = try_use_context::<MenuContext>() else {
         return rsx! {};
     };
@@ -65,7 +71,10 @@ pub fn ContextMenuTrigger(#[props(into, optional)] class: Option<String>, childr
 }
 
 #[component]
-pub fn ContextMenuContent(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn ContextMenuContent(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     let merged = tw_merge!(
         "z-50 p-1 rounded-md border bg-popover text-popover-foreground shadow-md h-fit fixed w-52 transition-all duration-200",
         class.as_deref().unwrap_or("")
@@ -78,20 +87,37 @@ pub fn ContextMenuContent(#[props(into, optional)] class: Option<String>, childr
 #[component]
 pub fn ContextMenuItem(
     #[props(into, optional)] class: Option<String>,
+    #[props(into, optional)] test_id: Option<String>,
+    #[props(into, optional)] title: Option<String>,
     #[props(default)] disabled: bool,
     onclick: Option<EventHandler<MouseEvent>>,
+    onmouseenter: Option<EventHandler<MouseEvent>>,
     children: Element,
 ) -> Element {
-    render_menu_item(class, disabled, onclick, children)
+    render_menu_item(
+        class,
+        disabled,
+        test_id,
+        title,
+        onclick,
+        onmouseenter,
+        children,
+    )
 }
 
 #[component]
-pub fn ContextMenuLabel(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn ContextMenuLabel(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     render_menu_label(class, children)
 }
 
 #[component]
-pub fn ContextMenuGroup(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn ContextMenuGroup(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     render_menu_group(class, children)
 }
 

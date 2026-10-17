@@ -23,7 +23,7 @@ fn an_open_composer_lifts_the_dock_by_what_it_measured_not_by_a_constant() {
     };
     assert_eq!(
         notification_dock_lift(composer, true),
-        "calc(var(--term-chat-dock-offset) + 132px + var(--md-space-2))"
+        "calc(var(--term-chat-dock-offset) + 132px + 0.5rem)"
     );
     assert_ne!(
         notification_dock_lift(composer, true),
@@ -70,7 +70,7 @@ fn a_pointer_shell_clears_the_status_bar_and_the_resting_composer_row() {
     assert_eq!(
         lift,
         "calc(var(--workbench-statusbar-height) + var(--term-chat-rest-height) \
-         + max(var(--kb-offset), 0px) + var(--md-space-4))"
+         + max(var(--kb-offset), 0px) + 1rem)"
     );
 }
 

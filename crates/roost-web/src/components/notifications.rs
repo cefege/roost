@@ -27,10 +27,6 @@ pub mod version_banner;
 
 use dioxus::prelude::*;
 
-/// The dock's own sheet. Not in `Dioxus.toml`'s eager list, exactly as v2
-/// reached its sheet through the lazy chunk that first rendered a notification.
-pub const NOTIFICATION_DOCK_STYLESHEET: &str = "/components/notifications/NotificationDock.css";
-
 /// The one overlay column that owns where every transient notification sits, so
 /// no two can claim the same corner, and the two banners that flank it.
 ///
@@ -52,10 +48,9 @@ pub fn NotificationDock() -> Element {
         composer, compact,
     );
     rsx! {
-        link { rel: "stylesheet", href: NOTIFICATION_DOCK_STYLESHEET }
         connection_banner::ConnectionBanner {}
         div {
-            class: "roost-notify-dock",
+            class: "fixed z-[1100] flex flex-col items-end gap-2 pointer-events-none left-[calc(var(--roost-main-left)_+_env(safe-area-inset-left,0px)_+_0.75rem)] right-[calc(env(safe-area-inset-right,0px)_+_0.75rem)] bottom-[calc(var(--roost-notify-dock-lift))] tv:!left-[calc(var(--roost-main-left)_+_var(--tv-overscan-inline)_+_0.75rem)] tv:!right-[calc(var(--tv-overscan-inline)_+_0.75rem)] tv:!bottom-[calc(var(--roost-notify-dock-lift)_+_var(--tv-overscan-block))] [&>:not(.pad-hint)]:pointer-events-auto [&>:not(.pad-hint)]:w-[min(var(--roost-toast-inline-size),100%)] data-[compact=true]:[&>:not(.pad-hint)]:w-full",
             "data-testid": "notification-dock",
             "data-compact": if compact { "true" } else { "false" },
             style: "--roost-notify-dock-lift: {lift};",

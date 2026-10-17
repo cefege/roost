@@ -54,7 +54,7 @@ pub fn AgentStatusIndicator(
     let extra_class = class.unwrap_or_default();
     rsx! {
         span {
-            class: "inline-flex items-center gap-1 min-w-0 text-sm text-muted-foreground {extra_class}",
+            class: "inline-flex items-center gap-1 min-w-0 text-sm text-muted-foreground data-[level=blocked]:text-[var(--status-warn)] data-[level=done]:text-[var(--status-ok)] data-[level=working]:text-[var(--status-info)] {extra_class}",
             "data-testid": "agent-status-{session_id}",
             "data-level": agent_status_level_token(level),
             title,

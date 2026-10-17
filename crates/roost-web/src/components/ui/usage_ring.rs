@@ -12,25 +12,32 @@ pub const DEFAULT_USAGE_RING_SIZE_PX: u32 = 18;
 /// rather than a disc at the small sizes a header or a tab uses.
 const STROKE_FRACTION: f64 = 0.18;
 
-/// The token a fill level paints with: calm under three quarters, a warning as it
-/// closes in on the limit, the error token once it all but fills.
-pub fn usage_ring_token(fraction: f64) -> &'static str {
+/// The tone a fill level paints with: calm under three quarters, a warning as it
+/// closes in on the limit, the error tone once it all but fills.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UsageRingTone {
+    Calm,
+    Warning,
+    Error,
+}
+
+pub fn usage_ring_tone(fraction: f64) -> UsageRingTone {
     if fraction >= 0.92 {
-        "--status-err"
+        UsageRingTone::Error
     } else if fraction >= 0.75 {
-        "--status-warn"
+        UsageRingTone::Warning
     } else {
-        "--md-primary"
+        UsageRingTone::Calm
     }
 }
 
-/// The fill's stroke as a complete class, one literal per token so Tailwind emits
+/// The fill's stroke as a complete class, one literal per tone so Tailwind emits
 /// each colour. The track and the empty ring use `stroke-border`.
-fn usage_ring_fill_class(token: &str) -> &'static str {
-    match token {
-        "--status-err" => "[stroke:var(--status-err)]",
-        "--status-warn" => "[stroke:var(--status-warn)]",
-        _ => "[stroke:var(--md-primary)]",
+fn usage_ring_fill_class(tone: UsageRingTone) -> &'static str {
+    match tone {
+        UsageRingTone::Calm => "stroke-primary",
+        UsageRingTone::Warning => "stroke-warning",
+        UsageRingTone::Error => "stroke-destructive",
     }
 }
 
@@ -64,7 +71,7 @@ pub fn UsageRing(
 ) -> Element {
     let (stroke, radius, circumference) = ring_geometry(size);
     let center = f64::from(size) / 2.0;
-    let fill_class = usage_ring_fill_class(fraction.map_or("", usage_ring_token));
+    let fill_class = usage_ring_fill_class(fraction.map_or(UsageRingTone::Calm, usage_ring_tone));
     let offset = usage_ring_offset(fraction.unwrap_or(0.0), circumference);
     let dash = format!("{circumference:.2} {circumference:.2}");
     rsx! {

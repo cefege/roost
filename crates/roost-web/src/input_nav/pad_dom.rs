@@ -105,7 +105,7 @@ impl PadDom for BrowserPadDom {
         PadFocus {
             present: true,
             terminal_box: dom_read::matches(&active, ".wterm"),
-            in_keypad: dom_read::closest(&active, ".term-nav").is_some(),
+            in_keypad: dom_read::closest(&active, "[data-keypad]").is_some(),
             in_menu_or_dialog: dom_read::closest(&active, "[role=\"menu\"],[role=\"dialog\"]")
                 .is_some(),
             pane_id: dom_read::closest(&active, "[data-pane-id]")

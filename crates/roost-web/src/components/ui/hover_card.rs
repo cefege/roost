@@ -68,11 +68,14 @@ pub fn HoverCard(
     #[props(default)] side: HoverCardSide,
     children: Element,
 ) -> Element {
-    let view = use_memo(use_reactive((&open, &test_id, &side), |(open, test_id, side)| HoverCardView {
-        open,
-        test_id,
-        side,
-    }));
+    let view = use_memo(use_reactive(
+        (&open, &test_id, &side),
+        |(open, test_id, side)| HoverCardView {
+            open,
+            test_id,
+            side,
+        },
+    ));
     let trigger_id = use_hook(|| scoped_element_id("hover-card-trigger"));
     let content_id = use_hook(|| scoped_element_id("hover-card-content"));
     let hover = use_hook(|| Rc::new(RefCell::new(HoverState::default())));
@@ -90,7 +93,10 @@ pub fn HoverCard(
 
 /// The element that reveals the card on pointer enter or focus.
 #[component]
-pub fn HoverCardTrigger(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn HoverCardTrigger(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     let context = use_context::<HoverCardContext>();
     let is_open = (context.view)().open;
     let trigger_id = context.trigger_id.clone();
@@ -119,7 +125,10 @@ pub fn HoverCardTrigger(#[props(into, optional)] class: Option<String>, children
 
 /// The floating card. Absent from the DOM while closed.
 #[component]
-pub fn HoverCardContent(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn HoverCardContent(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     let context = use_context::<HoverCardContext>();
     let view = (context.view)();
     if !view.open {
@@ -131,7 +140,12 @@ pub fn HoverCardContent(#[props(into, optional)] class: Option<String>, children
 }
 
 #[component]
-fn HoverCardPanel(class: Option<String>, test_id: Option<String>, side: HoverCardSide, children: Element) -> Element {
+fn HoverCardPanel(
+    class: Option<String>,
+    test_id: Option<String>,
+    side: HoverCardSide,
+    children: Element,
+) -> Element {
     let context = use_context::<HoverCardContext>();
     let trigger_id = context.trigger_id.clone();
     let content_id = context.content_id.clone();
@@ -142,10 +156,15 @@ fn HoverCardPanel(class: Option<String>, test_id: Option<String>, side: HoverCar
     let hover_focus_out = context.hover.clone();
     // Stable handle, as in `PopoverPanel`: the dismissal hook captures it once at mount.
     let on_close = use_callback(move |()| on_open_change.call(false));
-    use_floating_menu_dismiss(on_close, Some(on_close), vec![trigger_id.clone(), content_id.clone()]);
+    use_floating_menu_dismiss(
+        on_close,
+        Some(on_close),
+        vec![trigger_id.clone(), content_id.clone()],
+    );
     use_hook(|| tracing::debug!(target: "ui", "hover card opened"));
     use_drop(|| tracing::debug!(target: "ui", "hover card closed"));
-    let style = anchored_placement_style(&trigger_id, side == HoverCardSide::Top).unwrap_or_default();
+    let style =
+        anchored_placement_style(&trigger_id, side == HoverCardSide::Top).unwrap_or_default();
     let card_class = tw_merge!(
         "overflow-visible fixed z-50 p-4 rounded-lg border bg-card shadow-md w-64",
         class.as_deref().unwrap_or("")
@@ -187,6 +206,8 @@ fn set_presence(
         drop(state);
         on_open_change.call(true);
     } else if !state.pointer_inside && !state.focus_inside {
-        state.pending_close = Timeout::after(HOVER_CARD_CLOSE_DELAY_MS, move || on_open_change.call(false));
+        state.pending_close = Timeout::after(HOVER_CARD_CLOSE_DELAY_MS, move || {
+            on_open_change.call(false)
+        });
     }
 }

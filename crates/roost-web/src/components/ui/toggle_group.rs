@@ -64,7 +64,11 @@ pub fn ToggleGroup(
     #[props(default = ToggleGroupSpacing::Snug)] spacing: ToggleGroupSpacing,
     children: Element,
 ) -> Element {
-    provide_context(ToggleGroupCtx { variant, orientation, spacing });
+    provide_context(ToggleGroupCtx {
+        variant,
+        orientation,
+        spacing,
+    });
 
     let is_vertical = orientation == ToggleGroupOrientation::Vertical;
     let is_outline = variant == ToggleGroupVariant::Outline;

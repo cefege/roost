@@ -73,7 +73,10 @@ pub fn AvatarImage(
 }
 
 #[component]
-pub fn AvatarFallback(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn AvatarFallback(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     let merged = tw_merge!(
         "absolute inset-0 flex size-full items-center justify-center rounded-full bg-muted text-sm text-muted-foreground group-data-[size=sm]/avatar:text-xs",
         class.as_deref().unwrap_or("")
@@ -106,7 +109,10 @@ pub fn AvatarGroup(#[props(into, optional)] class: Option<String>, children: Ele
 }
 
 #[component]
-pub fn AvatarGroupCount(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn AvatarGroupCount(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     let merged = tw_merge!(
         "relative flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-sm text-muted-foreground ring-2 ring-background group-has-data-[size=lg]/avatar-group:size-10 group-has-data-[size=sm]/avatar-group:size-6 [&>svg]:size-4 group-has-data-[size=lg]/avatar-group:[&>svg]:size-5 group-has-data-[size=sm]/avatar-group:[&>svg]:size-3",
         class.as_deref().unwrap_or("")

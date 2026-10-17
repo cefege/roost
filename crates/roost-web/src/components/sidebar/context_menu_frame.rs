@@ -1,28 +1,26 @@
-//! The chrome both sidebar row menus share: the click-away scrim, the fixed
-//! menu surface at the pointer, roving keyboard focus with the first item
-//! focused on open, and Escape handing focus back. The Portal + scrim half of
-//! `apps/web/src/components/sidebar/SessionRowContextMenu.tsx` and
-//! `FolderRowContextMenu.tsx`; the surface and keys are `context_menu`'s.
+//! The chrome both sidebar row menus share: a controlled ui `ContextMenu` opened
+//! at the pointer, a click-away scrim beneath it, and focus returned to the row
+//! on close. The `role="menu"` surface, roving keys and item rows come from
+//! `ui`; the row supplies its items as children.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-use crate::components::context_menu::ctx_menu_surface_style;
+use crate::components::context_menu::MenuFocusEdge;
+use crate::components::ui::context_menu::{ContextMenu, ContextMenuContent};
 use crate::components::ui::dom::{FocusOpener, focused_element, restore_focus};
+use crate::components::ui::menu_overlay::{MenuContext, MenuPlacement, request_open};
 
-/// Above the scrim that dismisses it.
-const MENU_Z_INDEX: u32 = 100;
-
-/// A row menu at viewport (`x`, `y`) holding `children` items.
+/// A row menu at viewport (`x`, `y`) holding `children` items. `on_close` runs
+/// on every dismissal: an item pick, Escape, an outside click or the scrim.
 #[component]
 pub fn ContextMenuFrame(
     x: f64,
     y: f64,
-    menu_id: String,
-    label: String,
     test_id: String,
+    label: &'static str,
     on_close: EventHandler<()>,
     children: Element,
 ) -> Element {
@@ -38,44 +36,44 @@ pub fn ContextMenuFrame(
             restore_focus(opener);
         }
     });
-    #[cfg(target_arch = "wasm32")]
-    {
-        let menu_id = menu_id.clone();
-        use_hook(move || {
-            crate::components::context_menu::focus_menu_edge(
-                &menu_id,
-                crate::components::context_menu::MenuFocusEdge::First,
-            );
-        });
-    }
-    let key_menu_id = menu_id.clone();
+    let on_open_change = EventHandler::new(move |open: bool| {
+        if !open {
+            on_close.call(());
+        }
+    });
     rsx! {
-        div {
-            class: "fixed inset-0 z-[99]",
-            onclick: move |event: MouseEvent| {
-                event.stop_propagation();
-                on_close.call(());
-            },
-            oncontextmenu: move |event: MouseEvent| {
-                event.prevent_default();
-                on_close.call(());
-            },
-        }
-        div {
-            id: menu_id,
-            role: "menu",
-            "aria-label": label,
-            "data-testid": test_id,
-            class: "df-menu-enter",
-            style: ctx_menu_surface_style(x, y, MENU_Z_INDEX),
-            onclick: move |event: MouseEvent| event.stop_propagation(),
-            onkeydown: move |event: KeyboardEvent| {
-                #[cfg(target_arch = "wasm32")]
-                super::dom::run_menu_key_by_id(&event, &key_menu_id, move || on_close.call(()));
-                #[cfg(not(target_arch = "wasm32"))]
-                let _ = (&event, &key_menu_id);
-            },
-            {children}
+        ContextMenu { open: true, on_open_change, test_id: Some(test_id), aria_label: Some(label.to_owned()),
+            OpenAtPointer { key: "{x},{y}", x, y }
+            div {
+                class: "fixed inset-0 z-[99]",
+                onclick: move |event: MouseEvent| {
+                    event.stop_propagation();
+                    on_close.call(());
+                },
+                oncontextmenu: move |event: MouseEvent| {
+                    event.prevent_default();
+                    on_close.call(());
+                },
+            }
+            ContextMenuContent { class: "z-[100] w-auto min-w-44", {children} }
         }
     }
+}
+
+/// Places the already-open menu at the pointer and focuses its first item. The
+/// placement is written before the panel mounts, so the first render is at the
+/// pointer and not at the origin.
+#[component]
+fn OpenAtPointer(x: f64, y: f64) -> Element {
+    let context = try_use_context::<MenuContext>();
+    use_hook(move || {
+        if let Some(context) = context {
+            request_open(
+                context,
+                Some(MenuPlacement::Point { x, y }),
+                Some(MenuFocusEdge::First),
+            );
+        }
+    });
+    rsx! {}
 }

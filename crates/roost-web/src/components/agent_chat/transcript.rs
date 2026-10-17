@@ -23,8 +23,8 @@ use super::streaming_reveal::StreamingText;
 use super::thinking_block::ThinkingBlock;
 use super::tool_card::ToolCard;
 use crate::components::ui::{
-    Bubble, BubbleAlign, BubbleContent, BubbleVariant, Button, ButtonVariant, IconButton,
-    IconType, Message, MessageAlign, StatusDot,
+    Bubble, BubbleAlign, BubbleContent, BubbleVariant, Button, ButtonVariant, IconButton, IconType,
+    Message, MessageAlign, StatusDot,
 };
 use crate::pump::Pump;
 

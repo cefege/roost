@@ -10,10 +10,10 @@
 
 use dioxus::prelude::*;
 
+use crate::components::terminal::dom::{page_visible, sleep_ms};
 use crate::components::ui::{
     Button, ButtonSize, ButtonVariant, Icon, IconType, Surface, SurfaceRadius,
 };
-use crate::components::terminal::dom::{page_visible, sleep_ms};
 
 /// The meta name both the running document and the served one carry.
 const BUILD_SHA_META: &str = "roost-build-sha";

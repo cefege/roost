@@ -12,8 +12,8 @@ use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
 use tw_merge::tw_merge;
 
-use crate::components::ui::icon::Icon;
 use crate::components::ui::IconType;
+use crate::components::ui::icon::Icon;
 
 /// The attribute value `ListLayout::Grid` sets, which a caller that must find a
 /// live grid in the document (the browse picker's column count) selects by.
@@ -57,7 +57,11 @@ pub fn List(
         ListLayout::Stack => "stack",
         ListLayout::Grid => "grid",
     };
-    let merged = tw_merge!(layout_class, container_class, class.as_deref().unwrap_or(""));
+    let merged = tw_merge!(
+        layout_class,
+        container_class,
+        class.as_deref().unwrap_or("")
+    );
     rsx! {
         div { "data-name": "List", "data-layout": "{layout_attribute}", class: "{merged}", {children} }
     }
@@ -88,7 +92,11 @@ pub fn ListRow(
     tabindex: Option<i32>,
     class: Option<String>,
 ) -> Element {
-    let density_class = if dense { "min-h-10 py-1" } else { "min-h-14 py-2" };
+    let density_class = if dense {
+        "min-h-10 py-1"
+    } else {
+        "min-h-14 py-2"
+    };
     let row_class = tw_merge!(
         "flex w-full items-center gap-4 px-4 text-left text-foreground rounded-md transition-colors hover:bg-accent/50 data-[selected=true]:bg-accent",
         density_class,

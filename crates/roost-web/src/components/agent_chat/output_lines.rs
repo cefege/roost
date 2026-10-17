@@ -292,10 +292,7 @@ mod tests {
         assert_eq!(lines[1].runs[0].style, red_bold);
         assert_eq!(lines[1].runs[1].text, " plain");
         assert_eq!(lines[1].runs[1].style, RunStyle::default());
-        assert_eq!(
-            red_bold.classes(),
-            "text-[var(--term-color-1)] font-bold"
-        );
+        assert_eq!(red_bold.classes(), "text-[var(--term-color-1)] font-bold");
     }
 
     #[test]

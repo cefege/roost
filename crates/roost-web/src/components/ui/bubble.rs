@@ -68,7 +68,10 @@ impl BubbleReactionsSide {
 
 #[component]
 pub fn BubbleGroup(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!("flex min-w-0 flex-col gap-2", class.as_deref().unwrap_or(""));
+    let merged = tw_merge!(
+        "flex min-w-0 flex-col gap-2",
+        class.as_deref().unwrap_or("")
+    );
     rsx! { div { "data-name": "BubbleGroup", class: "{merged}", {children} } }
 }
 

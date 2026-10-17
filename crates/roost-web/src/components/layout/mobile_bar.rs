@@ -26,15 +26,15 @@ pub fn MobileTopBar(
     let pump = use_pump();
     let title = workbench_title(&path, session_title.as_deref(), session_folder.as_deref());
     rsx! {
-        header { class: "mobile-topbar gap-2 h-[var(--md-space-9)] shrink-0 px-2", "data-testid": "mobile-topbar",
+        header { class: "flex h-[var(--workbench-activity-width)] shrink-0 items-center gap-2 border-b border-[var(--workbench-border)] bg-[var(--workbench-titlebar)] px-2 text-[var(--text-hi)]", "data-testid": "mobile-topbar",
             IconButton {
-                class: "mobile-topbar__menu shrink-0",
+                class: "shrink-0",
                 icon: IconType::Menu,
                 label: "Open sidebar",
                 "data-testid": "mobile-topbar-menu",
                 onclick: move |_| pump.dispatch(ClientEvent::Sidebar(SidebarIntent::OpenDrawer)),
             }
-            span { class: "mobile-topbar__title flex-1 min-w-0 truncate", {title} }
+            span { class: "min-w-0 flex-1 truncate text-sm font-medium", {title} }
         }
     }
 }

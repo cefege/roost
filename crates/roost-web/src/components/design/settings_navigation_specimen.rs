@@ -17,15 +17,15 @@ const SPECIMEN_SELECTED_PANE: &str = "machines";
 #[component]
 pub fn SettingsNavigationSpecimen(on_navigate: EventHandler<String>) -> Element {
     rsx! {
-        div { class: "settings-shell h-[36rem]",
-            aside { class: "settings-rail", "aria-label": "Settings sections",
-                h1 { class: "settings-rail__title", "Settings" }
+        div { class: "flex h-[36rem] w-full min-w-0 bg-[var(--workbench-editor)] text-[var(--text-hi)]",
+            aside { class: "flex w-56 shrink-0 flex-col gap-4 overflow-y-auto border-r border-[var(--workbench-border)] p-3", "aria-label": "Settings sections",
+                h1 { class: "px-2 text-xl", "Settings" }
                 for group in SETTINGS_GROUPS {
-                    section { class: "settings-rail__group",
-                        h2 { class: "settings-rail__group-label", {group.label} }
+                    section { class: "flex flex-col gap-1",
+                        h2 { class: "px-2 text-xs font-medium text-muted-foreground", {group.label} }
                         for pane in group.panes {
                             ListRow {
-                                class: "settings-rail__item",
+                                class: "w-full",
                                 href: Route::Settings { pane: Some(pane.id.to_string()) }.to_path(),
                                 on_navigate,
                                 selected: pane.id == SPECIMEN_SELECTED_PANE,
@@ -37,11 +37,11 @@ pub fn SettingsNavigationSpecimen(on_navigate: EventHandler<String>) -> Element 
                     }
                 }
             }
-            main { class: "settings-main",
-                header { class: "settings-topbar",
-                    h2 { class: "settings-topbar__title", "Machines" }
+            main { class: "flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--workbench-editor)]",
+                header { class: "flex h-12 shrink-0 items-center border-b border-[var(--workbench-border)] bg-[var(--workbench-editor)] px-4",
+                    h2 { class: "text-base text-[var(--text-hi)]", "Machines" }
                 }
-                div { class: "settings-content" }
+                div { class: "min-h-0 flex-1 overflow-y-auto bg-[var(--workbench-editor)]" }
             }
         }
     }

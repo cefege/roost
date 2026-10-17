@@ -19,13 +19,22 @@ pub fn CommandHeader(#[props(into, optional)] class: Option<String>, children: E
 
 #[component]
 pub fn CommandTitle(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged_class = tw_merge!("text-lg font-semibold leading-none", class.as_deref().unwrap_or(""));
+    let merged_class = tw_merge!(
+        "text-lg font-semibold leading-none",
+        class.as_deref().unwrap_or("")
+    );
     rsx! { h2 { "data-name": "CommandTitle", class: "{merged_class}", {children} } }
 }
 
 #[component]
-pub fn CommandDescription(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged_class = tw_merge!("text-sm text-muted-foreground", class.as_deref().unwrap_or(""));
+pub fn CommandDescription(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
+    let merged_class = tw_merge!(
+        "text-sm text-muted-foreground",
+        class.as_deref().unwrap_or("")
+    );
     rsx! { p { "data-name": "CommandDescription", class: "{merged_class}", {children} } }
 }
 
@@ -55,7 +64,10 @@ pub fn CommandGroup(
     #[props(into, optional)] data_category: Option<String>,
     children: Element,
 ) -> Element {
-    let merged_class = tw_merge!("overflow-hidden p-1 text-foreground", class.as_deref().unwrap_or(""));
+    let merged_class = tw_merge!(
+        "overflow-hidden p-1 text-foreground",
+        class.as_deref().unwrap_or("")
+    );
     rsx! {
         div {
             "data-name": "CommandGroup",

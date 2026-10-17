@@ -53,7 +53,7 @@ different device does not mean juggling a different workflow.
 
 **Take only a tablet.** Roost is a fully functional web app, not a cut-down remote viewer. Pair an iPad or Android tablet, add a keyboard, and you get the same terminal, pane layout, and shortcuts as the desktop surface. The work still runs on your workers at home; the tablet is simply another way into the same sessions.
 
-**Only have your phone?** The same fully functional web app runs on iPhone and Android. Start a terminal in a worker's folder, select terminal text by touch, use the on-screen key row, attach a file, or dictate a prompt with the microphone. The phone UI uses Material 3 patterns, including swipeable terminal cards and touch gestures, so it remains practical when the phone is the only device you have.
+**Only have your phone?** The same fully functional web app runs on iPhone and Android. Start a terminal in a worker's folder, select terminal text by touch, use the on-screen key row, attach a file, or dictate a prompt with the microphone. The phone UI has swipeable terminal cards and touch gestures, so it remains practical when the phone is the only device you have.
 
 ## What you get
 
@@ -244,9 +244,11 @@ stable tag exists; `ROOST_RELEASE_CHANNEL=prerelease` opts into pre-releases):
 
 ## Built with
 
-- **Web:** Dioxus 0.7 compiled to wasm (`roost-web`), an imperative `web-sys`
-  DOM row renderer with no framework code (`roost-web-terminal`), and the UI-free client state
-  machine (`roost-client-core`)
+- **Web:** Dioxus 0.7 compiled to wasm (`roost-web`) with
+  [rust-ui](https://github.com/rust-ui/ui) components on Tailwind CSS v4, an
+  imperative `web-sys` DOM row renderer with no framework code
+  (`roost-web-terminal`), and the UI-free client state machine
+  (`roost-client-core`)
 - **Coordinator:** Rust, axum, Connect-RPC (`connectrpc`) + protobuf, sqlx on
   SQLite or Postgres, transactional event projection, EdDSA-JWT auth
 - **Workers:** Rust, `roost-keeper` PTY subprocesses, a vendored

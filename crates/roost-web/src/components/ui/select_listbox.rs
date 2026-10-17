@@ -30,7 +30,8 @@ const LISTBOX_CLASS: &str = "m-0 list-none p-0 outline-hidden";
 /// because keyboard movement highlights without moving focus.
 const OPTION_CLASS: &str = "group inline-flex gap-2 items-center w-full rounded-sm px-2 py-1.5 text-sm cursor-pointer no-underline transition-colors duration-200 text-popover-foreground hover:bg-accent hover:text-accent-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground [&_svg:not([class*='size-'])]:size-4";
 
-const OPTION_CHECK_CLASS: &str = "ml-auto opacity-0 size-4 text-muted-foreground group-aria-selected:opacity-100";
+const OPTION_CHECK_CLASS: &str =
+    "ml-auto opacity-0 size-4 text-muted-foreground group-aria-selected:opacity-100";
 
 /// The DOM id of one option, derived from its listbox.
 pub fn select_option_id(listbox_id: &str, index: usize) -> String {

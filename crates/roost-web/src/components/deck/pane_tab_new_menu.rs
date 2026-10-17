@@ -1,141 +1,48 @@
 //! A pane strip's "+": a new terminal or agent in the pane's folder.
-//! Anchored, dismissed and keyboard-driven the way `arrange_menu` is; the
-//! creation itself is `TerminalDeck`'s, through the two callbacks.
-//!
+//! Built on the shared `DropdownMenu`, which owns anchoring, dismissal and
+//! keyboard routing; the creation itself is `TerminalDeck`'s, through the two
+//! callbacks.
 
 use dioxus::prelude::*;
 
-use super::deck_dom::{self, DeckContainer};
-use crate::components::context_menu::{
-    AnchoredMenuPos, CtxMenuItem, MenuFocusEdge, anchored_menu_pos, anchored_menu_surface_style,
-    use_floating_menu_dismiss,
+use crate::components::ui::{
+    DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Icon, IconType,
 };
-use crate::components::ui::{ButtonSize, Icon, IconButton, IconType};
 
 #[component]
 pub fn PaneTabNewMenu(
-    pane_id: String,
     on_new_terminal: EventHandler<()>,
     on_new_agent: EventHandler<()>,
 ) -> Element {
-    let mut open = use_signal(|| None::<AnchoredMenuPos>);
-    let mut trigger = use_signal(|| None::<std::rc::Rc<MountedData>>);
-    let container = try_use_context::<DeckContainer>();
-    let trigger_id = format!("tab-new-{pane_id}");
-    let menu_id = format!("tab-new-menu-{pane_id}");
-    let open_menu = {
-        let menu_id = menu_id.clone();
-        move |edge: MenuFocusEdge| {
-            let Some(anchor) = trigger.peek().as_deref().and_then(deck_dom::client_box) else {
-                return;
-            };
-            let width = deck_dom::viewport_width();
-            let position = anchored_menu_pos(anchor.left + anchor.width, anchor.bottom(), width);
-            let origin = container
-                .map(|container| container.origin())
-                .unwrap_or_default();
-            open.set(Some(deck_dom::menu_pos_in(position, origin, width)));
-            deck_dom::focus_menu(&menu_id, edge);
-        }
-    };
-    let close_menu = {
-        let trigger_id = trigger_id.clone();
-        move |restore_focus: bool| {
-            open.set(None);
-            if restore_focus {
-                deck_dom::focus_by_id(&trigger_id);
-            }
-        }
-    };
-    let mut open_on_click = open_menu.clone();
-    let mut open_on_key = open_menu;
-    let mut close_on_click = close_menu.clone();
+    let mut open = use_signal(|| false);
     rsx! {
-        IconButton {
-            icon: IconType::Plus,
-            label: "New tab",
-            size: ButtonSize::IconSm,
-            class: "shrink-0 text-muted-foreground",
-            "data-testid": "tab-new",
-            id: trigger_id.clone(),
-            menu_popup: "menu",
-            controls_id: menu_id.clone(),
-            expanded: open.read().is_some(),
-            title: "New terminal or agent in this folder",
-            onmounted: move |event: MountedEvent| trigger.set(Some(event.data())),
-            onclick: move |_| {
-                if open.peek().is_some() {
-                    close_on_click(false);
-                } else {
-                    open_on_click(MenuFocusEdge::First);
-                }
-            },
-            onkeydown: move |event: KeyboardEvent| {
-                let key = event.key().to_string();
-                if key != "ArrowDown" && key != "ArrowUp" {
-                    return;
-                }
-                event.prevent_default();
-                event.stop_propagation();
-                open_on_key(if key == "ArrowDown" { MenuFocusEdge::First } else { MenuFocusEdge::Last });
-            },
-        }
-        if let Some(position) = *open.read() {
-            NewTabMenuSurface {
-                position,
-                trigger_id,
-                menu_id,
-                on_new_terminal: {
-                    let mut close_menu = close_menu.clone();
-                    move |()| {
-                        close_menu(true);
+        DropdownMenu {
+            open: open(),
+            on_open_change: move |next: bool| open.set(next),
+            test_id: "tab-new-menu",
+            DropdownMenuTrigger {
+                class: "size-[var(--workbench-tab-action-size)] p-0 border-0 bg-transparent text-muted-foreground rounded-md shrink-0 hover:bg-foreground/8 hover:text-foreground transition-[background-color,color] duration-150",
+                test_id: "tab-new",
+                aria_label: "New tab",
+                Icon { icon: IconType::Plus, class: "size-4" }
+            }
+            DropdownMenuContent { class: "w-40",
+                DropdownMenuItem {
+                    test_id: "tab-new-terminal",
+                    onclick: move |_| {
+                        open.set(false);
                         on_new_terminal.call(());
-                    }
-                },
-                on_new_agent: {
-                    let mut close_menu = close_menu.clone();
-                    move |()| {
-                        close_menu(true);
+                    },
+                    NewTabRow { icon: IconType::Terminal, label: "New terminal" }
+                }
+                DropdownMenuItem {
+                    test_id: "tab-new-agent",
+                    onclick: move |_| {
+                        open.set(false);
                         on_new_agent.call(());
-                    }
-                },
-                on_close: close_menu,
-            }
-        }
-    }
-}
-
-#[component]
-fn NewTabMenuSurface(
-    position: AnchoredMenuPos,
-    trigger_id: String,
-    menu_id: String,
-    on_new_terminal: EventHandler<()>,
-    on_new_agent: EventHandler<()>,
-    on_close: EventHandler<bool>,
-) -> Element {
-    use_floating_menu_dismiss(
-        EventHandler::new(move |()| on_close.call(false)),
-        None,
-        vec![trigger_id.clone(), menu_id.clone()],
-    );
-    let keys_menu_id = menu_id.clone();
-    rsx! {
-        div {
-            id: menu_id,
-            role: "menu",
-            "aria-labelledby": trigger_id,
-            "data-testid": "tab-new-menu",
-            class: "df-menu-enter",
-            style: anchored_menu_surface_style(position, "calc(var(--md-space-7) * 5)", None, ""),
-            onkeydown: move |event: KeyboardEvent| {
-                deck_dom::run_menu_keys(&event, &keys_menu_id, move || on_close.call(true), move || on_close.call(false));
-            },
-            CtxMenuItem { testid: "tab-new-terminal", onclick: move |_| on_new_terminal.call(()),
-                NewTabRow { icon: IconType::Terminal, label: "New terminal" }
-            }
-            CtxMenuItem { testid: "tab-new-agent", onclick: move |_| on_new_agent.call(()),
-                NewTabRow { icon: IconType::Bot, label: "New agent" }
+                    },
+                    NewTabRow { icon: IconType::Bot, label: "New agent" }
+                }
             }
         }
     }

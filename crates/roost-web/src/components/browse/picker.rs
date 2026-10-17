@@ -1,14 +1,9 @@
 //! The folder picker's page: one machine's directory, its history, and the
-//! terminal-launch flow, with the toolbar, path band, entry grid, launch bar and
-//! new-folder dialog composed around them. Desktop gets the centred `Dialog`; a
-//! phone paints the same content with no overlay, so the entries own the screen.
-//!
-//! The state it moves is the store's `BrowseState`, reached only through
-//! `BrowseIntent`; what lives here is the keyboard cursor, the two floating
-//! menus and the new-folder dialog's own fields.
-//!
-//! Ports `apps/web/src/components/browse/WorkerBrowsePage.tsx`. Called by
-//! `components::browse::BrowseSurface`; the composition is `picker::page`.
+//! terminal-launch flow, composed from the toolbar, path band, entry grid,
+//! launch bar and new-folder dialog. The state lives in the store's
+//! `BrowseState`, reached only through `BrowseIntent`; the keyboard cursor, the
+//! two menus' open flags, and the new-folder fields are the only state here.
+//! Ports `apps/web/src/components/browse/WorkerBrowsePage.tsx`.
 
 mod control_set;
 mod controls;
@@ -25,10 +20,8 @@ use crate::components::browse::dom;
 use crate::components::browse::key_listener::use_picker_keys;
 use crate::components::browse::keys::{PickerKey, PickerKeyContext, moved_cursor};
 use crate::components::browse::listing;
-use crate::components::browse::path_bar::CrumbMenuPos;
 use crate::components::browse::view::{PickerReading, read_picker};
 use crate::components::browse::{BrowseStatus, newest_session_cwd};
-use crate::components::context_menu::AnchoredMenuPos;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::ui::{Dialog, DialogContent, DialogTitle};
 use crate::pump::{Pump, use_store};
@@ -59,9 +52,7 @@ pub fn BrowsePicker(worker_fp: String) -> Element {
     let retry = use_signal(|| 0_u32);
     let hide_middle = use_signal(|| 0_usize);
     let server_menu_open = use_signal(|| false);
-    let server_anchor = use_signal(|| None::<AnchoredMenuPos>);
     let crumb_menu_open = use_signal(|| false);
-    let crumb_anchor = use_signal(|| None::<CrumbMenuPos>);
     let new_folder = use_signal(NewFolderForm::default);
 
     // Opened during render, not in an effect: an effect runs after the first
@@ -140,9 +131,7 @@ pub fn BrowsePicker(worker_fp: String) -> Element {
             retry,
             hide_middle,
             server_menu_open,
-            server_anchor,
             crumb_menu_open,
-            crumb_anchor,
             navigate,
         }
     };

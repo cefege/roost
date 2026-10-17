@@ -10,12 +10,12 @@ use roost_client_core::ClientEvent;
 use roost_client_core::store::prefs::PredictMode;
 use roost_client_core::store::shell_intent::ShellIntent;
 
+use crate::components::settings::color_schemes::TerminalColorSchemes;
+use crate::components::term_font_stepper::TermFontStepper;
 use crate::components::ui::{
     Button, ButtonVariant, Card, CardContent, CardHeader, CardTitle, Select, SelectOption,
     SwitchRow,
 };
-use crate::components::settings::color_schemes::TerminalColorSchemes;
-use crate::components::term_font_stepper::TermFontStepper;
 use crate::pump::use_store;
 use crate::term_font_size::{reset_term_font, use_device_default_term_font_px};
 

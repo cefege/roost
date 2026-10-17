@@ -54,7 +54,8 @@ pub fn css_px_var(mounted: &MountedData, name: &str) -> f64 {
 
 /// Every tab box under a strip's rail, in DOM order.
 pub fn tab_rects(rail: &MountedData) -> Vec<TabRect> {
-    let Some(tabs) = element(rail).and_then(|rail| rail.query_selector_all("[data-deck-tab]").ok()) else {
+    let Some(tabs) = element(rail).and_then(|rail| rail.query_selector_all("[data-deck-tab]").ok())
+    else {
         return Vec::new();
     };
     (0..tabs.length())
@@ -280,7 +281,8 @@ impl SizeWatch {
     /// Stop watching everything, then watch every tab box under `rail`.
     pub fn watch_tabs_only(&self, rail: &MountedData) {
         self.observer.disconnect();
-        let Some(tabs) = element(rail).and_then(|rail| rail.query_selector_all("[data-deck-tab]").ok())
+        let Some(tabs) =
+            element(rail).and_then(|rail| rail.query_selector_all("[data-deck-tab]").ok())
         else {
             return;
         };

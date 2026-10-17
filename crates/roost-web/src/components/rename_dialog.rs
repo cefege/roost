@@ -67,7 +67,10 @@ pub fn RenameDialogHost() -> Element {
     let mut reset = commit.clone();
     let mut confirm = commit.clone();
     let mut on_enter = commit;
-    let title = open.headline.clone().unwrap_or_else(|| RENAME_TERMINAL_HEADLINE.to_owned());
+    let title = open
+        .headline
+        .clone()
+        .unwrap_or_else(|| RENAME_TERMINAL_HEADLINE.to_owned());
     rsx! {
         Dialog { open: true, on_open_change,
             DialogContent { class: "sm:max-w-md",

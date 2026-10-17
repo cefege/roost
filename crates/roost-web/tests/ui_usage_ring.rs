@@ -1,16 +1,18 @@
-//! The usage ring's colour steps up near its limit, its dash offset runs from a
+//! The usage ring's tone steps up near its limit, its dash offset runs from a
 //! full circumference to zero and clamps, and its stroke stays readable at small
 //! sizes. Exercises `roost_web::components::ui::usage_ring`.
 
-use roost_web::components::ui::usage_ring::{ring_geometry, usage_ring_offset, usage_ring_token};
+use roost_web::components::ui::usage_ring::{
+    UsageRingTone, ring_geometry, usage_ring_offset, usage_ring_tone,
+};
 
 #[test]
-fn the_token_steps_up_as_the_fill_approaches_the_limit() {
-    assert_eq!(usage_ring_token(0.1), "--md-primary");
-    assert_eq!(usage_ring_token(0.75), "--status-warn");
-    assert_eq!(usage_ring_token(0.91), "--status-warn");
-    assert_eq!(usage_ring_token(0.92), "--status-err");
-    assert_eq!(usage_ring_token(1.5), "--status-err");
+fn the_tone_steps_up_as_the_fill_approaches_the_limit() {
+    assert_eq!(usage_ring_tone(0.1), UsageRingTone::Calm);
+    assert_eq!(usage_ring_tone(0.75), UsageRingTone::Warning);
+    assert_eq!(usage_ring_tone(0.91), UsageRingTone::Warning);
+    assert_eq!(usage_ring_tone(0.92), UsageRingTone::Error);
+    assert_eq!(usage_ring_tone(1.5), UsageRingTone::Error);
 }
 
 #[test]

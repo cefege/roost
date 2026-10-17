@@ -26,10 +26,10 @@ pub fn TitleBar(
     let home_path = Route::Home.to_path();
     let context = workbench_title(&path, session_title.as_deref(), session_folder.as_deref());
     rsx! {
-        header { class: "workbench-titlebar",
-            div { class: "workbench-titlebar__left",
+        header { class: "flex min-w-0 items-center border-b border-[var(--workbench-border)] bg-[var(--workbench-titlebar)] px-2 [grid-area:titlebar]",
+            div { class: "min-w-0",
                 a {
-                    class: "workbench-titlebar__brand",
+                    class: "inline-flex min-w-0 items-center gap-2 overflow-hidden text-[var(--text-hi)] no-underline focus-visible:outline focus-visible:outline-[var(--workbench-focus-ring)] focus-visible:-outline-offset-px",
                     href: home_path.clone(),
                     "aria-label": "Roost home",
                     onclick: move |event: MouseEvent| {
@@ -39,9 +39,9 @@ pub fn TitleBar(
                         }
                     },
                     BrandMark { size: TITLE_BAR_MARK_SIZE }
-                    span { class: "workbench-titlebar__product", {PRODUCT} }
+                    span { class: "whitespace-nowrap text-sm font-medium", {PRODUCT} }
                     if context != PRODUCT {
-                        span { class: "workbench-titlebar__context", {context} }
+                        span { class: "min-w-0 truncate text-xs text-[var(--text-lo)] max-[1100px]:hidden", {context} }
                     }
                 }
             }

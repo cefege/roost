@@ -1,23 +1,16 @@
 //! The picker's page body: the focus the sheet must not take, and the
-//! composition of the four bands. Everything it paints comes from the store read
-//! the shell already holds, and every control it paints is built once per render.
-//!
-//! Called by `browse::picker::BrowsePicker`. Depends on `picker::controls` for
-//! the handlers, `picker::regions` for the markup and `picker::control_set` for
-//! the focus rule; it holds no state of its own.
-//!
-//! Ports the composition half of
-//! `apps/web/src/components/browse/WorkerBrowsePage.tsx`.
+//! composition of the four bands from the store read the shell already holds.
+//! Called by `browse::picker::BrowsePicker`; the handlers come from
+//! `picker::controls`, the markup from `picker::regions`. It holds no state of
+//! its own. Ports `apps/web/src/components/browse/WorkerBrowsePage.tsx`.
 
 use dioxus::prelude::*;
 
-use crate::components::browse::path_bar::CrumbMenuPos;
 use crate::components::browse::picker::NewFolderForm;
 use crate::components::browse::picker::control_set::focus_region;
 use crate::components::browse::picker::controls::build_controls;
 use crate::components::browse::picker::regions;
 use crate::components::browse::view::PickerReading;
-use crate::components::context_menu::AnchoredMenuPos;
 use crate::pump::Pump;
 
 /// Whether the machine is absent from a registry that has already published.
@@ -39,9 +32,7 @@ pub fn PickerPage(
     retry: Signal<u32>,
     hide_middle: Signal<usize>,
     server_menu_open: Signal<bool>,
-    server_anchor: Signal<Option<AnchoredMenuPos>>,
     crumb_menu_open: Signal<bool>,
-    crumb_anchor: Signal<Option<CrumbMenuPos>>,
     navigate: EventHandler<String>,
 ) -> Element {
     // The sheet's auto-focus would put the cursor on its own close control,
@@ -63,9 +54,7 @@ pub fn PickerPage(
         retry,
         hide_middle,
         server_menu_open,
-        server_anchor,
         crumb_menu_open,
-        crumb_anchor,
         navigate,
     );
 
@@ -78,9 +67,7 @@ pub fn PickerPage(
             cursor,
             new_folder,
             server_menu_open,
-            server_anchor,
             crumb_menu_open,
-            crumb_anchor,
             controls,
         }
     }

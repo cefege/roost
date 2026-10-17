@@ -1,22 +1,20 @@
 //! The filterable overflow menu for tabs that do not fit a pane strip: a
-//! filter field, the matching tabs, and the selected tab's check. It owns only
-//! its focus, filter and highlight; `PaneStrip` keeps the anchor and every
-//! layout callback. Ports `apps/web/src/components/deck/PaneTabList.tsx`.
+//! filter field, the matching tabs, and the selected tab's check. It is the
+//! content of `PaneStrip`'s `DropdownMenu`, which owns placement, dismissal
+//! and focus restore; this owns only its filter and highlight. Ports
+//! `apps/web/src/components/deck/PaneTabList.tsx`.
 
 use dioxus::prelude::*;
 use roost_client_core::store::selectors::session_by_id;
 
-use super::deck_dom::{self, DeckContainer};
-use crate::components::context_menu::{
-    AnchoredMenuPos, CtxMenuItem, MenuFocusEdge, anchored_menu_surface_style,
-    use_floating_menu_dismiss,
-};
-use crate::components::ui::{Icon, IconType};
+use super::deck_dom;
+use crate::components::context_menu::MenuFocusEdge;
+use crate::components::ui::{DropdownMenuItem, Icon, IconType};
 use crate::pump::use_store;
 use crate::session_naming::session_title;
 
-const POPUP_ID: &str = "tab-list-popup";
-const ITEMS_ID: &str = "tab-list-popup-items";
+/// The `DropdownMenu` root's `menu_id`; arrow keys from the filter focus its items by this id.
+pub const TAB_LIST_MENU_ID: &str = "tab-list-menu";
 
 /// Tabs whose title contains `filter`, case-insensitively, in strip order.
 pub fn matching_tabs(tabs: &[(String, String)], filter: &str) -> Vec<(String, String)> {
@@ -27,19 +25,17 @@ pub fn matching_tabs(tabs: &[(String, String)], filter: &str) -> Vec<(String, St
         .collect()
 }
 
-/// The overflow list.
+/// The overflow list body. Mounted only while its menu is open, so the filter
+/// and highlight start fresh on every open.
 #[component]
 pub fn PaneTabList(
-    position: AnchoredMenuPos,
     tab_ids: Vec<String>,
     selected_tab: String,
-    trigger_id: String,
     on_select: EventHandler<String>,
     on_reveal_selected: EventHandler<()>,
     on_close: EventHandler<()>,
 ) -> Element {
     let pump = use_store();
-    let container = try_use_context::<DeckContainer>();
     let mut filter = use_signal(String::new);
     let mut highlighted = use_signal(|| 0_usize);
     let titled: Vec<(String, String)> = {
@@ -62,21 +58,6 @@ pub fn PaneTabList(
             .collect()
     };
     let matches = matching_tabs(&titled, &filter.read());
-    let restore_trigger = {
-        let trigger_id = trigger_id.clone();
-        move || deck_dom::focus_by_id(&trigger_id)
-    };
-    use_floating_menu_dismiss(
-        on_close,
-        Some(EventHandler::new({
-            let restore_trigger = restore_trigger.clone();
-            move |()| {
-                on_close.call(());
-                restore_trigger();
-            }
-        })),
-        vec![trigger_id.clone(), POPUP_ID.to_owned()],
-    );
     let choose = move |session_id: String| {
         on_select.call(session_id.clone());
         on_close.call(());
@@ -85,111 +66,78 @@ pub fn PaneTabList(
         // the reveal is asked for here or the focus lands out of view.
         on_reveal_selected.call(());
     };
-    let placed = match container {
-        Some(container) => {
-            deck_dom::menu_pos_in(position, container.origin(), deck_dom::viewport_width())
-        }
-        None => position,
-    };
-    let style =
-        anchored_menu_surface_style(placed, "var(--workbench-tab-menu-min-width)", None, "");
     let key_matches = matches.clone();
     rsx! {
-        div {
-            id: POPUP_ID,
-            "data-testid": "tab-list-popup",
-            class: "df-menu-enter flex flex-col min-w-[var(--workbench-tab-menu-min-width)] max-w-[calc(var(--md-space-9)*8)] p-1 bg-[var(--workbench-tab-menu)] border border-solid border-[var(--workbench-tab-border)] rounded-[var(--md-shape-sm)] shadow-[var(--md-elev-3)] text-foreground",
-            "aria-label": "Open terminals in this pane",
-            style,
-            div { class: "flex items-center gap-1 min-h-[var(--workbench-tab-action-size)] px-2 border-b border-solid border-[var(--workbench-tab-border)]",
-                Icon { icon: IconType::Search, class: "size-4 shrink-0 text-muted-foreground" }
-                input {
-                    class: "flex-1 min-w-0 p-0 bg-transparent border-0 text-foreground outline-none",
-                    r#type: "text",
-                    value: "{filter}",
-                    "aria-label": "Filter terminals in this pane",
-                    placeholder: "Filter terminals…",
-                    "data-testid": "tab-list-filter",
-                    onmounted: move |event: MountedEvent| async move {
-                        let _ = event.data().set_focus(true).await;
-                    },
-                    oninput: move |event: FormEvent| {
-                        filter.set(event.value());
-                        highlighted.set(0);
-                    },
-                    onkeydown: {
-                        let restore_trigger = restore_trigger.clone();
-                        move |event: KeyboardEvent| {
-                            let key = event.key().to_string();
-                            match key.as_str() {
-                                "Escape" | "Tab" => {
-                                    let restore_trigger = restore_trigger.clone();
-                                    deck_dom::run_menu_keys(&event, ITEMS_ID, move || {
-                                        on_close.call(());
-                                        restore_trigger();
-                                    }, move || on_close.call(()));
-                                }
-                                "ArrowDown" | "ArrowUp" => {
-                                    event.prevent_default();
-                                    event.stop_propagation();
-                                    if key_matches.is_empty() {
-                                        return;
-                                    }
-                                    let down = key == "ArrowDown";
-                                    highlighted.set(if down { 0 } else { key_matches.len() - 1 });
-                                    deck_dom::focus_menu(ITEMS_ID, if down { MenuFocusEdge::First } else { MenuFocusEdge::Last });
-                                }
-                                "Enter" => {
-                                    event.prevent_default();
-                                    event.stop_propagation();
-                                    let index = (*highlighted.peek()).min(key_matches.len().saturating_sub(1));
-                                    if let Some((session_id, _)) = key_matches.get(index) {
-                                        choose(session_id.clone());
-                                    }
-                                }
-                                _ => {}
-                            }
+        input {
+            class: "w-full min-w-0 px-2 py-1 mb-1 bg-transparent border-0 border-b border-solid border-[var(--workbench-tab-border)] text-foreground outline-none",
+            r#type: "text",
+            value: "{filter}",
+            "aria-label": "Filter terminals in this pane",
+            placeholder: "Filter terminals…",
+            "data-testid": "tab-list-filter",
+            onmounted: move |event: MountedEvent| async move {
+                let _ = event.data().set_focus(true).await;
+            },
+            oninput: move |event: FormEvent| {
+                filter.set(event.value());
+                highlighted.set(0);
+            },
+            onkeydown: move |event: KeyboardEvent| {
+                // Escape and Tab bubble to the menu panel, which closes and restores focus.
+                let key = event.key().to_string();
+                match key.as_str() {
+                    "ArrowDown" | "ArrowUp" => {
+                        event.prevent_default();
+                        event.stop_propagation();
+                        if key_matches.is_empty() {
+                            return;
                         }
-                    },
-                }
-            }
-            div {
-                id: ITEMS_ID,
-                class: "max-h-[calc(var(--md-space-9)*8)] overflow-y-auto py-1",
-                role: "menu",
-                "aria-label": "Open terminals in this pane",
-                onkeydown: {
-                    let restore_trigger = restore_trigger.clone();
-                    move |event: KeyboardEvent| {
-                        let restore_trigger = restore_trigger.clone();
-                        deck_dom::run_menu_keys(&event, ITEMS_ID, move || {
-                            on_close.call(());
-                            restore_trigger();
-                        }, move || on_close.call(()));
+                        let down = key == "ArrowDown";
+                        highlighted.set(if down { 0 } else { key_matches.len() - 1 });
+                        deck_dom::focus_menu(
+                            TAB_LIST_MENU_ID,
+                            if down {
+                                MenuFocusEdge::First
+                            } else {
+                                MenuFocusEdge::Last
+                            },
+                        );
                     }
+                    "Enter" => {
+                        event.prevent_default();
+                        event.stop_propagation();
+                        let index = (*highlighted.peek()).min(key_matches.len().saturating_sub(1));
+                        if let Some((session_id, _)) = key_matches.get(index) {
+                            choose(session_id.clone());
+                        }
+                    }
+                    _ => {}
+                }
+            },
+        }
+        if matches.is_empty() {
+            div { class: "px-2 py-3 text-muted-foreground", "No matches" }
+        }
+        for (index, (session_id, title)) in matches.into_iter().enumerate() {
+            DropdownMenuItem {
+                key: "{session_id}",
+                class: if session_id == selected_tab {
+                    "min-h-[var(--workbench-tab-action-size)] bg-accent text-accent-foreground"
+                } else if *highlighted.read() == index {
+                    "min-h-[var(--workbench-tab-action-size)] bg-foreground/8"
+                } else {
+                    "min-h-[var(--workbench-tab-action-size)]"
                 },
-                if matches.is_empty() {
-                    div { class: "px-2 py-3 text-muted-foreground", "No matches" }
-                }
-                for (index, (session_id, title)) in matches.into_iter().enumerate() {
-                    CtxMenuItem {
-                        key: "{session_id}",
-                        class: "flex items-center w-full min-h-[var(--workbench-tab-action-size)] gap-2 px-2 box-border bg-transparent border-0 rounded-[var(--md-shape-xs)] text-foreground text-start cursor-pointer hover:bg-[var(--md-state-hover)] data-[highlighted=true]:bg-[var(--md-state-hover)] focus:bg-[var(--md-state-focus)] focus-visible:outline-none data-[selected=true]:!bg-[var(--md-sys-color-secondary-container)] data-[selected=true]:text-[var(--md-sys-color-on-secondary-container)] aria-[current=page]:!bg-[var(--md-sys-color-secondary-container)] aria-[current=page]:text-[var(--md-sys-color-on-secondary-container)]",
-                        testid: "tab-list-item-{session_id}",
-                        selected: session_id == selected_tab,
-                        highlighted: *highlighted.read() == index,
-                        onmouseenter: move |_| highlighted.set(index),
-                        onfocus: move |_| highlighted.set(index),
-                        onclick: {
-                            let session_id = session_id.clone();
-                            move |_| choose(session_id.clone())
-                        },
-                        Icon { icon: if session_id.starts_with("agent:") { IconType::Bot } else { IconType::Terminal }, class: "size-4 shrink-0 text-muted-foreground" }
-                        span { class: "flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap", "{title}" }
-                        if session_id == selected_tab {
-                            Icon { icon: IconType::Check, class: "size-4 shrink-0" }
-                        }
-                    }
+                test_id: "tab-list-item-{session_id}",
+                onmouseenter: move |_| highlighted.set(index),
+                onclick: {
+                    let session_id = session_id.clone();
+                    move |_| choose(session_id.clone())
+                },
+                Icon { icon: if session_id.starts_with("agent:") { IconType::Bot } else { IconType::Terminal }, class: "size-4 shrink-0 text-muted-foreground" }
+                span { class: "flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap", "{title}" }
+                if session_id == selected_tab {
+                    Icon { icon: IconType::Check, class: "size-4 shrink-0" }
                 }
             }
         }

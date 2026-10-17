@@ -6,8 +6,8 @@
 use dioxus::prelude::*;
 
 use super::catalog::{
-    COLOR_GROUPS, ColorRole, ELEVATION_STEPS, SHAPE_STEPS, SPACE_BARS, SWATCH_GRID_CLASS,
-    Specimen, TILE_GRID_CLASS, TYPE_STEPS,
+    COLOR_GROUPS, ColorRole, ELEVATION_STEPS, SHAPE_STEPS, SPACE_BARS, SWATCH_GRID_CLASS, Specimen,
+    TILE_GRID_CLASS, TYPE_STEPS,
 };
 use crate::components::ui::SectionTitle;
 

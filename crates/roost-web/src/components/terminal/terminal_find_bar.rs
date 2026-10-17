@@ -15,7 +15,9 @@
 
 use dioxus::prelude::*;
 
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, IconButton, IconType};
+use crate::components::ui::{
+    Button, ButtonGroup, ButtonSize, ButtonVariant, IconButton, IconType, Input,
+};
 
 /// What the bar shows: one query's published state, as the controller reports it.
 ///
@@ -126,49 +128,50 @@ pub fn TerminalFindBar(
     };
     rsx! {
         div {
-            class: "term-find-bar",
+            class: "relative z-1 flex items-center gap-2 border-b border-border bg-muted px-2 py-1",
             "data-testid": "terminal-find-bar",
             role: "search",
             onkeydown: on_key_down,
-            input {
-                class: "term-find-input",
-                "data-testid": "terminal-find-input",
-                "data-failed": if state.failed { "true" } else { "false" },
-                r#type: "text",
-                spellcheck: "false",
-                autocomplete: "off",
-                autocapitalize: "off",
-                "aria-label": alt_label,
+            Input {
+                class: "h-7 min-w-0 flex-1 px-2 py-1 font-mono text-xs",
+                test_id: "terminal-find-input",
+                aria_invalid: state.failed,
+                aria_label: alt_label,
                 placeholder,
                 value: state.query.clone(),
+                autocomplete: "off",
+                spellcheck: "false",
+                autocapitalize: "off",
                 onmounted: on_mounted,
                 oninput: move |event: FormEvent| on_query.call(event.value()),
             }
             span {
-                class: "term-find-count",
+                class: "shrink-0 text-xs tabular-nums whitespace-nowrap text-muted-foreground",
                 "data-testid": "terminal-find-count",
                 {count}
             }
-            IconButton {
-                icon: IconType::ChevronUp,
-                label: "Previous match",
-                size: ButtonSize::IconSm,
-                disabled: no_matches,
-                "data-testid": "terminal-find-prev",
-                onclick: move |_| on_step.call(-1),
-            }
-            IconButton {
-                icon: IconType::ChevronDown,
-                label: "Next match",
-                size: ButtonSize::IconSm,
-                disabled: no_matches,
-                "data-testid": "terminal-find-next",
-                onclick: move |_| on_step.call(1),
+            ButtonGroup {
+                IconButton {
+                    icon: IconType::ChevronUp,
+                    label: "Previous match",
+                    size: ButtonSize::IconSm,
+                    disabled: no_matches,
+                    "data-testid": "terminal-find-prev",
+                    onclick: move |_| on_step.call(-1),
+                }
+                IconButton {
+                    icon: IconType::ChevronDown,
+                    label: "Next match",
+                    size: ButtonSize::IconSm,
+                    disabled: no_matches,
+                    "data-testid": "terminal-find-next",
+                    onclick: move |_| on_step.call(1),
+                }
             }
             Button {
                 variant: if state.case_sensitive { ButtonVariant::Secondary } else { ButtonVariant::Outline },
                 size: ButtonSize::Xs,
-                class: Some("term-find-toggle".to_owned()),
+                class: Some("shrink-0".to_owned()),
                 "data-testid": "terminal-find-case",
                 "data-on": if state.case_sensitive { "true" } else { "false" },
                 "data-active": if state.case_sensitive { "true" } else { "false" },
@@ -180,7 +183,7 @@ pub fn TerminalFindBar(
             Button {
                 variant: if state.regex { ButtonVariant::Secondary } else { ButtonVariant::Outline },
                 size: ButtonSize::Xs,
-                class: Some("term-find-toggle".to_owned()),
+                class: Some("shrink-0".to_owned()),
                 "data-testid": "terminal-find-regex",
                 "data-on": if state.regex { "true" } else { "false" },
                 "data-active": if state.regex { "true" } else { "false" },
@@ -190,7 +193,7 @@ pub fn TerminalFindBar(
                 ".*"
             }
             if state.alt_screen {
-                span { class: "term-find-note", "visible rows only" }
+                span { class: "text-xs whitespace-nowrap text-muted-foreground", "visible rows only" }
             }
             IconButton {
                 icon: IconType::X,

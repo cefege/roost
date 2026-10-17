@@ -18,12 +18,10 @@ use roost_client_core::client::rpc::calls::settings::push::GetPushConfig;
 use roost_client_core::store::prefs::notify::NotifyPref;
 use roost_client_core::store::shell_intent::ShellIntent;
 
-use crate::components::ui::{
-    Card, CardContent, CardHeader, CardTitle, Icon, IconType, SwitchRow,
-};
 use crate::components::notifications::agent_notifications::notification_tone::{
     TonePlayer, previewed_kind,
 };
+use crate::components::ui::{Card, CardContent, CardHeader, CardTitle, Icon, IconType, SwitchRow};
 use crate::pump::{Pump, use_store};
 use crate::web_push::desktop_push_plan::{DesktopPushFacts, PushPermission, desktop_push_row};
 

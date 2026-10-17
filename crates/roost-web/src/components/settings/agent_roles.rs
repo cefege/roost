@@ -15,9 +15,9 @@ use crate::components::ui::{Button, ButtonSize, ButtonVariant, IconType, SwitchR
 use crate::pump::{Pump, use_store};
 
 mod rows;
-use rows::{RoleContext, RoleRow, role_row};
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::client::rpc::calls::agent_chat::{GetAgentSettings, SetAgentSettings};
+use rows::{RoleContext, RoleRow, role_row};
 
 /// (role id, title as OMP's `MODEL_ROLES` names it, what it is for, what an unset
 /// role inherits). Stored keys in `model_roles`; the composer lists them too.

@@ -27,7 +27,7 @@ use super::outcome;
 use super::pieces::{PaletteFooter, PaletteRow};
 use crate::components::help::shortcuts::reader_platform;
 use crate::components::ui::field::scoped_element_id;
-use crate::components::ui::{Command, CommandInput, CommandList};
+use crate::components::ui::{Command, CommandEmpty, CommandInput, CommandList};
 use crate::keyboard_shortcuts::ShortcutOverlays;
 use crate::platform::browser_platform::{PlatformShortcut, platform_shortcut_label};
 use crate::platform::worker_paths::BrowserWorkerPaths;
@@ -79,10 +79,9 @@ pub fn PaletteBody(pump: Pump, overlays: ShortcutOverlays) -> Element {
     *rows.borrow_mut() = filtered.clone();
     let on_select = select_handler(pump.clone(), overlays, navigate, query);
 
-    use_drop({
-        let keys = list_keys::install(Rc::clone(&rows), on_select, active_index);
-        move || drop(keys)
-    });
+    // Installed once: a listener per render would leave every earlier one
+    // registered after its guard dropped. The guard drops with the body.
+    use_hook(|| Rc::new(list_keys::install(Rc::clone(&rows), on_select, active_index)));
     use_effect({
         let mut query = query;
         move || {
@@ -124,7 +123,7 @@ pub fn PaletteBody(pump: Pump, overlays: ShortcutOverlays) -> Element {
             }
             CommandList { id: list_id, class: "min-h-0 flex-1 max-h-none",
                 if !has_results {
-                    div { class: "px-4 py-5 text-center text-sm text-muted-foreground", "No matches" }
+                    CommandEmpty { class: "px-4 py-5 text-center text-sm text-muted-foreground", "No matches" }
                 }
                 for (index, item) in filtered.into_iter().enumerate() {
                     PaletteRow {

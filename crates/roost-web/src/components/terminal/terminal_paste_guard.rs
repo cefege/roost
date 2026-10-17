@@ -6,7 +6,10 @@
 use dioxus::prelude::*;
 use roost_protocol::terminal_input::count_line_breaks;
 
-use crate::components::ui::{Button, ButtonVariant, Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle};
+use crate::components::ui::{
+    Button, ButtonVariant, Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader,
+    DialogTitle,
+};
 
 /// The confirmation for `text`.
 #[component]

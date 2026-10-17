@@ -1,9 +1,7 @@
-//! The browser half of the floating-menu primitives: measuring a trigger,
-//! focusing a menu edge after it mounts, running a menu key, and the document
-//! listeners behind outside-click/Escape dismissal. wasm32 only; the decisions
-//! are `super::{anchored_menu_pos, menu_key_action}` and the focus request is
-//! `super::MenuFocusRequest`. Ports the DOM half of
-//! `apps/web/src/components/contextMenuPrimitives.tsx`.
+//! The browser half of the floating-menu primitives: focusing a menu edge after
+//! it mounts, running a menu key, and the document listeners behind
+//! outside-click/Escape dismissal. wasm32 only; the decisions are
+//! `super::menu_key_action` and `super::MenuFocusRequest`.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -13,23 +11,10 @@ use wasm_bindgen::JsCast as _;
 use wasm_bindgen::closure::Closure;
 use web_sys::{Element, HtmlElement, KeyboardEvent};
 
-use super::{
-    AnchoredMenuPos, MenuFocusEdge, MenuFocusRequest, MenuKeyAction, anchored_menu_pos,
-    menu_key_action,
-};
+use super::{MenuFocusEdge, MenuFocusRequest, MenuKeyAction, menu_key_action};
 
 const ENABLED_ITEMS: &str = "[role=\"menuitem\"]:not(:disabled)";
 const FOCUS_ATTEMPTS: u32 = 4;
-
-/// Where a menu anchored under `trigger` sits.
-pub fn anchored_menu_position(trigger: &Element) -> AnchoredMenuPos {
-    let rect = trigger.get_bounding_client_rect();
-    let width = web_sys::window()
-        .and_then(|window| window.inner_width().ok())
-        .and_then(|value| value.as_f64())
-        .unwrap_or(rect.right());
-    anchored_menu_pos(rect.right(), rect.bottom(), width)
-}
 
 fn enabled_items(menu: &Element) -> Vec<HtmlElement> {
     let Ok(nodes) = menu.query_selector_all(ENABLED_ITEMS) else {

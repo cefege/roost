@@ -1,7 +1,8 @@
 //! Port of rust-ui `dropdown_menu`: a controlled root that takes `open` and
 //! reports changes through `on_open_change`, a trigger button, and a
-//! right-anchored `role="menu"` panel. Shared state and items live in
-//! `ui/menu_overlay.rs` and `ui/menu_items.rs`.
+//! trigger-anchored `role="menu"` panel. `side` picks the preferred side of
+//! the trigger. Shared state and items live in `ui/menu_overlay.rs` and
+//! `ui/menu_items.rs`.
 
 use dioxus::prelude::*;
 use tw_merge::tw_merge;
@@ -10,36 +11,49 @@ use super::menu_items::{
     render_menu_group, render_menu_item, render_menu_label, render_menu_separator,
 };
 use super::menu_overlay::{
-    MenuContext, MenuRoot, MenuSurface, anchored_placement, provide_menu_root, request_close,
-    request_open,
+    MenuContext, MenuRoot, MenuSide, MenuSurface, anchored_placement, provide_menu_root,
+    request_close, request_open,
 };
 use crate::components::context_menu::MenuFocusEdge;
 use crate::components::ui::field::scoped_element_id;
 
+/// `trigger_id` and `menu_id` exist for callers whose trigger id is already
+/// pinned by tests or by another component's focus logic; otherwise generated.
 #[component]
 pub fn DropdownMenu(
     open: bool,
     on_open_change: EventHandler<bool>,
     #[props(into, optional)] test_id: Option<String>,
+    #[props(default)] side: MenuSide,
+    #[props(into, optional)] trigger_id: Option<String>,
+    #[props(into, optional)] menu_id: Option<String>,
     children: Element,
 ) -> Element {
-    let trigger_id = use_hook(|| scoped_element_id("dropdown-menu-trigger"));
-    let menu_id = use_hook(|| scoped_element_id("dropdown-menu"));
+    let trigger_id =
+        use_hook(|| trigger_id.unwrap_or_else(|| scoped_element_id("dropdown-menu-trigger")));
+    let menu_id = use_hook(|| menu_id.unwrap_or_else(|| scoped_element_id("dropdown-menu")));
     provide_menu_root(MenuRoot {
         open,
         on_open_change,
         trigger_id,
         menu_id,
         test_id,
+        side,
+        aria_label: None,
     });
     rsx! {
         {children}
     }
 }
 
+/// `on_key` runs before the built-in ArrowDown/ArrowUp/Escape handling and
+/// returns `true` when it has handled the key, which skips the built-in pass.
 #[component]
 pub fn DropdownMenuTrigger(
     #[props(into, optional)] class: Option<String>,
+    #[props(into, optional)] test_id: Option<String>,
+    #[props(into, optional)] aria_label: Option<String>,
+    #[props(optional)] on_key: Option<Callback<KeyboardEvent, bool>>,
     #[props(default)] disabled: bool,
     children: Element,
 ) -> Element {
@@ -48,6 +62,7 @@ pub fn DropdownMenuTrigger(
     };
     let root = context.root.read().clone();
     let trigger_id = root.trigger_id.clone();
+    let side = root.side;
     let click_trigger_id = trigger_id.clone();
     let keydown_trigger_id = trigger_id.clone();
     let merged = tw_merge!(
@@ -59,22 +74,30 @@ pub fn DropdownMenuTrigger(
             id: "{trigger_id}",
             r#type: "button",
             "aria-haspopup": "menu",
+            "aria-label": aria_label,
             "aria-expanded": if root.open { "true" } else { "false" },
             "aria-controls": root.open.then(|| root.menu_id.clone()),
+            "data-testid": test_id,
             disabled,
             class: merged,
             onclick: move |_| {
                 if context.root.peek().open {
                     request_close(context, true);
                 } else {
-                    request_open(context, Some(anchored_placement(&click_trigger_id)), None);
+                    request_open(context, Some(anchored_placement(&click_trigger_id, side)), None);
                 }
             },
             onkeydown: move |event: KeyboardEvent| {
+                if let Some(handler) = on_key
+                    && handler.call(event.clone())
+                {
+                    return;
+                }
                 let open = context.root.peek().open;
                 match event.key() {
                     Key::ArrowDown | Key::ArrowUp => {
                         event.prevent_default();
+                        event.stop_propagation();
                         let edge = if event.key() == Key::ArrowDown {
                             MenuFocusEdge::First
                         } else {
@@ -82,7 +105,7 @@ pub fn DropdownMenuTrigger(
                         };
                         request_open(
                             context,
-                            Some(anchored_placement(&keydown_trigger_id)),
+                            Some(anchored_placement(&keydown_trigger_id, side)),
                             Some(edge),
                         );
                     }
@@ -99,7 +122,10 @@ pub fn DropdownMenuTrigger(
 }
 
 #[component]
-pub fn DropdownMenuContent(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn DropdownMenuContent(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     let merged = tw_merge!(
         "z-50 p-1 rounded-md border bg-popover text-popover-foreground shadow-md h-fit fixed w-44 transition-all duration-200",
         class.as_deref().unwrap_or("")
@@ -112,20 +138,37 @@ pub fn DropdownMenuContent(#[props(into, optional)] class: Option<String>, child
 #[component]
 pub fn DropdownMenuItem(
     #[props(into, optional)] class: Option<String>,
+    #[props(into, optional)] test_id: Option<String>,
+    #[props(into, optional)] title: Option<String>,
     #[props(default)] disabled: bool,
     onclick: Option<EventHandler<MouseEvent>>,
+    onmouseenter: Option<EventHandler<MouseEvent>>,
     children: Element,
 ) -> Element {
-    render_menu_item(class, disabled, onclick, children)
+    render_menu_item(
+        class,
+        disabled,
+        test_id,
+        title,
+        onclick,
+        onmouseenter,
+        children,
+    )
 }
 
 #[component]
-pub fn DropdownMenuLabel(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn DropdownMenuLabel(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     render_menu_label(class, children)
 }
 
 #[component]
-pub fn DropdownMenuGroup(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn DropdownMenuGroup(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     render_menu_group(class, children)
 }
 

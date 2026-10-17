@@ -123,7 +123,11 @@ pub fn scroll_item_into_view(root_id: &str, value: &str) {
 pub fn scroll_list_to_top(root_id: &str) {
     let list = document()
         .and_then(|doc| doc.get_element_by_id(root_id))
-        .and_then(|root| root.query_selector("[data-name=\"CommandList\"]").ok().flatten());
+        .and_then(|root| {
+            root.query_selector("[data-name=\"CommandList\"]")
+                .ok()
+                .flatten()
+        });
     if let Some(list) = list {
         list.set_scroll_top(0);
     }

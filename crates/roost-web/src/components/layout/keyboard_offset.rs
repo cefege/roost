@@ -1,7 +1,7 @@
 //! The soft keyboard's cover, published as `--kb-offset` on `<html>`.
 //!
 //! The variable is consumed by the shell's editor shift
-//! (`shell_style`), the chat dock (`voice-input.css`), the machine menu sheet
+//! (`shell_style`), the chat dock (`composer`), the machine menu sheet
 //! and the notification dock lift, but nothing wrote it: the keyboard would
 //! translate the terminal by zero pixels on iOS and Android. A
 //! `visualViewport` `resize`/`scroll` listener measures the covered band —

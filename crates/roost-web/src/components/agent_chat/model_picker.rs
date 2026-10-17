@@ -12,8 +12,8 @@ use roost_protocol::wire::agent_chat::{model_family, model_search_text, rank_mat
 
 use crate::components::file_viewer::dom::focus_by_id;
 use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Chip, EmptyState, Icon, IconType, List, ListRow, SectionTitle,
-    TextField,
+    Button, ButtonSize, ButtonVariant, Chip, EmptyState, Icon, IconType, List, ListRow,
+    SectionTitle, TextField,
 };
 
 /// One choice the picker offers. `selector` is the saved string (`provider/id`

@@ -24,7 +24,7 @@ pub fn TerminalBellMark(session_id: String) -> Element {
     }
     rsx! {
         span {
-            class: "terminal-bell-mark",
+            class: "inline-flex shrink-0 text-primary",
             "data-testid": "terminal-bell-{session_id}",
             role: "img",
             "aria-label": "Bell rang",

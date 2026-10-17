@@ -7,7 +7,7 @@
 //! Ported from `apps/web/src/store/terminalNavPad.ts` (`focusTerminalNavPadFirstKey`).
 
 /// The key pad's first enabled key.
-pub const KEYPAD_FIRST_KEY_SELECTOR: &str = ".term-nav__grid button:not(:disabled)";
+pub const KEYPAD_FIRST_KEY_SELECTOR: &str = "[data-keypad-grid] button:not(:disabled)";
 
 /// Attempts before giving up: one on the next microtask, then one per frame.
 pub const FIRST_KEY_FOCUS_ATTEMPTS: u32 = 4;

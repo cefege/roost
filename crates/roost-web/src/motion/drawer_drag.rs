@@ -1,5 +1,5 @@
 //! Drive the compact sidebar drawer under the finger, then hand its transform
-//! back to the `.roost-drawer[data-open]` stylesheet on settle. Ports
+//! back to the drawer's Tailwind `transform` utilities on settle. Ports
 //! `apps/web/src/lib/drawerDrag.ts`; called by `MobileSidebarDrawer`'s edge
 //! swipe and the deck's backward "workspace" swipe, which both move the SAME
 //! drawer element (`[data-testid="sidebar-drawer"]`).
@@ -10,9 +10,9 @@
 pub const DRAWER_TEST_ID: &str = "sidebar-drawer";
 
 /// The transition an entering drawer settles with.
-pub const DECELERATE: &str = "transform var(--md-sys-motion-duration-medium2, 300ms) var(--md-sys-motion-easing-emphasized-decelerate, cubic-bezier(0.05, 0.7, 0.1, 1))";
+pub const DECELERATE: &str = "transform 300ms cubic-bezier(0.05, 0.7, 0.1, 1)";
 /// The transition a leaving drawer settles with.
-pub const ACCELERATE: &str = "transform var(--md-sys-motion-duration-short4, 200ms) var(--md-sys-motion-easing-emphasized-accelerate, cubic-bezier(0.3, 0, 0.8, 0.15))";
+pub const ACCELERATE: &str = "transform 200ms cubic-bezier(0.3, 0, 0.8, 0.15)";
 
 /// Which gesture is settling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

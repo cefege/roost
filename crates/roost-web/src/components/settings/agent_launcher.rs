@@ -24,7 +24,9 @@ use roost_client_core::client::rpc::calls::settings::agent_config::{
 use roost_client_core::store::shell_intent::ShellIntent;
 
 use super::agents::{BUILTIN_AGENTS, CUSTOM_AGENT_ID, DEFAULT_AGENT, ResolvedAgent, resolve_agent};
-use crate::components::ui::{Button, ButtonVariant, Chip, IconType, Select, SelectOption, Switch, TextField};
+use crate::components::ui::{
+    Button, ButtonVariant, Chip, IconType, Select, SelectOption, Switch, TextField,
+};
 use crate::pump::{Pump, use_store};
 
 /// The selection the coordinator holds, plus what is in flight.

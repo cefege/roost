@@ -60,15 +60,15 @@ pub fn desktop_chrome(
         }
         if let Some(overlay) = drop_overlay {
             div {
-                class: "pane-drop-overlay workbench-pane-drop-overlay",
+                class: "rounded-md border-2 border-solid border-[var(--workbench-pane-focus)] bg-[color-mix(in_srgb,var(--workbench-pane-drop)_22%,transparent)] transition-[left,top,width,height] duration-150 motion-reduce:transition-none data-[zone=reorder]:border-dashed data-[zone=reorder]:bg-[color-mix(in_srgb,var(--workbench-pane-drop)_10%,transparent)]",
                 "data-zone": zone_name(overlay.zone),
                 style: "position: absolute; left: {px(overlay.rect.x)}; top: {px(overlay.rect.y)}; width: {px(overlay.rect.w)}; height: {px(overlay.rect.h)}; z-index: 5; pointer-events: none;",
             }
         }
         if live_count > 0 {
             div {
-                class: "workbench-editor-actions",
-                style: "position: absolute; top: 0; right: 0; height: {px(strip_height)}; display: flex; align-items: center; padding: 0 var(--md-space-2); z-index: 4;",
+                class: "absolute top-0 right-0 flex items-center px-2 z-[4]",
+                style: "height: {px(strip_height)};",
                 ArrangeMenu {
                     can_arrange: live_count >= 2,
                     on_arrange: move |kind| arrange_ops.arrange(kind),
@@ -98,7 +98,6 @@ fn pane_group(pane: PaneView, operations: DeckOperations, strip_height: f64) -> 
     rsx! {
         div {
             key: "{pane_id}",
-            class: "workbench-editor-group",
             "data-pane": "true",
             "data-pane-id": pane_id.clone(),
             style: "position: absolute; left: {px(rect.x)}; top: {px(rect.y)}; width: {px(rect.w)}; height: {px(strip_height)}; z-index: 3;",

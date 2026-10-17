@@ -72,7 +72,7 @@ pub fn flip_grid(container: &web_sys::Element, prev: &FlipSlots) -> FlipSlots {
                 let style = element.style();
                 let _ = style.set_property(
                     "transition",
-                    &format!("transform {FLIP_DURATION_MS}ms var(--md-sys-motion-easing-emphasized, cubic-bezier(0.2,0,0,1))"),
+                    &format!("transform {FLIP_DURATION_MS}ms cubic-bezier(0.2, 0, 0, 1)"),
                 );
                 let _ = style.remove_property("transform");
             });

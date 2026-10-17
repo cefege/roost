@@ -35,10 +35,17 @@ pub fn Popover(
     #[props(into, optional)] class: Option<String>,
     children: Element,
 ) -> Element {
-    let view = use_memo(use_reactive((&open, &test_id), |(open, test_id)| PopoverView { open, test_id }));
+    let view = use_memo(use_reactive((&open, &test_id), |(open, test_id)| {
+        PopoverView { open, test_id }
+    }));
     let trigger_id = use_hook(|| scoped_element_id("popover-trigger"));
     let content_id = use_hook(|| scoped_element_id("popover-content"));
-    use_context_provider(|| PopoverContext { view, on_open_change, trigger_id, content_id });
+    use_context_provider(|| PopoverContext {
+        view,
+        on_open_change,
+        trigger_id,
+        content_id,
+    });
     let root_class = tw_merge!("inline-block", class.as_deref().unwrap_or(""));
     rsx! {
         div { "data-name": "Popover", class: "{root_class}", {children} }
@@ -82,7 +89,10 @@ pub fn PopoverTrigger(
 /// The floating dialog. It is absent from the DOM while closed, so nothing inside
 /// it is focusable or announced.
 #[component]
-pub fn PopoverContent(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn PopoverContent(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     let context = use_context::<PopoverContext>();
     let view = (context.view)();
     if !view.open {
@@ -107,7 +117,11 @@ fn PopoverPanel(class: Option<String>, test_id: Option<String>, children: Elemen
         focus_element_by_id(&escape_trigger_id);
         on_open_change.call(false);
     });
-    use_floating_menu_dismiss(on_close, Some(on_escape), vec![trigger_id.clone(), content_id.clone()]);
+    use_floating_menu_dismiss(
+        on_close,
+        Some(on_escape),
+        vec![trigger_id.clone(), content_id.clone()],
+    );
     let focus_content_id = content_id.clone();
     use_effect(move || focus_element_by_id(&focus_content_id));
     use_hook(|| tracing::debug!(target: "ui", "popover opened"));
@@ -133,15 +147,24 @@ fn PopoverPanel(class: Option<String>, test_id: Option<String>, children: Elemen
 
 #[component]
 pub fn PopoverTitle(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!("leading-none font-medium mb-3", class.as_deref().unwrap_or(""));
+    let merged = tw_merge!(
+        "leading-none font-medium mb-3",
+        class.as_deref().unwrap_or("")
+    );
     rsx! {
         h3 { "data-name": "PopoverTitle", class: "{merged}", {children} }
     }
 }
 
 #[component]
-pub fn PopoverDescription(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!("text-muted-foreground text-sm", class.as_deref().unwrap_or(""));
+pub fn PopoverDescription(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
+    let merged = tw_merge!(
+        "text-muted-foreground text-sm",
+        class.as_deref().unwrap_or("")
+    );
     rsx! {
         p { "data-name": "PopoverDescription", class: "{merged}", {children} }
     }

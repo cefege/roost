@@ -12,8 +12,7 @@ use super::command_keys::{
 };
 use super::field::scoped_element_id;
 
-const ROOT_RECIPE: &str =
-    "flex overflow-hidden flex-col w-full h-full bg-transparent rounded-none text-popover-foreground";
+const ROOT_RECIPE: &str = "flex overflow-hidden flex-col w-full h-full bg-transparent rounded-none text-popover-foreground";
 
 #[derive(Clone)]
 pub(super) struct CommandContext {
@@ -59,7 +58,11 @@ pub fn Command(
 fn handle_command_key(context: &CommandContext, event: &KeyboardEvent) {
     let visible_values = visible_item_values(&context.root_id);
     let current = context.highlighted.peek().clone();
-    let action = command_key_action(&event.key().to_string(), &visible_values, current.as_deref());
+    let action = command_key_action(
+        &event.key().to_string(),
+        &visible_values,
+        current.as_deref(),
+    );
     let mut highlighted = context.highlighted;
     match action {
         CommandKeyAction::Highlight(value) => {

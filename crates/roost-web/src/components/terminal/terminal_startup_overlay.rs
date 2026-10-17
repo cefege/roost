@@ -1,8 +1,8 @@
 //! The one card shown while a terminal pane is opening: a constant eyebrow, a
 //! single determinate meter, one friendly step line, and the technical detail
 //! collapsed until a step is slow or stuck. Rendered by `CellTerminal`; its
-//! `apps/web/src/components/terminal/TerminalStartupOverlay.tsx`. Its layout is
-//! Tailwind; only the entry/exit keyframes stay in `TerminalStartupOverlay.css`.
+//! `apps/web/src/components/terminal/TerminalStartupOverlay.tsx`. Its layout and
+//! its entry/exit keyframes are Tailwind utilities (`animate-terminal-startup-*`).
 
 use dioxus::prelude::*;
 use roost_web_terminal::startup_progress::{StartupChunks, terminal_startup_chunk_detail};
@@ -47,7 +47,7 @@ pub fn TerminalStartupOverlay(notice: Option<TerminalStartupNotice>) -> Element 
     let elapsed = state.elapsed_seconds();
     rsx! {
         div {
-            class: "terminal-startup absolute inset-0 z-[5] flex items-center justify-center p-6 pointer-events-none",
+            class: if state.finishing() { "terminal-startup absolute inset-0 z-[5] flex items-center justify-center p-6 pointer-events-none animate-terminal-startup-out motion-reduce:animate-none" } else { "terminal-startup absolute inset-0 z-[5] flex items-center justify-center p-6 pointer-events-none animate-terminal-startup-in motion-reduce:animate-none" },
             "data-testid": "terminal-loading-status",
             "data-stage": stage_attribute(held.stage),
             "data-session-id": held.session_id.clone(),

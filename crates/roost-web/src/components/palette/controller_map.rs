@@ -37,7 +37,7 @@ const FACE: &str = "face";
 const STICK_RIGHT: &str = "stick-right";
 
 /// Source order is DOM order within a cluster. The face diamond is the one
-/// exception: its four seats are placed by cap in `gamepad.css`, a diamond being
+/// exception: its four seats are placed by cap in `cluster_class`, a diamond being
 /// no stack.
 const PAD_MAP_SLOTS: [PadMapSlot; 15] = [
     PadMapSlot {
@@ -206,9 +206,9 @@ fn ControllerMapBody(held: PadHeld) -> Element {
                 elevation: 1,
                 radius: SurfaceRadius::Lg,
                 pad: 5,
-                class: "pad-map grid grid-cols-[minmax(0,1fr)_minmax(0,0.7fr)_minmax(0,1.3fr)] items-start gap-4",
+                class: "grid grid-cols-[minmax(0,1fr)_minmax(0,0.7fr)_minmax(0,1.3fr)] items-start gap-4 [grid-template-areas:'shoulder-left_._shoulder-right'_'stick-left_centre_face'_'dpad_centre_stick-right']",
                 for cluster in PAD_MAP_CLUSTERS {
-                    div { class: "pad-map__cluster flex flex-col gap-2", "data-cluster": cluster,
+                    div { class: cluster_class(cluster), "data-cluster": cluster,
                         for slot in PAD_MAP_SLOTS.iter().filter(|slot| slot.cluster == cluster) {
                             PadCallout {
                                 cap: slot.cap.to_owned(),
@@ -219,7 +219,7 @@ fn ControllerMapBody(held: PadHeld) -> Element {
                     }
                 }
             }
-            p { class: "m-0 min-h-8 text-sm text-[var(--text-mid)]", "data-testid": "controller-map-caption", {caption} }
+            p { class: "m-0 min-h-8 text-sm text-muted-foreground", "data-testid": "controller-map-caption", {caption} }
             if !unnamed.is_empty() {
                 div { class: "flex flex-wrap items-center gap-2",
                     for index in unnamed {
@@ -237,11 +237,29 @@ fn ControllerMapBody(held: PadHeld) -> Element {
     }
 }
 
+/// The grid seat of one cluster. The face diamond is the one cluster whose
+/// callouts are placed by cap rather than by source order, so its class also
+/// places and hides its own children.
+fn cluster_class(cluster: &str) -> &'static str {
+    match cluster {
+        SHOULDER_LEFT => "flex flex-col gap-2 [grid-area:shoulder-left]",
+        SHOULDER_RIGHT => "flex flex-col gap-2 [grid-area:shoulder-right]",
+        STICK_LEFT => "flex flex-col gap-2 [grid-area:stick-left]",
+        DPAD => "flex flex-col gap-2 [grid-area:dpad]",
+        CENTRE => "flex flex-col gap-2 [grid-area:centre]",
+        STICK_RIGHT => "flex flex-col gap-2 [grid-area:stick-right]",
+        FACE => {
+            "grid grid-cols-[repeat(3,minmax(0,1fr))] gap-2 [grid-area:face] [grid-template-areas:'._face-y_.'_'face-x_._face-b'_'._face-a_.'] [&>[data-cap=Y]]:[grid-area:face-y] [&>[data-cap=X]]:[grid-area:face-x] [&>[data-cap=B]]:[grid-area:face-b] [&>[data-cap=A]]:[grid-area:face-a] [&_[data-detail]]:hidden"
+        }
+        _ => "flex flex-col gap-2",
+    }
+}
+
 /// One labelled callout.
 ///
 /// The clause sits in the body AND in the title: LB/RB and LT/RT share a verb by
-/// design, so the diagram is ambiguous without it, while `gamepad.css` hides it
-/// inside the face diamond, which has no column to spare.
+/// design, so the diagram is ambiguous without it. The face diamond hides the
+/// body clause for lack of room; the title still carries it.
 #[component]
 fn PadCallout(cap: String, held: bool, guide: Option<PadControlGuide>) -> Element {
     let detail = guide.map_or(UNBOUND_DETAIL, |guide| guide.detail);
@@ -252,13 +270,13 @@ fn PadCallout(cap: String, held: bool, guide: Option<PadControlGuide>) -> Elemen
     let title = detail;
     rsx! {
         div {
-            class: "pad-map__callout group flex flex-col items-start gap-1 rounded-lg border border-border bg-card p-2 data-[held=true]:border-primary data-[held=true]:bg-accent",
+            class: "group flex flex-col items-start gap-1 rounded-lg border border-border bg-card p-2 data-[held=true]:border-primary data-[held=true]:bg-accent",
             "data-cap": data_cap,
             "data-held": if held { "true" } else { "false" },
             title,
             BindingChip { {cap} }
             span { class: "text-sm font-medium text-foreground group-data-[held=true]:text-accent-foreground", {label} }
-            span { class: "pad-map__detail text-xs text-muted-foreground", {detail} }
+            span { class: "text-xs text-muted-foreground", "data-detail": "true", {detail} }
         }
     }
 }

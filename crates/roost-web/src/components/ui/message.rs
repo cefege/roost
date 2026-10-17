@@ -25,12 +25,18 @@ impl MessageAlign {
 
 #[component]
 pub fn MessageGroup(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!("flex min-w-0 flex-col gap-2", class.as_deref().unwrap_or(""));
+    let merged = tw_merge!(
+        "flex min-w-0 flex-col gap-2",
+        class.as_deref().unwrap_or("")
+    );
     rsx! { div { "data-name": "MessageGroup", class: "{merged}", {children} } }
 }
 
 #[component]
-pub fn MessageContent(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn MessageContent(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     let merged = tw_merge!(
         "flex w-full min-w-0 flex-col gap-2.5 wrap-break-word group-data-[align=End]/message:*:data-name:self-end",
         class.as_deref().unwrap_or("")

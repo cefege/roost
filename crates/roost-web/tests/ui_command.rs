@@ -2,7 +2,9 @@
 //! the item id scheme, and the filter.
 
 use roost_web::components::ui::command_item::item_matches;
-use roost_web::components::ui::command_keys::{CommandKeyAction, command_key_action, item_element_id};
+use roost_web::components::ui::command_keys::{
+    CommandKeyAction, command_key_action, item_element_id,
+};
 
 fn values(names: &[&str]) -> Vec<String> {
     names.iter().map(|name| (*name).to_string()).collect()
@@ -76,8 +78,14 @@ fn highlight_that_is_no_longer_visible_counts_as_none() {
 
 #[test]
 fn no_visible_items_ignores_every_key() {
-    assert_eq!(command_key_action("ArrowDown", &[], None), CommandKeyAction::Ignore);
-    assert_eq!(command_key_action("Enter", &[], None), CommandKeyAction::Ignore);
+    assert_eq!(
+        command_key_action("ArrowDown", &[], None),
+        CommandKeyAction::Ignore
+    );
+    assert_eq!(
+        command_key_action("Enter", &[], None),
+        CommandKeyAction::Ignore
+    );
 }
 
 #[test]
@@ -91,8 +99,14 @@ fn other_keys_are_ignored() {
 
 #[test]
 fn item_element_id_sanitises_value_characters() {
-    assert_eq!(item_element_id("command-3", "Open file"), "command-3-item-Open_file");
-    assert_eq!(item_element_id("command-3", "a-b_c9"), "command-3-item-a-b_c9");
+    assert_eq!(
+        item_element_id("command-3", "Open file"),
+        "command-3-item-Open_file"
+    );
+    assert_eq!(
+        item_element_id("command-3", "a-b_c9"),
+        "command-3-item-a-b_c9"
+    );
 }
 
 #[test]

@@ -13,7 +13,7 @@ use super::machine_identity::LinuxDistributionBrand;
 pub fn LinuxDistributionMark(brand: LinuxDistributionBrand) -> Element {
     rsx! {
         svg {
-            class: "machine-identity-mark__linux-logo",
+            class: "size-5 fill-current",
             view_box: "0 0 24 24",
             "aria-hidden": "true",
             path { d: linux_distribution_path(brand) }

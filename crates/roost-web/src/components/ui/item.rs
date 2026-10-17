@@ -60,7 +60,9 @@ impl ItemMediaVariant {
         match self {
             Self::Default => "bg-transparent",
             Self::Icon => "size-8 border rounded-sm bg-muted [&_svg:not([class*='size-'])]:size-4",
-            Self::Image => "size-10 rounded-sm overflow-hidden [&_img]:size-full [&_img]:object-cover",
+            Self::Image => {
+                "size-10 rounded-sm overflow-hidden [&_img]:size-full [&_img]:object-cover"
+            }
         }
     }
 }
@@ -77,7 +79,12 @@ pub fn Item(
     #[props(into, optional)] href: Option<String>,
     children: Element,
 ) -> Element {
-    let merged = tw_merge!(ITEM_BASE, variant.class(), size.class(), class.as_deref().unwrap_or(""));
+    let merged = tw_merge!(
+        ITEM_BASE,
+        variant.class(),
+        size.class(),
+        class.as_deref().unwrap_or("")
+    );
 
     if let Some(href) = href {
         rsx! { a { "data-name": "Item", class: "{merged}", href: "{href}", {children} } }
@@ -92,32 +99,46 @@ pub fn ItemMedia(
     #[props(default = ItemMediaVariant::Default)] variant: ItemMediaVariant,
     children: Element,
 ) -> Element {
-    let merged = tw_merge!(ITEM_MEDIA_BASE, variant.class(), class.as_deref().unwrap_or(""));
+    let merged = tw_merge!(
+        ITEM_MEDIA_BASE,
+        variant.class(),
+        class.as_deref().unwrap_or("")
+    );
     rsx! { div { "data-name": "ItemMedia", "data-slot": "item-media", class: "{merged}", {children} } }
 }
 
 #[component]
 pub fn ItemGroup(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!("group/item-group flex flex-col", class.as_deref().unwrap_or(""));
+    let merged = tw_merge!(
+        "group/item-group flex flex-col",
+        class.as_deref().unwrap_or("")
+    );
     rsx! { div { "data-name": "ItemGroup", class: "{merged}", {children} } }
 }
 
 #[component]
 pub fn ItemContent(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged =
-        tw_merge!("flex flex-1 flex-col gap-1 [&+[data-slot=item-content]]:flex-none", class.as_deref().unwrap_or(""));
+    let merged = tw_merge!(
+        "flex flex-1 flex-col gap-1 [&+[data-slot=item-content]]:flex-none",
+        class.as_deref().unwrap_or("")
+    );
     rsx! { div { "data-name": "ItemContent", "data-slot": "item-content", class: "{merged}", {children} } }
 }
 
 #[component]
 pub fn ItemTitle(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged =
-        tw_merge!("flex w-fit items-center gap-2 text-sm leading-snug font-medium", class.as_deref().unwrap_or(""));
+    let merged = tw_merge!(
+        "flex w-fit items-center gap-2 text-sm leading-snug font-medium",
+        class.as_deref().unwrap_or("")
+    );
     rsx! { div { "data-name": "ItemTitle", class: "{merged}", {children} } }
 }
 
 #[component]
-pub fn ItemDescription(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn ItemDescription(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     let merged = tw_merge!(
         "text-muted-foreground line-clamp-2 text-sm leading-normal font-normal text-balance [&>a:hover]:text-primary [&>a]:underline [&>a]:underline-offset-4",
         class.as_deref().unwrap_or("")
@@ -133,13 +154,19 @@ pub fn ItemActions(#[props(into, optional)] class: Option<String>, children: Ele
 
 #[component]
 pub fn ItemHeader(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!("flex basis-full items-center justify-between gap-2", class.as_deref().unwrap_or(""));
+    let merged = tw_merge!(
+        "flex basis-full items-center justify-between gap-2",
+        class.as_deref().unwrap_or("")
+    );
     rsx! { div { "data-name": "ItemHeader", class: "{merged}", {children} } }
 }
 
 #[component]
 pub fn ItemFooter(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!("flex basis-full items-center justify-between gap-2", class.as_deref().unwrap_or(""));
+    let merged = tw_merge!(
+        "flex basis-full items-center justify-between gap-2",
+        class.as_deref().unwrap_or("")
+    );
     rsx! { div { "data-name": "ItemFooter", class: "{merged}", {children} } }
 }
 
@@ -147,6 +174,9 @@ pub fn ItemFooter(#[props(into, optional)] class: Option<String>, children: Elem
 /// `Separator`, so `data-name` and `role` stay on the element the test reads.
 #[component]
 pub fn ItemSeparator(#[props(into, optional)] class: Option<String>) -> Element {
-    let merged = tw_merge!("shrink-0 bg-border w-full h-px my-0", class.as_deref().unwrap_or(""));
+    let merged = tw_merge!(
+        "shrink-0 bg-border w-full h-px my-0",
+        class.as_deref().unwrap_or("")
+    );
     rsx! { div { "data-name": "ItemSeparator", class: "{merged}", role: "separator" } }
 }

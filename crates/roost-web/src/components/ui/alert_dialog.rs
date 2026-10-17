@@ -19,7 +19,10 @@ pub fn AlertDialog(open: bool, on_open_change: EventHandler<bool>, children: Ele
 }
 
 #[component]
-pub fn AlertDialogTrigger(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn AlertDialogTrigger(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     rsx! { DialogTrigger { class, {children} } }
 }
 
@@ -48,39 +51,60 @@ pub fn AlertDialogContent(
 }
 
 #[component]
-pub fn AlertDialogHeader(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn AlertDialogHeader(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     rsx! { DialogHeader { class, {children} } }
 }
 
 #[component]
-pub fn AlertDialogTitle(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn AlertDialogTitle(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     rsx! { DialogTitle { class, {children} } }
 }
 
 #[component]
-pub fn AlertDialogDescription(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn AlertDialogDescription(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     rsx! { DialogDescription { class, {children} } }
 }
 
 #[component]
-pub fn AlertDialogBody(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn AlertDialogBody(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     rsx! { DialogBody { class, {children} } }
 }
 
 #[component]
-pub fn AlertDialogFooter(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn AlertDialogFooter(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     rsx! { DialogFooter { class, {children} } }
 }
 
 /// The non-committing choice that closes the confirmation.
 #[component]
-pub fn AlertDialogCancel(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn AlertDialogCancel(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     rsx! { DialogClose { class, {children} } }
 }
 
 /// The committing choice that closes the confirmation. The caller performs the
 /// action in its own handler, before or after `open` goes false.
 #[component]
-pub fn AlertDialogAction(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn AlertDialogAction(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     rsx! { DialogAction { class, {children} } }
 }

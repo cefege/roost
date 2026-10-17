@@ -65,13 +65,10 @@ pub fn PaneTabHoverCard(session_id: String, anchor: ClientBox) -> Element {
         "100vw".to_owned()
     };
     let left = format!(
-        "max(var(--md-space-2), min({}, calc({room} - var(--workbench-tab-hovercard-width) - var(--md-space-2))))",
+        "max(8px, min({}, calc({room} - var(--workbench-tab-hovercard-width) - 8px)))",
         px(anchor.left - origin.left)
     );
-    let top = format!(
-        "calc({} + var(--md-space-2))",
-        px(anchor.bottom() - origin.top)
-    );
+    let top = format!("calc({} + 8px)", px(anchor.bottom() - origin.top));
     rsx! {
         Surface {
             level: 3,
@@ -95,8 +92,8 @@ pub fn PaneTabHoverCard(session_id: String, anchor: ClientBox) -> Element {
                 }
             }
             div { class: "truncate text-xs font-mono text-muted-foreground", "{reading.cwd}" }
-            div { class: "mt-1 h-[calc(var(--md-space-9)*2)] overflow-hidden rounded-[var(--md-shape-sm)] bg-[var(--terminal-grid-bg)]", "data-preview": "false",
-                div { class: "terminal-card-preview-text" }
+            div { class: "mt-1 h-24 overflow-hidden rounded-md bg-[var(--terminal-grid-bg)]", "data-preview": "false",
+                div { class: "block size-full overflow-hidden rounded-[inherit] px-1.5 py-1 font-mono text-[0.4375rem] leading-[1.2] whitespace-pre box-border text-[var(--term-fg)] [&_span]:animate-none!", }
             }
         }
     }

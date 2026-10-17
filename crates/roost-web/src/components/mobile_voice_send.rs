@@ -10,7 +10,7 @@ use std::rc::{Rc, Weak};
 
 use dioxus::prelude::*;
 
-use super::mobile_voice_input::ComposerContext;
+use super::mobile_voice_context::ComposerContext;
 use crate::voice::state::VoiceEvent;
 
 /// The composer's handle on the mic it mounts.

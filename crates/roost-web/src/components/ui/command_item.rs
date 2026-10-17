@@ -13,8 +13,7 @@ use super::command_keys::item_element_id;
 const ITEM_RECIPE: &str = "group relative flex gap-2 items-center px-2 py-1.5 text-sm rounded-sm cursor-default select-none outline-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 hover:bg-accent hover:text-accent-foreground aria-selected:bg-muted";
 const CHECK_RESERVED: &str =
     "ml-auto size-4 text-muted-foreground opacity-0 group-aria-selected:opacity-100";
-const CHECK_HIDDEN: &str =
-    "ml-auto size-4 text-muted-foreground hidden group-aria-selected:block";
+const CHECK_HIDDEN: &str = "ml-auto size-4 text-muted-foreground hidden group-aria-selected:block";
 
 /// Whether an item with `value` survives the query. Matching is a
 /// case-insensitive substring test; an empty query matches everything.
@@ -50,8 +49,7 @@ pub fn CommandItem(
     let value = value.unwrap_or_default();
     let query = context.search_query.read().clone();
     let is_visible = item_matches(&value, &query, context.should_filter);
-    let is_highlighted =
-        selected || context.highlighted.read().as_deref() == Some(value.as_str());
+    let is_highlighted = selected || context.highlighted.read().as_deref() == Some(value.as_str());
 
     let display = if is_visible { "flex" } else { "hidden" };
     let merged_class = tw_merge!(ITEM_RECIPE, display, class.as_deref().unwrap_or(""));

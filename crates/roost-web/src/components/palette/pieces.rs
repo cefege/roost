@@ -10,14 +10,20 @@
 use dioxus::prelude::*;
 use roost_client_core::store::palette::{ItemKind, PaletteItem};
 
-use crate::components::ui::{BindingChip, CommandItem};
+use crate::components::ui::{Badge, BadgeSize, BadgeVariant, BindingChip, CommandItem};
 
 /// The badge's stroke and text, one colour per kind.
 const fn kind_classes(kind: ItemKind) -> &'static str {
     match kind {
-        ItemKind::Session => "border-info text-info",
-        ItemKind::Workspace => "border-success text-success",
-        ItemKind::Action => "border-muted-foreground text-muted-foreground",
+        ItemKind::Session => {
+            "shrink-0 whitespace-nowrap font-normal uppercase tracking-wider border-info text-info"
+        }
+        ItemKind::Workspace => {
+            "shrink-0 whitespace-nowrap font-normal uppercase tracking-wider border-success text-success"
+        }
+        ItemKind::Action => {
+            "shrink-0 whitespace-nowrap font-normal uppercase tracking-wider border-muted-foreground text-muted-foreground"
+        }
     }
 }
 
@@ -26,7 +32,10 @@ const fn kind_classes(kind: ItemKind) -> &'static str {
 pub fn KindBadge(kind: ItemKind) -> Element {
     let classes = kind_classes(kind);
     rsx! {
-        span { class: "inline-flex shrink-0 items-center rounded-md border px-1 text-xs tracking-wider whitespace-nowrap uppercase {classes}",
+        Badge {
+            variant: BadgeVariant::Outline,
+            size: BadgeSize::Sm,
+            class: Some(classes.to_owned()),
             {kind.as_str()}
         }
     }

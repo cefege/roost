@@ -82,7 +82,7 @@ pub fn TerminalCard(
 
     rsx! {
         div {
-            class: "terminal-card",
+            class: "relative flex min-w-0 cursor-pointer flex-col overflow-hidden rounded-[24px] bg-card text-left text-foreground shadow-sm [-webkit-tap-highlight-color:transparent] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[active=true]:ring-2 data-[active=true]:ring-primary data-[selected=true]:ring-2 data-[selected=true]:ring-primary",
             "data-testid": "terminal-card-{id}",
             "data-active": if active { "true" } else { "false" },
             "data-selected": if selected { "true" } else { "false" },
@@ -125,14 +125,14 @@ pub fn TerminalCard(
                     on_key();
                 }
             },
-            div { class: "terminal-card-header",
-                span { class: "terminal-card-favicon",
-                    span { class: "terminal-card-glyph", "$" }
+            div { class: "flex h-9 shrink-0 items-center gap-2 overflow-hidden pl-[11px] pr-11",
+                span { class: "flex size-6 shrink-0 items-center justify-center rounded-[3px] bg-[var(--surface-3)]",
+                    span { class: "font-mono font-bold", "$" }
                 }
-                div { class: "terminal-card-title-wrap",
-                    span { class: "terminal-card-title", "{name}" }
+                div { class: "flex min-w-0 flex-1 flex-col overflow-hidden",
+                    span { class: "min-w-0 truncate text-sm font-medium", "{name}" }
                     if let Some(subtitle) = subtitle {
-                        span { class: "terminal-card-subtitle", "{subtitle}" }
+                        span { class: "block truncate text-xs text-[var(--text-mid)]", "{subtitle}" }
                     }
                     AgentStatusIndicator { session_id: id.clone() }
                 }
@@ -140,7 +140,7 @@ pub fn TerminalCard(
             if !selection_mode {
                 button {
                     r#type: "button",
-                    class: "terminal-card-close",
+                    class: "absolute top-0 right-0 flex size-12 shrink-0 cursor-pointer items-center justify-center border-none bg-transparent text-muted-foreground hover:text-foreground",
                     "data-testid": "terminal-card-close-{id}",
                     "aria-label": "Close terminal session",
                     onclick: move |event| {
@@ -153,24 +153,24 @@ pub fn TerminalCard(
             }
             if selection_mode {
                 span {
-                    class: "terminal-card-check",
+                    class: "absolute top-1.5 right-1.5 z-[1] inline-flex size-6 items-center justify-center rounded-full border-2 border-input bg-card text-transparent data-[checked=true]:border-primary data-[checked=true]:bg-primary data-[checked=true]:text-primary-foreground",
                     "data-testid": "terminal-card-check-{id}",
                     "data-checked": if selected { "true" } else { "false" },
                     CheckGlyph {}
                 }
             }
-            div { class: "terminal-card-preview",
+            div { class: "relative m-1 h-40 overflow-hidden rounded-[12px_12px_20px_20px] bg-[var(--surface-0)]",
                 match preview {
                     Some(rows) if !rows.is_empty() => rsx! {
-                        div { class: "terminal-card-preview-text", style: "display: block;",
+                        div { class: "block size-full overflow-hidden rounded-[inherit] px-1.5 py-1 font-mono text-[0.4375rem] leading-[1.2] whitespace-pre box-border text-[var(--term-fg)] [&_span]:animate-none!",
                             for (index, row) in rows.iter().enumerate() {
                                 PreviewRow { key: "{index}", row: row.clone() }
                             }
                         }
                     },
                     _ => rsx! {
-                        span { class: "terminal-card-preview-glyph", style: "color: var(--text-lo);",
-                            span { class: "terminal-card-glyph", "$" }
+                        span { class: "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[2.5rem] leading-none text-muted-foreground opacity-70",
+                            span { class: "font-mono font-bold", "$" }
                         }
                     },
                 }
@@ -183,7 +183,7 @@ pub fn TerminalCard(
 #[component]
 fn PreviewRow(row: CellRow) -> Element {
     rsx! {
-        div { class: "terminal-card-preview-row",
+        div { class: "overflow-hidden whitespace-pre",
             if row.spans.is_empty() {
                 "\u{a0}"
             }

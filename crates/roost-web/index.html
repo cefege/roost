@@ -21,25 +21,31 @@
     <link rel="preload" as="fetch" type="application/wasm" crossorigin href="/{wasm_path}" />
     <meta name="theme-color" content="#0d0d0d" />
     <title>{app_title}</title>
+    <!-- In Tailwind's `base` layer: an unlayered rule beats every layered
+         utility, so an unlayered `* { padding: 0 }` here would cancel every
+         `p-*`/`m-*` class and `* { overscroll-behavior-y: none }` every
+         `overscroll-y-auto`. -->
     <style>
-      * { box-sizing: border-box; margin: 0; padding: 0; }
-      html, body, #main {
-        height: 100%;
-        background: var(--surface-0);
-        color: var(--text-hi);
-        font-family: var(--md-font);
+      @layer base {
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body, #main {
+          height: 100%;
+          background: var(--surface-0);
+          color: var(--text-hi);
+          font-family: var(--font-ui);
+        }
+        /* One policy for the whole app: nothing overscrolls. A drag that reaches
+           the end of a list or of terminal scrollback stops there — no
+           rubber-band, no pull-to-refresh, and no chaining into an ancestor
+           scroller. A touch gesture the terminal owns can no longer be stolen by
+           the browser mid-drag and turned into a page pull. */
+        * { overscroll-behavior-y: none; }
+        /* The workbench shell owns 100svh and every list scrolls inside it, so the
+           document must never acquire a scroll range of its own: `height: 100%`
+           resolves against the LARGE viewport on mobile while the shell is sized
+           in svh, which otherwise leaves ~one toolbar height of real page scroll. */
+        html, body { overflow: hidden; }
       }
-      /* One policy for the whole app: nothing overscrolls. A drag that reaches
-         the end of a list or of terminal scrollback stops there — no
-         rubber-band, no pull-to-refresh, and no chaining into an ancestor
-         scroller. A touch gesture the terminal owns can no longer be stolen by
-         the browser mid-drag and turned into a page pull. */
-      * { overscroll-behavior-y: none; }
-      /* The workbench shell owns 100svh and every list scrolls inside it, so the
-         document must never acquire a scroll range of its own: `height: 100%`
-         resolves against the LARGE viewport on mobile while the shell is sized
-         in svh, which otherwise leaves ~one toolbar height of real page scroll. */
-      html, body { overflow: hidden; }
     </style>
   </head>
   <body>

@@ -70,7 +70,7 @@ pub fn terminal_session_style(
             pointer_events: "auto",
             z_index: "9",
             overflow: "hidden",
-            border_radius: "var(--md-shape-md)",
+            border_radius: "12px",
         }
         .into_inline();
     }

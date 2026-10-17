@@ -22,7 +22,7 @@
 @custom-variant dark (&:where([data-color-scheme="dark"], [data-color-scheme="dark"] *));
 
 @theme inline {
-  --font-sans: var(--md-font);
+  --font-sans: var(--font-ui);
 
   --radius-xs: 0.25rem;
   --radius-sm: 0.375rem;
@@ -46,7 +46,7 @@
   --color-accent: var(--secondary-container);
   --color-accent-foreground: var(--on-secondary-container);
   --color-destructive: var(--status-err);
-  --color-destructive-foreground: var(--md-on-error);
+  --color-destructive-foreground: oklch(0.985 0 0);
   --color-success: var(--status-ok);
   --color-success-foreground: oklch(0.985 0 0);
   --color-warning: var(--status-warn);
@@ -77,6 +77,14 @@
   ::selection {
     @apply bg-accent text-accent-foreground;
   }
+}
+
+/* A text clip is a scroll container, and the global `overscroll-behavior-y:
+   none` (index.html) would then swallow a wheel landing on the clipped text
+   instead of letting it reach the list (FAILURE-INDEX "A list refuses to
+   scroll while the cursor sits on a row's clipped label"). */
+@utility truncate {
+  overscroll-behavior-y: auto;
 }
 
 /* shimmer: a pure CSS text sweep. Usage: class="shimmer text-muted-foreground"
@@ -131,4 +139,94 @@
 @utility scrollbar-none {
   scrollbar-width: none;
   &::-webkit-scrollbar { display: none; }
+}
+
+/* Toast entry and the auto-dismiss countdown drain; the countdown's duration
+   and play state are set inline per toast, so only the curve lives here. */
+@theme {
+  --animate-roost-toast-in: roost-toast-in 200ms cubic-bezier(0, 0, 0, 1);
+  --animate-roost-countdown-drain: roost-countdown-drain linear forwards;
+
+  @keyframes roost-toast-in {
+    from { opacity: 0; transform: translateY(0.5rem); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes roost-countdown-drain {
+    from { transform: scaleX(1); }
+    to { transform: scaleX(0); }
+  }
+}
+
+/* Menu panel entrance: a transform-only scale, never an opacity fade (a
+   WAAPI/rAF freeze can forwards-fill a fade at 0 and leave the menu invisible). */
+@theme {
+  --animate-menu-enter: menu-enter 200ms cubic-bezier(0.05, 0.7, 0.1, 1);
+  --animate-terminal-bell-flash: terminal-bell-flash 400ms cubic-bezier(0.2, 0, 0, 1);
+
+  @keyframes menu-enter {
+    from { transform: scale(0.95); }
+    to { transform: scale(1); }
+  }
+
+  @keyframes terminal-bell-flash {
+    0% { opacity: 0.16; }
+    100% { opacity: 0; }
+  }
+}
+
+/* The TV and gamepad modes are root attributes written by input_nav; these
+   variants match the root and every descendant so `tv:` on an element reads
+   the same as the old `[data-tv="true"]` descendant rules. */
+@custom-variant tv (&:where([data-tv="true"], [data-tv="true"] *));
+@custom-variant pad (&:where([data-pad="true"], [data-pad="true"] *));
+
+/* Voice and terminal-chrome motion: the caption and terminal startup entrances,
+   and the recording pulse ring. Utilities are `animate-<name>`; reduced motion
+   removes them with `motion-reduce:animate-none` at each use site. */
+@theme {
+  --animate-voice-caption-enter: voice-caption-enter 220ms cubic-bezier(0.2, 0, 0, 1);
+  --animate-voice-dock-enter: voice-caption-enter 200ms cubic-bezier(0.2, 0, 0, 1);
+  --animate-terminal-startup-in: terminal-startup-in 200ms ease-out both;
+  --animate-terminal-startup-out: terminal-startup-out 150ms ease-in forwards;
+  --animate-voice-pulse: voice-pulse 1.6s cubic-bezier(0.2, 0, 0, 1) infinite;
+
+  @keyframes voice-caption-enter {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes terminal-startup-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes terminal-startup-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+
+  @keyframes voice-pulse {
+    0% { transform: scale(1); opacity: 0.55; }
+    70% { transform: scale(1.5); opacity: 0; }
+    100% { transform: scale(1.5); opacity: 0; }
+  }
+}
+
+/* Workbench motion: the terminal-card entrance (its stagger delay is set per
+   item in Rust) and the pane spotlight backdrop fade. Reduced motion removes
+   them with `motion-reduce:animate-none` at each use site. */
+@theme {
+  --animate-tc-card-enter: tc-card-enter 200ms cubic-bezier(0.05, 0.7, 0.1, 1) backwards;
+  --animate-pane-spotlight-fade: pane-spotlight-fade 120ms cubic-bezier(0.3, 0, 1, 1);
+
+  @keyframes tc-card-enter {
+    from { opacity: 0; transform: scale(0.8); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  @keyframes pane-spotlight-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
 }

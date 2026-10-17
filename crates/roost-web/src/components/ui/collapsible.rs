@@ -23,7 +23,10 @@ pub fn Collapsible(
     #[props(into, optional)] class: Option<String>,
     children: Element,
 ) -> Element {
-    provide_context(CollapsibleContext { open, on_open_change });
+    provide_context(CollapsibleContext {
+        open,
+        on_open_change,
+    });
     let state = state_label(open);
 
     rsx! {
@@ -37,8 +40,14 @@ pub fn Collapsible(
 }
 
 #[component]
-pub fn CollapsibleTrigger(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let CollapsibleContext { open, on_open_change } = use_context::<CollapsibleContext>();
+pub fn CollapsibleTrigger(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
+    let CollapsibleContext {
+        open,
+        on_open_change,
+    } = use_context::<CollapsibleContext>();
     let state = state_label(open);
 
     rsx! {

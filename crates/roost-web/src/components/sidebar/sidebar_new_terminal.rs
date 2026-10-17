@@ -6,9 +6,12 @@
 
 use dioxus::prelude::*;
 
-use crate::components::context_menu::{
-    AnchoredMenuPos, CtxMenuItem, MenuFocusEdge, MenuFocusRequest, anchored_menu_pos,
-    anchored_menu_surface_style, attempt_menu_focus, focus_menu_edge, use_floating_menu_dismiss,
+use crate::components::context_menu::MenuFocusEdge;
+use crate::components::ui::dropdown_menu::{
+    DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+};
+use crate::components::ui::menu_overlay::{
+    MenuContext, MenuSide, anchored_placement, request_close, request_open,
 };
 use crate::components::ui::{Button, ButtonSize, ButtonVariant, Icon, IconType, StatusDot};
 use crate::new_terminal_target::{
@@ -20,35 +23,15 @@ use crate::route_session::active_session_for_path;
 use crate::router_state::{use_location, use_navigate};
 use crate::routes::Route;
 
-/// The machine trigger's id.
+/// The machine trigger's id; the ui root focuses it when the picker closes.
 pub const MACHINE_TRIGGER_ID: &str = "sidebar-new-terminal-machine";
 /// The machine menu's id.
 pub const MACHINE_MENU_ID: &str = "sidebar-new-terminal-machine-menu";
 
-/// Where the machine menu sits: right-aligned to its trigger and opening
-/// UPWARD, its bottom edge the anchor gap above the trigger's top.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct MachineMenuAnchor {
-    /// Offset from the viewport's right edge.
-    pub right: f64,
-    /// Offset from the viewport's bottom edge.
-    pub bottom: f64,
-}
-
-/// The upward anchor, from the trigger's box and the viewport.
-pub fn machine_menu_anchor(
-    trigger_right: f64,
-    trigger_top: f64,
-    trigger_bottom: f64,
-    viewport_width: f64,
-    viewport_height: f64,
-) -> MachineMenuAnchor {
-    let below = anchored_menu_pos(trigger_right, trigger_bottom, viewport_width);
-    MachineMenuAnchor {
-        right: below.right,
-        bottom: viewport_height - trigger_top + (below.y - trigger_bottom),
-    }
-}
+/// The machine menu opens UPWARD, its bottom edge above the trigger, so the
+/// picker never covers the sidebar rows below it. `tests/sidebar_logic.rs` reads
+/// this constant, so a change to the side fails that test rather than passing silently.
+pub const MACHINE_MENU_SIDE: MenuSide = MenuSide::Above;
 
 /// What a key pressed on the machine trigger does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,8 +70,6 @@ pub fn SidebarNewTerminal() -> Element {
     let navigate = use_navigate();
     let mut selected_fp = use_signal(|| None::<String>);
     let mut menu_open = use_signal(|| false);
-    let mut menu_anchor = use_signal(|| None::<MachineMenuAnchor>);
-    let mut pending_focus = use_signal(|| None::<MenuFocusRequest>);
     let (online, target_fp) = {
         let core = pump.core();
         let core = core.borrow();
@@ -119,163 +100,63 @@ pub fn SidebarNewTerminal() -> Element {
     if selected_gone {
         selected_fp.set(None);
     }
-    // v2 `closeMachineMenu`: a focus request dies with its menu, so a late
-    // retry never lands in a menu the reader already left.
-    let mut close_menu = move || {
-        if let Some(request) = pending_focus.peek().clone() {
-            request.cancel();
-        }
-        menu_open.set(false);
-    };
+    // With the trigger gone the picker has nothing to anchor to, so it closes
+    // rather than floating on its own.
     if online.len() < 2 && *menu_open.peek() {
-        close_menu();
+        menu_open.set(false);
     }
-    // An outside click or Escape hands focus back to the trigger, as an item
-    // pick does: the reader dismissed a menu they opened from that button, and
-    // focus left on `<body>` strands a keyboard reader at the top of the page.
-    // Guarded on the menu being open because the listener lives as long as the
-    // bar does, and every other click on the page reaches it too.
-    let dismiss = move |()| {
-        if !*menu_open.peek() {
-            return;
-        }
-        close_menu();
-        #[cfg(target_arch = "wasm32")]
-        super::dom::focus_by_id(MACHINE_TRIGGER_ID);
-    };
-    use_floating_menu_dismiss(
-        EventHandler::new(dismiss),
-        Some(EventHandler::new(dismiss)),
-        vec![MACHINE_TRIGGER_ID.to_owned(), MACHINE_MENU_ID.to_owned()],
-    );
-    // v2 `cancelPendingFocus`: the newest request is the only one in flight.
-    let mut request_focus = move |edge: MenuFocusEdge| {
-        if let Some(previous) = pending_focus.peek().clone() {
-            previous.cancel();
-        }
-        pending_focus.set(Some(focus_menu_edge(MACHINE_MENU_ID, edge)));
-    };
-    let mut open_menu = move |edge: MenuFocusEdge| {
-        #[cfg(target_arch = "wasm32")]
-        {
-            menu_anchor.set(super::dom::machine_trigger_anchor(MACHINE_TRIGGER_ID));
-            menu_open.set(true);
-            request_focus(edge);
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        let _ = (edge, &mut menu_anchor);
-    };
     let new_target = target_fp.clone();
     rsx! {
-        footer {
-            class: "flex items-center gap-2 border-t border-border bg-sidenav p-2",
-            "data-testid": "sidebar-new-terminal",
-            if online.len() > 1 {
-                Button {
-                    id: MACHINE_TRIGGER_ID,
-                    class: "min-w-0 flex-1 justify-start gap-2 px-2",
-                    variant: ButtonVariant::Ghost,
-                    size: ButtonSize::Sm,
-                    "data-testid": "sidebar-new-terminal-machine",
-                    title: target_label.clone(),
-                    "aria-haspopup": "menu",
-                    "aria-controls": MACHINE_MENU_ID,
-                    "aria-expanded": if menu_open() { "true" } else { "false" },
-                    onclick: move |_| {
-                        if *menu_open.peek() {
-                            close_menu();
-                        } else {
-                            open_menu(MenuFocusEdge::First);
-                        }
-                    },
-                    onkeydown: move |event: KeyboardEvent| {
-                        let action = machine_trigger_key_action(&event.key().to_string(), *menu_open.peek());
-                        if action == MachineTriggerKeyAction::Ignore {
-                            return;
-                        }
-                        event.prevent_default();
-                        event.stop_propagation();
-                        match action {
-                            MachineTriggerKeyAction::Open(edge) => open_menu(edge),
-                            MachineTriggerKeyAction::FocusEdge(edge) => request_focus(edge),
-                            MachineTriggerKeyAction::Close => close_menu(),
-                            MachineTriggerKeyAction::Ignore => {}
-                        }
-                    },
-                    StatusDot { status: "ok".to_owned() }
-                    span { class: "min-w-0 truncate text-sm text-foreground", {target_label.clone()} }
-                    Icon { icon: IconType::ChevronDown, class: "size-4 shrink-0 text-muted-foreground" }
-                }
-            } else if !target_label.is_empty() {
-                span {
-                    class: "flex min-w-0 flex-1 items-center gap-2 px-2 text-sm text-foreground",
-                    "data-testid": "sidebar-new-terminal-machine-label",
-                    title: target_label.clone(),
-                    StatusDot { status: "ok".to_owned() }
-                    span { class: "min-w-0 truncate", {target_label.clone()} }
-                }
-            }
-            Button {
-                class: "shrink-0",
-                variant: ButtonVariant::Default,
-                size: ButtonSize::Sm,
-                icon: IconType::Plus,
-                "data-testid": "sidebar-new-terminal-button",
-                "aria-label": "New terminal",
-                title: "New terminal in a folder",
-                disabled: target_fp.is_none(),
-                onclick: move |_| {
-                    if let Some(fp) = new_target.clone() {
-                        navigate.call(Route::Browse { worker_fp: Some(fp) }.to_path());
+        DropdownMenu {
+            open: menu_open(),
+            on_open_change: move |open: bool| menu_open.set(open),
+            side: MACHINE_MENU_SIDE,
+            trigger_id: MACHINE_TRIGGER_ID,
+            menu_id: MACHINE_MENU_ID,
+            test_id: "sidebar-new-terminal-machine-menu",
+            footer {
+                class: "flex items-center gap-2 border-t border-border bg-sidenav p-2",
+                "data-testid": "sidebar-new-terminal",
+                if online.len() > 1 {
+                    MachineTrigger { target_label: target_label.clone() }
+                } else if !target_label.is_empty() {
+                    span {
+                        class: "flex min-w-0 flex-1 items-center gap-2 px-2 text-sm text-foreground",
+                        "data-testid": "sidebar-new-terminal-machine-label",
+                        title: target_label.clone(),
+                        StatusDot { status: "ok".to_owned() }
+                        span { class: "min-w-0 truncate", {target_label.clone()} }
                     }
-                },
-                "New"
-            }
-            if let (true, Some(anchor)) = (menu_open(), menu_anchor()) {
-                div {
-                    id: MACHINE_MENU_ID,
-                    class: "flex min-w-40 flex-col gap-0.5 overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md",
-                    "data-testid": "sidebar-new-terminal-machine-menu",
-                    role: "menu",
-                    "aria-labelledby": MACHINE_TRIGGER_ID,
-                    style: anchored_menu_surface_style(
-                        AnchoredMenuPos { right: anchor.right, y: 0.0 },
-                        "calc(var(--control-touch-target) * 4)",
-                        None,
-                        &format!("top: auto; bottom: {}px;", anchor.bottom),
-                    ),
-                    // The first focus lands in the render that inserted the
-                    // menu, before the reader's next key can reach the trigger.
-                    onmounted: move |_| {
-                        if let Some(request) = pending_focus.peek().clone() {
-                            attempt_menu_focus(&request);
+                }
+                Button {
+                    class: "shrink-0",
+                    variant: ButtonVariant::Default,
+                    size: ButtonSize::Sm,
+                    icon: IconType::Plus,
+                    "data-testid": "sidebar-new-terminal-button",
+                    "aria-label": "New terminal",
+                    title: "New terminal in a folder",
+                    disabled: target_fp.is_none(),
+                    onclick: move |_| {
+                        if let Some(fp) = new_target.clone() {
+                            navigate.call(Route::Browse { worker_fp: Some(fp) }.to_path());
                         }
                     },
-                    onkeydown: move |event: KeyboardEvent| {
-                        #[cfg(target_arch = "wasm32")]
-                        super::dom::run_menu_key_by_id(&event, MACHINE_MENU_ID, move || {
-                            close_menu();
-                            super::dom::focus_by_id(MACHINE_TRIGGER_ID);
-                        });
-                        #[cfg(not(target_arch = "wasm32"))]
-                        let _ = &event;
-                    },
+                    "New"
+                }
+                DropdownMenuContent { class: "w-auto min-w-40 overflow-y-auto",
                     for (fp, label) in online.iter().cloned() {
-                        CtxMenuItem {
+                        DropdownMenuItem {
                             key: "{fp}",
                             class: "gap-2",
-                            testid: "sidebar-new-terminal-machine-option",
-                            selected: target_fp.as_deref() == Some(fp.as_str()),
+                            test_id: "sidebar-new-terminal-machine-option",
                             title: label.clone(),
                             onclick: {
                                 let from = target_fp.clone();
                                 let fp = fp.clone();
-                                move |_| {
+                                move |_: MouseEvent| {
                                     tracing::info!(target: "sidebar", from = ?from, to = %fp, "new terminal target changed");
                                     selected_fp.set(Some(fp.clone()));
-                                    close_menu();
-                                    #[cfg(target_arch = "wasm32")]
-                                    super::dom::focus_by_id(MACHINE_TRIGGER_ID);
                                 }
                             },
                             StatusDot { status: "ok".to_owned() }
@@ -287,6 +168,46 @@ pub fn SidebarNewTerminal() -> Element {
                     }
                 }
             }
+        }
+    }
+}
+
+/// The picker's trigger. It sits inside the ui root so its keys can drive the
+/// root's open state and focus edge; `on_key` consumes the keys it owns.
+#[component]
+fn MachineTrigger(target_label: String) -> Element {
+    let context = try_use_context::<MenuContext>();
+    let on_key = Callback::new(move |event: KeyboardEvent| {
+        let Some(context) = context else {
+            return false;
+        };
+        let open = context.root.peek().open;
+        let action = machine_trigger_key_action(&event.key().to_string(), open);
+        if action == MachineTriggerKeyAction::Ignore {
+            return false;
+        }
+        event.prevent_default();
+        event.stop_propagation();
+        match action {
+            MachineTriggerKeyAction::Open(edge) => request_open(
+                context,
+                Some(anchored_placement(MACHINE_TRIGGER_ID, MACHINE_MENU_SIDE)),
+                Some(edge),
+            ),
+            MachineTriggerKeyAction::FocusEdge(edge) => request_open(context, None, Some(edge)),
+            MachineTriggerKeyAction::Close => request_close(context, true),
+            MachineTriggerKeyAction::Ignore => {}
+        }
+        true
+    });
+    rsx! {
+        DropdownMenuTrigger {
+            class: "min-w-0 flex-1 justify-start gap-2 px-2",
+            test_id: "sidebar-new-terminal-machine",
+            on_key,
+            StatusDot { status: "ok".to_owned() }
+            span { class: "min-w-0 truncate text-sm text-foreground", {target_label.clone()} }
+            Icon { icon: IconType::ChevronDown, class: "size-4 shrink-0 text-muted-foreground" }
         }
     }
 }

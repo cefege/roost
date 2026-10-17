@@ -82,7 +82,10 @@ impl AttachmentMediaVariant {
 }
 
 #[component]
-pub fn AttachmentContent(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn AttachmentContent(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     let merged = tw_merge!(
         "max-w-full min-w-0 flex-1 leading-tight group-data-[orientation=Vertical]/attachment:px-1",
         class.as_deref().unwrap_or("")
@@ -91,7 +94,10 @@ pub fn AttachmentContent(#[props(into, optional)] class: Option<String>, childre
 }
 
 #[component]
-pub fn AttachmentTitle(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn AttachmentTitle(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     let merged = tw_merge!(
         "block max-w-full min-w-0 truncate font-medium group-data-[state=Processing]/attachment:shimmer group-data-[state=Uploading]/attachment:shimmer",
         class.as_deref().unwrap_or("")
@@ -100,7 +106,10 @@ pub fn AttachmentTitle(#[props(into, optional)] class: Option<String>, children:
 }
 
 #[component]
-pub fn AttachmentDescription(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn AttachmentDescription(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     let merged = tw_merge!(
         "mt-0.5 block min-w-0 truncate text-xs text-muted-foreground group-data-[state=Error]/attachment:text-destructive/80 max-w-full",
         class.as_deref().unwrap_or("")
@@ -109,7 +118,10 @@ pub fn AttachmentDescription(#[props(into, optional)] class: Option<String>, chi
 }
 
 #[component]
-pub fn AttachmentGroup(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn AttachmentGroup(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     let merged = tw_merge!(
         "flex min-w-0 scroll-fade-x snap-x snap-mandatory scroll-px-1 scrollbar-none gap-3 overflow-x-auto overscroll-x-contain py-1 *:data-[name=Attachment]:flex-none *:data-[name=Attachment]:snap-start",
         class.as_deref().unwrap_or("")
@@ -118,7 +130,10 @@ pub fn AttachmentGroup(#[props(into, optional)] class: Option<String>, children:
 }
 
 #[component]
-pub fn AttachmentActions(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn AttachmentActions(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     let merged = tw_merge!(
         "relative z-20 flex shrink-0 items-center group-data-[orientation=Vertical]/attachment:absolute group-data-[orientation=Vertical]/attachment:top-3 group-data-[orientation=Vertical]/attachment:right-3 group-data-[orientation=Vertical]/attachment:gap-1",
         class.as_deref().unwrap_or("")
@@ -223,7 +238,10 @@ pub fn AttachmentTrigger(
     #[props(into, optional)] class: Option<String>,
     #[props(into, optional)] aria_label: Option<String>,
 ) -> Element {
-    let merged = tw_merge!("absolute inset-0 z-10 outline-none", class.as_deref().unwrap_or(""));
+    let merged = tw_merge!(
+        "absolute inset-0 z-10 outline-none",
+        class.as_deref().unwrap_or("")
+    );
 
     if let Some(url) = href {
         rsx! {

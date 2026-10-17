@@ -4,7 +4,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::ui::{badge_class, BadgeSize, BadgeVariant, Icon, IconType};
+use crate::components::ui::{BadgeSize, BadgeVariant, Icon, IconType, badge_class};
 
 /// `data-selected` is written only when selected, so the `[data-selected=true]`
 /// variants are the one reading of selection.
@@ -12,20 +12,21 @@ pub fn chip_selected_attribute(selected: Option<bool>) -> Option<&'static str> {
     (selected == Some(true)).then_some("true")
 }
 
+const CHIP_RECIPE: &str = "gap-1 rounded-full font-medium [&_svg:not([class*='size-'])]:size-3 data-[selected=true]:border-transparent data-[selected=true]:bg-primary data-[selected=true]:text-primary-foreground";
+const CHIP_INTERACTIVE_RECIPE: &str = "gap-1 rounded-full font-medium [&_svg:not([class*='size-'])]:size-3 data-[selected=true]:border-transparent data-[selected=true]:bg-primary data-[selected=true]:text-primary-foreground cursor-pointer hover:bg-accent disabled:pointer-events-none disabled:opacity-50 aria-busy:cursor-wait";
+
 fn chip_class(small: bool, interactive: bool) -> String {
-    let size = if small { BadgeSize::Sm } else { BadgeSize::Default };
-    let interaction = if interactive {
-        "cursor-pointer hover:bg-accent disabled:pointer-events-none disabled:opacity-50 aria-busy:cursor-wait"
+    let size = if small {
+        BadgeSize::Sm
     } else {
-        ""
+        BadgeSize::Default
     };
-    badge_class(
-        BadgeVariant::Outline,
-        size,
-        Some(&format!(
-            "gap-1 rounded-full font-medium [&_svg:not([class*='size-'])]:size-3 data-[selected=true]:border-transparent data-[selected=true]:bg-primary data-[selected=true]:text-primary-foreground {interaction}"
-        )),
-    )
+    let recipe = if interactive {
+        CHIP_INTERACTIVE_RECIPE
+    } else {
+        CHIP_RECIPE
+    };
+    badge_class(BadgeVariant::Outline, size, Some(recipe))
 }
 
 /// A chip. `small` is the inline size a card row uses.
@@ -87,7 +88,7 @@ pub fn BindingChip(children: Element) -> Element {
     let class = badge_class(
         BadgeVariant::Outline,
         BadgeSize::Sm,
-        Some("font-mono whitespace-nowrap bg-[var(--surface-1)] text-muted-foreground"),
+        Some("font-mono whitespace-nowrap bg-muted text-muted-foreground"),
     );
     rsx! {
         kbd { class: "{class}", {children} }

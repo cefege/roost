@@ -18,25 +18,40 @@ pub fn Empty(#[props(into, optional)] class: Option<String>, children: Element) 
 
 #[component]
 pub fn EmptyHeader(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!("flex flex-col items-center gap-2", class.as_deref().unwrap_or(""));
+    let merged = tw_merge!(
+        "flex flex-col items-center gap-2",
+        class.as_deref().unwrap_or("")
+    );
     rsx! { div { class: "{merged}", {children} } }
 }
 
 #[component]
 pub fn EmptyTitle(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!("text-lg font-semibold leading-none", class.as_deref().unwrap_or(""));
+    let merged = tw_merge!(
+        "text-lg font-semibold leading-none",
+        class.as_deref().unwrap_or("")
+    );
     rsx! { h3 { class: "{merged}", {children} } }
 }
 
 #[component]
-pub fn EmptyDescription(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!("text-muted-foreground text-sm", class.as_deref().unwrap_or(""));
+pub fn EmptyDescription(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
+    let merged = tw_merge!(
+        "text-muted-foreground text-sm",
+        class.as_deref().unwrap_or("")
+    );
     rsx! { p { class: "{merged}", {children} } }
 }
 
 #[component]
 pub fn EmptyContent(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!("flex items-center justify-center gap-2", class.as_deref().unwrap_or(""));
+    let merged = tw_merge!(
+        "flex items-center justify-center gap-2",
+        class.as_deref().unwrap_or("")
+    );
     rsx! { div { class: "{merged}", {children} } }
 }
 

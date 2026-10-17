@@ -5,7 +5,7 @@
 
 use dioxus::prelude::Attribute;
 use roost_web::components::ui::button::{
-    button_class, icon_button_aria, names_button_type, ButtonSize, ButtonVariant,
+    ButtonSize, ButtonVariant, button_class, icon_button_aria, names_button_type,
 };
 
 #[test]

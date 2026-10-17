@@ -245,7 +245,7 @@ pub fn TerminalDeck(active_session_id: Option<String>, surface_visible: bool) ->
 
     rsx! {
         div {
-            class: "workbench-terminal-deck",
+            class: "group/deck",
             "data-testid": "terminal-deck",
             "data-multi-pane": multi_pane,
             "data-resizing": resize.is_dragging().then_some("true"),
@@ -254,7 +254,7 @@ pub fn TerminalDeck(active_session_id: Option<String>, surface_visible: bool) ->
             onpointerdown: move |event: PointerEvent| pointer_ops.deck_pointer_down(&event),
             onfocusin: move |event: FocusEvent| focus_ops.deck_focus_in(&event),
             if frame.open_session_ids.is_empty() {
-                div { class: "workbench-terminal-deck__empty", "No session selected." }
+                div { class: "absolute inset-0 flex items-center justify-center text-xs text-muted-foreground", "No session selected." }
             }
             for terminal in terminals {
                 TerminalSlot {
@@ -308,7 +308,7 @@ fn TerminalSlot(
     let spotlit = slot.is_some_and(|slot| slot.spotlit);
     rsx! {
         div {
-            class: "workbench-terminal-slot",
+            class: "group-data-[multi-pane=false]/deck:after:hidden data-[spotlit=true]:after:hidden group-data-[resizing=true]/deck:after:shadow-none data-[focused=true]:after:absolute data-[focused=true]:after:inset-0 data-[focused=true]:after:z-[4] data-[focused=true]:after:pointer-events-none data-[focused=true]:after:content-[''] data-[focused=true]:after:rounded-md data-[focused=true]:after:border-[calc(var(--workbench-border-width)*3)] data-[focused=true]:after:border-solid data-[focused=true]:after:border-[var(--workbench-pane-focus)] data-[focused=true]:after:shadow-[inset_0_0_0_var(--workbench-border-width)_var(--workbench-pane-focus),_0_0_20px_4px_color-mix(in_srgb,var(--workbench-pane-focus)_55%,transparent)] focus-visible:outline-[calc(var(--workbench-border-width)*3)] focus-visible:outline-solid focus-visible:outline-[var(--workbench-pane-focus)] focus-visible:-outline-offset-[calc(var(--workbench-border-width)*3)]",
             "data-testid": "terminal-slot-{session_id}",
             "data-pane-slot": "true",
             "data-pane": "true",
@@ -338,7 +338,7 @@ fn AgentSlot(agent: MountedAgent, surface_visible: bool, spotlight_active: bool)
         !surface_visible || (!spotlight_active && !focused) || (spotlight_active && !spotlit);
     rsx! {
         div {
-            class: "workbench-terminal-slot",
+            class: "group-data-[multi-pane=false]/deck:after:hidden data-[spotlit=true]:after:hidden group-data-[resizing=true]/deck:after:shadow-none data-[focused=true]:after:absolute data-[focused=true]:after:inset-0 data-[focused=true]:after:z-[4] data-[focused=true]:after:pointer-events-none data-[focused=true]:after:content-[''] data-[focused=true]:after:rounded-md data-[focused=true]:after:border-[calc(var(--workbench-border-width)*3)] data-[focused=true]:after:border-solid data-[focused=true]:after:border-[var(--workbench-pane-focus)] data-[focused=true]:after:shadow-[inset_0_0_0_var(--workbench-border-width)_var(--workbench-pane-focus),_0_0_20px_4px_color-mix(in_srgb,var(--workbench-pane-focus)_55%,transparent)] focus-visible:outline-[calc(var(--workbench-border-width)*3)] focus-visible:outline-solid focus-visible:outline-[var(--workbench-pane-focus)] focus-visible:-outline-offset-[calc(var(--workbench-border-width)*3)]",
             "data-testid": "agent-slot-{agent.conversation.id}",
             "data-pane-slot": "true",
             "data-pane": "true",

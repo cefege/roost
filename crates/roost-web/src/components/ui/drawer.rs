@@ -6,8 +6,8 @@
 use dioxus::prelude::*;
 
 use super::dialog::{
-    Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader,
-    DialogTitle, DialogTrigger,
+    Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+    DialogTrigger,
 };
 use super::dialog_parts::DialogBody;
 use super::focus_scope::AutoFocusRequest;
@@ -96,7 +96,10 @@ pub fn DrawerTitle(#[props(into, optional)] class: Option<String>, children: Ele
 }
 
 #[component]
-pub fn DrawerDescription(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn DrawerDescription(
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
     rsx! { DialogDescription { class, {children} } }
 }
 

@@ -102,12 +102,21 @@ pub fn Tabs(
     let mut active = use_signal(|| value.clone());
     use_effect(use_reactive((&value,), move |(value,)| active.set(value)));
     let id_prefix = use_signal(|| scoped_element_id("roost-tabs"));
-    provide_context(TabsCtx { active, on_value_change, id_prefix, vertical: orientation == TabsOrientation::Vertical });
+    provide_context(TabsCtx {
+        active,
+        on_value_change,
+        id_prefix,
+        vertical: orientation == TabsOrientation::Vertical,
+    });
 
     let is_horizontal = orientation == TabsOrientation::Horizontal;
     let merged = tw_merge!(
         "group/tabs flex gap-2",
-        if is_horizontal { "flex-col" } else { "flex-row" },
+        if is_horizontal {
+            "flex-col"
+        } else {
+            "flex-row"
+        },
         class.as_deref().unwrap_or("")
     );
 
@@ -134,7 +143,11 @@ pub fn TabsList(
         "group/tabs-list inline-flex w-fit items-center justify-center rounded-lg p-0.75 text-muted-foreground",
         "group-data-[orientation=Horizontal]/tabs:h-8",
         "group-data-[orientation=Vertical]/tabs:h-fit group-data-[orientation=Vertical]/tabs:flex-col",
-        if is_line { "gap-1 bg-transparent rounded-none p-0" } else { "bg-muted" },
+        if is_line {
+            "gap-1 bg-transparent rounded-none p-0"
+        } else {
+            "bg-muted"
+        },
         class.as_deref().unwrap_or("")
     );
 
@@ -155,7 +168,12 @@ pub fn TabsTrigger(
     #[props(into, optional)] class: Option<String>,
     children: Element,
 ) -> Element {
-    let TabsCtx { mut active, on_value_change, id_prefix, vertical: ctx_vertical } = use_context::<TabsCtx>();
+    let TabsCtx {
+        mut active,
+        on_value_change,
+        id_prefix,
+        vertical: ctx_vertical,
+    } = use_context::<TabsCtx>();
     let list_ctx = use_context::<TabsListCtx>();
     let is_line = list_ctx.variant == TabsVariant::Line;
     let is_active = active() == value;
@@ -171,9 +189,21 @@ pub fn TabsTrigger(
         "after:absolute after:bg-foreground after:transition-opacity",
         "group-data-[orientation=Horizontal]/tabs:after:inset-x-0 group-data-[orientation=Horizontal]/tabs:after:-bottom-1.25 group-data-[orientation=Horizontal]/tabs:after:h-0.5",
         "group-data-[orientation=Vertical]/tabs:after:inset-y-0 group-data-[orientation=Vertical]/tabs:after:-right-1 group-data-[orientation=Vertical]/tabs:after:w-0.5",
-        if is_active { "text-foreground" } else { "text-foreground/60 hover:text-foreground" },
-        if !is_line && is_active { "bg-background shadow-sm dark:border-input dark:bg-input/30" } else { "" },
-        if is_line && is_active { "after:opacity-100" } else { "after:opacity-0" },
+        if is_active {
+            "text-foreground"
+        } else {
+            "text-foreground/60 hover:text-foreground"
+        },
+        if !is_line && is_active {
+            "bg-background shadow-sm dark:border-input dark:bg-input/30"
+        } else {
+            ""
+        },
+        if is_line && is_active {
+            "after:opacity-100"
+        } else {
+            "after:opacity-0"
+        },
         class.as_deref().unwrap_or("")
     );
 
@@ -214,7 +244,9 @@ pub fn TabsContent(
     #[props(into, optional)] class: Option<String>,
     children: Element,
 ) -> Element {
-    let TabsCtx { active, id_prefix, .. } = use_context::<TabsCtx>();
+    let TabsCtx {
+        active, id_prefix, ..
+    } = use_context::<TabsCtx>();
     let is_active = active() == value;
     let panel_id = panel_element_id(&id_prefix(), &value);
     let tab_id = tab_element_id(&id_prefix(), &value);
@@ -259,7 +291,9 @@ fn move_focus_to_adjacent_tab(tab_id: &str, step: TabStep) {
         let Some(child) = children.item(index) else {
             continue;
         };
-        if child.get_attribute("role").as_deref() == Some("tab") && let Ok(tab) = child.dyn_into::<web_sys::HtmlElement>() {
+        if child.get_attribute("role").as_deref() == Some("tab")
+            && let Ok(tab) = child.dyn_into::<web_sys::HtmlElement>()
+        {
             tabs.push(tab);
         }
     }

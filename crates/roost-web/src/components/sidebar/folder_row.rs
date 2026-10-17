@@ -162,7 +162,7 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
                     }
                     if show_rollup {
                         span {
-                            class: "agent-status-rollup flex items-center gap-1.5 text-xs text-muted-foreground",
+                            class: "inline-flex min-w-0 items-center gap-1 truncate text-xs text-muted-foreground data-[level=blocked]:text-[var(--status-warn)] data-[level=done]:text-[var(--status-ok)] data-[level=working]:text-[var(--status-info)]",
                             "data-level": agent_status_level_token(rollup.level),
                             "data-testid": "folder-agent-status-{group.key}",
                             StatusDot {

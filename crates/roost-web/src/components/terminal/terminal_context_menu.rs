@@ -104,21 +104,12 @@ pub fn TerminalContextMenu(
                         key: "{menu.client_x}-{menu.client_y}",
                         x: menu.client_x,
                         y: menu.client_y,
-                        menu_id: format!("terminal-context-menu-{session_id}"),
                         selection: menu.selection,
                         on_copy: {
                             let handle = handle.clone();
                             let mut target = target;
                             move |_| {
                                 handle.copy_selection();
-                                target.set(None);
-                            }
-                        },
-                        on_paste: {
-                            let handle = handle.clone();
-                            let mut target = target;
-                            move |_| {
-                                handle.paste_from_clipboard();
                                 target.set(None);
                             }
                         },

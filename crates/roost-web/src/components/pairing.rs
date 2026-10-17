@@ -69,11 +69,11 @@ pub fn PairSurface() -> Element {
     rsx! {
         if draws_page {
             div {
-                class: "onboarding-root box-border flex h-dvh w-full min-w-0 flex-col overflow-x-hidden overflow-y-auto px-4 py-5 min-[600px]:px-6 min-[600px]:py-7",
+                class: "box-border flex h-dvh w-full min-w-0 flex-col overflow-x-hidden overflow-y-auto px-4 py-5 min-[600px]:px-6 min-[600px]:py-7 tv:!p-[var(--tv-overscan-block)_var(--tv-overscan-inline)]",
                 "data-testid": "onboarding",
                 "data-embedded": "false",
                 div {
-                    class: "onboarding-panel mx-auto flex w-full min-w-0 max-w-[var(--roost-dialog-max-inline-size)] flex-col gap-5",
+                    class: "mx-auto flex w-full min-w-0 max-w-[var(--roost-dialog-max-inline-size)] flex-col gap-5 tv:!max-w-[var(--roost-dialog-wide-max-inline-size)]",
                     if authorized {
                         ApproverPanel { approver: approver.clone(), has_workers }
                     } else {

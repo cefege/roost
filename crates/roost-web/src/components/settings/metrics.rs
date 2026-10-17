@@ -10,11 +10,11 @@ use dioxus::prelude::*;
 use roost_client_core::client::rpc::calls::settings::metrics::GetMetrics;
 use roost_client_core::client::rpc::calls::settings::metrics::MetricsSnapshot;
 
+use crate::components::terminal::dom::{page_visible, sleep_ms};
 use crate::components::ui::{
     Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyState, Icon, IconType,
     MetricTile,
 };
-use crate::components::terminal::dom::{page_visible, sleep_ms};
 use crate::pump::{Pump, use_store};
 
 /// How often the counters are re-read, in milliseconds.

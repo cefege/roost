@@ -1,10 +1,8 @@
 //! The picker's markup: the toolbar band, the path band, the entry region (or
 //! the machine-unavailable panel), the launch bar and the new-folder dialog.
-//! Every value arrives computed and every control reports back; the page beside
-//! it owns the state and the store owns the directory.
-//!
-//! Called by `browse::picker::page`. Ports the composition half of
-//! `apps/web/src/components/browse/WorkerBrowsePage.tsx`.
+//! Every value arrives computed and every control reports back; the page owns
+//! the state and the store owns the directory. Called by `browse::picker::page`;
+//! ports `apps/web/src/components/browse/WorkerBrowsePage.tsx`.
 
 #![allow(clippy::too_many_arguments)]
 
@@ -19,7 +17,6 @@ use crate::components::browse::picker::control_set::PickerControls;
 use crate::components::browse::toolbar::BrowseToolbar;
 use crate::components::browse::unavailable::MachineUnavailable;
 use crate::components::browse::view::PickerReading;
-use crate::components::context_menu::AnchoredMenuPos;
 use crate::components::ui::{Button, ButtonVariant, IconType, Surface, SurfaceRadius};
 use crate::pump::Pump;
 
@@ -33,9 +30,7 @@ pub fn PickerRegions(
     cursor: Signal<i64>,
     new_folder: Signal<NewFolderForm>,
     server_menu_open: Signal<bool>,
-    server_anchor: Signal<Option<AnchoredMenuPos>>,
     crumb_menu_open: Signal<bool>,
-    crumb_anchor: Signal<Option<crate::components::browse::path_bar::CrumbMenuPos>>,
     controls: PickerControls,
 ) -> Element {
     let view = reading.view;
@@ -86,7 +81,6 @@ pub fn PickerRegions(
                 server_online: view.server_online,
                 online_workers,
                 server_menu_open: *server_menu_open.peek(),
-                server_menu_pos: *server_anchor.peek(),
                 on_close,
                 on_toggle_filter,
                 on_toggle_show_files,
@@ -99,7 +93,6 @@ pub fn PickerRegions(
                 crumb_views,
                 crumbs: view.crumbs.clone(),
                 menu_open: *crumb_menu_open.peek(),
-                menu_pos: *crumb_anchor.peek(),
                 back_enabled: view.can_back,
                 forward_enabled: view.can_forward,
                 up_enabled: view.can_up,

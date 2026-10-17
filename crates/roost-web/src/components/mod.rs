@@ -31,6 +31,7 @@ pub mod layout;
 pub mod machines;
 pub mod main_pane;
 pub mod menu_placement;
+pub mod mobile_voice_context;
 pub mod mobile_voice_dom;
 pub mod mobile_voice_input;
 pub mod mobile_voice_send;

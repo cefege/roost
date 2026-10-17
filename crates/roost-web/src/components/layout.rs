@@ -7,7 +7,7 @@
 //! The chrome is STRUCTURAL: it owns the grid, the sidebar region's width, the
 //! compact/desktop split and the status readouts; the route content arrives as
 //! `AppShell`'s children. `shell_metrics` and `shell_style` hold the decisions;
-//! `assets/styles/workbench-shell.css` draws them.
+//! the Tailwind classes in `app_shell.rs` draw them.
 
 pub mod activity_bar;
 pub mod app_shell;

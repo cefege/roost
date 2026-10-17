@@ -5,7 +5,9 @@
 use dioxus::prelude::*;
 
 use super::markdown::markdown_to_safe_html;
-use crate::components::ui::{Button, ButtonVariant, Card, CardContent, CardHeader, CardTitle, Markdown, Textarea};
+use crate::components::ui::{
+    Button, ButtonVariant, Card, CardContent, CardHeader, CardTitle, Markdown, Textarea,
+};
 use crate::pump::{Pump, use_store};
 use crate::router_state::use_navigate;
 

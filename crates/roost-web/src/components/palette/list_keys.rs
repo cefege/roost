@@ -97,9 +97,12 @@ impl Drop for ListKeys {
             use wasm_bindgen::JsCast as _;
 
             if let (Some(window), Some(callback)) = (web_sys::window(), self.callback.as_ref()) {
-                let _ = window.remove_event_listener_with_callback(
+                // The listener was added in the capture phase, and removal
+                // only matches a listener registered with the same flag.
+                let _ = window.remove_event_listener_with_callback_and_bool(
                     "keydown",
                     callback.as_ref().unchecked_ref(),
+                    true,
                 );
             }
         }

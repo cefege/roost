@@ -295,7 +295,7 @@ pub fn SlashMenu(
             // The composer's level, so the selected row's container color reads
             // against it; the elevation is what lifts it off the transcript.
             Surface {
-                class: Some("max-h-[min(calc(var(--md-space-9)_*_7),40dvh)] overflow-y-auto overscroll-contain py-1".to_owned()),
+                class: Some("max-h-[min(21rem,40dvh)] overflow-y-auto overscroll-contain py-1".to_owned()),
                 level: 1,
                 elevation: 2,
                 border: true,

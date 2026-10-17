@@ -200,12 +200,13 @@ pub(super) fn use_dictation_context(
 pub fn GhostMirror(ghost: PaintedDraft) -> Element {
     rsx! {
         div {
-            class: "term-chat__ghost",
+            class: "pointer-events-none absolute inset-0 z-0 overflow-hidden whitespace-pre-wrap break-words text-foreground px-3 py-(--term-chat-field-pad-block) font-sans text-[length:max(1rem,var(--term-chat-font-size))] leading-(--term-chat-line-height)",
+            "data-composer-part": "ghost",
             "data-testid": "chat-ghost",
             aria_hidden: "true",
             span { "{ghost.settled_head()}" }
             span {
-                class: "term-chat__ghost-tail",
+                class: "text-muted-foreground",
                 "data-testid": "chat-ghost-tail",
                 "{ghost.provisional_tail()}"
             }

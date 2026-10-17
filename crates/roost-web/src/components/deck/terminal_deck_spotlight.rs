@@ -7,7 +7,6 @@
 use dioxus::prelude::*;
 use roost_client_core::store::layout::PaneRect;
 
-use super::deck_dom;
 use super::inline_style::px;
 
 /// The scrim and card for `rect`, or nothing when no pane is floated.
@@ -16,18 +15,10 @@ pub fn TerminalDeckSpotlight(rect: Option<PaneRect>, on_dismiss: EventHandler<()
     let Some(rect) = rect else {
         return rsx! {};
     };
-    // Reduced motion paints the scrim's end state on its first frame; read at
-    // the moment the spotlight opens, which is when the fade would start.
-    let animation = if deck_dom::reduced_motion() {
-        " animation: none;"
-    } else {
-        ""
-    };
     rsx! {
         div {
-            class: "pane-spotlight-backdrop",
+            class: "absolute inset-0 z-[7] bg-[color-mix(in_srgb,black_55%,transparent)] animate-pane-spotlight-fade motion-reduce:animate-none",
             "data-testid": "pane-spotlight-backdrop",
-            style: "position: absolute; inset: 0; z-index: 7;{animation}",
             "aria-hidden": "true",
             onpointerdown: move |event: PointerEvent| {
                 event.stop_propagation();
@@ -39,7 +30,7 @@ pub fn TerminalDeckSpotlight(rect: Option<PaneRect>, on_dismiss: EventHandler<()
             },
         }
         div {
-            class: "pane-spotlight-card",
+            class: "rounded-xl shadow-[0_0_0_1px_var(--border-strong),_0_8px_12px_6px_color-mix(in_srgb,black_15%,transparent),_0_4px_4px_0_color-mix(in_srgb,black_30%,transparent)]",
             style: "position: absolute; left: {px(rect.x)}; top: {px(rect.y)}; width: {px(rect.w)}; height: {px(rect.h)}; z-index: 8; pointer-events: none;",
             "aria-hidden": "true",
         }

@@ -8,7 +8,7 @@ use crate::ratchet::{RatchetOutcome, RatchetSpec, count_matching_lines, run_ratc
 use crate::source_tree;
 
 const BASELINE: &str = "xtask/design-raw-baseline.json";
-const RULE: &str = "design: no NEW raw color/px-font values — use --md-*/--surface-*/--text-* + the type ramp (ratcheted)";
+const RULE: &str = "design: no NEW raw color/px-font values — use the Tailwind colour roles and type scale, or a theme token (ratcheted)";
 const MEMORY: &str = "CLAUDE.md — design system";
 /// The files that DECLARE the tokens. Everything else references them.
 ///
@@ -20,22 +20,12 @@ const MEMORY: &str = "CLAUDE.md — design system";
 /// stops looking is worse than a noisy one, so the match is on the part of the
 /// path a reorganisation does not move.
 ///
-/// This list is the authority for what a definition file is. `icon.css` is on this list because
-/// it DECLARES the `.md-icon` font-size utility that `.md-icon--sm` / `--lg`
-/// reference — its px values are the declaration, not drift. `themes.rs` and
+/// This list is the authority for what a definition file is. `themes.rs` and
 /// `agents.rs` are here because raw hex is the SOURCE of the canonical palette
 /// in both, not a hardcoded copy of it. `tailwind.css` is the Tailwind theme
 /// bridge that declares the rust-ui colour roles; the same name is its
 /// compiled, gitignored output under `assets/styles/`.
-const TOKEN_FILES: [&str; 7] = [
-    "theme-vars.css",
-    "tokens.css",
-    "icon.css",
-    "voice-input.css",
-    "themes.rs",
-    "agents.rs",
-    "tailwind.css",
-];
+const TOKEN_FILES: [&str; 4] = ["theme-vars.css", "themes.rs", "agents.rs", "tailwind.css"];
 
 fn describe(observed: usize, allowed: usize) -> String {
     format!(
@@ -220,21 +210,21 @@ mod tests {
         for nested in [
             "crates/roost-web/assets/styles/theme-vars.css",
             "crates/roost-web/assets/theme-vars.css",
-            "crates/roost-web/src/components/Settings/md/tokens.css",
-            "crates/roost-web/src/components/Settings/md/icon.css",
+            "crates/roost-web/tailwind.css",
+            "crates/roost-web/assets/styles/tailwind.css",
         ] {
             assert!(
                 !is_scanned(nested),
                 "{nested} declares tokens and is exempt"
             );
         }
-        assert!(is_scanned("crates/roost-web/assets/styles/sidebar.css"));
+        assert!(is_scanned(
+            "crates/roost-web/assets/styles/terminal-grid.css"
+        ));
         assert!(
             !is_scanned("crates/roost-web/tests/shell_metrics.rs"),
             "a test file is out of scope, as v2 skips *.test.ts"
         );
-        assert!(is_scanned(
-            "crates/roost-web/src/components/Settings/md/Button.css"
-        ));
+        assert!(is_scanned("crates/roost-web/src/components/ui/button.rs"));
     }
 }

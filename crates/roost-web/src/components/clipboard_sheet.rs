@@ -15,16 +15,16 @@ use roost_client_core::store::Store;
 use roost_client_core::store::selectors::session_by_id;
 use roost_client_core::store::toasts::{ToastId, ToastKind, ToastOptions, ToastSource, add_toast};
 
-use crate::components::ui::{
-    AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
-    AlertDialogHeader, AlertDialogTitle, Button, ButtonVariant, Dialog, DialogContent, DialogHeader,
-    DialogTitle, EmptyState, IconButton, IconType, List, ListRow,
-};
 use crate::components::notifications::clipboard::copy_text;
 use crate::components::notifications::store_write::write_store;
 use crate::components::settings::format::relative_time;
 use crate::components::terminal::dom::now_ms;
 use crate::components::terminal::pane_registry::use_pane_registry;
+use crate::components::ui::{
+    AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+    AlertDialogHeader, AlertDialogTitle, Button, ButtonVariant, Dialog, DialogContent,
+    DialogHeader, DialogTitle, EmptyState, IconButton, IconType, List, ListRow,
+};
 use crate::keyboard_shortcuts::use_shortcut_overlays;
 use crate::platform::worker_paths::BrowserWorkerPaths;
 use crate::pump::{Pump, use_store};
@@ -136,7 +136,7 @@ pub fn ClipboardSheet() -> Element {
         EventHandler::new(move |next: bool| visible.set(next))
     };
     rsx! {
-        Dialog { open, on_open_change: on_open_change.clone(),
+        Dialog { open, on_open_change,
             DialogContent { class: "sm:max-w-2xl", test_id: "clipboard-history",
                 DialogHeader {
                     DialogTitle { "Clipboard history" }

@@ -130,9 +130,8 @@ impl TabDrag {
         } else {
             format!("translateX({})", px(shift))
         };
-        InlineStyle::new().with("transform", transform).with(
-            "transition",
-            "transform var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized)",
-        )
+        InlineStyle::new()
+            .with("transform", transform)
+            .with("transition", "transform 200ms cubic-bezier(0.2, 0, 0, 1)")
     }
 }

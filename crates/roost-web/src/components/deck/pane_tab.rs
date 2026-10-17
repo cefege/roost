@@ -10,7 +10,9 @@ use dioxus::prelude::*;
 use roost_client_core::TerminalTransport;
 use roost_client_core::store::terminal_transport::session_terminal_transport_kind;
 
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, StatusDot};
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, StatusDot,
+};
 
 /// v2 `sessionTerminalTransportLabel`: the tooltip for a DIRECT carrier, and
 /// nothing for the coordinator or an unconfirmed one.
