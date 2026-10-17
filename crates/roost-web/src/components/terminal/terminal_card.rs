@@ -160,10 +160,13 @@ pub fn TerminalCard(
                     presentational: true,
                 }
             }
-            div { class: "relative m-1 h-40 overflow-hidden rounded-[12px_12px_20px_20px] bg-[var(--surface-0)]",
+            // The per-device colour scheme writes --terminal-grid-* inline on
+            // <html>; the theme's terminal role would ignore it, and the preview
+            // must look like the terminal it previews (as the tab hover card does).
+            div { class: "relative m-1 h-40 overflow-hidden rounded-[12px_12px_20px_20px] bg-[var(--terminal-grid-bg)]",
                 match preview {
                     Some(rows) if !rows.is_empty() => rsx! {
-                        div { class: "block size-full overflow-hidden rounded-[inherit] px-1.5 py-1 font-mono text-preview whitespace-pre box-border text-terminal-foreground [&_span]:animate-none!",
+                        div { class: "block size-full overflow-hidden rounded-[inherit] px-1.5 py-1 font-mono text-preview whitespace-pre box-border text-[var(--terminal-grid-fg)] [&_span]:animate-none!",
                             for (index, row) in rows.iter().enumerate() {
                                 PreviewRow { key: "{index}", row: row.clone() }
                             }
