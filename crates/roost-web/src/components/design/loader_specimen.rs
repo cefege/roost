@@ -1,6 +1,7 @@
 //! `LoaderSpecimen`: the braille `Spinner` and the live `WorkingRow` the chat
-//! draws under a running turn, rendered from the shipped components so the
-//! gallery shows their real markup rather than a copy. Spacing comes from tokens.
+//! pins above the composer during a running turn, rendered from the shipped
+//! components so the gallery shows their real markup rather than a copy.
+//! Spacing comes from tokens.
 
 use dioxus::prelude::*;
 
