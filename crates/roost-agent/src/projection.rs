@@ -270,7 +270,8 @@ pub fn item_id(item: &TranscriptItem) -> &str {
 }
 
 /// Token and cost totals of every assistant entry plus out-of-band usage
-/// (advisor reviews, compaction summaries).
+/// (advisor reviews, compaction summaries), with `context_tokens` set to the
+/// latest call's own prompt size rather than summed.
 pub fn usage_totals(
     catalog: &Catalog,
     entries: &[(u64, Entry)],
@@ -296,6 +297,13 @@ pub fn usage_totals(
     totals
 }
 
+/// Adds one call's usage to the running totals. `context_tokens` is
+/// overwritten rather than added, so after every call in order it holds the
+/// most recent one's own prompt size (input plus cache reads and writes):
+/// how full the context window is right now, not summed across the session.
+/// A call that recorded no usage (a failure, a Stop before the model
+/// answered) leaves it at the last real call's size rather than zeroing the
+/// ring.
 pub fn add_usage(
     totals: &mut UsageTotals,
     catalog: &Catalog,
@@ -303,10 +311,12 @@ pub fn add_usage(
     model_id: &str,
     usage: &Usage,
 ) {
-    totals.input_tokens = totals
-        .input_tokens
-        .saturating_add(usage.input + usage.cache_read + usage.cache_write);
+    let request_tokens = usage.input + usage.cache_read + usage.cache_write;
+    totals.input_tokens = totals.input_tokens.saturating_add(request_tokens);
     totals.output_tokens = totals.output_tokens.saturating_add(usage.output);
+    if request_tokens > 0 {
+        totals.context_tokens = request_tokens;
+    }
     if let Some(model) = catalog.get(provider, model_id) {
         totals.cost_usd += model.cost_usd(usage);
     }
@@ -326,5 +336,56 @@ pub fn transcript(
         usage,
         mode: Some(record.mode.as_str().to_owned()),
         queued: Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use roost_llm::{Catalog, Usage};
+    use roost_protocol::wire::agent_chat::{ModelRef, UsageTotals};
+
+    use super::usage_totals;
+    use crate::records::Entry;
+
+    fn assistant(input: u64, output: u64) -> (u64, Entry) {
+        (
+            0,
+            Entry::Assistant {
+                item_id: "a".into(),
+                blocks: Vec::new(),
+                usage: Usage {
+                    input,
+                    output,
+                    cache_read: 0,
+                    cache_write: 0,
+                },
+                model: Some(ModelRef {
+                    provider: "test".into(),
+                    model_id: "model".into(),
+                }),
+                metadata: None,
+            },
+        )
+    }
+
+    #[test]
+    fn context_tokens_holds_only_the_latest_calls_own_prompt_size() {
+        let catalog = Catalog::builtin();
+        let entries = [assistant(100, 10), assistant(40, 5)];
+        let totals = usage_totals(&catalog, &entries, &UsageTotals::default());
+        assert_eq!(totals.context_tokens, 40, "not the 140-token sum");
+        assert_eq!(totals.input_tokens, 140, "the session total still sums");
+        assert_eq!(totals.output_tokens, 15);
+    }
+
+    #[test]
+    fn a_call_with_no_usage_keeps_the_last_real_calls_context_size() {
+        let catalog = Catalog::builtin();
+        let entries = [assistant(100, 10), assistant(0, 0)];
+        let totals = usage_totals(&catalog, &entries, &UsageTotals::default());
+        assert_eq!(
+            totals.context_tokens, 100,
+            "a failed or stopped call must not zero the ring"
+        );
     }
 }

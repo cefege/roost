@@ -8,7 +8,7 @@ use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{AgentRunState, ModelsCatalog, ProviderEntry, Transcript};
 
 use super::composer::AgentComposer;
-use super::header::AgentChatHeader;
+use super::header::{AgentChatHeader, current_context_window, header_usage};
 use super::interaction_cards::TodoCard;
 use super::loop_controls::LoopControls;
 use super::model_controls::{ModelSetup, ModelSetupCard};
@@ -150,10 +150,14 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
     let Some(conversation) = conversation else {
         return rsx! { LoadingTranscript {} };
     };
-    // Nothing spent yet says nothing; a fresh chat's header stays bare.
     let usage = transcript.as_ref().and_then(|transcript| {
-        let tokens = transcript.usage.input_tokens + transcript.usage.output_tokens;
-        (tokens > 0).then(|| format!("{tokens} tokens · ${:.4}", transcript.usage.cost_usd))
+        let window = current_context_window(catalog.read().as_ref(), &conversation);
+        header_usage(
+            transcript.usage.context_tokens,
+            transcript.usage.input_tokens + transcript.usage.output_tokens,
+            transcript.usage.cost_usd,
+            window,
+        )
     });
     let header = rsx! {
         AgentChatHeader { conversation: conversation.clone(), online, usage, pump: pump.clone() }

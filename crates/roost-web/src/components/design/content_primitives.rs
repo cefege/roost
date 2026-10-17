@@ -10,7 +10,7 @@ use super::catalog::{DENSE_GRID_ROWS, STATUS_DOTS, STREAM_INDICATOR_STATES, gall
 use crate::components::md::{
     BindingChip, Button, ButtonVariant, Card, CardVariant, Chip, EmptyState, Icon, IconButton,
     List, ListLayout, ListRow, MetricTile, ProgressBar, SectionTitle, Skeleton, StatusDot, Surface,
-    SurfaceRadius,
+    SurfaceRadius, UsageRing,
 };
 
 /// Body copy in the body-small ramp.
@@ -115,6 +115,12 @@ pub fn ContentPrimitives() -> Element {
                     margin-bottom: var(--md-space-5);",
             ProgressBar { value: Some(0.62), label: "Determinate specimen" }
             ProgressBar { value: None, label: "Indeterminate specimen" }
+            div { style: "display: flex; align-items: center; gap: var(--md-space-3);",
+                UsageRing { fraction: Some(0.3), title: Some("Calm, under three quarters".to_owned()) }
+                UsageRing { fraction: Some(0.8), title: Some("Closing in on the limit".to_owned()) }
+                UsageRing { fraction: Some(0.95), title: Some("All but full".to_owned()) }
+                UsageRing { fraction: None, title: Some("No known limit".to_owned()) }
+            }
             div { style: "display: flex; gap: var(--md-space-2);",
                 Chip { label: "Local", small: true }
                 Chip { label: "Direct", small: true }

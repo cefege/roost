@@ -219,6 +219,7 @@ fn every_chat_event_round_trips_spec_json() {
                     input_tokens: 1,
                     output_tokens: 2,
                     cost_usd: 0.5,
+                    context_tokens: 0,
                 },
             },
         ),

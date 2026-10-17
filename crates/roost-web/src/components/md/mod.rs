@@ -40,6 +40,7 @@ pub mod surface;
 pub mod switch;
 pub mod switch_row;
 pub mod text_field;
+pub mod usage_ring;
 
 pub use binding_chip::BindingChip;
 pub use button::{Button, ButtonSize, ButtonVariant};
@@ -65,3 +66,4 @@ pub use surface::{Surface, SurfaceElement, SurfaceRadius};
 pub use switch::Switch;
 pub use switch_row::SwitchRow;
 pub use text_field::TextField;
+pub use usage_ring::{DEFAULT_USAGE_RING_SIZE_PX, UsageRing};
