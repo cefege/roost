@@ -129,7 +129,7 @@ pub fn TvHomeBoard() -> Element {
                         },
                         Card {
                             variant: CardVariant::Elevated,
-                            class: Some(if document.agent_unseen || needs_operator_input(document) { "min-h-40 justify-center p-5 border-s-8 border-s-[var(--accent)]" } else { "min-h-40 justify-center p-5" }.to_owned()),
+                            class: Some(if document.agent_unseen || needs_operator_input(document) { "min-h-40 justify-center p-5 border-s-8 border-s-primary" } else { "min-h-40 justify-center p-5" }.to_owned()),
                             "data-testid": "tv-home-card-{document.session_id}",
                             CardHeader {
                                 CardTitle { {document.display_title.clone()} }
@@ -138,7 +138,7 @@ pub fn TvHomeBoard() -> Element {
                             CardContent {
                                 div { class: "flex items-center gap-3 mt-3",
                                     if let Some(attention) = document.agent_attention {
-                                        span { class: "font-medium text-[var(--accent)]", {match attention {
+                                        span { class: "font-medium text-primary", {match attention {
                                             NavigationSearchAttention::Blocked => "Needs input",
                                             NavigationSearchAttention::Done => "Unseen completion",
                                         }}}

@@ -1,7 +1,7 @@
 //! The terminal context menu, with only actions backed by pane APIs. A desktop
-//! right-click opens a ui `ContextMenu` at the pointer; compact layouts show
-//! the same actions in a bottom sheet, which stays hand-rolled because it is
-//! docked with a scrim rather than anchored to a point.
+//! right-click opens a ui `ContextMenu` at the pointer; compact layouts show the
+//! same actions in a bottom `Sheet`, a modal docked above the on-screen keyboard
+//! that adds a scrim, focus trap and Escape-to-close.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -15,7 +15,10 @@ use crate::components::deck::deck_dom;
 use crate::components::ui::context_menu::{ContextMenu, ContextMenuContent, ContextMenuItem};
 use crate::components::ui::dom::{FocusOpener, focused_element, restore_focus, viewport_height};
 use crate::components::ui::menu_overlay::{MenuContext, MenuPlacement, request_open};
-use crate::components::ui::{Icon, IconType};
+use crate::components::ui::{
+    AutoFocusRequest, Button, ButtonVariant, Icon, IconType, Sheet, SheetContent, SheetSide,
+    SheetTitle,
+};
 
 /// The actions this menu exposes, with stable test identifiers.
 pub const TERMINAL_MENU_ITEMS: &[(&str, &str)] = &[
@@ -185,7 +188,9 @@ fn rendered_menu_size(menu_id: &str) -> (f64, f64) {
     }
 }
 
-/// The compact-viewport sheet, whose actions are in ordinary tab order.
+/// The compact-viewport action sheet: a bottom `Sheet`, so it has the dialog's
+/// scrim, focus trap and Escape-to-close. A backdrop click, Escape, or Cancel
+/// reports `on_cancel`; an action runs its handler, and the caller unmounts it.
 #[component]
 pub fn TerminalActionSheet(
     menu_id: String,
@@ -199,58 +204,71 @@ pub fn TerminalActionSheet(
     let has_selection = !selection.is_empty();
     let copy_selection = selection.clone();
     let key_menu_id = menu_id.clone();
+    let focus_menu_id = menu_id.clone();
     let sheet_style = if crate::components::layout::window_size::use_tv_layout() {
         TV_SHEET_STYLE
     } else {
         SHEET_STYLE
     };
-    #[cfg(target_arch = "wasm32")]
-    {
-        let id = menu_id.clone();
-        use_hook(move || focus_menu_edge(&id, MenuFocusEdge::First));
-    }
-    rsx! {
-        div {
-            class: "fixed inset-0 z-40 bg-black opacity-50",
-            "data-testid": "terminal-context-sheet-backdrop",
-            "aria-hidden": "true",
-            onclick: move |_event: MouseEvent| on_cancel.call(()),
+    let on_open_change = EventHandler::new(move |open: bool| {
+        if !open {
+            on_cancel.call(());
         }
-        div {
-            id: menu_id,
-            role: "menu",
-            "aria-label": "Terminal actions",
-            "data-testid": "terminal-context-menu",
-            "data-variant": "sheet",
-            class: "box-border select-none overflow-y-auto rounded-t-lg border-t border-border bg-card pt-3 text-foreground shadow-lg",
-            style: sheet_style,
-            onkeydown: move |event: KeyboardEvent| run_terminal_menu_key(
-                &event,
-                &key_menu_id,
-                move || on_cancel.call(()),
-            ),
-            if has_selection {
-                SheetItem {
-                    testid: "ctx-copy-selection",
-                    on_activate: move |_| on_copy.call(copy_selection.clone()),
-                    "Copy"
+    });
+    let on_open_auto_focus = EventHandler::new(move |request: AutoFocusRequest| {
+        // The dialog would focus its sentinel first; the menu edge takes its place.
+        request.prevent_default();
+        #[cfg(target_arch = "wasm32")]
+        let _ = focus_menu_edge(&focus_menu_id, MenuFocusEdge::First);
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = &focus_menu_id;
+    });
+    rsx! {
+        Sheet {
+            open: true,
+            on_open_change,
+            SheetContent {
+                side: SheetSide::Bottom,
+                class: SHEET_CLASS,
+                test_id: "terminal-context-menu",
+                scrim_test_id: "terminal-context-sheet-backdrop",
+                style: sheet_style,
+                show_close_button: false,
+                on_open_auto_focus: Some(on_open_auto_focus),
+                SheetTitle { class: "sr-only", "Terminal actions" }
+                div {
+                    id: menu_id,
+                    role: "menu",
+                    "aria-label": "Terminal actions",
+                    class: "flex flex-col",
+                    onkeydown: move |event: KeyboardEvent| run_terminal_menu_key(
+                        &event,
+                        &key_menu_id,
+                        move || on_cancel.call(()),
+                    ),
+                    if has_selection {
+                        SheetItem {
+                            testid: "ctx-copy-selection",
+                            on_activate: move |_| on_copy.call(copy_selection.clone()),
+                            "Copy"
+                        }
+                    }
+                    SheetItem { testid: "ctx-paste", on_activate: move |_| on_paste.call(()), "Paste" }
+                    SheetItem { testid: "ctx-find", on_activate: move |_| on_find.call(()), "Find" }
+                    if let Some(on_start_agent) = on_start_agent {
+                        SheetItem {
+                            testid: "ctx-start-agent",
+                            on_activate: move |_| on_start_agent.call(()),
+                            Icon { icon: IconType::Bot, class: "size-4" }
+                            "Start agent here"
+                        }
+                    }
+                    SheetItem {
+                        testid: "ctx-cancel",
+                        on_activate: move |_| on_cancel.call(()),
+                        "Cancel"
+                    }
                 }
-            }
-
-            SheetItem { testid: "ctx-paste", on_activate: move |_| on_paste.call(()), "Paste" }
-            SheetItem { testid: "ctx-find", on_activate: move |_| on_find.call(()), "Find" }
-            if let Some(on_start_agent) = on_start_agent {
-                SheetItem {
-                    testid: "ctx-start-agent",
-                    on_activate: move |_| on_start_agent.call(()),
-                    Icon { icon: IconType::Bot, class: "size-4" }
-                    "Start agent here"
-                }
-            }
-            SheetItem {
-                testid: "ctx-cancel",
-                on_activate: move |_| on_cancel.call(()),
-                "Cancel"
             }
         }
     }
@@ -271,17 +289,24 @@ fn run_terminal_menu_key(event: &KeyboardEvent, menu_id: &str, on_escape: impl F
 
 // Only the placement lives inline: the bottom offset tracks the on-screen
 // keyboard and the TV overscan, which change at runtime. Every property is set
-// in both strings, since a Dioxus style string keeps any key it omits.
-const SHEET_STYLE: &str = "position: fixed; left: 0; right: 0; bottom: max(var(--kb-offset), 0px); z-index: 41; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 1rem); max-height: calc(100dvh - max(var(--kb-offset), 0px) - 1rem);";
-const TV_SHEET_STYLE: &str = "position: fixed; left: var(--tv-overscan-inline); right: var(--tv-overscan-inline); bottom: calc(max(var(--kb-offset), 0px) + var(--tv-overscan-block)); z-index: 41; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 1rem); max-height: calc(100dvh - max(var(--kb-offset), 0px) - var(--tv-overscan-block) - 1rem);";
+// in both strings, since a Dioxus style string keeps any key it omits. The
+// stacking layer comes from the dialog, so the scrim and panel share one.
+const SHEET_CLASS: &str =
+    "h-auto p-0 pt-3 rounded-t-lg border-t border-border text-foreground select-none";
+const SHEET_STYLE: &str = "left: 0; right: 0; bottom: max(var(--kb-offset), 0px); padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 1rem); max-height: calc(100dvh - max(var(--kb-offset), 0px) - 1rem);";
+const TV_SHEET_STYLE: &str = "left: var(--tv-overscan-inline); right: var(--tv-overscan-inline); bottom: calc(max(var(--kb-offset), 0px) + var(--tv-overscan-block)); padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 1rem); max-height: calc(100dvh - max(var(--kb-offset), 0px) - var(--tv-overscan-block) - 1rem);";
 
+/// One action row: a `role="menuitem"` button, which `run_menu_key` moves between.
 #[component]
 fn SheetItem(testid: String, on_activate: EventHandler<MouseEvent>, children: Element) -> Element {
     rsx! {
-        button {
-            r#type: "button",
+        Button {
+            variant: ButtonVariant::Ghost,
+            class: Some(
+                "w-full justify-start gap-3 rounded-none px-4 py-3 text-left text-base font-normal text-foreground focus:bg-accent"
+                    .to_owned(),
+            ),
             role: "menuitem",
-            class: "flex w-full cursor-default select-none items-center gap-3 px-4 py-3 text-left text-base text-foreground outline-none hover:bg-accent focus:bg-accent",
             "data-testid": testid,
             onclick: move |event: MouseEvent| on_activate.call(event),
             {children}

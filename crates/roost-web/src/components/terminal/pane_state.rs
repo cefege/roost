@@ -99,10 +99,6 @@ pub fn set_if_changed<T: PartialEq + 'static>(mut signal: Signal<T>, value: T) {
     }
 }
 
-/// The terminal stream dot's classes. The pane and the `/design` specimen both
-/// render through this constant so the specimen cannot drift from the pane.
-pub const STREAM_INDICATOR_CLASS: &str = "pointer-events-none absolute top-2 right-2 z-2 size-2 rounded-full box-border data-[state=receiving]:bg-info data-[state=catching_up]:bg-warning data-[state=detached]:border data-[state=detached]:border-destructive data-[state=detached]:bg-transparent";
-
 /// The stream indicator's state token and label, or `None` while idle.
 pub fn presentation_indicator(
     state: TerminalPresentationState,

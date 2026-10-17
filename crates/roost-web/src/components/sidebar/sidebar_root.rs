@@ -18,7 +18,8 @@ use super::sidebar_new_terminal::SidebarNewTerminal;
 use super::sidebar_search::SidebarSearch;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::term_font_stepper::TermFontStepper;
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, IconButton, IconType};
+use crate::components::ui::toggle_group::ToggleGroupSpacing;
+use crate::components::ui::{ButtonSize, IconButton, IconType, ToggleGroup, ToggleGroupItem};
 use crate::platform::browser_platform::{PlatformShortcut, platform_shortcut_label};
 use crate::pump::use_store;
 use crate::router_state::use_navigate;
@@ -105,30 +106,26 @@ pub fn SidebarRoot() -> Element {
                             "data-testid": "brand-row-collapse",
                         }
                     }
-                    div {
-                        class: "inline-flex min-w-0 flex-1 rounded-md bg-muted p-0.5",
-                        "data-testid": "sidebar-selector",
-                        role: "group",
-                        "aria-label": "Sidebar view",
-                        Button {
+                    ToggleGroup {
+                        class: "min-w-0 flex-1 bg-muted p-0.5",
+                        spacing: ToggleGroupSpacing::Flush,
+                        aria_label: "Sidebar view",
+                        test_id: "sidebar-selector",
+                        ToggleGroupItem {
                             id: "sidebar-view-folders",
-                            class: "min-w-0 flex-1 data-[selected=true]:bg-background data-[selected=true]:text-foreground data-[selected=true]:shadow-sm",
-                            "data-selected": selected(folders_selected),
-                            "data-testid": "sidebar-view-folders",
-                            size: ButtonSize::Sm,
-                            variant: ButtonVariant::Ghost,
-                            "aria-pressed": selected(folders_selected),
+                            test_id: "sidebar-view-folders",
+                            class: "h-8 min-w-0 flex-1 data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm",
+                            title: "Folders",
+                            pressed: folders_selected,
                             onclick: move |_| select_folders(SidebarView::Folders),
                             "Folders"
                         }
-                        Button {
+                        ToggleGroupItem {
                             id: "sidebar-view-agents",
-                            class: "min-w-0 flex-1 data-[selected=true]:bg-background data-[selected=true]:text-foreground data-[selected=true]:shadow-sm",
-                            "data-selected": selected(agents_selected),
-                            "data-testid": "sidebar-view-agents",
-                            size: ButtonSize::Sm,
-                            variant: ButtonVariant::Ghost,
-                            "aria-pressed": selected(agents_selected),
+                            test_id: "sidebar-view-agents",
+                            class: "h-8 min-w-0 flex-1 data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm",
+                            title: "Agents",
+                            pressed: agents_selected,
                             onclick: move |_| select_view(SidebarView::Agents),
                             "Agents"
                         }

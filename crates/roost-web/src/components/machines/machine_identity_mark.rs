@@ -8,7 +8,7 @@ use roost_protocol::wire::Worker;
 
 use super::linux_distribution_mark::LinuxDistributionMark;
 use super::machine_identity::machine_identity_presentation;
-use crate::components::ui::Icon;
+use crate::components::ui::{Badge, BadgeVariant, Icon};
 
 /// The mark for `worker`; `context_title` is appended to the hover text.
 #[component]
@@ -31,7 +31,7 @@ pub fn MachineIdentityMark(worker: Option<Worker>, context_title: Option<String>
                 Icon { icon: presentation.icon, class: "size-4" }
             }
             if let Some(badge) = presentation.apple_chip_badge {
-                span { class: "absolute -bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border border-current bg-[var(--surface-1)] px-1 font-mono text-xs leading-none text-[var(--text-hi)]", {badge} }
+                Badge { variant: BadgeVariant::Outline, class: Some("absolute -bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border-current bg-card px-1 py-0 font-mono font-normal leading-none".to_owned()), {badge} }
             }
         }
     }

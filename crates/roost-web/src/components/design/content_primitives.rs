@@ -9,7 +9,7 @@ use dioxus::prelude::*;
 use super::catalog::{
     CARD_GRID_CLASS, DENSE_GRID_ROWS, STATUS_DOTS, STREAM_INDICATOR_STATES, TILE_GRID_CLASS,
 };
-use crate::components::terminal::pane_state::STREAM_INDICATOR_CLASS;
+use crate::components::terminal::stream_indicator::StreamIndicator;
 use crate::components::ui::{
     BindingChip, Button, ButtonVariant, Card, CardAction, CardContent, CardDescription, CardHeader,
     CardTitle, CardVariant, Chip, EmptyState, Icon, IconButton, IconType, List, ListLayout,
@@ -197,15 +197,14 @@ pub fn ContentPrimitives() -> Element {
             }
         }
 
-        // The terminal pane's own read-out of stream health is a bare positioned
-        // div rather than a StatusDot, because it must not join the pane's flex
-        // flow; the gallery is the only place its three states sit side by side.
+        // The gallery renders the pane's own indicator component, so the three
+        // states here are the pane's real dots, not a copy.
         SectionTitle { "Terminal stream indicator" }
         div { class: SPECIMEN_ROW_CLASS,
             for state in STREAM_INDICATOR_STATES {
                 div { class: SPECIMEN_COLUMN_CLASS,
                     div { class: "relative size-7",
-                        div { class: STREAM_INDICATOR_CLASS, "data-state": state, title: state }
+                        StreamIndicator { state, title: state }
                     }
                     span { class: SPECIMEN_CAPTION_CLASS, {state} }
                 }

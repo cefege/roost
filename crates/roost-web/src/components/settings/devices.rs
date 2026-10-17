@@ -24,8 +24,8 @@ use roost_client_core::store::shell_intent::ShellIntent;
 use super::format::format_timestamp;
 use crate::components::pairing::PhonePairingCard;
 use crate::components::ui::{
-    Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyState,
-    IconType, List, ListRow,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader,
+    CardTitle, EmptyState, FieldError, IconType, List, ListRow,
 };
 use crate::pump::{Pump, use_store};
 use crate::router_state::use_navigate;
@@ -70,9 +70,7 @@ pub fn DevicesPane() -> Element {
                         }
                     }
                     if let Some(message) = state.error.clone() {
-                        p { role: "alert", class: "text-sm text-destructive",
-                            {message}
-                        }
+                        FieldError { {message} }
                     }
                     if state.loaded && state.error.is_none() && state.devices.is_empty() {
                         EmptyState {
@@ -131,7 +129,7 @@ fn DeviceRow(device: AuthorizedDevice, view: Signal<DevicesView>, pump: Pump) ->
                 span { class: "inline-flex max-w-full items-baseline gap-2",
                     span { class: "overflow-hidden text-ellipsis", {label.clone()} }
                     if device.is_self {
-                        span { class: "shrink-0 text-xs font-medium text-primary", "This device" }
+                        Badge { variant: BadgeVariant::Default, class: Some("shrink-0".to_owned()), "This device" }
                     }
                 }
             },

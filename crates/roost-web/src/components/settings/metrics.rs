@@ -12,8 +12,8 @@ use roost_client_core::client::rpc::calls::settings::metrics::MetricsSnapshot;
 
 use crate::components::terminal::dom::{page_visible, sleep_ms};
 use crate::components::ui::{
-    Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyState, Icon, IconType,
-    MetricTile,
+    Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyState, FieldError, Icon,
+    IconType, MetricTile, Table, TableBody, TableCell, TableRow, TableWrapper,
 };
 use crate::pump::{Pump, use_store};
 
@@ -64,11 +64,11 @@ pub fn MetricsPane() -> Element {
                 }
                 CardContent { class: "flex flex-col gap-3",
                     if let Some(message) = state.error.clone() {
-                        div {
+                        FieldError {
+                            test_id: "metrics-error",
                             class: "flex items-center gap-2",
-                            "data-testid": "metrics-error",
-                            Icon { icon: IconType::CircleAlert, class: "size-4 text-destructive" }
-                            span { class: "text-sm text-destructive", {message} }
+                            Icon { icon: IconType::CircleAlert, class: "size-4 shrink-0" }
+                            span { {message} }
                         }
                     }
                     match state.snapshot.clone() {
@@ -105,23 +105,29 @@ pub fn MetricsPane() -> Element {
                         supporting: "Counters reset on coord restart. Drive some traffic and metrics will appear here within 5 s.",
                     }
                 } else {
-                    for route in state
-                        .snapshot
-                        .clone()
-                        .unwrap_or_default()
-                        .routes
-                        .iter()
-                        .map(|route| {
-                            (
-                                route.path.clone(),
-                                group(route.requests),
-                                group(route.errors),
-                                route_error_percent(route.requests, route.errors),
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                    {
-                        RouteRow { path: route.0, requests: route.1, errors: route.2, error_percent: route.3 }
+                    TableWrapper { class: "max-h-none rounded-none border-0",
+                        Table {
+                            TableBody {
+                                for route in state
+                                    .snapshot
+                                    .clone()
+                                    .unwrap_or_default()
+                                    .routes
+                                    .iter()
+                                    .map(|route| {
+                                        (
+                                            route.path.clone(),
+                                            group(route.requests),
+                                            group(route.errors),
+                                            route_error_percent(route.requests, route.errors),
+                                        )
+                                    })
+                                    .collect::<Vec<_>>()
+                                {
+                                    RouteRow { path: route.0, requests: route.1, errors: route.2, error_percent: route.3 }
+                                }
+                            }
+                        }
                     }
                 }
                 }
@@ -135,16 +141,15 @@ pub fn MetricsPane() -> Element {
 #[component]
 fn RouteRow(path: String, requests: String, errors: String, error_percent: String) -> Element {
     rsx! {
-        div {
-            class: "flex w-full items-center gap-4 px-4 py-2 text-sm",
-            "data-testid": "metrics-row",
-            "data-route": path.clone(),
-            span { class: "min-w-0 flex-1 truncate font-mono", title: path.clone(),
-                {path.clone()}
+        TableRow { test_id: "metrics-row",
+            TableCell { class: "max-w-0 w-full py-2",
+                span { class: "block truncate font-mono", title: path.clone(),
+                    {path.clone()}
+                }
             }
-            span { class: "font-mono text-muted-foreground", {requests.clone()} }
-            span { class: "font-mono text-muted-foreground", {errors.clone()} }
-            span { class: "font-mono text-muted-foreground", {error_percent.clone()} }
+            TableCell { class: "py-2 font-mono whitespace-nowrap text-muted-foreground", {requests.clone()} }
+            TableCell { class: "py-2 font-mono whitespace-nowrap text-muted-foreground", {errors.clone()} }
+            TableCell { class: "py-2 font-mono whitespace-nowrap text-muted-foreground", {error_percent.clone()} }
         }
     }
 }

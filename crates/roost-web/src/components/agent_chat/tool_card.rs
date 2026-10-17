@@ -18,7 +18,10 @@ use super::tool_view::{
     preview_window, state_label, status_name, tool_state,
 };
 use super::write_view::WriteBody;
-use crate::components::ui::{Button, ButtonVariant, Icon, Spinner, StatusDot};
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Card, CardSize, CardVariant, Collapsible,
+    CollapsibleContent, CollapsibleTrigger, Icon, Spinner, StatusDot,
+};
 
 #[component]
 pub fn ToolCard(
@@ -36,6 +39,7 @@ pub fn ToolCard(
 ) -> Element {
     let mut body_open = use_signal(|| false);
     let mut agents_open = use_signal(|| false);
+    let mut details_open = use_signal(|| false);
     let details = serde_json::from_str::<serde_json::Value>(&details_json).ok();
     let flag = |name: &str| {
         details
@@ -123,7 +127,12 @@ pub fn ToolCard(
     let command_text = command.clone();
     let output_text = output.clone();
     rsx! {
-        div { class: "flex min-w-0 flex-col gap-1 rounded-md border border-border p-2 data-[state=error]:border-destructive/40", "data-state": state, "data-tool": tool_name.clone(),
+        Card {
+            variant: CardVariant::Outlined,
+            size: CardSize::Sm,
+            class: Some("min-w-0 gap-1 rounded-md p-2 data-[state=error]:border-destructive/40".to_owned()),
+            "data-state": state,
+            "data-tool": tool_name.clone(),
             div { class: "flex min-w-0 items-center gap-2 text-sm text-muted-foreground",
                 span { class: "inline-flex flex-none items-center gap-1", Icon { icon, class: "size-4" } }
                 span { class: "flex-none font-medium text-foreground", "{verb}" }
@@ -133,9 +142,9 @@ pub fn ToolCard(
                 if diff_stats.added > 0 || diff_stats.removed > 0 {
                     span { class: "flex-none font-mono text-xs text-muted-foreground",
                         "["
-                        span { class: "text-[var(--status-ok)]", "+{diff_stats.added}" }
+                        span { class: "text-success", "+{diff_stats.added}" }
                         "/"
-                        span { class: "text-[var(--status-err)]", "−{diff_stats.removed}" }
+                        span { class: "text-destructive", "−{diff_stats.removed}" }
                         "]"
                     }
                 }
@@ -167,9 +176,16 @@ pub fn ToolCard(
                 TaskRows { child_ids: child_ids.clone(), open: agents_expanded, on_expand: on_agents_expand }
             }
             if has_details {
-                details { class: "group",
-                    summary { class: "cursor-pointer py-1 text-xs text-muted-foreground", "Details" }
-                    div { class: "flex flex-col gap-2 pb-2",
+                Collapsible {
+                    open: details_open(),
+                    on_open_change: move |next: bool| details_open.set(next),
+                    CollapsibleTrigger {
+                        variant: ButtonVariant::Ghost,
+                        size: ButtonSize::Sm,
+                        class: "h-auto justify-start px-0 py-1 text-xs font-normal text-muted-foreground",
+                        "Details"
+                    }
+                    CollapsibleContent { class: "flex flex-col gap-2 pb-2",
                         if !facts.is_empty() {
                             ul { class: "m-0 flex list-none flex-wrap gap-x-4 gap-y-2 p-0 text-xs text-muted-foreground", for fact in facts { li { "{fact}" } } }
                         }
@@ -219,9 +235,7 @@ fn target_class(tool_name: &str) -> &'static str {
 fn state_text_class(state: &str) -> &'static str {
     match state {
         "error" => "ml-auto inline-flex flex-none items-center gap-1 text-xs text-destructive",
-        "timeout" => {
-            "ml-auto inline-flex flex-none items-center gap-1 text-xs text-[var(--status-warn)]"
-        }
+        "timeout" => "ml-auto inline-flex flex-none items-center gap-1 text-xs text-warning",
         _ => "ml-auto inline-flex flex-none items-center gap-1 text-xs text-muted-foreground",
     }
 }

@@ -5,7 +5,9 @@
 use dioxus::prelude::*;
 
 use super::agent_alert::AgentAlert;
-use crate::components::ui::{Button, ButtonVariant};
+use crate::components::ui::{
+    Button, ButtonVariant, Collapsible, CollapsibleContent, CollapsibleTrigger,
+};
 
 #[component]
 pub(super) fn ComposerErrorBanner(
@@ -37,30 +39,31 @@ pub(super) fn ComposerErrorBanner(
     let has_details = error_text.len() > 80 || error_text.lines().count() > 1;
     rsx! {
         AgentAlert { test_id: "agent-chat-pinned-error",
-            div { class: "flex flex-wrap items-center gap-2",
-                strong { class: "min-w-0 flex-1 break-words font-semibold", "{headline}" }
-                if has_details {
+            Collapsible {
+                open: details_open() && has_details,
+                on_open_change: move |next: bool| details_open.set(next),
+                div { class: "flex flex-wrap items-center gap-2",
+                    strong { class: "min-w-0 flex-1 break-words font-semibold", "{headline}" }
+                    if has_details {
+                        CollapsibleTrigger {
+                            test_id: "agent-chat-error-details",
+                            controls_id: "agent-chat-pinned-error-details",
+                            if details_open() { "Less" } else { "Details" }
+                        }
+                    }
                     Button {
                         variant: ButtonVariant::Ghost,
-                        "data-testid": "agent-chat-error-details",
-                        "aria-expanded": if details_open() { "true" } else { "false" },
-                        "aria-controls": "agent-chat-pinned-error-details",
-                        onclick: move |_| details_open.set(!details_open()),
-                        if details_open() { "Less" } else { "Details" }
+                        "data-testid": "agent-chat-error-dismiss",
+                        onclick: move |_| dismissed.set(true),
+                        "Dismiss"
                     }
                 }
-                Button {
-                    variant: ButtonVariant::Ghost,
-                    "data-testid": "agent-chat-error-dismiss",
-                    onclick: move |_| dismissed.set(true),
-                    "Dismiss"
-                }
-            }
-            if details_open() && has_details {
-                pre {
-                    id: "agent-chat-pinned-error-details",
-                    class: "m-0 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-2 font-mono text-xs text-foreground",
-                    "{error_text}"
+                CollapsibleContent {
+                    pre {
+                        id: "agent-chat-pinned-error-details",
+                        class: "m-0 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-2 font-mono text-xs text-foreground",
+                        "{error_text}"
+                    }
                 }
             }
             div { class: "flex flex-wrap items-center gap-2",

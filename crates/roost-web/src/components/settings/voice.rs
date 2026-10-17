@@ -24,8 +24,8 @@ use roost_client_core::client::rpc::calls::settings::transcription::{
 
 use super::voice_languages::{language_options, stored_or_default};
 use crate::components::ui::{
-    Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader, CardTitle, Icon,
-    IconType, Select, StatusDot, SwitchRow, TextField,
+    Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader, CardTitle, FieldError,
+    Icon, IconType, Select, StatusDot, SwitchRow, TextField,
 };
 use crate::pump::{Pump, use_store};
 
@@ -169,14 +169,18 @@ pub fn VoicePane() -> Element {
                         }
                     }
                     if let Some(message) = state.test_result.clone() {
-                        span {
-                            class: if state.test_ok { "text-sm text-success" } else { "text-sm text-destructive" },
-                            "data-testid": "transcription-test-result",
-                            {message}
+                        if state.test_ok {
+                            span {
+                                class: "text-sm text-success",
+                                "data-testid": "transcription-test-result",
+                                {message}
+                            }
+                        } else {
+                            FieldError { test_id: "transcription-test-result", {message} }
                         }
                     }
                     if let Some(message) = refusal {
-                        p { role: "alert", class: "m-0 text-sm text-destructive", {message} }
+                        FieldError { {message} }
                     }
                 }
             }

@@ -11,7 +11,7 @@ use roost_client_core::store::shell_intent::ShellIntent;
 
 use super::pane_handle::PaneHandle;
 use super::pane_state::PaneUi;
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, Icon, IconType};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, Icon, IconType, Surface};
 use crate::pump::Pump;
 
 /// The key grid. `placement` is `sheet` for the floating sheet and `tray` for
@@ -38,11 +38,14 @@ pub fn TerminalKeyGrid(
         mouse_forward,
     );
     rsx! {
-        div {
-            class: "group/nav fixed z-40 box-border max-h-[max(0rem,calc(100dvh_-_env(safe-area-inset-top,0px)_-_env(safe-area-inset-bottom,0px)_-_13.75rem_-_1rem))] right-[calc(env(safe-area-inset-right,0px)_+_1rem)] bottom-[calc(env(safe-area-inset-bottom,0px)_+_13.75rem)] overflow-y-auto rounded-lg bg-popover p-1 shadow-lg pointer-events-auto font-sans animate-voice-dock-enter motion-reduce:animate-none data-[placement=tray]:absolute data-[placement=tray]:inset-x-0 data-[placement=tray]:bottom-full data-[placement=tray]:h-(--term-tray-height) data-[placement=tray]:max-h-none data-[placement=tray]:overflow-visible",
-            "data-testid": "terminal-nav-buttons",
-            "data-placement": placement,
-            "data-keypad": "true",
+            Surface {
+                level: 2,
+                elevation: 4,
+                pad: 1,
+                class: "group/nav fixed z-40 box-border max-h-[max(0rem,calc(100dvh_-_env(safe-area-inset-top,0px)_-_env(safe-area-inset-bottom,0px)_-_13.75rem_-_1rem))] right-[calc(env(safe-area-inset-right,0px)_+_1rem)] bottom-[calc(env(safe-area-inset-bottom,0px)_+_13.75rem)] overflow-y-auto pointer-events-auto font-sans animate-voice-dock-enter motion-reduce:animate-none data-[placement=tray]:absolute data-[placement=tray]:inset-x-0 data-[placement=tray]:bottom-full data-[placement=tray]:h-(--term-tray-height) data-[placement=tray]:max-h-none data-[placement=tray]:overflow-visible",
+                test_id: "terminal-nav-buttons",
+                "data-placement": placement,
+                "data-keypad": "true",
             div {
                 class: "grid grid-cols-[repeat(4,var(--term-chat-control))] gap-1 [grid-template-areas:'esc_tab_ctrl_alt'_'home_up_end_pgup'_'left_down_right_pgdn'_'back_space_space_ent'_'mouse_mouse_mouse_mouse'] group-data-[placement=tray]/nav:grid-cols-[repeat(9,minmax(0,1fr))] group-data-[placement=tray]/nav:[grid-template-areas:'esc_tab_ctrl_alt_mouse_home_up_end_pgup'_'back_space_space_ent_ent_left_down_right_pgdn']",
                 "data-keypad-grid": "true",

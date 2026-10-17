@@ -23,7 +23,7 @@ use roost_client_core::client::rpc::calls::settings::attachments::{
 use super::format::{expiry_label, format_age, is_expiring};
 use crate::components::ui::{
     Badge, BadgeVariant, Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader,
-    CardTitle, EmptyState, Icon, IconType, List, ListRow, Select, SelectOption,
+    CardTitle, EmptyState, FieldError, Icon, IconType, List, ListRow, Select, SelectOption,
 };
 use crate::display_format::format_bytes;
 use crate::pump::{Pump, use_store};
@@ -113,7 +113,7 @@ pub fn AttachmentsPane() -> Element {
                         }
                     }
                     if let Some(message) = state.error.clone() {
-                        p { role: "alert", class: "text-sm text-destructive", {message} }
+                        FieldError { {message} }
                     }
                 }
             }

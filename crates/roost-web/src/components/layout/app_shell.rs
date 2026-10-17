@@ -146,7 +146,7 @@ pub fn AppShell(children: Element) -> Element {
 
     rsx! {
         div {
-            class: "workbench-shell relative overflow-hidden bg-[var(--workbench-editor)] font-sans text-[var(--text-hi)] data-[compact=false]:grid data-[compact=false]:[grid-template-columns:var(--workbench-activity-width)_calc(var(--workbench-sidebar-width)_+_var(--workbench-sidebar-resizer-active-width))_minmax(0,1fr)] data-[compact=false]:[grid-template-rows:var(--workbench-titlebar-height)_minmax(0,1fr)_var(--workbench-statusbar-height)] data-[compact=false]:[grid-template-areas:'titlebar_titlebar_titlebar'_'activity_sidebar_editor'_'statusbar_statusbar_statusbar'] data-[compact=true]:flex data-[compact=true]:flex-col",
+            class: "workbench-shell relative overflow-hidden bg-[var(--workbench-editor)] font-sans text-foreground data-[compact=false]:grid data-[compact=false]:[grid-template-columns:var(--workbench-activity-width)_calc(var(--workbench-sidebar-width)_+_var(--workbench-sidebar-resizer-active-width))_minmax(0,1fr)] data-[compact=false]:[grid-template-rows:var(--workbench-titlebar-height)_minmax(0,1fr)_var(--workbench-statusbar-height)] data-[compact=false]:[grid-template-areas:'titlebar_titlebar_titlebar'_'activity_sidebar_editor'_'statusbar_statusbar_statusbar'] data-[compact=true]:flex data-[compact=true]:flex-col",
             "data-compact": if compact { "true" } else { "false" },
             style: shell_style(reading.keyboard_resize, composer.active, reading.sidebar_width, sidebar_collapsed),
             if !compact {

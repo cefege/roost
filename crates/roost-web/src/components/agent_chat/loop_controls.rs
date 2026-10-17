@@ -4,9 +4,10 @@
 
 use dioxus::prelude::*;
 
-use super::agent_alert::ERROR_TEXT_CLASS;
 use super::composer_commands::submit_direct_command;
-use crate::components::ui::{ButtonSize, Chip, IconButton, IconType};
+use crate::components::ui::{
+    Badge, BadgeSize, BadgeVariant, ButtonSize, FieldError, Icon, IconButton, IconType,
+};
 use crate::pump::Pump;
 
 #[component]
@@ -19,12 +20,10 @@ pub(super) fn LoopControls(status: String, conversation_id: String, pump: Pump) 
     });
     rsx! {
         div { class: "flex flex-wrap items-center gap-2", "data-testid": "agent-loop-controls",
-            span { role: "status",
-                Chip {
-                    label: status,
-                    icon: Some(IconType::Repeat),
-                    small: true,
-                    title: Some("Repeats the request until its limit, condition or Stop. Turn off to stop repeating.".to_owned()),
+            span { role: "status", title: "Repeats the request until its limit, condition or Stop. Turn off to stop repeating.",
+                Badge { variant: BadgeVariant::Secondary, size: BadgeSize::Sm, class: Some("gap-1".to_owned()),
+                    Icon { icon: IconType::Repeat, class: "size-3" }
+                    "{status}"
                 }
             }
             IconButton {
@@ -44,9 +43,7 @@ pub(super) fn LoopControls(status: String, conversation_id: String, pump: Pump) 
                 },
             }
             if let Some(error) = error() {
-                div { class: "basis-full",
-                    span { class: ERROR_TEXT_CLASS, role: "alert", "{error}" }
-                }
+                FieldError { class: "basis-full", "{error}" }
             }
         }
     }

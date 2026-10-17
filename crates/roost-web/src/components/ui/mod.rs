@@ -160,7 +160,7 @@ pub use message::{
 };
 pub use metric_tile::MetricTile;
 pub use popover::{Popover, PopoverContent, PopoverDescription, PopoverTitle, PopoverTrigger};
-pub use progress::Progress;
+pub use progress::{Progress, ProgressTone};
 pub use radio_button::{RadioGroup, RadioGroupItem};
 pub use radio_button_group::{RadioButton, RadioButtonGroup, RadioButtonText};
 pub use scroll_area::{
@@ -195,10 +195,16 @@ pub use spinner::{Spinner, SpinnerCircle};
 pub use status::{Status, StatusDot, StatusVariant};
 pub use surface::{Surface, SurfaceElement, SurfaceRadius};
 pub use switch::{Switch, SwitchRow};
+pub use table::{
+    Table, TableBody, TableCaption, TableCell, TableFooter, TableHead, TableHeader, TableRow,
+    TableWrapper,
+};
 pub use tabs::{Tabs, TabsContent, TabsList, TabsTrigger};
 pub use text_field::TextField;
 pub use textarea::Textarea;
 pub use toast::{ToastHandle, ToastId, ToastPosition, ToastSpec, ToastVariant, Toaster, use_toast};
-pub use toggle_group::{ToggleGroup, ToggleGroupAction, ToggleGroupItem};
+pub use toggle_group::{
+    ToggleGroup, ToggleGroupAction, ToggleGroupItem, ToggleGroupSpacing, ToggleGroupVariant,
+};
 pub use tooltip::{Tooltip, TooltipContent, TooltipPosition, TooltipProvider};
 pub use usage_ring::UsageRing;

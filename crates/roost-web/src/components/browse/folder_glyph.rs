@@ -19,7 +19,7 @@ pub fn FolderGlyph(
     let named = title.is_some();
     rsx! {
         svg {
-            class: class.unwrap_or_else(|| "df-folder-glyph".to_owned()),
+            class: class.unwrap_or_default(),
             width: "{size}",
             height: "{size}",
             view_box: "0 0 24 24",

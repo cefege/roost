@@ -92,8 +92,9 @@ pub fn PaneTabHoverCard(session_id: String, anchor: ClientBox) -> Element {
                 }
             }
             div { class: "truncate text-xs font-mono text-muted-foreground", "{reading.cwd}" }
+            // The colour scheme writes its palette inline on <html>; bg-terminal reads the theme's fixed terminal colour and would ignore it.
             div { class: "mt-1 h-24 overflow-hidden rounded-md bg-[var(--terminal-grid-bg)]", "data-preview": "false",
-                div { class: "block size-full overflow-hidden rounded-[inherit] px-1.5 py-1 font-mono text-[0.4375rem] leading-[1.2] whitespace-pre box-border text-[var(--term-fg)] [&_span]:animate-none!", }
+                div { class: "block size-full overflow-hidden rounded-[inherit] px-1.5 py-1 font-mono text-[0.4375rem] leading-[1.2] whitespace-pre box-border text-[var(--terminal-grid-fg)] [&_span]:animate-none!", }
             }
         }
     }

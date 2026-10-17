@@ -12,9 +12,9 @@ use super::agent_connect_dialog::AgentConnectDialog;
 use super::agent_provider_list::AvailableProviders;
 use super::agent_provider_status::{ProviderSummary, provider_summaries};
 use super::agent_roles::{AgentRoles, load_settings, save_settings};
-use crate::components::agent_chat::agent_alert::ERROR_TEXT_CLASS;
 use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, EmptyState, IconButton, IconType, Skeleton, TextField,
+    Button, ButtonSize, ButtonVariant, EmptyState, FieldError, Icon, IconButton, IconType,
+    Skeleton, Tabs, TabsContent, TabsList, TabsTrigger, TextField,
 };
 use crate::pump::{Pump, use_store};
 #[cfg(target_arch = "wasm32")]
@@ -59,8 +59,8 @@ pub fn AgentModelsPane() -> Element {
     let mut reload = move |()| refresh += 1;
     let Some(catalog_value) = catalog() else {
         return rsx! {
-            div { class: "settings-pane", "data-testid": "agent-models-pane",
-                if !error().is_empty() { p { class: ERROR_TEXT_CLASS, role: "alert", {error()} } }
+        div { "data-testid": "agent-models-pane",
+            if !error().is_empty() { FieldError { {error()} } }
                 Skeleton { class: "h-24 w-full" }
             }
         };
@@ -76,32 +76,29 @@ pub fn AgentModelsPane() -> Element {
             .filter(|summary| KEYED_ENGINES.contains(&summary.provider.id.as_str()))
             .collect();
     rsx! {
-        div { class: "settings-pane", "data-testid": "agent-models-pane",
-            if !error().is_empty() { p { class: ERROR_TEXT_CLASS, role: "alert", {error()} } }
-            nav { class: "settings-tabs", role: "tablist", "aria-label": "Model settings",
-                for (key, label, icon) in [("models", "Models", IconType::Bot), ("accounts", "Provider accounts", IconType::Key), ("search", "Web search", IconType::Globe)] {
-                    Button {
-                        variant: if section() == key { ButtonVariant::Secondary } else { ButtonVariant::Ghost },
-                        size: ButtonSize::Sm,
-                        icon: Some(icon),
-                        id: format!("agent-settings-tab-{key}"),
-                        role: "tab",
-                        "aria-selected": (section() == key).to_string(),
-                        "aria-controls": "agent-settings-panel",
-                        tabindex: if section() == key { "0" } else { "-1" },
-                        "data-testid": format!("agent-settings-tab-{key}"),
-                        onclick: move |_| section.set(key),
-                        onkeydown: move |event| select_section(event, section),
-                        "{label}"
+        div { "data-testid": "agent-models-pane",
+            if !error().is_empty() { FieldError { {error()} } }
+            Tabs {
+                value: section(),
+                on_value_change: move |next: String| {
+                    if let Some(key) = ["models", "accounts", "search"].into_iter().find(|key| *key == next) {
+                        section.set(key);
+                    }
+                },
+                TabsList { aria_label: "Model settings",
+                    for (key, label, icon) in [
+                        ("models", "Models", IconType::Bot),
+                        ("accounts", "Provider accounts", IconType::Key),
+                        ("search", "Web search", IconType::Globe),
+                    ] {
+                        TabsTrigger { value: key, test_id: format!("agent-settings-tab-{key}"),
+                            Icon { icon }
+                            "{label}"
+                        }
                     }
                 }
-            }
-            div {
-                id: "agent-settings-panel",
-                class: "settings-tabpanel",
-                role: "tabpanel",
-                "aria-labelledby": format!("agent-settings-tab-{}", section()),
                 if section() == "models" {
+                    TabsContent { value: "models",
                     section { class: "flex flex-col gap-4", "data-testid": "agent-model-roles",
                         p { class: "text-sm text-muted-foreground",
                             "Choose a default once. Override a task or folder only when you need to. The chat picker changes one session."
@@ -117,7 +114,9 @@ pub fn AgentModelsPane() -> Element {
                         }
                         AgentRoles { catalog: catalog_value.clone(), settings, error }
                     }
+                    }
                 } else if section() == "accounts" {
+                    TabsContent { value: "accounts",
                     section { class: "flex flex-col gap-4", "data-testid": "agent-connected-providers",
                         div { class: "flex flex-wrap items-center gap-2",
                             h2 { class: "text-base font-semibold", "Connected providers" }
@@ -155,7 +154,9 @@ pub fn AgentModelsPane() -> Element {
                         }
                         AvailableProviders { providers: not_signed_in, on_connect: move |provider| connect_provider.set(Some(provider)) }
                     }
+                    }
                 } else {
+                    TabsContent { value: "search",
                     section { class: "flex flex-col gap-4", "data-testid": "agent-web-search",
                         h2 { class: "text-base font-semibold", "Search services" }
                         p { class: "text-sm text-muted-foreground", "Keyless engines work out of the box. Connect a service below to use its search API; engine order lives under Models → Customize by task." }
@@ -176,7 +177,7 @@ pub fn AgentModelsPane() -> Element {
                             providers: web_search.iter().filter(|summary| !summary.provider.configured).cloned().collect::<Vec<_>>(),
                             on_connect: move |provider| connect_provider.set(Some(provider)),
                         }
-                        form { class: "settings-search-save",
+                        form {
                             onsubmit: move |event| {
                                 event.prevent_default();
                                 let mut updated = settings();
@@ -199,6 +200,7 @@ pub fn AgentModelsPane() -> Element {
                                 "Save server"
                             }
                         }
+                    }
                     }
                 }
             }
@@ -313,19 +315,4 @@ fn load_everything(
     });
     #[cfg(not(target_arch = "wasm32"))]
     let _ = (pump, catalog, accounts, error);
-}
-
-fn select_section(event: KeyboardEvent, mut section: Signal<&'static str>) {
-    let keys = ["models", "accounts", "search"];
-    let active = keys.iter().position(|key| *key == section()).unwrap_or(0);
-    let next = match event.key().to_string().as_str() {
-        "ArrowRight" => (active + 1) % keys.len(),
-        "ArrowLeft" => (active + keys.len() - 1) % keys.len(),
-        "Home" => 0,
-        "End" => keys.len() - 1,
-        _ => return,
-    };
-    event.prevent_default();
-    section.set(keys[next]);
-    crate::components::deck::deck_dom::focus_by_id(&format!("agent-settings-tab-{}", keys[next]));
 }

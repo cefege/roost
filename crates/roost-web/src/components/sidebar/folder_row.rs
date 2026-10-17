@@ -11,9 +11,7 @@ use roost_client_core::client::agents::status_policy::{
 };
 use roost_client_core::store::selectors::{session_by_id, session_folder_key};
 use roost_client_core::store::sidebar::SidebarIntent;
-use roost_client_core::store::sidebar::folder_groups::{
-    FolderGroup, pr_check_color, pr_check_glyph,
-};
+use roost_client_core::store::sidebar::folder_groups::{FolderGroup, pr_check_glyph};
 use roost_client_core::store::sidebar::format::avatar_background;
 use roost_protocol::wire::SessionStatus;
 
@@ -162,7 +160,7 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
                     }
                     if show_rollup {
                         span {
-                            class: "inline-flex min-w-0 items-center gap-1 truncate text-xs text-muted-foreground data-[level=blocked]:text-[var(--status-warn)] data-[level=done]:text-[var(--status-ok)] data-[level=working]:text-[var(--status-info)]",
+                            class: "inline-flex min-w-0 items-center gap-1 truncate text-xs text-muted-foreground data-[level=blocked]:text-warning data-[level=done]:text-success data-[level=working]:text-info",
                             "data-level": agent_status_level_token(rollup.level),
                             "data-testid": "folder-agent-status-{group.key}",
                             StatusDot {
@@ -188,7 +186,6 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
                             PrBadgeChip {
                                 folder_key: group.key.clone(),
                                 glyph: pr_check_glyph(pr.checks).to_owned(),
-                                glyph_color: pr_check_color(pr.checks).to_owned(),
                                 pr,
                             }
                         }

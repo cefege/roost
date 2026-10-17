@@ -107,7 +107,7 @@ pub fn MainPane(route: Route) -> Element {
                 div {
                     "data-testid": "main-pane-sidebar-dim",
                     "aria-hidden": "true",
-                    style: "position: absolute; inset: 0; background: transparent; z-index: 48; cursor: pointer;",
+                    class: "absolute inset-0 z-[48] cursor-pointer bg-transparent",
                     onclick: move |_| dim_pump.dispatch(ClientEvent::Sidebar(SidebarIntent::CloseDrawer)),
                 }
             }

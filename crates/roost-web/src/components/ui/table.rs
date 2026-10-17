@@ -42,13 +42,14 @@ pub fn TableBody(#[props(into, optional)] class: Option<String>, children: Eleme
 pub fn TableRow(
     #[props(into, optional)] class: Option<String>,
     #[props(into, optional)] data_state: Option<String>,
+    #[props(into, optional)] test_id: Option<String>,
     children: Element,
 ) -> Element {
     let merged = tw_merge!(
         "border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50",
         class.as_deref().unwrap_or("")
     );
-    rsx! { tr { class: "{merged}", "data-state": data_state.as_deref(), {children} } }
+    rsx! { tr { class: "{merged}", "data-state": data_state.as_deref(), "data-testid": test_id.as_deref(), {children} } }
 }
 
 #[component]

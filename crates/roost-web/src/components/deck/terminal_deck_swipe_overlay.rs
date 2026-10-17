@@ -9,6 +9,7 @@ use roost_client_core::store::layout::PaneRect;
 
 use super::deck_swipe::{Swipe, SwipeMode, new_fab_progress};
 use super::deck_swipe_style::{new_fab_style, new_peek_style};
+use crate::components::ui::{Icon, IconType};
 
 /// The overlay, painted only on a compact new-terminal pull.
 #[component]
@@ -34,9 +35,7 @@ pub fn TerminalDeckSwipeOverlay(
             style: new_peek_style(Some(pull), pane_rect, deck_width, strip_height).css(),
             "aria-hidden": "true",
             div { class: "flex items-center gap-2.5 font-medium text-sm leading-tight tracking-[0.1px] text-muted-foreground",
-                svg { width: "20", height: "20", view_box: "0 0 24 24", fill: "none", stroke: "currentColor", stroke_width: "2.5", stroke_linecap: "round", "aria-hidden": "true",
-                    path { d: "M12 5v14M5 12h14" }
-                }
+                Icon { icon: IconType::Plus, class: "size-5 [stroke-width:2.5]" }
                 span { "New terminal · {folder_label}" }
             }
         }
@@ -46,9 +45,7 @@ pub fn TerminalDeckSwipeOverlay(
             "data-armed": armed.then_some("true"),
             style: new_fab_style(Some(pull), pane_rect, deck_width, strip_height).css(),
             "aria-hidden": "true",
-            svg { width: "30", height: "30", view_box: "0 0 24 24", fill: "none", stroke: "currentColor", stroke_width: "2.5", stroke_linecap: "round", "aria-hidden": "true",
-                path { d: "M12 5v14M5 12h14" }
-            }
+            Icon { icon: IconType::Plus, class: "size-7.5 [stroke-width:2.5]" }
         }
     }
 }

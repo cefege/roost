@@ -7,7 +7,7 @@ use roost_protocol::wire::agent_chat::JobState;
 
 use super::output_window::OutputWindow;
 use super::tool_view::{state_label, status_name, tool_state};
-use crate::components::ui::{Icon, IconType, StatusDot};
+use crate::components::ui::{Card, CardSize, CardVariant, Icon, IconType, StatusDot};
 
 /// Output rows a finished job shows before folding; the tail is what a reader
 /// of a settled job wants, as with bash.
@@ -26,7 +26,12 @@ pub fn BackgroundJobBox(
     let state_name = tool_state(false, false, false, false, is_error, Some(state.as_str()));
     let label = state_label(state_name);
     rsx! {
-        div { class: "flex min-w-0 flex-col gap-1 rounded-md border border-border p-2 data-[state=error]:border-destructive/40", "data-state": state_name, "data-tool": "bash",
+        Card {
+            variant: CardVariant::Outlined,
+            size: CardSize::Sm,
+            class: Some("min-w-0 gap-1 rounded-md p-2 data-[state=error]:border-destructive/40".to_owned()),
+            "data-state": state_name,
+            "data-tool": "bash",
             div { class: "flex min-w-0 items-center gap-2 text-sm text-muted-foreground",
                 span { class: "inline-flex flex-none items-center gap-1", Icon { icon: IconType::Terminal, class: "size-4" } }
                 span { class: "flex-none font-medium text-foreground", "Background job" }

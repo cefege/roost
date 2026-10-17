@@ -6,9 +6,10 @@
 use dioxus::prelude::*;
 
 use super::catalog::{
-    COLOR_GROUPS, ColorRole, ELEVATION_STEPS, SHAPE_STEPS, SPACE_BARS, SWATCH_GRID_CLASS, Specimen,
-    TILE_GRID_CLASS, TYPE_STEPS,
+    ELEVATION_STEPS, SHAPE_STEPS, SPACE_BARS, SWATCH_GRID_CLASS, Specimen, TILE_GRID_CLASS,
+    TYPE_STEPS,
 };
+use super::color_roles::{COLOR_GROUPS, ColorRole};
 use crate::components::ui::SectionTitle;
 
 /// One colour role: a chip painted with it, and its name.

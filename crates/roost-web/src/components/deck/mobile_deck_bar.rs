@@ -15,7 +15,9 @@ use roost_client_core::store::terminal_transport::session_terminal_transport_kin
 use super::pane_tab::direct_transport_label;
 use super::workspace_tabs_sheet::WorkspaceTabsSheet;
 use crate::components::terminal::terminal_transport_indicator::TerminalTransportIndicator;
-use crate::components::ui::{Icon, IconButton, IconType, StatusDot};
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, StatusDot,
+};
 use crate::pump::use_store;
 use crate::session_naming::session_title;
 
@@ -77,6 +79,16 @@ pub fn MobileDeckBar(
         tab_ids.iter().position(|id| *id == selected_tab),
     );
     let open_drawer = pump.clone();
+    let count_size = if badge.fraction {
+        ButtonSize::Xs
+    } else {
+        ButtonSize::IconXs
+    };
+    let count_class = if badge.fraction {
+        "h-7 w-auto min-w-7 px-1 text-xs font-semibold tabular-nums text-foreground"
+    } else {
+        "size-7 p-0 text-sm font-semibold text-foreground"
+    };
     rsx! {
         div {
             class: "flex items-center gap-2 h-12 shrink-0 px-2 bg-card border-b border-border text-foreground touch-pan-y",
@@ -104,20 +116,17 @@ pub fn MobileDeckBar(
             if reading.active {
                 TerminalTransportIndicator { session_id: selected_tab.clone() }
             }
-            button {
-                r#type: "button",
-                class: "flex size-9 shrink-0 cursor-pointer items-center justify-center gap-1 rounded-[10px] border-0 bg-transparent text-[var(--text-hi)] hover:bg-foreground/8 [-webkit-tap-highlight-color:transparent]",
-                "data-testid": "tab-new",
-                "aria-label": "New terminal — same folder & server",
+            IconButton {
+                icon: IconType::Plus,
+                label: "New terminal — same folder & server",
                 title: "New terminal in this folder",
+                "data-testid": "tab-new",
                 onclick: move |_| on_new_tab.call(()),
-                svg { width: "18", height: "18", view_box: "0 0 24 24", fill: "none", stroke: "currentColor", stroke_width: "2.5", stroke_linecap: "round",
-                    path { d: "M12 5v14M5 12h14" }
-                }
             }
-            button {
-                r#type: "button",
-                class: if badge.fraction { "flex h-7 w-auto min-w-7 shrink-0 box-border cursor-pointer items-center justify-center gap-1 rounded-md border-[1.5px] border-input bg-transparent px-1 text-xs font-semibold tabular-nums text-foreground hover:bg-foreground/8 [-webkit-tap-highlight-color:transparent]" } else { "flex size-7 shrink-0 box-border cursor-pointer items-center justify-center gap-1 rounded-md border-[1.5px] border-input bg-transparent p-0 text-sm font-semibold text-foreground hover:bg-foreground/8 [-webkit-tap-highlight-color:transparent]" },
+            Button {
+                variant: ButtonVariant::Outline,
+                size: count_size,
+                class: Some(count_class.to_owned()),
                 "data-testid": "mobile-tab-count",
                 "aria-label": "Open terminal grid — {badge.description}",
                 title: "{badge.description}",

@@ -59,7 +59,6 @@ pub fn AgentModelControls(
     let navigate = use_navigate();
     let open_settings = move || navigate.call(crate::routes::settings_pane_href("models"));
     let setup = ModelSetup::from_catalog(catalog.as_ref(), catalog_failed);
-    let mut picker_open = use_signal(|| false);
     let trigger_id = model_picker_trigger_id(&conversation.id);
     // Nothing to pick from: a button that says why, never an empty menu. The
     // id is the picker's, so `/model` lands here too.
@@ -114,24 +113,12 @@ pub fn AgentModelControls(
         .unwrap_or_default();
     let thinking_pump = pump.clone();
     let thinking_id = conversation.id.clone();
-    let expanded = if picker_open() { "true" } else { "false" };
     rsx! {
         div { class: "flex flex-wrap items-center gap-1",
-            Button {
-                variant: ButtonVariant::Ghost,
-                size: ButtonSize::Sm,
-                class: "min-w-0 max-w-full justify-start",
-                id: "{trigger_id}",
-                "aria-haspopup": "true",
-                "aria-expanded": expanded,
-                "data-testid": "agent-chat-model-trigger",
-                title: format!("{model_label}. Change the models for this chat and its subagents."),
-                onclick: move |_| picker_open.toggle(),
-                span { class: "truncate", "{model_label}" }
-            }
             RoleSwitcher {
-                open: picker_open,
                 trigger_id: trigger_id.clone(),
+                trigger_label: model_label.clone(),
+                trigger_title: format!("{model_label}. Change the models for this chat and its subagents."),
                 conversation: conversation.clone(),
                 catalog: catalog.clone(),
                 pump,

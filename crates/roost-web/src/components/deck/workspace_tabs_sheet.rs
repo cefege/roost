@@ -1,11 +1,12 @@
-//! The phone's full-screen terminal grid: a toolbar (back, new, count, ⋮)
-//! over a two-column grid of terminal cards; selection mode toggles cards and
-//! closes the selected ones. Opened from `MobileDeckBar`'s count square and
-//! rendered by `TerminalDeck` outside the deck element, so the deck's
-//! transform does not confine it. Ports `WorkspaceTabsSheet` from
-//! `apps/web/src/components/deck/MobileDeckBar.tsx`.
+//! The phone's full-screen terminal grid: a toolbar (back, new, count, ⋮) over
+//! a two-column grid of terminal and agent cards. Selection mode toggles cards
+//! and closes the selected ones. `MobileDeckBar` mounts it as a top `Sheet`
+//! only while open, so dismissal goes through its `on_close_sheet`.
 
-use crate::components::ui::{Icon, IconButton, IconType, StatusDot};
+use crate::components::ui::{
+    Button, ButtonVariant, Card, EmptyState, Icon, IconButton, IconType, Sheet, SheetContent,
+    SheetSide, StatusDot,
+};
 use dioxus::prelude::*;
 use roost_client_core::store::selectors::session_by_id;
 
@@ -94,98 +95,124 @@ pub fn WorkspaceTabsSheet(
     };
     let heading = sheet_heading(selection_mode(), selected_ids.read().len(), tab_ids.len());
     let session_count = sessions.len();
+    // The dialog's z-1000 stays: the scrim is at z-1000 too, and a lower z would
+    // leave the sheet under the dimmed scrim.
     rsx! {
-        div {
-            class: "workspace-tabs-sheet fixed inset-0 z-[60] flex flex-col bg-background pt-[env(safe-area-inset-top,0px)]",
-            "data-testid": "workspace-tabs-sheet",
-            div {
-                class: "workspace-tabs-head flex items-center gap-2 h-14 shrink-0 px-2 border-b border-border text-foreground",
-                if !selection_mode() {
-                    IconButton {
-                        icon: IconType::ArrowLeft,
-                        label: "Close terminal grid",
-                        "data-testid": "workspace-tabs-back",
-                        onclick: move |_| on_close_sheet.call(()),
+        Sheet {
+            open: true,
+            on_open_change: move |open: bool| {
+                if open {
+                    return;
+                }
+                // Escape leaves selection first: dismissing mid-selection would drop the picks.
+                if selection_mode() {
+                    exit_selection();
+                } else {
+                    on_close_sheet.call(());
+                }
+            },
+            SheetContent {
+                side: SheetSide::Top,
+                test_id: "workspace-tabs-sheet",
+                show_close_button: false,
+                close_on_backdrop_click: false,
+                class: "bottom-0 h-full flex flex-col overflow-hidden border-0 bg-background p-0 pt-[env(safe-area-inset-top,0px)] shadow-none",
+                div { class: "flex items-center gap-2 h-14 shrink-0 px-2 border-b border-border text-foreground",
+                    if !selection_mode() {
+                        IconButton {
+                            icon: IconType::ArrowLeft,
+                            label: "Close terminal grid",
+                            "data-testid": "workspace-tabs-back",
+                            onclick: move |_| on_close_sheet.call(()),
+                        }
+                        IconButton {
+                            icon: IconType::Plus,
+                            label: "New terminal",
+                            title: "New terminal in this folder",
+                            "data-testid": "workspace-tabs-new",
+                            onclick: move |_| on_new_tab.call(()),
+                        }
+                    } else {
+                        IconButton {
+                            icon: IconType::X,
+                            label: "Exit selection",
+                            "data-testid": "workspace-tabs-selection-exit",
+                            onclick: move |_| exit_selection(),
+                        }
                     }
-                    button {
-                        r#type: "button",
-                        class: "flex size-9 shrink-0 cursor-pointer items-center justify-center gap-1 rounded-[10px] border-0 bg-transparent text-[var(--text-hi)] hover:bg-foreground/8 [-webkit-tap-highlight-color:transparent]",
-                        "data-testid": "workspace-tabs-new",
-                        "aria-label": "New terminal",
-                        title: "New terminal in this folder",
-                        onclick: move |_| on_new_tab.call(()),
-                        svg { width: "18", height: "18", view_box: "0 0 24 24", fill: "none", stroke: "currentColor", stroke_width: "2.5", stroke_linecap: "round",
-                            path { d: "M12 5v14M5 12h14" }
+                    span { class: "flex-1 basis-0 text-base font-medium", "{heading}" }
+                    WorkspaceTabsMenu {
+                        selection_mode: selection_mode(),
+                        on_close_all: close_all,
+                        on_select_tabs: move |()| {
+                            selected_ids.set(Vec::new());
+                            selection_mode.set(true);
+                        },
+                        on_select_all: select_all,
+                        on_close_selected: close_selected,
+                    }
+                }
+                if sessions.is_empty() && agents.is_empty() {
+                    div {
+                        class: "flex flex-col items-center px-6 pt-16 pb-12",
+                        "data-testid": "workspace-tabs-empty",
+                        EmptyState {
+                            icon: IconType::Terminal,
+                            title: "No tabs",
+                            supporting: "Open one with the + above.",
                         }
                     }
                 } else {
-                    IconButton {
-                        icon: IconType::X,
-                        label: "Exit selection",
-                        "data-testid": "workspace-tabs-selection-exit",
-                        onclick: move |_| exit_selection(),
-                    }
-                }
-                span { class: "flex-1 basis-0 text-base font-medium", "{heading}" }
-                WorkspaceTabsMenu {
-                    selection_mode: selection_mode(),
-                    on_close_all: close_all,
-                    on_select_tabs: move |()| {
-                        selected_ids.set(Vec::new());
-                        selection_mode.set(true);
-                    },
-                    on_select_all: select_all,
-                    on_close_selected: close_selected,
-                }
-            }
-            if sessions.is_empty() && agents.is_empty() {
-                div { class: "flex flex-col items-center gap-3 px-6 pt-16 pb-12 text-center text-muted-foreground", "data-testid": "workspace-tabs-empty",
-                    div { class: "text-base font-medium text-foreground", "No tabs" }
-                    div { class: "max-w-[42ch] text-sm", "Open one with the + above." }
-                }
-            } else {
-                div { class: "grid grid-cols-2 content-start gap-2 flex-1 overflow-y-auto p-4",
-                    for (index, session) in sessions.into_iter().enumerate() {
-                        div { key: "{session.id.as_str()}", class: "min-w-0 animate-tc-card-enter motion-reduce:animate-none [animation-fill-mode:backwards]", style: format!("animation-delay: {}ms;", card_enter_delay_ms(index)), "data-flip-key": session.id.as_str().to_owned(),
-                            TerminalCard {
-                                active: session.id.as_str() == selected_tab,
-                                selected: selected_ids.read().iter().any(|id| id == session.id.as_str()),
-                                session: session.clone(),
-                                on_select: move |id| on_select.call(id),
-                                on_close: move |closed: roost_client_core::store::Session| on_close.call(closed.id.as_str().to_owned()),
-                                on_close_sheet: move |()| on_close_sheet.call(()),
-                                selection_mode: selection_mode(),
-                                on_toggle_select: move |id: String| {
-                                    let mut chosen = selected_ids.write();
-                                    match chosen.iter().position(|selected| *selected == id) {
-                                        Some(index) => {
-                                            chosen.remove(index);
+                    div { class: "grid grid-cols-2 content-start gap-2 flex-1 overflow-y-auto p-4",
+                        for (index, session) in sessions.into_iter().enumerate() {
+                            div { key: "{session.id.as_str()}", class: "min-w-0 animate-tc-card-enter motion-reduce:animate-none [animation-fill-mode:backwards]", style: format!("animation-delay: {}ms;", card_enter_delay_ms(index)), "data-flip-key": session.id.as_str().to_owned(),
+                                TerminalCard {
+                                    active: session.id.as_str() == selected_tab,
+                                    selected: selected_ids.read().iter().any(|id| id == session.id.as_str()),
+                                    session: session.clone(),
+                                    on_select: move |id| on_select.call(id),
+                                    on_close: move |closed: roost_client_core::store::Session| on_close.call(closed.id.as_str().to_owned()),
+                                    on_close_sheet: move |()| on_close_sheet.call(()),
+                                    selection_mode: selection_mode(),
+                                    on_toggle_select: move |id: String| {
+                                        let mut chosen = selected_ids.write();
+                                        match chosen.iter().position(|selected| *selected == id) {
+                                            Some(index) => {
+                                                chosen.remove(index);
+                                            }
+                                            None => chosen.push(id),
                                         }
-                                        None => chosen.push(id),
-                                    }
-                                },
+                                    },
+                                }
                             }
                         }
-                    }
-                    for (index, conversation) in agents.into_iter().enumerate() {
-                        {
-                            let tab_id = roost_client_core::deck::agent_tab_id(&conversation.id);
-                            let status = match conversation.run_state {
-                                roost_protocol::wire::agent_chat::AgentRunState::Running => "info",
-                                roost_protocol::wire::agent_chat::AgentRunState::Failed => "warn",
-                                roost_protocol::wire::agent_chat::AgentRunState::Idle => "idle",
-                            };
-                            rsx! {
-                                button {
-                                    key: "{tab_id}",
-                                    class: "min-w-0 animate-tc-card-enter motion-reduce:animate-none [animation-fill-mode:backwards]",
-                                    style: format!("animation-delay: {}ms;", card_enter_delay_ms(session_count + index)),
-                                    "data-testid": "workspace-agent-card-{conversation.id}",
-                                    aria_current: (tab_id == selected_tab).then_some("page"),
-                                    onclick: move |_| on_select.call(tab_id.clone()),
-                                    Icon { icon: IconType::Bot, class: "size-4 shrink-0" }
-                                    span { "{conversation.title}" }
-                                    StatusDot { status: status.to_owned() }
+                        for (index, conversation) in agents.into_iter().enumerate() {
+                            {
+                                let tab_id = roost_client_core::deck::agent_tab_id(&conversation.id);
+                                let status = match conversation.run_state {
+                                    roost_protocol::wire::agent_chat::AgentRunState::Running => "info",
+                                    roost_protocol::wire::agent_chat::AgentRunState::Failed => "warn",
+                                    roost_protocol::wire::agent_chat::AgentRunState::Idle => "idle",
+                                };
+                                rsx! {
+                                    div {
+                                        key: "{tab_id}",
+                                        class: "min-w-0 animate-tc-card-enter motion-reduce:animate-none [animation-fill-mode:backwards]",
+                                        style: format!("animation-delay: {}ms;", card_enter_delay_ms(session_count + index)),
+                                        Card {
+                                            class: Some("gap-0 overflow-hidden py-0".to_owned()),
+                                            Button {
+                                                variant: ButtonVariant::Ghost,
+                                                class: Some("h-auto w-full min-w-0 justify-start gap-2 rounded-[inherit] px-3 py-3 text-start font-normal".to_owned()),
+                                                "data-testid": "workspace-agent-card-{conversation.id}",
+                                                aria_current: (tab_id == selected_tab).then_some("page"),
+                                                onclick: move |_| on_select.call(tab_id.clone()),
+                                                Icon { icon: IconType::Bot, class: "size-4 shrink-0" }
+                                                span { class: "min-w-0 flex-1 truncate", "{conversation.title}" }
+                                                StatusDot { status: status.to_owned() }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

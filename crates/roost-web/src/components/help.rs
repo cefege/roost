@@ -15,6 +15,8 @@ pub mod shortcuts;
 
 use dioxus::prelude::*;
 
+use crate::components::ui::{Table, TableBody, TableCell, TableRow};
+
 #[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
 
@@ -34,20 +36,20 @@ pub fn HelpSurface() -> Element {
         .map(|entry| (entry.binding_label(platform), entry.label))
         .collect();
     rsx! {
-        div { class: "box-border flex h-full min-h-0 w-full flex-col overflow-auto bg-[var(--workbench-editor)] p-6 text-[var(--text-hi)]",
+        div { class: "box-border flex h-full min-h-0 w-full flex-col overflow-auto bg-[var(--workbench-editor)] p-6 text-foreground",
             div { class: "mx-auto max-w-[520px]",
                 h2 { class: "mt-0 mb-5 text-xl", "Help / Keybindings" }
-                table { class: "w-full border-collapse text-sm",
-                    tbody {
+                Table { class: "border-collapse",
+                    TableBody {
                         for (binding, label) in rows {
-                            tr { class: "border-b border-[var(--workbench-border)]",
-                                td { class: "w-2/5 py-2 pr-4 font-mono text-[var(--workbench-active)]", {binding} }
-                                td { class: "py-2", {label} }
+                            TableRow { class: "border-border",
+                                TableCell { class: "w-2/5 pl-0 pr-4 py-2 font-mono text-[var(--workbench-active)]", {binding} }
+                                TableCell { class: "px-0 py-2", {label} }
                             }
                         }
                     }
                 }
-                p { class: "mt-5 mb-0 text-xs text-[var(--text-lo)]", "Press Esc to close." }
+                p { class: "mt-5 mb-0 text-xs text-muted-foreground", "Press Esc to close." }
             }
         }
         HelpOverlayHost {}

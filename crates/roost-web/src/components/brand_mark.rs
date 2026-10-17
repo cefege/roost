@@ -31,7 +31,6 @@ pub fn BrandMark(size: &'static str) -> Element {
             height: size,
             fill: "currentColor",
             "aria-hidden": "true",
-            class: "brand-mark",
             ellipse { cx: "11.5", cy: "12.5", rx: "6.2", ry: "6.4" }
             circle { cx: "14.5", cy: "8", r: "3.6" }
             polygon { points: "17.5,6.4 19.9,8.8 17.5,11.2" }

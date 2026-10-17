@@ -32,7 +32,9 @@ use crate::voice::send_gate::SendGate;
 use crate::components::layout::portal::Portal;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::terminal::pane_handle::PaneHandle;
-use crate::components::ui::{ButtonSize, ButtonVariant, IconButton, IconType};
+use crate::components::ui::{
+    ButtonSize, ButtonVariant, IconButton, IconType, InputPromptTextarea, Surface,
+};
 
 /// What a submission is doing, for the status line under the field.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -150,7 +152,6 @@ pub fn TerminalComposer(
     });
 
     let disabled = !active || pending;
-    let value = draft();
     // The ghost is painted from the same split the voice state machine hands the
     // mic, so the field and the mirror can never disagree about where the
     // hypothesis starts.
@@ -293,9 +294,12 @@ pub fn TerminalComposer(
                 staged_files,
                 on_send_uploads,
             }
-            div {
-                class: "group/box pointer-events-auto relative grid grid-cols-[minmax(0,1fr)_auto_auto] items-end gap-1 rounded-[1.75rem] bg-popover p-1 shadow-lg animate-voice-dock-enter motion-reduce:animate-none data-[compact=true]:grid-rows-[auto_var(--term-chat-control)] data-[compact=false]:grid-cols-[auto_minmax(0,1fr)_auto_auto] data-[compact=false]:grid-rows-[auto] tv:data-[keys=true]:data-[compact=false]:grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] @max-[220px]/term-chat-pane:data-[compact=false]:grid-cols-3 @max-[220px]/term-chat-pane:data-[compact=false]:grid-rows-[auto_auto] @max-[148px]/term-chat-pane:data-[compact=false]:grid-cols-2 @max-[148px]/term-chat-pane:data-[compact=false]:grid-rows-[auto_auto_auto] @max-[104px]/term-chat-pane:data-[compact=false]:grid-cols-[minmax(0,1fr)] @max-[104px]/term-chat-pane:data-[compact=false]:grid-rows-[auto_auto_auto_auto] @max-[52px]/term-chat-pane:px-0",
-                "data-testid": "chat-box",
+            Surface {
+                level: 2,
+                elevation: 4,
+                pad: 1,
+                test_id: "chat-box",
+                class: "group/box pointer-events-auto relative grid grid-cols-[minmax(0,1fr)_auto_auto] items-end gap-1 rounded-[1.75rem] animate-voice-dock-enter motion-reduce:animate-none data-[compact=true]:grid-rows-[auto_var(--term-chat-control)] data-[compact=false]:grid-cols-[auto_minmax(0,1fr)_auto_auto] data-[compact=false]:grid-rows-[auto] tv:data-[keys=true]:data-[compact=false]:grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] @max-[220px]/term-chat-pane:data-[compact=false]:grid-cols-3 @max-[220px]/term-chat-pane:data-[compact=false]:grid-rows-[auto_auto] @max-[148px]/term-chat-pane:data-[compact=false]:grid-cols-2 @max-[148px]/term-chat-pane:data-[compact=false]:grid-rows-[auto_auto_auto] @max-[104px]/term-chat-pane:data-[compact=false]:grid-cols-[minmax(0,1fr)] @max-[104px]/term-chat-pane:data-[compact=false]:grid-rows-[auto_auto_auto_auto] @max-[52px]/term-chat-pane:px-0",
                 "data-composer-part": "box",
                 "data-compact": if compact { "true" } else { "false" },
                 "data-keys": key_tray.is_some().then_some("true"),
@@ -314,22 +318,22 @@ pub fn TerminalComposer(
                 div {
                     class: "relative grid min-w-0 col-span-full row-start-1 group-data-[compact=false]/box:[grid-column:2] @max-[220px]/term-chat-pane:group-data-[compact=false]/box:[grid-column:1/-1]",
                     "data-testid": "chat-field",
-                    textarea {
-                        class: "relative z-1 box-border min-h-(--term-chat-control) w-full min-w-0 resize-none border-none bg-transparent px-3 py-(--term-chat-field-pad-block) font-sans text-[length:max(1rem,var(--term-chat-font-size))] leading-(--term-chat-line-height) text-foreground outline-none overflow-y-auto max-h-[min(calc(var(--term-chat-line-height)_*_var(--term-chat-field-max-lines)_+_2_*_var(--term-chat-field-pad-block)),calc(var(--term-chat-pane-height,calc(100dvh_-_max(var(--kb-offset,0px),0px)))_*_var(--term-chat-field-room-share)))] placeholder:whitespace-nowrap placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary focus-visible:rounded-lg data-[ghosted=true]:text-transparent data-[ghosted=true]:caret-foreground data-[ghosted=true]:[scrollbar-width:none] data-[ghosted=true]:[&::-webkit-scrollbar]:hidden",
+                    InputPromptTextarea {
+                        value: draft,
+                        class: "relative z-1 box-border min-h-[var(--term-chat-control)] w-full min-w-0 resize-none border-none bg-transparent px-3 py-[var(--term-chat-field-pad-block)] font-sans text-[length:max(1rem,var(--term-chat-font-size))] leading-(--term-chat-line-height) text-foreground outline-none field-sizing-fixed overflow-y-auto max-h-[min(calc(var(--term-chat-line-height)_*_var(--term-chat-field-max-lines)_+_2_*_var(--term-chat-field-pad-block)),calc(var(--term-chat-pane-height,calc(100dvh_-_max(var(--kb-offset,0px),0px)))_*_var(--term-chat-field-room-share)))] placeholder:whitespace-nowrap placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary focus-visible:rounded-lg data-[ghosted=true]:text-transparent data-[ghosted=true]:caret-foreground data-[ghosted=true]:[scrollbar-width:none] data-[ghosted=true]:[&::-webkit-scrollbar]:hidden disabled:cursor-auto disabled:opacity-100",
                         "data-testid": "chat-input",
                         "data-composer-part": "input",
                         "data-ghosted": ghost.has_ghost().then_some("true"),
-                        "aria-label": "Terminal input",
+                        aria_label: "Terminal input",
                         rows: "1",
                         placeholder: dictation.placeholder(),
                         disabled: disabled,
-                        value: "{value}",
-                        onmounted: move |event: MountedEvent| field.set(Some(event.data())),
-                        oninput: move |event: FormEvent| {
+                        submit_on_enter: false,
+                        on_mounted: move |event: MountedEvent| field.set(Some(event.data())),
+                        on_input: move |_next: String| {
                             // A keystroke ends the provisional paint: the words
                             // the operator typed are now the draft.
                             dictation.forget_provisional();
-                            draft.set(event.value());
                             status.set(SubmissionStatus::default());
                         },
                     }

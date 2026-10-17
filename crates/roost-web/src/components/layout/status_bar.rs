@@ -116,7 +116,7 @@ pub fn StatusBar() -> Element {
     .map(|session| session.id.as_str().to_owned());
     rsx! {
         footer {
-            class: "flex min-w-0 items-center gap-3 overflow-hidden border-t border-[var(--workbench-border)] bg-[var(--workbench-status)] px-2 font-medium text-xs text-[var(--text-mid)] [grid-area:statusbar]",
+            class: "flex min-w-0 items-center gap-3 overflow-hidden border-t border-border bg-[var(--workbench-status)] px-2 font-medium text-xs text-[var(--text-mid)] [grid-area:statusbar]",
             "data-testid": "workbench-status-bar",
             "aria-label": "Workbench status",
             div { class: "contents",
@@ -145,7 +145,7 @@ pub fn StatusBar() -> Element {
                 }
                 if let Some(context) = context {
                     span {
-                        class: "inline-flex min-w-0 shrink-0 items-center gap-1 overflow-hidden text-ellipsis whitespace-nowrap tabular-nums text-[var(--text-lo)] max-[1100px]:hidden",
+                        class: "inline-flex min-w-0 shrink-0 items-center gap-1 overflow-hidden text-ellipsis whitespace-nowrap tabular-nums text-muted-foreground max-[1100px]:hidden",
                         "data-testid": "workbench-status-context",
                         {context}
                     }
@@ -164,7 +164,7 @@ pub fn StatusBar() -> Element {
                 }
                 if let Some(revision) = readings.revision.clone() {
                     span {
-                        class: "inline-flex min-w-0 shrink-0 items-center gap-1 ml-auto whitespace-nowrap tabular-nums font-[family-name:var(--font-mono)] text-[var(--text-lo)] max-[1100px]:hidden",
+                        class: "inline-flex min-w-0 shrink-0 items-center gap-1 ml-auto whitespace-nowrap tabular-nums font-[family-name:var(--font-mono)] text-muted-foreground max-[1100px]:hidden",
                         "data-testid": "workbench-status-revision",
                         {revision}
                     }

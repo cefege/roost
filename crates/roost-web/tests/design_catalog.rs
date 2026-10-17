@@ -10,7 +10,8 @@
 
 use std::collections::BTreeSet;
 
-use roost_web::components::design::catalog::{COLOR_GROUPS, SHAPE_STEPS};
+use roost_web::components::design::catalog::SHAPE_STEPS;
+use roost_web::components::design::color_roles::COLOR_GROUPS;
 use roost_web::theme::tokens::CanonicalToken;
 
 const THEME_VARS: &str = include_str!("../assets/styles/theme-vars.css");

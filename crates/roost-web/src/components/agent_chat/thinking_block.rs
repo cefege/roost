@@ -4,7 +4,10 @@
 
 use dioxus::prelude::*;
 
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, Icon, IconType, Markdown, Shimmer};
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Collapsible, CollapsibleContent, CollapsibleTrigger, Icon,
+    IconType, Markdown, Shimmer,
+};
 
 #[component]
 pub(super) fn ThinkingBlock(text: String, live: bool, globally_visible: bool) -> Element {
@@ -56,29 +59,30 @@ pub(super) fn ThinkingBlock(text: String, live: bool, globally_visible: bool) ->
     rsx! {
         if globally_visible || live {
             section { class: "flex flex-col gap-1 text-sm", "data-live": live.then_some("true"),
-                Button {
-                    variant: ButtonVariant::Ghost,
-                    size: ButtonSize::Sm,
-                    class: "justify-start text-muted-foreground",
-                    aria_expanded: (expanded() && globally_visible).to_string(),
-                    disabled: !globally_visible,
-                    onclick: move |_| {
+                Collapsible {
+                    class: "flex flex-col gap-1",
+                    open: expanded() && globally_visible,
+                    on_open_change: move |next: bool| {
                         manually_changed.set(true);
-                        expanded.set(!expanded());
+                        expanded.set(next);
                     },
-                    Icon { icon: IconType::Brain, class: "size-4" }
-                    if live {
-                        Shimmer { loading: shimmering, "{label}" }
-                    } else {
-                        span { "{label}" }
+                    CollapsibleTrigger {
+                        variant: ButtonVariant::Ghost,
+                        size: ButtonSize::Sm,
+                        class: "justify-start text-muted-foreground",
+                        disabled: !globally_visible,
+                        Icon { icon: IconType::Brain, class: "size-4" }
+                        if live {
+                            Shimmer { loading: shimmering, "{label}" }
+                        } else {
+                            span { "{label}" }
+                        }
+                        Icon {
+                            icon: if expanded() && globally_visible { IconType::ChevronUp } else { IconType::ChevronDown },
+                            class: "size-4",
+                        }
                     }
-                    Icon {
-                        icon: if expanded() && globally_visible { IconType::ChevronUp } else { IconType::ChevronDown },
-                        class: "size-4",
-                    }
-                }
-                if expanded() && globally_visible {
-                    div { class: "flex flex-col gap-2 border-l border-border pl-3 text-muted-foreground",
+                    CollapsibleContent { class: "flex flex-col gap-2 border-l border-border pl-3 text-muted-foreground",
                         if omitted_live_lines {
                             p { class: "text-xs text-muted-foreground", "Earlier lines are omitted from the live preview." }
                         }

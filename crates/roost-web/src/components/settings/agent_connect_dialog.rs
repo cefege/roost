@@ -8,10 +8,9 @@ use roost_protocol::wire::agent_chat::ProviderEntry;
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::client::rpc::calls::agent_chat::{SetAgentApiKey, StartAgentLogin};
 
-use crate::components::agent_chat::agent_alert::ERROR_TEXT_CLASS;
 use crate::components::ui::{
-    Button, ButtonVariant, Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, IconType,
-    TextField,
+    Button, ButtonVariant, Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle,
+    FieldError, IconType, TextField,
 };
 use crate::pump::{Pump, use_store};
 
@@ -108,7 +107,7 @@ pub fn AgentConnectDialog(
                             "Save API key"
                         }
                         if !error().is_empty() {
-                            p { class: ERROR_TEXT_CLASS, role: "alert", {error()} }
+                            FieldError { {error()} }
                         }
                         Button {
                             variant: ButtonVariant::Link,

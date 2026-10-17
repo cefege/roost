@@ -9,7 +9,6 @@ use roost_protocol::wire::agent_chat::{
     ConversationSummary, ModelsCatalog, ProviderEntry, Transcript, parse_slash_command,
 };
 
-use super::agent_alert::ERROR_TEXT_CLASS;
 use super::composer_footer::ComposerFooter;
 #[cfg(target_arch = "wasm32")]
 use super::composer_helpers::abort_run;
@@ -21,7 +20,7 @@ use super::slash_menu::{
     scroll_option_into_view, slash_menu_state, slash_sources,
 };
 use crate::components::settings::agent_connect_dialog::AgentConnectDialog;
-use crate::components::ui::{InputPromptTextarea, Surface};
+use crate::components::ui::{FieldError, InputPrompt, InputPromptTextarea};
 use crate::pump::Pump;
 use crate::router_state::use_navigate;
 
@@ -231,12 +230,8 @@ pub fn AgentComposer(
                     on_choose: pick,
                 }
             }
-            Surface {
-                class: Some("flex min-w-0 flex-col gap-1 focus-within:outline-1 focus-within:outline-solid focus-within:outline-offset-1 focus-within:outline-primary".to_owned()),
-                level: 1,
-                elevation: 1,
-                border: true,
-                pad: Some(3),
+            InputPrompt {
+                class: "min-w-0 flex-col",
                 ComposerErrorBanner {
                     error: run_error,
                     running,
@@ -248,7 +243,7 @@ pub fn AgentComposer(
                     placeholder,
                     aria_label: "Message the agent",
                     disabled,
-                    class: "min-h-6 max-h-60 py-1 px-0 text-base leading-6",
+                    class: "w-full min-h-6 max-h-60 py-1 px-3 text-base leading-6",
                     on_mounted: capture_field,
                     on_keydown: handle_draft_key,
                     on_input: handle_draft_input,
@@ -262,7 +257,7 @@ pub fn AgentComposer(
                     "data-testid": "agent-chat-input",
                 }
                 if let Some(message) = command_error() {
-                    p { class: ERROR_TEXT_CLASS, role: "alert", "data-testid": "agent-command-error", "{message}" }
+                    FieldError { test_id: "agent-command-error", class: "px-3 pb-1", {message} }
                 }
                 ComposerFooter {
                     conversation: conversation.clone(),

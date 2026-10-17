@@ -8,10 +8,10 @@ use roost_protocol::wire::agent_chat::{AccountEntry, AccountKind, AccountUsageWi
 
 use super::agent_provider_status::{AccountHealth, ProviderSummary};
 use super::format::time_until;
-use crate::components::agent_chat::agent_alert::ERROR_TEXT_CLASS;
 use crate::components::ui::{
     Button, ButtonSize, ButtonVariant, Card, CardAction, CardContent, CardDescription, CardHeader,
-    CardTitle, CardVariant, Chip, IconType, List, ListRow, MetricTile, SectionTitle, StatusDot,
+    CardTitle, CardVariant, Chip, FieldError, IconType, List, ListRow, MetricTile, SectionTitle,
+    StatusDot,
 };
 use crate::pump::{Pump, use_store};
 #[cfg(target_arch = "wasm32")]
@@ -97,7 +97,7 @@ fn AccountRow(account: AccountEntry, now_ms: u64, on_removed: EventHandler<()>) 
                     }
                     if let Some(note) = note { div { class: "text-sm text-muted-foreground", "{note}" } }
                     if !error().is_empty() {
-                        p { class: ERROR_TEXT_CLASS, role: "alert", {error()} }
+                        FieldError { {error()} }
                     }
                 }
             },

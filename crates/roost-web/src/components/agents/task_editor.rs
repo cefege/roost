@@ -15,7 +15,7 @@ use roost_client_core::client::rpc::calls::tasks::EnqueueTask;
 use roost_protocol::wire::Worker;
 use serde_json::{Value, json};
 
-use crate::components::ui::{Button, ButtonVariant, Select, SelectOption, TextField};
+use crate::components::ui::{Button, ButtonVariant, FieldError, Select, SelectOption, TextField};
 use crate::pump::{Pump, use_store};
 
 /// The option that pins no machine: the coordinator picks one that is reachable.
@@ -209,12 +209,7 @@ pub fn TaskEditor(
                 control_class: Some("font-mono".to_owned()),
             }
             if let Some(message) = error() {
-                div {
-                    "data-testid": "task-editor-error",
-                    role: "alert",
-                    class: "text-sm text-destructive",
-                    {message}
-                }
+                FieldError { test_id: "task-editor-error", {message} }
             }
             div { class: "flex justify-end gap-2",
                 if show_cancel {

@@ -5,9 +5,10 @@
 
 use dioxus::prelude::*;
 
+use crate::components::ui::toggle_group::ToggleGroupSpacing;
 use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, StatusDot, Surface,
-    SurfaceRadius,
+    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, ListRow, StatusDot, Surface,
+    SurfaceRadius, ToggleGroup, ToggleGroupItem,
 };
 
 /// The specimen's grid: rail, sidebar and editor between the title and status
@@ -68,46 +69,42 @@ pub fn WorkbenchShellSpecimen() -> Element {
             nav {
                 class: "flex flex-col items-center gap-2 bg-[var(--workbench-activity)] p-2",
                 "aria-label": "Workbench activity",
-                Icon { icon: IconType::Terminal, class: "size-5 text-[var(--workbench-active)]" }
+                Icon { icon: IconType::Terminal, class: "size-5 text-sidenav-primary" }
                 Icon { icon: IconType::Search, class: "size-5 text-muted-foreground" }
                 Icon { icon: IconType::Folder, class: "size-5 text-muted-foreground" }
                 span { class: "flex-1" }
                 Icon { icon: IconType::Settings, class: "size-5 text-muted-foreground" }
             }
             aside {
-                class: "grid bg-[var(--workbench-sidebar)]",
+                class: "grid bg-sidenav",
                 div { class: "flex flex-col gap-2 p-2",
-                    div { class: "flex items-center gap-1", role: "group", "aria-label": "Sidebar view",
-                        Button {
-                            class: "data-[selected=true]:bg-accent",
-                            size: ButtonSize::Sm,
-                            variant: ButtonVariant::Ghost,
-                            "data-selected": "true",
-                            "aria-pressed": "true",
+                    ToggleGroup {
+                        class: "bg-muted p-0.5",
+                        spacing: ToggleGroupSpacing::Flush,
+                        aria_label: "Sidebar view",
+                        ToggleGroupItem {
+                            class: "h-8 flex-1 data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm",
+                            title: "Folders",
+                            pressed: true,
                             "Folders"
                         }
-                        Button {
-                            class: "data-[selected=true]:bg-accent",
-                            size: ButtonSize::Sm,
-                            variant: ButtonVariant::Ghost,
-                            "data-selected": "false",
-                            "aria-pressed": "false",
+                        ToggleGroupItem {
+                            class: "h-8 flex-1 data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm",
+                            title: "Agents",
+                            pressed: false,
                             "Agents"
                         }
                     }
                 }
                 div { class: "min-h-0 overflow-y-auto",
-                    div { class: "flex flex-col", "data-active": "true",
-                        div { class: "flex flex-col gap-2 p-3 text-foreground",
-                            div { class: "flex items-center gap-2 text-sm",
-                                StatusDot { status: "running" }
-                                span { "roost · main" }
-                            }
-                            div { class: "text-xs text-muted-foreground", "~/projects/roost" }
-                        }
+                    ListRow {
+                        selected: true,
+                        leading: rsx! { StatusDot { status: "running" } },
+                        headline: rsx! { span { "roost · main" } },
+                        support: rsx! { span { "~/projects/roost" } },
                     }
                 }
-                footer { class: "flex items-center gap-2 border-t border-[var(--workbench-border)] p-2",
+                footer { class: "flex items-center gap-2 border-t border-border p-2",
                     Button { class: "min-w-0 flex-1 justify-start", variant: ButtonVariant::Ghost, size: ButtonSize::Sm,
                         StatusDot { status: "ok" }
                         span { class: "min-w-0 truncate", "mini" }
@@ -115,7 +112,7 @@ pub fn WorkbenchShellSpecimen() -> Element {
                     }
                     Button { class: "shrink-0", variant: ButtonVariant::Default, size: ButtonSize::Sm, icon: IconType::Plus, "aria-label": "New terminal", "New" }
                 }
-                footer { class: "flex items-center gap-2 border-t border-[var(--workbench-border)] p-2", "aria-label": "One machine online",
+                footer { class: "flex items-center gap-2 border-t border-border p-2", "aria-label": "One machine online",
                     span { class: "flex min-w-0 flex-1 items-center gap-2",
                         StatusDot { status: "ok" }
                         span { class: "min-w-0 truncate", "desktop-pc" }

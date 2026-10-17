@@ -23,7 +23,7 @@ use roost_protocol::wire::{HostMetrics, Worker};
 
 use crate::components::machines::machine_identity_mark::MachineIdentityMark;
 use crate::components::ui::{
-    Button, ButtonVariant, Chip, IconType, ListRow, MetricTile, StatusDot, TextField,
+    Button, ButtonVariant, Chip, FieldError, IconType, ListRow, MetricTile, StatusDot, TextField,
 };
 use crate::display_format::{format_bytes, format_speed};
 use crate::pump::Pump;
@@ -126,7 +126,7 @@ pub fn MachineRowView(
                         RenameForm { fingerprint: fingerprint.clone(), row, pump: pump.clone() }
                     }
                     if let Some(message) = state.error.clone() {
-                        p { class: "text-sm text-destructive", {message} }
+                        FieldError { {message} }
                     }
                     if online {
                         if let Some(metrics) = worker.host_metrics.clone() {

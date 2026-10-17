@@ -17,8 +17,9 @@ use roost_client_core::client::rpc::calls::settings::audit::{AuditLogPage, ListA
 
 use super::format::{format_timestamp, short_identifier};
 use crate::components::ui::{
-    Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyState,
-    IconType, TextField,
+    Badge, BadgeVariant, Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader,
+    CardTitle, EmptyState, FieldError, IconType, Table, TableBody, TableCell, TableRow,
+    TableWrapper, TextField,
 };
 use crate::pump::{Pump, use_store};
 
@@ -92,7 +93,7 @@ pub fn AuditLogPane() -> Element {
                 }
                 CardContent { class: "flex flex-col gap-3",
                     if let Some(message) = state.error.clone() {
-                        p { role: "alert", class: "m-0 text-sm text-destructive", {message} }
+                        FieldError { {message} }
                     }
                     if !state.loaded {
                         span { class: "text-sm text-muted-foreground", "Loading…" }
@@ -103,9 +104,13 @@ pub fn AuditLogPane() -> Element {
                             supporting: "Nothing has matched yet. Widen the filter, or drive some coordinator traffic.",
                         }
                     } else {
-                        div { class: "flex flex-col",
-                            for row in rows {
-                                AuditTableRow { row }
+                        TableWrapper { class: "max-h-none rounded-none border-0",
+                            Table {
+                                TableBody {
+                                    for row in rows {
+                                        AuditTableRow { row }
+                                    }
+                                }
                             }
                         }
                     }
@@ -127,36 +132,35 @@ pub fn AuditLogPane() -> Element {
     }
 }
 
-/// One row, in the table anatomy the pane's own card supplies.
+/// One row of the audit table; the pane's `TableBody` supplies the table around it.
 #[component]
 fn AuditTableRow(row: AuditLogRow) -> Element {
-    let tone_class = if row.status < 300 {
-        "bg-secondary text-secondary-foreground"
+    let tone_variant = if row.status < 300 {
+        BadgeVariant::Secondary
     } else if row.status < 400 {
-        "bg-muted text-foreground"
+        BadgeVariant::Muted
     } else if row.status < 500 {
-        "bg-accent text-accent-foreground"
+        BadgeVariant::Accent
     } else {
-        "bg-destructive text-destructive-foreground"
+        BadgeVariant::Destructive
     };
     rsx! {
-        div {
-            class: "flex w-full items-center gap-4 px-4 py-2 text-sm",
-            "data-testid": "audit-row",
-            "data-status": row.status.to_string(),
-            span { class: "min-w-[10ch] font-mono text-muted-foreground",
+        TableRow { test_id: "audit-row",
+            TableCell { class: "min-w-[10ch] py-2 font-mono text-muted-foreground",
                 {format_timestamp(row.ts)}
             }
-            span { class: "min-w-0 flex-1 truncate font-mono", title: row.path.clone(),
-                {row.method.clone()}
+            TableCell { class: "max-w-0 w-full py-2",
+                span { class: "block truncate font-mono", title: row.path.clone(),
+                    {row.method.clone()}
+                }
             }
-            span { class: "font-mono text-muted-foreground",
+            TableCell { class: "py-2 font-mono text-muted-foreground",
                 {row.path.clone()}
             }
-            span { class: "rounded-full px-2 py-0.5 text-xs font-medium {tone_class}",
-                {row.status.to_string()}
+            TableCell { class: "py-2",
+                Badge { variant: tone_variant, {row.status.to_string()} }
             }
-            span { class: "text-xs font-medium text-muted-foreground",
+            TableCell { class: "py-2 text-xs font-medium text-muted-foreground",
                 {row.caller_label.clone().unwrap_or_else(|| {
                     short_identifier(row.caller_fp.as_deref().unwrap_or("no caller"), 12)
                 })}

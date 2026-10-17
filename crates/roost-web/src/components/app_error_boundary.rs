@@ -6,7 +6,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, Icon, IconType};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, Icon, IconType, Surface};
 
 /// The diagnostic a reader copies, as pretty JSON (v2's payload shape).
 pub fn diagnostic_payload(url: &str, user_agent: &str, time_iso: &str, error: &str) -> String {
@@ -69,7 +69,7 @@ fn ErrorFallback(message: String, errors: ErrorContext) -> Element {
         div {
             "data-testid": "error-boundary",
             class: "grid min-h-dvh w-full place-items-center bg-background p-6 text-foreground",
-            div { class: "flex w-full max-w-[64ch] flex-col gap-4 rounded-xl border border-border bg-card p-6 text-card-foreground",
+            Surface { border: true, pad: Some(6), class: Some("flex w-full max-w-[64ch] flex-col gap-4 rounded-xl text-card-foreground".to_owned()),
                 div { class: "flex items-center gap-2",
                     Icon { icon: IconType::CircleAlert, class: "size-4 text-destructive" }
                     h1 { class: "m-0 text-lg font-semibold text-destructive", "Unexpected error" }

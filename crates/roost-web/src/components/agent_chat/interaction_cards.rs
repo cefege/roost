@@ -7,10 +7,10 @@ use std::collections::BTreeMap;
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{AskQuestion, TodoPhase, TodoStatus};
 
-use super::agent_alert::ERROR_TEXT_CLASS;
 use crate::components::ui::{
     Button, ButtonVariant, Card, CardContent, CardHeader, CardTitle, CardVariant, Checkbox, Chip,
-    Icon, IconType, ListRow, SectionTitle, Shimmer, StatusDot, Surface, SurfaceElement, TextField,
+    Collapsible, CollapsibleContent, CollapsibleTrigger, FieldError, Icon, IconType, Label,
+    ListRow, SectionTitle, Shimmer, StatusDot, Surface, SurfaceElement, TextField,
 };
 use crate::pump::Pump;
 
@@ -38,45 +38,63 @@ pub fn TodoCard(phases: Vec<TodoPhase>) -> Element {
         });
     rsx! {
         Surface { element: SurfaceElement::Section, class: Some("flex flex-col gap-2 min-w-0".to_owned()), test_id: Some("agent-chat-todo".to_owned()), level: 1, pad: Some(2), border: true,
-            Button {
-                variant: ButtonVariant::Link,
-                class: Some("h-auto min-w-0 justify-start gap-2 whitespace-normal text-left".to_owned()),
-                "aria-expanded": expanded().to_string(),
-                "data-testid": "agent-chat-todo-toggle",
-                onclick: move |_| expanded.set(!expanded()),
-                Icon { icon: IconType::ListChecks, class: "size-4" }
-                strong { class: "font-medium", "To-do {closed}/{total}" }
-                if let Some(task) = preview {
-                    span { class: "min-w-0 truncate text-muted-foreground", "{task.content}" }
-                    if let Some(blocker) = &task.blocker { span { class: "text-xs text-destructive", "{blocker}" } }
-                } else if total == 0 {
-                    span { class: "text-muted-foreground", "No tasks" }
-                } else {
-                    span { class: "text-muted-foreground", "All tasks closed" }
+            Collapsible { class: "flex flex-col gap-2 min-w-0", open: expanded(), on_open_change: move |next: bool| expanded.set(next),
+                CollapsibleTrigger {
+                    variant: ButtonVariant::Link,
+                    class: "h-auto min-w-0 justify-start gap-2 whitespace-normal text-left",
+                    test_id: "agent-chat-todo-toggle",
+                    Icon { icon: IconType::ListChecks, class: "size-4" }
+                    strong { class: "font-medium", "To-do {closed}/{total}" }
+                    if let Some(task) = preview {
+                        span { class: "min-w-0 truncate text-muted-foreground", "{task.content}" }
+                        if let Some(blocker) = &task.blocker { span { class: "text-xs text-destructive", "{blocker}" } }
+                    } else if total == 0 {
+                        span { class: "text-muted-foreground", "No tasks" }
+                    } else {
+                        span { class: "text-muted-foreground", "All tasks closed" }
+                    }
+                    Icon { icon: if expanded() { IconType::ChevronUp } else { IconType::ChevronDown }, class: "size-4" }
                 }
-                Icon { icon: if expanded() { IconType::ChevronUp } else { IconType::ChevronDown }, class: "size-4" }
-            }
-            if expanded() {
-                div { class: "flex flex-col gap-2", role: "list", "aria-label": "Phased task checklist",
-                    for phase in phases.iter() {
-                        details {
-                            class: "flex flex-col gap-1",
-                            key: "{phase.name}",
-                            open: phase.tasks.iter().any(|task| !matches!(task.status, TodoStatus::Completed | TodoStatus::Abandoned)),
-                            summary { class: "cursor-pointer list-none", SectionTitle { "{phase.name}" } }
-                            for (index, task) in phase.tasks.iter().enumerate() {
-                                ListRow {
-                                    key: "{phase.name}-{index}",
-                                    dense: true,
-                                    role: "listitem",
-                                    class: Some("min-w-0".to_owned()),
-                                    leading_icon: task_icon(task.status),
-                                    headline: rsx! { "{task.content}" },
-                                    support: task.blocker.as_ref().map(|blocker| rsx! { span { class: "text-xs text-destructive", "{blocker}" } }),
-                                    trailing: rsx! { span { class: "text-xs text-muted-foreground", "data-status": status_label(task.status).to_ascii_lowercase().replace(' ', "-"), "{status_label(task.status)}" } },
-                                }
-                            }
+                CollapsibleContent {
+                    div { class: "flex flex-col gap-2", role: "list", "aria-label": "Phased task checklist",
+                        for phase in phases.iter() {
+                            TodoPhaseSection { key: "{phase.name}", phase: phase.clone() }
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// One phase of the checklist. It opens while it holds unfinished work and
+/// re-opens when that changes, as the native `details` open attribute did.
+#[component]
+fn TodoPhaseSection(phase: TodoPhase) -> Element {
+    let has_incomplete = phase
+        .tasks
+        .iter()
+        .any(|task| !matches!(task.status, TodoStatus::Completed | TodoStatus::Abandoned));
+    let mut open = use_signal(|| has_incomplete);
+    use_effect(use_reactive((&has_incomplete,), move |(has_incomplete,)| {
+        open.set(has_incomplete)
+    }));
+    rsx! {
+        Collapsible { class: "flex flex-col gap-1", open: open(), on_open_change: move |next: bool| open.set(next),
+            CollapsibleTrigger { variant: ButtonVariant::Ghost, class: "h-auto min-w-0 justify-start px-0",
+                SectionTitle { "{phase.name}" }
+            }
+            CollapsibleContent { class: "flex flex-col gap-1",
+                for (index, task) in phase.tasks.iter().enumerate() {
+                    ListRow {
+                        key: "{index}",
+                        dense: true,
+                        role: "listitem",
+                        class: Some("min-w-0".to_owned()),
+                        leading_icon: task_icon(task.status),
+                        headline: rsx! { "{task.content}" },
+                        support: task.blocker.as_ref().map(|blocker| rsx! { span { class: "text-xs text-destructive", "{blocker}" } }),
+                        trailing: rsx! { span { class: "text-xs text-muted-foreground", "data-status": status_label(task.status).to_ascii_lowercase().replace(' ', "-"), "{status_label(task.status)}" } },
                     }
                 }
             }
@@ -144,7 +162,7 @@ pub fn AskCard(
                         "Submit answers"
                     }
                 }
-                if !error().is_empty() { p { role: "alert", class: ERROR_TEXT_CLASS, "{error()}" } }
+                if !error().is_empty() { FieldError { "{error()}" } }
             }
         }
     }
@@ -185,7 +203,7 @@ fn AskQuestionOptions(
                     rsx! {
                         div { class: "flex flex-col items-start gap-1", key: "{index}",
                             if question.multi {
-                                label { class: "flex items-center gap-2 text-sm",
+                                Label { class: "flex items-center gap-2 text-sm font-normal leading-normal",
                                     Checkbox {
                                         checked: is_selected,
                                         disabled: submitted,
@@ -302,7 +320,7 @@ pub fn BtwCard(question: String, answer: Option<String>, error: Option<String>) 
                 if let Some(answer) = answer {
                     div { class: "text-sm text-foreground break-words", dangerous_inner_html: super::markdown::markdown_to_safe_html(&answer) }
                 } else if let Some(error) = error {
-                    p { class: ERROR_TEXT_CLASS, role: "alert", "{error}" }
+                    FieldError { "{error}" }
                 } else {
                     div { class: "flex items-center gap-2 text-sm text-muted-foreground", role: "status",
                         StatusDot { status: "running".to_string() }

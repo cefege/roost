@@ -1,13 +1,12 @@
 //! The supporting-line chips a sidebar row shows: the machine (with its
 //! reachability tint), the git branch, the pull request badge, and a listening
-//! port. Split out of the folder and session rows of
-//! `apps/web/src/components/sidebar/FolderList.tsx` and `SessionRowFlat.tsx`,
-//! which drew the same markup; `FolderRow` and `SessionRowFlat` render them.
+//! port. `folder_row.rs` and `session_row_flat.rs` render them.
 
 use dioxus::prelude::*;
 use roost_client_core::store::sidebar::folder_groups::PrBadge;
+use roost_protocol::wire::PullRequestChecks;
 
-const SERVER_ICON_PATH: &str = "M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16";
+use crate::components::ui::{Icon, IconType};
 
 /// The link chips lift above the row's full-width primary link (`z-10`), so
 /// their own clicks land on them and not on the row.
@@ -27,19 +26,7 @@ pub fn ServerChip(
             "data-testid": test_id,
             "data-online": if online { "true" } else { "false" },
             title,
-            svg {
-                class: "shrink-0",
-                width: "12",
-                height: "12",
-                view_box: "0 0 24 24",
-                fill: "none",
-                stroke: "currentColor",
-                stroke_width: "2.2",
-                stroke_linecap: "round",
-                stroke_linejoin: "round",
-                "aria-hidden": "true",
-                path { d: SERVER_ICON_PATH }
-            }
+            Icon { icon: IconType::Server, class: "size-3 shrink-0" }
             span { class: "min-w-0 truncate", {label} }
         }
     }
@@ -50,22 +37,7 @@ pub fn ServerChip(
 pub fn BranchChip(branch: String) -> Element {
     rsx! {
         span { class: "inline-flex min-w-0 items-center gap-1 font-mono", title: "On branch {branch}",
-            svg {
-                class: "shrink-0",
-                width: "11",
-                height: "11",
-                view_box: "0 0 24 24",
-                fill: "none",
-                stroke: "currentColor",
-                stroke_width: "2.2",
-                stroke_linecap: "round",
-                stroke_linejoin: "round",
-                "aria-hidden": "true",
-                line { x1: "6", y1: "3", x2: "6", y2: "15" }
-                circle { cx: "18", cy: "6", r: "3" }
-                circle { cx: "6", cy: "18", r: "3" }
-                path { d: "M18 9a9 9 0 0 1-9 9" }
-            }
+            Icon { icon: IconType::GitBranch, class: "size-2.75 shrink-0" }
             span { class: "min-w-0 truncate", {branch.clone()} }
         }
     }
@@ -73,11 +45,12 @@ pub fn BranchChip(branch: String) -> Element {
 
 /// The pull request badge; a badge without a URL is not a link.
 #[component]
-pub fn PrBadgeChip(folder_key: String, pr: PrBadge, glyph: String, glyph_color: String) -> Element {
+pub fn PrBadgeChip(folder_key: String, pr: PrBadge, glyph: String) -> Element {
     let has_url = !pr.url.is_empty();
     let number = pr.number;
     let state = pr.state.as_str();
     let checks = pr.checks.as_str();
+    let glyph_tone = pr_check_tone_class(pr.checks);
     rsx! {
         a {
             class: "{CHIP_LINK_CLASS} inline-flex shrink-0 items-center gap-1 font-mono text-xs text-muted-foreground hover:text-foreground",
@@ -94,28 +67,24 @@ pub fn PrBadgeChip(folder_key: String, pr: PrBadge, glyph: String, glyph_color: 
                     event.prevent_default();
                 }
             },
-            svg {
-                class: "shrink-0",
-                width: "11",
-                height: "11",
-                view_box: "0 0 24 24",
-                fill: "none",
-                stroke: "currentColor",
-                stroke_width: "2.2",
-                stroke_linecap: "round",
-                stroke_linejoin: "round",
-                "aria-hidden": "true",
-                circle { cx: "6", cy: "6", r: "3" }
-                circle { cx: "6", cy: "18", r: "3" }
-                path { d: "M6 9v6" }
-                circle { cx: "18", cy: "18", r: "3" }
-                path { d: "M18 15V9a3 3 0 0 0-3-3h-3" }
-            }
+            Icon { icon: IconType::GitPullRequest, class: "size-2.75 shrink-0" }
             span { "#{number}" }
             if !glyph.is_empty() {
-                span { style: "color: {glyph_color}", {glyph.clone()} }
+                span { class: glyph_tone, {glyph.clone()} }
             }
         }
+    }
+}
+
+/// The colour role a checks rollup's glyph paints in. The client core names
+/// these as CSS variables that the stylesheet never defines, so the role is
+/// chosen here from the same state instead of reading that string.
+fn pr_check_tone_class(checks: PullRequestChecks) -> &'static str {
+    match checks {
+        PullRequestChecks::Passing => "text-success",
+        PullRequestChecks::Failing => "text-warning",
+        PullRequestChecks::Pending => "text-muted-foreground",
+        PullRequestChecks::None => "",
     }
 }
 

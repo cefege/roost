@@ -9,7 +9,7 @@ use roost_client_core::store::selectors::session_by_id;
 
 use super::deck_dom;
 use crate::components::context_menu::MenuFocusEdge;
-use crate::components::ui::{DropdownMenuItem, Icon, IconType};
+use crate::components::ui::{Command, CommandInput, DropdownMenuItem, Icon, IconType};
 use crate::pump::use_store;
 use crate::session_naming::session_title;
 
@@ -68,52 +68,53 @@ pub fn PaneTabList(
     };
     let key_matches = matches.clone();
     rsx! {
-        input {
-            class: "w-full min-w-0 px-2 py-1 mb-1 bg-transparent border-0 border-b border-solid border-[var(--workbench-tab-border)] text-foreground outline-none",
-            r#type: "text",
-            value: "{filter}",
-            "aria-label": "Filter terminals in this pane",
-            placeholder: "Filter terminals…",
-            "data-testid": "tab-list-filter",
-            onmounted: move |event: MountedEvent| async move {
-                let _ = event.data().set_focus(true).await;
-            },
-            oninput: move |event: FormEvent| {
-                filter.set(event.value());
-                highlighted.set(0);
-            },
-            onkeydown: move |event: KeyboardEvent| {
-                // Escape and Tab bubble to the menu panel, which closes and restores focus.
-                let key = event.key().to_string();
-                match key.as_str() {
-                    "ArrowDown" | "ArrowUp" => {
-                        event.prevent_default();
-                        event.stop_propagation();
-                        if key_matches.is_empty() {
-                            return;
+        Command { class: "h-auto overflow-visible",
+            CommandInput {
+                class: "h-auto min-w-0 px-2 py-1 mb-1 rounded-none border-0 border-b border-solid border-[var(--workbench-tab-border)] text-foreground outline-none",
+                value: filter(),
+                placeholder: "Filter terminals…",
+                aria_label: "Filter terminals in this pane",
+                test_id: "tab-list-filter",
+                on_search_change: move |value: String| {
+                    filter.set(value);
+                    highlighted.set(0);
+                },
+                onmounted: move |event: MountedEvent| async move {
+                    let _ = event.data().set_focus(true).await;
+                },
+                onkeydown: move |event: KeyboardEvent| {
+                    // Escape and Tab bubble to the menu panel, which closes and restores focus.
+                    let key = event.key().to_string();
+                    match key.as_str() {
+                        "ArrowDown" | "ArrowUp" => {
+                            event.prevent_default();
+                            event.stop_propagation();
+                            if key_matches.is_empty() {
+                                return;
+                            }
+                            let down = key == "ArrowDown";
+                            highlighted.set(if down { 0 } else { key_matches.len() - 1 });
+                            deck_dom::focus_menu(
+                                TAB_LIST_MENU_ID,
+                                if down {
+                                    MenuFocusEdge::First
+                                } else {
+                                    MenuFocusEdge::Last
+                                },
+                            );
                         }
-                        let down = key == "ArrowDown";
-                        highlighted.set(if down { 0 } else { key_matches.len() - 1 });
-                        deck_dom::focus_menu(
-                            TAB_LIST_MENU_ID,
-                            if down {
-                                MenuFocusEdge::First
-                            } else {
-                                MenuFocusEdge::Last
-                            },
-                        );
-                    }
-                    "Enter" => {
-                        event.prevent_default();
-                        event.stop_propagation();
-                        let index = (*highlighted.peek()).min(key_matches.len().saturating_sub(1));
-                        if let Some((session_id, _)) = key_matches.get(index) {
-                            choose(session_id.clone());
+                        "Enter" => {
+                            event.prevent_default();
+                            event.stop_propagation();
+                            let index = (*highlighted.peek()).min(key_matches.len().saturating_sub(1));
+                            if let Some((session_id, _)) = key_matches.get(index) {
+                                choose(session_id.clone());
+                            }
                         }
+                        _ => {}
                     }
-                    _ => {}
-                }
-            },
+                },
+            }
         }
         if matches.is_empty() {
             div { class: "px-2 py-3 text-muted-foreground", "No matches" }
@@ -121,10 +122,8 @@ pub fn PaneTabList(
         for (index, (session_id, title)) in matches.into_iter().enumerate() {
             DropdownMenuItem {
                 key: "{session_id}",
-                class: if session_id == selected_tab {
+                class: if session_id == selected_tab || *highlighted.read() == index {
                     "min-h-[var(--workbench-tab-action-size)] bg-accent text-accent-foreground"
-                } else if *highlighted.read() == index {
-                    "min-h-[var(--workbench-tab-action-size)] bg-foreground/8"
                 } else {
                     "min-h-[var(--workbench-tab-action-size)]"
                 },

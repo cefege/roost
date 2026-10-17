@@ -18,19 +18,22 @@ use super::mobile_voice_dom::{
 };
 use super::mobile_voice_send::{FinalizeSendDoor, use_finalize_send_door};
 use super::mobile_voice_shell::use_voice_shell_controls;
-use crate::components::ui::{ButtonSize, ButtonVariant, IconButton, IconType};
+use crate::components::ui::{Alert, AlertVariant, ButtonSize, ButtonVariant, IconButton, IconType};
 use crate::pump::use_store;
 use crate::voice::engine::Engine;
 use crate::voice::keyterms::ContextReader;
 use crate::voice::ownership::{VoiceSlot, with_slot};
 use crate::voice::state::{LiveTranscript, VoiceEvent, VoiceMachine, VoiceState};
 
-/// The mic FAB. Recording morphs it to an error-coloured rounded square, so the
-/// state is readable without relying on colour alone (the icon also changes).
-const VOICE_MIC_CLASS: &str = "size-14 rounded-full bg-primary text-primary-foreground shadow-md transition-all data-[recording=true]:rounded-xl data-[recording=true]:bg-destructive data-[recording=true]:text-destructive-foreground data-[starting=true]:opacity-70 data-[starting=true]:[&>svg]:animate-spin data-[finalizing=true]:opacity-60 data-[finalizing=true]:[&>svg]:animate-pulse";
-/// The discard FAB: a smaller tonal circle beside the mic.
-const VOICE_DISCARD_CLASS: &str =
-    "size-10 rounded-full bg-secondary text-secondary-foreground shadow-md";
+/// The mic FAB. Recording morphs it to a rounded square and switches its tone to
+/// the destructive variant, so the state is readable without relying on colour
+/// alone (the icon also changes). The class carries shape and motion only.
+const VOICE_MIC_CLASS: &str = "size-14 rounded-full shadow-md transition-all data-[recording=true]:rounded-xl data-[starting=true]:opacity-70 data-[starting=true]:[&>svg]:animate-spin data-[finalizing=true]:opacity-60 data-[finalizing=true]:[&>svg]:animate-pulse";
+/// The discard FAB: a smaller circle beside the mic, in the Secondary tone.
+const VOICE_DISCARD_CLASS: &str = "size-10 rounded-full shadow-md";
+/// The mic error caption: a destructive bubble above the composer, or in the dock
+/// when the dock is size-constrained.
+const VOICE_CAPTION_CLASS: &str = "pointer-events-none absolute bottom-full left-0 right-0 mb-2 max-w-none w-auto whitespace-pre-wrap rounded-xl border-0 bg-destructive px-4 py-3 text-base text-destructive-foreground shadow-lg animate-voice-caption-enter motion-reduce:animate-none group-data-[compact=true]/box:right-[calc(3.5rem_+_0.5rem)] group-data-[size-constrained]/dock:static group-data-[size-constrained]/dock:left-auto group-data-[size-constrained]/dock:right-auto group-data-[size-constrained]/dock:bottom-auto group-data-[size-constrained]/dock:col-span-full group-data-[size-constrained]/dock:row-auto group-data-[size-constrained]/dock:w-80 group-data-[size-constrained]/dock:max-w-none";
 
 /// The composer this mic belongs to.
 #[component]
@@ -150,9 +153,10 @@ pub fn MobileVoiceInput(
             "data-owner-active": if owns { "true" } else { "false" },
             "data-engine": (context.engine)().data_engine(),
             if let Some(caption) = caption {
-                div {
-                    class: "pointer-events-none absolute bottom-full left-0 right-0 mb-2 max-w-none whitespace-pre-wrap rounded-xl bg-destructive px-4 py-3 text-base text-destructive-foreground shadow-lg animate-voice-caption-enter motion-reduce:animate-none group-data-[compact=true]/box:right-[calc(3.5rem_+_0.5rem)] group-data-[size-constrained]/dock:static group-data-[size-constrained]/dock:left-auto group-data-[size-constrained]/dock:right-auto group-data-[size-constrained]/dock:bottom-auto group-data-[size-constrained]/dock:col-span-full group-data-[size-constrained]/dock:row-auto group-data-[size-constrained]/dock:w-80 group-data-[size-constrained]/dock:max-w-none",
-                    "data-testid": "voice-caption",
+                Alert {
+                    variant: AlertVariant::Destructive,
+                    test_id: "voice-caption",
+                    class: VOICE_CAPTION_CLASS,
                     span { class: "text-destructive-foreground", "Mic error: {caption}" }
                 }
             }
@@ -161,7 +165,7 @@ pub fn MobileVoiceInput(
                     IconButton {
                         icon: IconType::X,
                         label: "Discard recording",
-                        variant: ButtonVariant::Ghost,
+                        variant: ButtonVariant::Secondary,
                         size: ButtonSize::IconLg,
                         class: Some(VOICE_DISCARD_CLASS.to_owned()),
                         "data-testid": "voice-discard",
@@ -176,7 +180,7 @@ pub fn MobileVoiceInput(
                 IconButton {
                     icon: mic_icon(state),
                     label: mic_label(state),
-                    variant: ButtonVariant::Secondary,
+                    variant: if state == VoiceState::Listening { ButtonVariant::Destructive } else { ButtonVariant::Default },
                     size: ButtonSize::IconLg,
                     class: Some(VOICE_MIC_CLASS.to_owned()),
                     "data-testid": "voice-mic",

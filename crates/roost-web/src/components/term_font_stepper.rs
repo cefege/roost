@@ -72,7 +72,7 @@ pub fn TermFontStepper(props: TermFontStepperProps) -> Element {
                     onclick: move |_| step_term_font(&larger_pump, 1),
                 }
                 Button {
-                    class: "term-font-stepper__value",
+                    class: "min-w-0 px-1 text-xs tabular-nums",
                     variant: ButtonVariant::Ghost,
                     size: value_size,
                     "data-testid": format!("{stem}-size"),
@@ -101,7 +101,7 @@ pub fn TermFontStepper(props: TermFontStepperProps) -> Element {
                     onclick: move |_| step_term_font(&smaller_pump, -1),
                 }
                 Button {
-                    class: "term-font-stepper__value",
+                    class: "min-w-12 px-1 tabular-nums",
                     variant: ButtonVariant::Ghost,
                     size: value_size,
                     "data-testid": format!("{stem}-size"),

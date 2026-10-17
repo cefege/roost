@@ -7,7 +7,11 @@ use dioxus::prelude::*;
 use super::dom;
 use super::upload_tray::{extension_label, format_file_size};
 use crate::components::ui::field::scoped_element_id;
-use crate::components::ui::{ButtonSize, ButtonVariant, Icon, IconButton, IconType};
+use crate::components::ui::{
+    Attachment, AttachmentActions, AttachmentContent, AttachmentDescription, AttachmentMedia,
+    AttachmentMediaVariant, AttachmentSize, AttachmentTitle, ButtonSize, ButtonVariant, Icon,
+    IconButton, IconType, Surface, SurfaceRadius,
+};
 
 /// One chosen file: its name, length and the browser's handle to it. The
 /// bytes are read a chunk at a time while the upload runs, so a large video is
@@ -104,11 +108,13 @@ pub fn AttachmentPreview(files: Vec<ChosenFile>, on_remove: EventHandler<usize>)
         return rsx! {};
     }
     rsx! {
-        div {
-            class: "rounded-md bg-card p-1 shadow-sm",
-            "data-testid": "attachment-preview-strip",
+        Surface {
+            elevation: 2,
+            radius: SurfaceRadius::Sm,
+            pad: 1,
+            test_id: "attachment-preview-strip",
             role: "list",
-            "aria-labelledby": label_id.clone(),
+            aria_labelledby: label_id.clone(),
             span { id: label_id, class: "sr-only", "Attachments staged for sending" }
             div { class: "flex flex-col gap-1",
                 for (index, file) in files.into_iter().enumerate() {
@@ -125,40 +131,44 @@ fn StagedAttachmentRow(file: ChosenFile, index: usize, on_remove: EventHandler<u
     let size_label = format_file_size(file.size_bytes);
     let is_video = video_file(&file);
     rsx! {
-        div {
-            tabindex: "0",
-            role: "listitem",
+        Attachment {
+            size: AttachmentSize::Sm,
+            class: "w-full min-w-0 rounded-md",
+            "tabindex": "0",
+            "role": "listitem",
             "data-testid": "staged-attachment",
             "aria-label": "{name}, {size_label}",
-            class: "flex min-w-0 items-center gap-2 rounded-sm px-2 py-1",
             if let Some(source) = file.preview_url.as_ref() {
-                img {
-                    "data-testid": "attachment-preview",
-                    class: "size-9 shrink-0 rounded-sm object-cover",
-                    src: source,
-                    alt: "",
+                AttachmentMedia { variant: AttachmentMediaVariant::Image,
+                    img {
+                        "data-testid": "attachment-preview",
+                        src: source,
+                        alt: "",
+                    }
                 }
             } else {
-                span { class: "grid size-9 shrink-0 place-items-center rounded-sm bg-muted text-xs text-muted-foreground",
+                AttachmentMedia { variant: AttachmentMediaVariant::Icon, class: "text-xs text-muted-foreground",
                     if is_video {
-                        Icon { icon: IconType::Film, class: "size-4" }
+                        Icon { icon: IconType::Film }
                     } else {
                         "{extension_label(&file.name)}"
                     }
                 }
             }
-            div { class: "min-w-0 flex-1",
-                span { class: "block truncate", title: name.clone(), "{name}" }
-                span { class: "block text-xs text-muted-foreground", "{size_label}" }
+            AttachmentContent {
+                AttachmentTitle { "title": name.clone(), "{name}" }
+                AttachmentDescription { "{size_label}" }
             }
-            IconButton {
-                icon: IconType::X,
-                label: "Remove {name}",
-                title: "Remove {name}",
-                variant: ButtonVariant::Ghost,
-                size: ButtonSize::IconSm,
-                class: None,
-                onclick: move |_| on_remove.call(index),
+            AttachmentActions {
+                IconButton {
+                    icon: IconType::X,
+                    label: "Remove {name}",
+                    title: "Remove {name}",
+                    variant: ButtonVariant::Ghost,
+                    size: ButtonSize::IconSm,
+                    class: None,
+                    onclick: move |_| on_remove.call(index),
+                }
             }
         }
     }

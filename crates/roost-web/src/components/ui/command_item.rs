@@ -10,7 +10,9 @@ use super::Icon;
 use super::command::CommandContext;
 use super::command_keys::item_element_id;
 
-const ITEM_RECIPE: &str = "group relative flex gap-2 items-center px-2 py-1.5 text-sm rounded-sm cursor-default select-none outline-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 hover:bg-accent hover:text-accent-foreground aria-selected:bg-muted";
+// The highlight is `accent`, the theme's selected/hover role; rust-ui's
+// `bg-muted` maps onto the card tier here and would not show on a card.
+const ITEM_RECIPE: &str = "group relative flex gap-2 items-center px-2 py-1.5 text-sm rounded-sm cursor-default select-none outline-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 hover:bg-accent/60 hover:text-accent-foreground aria-selected:bg-accent aria-selected:text-accent-foreground";
 const CHECK_RESERVED: &str =
     "ml-auto size-4 text-muted-foreground opacity-0 group-aria-selected:opacity-100";
 const CHECK_HIDDEN: &str = "ml-auto size-4 text-muted-foreground hidden group-aria-selected:block";
@@ -40,16 +42,28 @@ pub fn CommandItem(
     #[props(default = true)]
     show_check: bool,
     #[props(into, optional)] test_id: Option<String>,
+    /// The row's element id, when the caller needs a stable one (for
+    /// `aria-activedescendant` and scrolling). Absent, the id is derived from the
+    /// command's root and the item's value.
+    #[props(into, optional)]
+    id: Option<String>,
+    /// Whether the row takes tab focus. A caller whose keyboard focus stays in a
+    /// textarea or input turns it off, so the row never pulls focus away.
+    #[props(default = true)]
+    focusable: bool,
     /// Native attributes the caller forwards, such as `data-index` and
     /// `data-kind` for a host that reads the row back.
     #[props(extends = GlobalAttributes)]
     attributes: Vec<Attribute>,
 ) -> Element {
-    let context = use_context::<CommandContext>();
+    // `consume_context` reads the value this render provided; `use_context` caches
+    // the first render's value and would miss a controlled highlight.
+    let context = consume_context::<CommandContext>();
     let value = value.unwrap_or_default();
     let query = context.search_query.read().clone();
     let is_visible = item_matches(&value, &query, context.should_filter);
-    let is_highlighted = selected || context.highlighted.read().as_deref() == Some(value.as_str());
+    let highlight = context.current_highlight();
+    let is_highlighted = selected || highlight.as_deref() == Some(value.as_str());
 
     let display = if is_visible { "flex" } else { "hidden" };
     let merged_class = tw_merge!(ITEM_RECIPE, display, class.as_deref().unwrap_or(""));
@@ -58,7 +72,8 @@ pub fn CommandItem(
     } else {
         CHECK_HIDDEN
     };
-    let item_id = item_element_id(&context.root_id, &value);
+    let item_id = id.unwrap_or_else(|| item_element_id(&context.root_id, &value));
+    let tab_index = if focusable { "0" } else { "-1" };
     let visible_flag = if is_visible { "true" } else { "false" };
 
     rsx! {
@@ -70,7 +85,7 @@ pub fn CommandItem(
             "data-testid": test_id.as_deref(),
             class: "{merged_class}",
             role: "option",
-            tabindex: "0",
+            tabindex: "{tab_index}",
             "aria-selected": if is_highlighted { "true" } else { "false" },
             onclick: move |_| {
                 if let Some(callback) = on_select {

@@ -12,7 +12,7 @@ use roost_protocol::wire::agent_chat::{
 
 use super::model_controls::supports_reasoning;
 use super::model_hub::hub_logic::model_argument_values;
-use crate::components::ui::{List, ListRow, Surface};
+use crate::components::ui::{Command, CommandItem, CommandList, Surface};
 
 #[cfg(target_arch = "wasm32")]
 use web_sys::{ScrollIntoViewOptions, ScrollLogicalPosition};
@@ -310,22 +310,32 @@ pub fn SlashMenu(
                         " {command.summary}"
                     }
                 } else {
-                    div {
-                        id: "{listbox}",
-                        role: "listbox",
-                        aria_label: "Commands",
-                        style: "--slash-name-chars: {name_chars}",
-                        List {
+                    // The composer owns focus and arrow keys (its textarea holds
+                    // `aria-activedescendant`), so the menu's root never handles them and
+                    // rows never take tab focus.
+                    Command {
+                        class: "h-auto",
+                        handles_keys: false,
+                        should_filter: false,
+                        highlighted: selected.to_string(),
+                        CommandList {
+                            id: listbox.clone(),
+                            role: "listbox",
+                            aria_label: "Commands",
+                            style: format!("--slash-name-chars: {name_chars}"),
+                            class: "max-h-none min-h-0 overflow-visible",
                             for (idx, option) in state.options.iter().enumerate() {
-                                ListRow {
+                                CommandItem {
                                     key: "{idx}-{option.text}",
-                                    id: Some(option_id(&conversation_id, idx)),
-                                    role: Some("option".to_string()),
-                                    aria_selected: Some(if idx == selected { "true" } else { "false" }.to_string()),
-                                    tabindex: Some(-1),
-                                    test_id: Some(format!("agent-slash-option-{idx}")),
-                                    class: Some("gap-2 px-3".to_string()),
-                                    headline: rsx! {
+                                    id: option_id(&conversation_id, idx),
+                                    value: idx.to_string(),
+                                    focusable: false,
+                                    show_check: false,
+                                    selected: idx == selected,
+                                    test_id: format!("agent-slash-option-{idx}"),
+                                    class: "gap-2 px-3",
+                                    on_select: Some(EventHandler::new(move |_| on_choose.call(idx))),
+                                    div { class: "flex min-w-0 flex-1 text-sm text-foreground",
                                         div { class: "flex min-w-0 flex-col font-mono md:grid md:grid-cols-[calc(var(--slash-name-chars)_*_1ch)_minmax(0,1fr)] md:items-baseline",
                                             span { class: "min-w-0 truncate", "{option.label}" }
                                             span { class: "line-clamp-2 min-w-0 whitespace-normal font-normal text-muted-foreground",
@@ -336,10 +346,7 @@ pub fn SlashMenu(
                                                 "{option.summary}"
                                             }
                                         }
-                                    },
-                                    selected: idx == selected,
-                                    dense: true,
-                                    onclick: Some(EventHandler::new(move |_| on_choose.call(idx))),
+                                    }
                                 }
                             }
                         }

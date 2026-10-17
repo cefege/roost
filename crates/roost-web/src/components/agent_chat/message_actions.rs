@@ -5,7 +5,7 @@ use dioxus::prelude::*;
 
 use crate::components::ui::{
     Button, ButtonVariant, Checkbox, Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader,
-    DialogTitle, IconType,
+    DialogTitle, IconType, Label,
 };
 use crate::pump::Pump;
 
@@ -43,7 +43,7 @@ pub fn UserMessageActions(
                 }
                 DialogBody {
                     p { class: "text-sm text-muted-foreground", "Messages after this point will be removed from the conversation." }
-                    label { class: "flex items-center gap-2 text-sm",
+                    Label { class: "flex items-center gap-2 text-sm font-normal leading-normal",
                         Checkbox {
                             checked: restore_files(),
                             aria_label: "Restore files changed after this message",

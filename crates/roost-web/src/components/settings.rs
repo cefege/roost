@@ -37,7 +37,7 @@ use crate::components::layout::window_size::use_is_compact;
 use crate::components::settings_navigation::{SETTINGS_GROUPS, SettingsPaneSpec, settings_pane};
 use crate::components::ui::{
     Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyMediaVariant, EmptyTitle, Icon,
-    IconButton, IconType, List, ListRow, TextField,
+    IconButton, IconType, List, ListRow, SidenavGroupLabel, TextField,
 };
 use crate::router_state::use_navigate;
 use crate::routes::Route;
@@ -113,7 +113,7 @@ fn SettingsEditor(active: Option<SettingsPaneSpec>) -> Element {
                 }
                 for (label, panes) in &groups {
                     section { class: "flex flex-col gap-1",
-                        h2 { class: "px-3 text-xs font-medium uppercase tracking-wide text-muted-foreground", "{label}" }
+                        SidenavGroupLabel { class: "px-3 uppercase tracking-wide", "{label}" }
                         for pane in panes {
                             ListRow {
                                 class: "rounded-md",

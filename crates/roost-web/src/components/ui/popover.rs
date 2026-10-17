@@ -1,5 +1,5 @@
 //! Click-to-open floating dialog anchored to its trigger. The caller owns `open`; trigger
-//! clicks, Escape and outside clicks all report through `on_open_change`. Depends on
+//! clicks and outside clicks report through `on_open_change`, Escape too unless `on_escape` takes it. Depends on
 //! `ui::anchored_panel` (placement, focus), `context_menu` (dismissal) and `ui::field` (ids).
 
 use dioxus::prelude::*;
@@ -23,6 +23,7 @@ struct PopoverContext {
     on_open_change: EventHandler<bool>,
     trigger_id: String,
     content_id: String,
+    on_escape: Option<EventHandler<()>>,
 }
 
 /// Non-modal dialog anchored to a trigger. Nothing here opens or closes the panel
@@ -32,17 +33,25 @@ pub fn Popover(
     open: bool,
     on_open_change: EventHandler<bool>,
     #[props(into, optional)] test_id: Option<String>,
+    /// Pinned by tests or by another component's focus logic (`/model` focuses the trigger by id); generated otherwise.
+    #[props(into, optional)]
+    trigger_id: Option<String>,
+    /// Replaces the default Escape (refocus the trigger, then close) for a caller whose Escape steps back through its own state first; the caller then owns closing.
+    #[props(optional)]
+    on_escape: Option<EventHandler<()>>,
     #[props(into, optional)] class: Option<String>,
     children: Element,
 ) -> Element {
     let view = use_memo(use_reactive((&open, &test_id), |(open, test_id)| {
         PopoverView { open, test_id }
     }));
-    let trigger_id = use_hook(|| scoped_element_id("popover-trigger"));
+    let trigger_id =
+        use_hook(|| trigger_id.unwrap_or_else(|| scoped_element_id("popover-trigger")));
     let content_id = use_hook(|| scoped_element_id("popover-content"));
     use_context_provider(|| PopoverContext {
         view,
         on_open_change,
+        on_escape,
         trigger_id,
         content_id,
     });
@@ -56,6 +65,11 @@ pub fn Popover(
 #[component]
 pub fn PopoverTrigger(
     #[props(into, optional)] class: Option<String>,
+    #[props(into, optional)] test_id: Option<String>,
+    #[props(into, optional)] title: Option<String>,
+    /// Drops the bordered input look for a control that sits inside a toolbar row.
+    #[props(default)]
+    ghost: bool,
     #[props(default)] disabled: bool,
     #[props(into, optional)] aria_label: Option<String>,
     children: Element,
@@ -65,8 +79,14 @@ pub fn PopoverTrigger(
     let trigger_id = context.trigger_id.clone();
     let content_id = context.content_id.clone();
     let on_open_change = context.on_open_change;
+    let surface = if ghost {
+        "hover:bg-accent hover:text-accent-foreground"
+    } else {
+        "border bg-background border-input hover:bg-accent hover:text-accent-foreground"
+    };
     let trigger_class = tw_merge!(
-        "px-4 py-2 h-9 inline-flex justify-center items-center text-sm font-medium whitespace-nowrap rounded-md transition-colors w-fit focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&_svg:not(:last-child)]:mr-2 [&_svg:not(:first-child)]:ml-2 border bg-background border-input hover:bg-accent hover:text-accent-foreground",
+        "px-4 py-2 h-9 inline-flex justify-center items-center text-sm font-medium whitespace-nowrap rounded-md transition-colors w-fit focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&_svg:not(:last-child)]:mr-2 [&_svg:not(:first-child)]:ml-2",
+        surface,
         class.as_deref().unwrap_or("")
     );
     rsx! {
@@ -75,6 +95,8 @@ pub fn PopoverTrigger(
             r#type: "button",
             "data-name": "PopoverTrigger",
             class: "{trigger_class}",
+            "data-testid": test_id,
+            title,
             disabled,
             "aria-label": aria_label.as_deref(),
             "aria-haspopup": "dialog",
@@ -113,9 +135,13 @@ fn PopoverPanel(class: Option<String>, test_id: Option<String>, children: Elemen
     // Hooks capture their handlers once at mount, so the callbacks must be stable
     // handles; `on_open_change` is updated in place when the root re-renders.
     let on_close = use_callback(move |()| on_open_change.call(false));
-    let on_escape = use_callback(move |()| {
-        focus_element_by_id(&escape_trigger_id);
-        on_open_change.call(false);
+    let caller_escape = context.on_escape;
+    let on_escape = use_callback(move |()| match caller_escape {
+        Some(handler) => handler.call(()),
+        None => {
+            focus_element_by_id(&escape_trigger_id);
+            on_open_change.call(false);
+        }
     });
     use_floating_menu_dismiss(
         on_close,

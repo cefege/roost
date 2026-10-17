@@ -16,7 +16,8 @@
 use dioxus::prelude::*;
 
 use crate::components::ui::{
-    Button, ButtonGroup, ButtonSize, ButtonVariant, IconButton, IconType, Input,
+    ButtonGroup, ButtonSize, IconButton, IconType, Input, ToggleGroup, ToggleGroupItem,
+    ToggleGroupSpacing, ToggleGroupVariant,
 };
 
 /// What the bar shows: one query's published state, as the controller reports it.
@@ -168,29 +169,27 @@ pub fn TerminalFindBar(
                     onclick: move |_| on_step.call(1),
                 }
             }
-            Button {
-                variant: if state.case_sensitive { ButtonVariant::Secondary } else { ButtonVariant::Outline },
-                size: ButtonSize::Xs,
-                class: Some("shrink-0".to_owned()),
-                "data-testid": "terminal-find-case",
-                "data-on": if state.case_sensitive { "true" } else { "false" },
-                "data-active": if state.case_sensitive { "true" } else { "false" },
-                "aria-pressed": if state.case_sensitive { "true" } else { "false" },
-                title: "Match case",
-                onclick: move |_| on_toggle_case.call(()),
-                "Aa"
-            }
-            Button {
-                variant: if state.regex { ButtonVariant::Secondary } else { ButtonVariant::Outline },
-                size: ButtonSize::Xs,
-                class: Some("shrink-0".to_owned()),
-                "data-testid": "terminal-find-regex",
-                "data-on": if state.regex { "true" } else { "false" },
-                "data-active": if state.regex { "true" } else { "false" },
-                "aria-pressed": if state.regex { "true" } else { "false" },
-                title: "Regular expression",
-                onclick: move |_| on_toggle_regex.call(()),
-                ".*"
+            ToggleGroup {
+                variant: ToggleGroupVariant::Outline,
+                spacing: ToggleGroupSpacing::Flush,
+                aria_label: "Search options",
+                class: "shrink-0",
+                ToggleGroupItem {
+                    class: "h-7 text-xs",
+                    title: "Match case",
+                    pressed: state.case_sensitive,
+                    test_id: "terminal-find-case",
+                    onclick: move |_| on_toggle_case.call(()),
+                    "Aa"
+                }
+                ToggleGroupItem {
+                    class: "h-7 text-xs",
+                    title: "Regular expression",
+                    pressed: state.regex,
+                    test_id: "terminal-find-regex",
+                    onclick: move |_| on_toggle_regex.call(()),
+                    ".*"
+                }
             }
             if state.alt_screen {
                 span { class: "text-xs whitespace-nowrap text-muted-foreground", "visible rows only" }

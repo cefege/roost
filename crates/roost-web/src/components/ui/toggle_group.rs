@@ -62,6 +62,8 @@ pub fn ToggleGroup(
     #[props(default = ToggleGroupVariant::Default)] variant: ToggleGroupVariant,
     #[props(default = ToggleGroupOrientation::Horizontal)] orientation: ToggleGroupOrientation,
     #[props(default = ToggleGroupSpacing::Snug)] spacing: ToggleGroupSpacing,
+    #[props(into, optional)] aria_label: Option<String>,
+    #[props(into, optional)] test_id: Option<String>,
     children: Element,
 ) -> Element {
     provide_context(ToggleGroupCtx {
@@ -88,6 +90,8 @@ pub fn ToggleGroup(
             "data-variant": if is_outline { "Outline" } else { "Default" },
             "data-orientation": if is_vertical { "Vertical" } else { "Horizontal" },
             "data-spacing": spacing.data_value(),
+            "aria-label": aria_label,
+            "data-testid": test_id,
             {children}
         }
     }
@@ -123,6 +127,8 @@ pub fn ToggleGroupItem(
     #[props(into)] title: String,
     #[props(default = false)] pressed: bool,
     #[props(optional)] onclick: Option<EventHandler<MouseEvent>>,
+    #[props(into, optional)] id: Option<String>,
+    #[props(into, optional)] test_id: Option<String>,
     children: Element,
 ) -> Element {
     let ctx = use_context::<ToggleGroupCtx>();
@@ -157,6 +163,8 @@ pub fn ToggleGroupItem(
             r#type: "button",
             "data-name": "ToggleGroupItem",
             class: "{merged}",
+            id,
+            "data-testid": test_id,
             title: "{title}",
             "aria-pressed": "{pressed}",
             "data-state": "{state}",

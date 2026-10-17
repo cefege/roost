@@ -24,7 +24,7 @@ use super::thinking_block::ThinkingBlock;
 use super::tool_card::ToolCard;
 use crate::components::ui::{
     Bubble, BubbleAlign, BubbleContent, BubbleVariant, Button, ButtonVariant, IconButton, IconType,
-    Message, MessageAlign, StatusDot,
+    Marker, Message, MessageAlign, MessageContent, MessageFooter, StatusDot,
 };
 use crate::pump::Pump;
 
@@ -197,39 +197,43 @@ fn AssistantMessage(
     let has_text = !copy_text.trim().is_empty();
     rsx! {
         div { class: "group/assistant flex flex-col gap-3", "data-streaming": streaming.then_some("true"),
-            for (index, block) in blocks.iter().enumerate() {
-                match block {
-                    // Every text block goes through StreamingText under one key,
-                    // so a block that stops streaming keeps revealing its backlog.
-                    TranscriptBlock::Text { text } if !text.is_empty() => rsx! {
-                        StreamingText { key: "text-{index}", text: text.clone(), live: streaming && index + 1 == blocks.len() }
-                    },
-                    TranscriptBlock::Thinking { text } if !text.is_empty() => {
-                        let live = streaming && Some(index) == last_thinking && index + 1 == blocks.len();
-                        rsx! { ThinkingBlock { key: "thinking-{index}", text: text.clone(), live, globally_visible: show_thinking } }
+            Message { align: MessageAlign::Start, class: "flex-col gap-3",
+                MessageContent { class: "gap-3",
+                    for (index, block) in blocks.iter().enumerate() {
+                        match block {
+                            // Every text block goes through StreamingText under one key,
+                            // so a block that stops streaming keeps revealing its backlog.
+                            TranscriptBlock::Text { text } if !text.is_empty() => rsx! {
+                                StreamingText { key: "text-{index}", text: text.clone(), live: streaming && index + 1 == blocks.len() }
+                            },
+                            TranscriptBlock::Thinking { text } if !text.is_empty() => {
+                                let live = streaming && Some(index) == last_thinking && index + 1 == blocks.len();
+                                rsx! { ThinkingBlock { key: "thinking-{index}", text: text.clone(), live, globally_visible: show_thinking } }
+                            }
+                            _ => rsx! {},
+                        }
                     }
-                    _ => rsx! {},
+                    if streaming {
+                        Marker { role: "status",
+                            StatusDot { status: "running".to_string() }
+                            "Generating response"
+                        }
+                    }
+                    if let Some(error) = error {
+                        AgentAlert { p { "{error}" } }
+                    }
                 }
-            }
-            if streaming {
-                div { class: "inline-flex items-center gap-2 self-start text-sm text-muted-foreground", role: "status", "aria-label": "Assistant response is streaming",
-                    StatusDot { status: "running".to_string() }
-                    "Generating response"
-                }
-            }
-            if let Some(error) = error {
-                AgentAlert { p { "{error}" } }
-            }
-            if !streaming && has_text {
-                div { class: "-mt-2 flex gap-1 opacity-0 transition-opacity group-hover/assistant:opacity-100 group-focus-within/assistant:opacity-100 pointer-coarse:opacity-100",
-                    IconButton {
-                        icon: IconType::Copy,
-                        label: "Copy response",
-                        title: "Copy",
-                        variant: ButtonVariant::Ghost,
-                        onclick: move |_| {
-                            crate::components::notifications::clipboard::copy_text(&copy_text);
-                        },
+                if !streaming && has_text {
+                    MessageFooter { class: "-mt-2 gap-1 px-0 opacity-0 transition-opacity group-hover/assistant:opacity-100 group-focus-within/assistant:opacity-100 pointer-coarse:opacity-100",
+                        IconButton {
+                            icon: IconType::Copy,
+                            label: "Copy response",
+                            title: "Copy",
+                            variant: ButtonVariant::Ghost,
+                            onclick: move |_| {
+                                crate::components::notifications::clipboard::copy_text(&copy_text);
+                            },
+                        }
                     }
                 }
             }

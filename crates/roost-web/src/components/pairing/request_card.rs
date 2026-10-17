@@ -8,7 +8,8 @@ use roost_client_core::client::auth::PairPollStatus;
 
 use crate::components::ui::field::scoped_element_id;
 use crate::components::ui::{
-    Button, ButtonVariant, Card, CardContent, CardHeader, CardTitle, CardVariant, StatusDot,
+    Button, ButtonVariant, Card, CardContent, CardHeader, CardTitle, CardVariant, FieldError,
+    FieldLabel, StatusDot,
 };
 use crate::pump::use_store;
 
@@ -132,7 +133,7 @@ fn VerificationEntry(requester: PairingRequester, state: RequesterState) -> Elem
     let confirm_requester = requester;
     rsx! {
         div { class: "flex flex-col gap-2",
-            span { class: "text-sm font-medium text-foreground", "Verification code" }
+            FieldLabel { "Verification code" }
             div {
                 role: "group",
                 "aria-label": "Verification code",
@@ -165,7 +166,7 @@ fn VerificationEntry(requester: PairingRequester, state: RequesterState) -> Elem
                 }
             }
             if let Some(message) = failure {
-                span { id: error_id, class: "text-sm text-destructive", {message} }
+                FieldError { id: error_id, {message} }
             }
         }
     }

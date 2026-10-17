@@ -85,7 +85,6 @@ fn FileBodyLine(
     on_copy: EventHandler<usize>,
 ) -> Element {
     let label = format!("Copy link to line {number}");
-    let glyph_color = copy_glyph_color(copied);
     rsx! {
         div {
             "data-line": "{number}",
@@ -109,9 +108,11 @@ fn FileBodyLine(
                 "data-testid": "file-viewer-sheet-copy-link-{number}",
                 title: label.clone(),
                 "aria-label": label,
-                style: "color: {glyph_color};",
                 onclick: move |_| on_copy.call(number),
-                {copy_glyph(copied)}
+                span {
+                    class: copy_glyph_class(copied),
+                    {copy_glyph(copied)}
+                }
             }
         }
     }
@@ -158,12 +159,12 @@ fn copy_glyph(copied: Option<CopiedLine>) -> &'static str {
     }
 }
 
-/// The colour of the control's glyph right now: the tick and the cross take the
-/// clipboard's verdict, and the `#` stays quiet until a copy happens.
-fn copy_glyph_color(copied: Option<CopiedLine>) -> &'static str {
+/// The glyph's tone right now: the tick and the cross take the clipboard's
+/// verdict, and the `#` stays quiet until a copy happens.
+fn copy_glyph_class(copied: Option<CopiedLine>) -> &'static str {
     match copied {
-        Some(CopiedLine { ok: true, .. }) => "var(--status-ok)",
-        Some(CopiedLine { ok: false, .. }) => "var(--status-err)",
-        None => "var(--text-lo)",
+        Some(CopiedLine { ok: true, .. }) => "text-success",
+        Some(CopiedLine { ok: false, .. }) => "text-destructive",
+        None => "text-muted-foreground",
     }
 }

@@ -21,7 +21,9 @@ use roost_client_core::store::shell_intent::ShellIntent;
 use crate::components::notifications::agent_notifications::notification_tone::{
     TonePlayer, previewed_kind,
 };
-use crate::components::ui::{Card, CardContent, CardHeader, CardTitle, Icon, IconType, SwitchRow};
+use crate::components::ui::{
+    Card, CardContent, CardHeader, CardTitle, FieldError, Icon, IconType, SwitchRow,
+};
 use crate::pump::{Pump, use_store};
 use crate::web_push::desktop_push_plan::{DesktopPushFacts, PushPermission, desktop_push_row};
 
@@ -102,9 +104,7 @@ pub fn NotificationsPane() -> Element {
                         on_checked_change: move |value| toggle_desktop(&desktop_pump, desktop, value),
                     }
                 if let Some(message) = error {
-                    p { role: "alert", class: "m-0 text-sm text-destructive", "data-testid": "notify-desktop-error",
-                        {message}
-                    }
+                    FieldError { test_id: "notify-desktop-error", {message} }
                 }
                 p { class: "m-0 text-sm text-muted-foreground", "data-testid": "notify-ios-home-screen",
                     "On iPhone and iPad, Safari delivers notifications only to an installed app: tap Share → Add to Home Screen, open Roost from the Home Screen, then turn this on there."

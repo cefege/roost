@@ -22,8 +22,9 @@ use super::deploy_calls::{check_enrollment, copy_command, mint_join_command};
 use super::deploy_state::{DeployError, DeployModel, DeployPhase};
 use super::local_access_guide::{MachineLocalAccessGuide, RECHECK_LABEL};
 use crate::components::ui::{
-    Button, ButtonVariant, Dialog, DialogBody, DialogClose, DialogContent, DialogFooter,
-    DialogHeader, DialogTitle, StatusDot, Surface, SurfaceRadius, TextField,
+    Alert, AlertTitle, AlertVariant, Button, ButtonVariant, Dialog, DialogBody, DialogClose,
+    DialogContent, DialogFooter, DialogHeader, DialogTitle, StatusDot, Surface, SurfaceRadius,
+    TextField,
 };
 use crate::pump::use_store;
 
@@ -180,14 +181,14 @@ fn GeneratedCommand(model: DeployModel) -> Element {
 fn DeployRefusal(error: DeployError) -> Element {
     let kind = error.kind;
     rsx! {
-        Surface { level: 1, radius: SurfaceRadius::Sm, pad: 3, border: true,
-            role: Some("alert".to_owned()),
-            aria_live: Some("polite".to_owned()),
-            aria_atomic: Some("true".to_owned()),
+        Alert {
+            variant: AlertVariant::Destructive,
+            aria_live: "polite",
+            aria_atomic: "true",
             div { class: "flex items-start gap-2",
                 StatusDot { status: "error".to_owned(), title: Some("Error".to_owned()) }
                 div { class: "grid gap-4", "data-machine-deploy-error-kind": kind.attribute(),
-                    p { class: "m-0 text-sm font-medium text-destructive", {error.title} }
+                    AlertTitle { {error.title} }
                     p { class: "m-0 text-xs text-muted-foreground", {error.detail} }
                 }
             }

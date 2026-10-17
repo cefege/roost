@@ -40,6 +40,13 @@ pub struct CardProps {
     #[props(default)]
     pub variant: CardVariant,
     pub class: Option<String>,
+    /// Interaction handlers for a card that is itself the control (a terminal
+    /// card in the mobile tab grid). Absent, the card is inert.
+    pub onclick: Option<EventHandler<MouseEvent>>,
+    pub onkeydown: Option<EventHandler<KeyboardEvent>>,
+    pub ontouchstart: Option<EventHandler<TouchEvent>>,
+    pub ontouchmove: Option<EventHandler<TouchEvent>>,
+    pub ontouchend: Option<EventHandler<TouchEvent>>,
     /// Every native attribute the caller forwards (`data-testid`, `style`, `aria-*`).
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
@@ -69,6 +76,31 @@ pub fn Card(props: CardProps) -> Element {
             "data-name": "Card",
             "data-size": data_size,
             class: "{merged_class}",
+            onclick: move |event| {
+                if let Some(handler) = props.onclick {
+                    handler.call(event);
+                }
+            },
+            onkeydown: move |event| {
+                if let Some(handler) = props.onkeydown {
+                    handler.call(event);
+                }
+            },
+            ontouchstart: move |event| {
+                if let Some(handler) = props.ontouchstart {
+                    handler.call(event);
+                }
+            },
+            ontouchmove: move |event| {
+                if let Some(handler) = props.ontouchmove {
+                    handler.call(event);
+                }
+            },
+            ontouchend: move |event| {
+                if let Some(handler) = props.ontouchend {
+                    handler.call(event);
+                }
+            },
             ..props.attributes,
             {props.children}
         }

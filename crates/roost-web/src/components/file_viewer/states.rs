@@ -12,7 +12,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::ui::{Button, ButtonVariant, EmptyState, IconType};
+use crate::components::ui::{Button, ButtonVariant, EmptyState, FieldError, IconType};
 
 use super::state::MAX_VIEWED_FILE_BYTES;
 
@@ -82,13 +82,7 @@ pub fn UnavailableRegion(on_go_home: EventHandler<()>) -> Element {
 #[component]
 pub fn FailureNotice(message: String) -> Element {
     rsx! {
-        span {
-            "data-testid": "file-viewer-sheet-error",
-            role: "status",
-            "aria-live": "polite",
-            class: "text-sm text-destructive",
-            {message}
-        }
+        FieldError { role: "status", test_id: "file-viewer-sheet-error", {message} }
     }
 }
 

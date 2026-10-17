@@ -10,32 +10,27 @@
 use dioxus::prelude::*;
 use roost_client_core::store::palette::{ItemKind, PaletteItem};
 
-use crate::components::ui::{Badge, BadgeSize, BadgeVariant, BindingChip, CommandItem};
+use crate::components::ui::{
+    Badge, BadgeSize, BadgeVariant, BindingChip, CommandFooter, CommandItem,
+};
 
-/// The badge's stroke and text, one colour per kind.
-const fn kind_classes(kind: ItemKind) -> &'static str {
+/// The badge's tone, one theme role per kind.
+const fn kind_variant(kind: ItemKind) -> BadgeVariant {
     match kind {
-        ItemKind::Session => {
-            "shrink-0 whitespace-nowrap font-normal uppercase tracking-wider border-info text-info"
-        }
-        ItemKind::Workspace => {
-            "shrink-0 whitespace-nowrap font-normal uppercase tracking-wider border-success text-success"
-        }
-        ItemKind::Action => {
-            "shrink-0 whitespace-nowrap font-normal uppercase tracking-wider border-muted-foreground text-muted-foreground"
-        }
+        ItemKind::Session => BadgeVariant::Info,
+        ItemKind::Workspace => BadgeVariant::Success,
+        ItemKind::Action => BadgeVariant::Muted,
     }
 }
 
 /// The kind of a row, in caps.
 #[component]
 pub fn KindBadge(kind: ItemKind) -> Element {
-    let classes = kind_classes(kind);
     rsx! {
         Badge {
-            variant: BadgeVariant::Outline,
+            variant: kind_variant(kind),
             size: BadgeSize::Sm,
-            class: Some(classes.to_owned()),
+            class: Some("shrink-0 whitespace-nowrap font-normal uppercase tracking-wider".to_owned()),
             {kind.as_str()}
         }
     }
@@ -85,14 +80,14 @@ pub fn PaletteRow(
 #[component]
 pub fn PaletteFooter(has_results: bool) -> Element {
     rsx! {
-        div {
-            class: "flex items-center justify-between gap-3 border-t border-border bg-card px-4 py-2 text-xs text-muted-foreground",
-            "data-testid": "command-palette-footer",
-            span { if has_results { "Select to open" } else { "Type to search" } }
-            div { class: "flex items-center gap-3",
-                FooterEntry { caps: vec!["↑", "↓"], label: "navigate" }
-                FooterEntry { caps: vec!["↵"], label: "open" }
-                FooterEntry { caps: vec!["esc"], label: "close" }
+        div { "data-testid": "command-palette-footer",
+            CommandFooter { class: "justify-between bg-card",
+                span { if has_results { "Select to open" } else { "Type to search" } }
+                div { class: "flex items-center gap-3",
+                    FooterEntry { caps: vec!["↑", "↓"], label: "navigate" }
+                    FooterEntry { caps: vec!["↵"], label: "open" }
+                    FooterEntry { caps: vec!["esc"], label: "close" }
+                }
             }
         }
     }

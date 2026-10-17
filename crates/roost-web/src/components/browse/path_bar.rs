@@ -179,7 +179,8 @@ pub fn BrowsePathBar(
                                 }
                                 CrumbView::Ellipsis(_) => rsx! {
                                     DropdownMenuTrigger {
-                                        class: "size-7 p-0 border-0 bg-transparent text-muted-foreground rounded-md shrink-0 hover:bg-foreground/8 hover:text-foreground transition-[background-color,color] duration-150",
+                                        class: "size-7 p-0 text-muted-foreground shrink-0",
+                                        ghost: true,
                                         test_id: "browse-crumb-overflow",
                                         span { class: "sr-only", "Show hidden folders" }
                                         Icon { icon: IconType::Ellipsis, class: "size-4" }

@@ -11,7 +11,7 @@ use roost_client_core::sync::redial::sync_link_answering;
 use roost_client_core::{ClientEvent, TransportControl};
 
 use crate::components::terminal::dom::{page_visible, sleep_ms};
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, StatusDot, Surface, SurfaceRadius};
+use crate::components::ui::{Alert, Button, ButtonSize, ButtonVariant, StatusDot};
 use crate::pump::{Pump, use_store};
 
 /// How often a visible tab re-reads its own liveness. The core redials on its
@@ -79,10 +79,10 @@ impl BannerReason {
     const fn surface_class(self) -> &'static str {
         match self {
             Self::CoordUnreachableDirectLive => {
-                "flex items-center justify-center gap-3 border-b border-warning px-4 py-2 text-xs leading-4 text-foreground"
+                "flex items-center justify-center gap-3 rounded-none border-0 border-b border-warning px-4 py-2 text-xs leading-4 text-foreground"
             }
             _ => {
-                "flex items-center justify-center gap-3 border-b border-destructive px-4 py-2 text-xs leading-4 text-foreground"
+                "flex items-center justify-center gap-3 rounded-none border-0 border-b border-destructive px-4 py-2 text-xs leading-4 text-foreground"
             }
         }
     }
@@ -157,10 +157,7 @@ pub fn ConnectionBanner() -> Element {
             "data-testid": "connection-banner",
             "data-banner-reason": verdict.as_str(),
             class: "fixed inset-x-0 top-0 z-50",
-            Surface {
-                level: 2,
-                elevation: 2,
-                radius: SurfaceRadius::Xs,
+            Alert {
                 class: verdict.surface_class(),
                 StatusDot { status: verdict.status().to_owned() }
                 span { "{verdict.message()}" }

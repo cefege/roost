@@ -15,10 +15,10 @@ use roost_client_core::store::sidebar::folder_groups::build_folder_groups;
 use super::agent_conversation_row::AgentConversationRow;
 use crate::components::agents::agent_status_indicator::AgentStatusIndicator;
 use crate::components::notifications::notify_target::{ring_attribute, use_notify_target};
-use crate::components::ui::IconType;
 use crate::components::ui::empty::EmptyState;
 use crate::components::ui::list::{List, ListRow};
 use crate::components::ui::status::StatusDot;
+use crate::components::ui::{IconType, SidenavGroupLabel};
 use crate::platform::BrowserWorkerPaths;
 use crate::pump::use_store;
 use crate::route_session::active_session_for_path;
@@ -107,7 +107,7 @@ pub fn SidebarAgents(query: String) -> Element {
                     class: "flex flex-col gap-1",
                     "data-testid": "sidebar-agent-conversations",
                     "aria-label": "Roost agent",
-                    h3 { class: "flex min-w-0 items-baseline gap-2 px-4 pt-2 pb-1 text-xs font-medium text-muted-foreground",
+                    SidenavGroupLabel { class: "h-auto min-w-0 gap-2 px-4 pt-2 pb-1",
                         span { class: "min-w-0 truncate", "Roost agent" }
                     }
                     List { class: "px-2",
@@ -128,9 +128,9 @@ pub fn SidebarAgents(query: String) -> Element {
                     "data-testid": "sidebar-agent-group-{group.folder.key}",
                     "data-folder-key": group.folder.key.clone(),
                     "aria-label": "{group.folder.name} on {group.folder.server}",
-                    h3 { class: "flex min-w-0 items-baseline gap-2 px-4 pt-2 pb-1 text-xs font-medium text-muted-foreground",
+                    SidenavGroupLabel { class: "h-auto min-w-0 gap-2 px-4 pt-2 pb-1",
                         span { class: "min-w-0 truncate", {group.folder.name.clone()} }
-                        span { class: "min-w-0 truncate font-normal text-[var(--text-lo)]", {group.folder.server.clone()} }
+                        span { class: "min-w-0 truncate font-normal text-muted-foreground", {group.folder.server.clone()} }
                     }
                     List { class: "px-2",
                         for row in group.rows {
@@ -141,21 +141,6 @@ pub fn SidebarAgents(query: String) -> Element {
                                     ring_attribute(target, &row.document.session_id)
                                 }),
                                 "data-notify-ring": "child",
-                                onclick: {
-                                    let pump = pump.clone();
-                                    let session_id = row.document.session_id.clone();
-                                    move |event: MouseEvent| {
-                                        let primary = event.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary);
-                                        if !primary || !event.modifiers().is_empty() {
-                                            return;
-                                        }
-                                        pump.dispatch(ClientEvent::Sidebar(SidebarIntent::RecordNavigation {
-                                            session_id: session_id.clone(),
-                                            last_workspace: None,
-                                            close_drawer: true,
-                                        }));
-                                    }
-                                },
                                 ListRow {
                                     leading_icon: Some(IconType::Terminal),
                                     headline: rsx! {
@@ -186,7 +171,11 @@ pub fn SidebarAgents(query: String) -> Element {
                                         }
                                     }),
                                     href: Some(row.document.href.clone()),
-                                    on_navigate: navigate,
+                                    on_navigate: Some(agent_row_navigate(
+                                        pump.clone(),
+                                        navigate,
+                                        row.document.session_id.clone(),
+                                    )),
                                     selected: active_session_id.as_deref() == Some(row.document.session_id.as_str()),
                                     test_id: Some(format!("sidebar-agent-row-{}", row.document.session_id)),
                                 }
@@ -197,4 +186,22 @@ pub fn SidebarAgents(query: String) -> Element {
             }
         }
     }
+}
+
+/// The in-app click on a terminal row: navigate, then record the session as the
+/// last visited and close the drawer. `ListRow` only calls it for a plain primary
+/// click, which is the case the old click-capturing wrapper also gated on.
+fn agent_row_navigate(
+    pump: crate::pump::Pump,
+    navigate: EventHandler<String>,
+    session_id: String,
+) -> EventHandler<String> {
+    EventHandler::new(move |href: String| {
+        navigate.call(href);
+        pump.dispatch(ClientEvent::Sidebar(SidebarIntent::RecordNavigation {
+            session_id: session_id.clone(),
+            last_workspace: None,
+            close_drawer: true,
+        }));
+    })
 }

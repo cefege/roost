@@ -25,6 +25,12 @@ pub fn CommandInput(
     /// Callback fired when the search text changes. Use for server-side search.
     #[props(optional)]
     on_search_change: Option<EventHandler<String>>,
+    /// Keydown the caller handles before the command's own keys see it.
+    #[props(optional)]
+    onkeydown: Option<EventHandler<KeyboardEvent>>,
+    /// The mounted input, for a caller that focuses it.
+    #[props(optional)]
+    onmounted: Option<EventHandler<MountedEvent>>,
 ) -> Element {
     let context = use_context::<CommandContext>();
     let merged_class = tw_merge!(INPUT_RECIPE, class.as_deref().unwrap_or(""));
@@ -61,6 +67,16 @@ pub fn CommandInput(
                 highlighted.set(None);
                 if let Some(callback) = on_search_change {
                     callback.call(value);
+                }
+            },
+            onkeydown: move |event: KeyboardEvent| {
+                if let Some(callback) = onkeydown {
+                    callback.call(event);
+                }
+            },
+            onmounted: move |event: MountedEvent| {
+                if let Some(callback) = onmounted {
+                    callback.call(event);
                 }
             },
             "data-1p-ignore": "true",

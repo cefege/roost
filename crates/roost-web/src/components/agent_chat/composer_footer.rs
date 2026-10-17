@@ -9,7 +9,10 @@ use roost_protocol::wire::agent_chat::{ConversationSummary, GoalState, ModelsCat
 use super::composer_commands::{advisor_title, report_command, submit_direct_command};
 use super::goal_dock::GoalDock;
 use super::model_controls::AgentModelControls;
-use crate::components::ui::{ButtonVariant, Chip, IconButton, IconType};
+use crate::components::ui::{
+    ButtonVariant, Chip, Icon, IconButton, IconType, InputPromptFooter, InputPromptSubmit,
+    InputPromptTools,
+};
 use crate::pump::Pump;
 
 #[component]
@@ -45,8 +48,8 @@ pub(super) fn ComposerFooter(
     let advisor_pump = pump.clone();
     let advisor_conversation = conversation.id.clone();
     rsx! {
-        div { class: "flex items-center justify-between gap-2",
-            div { class: "flex min-w-0 flex-wrap items-center gap-1",
+        InputPromptFooter {
+            InputPromptTools { class: "min-w-0 flex-wrap",
                 IconButton {
                     icon: IconType::Plus,
                     label: "Show agent commands",
@@ -82,29 +85,26 @@ pub(super) fn ComposerFooter(
                 }
                 GoalDock { goal, view_request: goal_view_request, on_open: on_goal_open }
             }
-            div { class: "flex shrink-0 items-center gap-1",
+            InputPromptTools { class: "shrink-0",
                 AgentModelControls { conversation: conversation.clone(), catalog, catalog_failed, pump }
                 if running {
-                    IconButton {
-                        icon: IconType::Square,
-                        label: "Stop the agent",
-                        title: "Stop",
+                    InputPromptSubmit {
                         variant: ButtonVariant::Secondary,
-                        class: Some("aria-disabled:pointer-events-none aria-disabled:opacity-40".to_owned()),
-                        "data-testid": "agent-chat-stop",
+                        aria_label: "Stop the agent",
+                        title: "Stop",
+                        test_id: "agent-chat-stop",
                         onclick: move |_| on_stop.call(()),
+                        Icon { icon: IconType::Square, class: "size-4" }
                     }
                 }
                 if !running || has_draft {
-                    IconButton {
-                        icon: IconType::ArrowUp,
-                        label: if running { "Steer the agent" } else { "Send message" },
+                    InputPromptSubmit {
+                        disabled: disabled || !has_draft,
+                        aria_label: if running { "Steer the agent" } else { "Send message" },
                         title: if running { "Steer" } else { "Send" },
-                        variant: ButtonVariant::Default,
-                        class: Some("aria-disabled:pointer-events-none aria-disabled:opacity-40".to_owned()),
-                        "data-testid": "agent-chat-send",
-                        "aria-disabled": (disabled || !has_draft).then_some("true"),
+                        test_id: "agent-chat-send",
                         onclick: move |_| on_send.call(()),
+                        Icon { icon: IconType::ArrowUp, class: "size-4" }
                     }
                 }
             }

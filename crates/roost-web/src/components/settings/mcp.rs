@@ -23,8 +23,8 @@ use roost_protocol::wire::McpRelay;
 
 use crate::components::ui::{
     Badge, BadgeVariant, Button, ButtonVariant, Card, CardAction, CardContent, CardDescription,
-    CardHeader, CardTitle, EmptyState, Icon, IconType, List, ListRow, Select, SelectOption,
-    TextField,
+    CardHeader, CardTitle, EmptyState, FieldError, Icon, IconType, List, ListRow, Select,
+    SelectOption, Surface, SurfaceRadius, TextField,
 };
 use crate::pump::{Pump, use_store};
 
@@ -105,13 +105,13 @@ pub fn McpPane() -> Element {
                         }
                     }
                     if let Some(message) = view().delete_error.clone() {
-                        p { class: "text-sm text-destructive", {message} }
+                        FieldError { {message} }
                     }
                     if let Some(message) = view().load_error.clone() {
                         div { class: "flex items-center gap-2", "data-testid": "mcp-load-err",
-                            Icon { icon: IconType::CircleAlert, class: "size-4 shrink-0 text-destructive".to_owned() }
-                            span { class: "text-sm text-destructive",
-                                "Failed to load relays: {message}"
+                            FieldError { class: "flex items-center gap-2",
+                                Icon { icon: IconType::CircleAlert, class: "size-4 shrink-0" }
+                                span { "Failed to load relays: {message}" }
                             }
                             Button {
                                 variant: ButtonVariant::Ghost,
@@ -247,9 +247,12 @@ fn RelayEditor(
         "/usr/local/bin/mcp-server"
     };
     rsx! {
-        div {
-            class: "flex flex-col gap-2 rounded-md border border-border bg-card p-3",
-            "data-testid": "mcp-relay-editor",
+        Surface {
+            radius: SurfaceRadius::Sm,
+            pad: Some(3),
+            border: true,
+            class: Some("flex flex-col gap-2".to_owned()),
+            test_id: Some("mcp-relay-editor".to_owned()),
             TextField {
                 test_id: "mcp-editor-label".to_owned(),
                 label: "Relay name".to_owned(),

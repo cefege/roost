@@ -1,4 +1,4 @@
-//! The compact sidebar drawer, its scrim, and the window touch listeners that
+//! The compact sidebar drawer and the window touch listeners that
 //! let a left-edge swipe open it and a leftward swipe close it. Ports
 //! `apps/web/src/components/layout/MobileSidebarDrawer.tsx`; mounted by
 //! `AppShell` only in the compact layout, with the sidebar surface as children.
@@ -6,12 +6,10 @@
 //! `motion::drawer_drag`; open/close are the store's `SidebarIntent`s.
 
 use dioxus::prelude::*;
-use roost_client_core::ClientEvent;
-use roost_client_core::store::sidebar::SidebarIntent;
 
 use crate::pump::use_store;
 
-/// The drawer and its scrim.
+/// The drawer; its dim is `main_pane`'s, which sits under it.
 #[component]
 pub fn MobileSidebarDrawer(children: Element) -> Element {
     let pump = use_store();
@@ -24,18 +22,10 @@ pub fn MobileSidebarDrawer(children: Element) -> Element {
         });
         use_drop(move || listeners.remove());
     }
-    let close_pump = pump.clone();
     let flag = if open { "true" } else { "false" };
     rsx! {
-        div {
-            class: "hidden",
-            "data-testid": "sidebar-overlay",
-            "data-open": flag,
-            "aria-hidden": "true",
-            onclick: move |_| close_pump.dispatch(ClientEvent::Sidebar(SidebarIntent::CloseDrawer)),
-        }
         aside {
-            class: "fixed inset-0 z-50 box-border h-full w-screen overflow-hidden will-change-transform pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] bg-[var(--workbench-sidebar)] font-sans text-xs text-[var(--text-mid)] min-w-0 min-h-0 grid grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] [transform:translateX(-100%)] transition-transform duration-200 ease-[cubic-bezier(0.3,0,0.8,0.15)] data-[open=true]:[transform:translateX(0)] data-[open=true]:duration-300 data-[open=true]:ease-[cubic-bezier(0.05,0.7,0.1,1)]",
+            class: "fixed inset-0 z-50 box-border h-full w-screen overflow-hidden will-change-transform pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] bg-sidenav font-sans text-xs text-[var(--text-mid)] min-w-0 min-h-0 grid grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] [transform:translateX(-100%)] transition-transform duration-200 ease-[cubic-bezier(0.3,0,0.8,0.15)] data-[open=true]:[transform:translateX(0)] data-[open=true]:duration-300 data-[open=true]:ease-[cubic-bezier(0.05,0.7,0.1,1)]",
             "data-testid": crate::motion::drawer_drag::DRAWER_TEST_ID,
             "data-open": flag,
             "aria-hidden": if open { "false" } else { "true" },

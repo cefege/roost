@@ -20,13 +20,29 @@
 
 use dioxus::prelude::*;
 
-use crate::components::ui::{Icon, IconType};
+use crate::components::ui::{Icon, IconType, Surface};
 
 /// The full-height centring frame both refusal screens share. The TV overscan
 /// variant keeps the padding the TV mode gives the checking screen.
 pub const CHECKING_CLASS: &str = "flex min-h-dvh w-full items-center justify-center p-6 tv:!py-[var(--tv-overscan-block)] tv:!px-[var(--tv-overscan-inline)]";
-/// The bordered card that holds the message.
-pub const CARD_CLASS: &str = "flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm text-card-foreground";
+/// The bordered card that holds a gate's message. The live region sits on the
+/// surface itself, so an announcement carries the whole message.
+#[component]
+pub fn GateCard(
+    #[props(into)] role: String,
+    #[props(into, optional)] aria_live: Option<String>,
+    children: Element,
+) -> Element {
+    rsx! {
+        Surface {
+            role: Some(role),
+            aria_live,
+            border: true,
+            class: Some("flex items-center gap-2 rounded-xl px-4 py-3 text-sm text-card-foreground".to_owned()),
+            {children}
+        }
+    }
+}
 
 /// The screen shown while the coordinator has not answered.
 ///
@@ -37,7 +53,7 @@ pub const CARD_CLASS: &str = "flex items-center gap-2 rounded-xl border border-b
 pub fn CheckingScreen() -> Element {
     rsx! {
         div { class: CHECKING_CLASS, "data-testid": "access-checking",
-            div { class: CARD_CLASS, role: "status", "aria-live": "polite",
+            GateCard { role: "status", aria_live: "polite",
                 Icon { icon: IconType::Hourglass, class: "size-4" }
                 span { "Checking access…" }
             }
@@ -56,7 +72,7 @@ pub fn UnauthorizedScreen(on_navigate: EventHandler<String>) -> Element {
     let pair_path = crate::routes::Route::Pair.to_path();
     rsx! {
         div { class: CHECKING_CLASS, "data-testid": "access-unauthorized",
-            div { class: CARD_CLASS, role: "alert",
+            GateCard { role: "alert",
                 Icon { icon: IconType::Lock, class: "size-4" }
                 span { "This browser is not authorized on this coordinator." }
                 a { href: pair_path.clone(), onclick: move |_| on_navigate.call(pair_path.clone()),

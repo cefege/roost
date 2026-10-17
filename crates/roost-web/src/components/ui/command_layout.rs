@@ -44,6 +44,15 @@ pub fn CommandDescription(
 pub fn CommandList(
     #[props(into, optional)] class: Option<String>,
     #[props(into, optional)] id: Option<String>,
+    /// Listbox wiring for a caller that renders options as a listbox. Each stays
+    /// absent for palette-style callers, which keep the default container.
+    #[props(into, optional)]
+    role: Option<String>,
+    #[props(into, optional)] aria_label: Option<String>,
+    #[props(into, optional)] aria_active_descendant: Option<String>,
+    #[props(into, optional)] tabindex: Option<String>,
+    #[props(into, optional)] style: Option<String>,
+    #[props(into, optional)] test_id: Option<String>,
     children: Element,
 ) -> Element {
     let merged_class = tw_merge!(LIST_RECIPE, class.as_deref().unwrap_or(""));
@@ -52,6 +61,12 @@ pub fn CommandList(
             "data-name": "CommandList",
             class: "{merged_class}",
             id: id.as_deref(),
+            role: role.as_deref(),
+            "aria-label": aria_label.as_deref(),
+            "aria-activedescendant": aria_active_descendant.as_deref(),
+            tabindex: tabindex.as_deref(),
+            style: style.as_deref(),
+            "data-testid": test_id.as_deref(),
             {children}
         }
     }

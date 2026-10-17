@@ -8,7 +8,7 @@
 use dioxus::prelude::*;
 use tw_merge::tw_merge;
 
-use crate::components::ui::button::{Button, ButtonSize};
+use crate::components::ui::button::{Button, ButtonSize, ButtonVariant};
 use crate::components::ui::input_group::{InputGroup, InputGroupAddon, InputGroupAddonAlign};
 
 #[component]
@@ -42,6 +42,11 @@ pub fn InputPromptTextarea(
     #[props(optional)] on_keydown: Option<EventHandler<KeyboardEvent>>,
     #[props(optional)] on_input: Option<EventHandler<String>>,
     #[props(optional)] on_mounted: Option<EventHandler<MountedEvent>>,
+    /// When false, a bare Enter keeps its default (a newline) and `on_submit` never
+    /// fires from the keyboard. The composer sets it false because its own keydown
+    /// owns Enter: a live recording keeps Enter as a newline.
+    #[props(default = true)]
+    submit_on_enter: bool,
     #[props(extends = GlobalAttributes, extends = textarea)] attributes: Vec<Attribute>,
 ) -> Element {
     let placeholder = placeholder.unwrap_or_else(|| "Write a message...".to_string());
@@ -77,7 +82,11 @@ pub fn InputPromptTextarea(
                 if let Some(handler) = on_keydown {
                     handler.call(event.clone());
                 }
-                if event.key() == Key::Enter && !event.modifiers().shift() && !event.is_composing() {
+                if submit_on_enter
+                    && event.key() == Key::Enter
+                    && !event.modifiers().shift()
+                    && !event.is_composing()
+                {
                     event.prevent_default();
                     if let Some(handler) = on_submit {
                         handler.call(());
@@ -108,11 +117,15 @@ pub fn InputPromptFooter(
 
 /// Icon send button. `disabled` blocks it while the draft is empty; `onclick`
 /// is the send action, since a `type="button"` control has no form to submit.
+/// `variant` lets the stop control sit beside it as a secondary button.
 #[component]
 pub fn InputPromptSubmit(
     #[props(optional)] disabled: bool,
+    #[props(default = ButtonVariant::Default)] variant: ButtonVariant,
     #[props(into, optional)] class: Option<String>,
     #[props(into, optional)] aria_label: Option<String>,
+    #[props(into, optional)] title: Option<String>,
+    #[props(into, optional)] test_id: Option<String>,
     #[props(optional)] onclick: Option<EventHandler<MouseEvent>>,
     children: Element,
 ) -> Element {
@@ -120,10 +133,13 @@ pub fn InputPromptSubmit(
 
     rsx! {
         Button {
+            variant,
             size: ButtonSize::Icon,
             class: merged,
             disabled,
             aria_label,
+            title: title.as_deref(),
+            "data-testid": test_id.as_deref(),
             onclick: move |event: MouseEvent| {
                 if let Some(handler) = onclick {
                     handler.call(event);

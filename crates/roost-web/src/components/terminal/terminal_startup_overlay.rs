@@ -1,9 +1,9 @@
 //! The one card shown while a terminal pane is opening: a constant eyebrow, a
 //! single determinate meter, one friendly step line, and the technical detail
 //! collapsed until a step is slow or stuck. Rendered by `CellTerminal`; its
-//! `apps/web/src/components/terminal/TerminalStartupOverlay.tsx`. Its layout and
-//! its entry/exit keyframes are Tailwind utilities (`animate-terminal-startup-*`).
+//! entry/exit keyframes are Tailwind utilities (`animate-terminal-startup-*`).
 
+use crate::components::ui::{Card, Progress};
 use dioxus::prelude::*;
 use roost_web_terminal::startup_progress::{StartupChunks, terminal_startup_chunk_detail};
 
@@ -43,11 +43,14 @@ pub fn TerminalStartupOverlay(notice: Option<TerminalStartupNotice>) -> Element 
         held.progress
             .map(|(received, total)| StartupChunks { received, total }),
     );
-    let fill = format!("width: {}%;", state.percent());
     let elapsed = state.elapsed_seconds();
     rsx! {
         div {
-            class: if state.finishing() { "terminal-startup absolute inset-0 z-[5] flex items-center justify-center p-6 pointer-events-none animate-terminal-startup-out motion-reduce:animate-none" } else { "terminal-startup absolute inset-0 z-[5] flex items-center justify-center p-6 pointer-events-none animate-terminal-startup-in motion-reduce:animate-none" },
+            class: if state.finishing() {
+                "absolute inset-0 z-[5] flex items-center justify-center p-6 pointer-events-none animate-terminal-startup-out motion-reduce:animate-none"
+            } else {
+                "absolute inset-0 z-[5] flex items-center justify-center p-6 pointer-events-none animate-terminal-startup-in motion-reduce:animate-none"
+            },
             "data-testid": "terminal-loading-status",
             "data-stage": stage_attribute(held.stage),
             "data-session-id": held.session_id.clone(),
@@ -55,14 +58,16 @@ pub fn TerminalStartupOverlay(notice: Option<TerminalStartupNotice>) -> Element 
             "data-percent": "{percent}",
             "data-phase": if state.finishing() { "complete" } else { "loading" },
             div {
-                class: "absolute h-px w-px overflow-hidden whitespace-nowrap border-0 p-0 -m-px",
+                class: "sr-only",
                 role: "status",
                 "aria-live": "polite",
                 "aria-atomic": "true",
                 "{title}. {detail}"
             }
-            div {
-                class: "flex w-[min(100%,38ch)] flex-col gap-3 rounded-lg border border-border bg-card p-6 text-center text-card-foreground shadow-md",
+            Card {
+                class: Some(
+                    "w-[min(100%,38ch)] gap-3 rounded-lg p-6 text-center shadow-md".to_owned(),
+                ),
                 div {
                     class: "text-sm font-medium uppercase tracking-wide text-muted-foreground",
                     "data-testid": "terminal-loading-title",
@@ -73,18 +78,12 @@ pub fn TerminalStartupOverlay(notice: Option<TerminalStartupNotice>) -> Element 
                     "data-testid": "terminal-loading-percent",
                     "{percent}%"
                 }
-                div {
-                    class: "h-1 w-full overflow-hidden rounded-full bg-muted",
-                    "data-testid": "terminal-loading-progress",
-                    role: "progressbar",
-                    "aria-valuemin": "0",
-                    "aria-valuemax": "100",
-                    "aria-valuenow": "{percent}",
-                    div {
-                        class: "h-full rounded-full bg-primary transition-[width] duration-[250ms] ease-linear",
-                        "data-testid": "terminal-loading-progress-fill",
-                        style: fill,
-                    }
+                Progress {
+                    value: Some(state.percent() / 100.0),
+                    label: "Terminal startup progress",
+                    class: "h-1",
+                    test_id: "terminal-loading-progress",
+                    fill_test_id: "terminal-loading-progress-fill",
                 }
                 div {
                     class: "text-sm text-muted-foreground",

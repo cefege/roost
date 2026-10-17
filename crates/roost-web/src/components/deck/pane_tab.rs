@@ -112,9 +112,11 @@ pub fn PaneTab(
                 }
             },
             onmouseleave: move |_| on_hover_end.call(()),
+            // The row paints its own hover and selection fill, so the label must not
+            // add the Ghost accent band over it.
             Button {
                 variant: ButtonVariant::Ghost,
-                class: "flex flex-1 min-w-0 h-full items-center gap-1 p-0 rounded-none border-0 bg-transparent text-inherit font-normal text-start cursor-pointer hover:bg-transparent hover:text-inherit dark:hover:bg-transparent group-data-[packed=true]/strip:justify-center",
+                class: "flex flex-1 min-w-0 h-full items-center gap-1 p-0 rounded-none font-normal text-inherit text-start cursor-pointer hover:bg-transparent hover:text-inherit dark:hover:bg-transparent group-data-[packed=true]/strip:justify-center",
                 "aria-label": title.clone(),
                 "data-tab-select": "true",
                 "aria-current": active.then_some("page"),

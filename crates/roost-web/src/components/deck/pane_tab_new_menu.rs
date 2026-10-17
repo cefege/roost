@@ -21,7 +21,8 @@ pub fn PaneTabNewMenu(
             on_open_change: move |next: bool| open.set(next),
             test_id: "tab-new-menu",
             DropdownMenuTrigger {
-                class: "size-[var(--workbench-tab-action-size)] p-0 border-0 bg-transparent text-muted-foreground rounded-md shrink-0 hover:bg-foreground/8 hover:text-foreground transition-[background-color,color] duration-150",
+                class: "size-[var(--workbench-tab-action-size)] p-0 text-muted-foreground shrink-0",
+                ghost: true,
                 test_id: "tab-new",
                 aria_label: "New tab",
                 Icon { icon: IconType::Plus, class: "size-4" }

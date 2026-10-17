@@ -9,8 +9,8 @@ use roost_client_core::KeyValueStore as _;
 use wasm_bindgen::JsCast as _;
 
 use crate::components::ui::{
-    Button, ButtonVariant, Card, CardContent, CardHeader, CardTitle, Input, InputType, Select,
-    SelectOption, TextField,
+    Button, ButtonVariant, Card, CardContent, CardHeader, CardTitle, FieldError, Input, InputType,
+    Select, SelectOption, TextField,
 };
 use crate::platform::LocalStorageKeyValueStore;
 use crate::terminal_schemes::{TerminalPalette, TerminalScheme, built_in_schemes, parse_scheme};
@@ -129,7 +129,7 @@ pub fn TerminalColorSchemes() -> Element {
                     },
                 }
                 if let Some(message) = error() {
-                    p { class: "text-sm text-destructive", role: "alert", "{message}" }
+                    FieldError { {message} }
                 }
                 Button {
                     variant: ButtonVariant::Default,

@@ -40,6 +40,8 @@ pub fn SheetContent(
     #[props(default)] side: SheetSide,
     #[props(into, optional)] class: Option<String>,
     #[props(into, optional)] test_id: Option<String>,
+    #[props(into, optional)] style: Option<String>,
+    #[props(into, optional)] scrim_test_id: Option<String>,
     #[props(default = true)] show_close_button: bool,
     #[props(default = true)] close_on_backdrop_click: bool,
     on_open_auto_focus: Option<EventHandler<AutoFocusRequest>>,
@@ -55,6 +57,8 @@ pub fn SheetContent(
         DialogContent {
             class: merged,
             test_id,
+            style,
+            scrim_test_id,
             show_close_button: Some(show_close_button),
             close_on_backdrop_click,
             on_open_auto_focus,

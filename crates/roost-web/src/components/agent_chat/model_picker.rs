@@ -12,8 +12,8 @@ use roost_protocol::wire::agent_chat::{model_family, model_search_text, rank_mat
 
 use crate::components::file_viewer::dom::focus_by_id;
 use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Chip, EmptyState, Icon, IconType, List, ListRow,
-    SectionTitle, TextField,
+    Button, ButtonSize, ButtonVariant, Chip, Command, CommandItem, CommandList, EmptyState, Icon,
+    IconType, List, SectionTitle, TextField,
 };
 
 /// One choice the picker offers. `selector` is the saved string (`provider/id`
@@ -226,39 +226,60 @@ pub fn ModelPicker(
                     title: format!("No models match “{current_query}”."),
                 }
             }
-            div { id: results_id, class: "max-h-[min(50dvh,32rem)] overflow-y-auto overscroll-contain", role: "listbox", "aria-label": "Models",
-            for (group, rows) in groups {
-                // A blank group is one the surrounding view already names.
-                if !group.is_empty() {
-                    SectionTitle { "{group}" }
-                }
-                List { contained: true,
-                    for option in rows {
-                        {
-                            let is_selected = selected.as_deref() == Some(option.selector.as_str());
-                            let choice = option.selector.clone();
-                            let option_id = format!("{test_id}-option-{row_index}");
-                            let is_highlighted = row_index == highlighted;
-                            row_index += 1;
-                            rsx! {
-                                ListRow {
-                                    headline: rsx! { "{option.name}" },
-                                    support: option.detail.as_ref().map(|detail| rsx! { "{detail}" }),
-                                    trailing: is_selected.then(|| rsx! { Icon { icon: IconType::Check, class: "size-4" } }),
-                                    id: option_id,
-                                    role: "option",
-                                    aria_selected: is_highlighted.to_string(),
-                                    tabindex: Some(-1),
-                                    selected: is_highlighted,
-                                    dense: true,
-                                    test_id: format!("model-picker-option-{}", option.selector),
-                                    onclick: move |_| on_choose.call(choice.clone()),
+            // The search field keeps focus and owns the arrow/Home/End/Enter ladder;
+            // `handles_keys: false` stops the results root from acting on the same keys,
+            // and rows never take tab focus.
+            Command {
+                class: "h-auto min-h-0 overflow-visible",
+                handles_keys: false,
+                should_filter: false,
+                highlighted: format!("{test_id}-option-{highlighted}"),
+                CommandList {
+                    id: results_id.clone(),
+                    role: "listbox",
+                    aria_label: "Models",
+                    class: "max-h-[min(50dvh,32rem)] min-h-0 overflow-y-auto overscroll-contain",
+                    for (group, rows) in groups {
+                        // A blank group is one the surrounding view already names.
+                        if !group.is_empty() {
+                            SectionTitle { "{group}" }
+                        }
+                        List { contained: true,
+                            for option in rows {
+                                {
+                                    let is_selected = selected.as_deref() == Some(option.selector.as_str());
+                                    let choice = option.selector.clone();
+                                    let option_id = format!("{test_id}-option-{row_index}");
+                                    let is_highlighted = row_index == highlighted;
+                                    row_index += 1;
+                                    rsx! {
+                                        CommandItem {
+                                            id: option_id.clone(),
+                                            value: option_id,
+                                            focusable: false,
+                                            show_check: false,
+                                            selected: is_highlighted,
+                                            test_id: format!("model-picker-option-{}", option.selector),
+                                            class: "gap-4 px-4",
+                                            on_select: Some(EventHandler::new(move |_| on_choose.call(choice.clone()))),
+                                            div { class: "flex min-w-0 flex-1 flex-col",
+                                                span { class: "truncate text-sm font-medium text-foreground", "{option.name}" }
+                                                if let Some(detail) = option.detail.as_ref() {
+                                                    span { class: "truncate text-sm font-normal text-muted-foreground", "{detail}" }
+                                                }
+                                            }
+                                            if is_selected {
+                                                span { class: "flex shrink-0 items-center gap-2",
+                                                    Icon { icon: IconType::Check, class: "size-4" }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
             }
         }
     }

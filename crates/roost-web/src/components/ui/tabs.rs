@@ -76,6 +76,7 @@ struct TabsCtx {
     on_value_change: Option<EventHandler<String>>,
     id_prefix: Signal<String>,
     vertical: bool,
+    handles_keys: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -97,6 +98,10 @@ pub fn Tabs(
     #[props(into)] value: String,
     #[props(optional)] on_value_change: Option<EventHandler<String>>,
     #[props(default = TabsOrientation::Horizontal)] orientation: TabsOrientation,
+    /// `false` when a caller's key ladder owns arrows and focus: triggers then skip
+    /// their own key handling and keep every tab in the tab order.
+    #[props(default = true)]
+    handles_keys: bool,
     children: Element,
 ) -> Element {
     let mut active = use_signal(|| value.clone());
@@ -107,6 +112,7 @@ pub fn Tabs(
         on_value_change,
         id_prefix,
         vertical: orientation == TabsOrientation::Vertical,
+        handles_keys,
     });
 
     let is_horizontal = orientation == TabsOrientation::Horizontal;
@@ -133,6 +139,7 @@ pub fn Tabs(
 #[component]
 pub fn TabsList(
     #[props(into, optional)] class: Option<String>,
+    #[props(into, optional)] aria_label: Option<String>,
     #[props(default = TabsVariant::Default)] variant: TabsVariant,
     children: Element,
 ) -> Element {
@@ -155,6 +162,7 @@ pub fn TabsList(
         div {
             class: "{merged}",
             role: "tablist",
+            "aria-label": aria_label.as_deref(),
             "data-name": "TabsList",
             "data-variant": if is_line { "Line" } else { "Default" },
             {children}
@@ -166,6 +174,7 @@ pub fn TabsList(
 pub fn TabsTrigger(
     #[props(into)] value: String,
     #[props(into, optional)] class: Option<String>,
+    #[props(into, optional)] test_id: Option<String>,
     children: Element,
 ) -> Element {
     let TabsCtx {
@@ -173,13 +182,18 @@ pub fn TabsTrigger(
         on_value_change,
         id_prefix,
         vertical: ctx_vertical,
+        handles_keys,
     } = use_context::<TabsCtx>();
     let list_ctx = use_context::<TabsListCtx>();
     let is_line = list_ctx.variant == TabsVariant::Line;
     let is_active = active() == value;
     let tab_id = tab_element_id(&id_prefix(), &value);
     let panel_id = panel_element_id(&id_prefix(), &value);
-    let tabindex = if is_active { "0" } else { "-1" };
+    let tabindex = if is_active || !handles_keys {
+        "0"
+    } else {
+        "-1"
+    };
 
     let merged = tw_merge!(
         "relative inline-flex h-full flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-1.5 py-0.5 text-sm font-medium whitespace-nowrap transition-all cursor-pointer select-none",
@@ -216,6 +230,7 @@ pub fn TabsTrigger(
             id: "{tab_id}",
             class: "{merged}",
             "data-name": "TabsTrigger",
+            "data-testid": test_id.as_deref(),
             "data-state": if is_active { "Active" } else { "Inactive" },
             "aria-selected": "{is_active}",
             "aria-controls": "{panel_id}",
@@ -227,6 +242,9 @@ pub fn TabsTrigger(
                 }
             },
             onkeydown: move |event| {
+                if !handles_keys {
+                    return;
+                }
                 let vertical = ctx_vertical;
                 if let Some(step) = tab_step_for_key(&event.key(), vertical) {
                     event.prevent_default();

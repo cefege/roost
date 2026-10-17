@@ -137,7 +137,7 @@ pub fn SidebarResizer() -> Element {
     let press_pump = pump.clone();
     rsx! {
         div {
-            class: "workbench-sidebar-resizer absolute inset-y-0 right-0 z-[1] w-[var(--workbench-sidebar-resizer-width)] cursor-col-resize touch-none bg-transparent hover:bg-[var(--workbench-active)] focus-visible:bg-foreground/12 focus-visible:outline focus-visible:outline-[var(--workbench-focus-ring)] focus-visible:-outline-offset-px",
+            class: "workbench-sidebar-resizer absolute inset-y-0 right-0 z-[1] w-[var(--workbench-sidebar-resizer-width)] cursor-col-resize touch-none bg-transparent hover:bg-sidenav-primary focus-visible:bg-foreground/12 focus-visible:outline focus-visible:outline-ring focus-visible:-outline-offset-px",
             "data-testid": "sidebar-resizer",
             role: "separator",
             "aria-label": "Resize sidebar",

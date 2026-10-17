@@ -87,7 +87,8 @@ pub fn BrowseToolbar(
                 }
                 if online_workers.len() > 1 {
                     DropdownMenuTrigger {
-                        class: "h-8 max-w-40 truncate rounded-md border-0 bg-transparent px-2 hover:bg-foreground/8 hover:text-foreground",
+                        class: "h-8 max-w-40 truncate px-2",
+                        ghost: true,
                         test_id: "browse-server",
                         span { class: "sr-only", {server_label.clone()} }
                         Icon { icon: IconType::ChevronsUpDown, class: "size-3" }

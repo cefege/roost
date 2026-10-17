@@ -235,7 +235,9 @@ pub fn FieldSeparator(
 #[component]
 pub fn FieldError(
     #[props(into, optional)] id: Option<String>,
+    #[props(into, optional)] test_id: Option<String>,
     #[props(into, optional)] class: Option<String>,
+    #[props(into, default = "alert".to_owned())] role: String,
     #[props(optional)] children: Option<Element>,
     #[props(optional)] errors: Option<Vec<String>>,
 ) -> Element {
@@ -245,7 +247,7 @@ pub fn FieldError(
     );
     if let Some(c) = children {
         return rsx! {
-            div { id: id.as_deref(), role: "alert", "data-slot": "field-error", class: "{error_class}", {c} }
+            div { id: id.as_deref(), role: "{role}", "data-slot": "field-error", "data-testid": test_id.as_deref(), class: "{error_class}", {c} }
         };
     }
     if let Some(errs) = errors {
@@ -255,13 +257,15 @@ pub fn FieldError(
         if errs.len() == 1 {
             let msg = errs.into_iter().next().unwrap_or_default();
             return rsx! {
-                div { id: id.as_deref(), role: "alert", "data-slot": "field-error", class: "{error_class}",
+                div { id: id.as_deref(), role: "{role}", "data-slot": "field-error", class: "{error_class}",
+                    "data-testid": test_id.as_deref(),
                     span { "{msg}" }
                 }
             };
         }
         return rsx! {
-            div { id: id.as_deref(), role: "alert", "data-slot": "field-error", class: "{error_class}",
+            div { id: id.as_deref(), role: "{role}", "data-slot": "field-error", class: "{error_class}",
+                "data-testid": test_id.as_deref(),
                 ul { class: "flex flex-col gap-1 ml-4 list-disc",
                     for err in errs {
                         li { "{err}" }

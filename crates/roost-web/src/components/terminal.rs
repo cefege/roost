@@ -23,6 +23,7 @@ pub mod pane_state;
 pub mod pane_status;
 pub mod pane_surface;
 pub mod startup_overlay_state;
+pub mod stream_indicator;
 pub mod terminal_card;
 pub mod terminal_context_menu;
 pub mod terminal_drop_target;

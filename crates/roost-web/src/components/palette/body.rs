@@ -27,7 +27,7 @@ use super::outcome;
 use super::pieces::{PaletteFooter, PaletteRow};
 use crate::components::help::shortcuts::reader_platform;
 use crate::components::ui::field::scoped_element_id;
-use crate::components::ui::{Command, CommandEmpty, CommandInput, CommandList};
+use crate::components::ui::{Command, CommandEmpty, CommandHeader, CommandInput, CommandList};
 use crate::keyboard_shortcuts::ShortcutOverlays;
 use crate::platform::browser_platform::{PlatformShortcut, platform_shortcut_label};
 use crate::platform::worker_paths::BrowserWorkerPaths;
@@ -81,7 +81,13 @@ pub fn PaletteBody(pump: Pump, overlays: ShortcutOverlays) -> Element {
 
     // Installed once: a listener per render would leave every earlier one
     // registered after its guard dropped. The guard drops with the body.
-    use_hook(|| Rc::new(list_keys::install(Rc::clone(&rows), on_select, active_index)));
+    use_hook(|| {
+        Rc::new(list_keys::install(
+            Rc::clone(&rows),
+            on_select,
+            active_index,
+        ))
+    });
     use_effect({
         let mut query = query;
         move || {
@@ -109,7 +115,7 @@ pub fn PaletteBody(pump: Pump, overlays: ShortcutOverlays) -> Element {
     let highlighted = active_index();
     rsx! {
         Command { should_filter: false, class: "flex min-h-0 flex-1 flex-col",
-            div { class: "flex flex-none items-center gap-3 border-b border-border py-3 pr-14 pl-4",
+            CommandHeader { class: "flex flex-none flex-row items-center gap-3 border-b border-border py-3 pr-14 pl-4 text-start",
                 span { class: "text-sm text-muted-foreground", {chord} }
                 CommandInput {
                     class: "min-w-0 flex-1 h-auto border-0 bg-transparent px-0 py-0 text-sm text-foreground shadow-none focus-visible:border-transparent focus-visible:ring-0",

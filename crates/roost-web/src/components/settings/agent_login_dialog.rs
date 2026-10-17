@@ -9,10 +9,10 @@ use roost_client_core::client::rpc::calls::agent_chat::{
     CancelAgentLogin, PollAgentLogin, RespondAgentLogin,
 };
 
-use crate::components::agent_chat::agent_alert::ERROR_TEXT_CLASS;
 use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Dialog, DialogBody, DialogContent, DialogHeader,
-    DialogTitle, IconButton, IconType, Surface, SurfaceRadius, TextField,
+    Alert, AlertDescription, AlertTitle, AlertVariant, Button, ButtonSize, ButtonVariant, Dialog,
+    DialogBody, DialogContent, DialogHeader, DialogTitle, FieldError, IconButton, IconType,
+    Surface, SurfaceRadius, TextField,
 };
 use crate::pump::{Pump, use_store};
 use roost_protocol::wire::agent_chat::{LoginPromptType, LoginState, LoginStatus};
@@ -148,9 +148,9 @@ pub fn AgentLoginDialog(
                             if value.state == LoginStatus::Waiting { p { class: "text-sm text-muted-foreground", "Waiting for the provider…" } }
                             if value.state == LoginStatus::Done { p { class: "text-sm text-muted-foreground", "Sign-in complete." } }
                             if value.state == LoginStatus::Failed {
-                                div { class: "flex flex-col gap-2 rounded-md border border-destructive/40 p-3", role: "alert",
-                                    p { class: ERROR_TEXT_CLASS, {value.error.unwrap_or_else(|| "Sign-in failed.".to_owned())} }
-                                    p { class: "text-sm text-muted-foreground",
+                                Alert { variant: AlertVariant::Destructive, class: "flex flex-col gap-2",
+                                    AlertTitle { {value.error.unwrap_or_else(|| "Sign-in failed.".to_owned())} }
+                                    AlertDescription { class: "text-muted-foreground",
                                         "A code works once, and only for the most recent sign-in link. Start over for a fresh link."
                                     }
                                     Button {
@@ -165,7 +165,7 @@ pub fn AgentLoginDialog(
                             p { class: "text-sm text-muted-foreground", "Connecting to provider…" }
                         }
                         if !error_message.is_empty() {
-                            p { class: ERROR_TEXT_CLASS, role: "alert", {error_message} }
+                            FieldError { {error_message} }
                         }
                         if let Some(prompt) = prompt {
                             if prompt.prompt_type == LoginPromptType::ManualCode {

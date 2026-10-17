@@ -99,6 +99,8 @@ pub fn DialogTrigger(#[props(into, optional)] class: Option<String>, children: E
 pub fn DialogContent(
     #[props(into, optional)] class: Option<String>,
     #[props(into, optional)] test_id: Option<String>,
+    #[props(into, optional)] style: Option<String>,
+    #[props(into, optional)] scrim_test_id: Option<String>,
     show_close_button: Option<bool>,
     #[props(default = true)] close_on_backdrop_click: bool,
     on_open_auto_focus: Option<EventHandler<AutoFocusRequest>>,
@@ -113,6 +115,8 @@ pub fn DialogContent(
         DialogPanel {
             class,
             test_id,
+            style,
+            scrim_test_id,
             show_close_button,
             close_on_backdrop_click,
             on_open_auto_focus,
@@ -128,6 +132,8 @@ pub fn DialogContent(
 fn DialogPanel(
     class: Option<String>,
     test_id: Option<String>,
+    style: Option<String>,
+    scrim_test_id: Option<String>,
     show_close_button: Option<bool>,
     close_on_backdrop_click: bool,
     on_open_auto_focus: Option<EventHandler<AutoFocusRequest>>,
@@ -176,6 +182,7 @@ fn DialogPanel(
         // reaches the page, and only dismisses when the caller allows it.
         div {
             class: "fixed inset-0 z-1000 pointer-events-auto bg-black/55",
+            "data-testid": scrim_test_id,
             onpointerdown: move |event: PointerEvent| {
                 if close_on_backdrop_click {
                     event.prevent_default();
@@ -198,6 +205,7 @@ fn DialogPanel(
                 class.as_deref().unwrap_or("")
             ),
             "data-testid": test_id,
+            style: style,
             onmounted: move |event: MountedEvent| {
                 let mounted = event.data();
                 container.set(Some(mounted.clone()));

@@ -63,13 +63,13 @@ pub fn ToolbarMenu(
     };
     let trigger_element = match trigger {
         ToolbarTrigger::Picker { label } => rsx! {
-            DropdownMenuTrigger { class: "min-w-0 max-w-full border-transparent bg-transparent",
+            DropdownMenuTrigger { ghost: true, class: "min-w-0 max-w-full",
                 span { class: "min-w-0 truncate", "{label}" }
                 Icon { icon: IconType::ChevronDown, class: "size-4" }
             }
         },
         ToolbarTrigger::Icon { icon } => rsx! {
-            DropdownMenuTrigger { class: "h-7 w-7 p-0 border-transparent bg-transparent",
+            DropdownMenuTrigger { ghost: true, class: "h-7 w-7 p-0",
                 Icon { icon, class: "size-4" }
                 // The icon has no text of its own; this keeps the trigger named.
                 span { class: "sr-only", "{aria_label}" }

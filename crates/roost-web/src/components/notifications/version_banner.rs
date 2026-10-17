@@ -11,9 +11,7 @@
 use dioxus::prelude::*;
 
 use crate::components::terminal::dom::{page_visible, sleep_ms};
-use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Icon, IconType, Surface, SurfaceRadius,
-};
+use crate::components::ui::{Alert, Button, ButtonSize, ButtonVariant, Icon, IconType};
 
 /// The meta name both the running document and the served one carry.
 const BUILD_SHA_META: &str = "roost-build-sha";
@@ -55,11 +53,9 @@ pub fn VersionBanner() -> Element {
         div {
             "data-testid": "version-banner",
             class: "fixed bottom-4 left-4 z-[49]",
-            Surface {
-                level: 2,
-                elevation: 3,
-                radius: SurfaceRadius::Md,
-                class: "flex items-start gap-3 border-[length:var(--workbench-border-width)] border-primary px-4 py-3 text-foreground max-w-[min(42ch,calc(100vw_-_2.5rem))]",
+            Alert {
+                role: "status",
+                class: "border-[length:var(--workbench-border-width)] border-primary text-foreground [&>svg]:text-primary max-w-[min(42ch,calc(100vw_-_2.5rem))]",
                 Icon { icon: IconType::ArrowUp, class: "size-4 shrink-0 text-primary" }
                 div {
                     class: "flex flex-col gap-2",

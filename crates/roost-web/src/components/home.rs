@@ -16,7 +16,10 @@ use crate::components::brand_mark::{BrandMark, HOME_MARK_SIZE};
 use crate::components::layout::title_bar::PRODUCT;
 use crate::components::layout::window_size::{use_is_compact, use_tv_layout};
 use crate::components::tv_home_board::TvHomeBoard;
-use crate::components::ui::{Icon, IconButton, IconType};
+use crate::components::ui::{
+    Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyMediaVariant, EmptyTitle, Icon,
+    IconButton, IconType, Kbd,
+};
 use crate::pump::use_store;
 
 /// A shortcut the landing advertises. The Windows binding comes from
@@ -114,19 +117,23 @@ pub fn HomeLanding(reader_platform: BrowserPlatform) -> Element {
                     if index > 0 {
                         " · "
                     }
-                    kbd { class: "whitespace-nowrap rounded-xs border border-[var(--workbench-border)] bg-[var(--surface-2)] px-1 text-xs text-muted-foreground", {shortcut.glyph(reader_platform)} }
+                    Kbd { class: "whitespace-nowrap", {shortcut.glyph(reader_platform)} }
                     " {shortcut.action}"
                 }
             }
-            div { class: "flex flex-col items-center gap-3 px-6 py-9 text-center text-muted-foreground", "data-testid": "home-empty",
-                div { class: "grid size-[calc(var(--control-touch-target)+0.75rem)] place-items-center rounded-2xl border border-[var(--workbench-border)] bg-[var(--surface-1)] text-muted-foreground",
-                    Icon { icon: IconType::Terminal, class: "size-6 shrink-0" }
-                }
-                div { class: "text-base text-foreground", "Open a workspace" }
-                div { class: "max-w-[42ch] text-sm",
-                    "Select a workspace from the sidebar, or press "
-                    kbd { class: "whitespace-nowrap rounded-xs border border-[var(--workbench-border)] bg-[var(--surface-2)] px-1 text-xs text-muted-foreground", {SHORTCUTS[0].glyph(reader_platform)} }
-                    " to open the Command palette."
+            div { class: "px-6 py-9", "data-testid": "home-empty",
+                Empty { class: "flex flex-col items-center gap-3 rounded-none border-0 p-0 text-center text-muted-foreground",
+                    EmptyHeader {
+                        EmptyMedia { variant: EmptyMediaVariant::Icon,
+                            Icon { icon: IconType::Terminal, class: "size-6 shrink-0" }
+                        }
+                        EmptyTitle { class: "text-base font-normal leading-normal text-foreground", "Open a workspace" }
+                        EmptyDescription { class: "max-w-[42ch] text-sm",
+                            "Select a workspace from the sidebar, or press "
+                            Kbd { class: "whitespace-nowrap", {SHORTCUTS[0].glyph(reader_platform)} }
+                            " to open the Command palette."
+                        }
+                    }
                 }
             }
         }

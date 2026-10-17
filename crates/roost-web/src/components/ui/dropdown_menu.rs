@@ -55,6 +55,9 @@ pub fn DropdownMenuTrigger(
     #[props(into, optional)] aria_label: Option<String>,
     #[props(optional)] on_key: Option<Callback<KeyboardEvent, bool>>,
     #[props(default)] disabled: bool,
+    /// Drops the bordered input look for a control that sits inside a toolbar row.
+    #[props(default)]
+    ghost: bool,
     children: Element,
 ) -> Element {
     let Some(context) = try_use_context::<MenuContext>() else {
@@ -65,8 +68,14 @@ pub fn DropdownMenuTrigger(
     let side = root.side;
     let click_trigger_id = trigger_id.clone();
     let keydown_trigger_id = trigger_id.clone();
+    let surface = if ghost {
+        "hover:bg-accent hover:text-accent-foreground"
+    } else {
+        "border bg-background border-input hover:bg-accent hover:text-accent-foreground"
+    };
     let merged = tw_merge!(
-        "px-4 py-2 h-9 inline-flex justify-center items-center text-sm font-medium whitespace-nowrap rounded-md transition-colors w-fit focus:outline-none focus:ring-1 focus:ring-ring focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&_svg:not([class*='size-'])]:size-4 border bg-background border-input hover:bg-accent hover:text-accent-foreground",
+        "px-4 py-2 h-9 inline-flex justify-center items-center text-sm font-medium whitespace-nowrap rounded-md transition-colors w-fit focus:outline-none focus:ring-1 focus:ring-ring focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&_svg:not([class*='size-'])]:size-4",
+        surface,
         class.as_deref().unwrap_or("")
     );
     rsx! {

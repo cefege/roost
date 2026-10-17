@@ -6,8 +6,8 @@ use dioxus::prelude::*;
 
 use super::markdown::markdown_to_safe_html;
 use crate::components::ui::{
-    Button, ButtonVariant, Card, CardContent, CardHeader, CardTitle, CardVariant, Icon, IconType,
-    Markdown,
+    Button, ButtonVariant, Card, CardContent, CardHeader, CardTitle, CardVariant, Collapsible,
+    CollapsibleContent, CollapsibleTrigger, Icon, IconType, Markdown,
 };
 use crate::router_state::use_navigate;
 
@@ -24,6 +24,7 @@ pub fn NoticeCard(id: String, level: String, title: String, body: String) -> Ele
     };
     let rendered = markdown_to_safe_html(&body);
     let long_body = body.lines().count() > 3 || body.chars().count() > 360;
+    let mut details_open = use_signal(|| false);
     rsx! {
         Card {
             key: "{id}",
@@ -37,9 +38,18 @@ pub fn NoticeCard(id: String, level: String, title: String, body: String) -> Ele
                     strong { "{severity}" }
                 }
                 if long_body {
-                    details { class: "text-sm",
-                        summary { class: "cursor-pointer text-muted-foreground", "Details" }
-                        Markdown { html: rendered }
+                    Collapsible {
+                        class: "text-sm",
+                        open: details_open(),
+                        on_open_change: move |next: bool| details_open.set(next),
+                        CollapsibleTrigger {
+                            variant: ButtonVariant::Ghost,
+                            class: "h-auto justify-start px-0 text-muted-foreground",
+                            "Details"
+                        }
+                        CollapsibleContent {
+                            Markdown { html: rendered }
+                        }
                     }
                 } else if !body.is_empty() {
                     Markdown { html: rendered }

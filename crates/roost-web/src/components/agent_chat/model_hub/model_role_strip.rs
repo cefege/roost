@@ -10,7 +10,7 @@ use super::hub_catalog::wrap_index;
 use super::model_hub_actions::{StripCommit, apply_strip_chip};
 use super::strip_chips::{StripChip, StripKey};
 use crate::components::settings::model_scope::ModelScope;
-use crate::components::ui::Chip;
+use crate::components::ui::{Card, CardSize, Chip};
 
 /// The footer legend while the strip is open.
 pub(super) const STRIP_FOOTER: &str = "←/→ pick · ⏎ apply · ⎋ back to models";
@@ -68,8 +68,9 @@ pub(super) fn ModelRoleStrip(
 ) -> Element {
     let on_folder = scope == folder;
     rsx! {
-        div {
-            class: "flex flex-col gap-2 rounded-md border border-border bg-card p-2",
+        Card {
+            size: CardSize::Sm,
+            class: "gap-2 rounded-md p-2 shadow-none",
             role: "group",
             "aria-label": "Assign this model to a role",
             "data-testid": "{STRIP_TEST_ID}",
@@ -88,15 +89,13 @@ pub(super) fn ModelRoleStrip(
                 }
             }
             for (index, chip) in chips.iter().enumerate() {
-                span {
+                Chip {
                     key: "{index}",
-                    class: if index == cursor { "inline-flex rounded-full ring-2 ring-ring ring-offset-2 ring-offset-background" } else { "inline-flex rounded-full" },
-                    Chip {
-                        label: chip.label.clone(),
-                        selected: Some(chip.assigned),
-                        test_id: format!("agent-model-hub-strip-chip-{index}"),
-                        onclick: move |_| on_activate.call(index),
-                    }
+                    label: chip.label.clone(),
+                    selected: Some(chip.assigned),
+                    test_id: format!("agent-model-hub-strip-chip-{index}"),
+                    class: if index == cursor { "ring-2 ring-ring ring-offset-2 ring-offset-background" } else { "" },
+                    onclick: move |_| on_activate.call(index),
                 }
             }
         }

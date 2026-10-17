@@ -96,13 +96,14 @@ pub fn AttachmentContent(
 #[component]
 pub fn AttachmentTitle(
     #[props(into, optional)] class: Option<String>,
+    #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
     let merged = tw_merge!(
         "block max-w-full min-w-0 truncate font-medium group-data-[state=Processing]/attachment:shimmer group-data-[state=Uploading]/attachment:shimmer",
         class.as_deref().unwrap_or("")
     );
-    rsx! { span { "data-name": "AttachmentTitle", class: "{merged}", {children} } }
+    rsx! { span { "data-name": "AttachmentTitle", class: "{merged}", ..attributes, {children} } }
 }
 
 #[component]
@@ -147,6 +148,7 @@ pub fn Attachment(
     #[props(default = AttachmentOrientation::default())] orientation: AttachmentOrientation,
     #[props(default = AttachmentState::default())] state: AttachmentState,
     #[props(into, optional)] class: Option<String>,
+    #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
     let size_class = match size {
@@ -179,6 +181,7 @@ pub fn Attachment(
             "data-orientation": orientation.as_str(),
             "data-state": state.as_str(),
             class: "{merged}",
+            ..attributes,
             {children}
         }
     }

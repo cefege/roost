@@ -1,6 +1,7 @@
 //! `Alert`, `AlertTitle` and `AlertDescription`: an inline notice that a state
-//! needs attention. `Destructive` marks a failure the user must act on. Notices
-//! and error banners compose it.
+//! needs attention. `Destructive` marks a failure the user must act on; `Warning`
+//! marks a condition to watch that does not block. `role` is `alert` unless the
+//! notice waits rather than interrupts, then `status`.
 
 use dioxus::prelude::*;
 use tw_merge::tw_merge;
@@ -10,6 +11,7 @@ pub enum AlertVariant {
     #[default]
     Default,
     Destructive,
+    Warning,
 }
 
 impl AlertVariant {
@@ -19,6 +21,9 @@ impl AlertVariant {
             Self::Destructive => {
                 "border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive"
             }
+            Self::Warning => {
+                "border-warning/50 text-warning dark:border-warning [&>svg]:text-warning"
+            }
         }
     }
 }
@@ -26,7 +31,11 @@ impl AlertVariant {
 #[component]
 pub fn Alert(
     #[props(default)] variant: AlertVariant,
+    #[props(into, default = "alert".to_owned())] role: String,
+    #[props(into, optional)] test_id: Option<String>,
     #[props(into, default)] class: Option<String>,
+    #[props(into, optional)] aria_live: Option<String>,
+    #[props(into, optional)] aria_atomic: Option<String>,
     children: Element,
 ) -> Element {
     let class = tw_merge!(
@@ -35,7 +44,7 @@ pub fn Alert(
         class.as_deref().unwrap_or("")
     );
     rsx! {
-        div { role: "alert", class: "{class}", {children} }
+        div { role: "{role}", class: "{class}", "data-testid": test_id.as_deref(), "aria-live": aria_live.as_deref(), "aria-atomic": aria_atomic.as_deref(), {children} }
     }
 }
 

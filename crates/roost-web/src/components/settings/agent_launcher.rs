@@ -90,7 +90,7 @@ pub fn AgentLauncherPane() -> Element {
     let auto_launch_pump = pump.clone();
     rsx! {
         div {
-            class: "settings-pane max-w-xl",
+            class: "max-w-xl",
             "data-testid": "agent-launcher-pane",
             p { class: "text-sm text-muted-foreground mb-4",
                 "Pick the agent Roost auto-launches in new terminals. Applies to every device."

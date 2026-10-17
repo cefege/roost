@@ -6,7 +6,7 @@
 use dioxus::prelude::*;
 use roost_protocol::terminal_signals::{TerminalProgress, TerminalUserVar};
 
-use crate::components::ui::{Chip, Progress};
+use crate::components::ui::{Chip, Progress, ProgressTone};
 use crate::pump::use_store;
 
 /// Badges shown inline; the rest are listed in the last badge's tooltip.
@@ -46,6 +46,16 @@ pub fn progress_presentation(
     }
 }
 
+/// The bar's tone for a presentation state: a failed or paused transfer takes
+/// the destructive or warning colour so it reads without its label.
+pub fn progress_tone(state: &str) -> ProgressTone {
+    match state {
+        "error" => ProgressTone::Destructive,
+        "paused" => ProgressTone::Warning,
+        _ => ProgressTone::Default,
+    }
+}
+
 /// The badges to show inline, and the tooltip listing every variable when
 /// some are hidden.
 pub fn user_var_badges(vars: &[TerminalUserVar]) -> (Vec<String>, Option<String>) {
@@ -79,11 +89,11 @@ pub fn TerminalProgressMark(session_id: String) -> Element {
     };
     rsx! {
         span {
-            class: "inline-flex min-w-7 flex-[0_1_6rem] items-center data-[state=error]:[&>div>div]:bg-destructive data-[state=paused]:[&>div>div]:bg-warning",
+            class: "inline-flex min-w-7 flex-[0_1_6rem] items-center",
             "data-state": state,
             "data-testid": "terminal-progress-{session_id}",
             title: label.clone(),
-            Progress { value, label: label.clone(), class: "w-full" }
+            Progress { value, label: label.clone(), class: "w-full", tone: progress_tone(state) }
         }
     }
 }

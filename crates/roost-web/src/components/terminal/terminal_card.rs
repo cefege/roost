@@ -14,6 +14,7 @@ use super::dom::{now_ms, sleep_ms};
 use super::pane_registry::use_pane_registry;
 use crate::components::agents::agent_status_indicator::AgentStatusIndicator;
 use crate::components::deck::deck_swipe::card_swipe_alpha;
+use crate::components::ui::{Card, Checkbox, IconButton, IconType};
 use crate::pump::use_store;
 use crate::session_naming::{program_subtitle, session_title};
 
@@ -81,8 +82,8 @@ pub fn TerminalCard(
     let end_session = session.clone();
 
     rsx! {
-        div {
-            class: "relative flex min-w-0 cursor-pointer flex-col overflow-hidden rounded-[24px] bg-card text-left text-foreground shadow-sm [-webkit-tap-highlight-color:transparent] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[active=true]:ring-2 data-[active=true]:ring-primary data-[selected=true]:ring-2 data-[selected=true]:ring-primary",
+        Card {
+            class: Some("relative min-w-0 cursor-pointer overflow-hidden rounded-[24px] border-0 py-0 gap-0 text-left text-foreground shadow-sm [-webkit-tap-highlight-color:transparent] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[active=true]:ring-2 data-[active=true]:ring-primary data-[selected=true]:ring-2 data-[selected=true]:ring-primary".to_owned()),
             "data-testid": "terminal-card-{id}",
             "data-active": if active { "true" } else { "false" },
             "data-selected": if selected { "true" } else { "false" },
@@ -138,31 +139,30 @@ pub fn TerminalCard(
                 }
             }
             if !selection_mode {
-                button {
-                    r#type: "button",
-                    class: "absolute top-0 right-0 flex size-12 shrink-0 cursor-pointer items-center justify-center border-none bg-transparent text-muted-foreground hover:text-foreground",
+                IconButton {
+                    icon: IconType::X,
+                    label: "Close terminal session",
+                    class: Some("absolute top-0 right-0 size-12 text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent".to_owned()),
                     "data-testid": "terminal-card-close-{id}",
-                    "aria-label": "Close terminal session",
-                    onclick: move |event| {
+                    onclick: move |event: MouseEvent| {
                         event.stop_propagation();
                         event.prevent_default();
                         on_close.call(close_session.clone());
                     },
-                    CloseGlyph {}
                 }
             }
             if selection_mode {
-                span {
-                    class: "absolute top-1.5 right-1.5 z-[1] inline-flex size-6 items-center justify-center rounded-full border-2 border-input bg-card text-transparent data-[checked=true]:border-primary data-[checked=true]:bg-primary data-[checked=true]:text-primary-foreground",
-                    "data-testid": "terminal-card-check-{id}",
-                    "data-checked": if selected { "true" } else { "false" },
-                    CheckGlyph {}
+                Checkbox {
+                    class: Some("absolute top-1.5 right-1.5 z-[1] size-6 rounded-full border-2 bg-card dark:bg-card".to_owned()),
+                    checked: selected,
+                    aria_label: "Select terminal session",
+                    test_id: format!("terminal-card-check-{id}"),
                 }
             }
             div { class: "relative m-1 h-40 overflow-hidden rounded-[12px_12px_20px_20px] bg-[var(--surface-0)]",
                 match preview {
                     Some(rows) if !rows.is_empty() => rsx! {
-                        div { class: "block size-full overflow-hidden rounded-[inherit] px-1.5 py-1 font-mono text-[0.4375rem] leading-[1.2] whitespace-pre box-border text-[var(--term-fg)] [&_span]:animate-none!",
+                        div { class: "block size-full overflow-hidden rounded-[inherit] px-1.5 py-1 font-mono text-[0.4375rem] leading-[1.2] whitespace-pre box-border text-terminal-foreground [&_span]:animate-none!",
                             for (index, row) in rows.iter().enumerate() {
                                 PreviewRow { key: "{index}", row: row.clone() }
                             }
@@ -190,26 +190,6 @@ fn PreviewRow(row: CellRow) -> Element {
             for (index, span) in row.spans.iter().enumerate() {
                 span { key: "{index}", style: span_style(span), "{span.text}" }
             }
-        }
-    }
-}
-
-#[component]
-fn CloseGlyph() -> Element {
-    rsx! {
-        svg { width: "18", height: "18", view_box: "0 0 24 24", fill: "none", stroke: "currentColor",
-            stroke_width: "2", stroke_linecap: "round", "aria-hidden": "true",
-            path { d: "M18 6 6 18M6 6l12 12" }
-        }
-    }
-}
-
-#[component]
-fn CheckGlyph() -> Element {
-    rsx! {
-        svg { width: "14", height: "14", view_box: "0 0 24 24", fill: "none", stroke: "currentColor",
-            stroke_width: "3", stroke_linecap: "round", stroke_linejoin: "round", "aria-hidden": "true",
-            path { d: "M20 6 9 17l-5-5" }
         }
     }
 }

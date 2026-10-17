@@ -17,26 +17,31 @@ use super::role_switch::{
     with_role_thinking,
 };
 use super::role_thinking::RoleThinking;
-use crate::components::context_menu::use_floating_menu_dismiss;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::settings::agent_roles::{load_settings, role_options, save_settings};
 use crate::components::settings::model_scope::{ModelScope, with_role_value};
+use crate::components::ui::anchored_panel::focus_element_by_id;
 use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Chip, IconButton, IconType, List, ListRow, Surface,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Chip, IconButton, IconType, List,
+    ListRow, Popover, PopoverContent, PopoverTrigger,
 };
 use crate::pump::Pump;
 use crate::router_state::use_navigate;
 
-/// Holds the settings for the panel, fresh each time it opens, so a save
-/// elsewhere never shows stale here.
+/// The model button and the panel it opens: every model role this chat runs,
+/// with an editor for each. Owns the open and editing state. Settings load on
+/// each open, so a save elsewhere never shows stale here.
 #[component]
 pub(super) fn RoleSwitcher(
-    open: Signal<bool>,
     trigger_id: String,
+    trigger_label: String,
+    trigger_title: String,
     conversation: ConversationSummary,
     catalog: Option<ModelsCatalog>,
     pump: Pump,
 ) -> Element {
+    let mut open = use_signal(|| false);
+    let mut editing = use_signal(|| None::<RoleLine>);
     let settings = use_signal(AgentSettingsView::default);
     let error = use_signal(String::new);
     let load_pump = pump.clone();
@@ -45,43 +50,61 @@ pub(super) fn RoleSwitcher(
             load_settings(load_pump.clone(), settings, error);
         }
     });
-    if !open() {
-        return rsx! {};
-    }
+    let close = EventHandler::new(move |()| {
+        open.set(false);
+        editing.set(None);
+    });
+    let escape_trigger_id = trigger_id.clone();
     rsx! {
-        RolePanel { open, trigger_id, conversation, catalog, pump, settings, error }
+        Popover {
+            open: open(),
+            on_open_change: move |next: bool| {
+                if !next {
+                    editing.set(None);
+                }
+                open.set(next);
+            },
+            trigger_id,
+            test_id: "agent-roles",
+            // Escape steps back out of an editor before it closes the panel.
+            on_escape: EventHandler::new(move |()| {
+                if editing.peek().is_some() {
+                    editing.set(None);
+                } else {
+                    focus_element_by_id(&escape_trigger_id);
+                    close.call(());
+                }
+            }),
+            PopoverTrigger {
+                ghost: true,
+                class: "h-8 min-w-0 max-w-full justify-start px-2",
+                test_id: "agent-chat-model-trigger",
+                title: trigger_title,
+                span { class: "truncate", "{trigger_label}" }
+            }
+            PopoverContent {
+                class: "w-80 p-2",
+                RolePanel { editing, on_close: close, conversation, catalog, pump, settings, error }
+            }
+        }
     }
 }
 
 #[component]
 fn RolePanel(
-    open: Signal<bool>,
-    trigger_id: String,
+    editing: Signal<Option<RoleLine>>,
+    on_close: EventHandler<()>,
     conversation: ConversationSummary,
     catalog: Option<ModelsCatalog>,
     pump: Pump,
     settings: Signal<AgentSettingsView>,
     error: Signal<String>,
 ) -> Element {
-    let mut open = open;
+    let mut editing = editing;
     let compact = use_is_compact();
     let navigate = use_navigate();
-    let mut editing = use_signal(|| None::<RoleLine>);
     let mut show_purpose = use_signal(|| false);
     let mut scope = use_signal(|| ModelScope::Global);
-    let panel_id = format!("{trigger_id}-roles");
-    use_floating_menu_dismiss(
-        EventHandler::new(move |()| open.set(false)),
-        // Escape steps back out of a picker before it closes the panel.
-        Some(EventHandler::new(move |()| {
-            if editing.peek().is_some() {
-                editing.set(None);
-            } else {
-                open.set(false);
-            }
-        })),
-        vec![trigger_id.clone(), panel_id.clone()],
-    );
     let folder = ModelScope::Folder {
         worker_fp: conversation.worker_fp.clone(),
         cwd: conversation.cwd.clone(),
@@ -217,7 +240,7 @@ fn RolePanel(
                         "data-testid": "agent-roles-settings",
                         title: "Fallback chains, presets and accounts",
                         onclick: move |_| {
-                            open.set(false);
+                            on_close.call(());
                             navigate.call(settings_pane.clone());
                         },
                         "Settings"
@@ -245,12 +268,12 @@ fn RolePanel(
                             }),
                             trailing: (line.this_chat || line.folder_override).then(|| rsx! {
                                 if line.this_chat {
-                                    Chip { label: "This chat".to_owned(), small: true, selected: Some(true),
-                                        title: Some("This chat's own turns run on this role".to_owned()),
+                                    span { title: "This chat's own turns run on this role",
+                                        Badge { variant: BadgeVariant::Secondary, "This chat" }
                                     }
                                 }
                                 if line.folder_override {
-                                    Chip { label: "This folder".to_owned(), small: true }
+                                    Badge { variant: BadgeVariant::Outline, "This folder" }
                                 }
                             }),
                             onclick: EventHandler::new({
@@ -268,12 +291,10 @@ fn RolePanel(
         }
     };
     rsx! {
-        div { class: "flex flex-col gap-2", id: "{panel_id}", "data-testid": "agent-roles",
-            Surface { class: "flex min-w-72 flex-col gap-3", level: 1, elevation: 2, border: true, pad: Some(2),
-                {body}
-                if !error().is_empty() {
-                    p { class: ERROR_TEXT_CLASS, role: "alert", "{error}" }
-                }
+        div { class: "flex flex-col gap-3",
+            {body}
+            if !error().is_empty() {
+                p { class: ERROR_TEXT_CLASS, role: "alert", "{error}" }
             }
         }
     }

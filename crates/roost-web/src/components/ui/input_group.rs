@@ -157,6 +157,9 @@ pub fn InputGroupInput(
     #[props(default = false)] required: bool,
     #[props(into, optional)] step: Option<String>,
     #[props(optional)] oninput: Option<EventHandler<FormEvent>>,
+    #[props(into, optional)] aria_label: Option<String>,
+    #[props(into, optional)] test_id: Option<String>,
+    #[props(optional)] onkeydown: Option<EventHandler<KeyboardEvent>>,
 ) -> Element {
     let merged = tw_merge!(
         "flex-1 rounded-none border-0 bg-transparent shadow-none focus-visible:ring-0 dark:bg-transparent",
@@ -178,6 +181,13 @@ pub fn InputGroupInput(
             disabled,
             readonly,
             required,
+            "aria-label": aria_label,
+            "data-testid": test_id,
+            onkeydown: move |event| {
+                if let Some(handler) = &onkeydown {
+                    handler.call(event);
+                }
+            },
             oninput: move |event| {
                 if let Some(handler) = &oninput {
                     handler.call(event);

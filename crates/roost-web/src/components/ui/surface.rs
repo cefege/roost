@@ -126,6 +126,7 @@ pub fn Surface(
     aria_live: Option<String>,
     aria_atomic: Option<String>,
     aria_hidden: Option<String>,
+    #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
     let class = surface_classes(level, elevation, radius, pad, border, class.as_deref());
@@ -152,6 +153,7 @@ pub fn Surface(
                 "aria-hidden": aria_hidden,
                 onmounted: on_mounted,
                 onclick: on_click,
+                ..attributes,
                 {children}
             }
         },
@@ -167,6 +169,7 @@ pub fn Surface(
                 "aria-hidden": aria_hidden,
                 onmounted: on_mounted,
                 onclick: on_click,
+                ..attributes,
                 {children}
             }
         },

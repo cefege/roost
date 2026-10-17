@@ -15,7 +15,8 @@ use crate::components::machines::enrollment_origin::{EnrollmentDecision, enrollm
 use crate::components::notifications::clipboard;
 use crate::components::terminal::dom::{now_ms, sleep_ms};
 use crate::components::ui::{
-    Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader, CardTitle, IconType,
+    Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader, CardTitle, FieldError,
+    IconType,
 };
 use crate::pump::{Pump, use_store};
 
@@ -106,7 +107,7 @@ pub fn PhonePairingCard() -> Element {
                         Button { variant: ButtonVariant::Secondary, onclick: mint, "Check again" }
                     },
                     PhonePairing::Failed(message) => rsx! {
-                        p { role: "alert", class: "m-0 text-sm text-destructive", {message} }
+                        FieldError { {message} }
                         Button { variant: ButtonVariant::Secondary, onclick: mint, "Try again" }
                     },
                 }

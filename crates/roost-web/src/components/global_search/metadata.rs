@@ -22,7 +22,9 @@ use roost_client_core::store::sidebar::documents::store_navigation_documents;
 
 use crate::components::global_search::query::{SearchRouteQuery, SearchScope};
 use crate::components::settings::format::relative_time;
-use crate::components::ui::{CommandItem, CommandList, EmptyState, Icon, IconType, StatusDot};
+use crate::components::ui::{
+    CommandItem, CommandList, EmptyState, Icon, IconType, StatusDot, Surface, SurfaceElement,
+};
 use crate::platform::worker_paths::BrowserWorkerPaths;
 use crate::pump::use_store;
 use crate::router_state::use_navigate;
@@ -54,8 +56,9 @@ pub fn MetadataResults(route_query: SearchRouteQuery) -> Element {
     let summary = metadata_summary(route_query.scope, rows.len(), &route_query.text);
 
     rsx! {
-        section { class: "flex flex-col gap-2 rounded-xl border border-border bg-card p-4 text-card-foreground",
-            "aria-labelledby": "global-search-metadata-title",
+        Surface { element: SurfaceElement::Section, border: true, pad: Some(4),
+            class: Some("flex flex-col gap-2 rounded-xl text-card-foreground".to_owned()),
+            aria_labelledby: Some("global-search-metadata-title".to_owned()),
             h2 { id: "global-search-metadata-title", class: "m-0 text-lg font-semibold",
                 match route_query.scope {
                     SearchScope::Attention => "Agent attention",

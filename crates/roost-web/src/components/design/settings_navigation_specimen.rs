@@ -7,7 +7,7 @@
 use dioxus::prelude::*;
 
 use crate::components::settings_navigation::SETTINGS_GROUPS;
-use crate::components::ui::{Icon, ListRow};
+use crate::components::ui::{Icon, ListRow, SidenavGroupLabel};
 use crate::routes::Route;
 
 /// The pane the specimen draws selected.
@@ -17,12 +17,12 @@ const SPECIMEN_SELECTED_PANE: &str = "machines";
 #[component]
 pub fn SettingsNavigationSpecimen(on_navigate: EventHandler<String>) -> Element {
     rsx! {
-        div { class: "flex h-[36rem] w-full min-w-0 bg-[var(--workbench-editor)] text-[var(--text-hi)]",
-            aside { class: "flex w-56 shrink-0 flex-col gap-4 overflow-y-auto border-r border-[var(--workbench-border)] p-3", "aria-label": "Settings sections",
+        div { class: "flex h-[36rem] w-full min-w-0 bg-[var(--workbench-editor)] text-foreground",
+            aside { class: "flex w-56 shrink-0 flex-col gap-4 overflow-y-auto border-r border-border bg-sidenav p-3", "aria-label": "Settings sections",
                 h1 { class: "px-2 text-xl", "Settings" }
                 for group in SETTINGS_GROUPS {
                     section { class: "flex flex-col gap-1",
-                        h2 { class: "px-2 text-xs font-medium text-muted-foreground", {group.label} }
+                        SidenavGroupLabel { {group.label} }
                         for pane in group.panes {
                             ListRow {
                                 class: "w-full",
@@ -38,8 +38,8 @@ pub fn SettingsNavigationSpecimen(on_navigate: EventHandler<String>) -> Element 
                 }
             }
             main { class: "flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--workbench-editor)]",
-                header { class: "flex h-12 shrink-0 items-center border-b border-[var(--workbench-border)] bg-[var(--workbench-editor)] px-4",
-                    h2 { class: "text-base text-[var(--text-hi)]", "Machines" }
+                header { class: "flex h-12 shrink-0 items-center border-b border-border bg-[var(--workbench-editor)] px-4",
+                    h2 { class: "text-base text-foreground", "Machines" }
                 }
                 div { class: "min-h-0 flex-1 overflow-y-auto bg-[var(--workbench-editor)]" }
             }

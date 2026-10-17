@@ -16,7 +16,7 @@ use std::rc::Rc;
 
 use crate::components::ui::{
     Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyState,
-    Icon, IconType, ListRow, TextField,
+    FieldError, Icon, IconType, ListRow, TextField,
 };
 use crate::platform::location::reload_document;
 use crate::platform::storage::LocalStorageKeyValueStore;
@@ -190,7 +190,7 @@ pub fn ConnectionPane() -> Element {
                         on_input: move |value| url.set(value),
                     }
                     if !error().is_empty() {
-                        div { class: "text-sm text-destructive", {error()} }
+                        FieldError { {error()} }
                     }
                     div {
                         Button {
