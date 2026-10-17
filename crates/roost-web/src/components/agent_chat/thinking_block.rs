@@ -46,6 +46,8 @@ pub(super) fn ThinkingBlock(text: String, live: bool, globally_visible: bool) ->
     let omitted_live_lines = live && text.lines().count() > 8;
     let observed = observed_seconds();
     let copy_text = text.clone();
+    let (copy_thought, thought_copied) =
+        crate::components::hooks::use_copy_clipboard::use_copy_clipboard(None);
     let label = if live {
         format!(
             "Thinking… · {observed}s{}",
@@ -90,8 +92,8 @@ pub(super) fn ThinkingBlock(text: String, live: bool, globally_visible: bool) ->
                         Button {
                             variant: ButtonVariant::Link,
                             class: "self-start",
-                            onclick: move |_: MouseEvent| { crate::components::notifications::clipboard::copy_text(&copy_text); },
-                            "Copy thought"
+                            onclick: move |_: MouseEvent| copy_thought(&copy_text),
+                            if thought_copied() { "Copied" } else { "Copy thought" }
                         }
                     }
                 }

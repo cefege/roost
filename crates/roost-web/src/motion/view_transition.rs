@@ -8,14 +8,8 @@
 /// Whether the reader asked for reduced motion (`prefers-reduced-motion`).
 #[cfg(target_arch = "wasm32")]
 pub fn prefers_reduced_motion() -> bool {
-    web_sys::window()
-        .and_then(|window| {
-            window
-                .match_media("(prefers-reduced-motion: reduce)")
-                .ok()
-                .flatten()
-        })
-        .is_some_and(|query| query.matches())
+    crate::components::hooks::use_media_query::media_query_match("(prefers-reduced-motion: reduce)")
+        == Some(true)
 }
 
 /// Run `mutate` inside a view transition when one is available.

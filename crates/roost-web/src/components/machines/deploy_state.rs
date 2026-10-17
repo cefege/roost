@@ -96,7 +96,6 @@ pub struct DeployModel {
     coordinator_url: Option<String>,
     deploy_command: Option<String>,
     error: Option<DeployError>,
-    copied: bool,
 }
 
 impl DeployModel {
@@ -109,7 +108,6 @@ impl DeployModel {
             coordinator_url: None,
             deploy_command: None,
             error: None,
-            copied: false,
         }
     }
 
@@ -133,20 +131,9 @@ impl DeployModel {
         self.error.as_ref()
     }
 
-    /// Whether the last copy attempt was accepted.
-    pub fn copied(&self) -> bool {
-        self.copied
-    }
-
     /// Whether the guide, rather than the enrollment form, is the answer.
     pub fn shows_local_access_guide(&self) -> bool {
         matches!(self.phase, DeployPhase::Checking | DeployPhase::LocalOnly)
-    }
-
-    /// The operation the dialog is currently waiting on. A caller that starts
-    /// work outside the model — a clipboard write — fences its answer with this.
-    pub fn generation(&self) -> u64 {
-        self.generation
     }
 
     /// Start a fresh identity read and return the generation that owns it.
@@ -160,7 +147,6 @@ impl DeployModel {
         self.coordinator_url = None;
         self.deploy_command = None;
         self.error = None;
-        self.copied = false;
         self.generation
     }
 
@@ -177,7 +163,6 @@ impl DeployModel {
         self.generation += 1;
         self.phase = DeployPhase::Minting;
         self.error = None;
-        self.copied = false;
         Some(self.generation)
     }
 
@@ -191,7 +176,6 @@ impl DeployModel {
         if !self.owns(generation) {
             return false;
         }
-        self.copied = false;
         match decision {
             EnrollmentDecision::Ready { coordinator_url } => {
                 self.coordinator_url = Some(coordinator_url);
@@ -238,15 +222,6 @@ impl DeployModel {
         self.phase = DeployPhase::Failed;
         self.deploy_command = None;
         self.error = Some(error);
-        true
-    }
-
-    /// Record a clipboard write, if the dialog that asked for it is still open.
-    pub fn accept_copy(&mut self, generation: u64, copied: bool) -> bool {
-        if !self.owns(generation) {
-            return false;
-        }
-        self.copied = copied;
         true
     }
 

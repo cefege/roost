@@ -18,9 +18,10 @@
 
 use dioxus::prelude::*;
 
-use super::deploy_calls::{check_enrollment, copy_command, mint_join_command};
+use super::deploy_calls::{check_enrollment, mint_join_command};
 use super::deploy_state::{DeployError, DeployModel, DeployPhase};
 use super::local_access_guide::{MachineLocalAccessGuide, RECHECK_LABEL};
+use crate::components::hooks::use_copy_clipboard::use_copy_clipboard;
 use crate::components::ui::{
     Alert, AlertTitle, AlertVariant, Button, ButtonVariant, Dialog, DialogBody, DialogClose,
     DialogContent, DialogFooter, DialogHeader, DialogTitle, StatusDot, Surface, SurfaceRadius,
@@ -55,7 +56,7 @@ pub fn MachineDeployDialog(on_close: EventHandler<()>) -> Element {
 
     let state = model();
     let phase = state.phase();
-    let copied = state.copied();
+    let (copy_command, command_copied) = use_copy_clipboard(None);
     let guide = state.shows_local_access_guide();
     let minting = phase == DeployPhase::Minting;
     let generates = minting || phase == DeployPhase::Ready;
@@ -65,8 +66,12 @@ pub fn MachineDeployDialog(on_close: EventHandler<()>) -> Element {
             Button {
                 variant: ButtonVariant::Secondary,
                 "data-testid": "machine-deploy-copy",
-                onclick: move |_| copy_command(model),
-                if copied { "Copied" } else { "Copy command" }
+                onclick: move |_| {
+                    if let Some(command) = model.peek().deploy_command() {
+                        copy_command(command);
+                    }
+                },
+                if command_copied() { "Copied" } else { "Copy command" }
             }
             DialogClose { "Done" }
         } else {

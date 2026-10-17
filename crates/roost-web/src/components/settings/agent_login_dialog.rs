@@ -227,7 +227,7 @@ pub fn AgentLoginDialog(
 /// opening it in another browser or on another device.
 #[component]
 fn SignInUrl(url: String) -> Element {
-    let mut copied = use_signal(|| false);
+    let (copy_url, copied) = crate::components::hooks::use_copy_clipboard::use_copy_clipboard(None);
     rsx! {
         Surface {
             class: "flex items-center gap-2 break-all",
@@ -249,9 +249,7 @@ fn SignInUrl(url: String) -> Element {
                 "data-testid": "agent-login-url-copy",
                 onclick: {
                     let url = url.clone();
-                    move |_| {
-                        crate::components::notifications::clipboard::copy_text_then(&url, move |written| copied.set(written));
-                    }
+                    move |_| copy_url(&url)
                 },
             }
         }

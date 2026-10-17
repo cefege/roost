@@ -92,6 +92,9 @@ pub fn AppShell(children: Element) -> Element {
     let location = use_location();
     let path = location();
     let compact = use_is_compact();
+    use_effect(use_reactive((&compact,), |(compact,)| {
+        tracing::info!(target: "layout", compact, "shell layout");
+    }));
     let tv = super::window_size::use_tv_layout();
     let reading = read_shell(pump.core().borrow().store(), &path);
     let settings_view = Destination::Settings.is_active(&path);

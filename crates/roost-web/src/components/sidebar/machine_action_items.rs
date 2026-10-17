@@ -8,7 +8,7 @@ use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
 use roost_client_core::store::shell_intent::ShellIntent;
 
-use crate::components::notifications::clipboard::copy_text;
+use crate::components::hooks::use_copy_clipboard::copy_text;
 use crate::components::ui::context_menu::ContextMenuItem;
 use crate::machine_actions::{
     MachineAction, MachineLaunch, MachineMenuKind, NO_REACHABLE_ADDRESS_TOOLTIP, machine_actions,

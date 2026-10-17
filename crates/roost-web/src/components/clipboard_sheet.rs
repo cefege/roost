@@ -15,7 +15,7 @@ use roost_client_core::store::Store;
 use roost_client_core::store::selectors::session_by_id;
 use roost_client_core::store::toasts::{ToastId, ToastKind, ToastOptions, ToastSource, add_toast};
 
-use crate::components::notifications::clipboard::copy_text;
+use crate::components::hooks::use_copy_clipboard::copy_text;
 use crate::components::notifications::store_write::write_store;
 use crate::components::settings::format::relative_time;
 use crate::components::terminal::dom::now_ms;

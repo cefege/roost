@@ -127,9 +127,7 @@ fn nothing_in_flight_lands_after_the_dialog_closed() {
     model.close();
     assert!(!model.accept_mint(generation, COMMAND.to_owned()));
     assert!(!model.accept_failure(generation, refused));
-    assert!(!model.accept_copy(generation, true));
     assert_eq!(model.deploy_command(), None);
-    assert!(!model.copied());
 }
 
 #[test]
@@ -141,14 +139,4 @@ fn a_refusal_inside_a_mint_shows_the_reason_and_publishes_no_command() {
     assert_eq!(model.deploy_command(), None);
     let shown = model.error().expect("the refusal is shown");
     assert_eq!(shown.kind, DeployErrorKind::Coordinator);
-}
-
-#[test]
-fn a_copy_is_only_claimed_while_the_dialog_that_asked_is_open() {
-    let (mut model, generation) = minting();
-    assert!(model.accept_mint(generation, COMMAND.to_owned()));
-    assert!(model.accept_copy(generation, true));
-    assert!(model.copied());
-    model.close();
-    assert!(!model.accept_copy(generation, true));
 }

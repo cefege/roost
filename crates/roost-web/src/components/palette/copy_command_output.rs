@@ -164,7 +164,7 @@ fn report(pump: &Pump, session_id: &str, outcome: Result<String, String>) {
     let pump = pump.clone();
     let session_id = session_id.to_owned();
     let fallback = text.clone();
-    crate::components::notifications::clipboard::copy_text_then(&text, move |copied| {
+    crate::components::hooks::use_copy_clipboard::copy_text_then(&text, move |copied| {
         if copied {
             let call = roost_client_core::client::rpc::calls::clipboard::ClipboardAdd {
                 text: fallback.clone(),

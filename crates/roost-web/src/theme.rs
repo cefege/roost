@@ -1,6 +1,7 @@
 //! The theme engine: the single source of truth for the active theme. `App`
-//! calls [`apply_stored_theme`] once at boot, before the first paint; the
-//! Settings theme picker calls [`apply_theme`].
+//! calls [`apply_stored_theme`] once at boot, before the first paint, and
+//! follows OS flips through [`use_follow_system_appearance`]; the Settings
+//! theme picker calls [`apply_theme`].
 //!
 //! A choice is a base palette, an accent palette and a mode. Applying it
 //! persists the three parts (`KeyValueStore`), resolves the mode against the OS
@@ -64,23 +65,45 @@ pub fn reapply_for_system_flip(
     (stored.mode == ThemeMode::System).then(|| apply_theme_with(store, document, &stored))
 }
 
-/// Apply the persisted theme and follow OS flips from now on. Called once, by
-/// `App`, before the first component renders.
+/// Apply the persisted theme. Called once, by `App`, before the first
+/// component renders.
 #[cfg(target_arch = "wasm32")]
 pub fn apply_stored_theme() {
     use crate::platform::LocalStorageKeyValueStore;
 
     let store = LocalStorageKeyValueStore::new();
     apply_theme_with(&store, &document::BrowserThemeDocument, &load_theme(&store));
-    document::follow_system_appearance(|| {
-        let store = LocalStorageKeyValueStore::new();
-        reapply_for_system_flip(&store, &document::BrowserThemeDocument);
-    });
 }
 
 /// Apply the persisted theme. A native build has no document to theme.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn apply_stored_theme() {}
+
+/// Follow the OS light/dark preference from now on: a flip re-applies the
+/// persisted theme, which only a stored System mode changes under. Called once,
+/// by `App`.
+#[cfg(target_arch = "wasm32")]
+pub fn use_follow_system_appearance() {
+    use dioxus::prelude::use_effect;
+
+    use crate::platform::LocalStorageKeyValueStore;
+
+    let prefers_dark =
+        crate::components::hooks::use_media_query::use_media_query(document::PREFERS_DARK_QUERY);
+    use_effect(move || {
+        // Reading the signal subscribes; the first run, after mount, re-applies
+        // the theme `apply_stored_theme` just wrote.
+        let _ = prefers_dark();
+        reapply_for_system_flip(
+            &LocalStorageKeyValueStore::new(),
+            &document::BrowserThemeDocument,
+        );
+    });
+}
+
+/// A native build has no OS preference to follow.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn use_follow_system_appearance() {}
 
 /// Persist `choice` and apply it to this document, instantly.
 #[cfg(target_arch = "wasm32")]

@@ -40,7 +40,6 @@ use roost_client_core::store::{
     ChannelId, Session, SessionId, SessionKind, SessionStatus, WorkerFp,
 };
 use roost_client_core::{ClientCore, ClientEvent};
-use roost_web::components::layout::window_size::WindowSize;
 use roost_web::components::terminal::cell_terminal::CellTerminal;
 use roost_web::components::terminal::pane_registry::PaneRegistry;
 use roost_web::input_nav::{ModeChoice, NavModality};
@@ -112,7 +111,6 @@ fn pane_root() -> Element {
         Signal::new(String::new()),
         EventHandler::new(|_path: String| {}),
     );
-    WindowSize::provide();
     ResizeDrag::provide();
     rsx! {
         CellTerminal {

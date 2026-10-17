@@ -139,12 +139,12 @@ pub fn App() -> Element {
     // The persisted palette lands before the first component paints (v2
     // `main.tsx` applies it before `render`).
     use_hook(theme::apply_stored_theme);
+    theme::use_follow_system_appearance();
     let queue = try_consume_context::<diag_upload::DiagUploadQueue>();
     let pump = use_hook(|| pump::start_pump(Rc::new(RefCell::new(build_core())), revision, queue));
     use_context_provider(|| pump.core());
     use_context_provider(|| pump.clone());
     use_context_provider(components::terminal::pane_registry::PaneRegistry::default);
-    components::layout::window_size::WindowSize::provide();
     motion::resize_drag::ResizeDrag::provide();
     keyboard_shortcuts::ShortcutOverlays::provide();
     rsx! {

@@ -302,7 +302,11 @@ mechanically enforced so drift can't return:
    controlled (`open` + `on_open_change`) and unmounted when closed. Icons are
    Lucide through `ui::Icon { icon: IconType::… }`. Tailwind reads classes
    out of the `.rs` sources, so a class is always a complete literal — never
-   assembled with `format!`.
+   assembled with `format!`. rust-ui's hooks sit beside `ui` in
+   `components/hooks/`: every clipboard write goes through `use_copy_clipboard`
+   (a button's "Copied" state is its `copied` flag), every `matchMedia` read
+   through `use_media_query`, and the phone switch is `use_is_mobile` (Roost's
+   short side under 600px, behind `window_size::use_is_compact`).
 3. **One visual reference.** The `/design` route renders every colour role
    and `ui` component. New surfaces match it.
 

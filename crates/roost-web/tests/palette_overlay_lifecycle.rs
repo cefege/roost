@@ -31,7 +31,6 @@ use std::rc::Rc;
 use dioxus::core::{ElementId, Mutations};
 use dioxus::prelude::*;
 use roost_client_core::ClientCore;
-use roost_web::components::layout::window_size::WindowSize;
 use roost_web::components::palette::CommandPalette;
 use roost_web::keyboard_shortcuts::ShortcutOverlays;
 use roost_web::platform::connect::CoordRpc;
@@ -69,7 +68,6 @@ fn palette_root() -> Element {
         Signal::new(String::new()),
         EventHandler::new(|_path: String| {}),
     );
-    WindowSize::provide();
     rsx! {
         CommandPalette {}
     }

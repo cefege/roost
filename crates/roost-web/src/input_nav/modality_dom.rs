@@ -96,11 +96,9 @@ fn pointerless_viewport() -> bool {
     let Some(window) = web_sys::window() else {
         return false;
     };
-    let pointer_none = window
-        .match_media("(pointer: none)")
-        .ok()
-        .flatten()
-        .is_some_and(|query| query.matches());
+    let pointer_none =
+        crate::components::hooks::use_media_query::media_query_match("(pointer: none)")
+            == Some(true);
     let width = window
         .inner_width()
         .ok()

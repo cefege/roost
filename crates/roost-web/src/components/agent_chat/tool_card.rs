@@ -126,6 +126,10 @@ pub fn ToolCard(
 
     let command_text = command.clone();
     let output_text = output.clone();
+    let (copy_command_to_clipboard, command_copied) =
+        crate::components::hooks::use_copy_clipboard::use_copy_clipboard(None);
+    let (copy_output_to_clipboard, output_copied) =
+        crate::components::hooks::use_copy_clipboard::use_copy_clipboard(None);
     rsx! {
         Card {
             variant: CardVariant::Outlined,
@@ -197,10 +201,10 @@ pub fn ToolCard(
                         }
                         div { class: "flex flex-wrap gap-2",
                             if copy_command {
-                                Button { variant: ButtonVariant::Link, onclick: move |_| { crate::components::notifications::clipboard::copy_text(&command_text); }, "Copy command" }
+                                Button { variant: ButtonVariant::Link, onclick: move |_| copy_command_to_clipboard(&command_text), if command_copied() { "Copied" } else { "Copy command" } }
                             }
                             if !output.is_empty() {
-                                Button { variant: ButtonVariant::Link, onclick: move |_| { crate::components::notifications::clipboard::copy_text(&output_text); }, "Copy output" }
+                                Button { variant: ButtonVariant::Link, onclick: move |_| copy_output_to_clipboard(&output_text), if output_copied() { "Copied" } else { "Copy output" } }
                             }
                         }
                     }

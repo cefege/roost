@@ -4,7 +4,7 @@
 //! path that splat names on that machine.
 //!
 //! What this file owns is the sheet's own state — which machine is in scope,
-//! which read is current, what the last copied line said — and the chrome
+//! which read is current, which line's link was copied last — and the chrome
 //! around whatever the answer was. The rules that turn an answer into a state
 //! are `file_viewer::state`'s, the text is `file_viewer::body`'s, and every
 //! state that is not text is `file_viewer::states`'s.
@@ -30,8 +30,8 @@ use roost_client_core::client::rpc::calls::browse::ReadFile;
 use roost_client_core::store::root::captured_generation_is_current;
 
 use crate::components::download::DownloadButton;
+use crate::components::hooks::use_copy_clipboard::use_copy_clipboard;
 use crate::components::layout::shell_style::is_terminal_path;
-use crate::components::notifications::clipboard;
 use crate::components::ui::{
     AutoFocusRequest, ButtonSize, Dialog, DialogContent, DialogHeader, DialogTitle,
 };
@@ -41,13 +41,8 @@ use crate::router_state::use_navigate;
 use crate::routes::{Route, browse_href};
 use crate::terminal_href::{file_target, worker_os};
 
-use body::{CopiedLine, FileBody};
+use body::FileBody;
 use state::ViewerContent;
-
-/// The window a copied line's tick or cross stays up, read only where the
-/// timer that takes it away exists.
-#[cfg(target_arch = "wasm32")]
-use body::COPY_FEEDBACK_MS;
 
 /// How much of a fingerprint the header names the machine with. v2 sliced the
 /// same eight characters.
@@ -74,7 +69,9 @@ pub fn FileViewer(route: Route) -> Element {
     let platform_settled = worker_os.is_some() || hydrated;
 
     let content = use_signal(|| ViewerContent::Idle);
-    let copied = use_signal(|| None::<CopiedLine>);
+    // The line whose link was copied last; the hook decides how long it shows.
+    let copied_line = use_signal(|| None::<usize>);
+    let (copy_line_link, link_copied) = use_copy_clipboard(None);
     // A superseded read, and a read whose answer lands after this sheet is
     // gone, both find the token moved on and publish nothing.
     let fetch_token = use_hook(|| Rc::new(Cell::new(0_u64)));
@@ -89,8 +86,8 @@ pub fn FileViewer(route: Route) -> Element {
         move |(worker_fp, file_path, scoped, _)| {
             let ticket = next_token(&read_token);
             let mut content = content;
-            let mut copied = copied;
-            copied.set(None);
+            let mut copied_line = copied_line;
+            copied_line.set(None);
             if !scoped || worker_fp.is_empty() || file_path.is_empty() {
                 content.set(ViewerContent::Idle);
                 return;
@@ -134,10 +131,11 @@ pub fn FileViewer(route: Route) -> Element {
         EventHandler::new(move |()| navigate.call(close_destination(&pump)))
     };
     let on_go_home = EventHandler::new(move |()| navigate.call("/".to_owned()));
-    let on_copy = {
-        let token = Rc::clone(&fetch_token);
-        EventHandler::new(move |line: usize| copy_line_link(line, &token, copied))
-    };
+    let on_copy = EventHandler::new(move |line: usize| {
+        let mut copied_line = copied_line;
+        copied_line.set(Some(line));
+        copy_line_link(&dom::line_link_url(&current_location(), line));
+    });
     let on_browse = {
         let worker_fp = worker_fp.clone();
         EventHandler::new(move |()| navigate.call(browse_href(&worker_fp)))
@@ -175,7 +173,7 @@ pub fn FileViewer(route: Route) -> Element {
                                 lines,
                                 tokens,
                                 target_line,
-                                copied: copied(),
+                                copied_line: copied_line().filter(|_| link_copied()),
                                 on_copy,
                             }
                         },
@@ -362,39 +360,4 @@ async fn publish_read(
     if painted_lines {
         dom::scroll_line_into_view(target_line);
     }
-}
-
-/// Copy a link to one line, and say on the row whether the clipboard took it.
-fn copy_line_link(line: usize, token: &Rc<Cell<u64>>, mut copied: Signal<Option<CopiedLine>>) {
-    let ticket = token.get();
-    let ok = clipboard::copy_text(&dom::line_link_url(&current_location(), line));
-    copied.set(Some(CopiedLine { line, ok }));
-    clear_copied_after(ticket, Rc::clone(token), copied);
-}
-
-/// The copy feedback is a timer, and a timer that fires after the reader has
-/// copied another line would take that line's answer away with it.
-fn clear_copied_after(ticket: u64, token: Rc<Cell<u64>>, copied: Signal<Option<CopiedLine>>) {
-    #[cfg(target_arch = "wasm32")]
-    schedule_clear(ticket, token, copied);
-    #[cfg(not(target_arch = "wasm32"))]
-    let _ = (ticket, token, copied);
-}
-
-#[cfg(target_arch = "wasm32")]
-fn schedule_clear(ticket: u64, token: Rc<Cell<u64>>, mut copied: Signal<Option<CopiedLine>>) {
-    use wasm_bindgen::JsCast as _;
-    use wasm_bindgen::closure::Closure;
-
-    let Some(window) = web_sys::window() else {
-        return;
-    };
-    let callback = Closure::once_into_js(move || {
-        if token.get() == ticket {
-            copied.set(None);
-        }
-    });
-    let delay = i32::try_from(COPY_FEEDBACK_MS).unwrap_or(i32::MAX);
-    let _ = window
-        .set_timeout_with_callback_and_timeout_and_arguments_0(callback.unchecked_ref(), delay);
 }

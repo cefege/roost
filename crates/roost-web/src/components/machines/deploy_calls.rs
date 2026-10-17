@@ -23,7 +23,6 @@ use super::deploy_state::DeployError;
 use super::deploy_state::DeployModel;
 #[cfg(target_arch = "wasm32")]
 use super::enrollment_origin::enrollment_decision;
-use crate::components::notifications::clipboard;
 use crate::pump::Pump;
 
 /// Ask the coordinator which address it enrolls new machines against.
@@ -106,26 +105,6 @@ fn run_mint(pump: Pump, mut model: Signal<DeployModel>, generation: u64, label: 
             }
         }
     });
-}
-
-/// Put the minted command on the clipboard.
-///
-/// The answer is fenced by the dialog's generation like every other one, so a
-/// write that resolves after the reader walked away cannot relabel a dialog that
-/// is no longer on screen.
-pub fn copy_command(mut model: Signal<DeployModel>) {
-    let (generation, command) = {
-        let state = model.read();
-        (
-            state.generation(),
-            state.deploy_command().map(str::to_owned),
-        )
-    };
-    let Some(command) = command else {
-        return;
-    };
-    let copied = clipboard::copy_text(&command);
-    model.write().accept_copy(generation, copied);
 }
 
 #[cfg(target_arch = "wasm32")]

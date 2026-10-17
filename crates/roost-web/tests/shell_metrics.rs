@@ -1,7 +1,7 @@
-//! The workbench chrome's decisions: the size-class boundary, the route
-//! context text, the activity rail's active states, and the coordinator
-//! staleness window. Native, because every one of them is a function of values
-//! the component already holds.
+//! The workbench chrome's decisions: the TV exception to the compact shell,
+//! the route context text, the activity rail's active states, and the
+//! coordinator staleness window. Native, because every one of them is a
+//! function of values the component already holds.
 //!
 //! These live in a sibling `tests/` binary rather than an inline module because
 //! the module they exercise has to stay under the file cap with its own header
@@ -11,34 +11,12 @@
 use roost_web::components::layout::shell_metrics::*;
 
 #[test]
-fn a_phone_in_landscape_is_still_compact() {
-    // The short side decides, so rotating does not hand a phone the desktop
-    // rail, which its width alone would.
-    assert_eq!(classify(844, 390), SizeClass::Compact);
-    assert_eq!(classify(390, 844), SizeClass::Compact);
-}
-
-#[test]
-fn a_tablet_short_side_keeps_the_desktop_rail() {
-    assert_eq!(classify(744, 1024), SizeClass::Desktop);
-    assert_eq!(classify(1024, 744), SizeClass::Desktop);
-}
-
-#[test]
-fn the_compact_boundary_is_exclusive() {
-    assert_eq!(classify(COMPACT_MAX_PX, 900), SizeClass::Desktop);
-    assert_eq!(classify(COMPACT_MAX_PX - 1, 900), SizeClass::Compact);
-}
-
-#[test]
 fn a_television_reporting_a_phone_sized_viewport_gets_the_desktop_shell() {
     // 1080p at devicePixelRatio 2 is 960×540 CSS px: phone-sized by the
     // boundary, but the phone shell is wrong for a ten-foot screen.
-    let tv_viewport = classify(960, 540);
-    assert_eq!(tv_viewport, SizeClass::Compact);
-    assert!(!is_compact_shell(tv_viewport, true));
-    assert!(is_compact_shell(tv_viewport, false));
-    assert!(!is_compact_shell(SizeClass::Desktop, false));
+    assert!(!is_compact_shell(true, true));
+    assert!(is_compact_shell(true, false));
+    assert!(!is_compact_shell(false, false));
 }
 
 #[test]

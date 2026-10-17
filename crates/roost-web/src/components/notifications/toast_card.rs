@@ -12,21 +12,18 @@ use roost_client_core::store::toasts::{
     take_toast_action,
 };
 
-use super::clipboard;
 use super::notify_target::NotifyTarget;
 use super::store_write::write_store;
 use crate::components::deck::deck_dom;
+use crate::components::hooks::use_copy_clipboard::{copy_text_then, use_copy_clipboard};
 use crate::components::layout::window_size::use_is_compact;
-use crate::components::terminal::dom::{now_ms, sleep_ms};
+use crate::components::terminal::dom::now_ms;
 use crate::components::ui::{
     Button, ButtonSize, ButtonVariant, IconButton, IconType, StatusDot, Surface, SurfaceRadius,
 };
 use crate::pump::{Pump, use_store};
 use crate::router_state::use_navigate;
 use crate::terminal_href::terminal_href;
-
-/// How long the Copy label reads "Copied" before it returns to "Copy".
-const COPIED_MS: u64 = 1_500;
 
 /// The `StatusDot` spelling each kind reads as.
 const fn dot_status(kind: ToastKind) -> &'static str {
@@ -60,19 +57,8 @@ pub fn ToastCard(toast_id: ToastId) -> Element {
     let navigate = use_navigate();
     let compact = use_is_compact();
     let notify_target = use_context::<NotifyTarget>();
-    let mut copied = use_signal(|| false);
-    let mut copy_generation = use_signal(|| 0_u32);
+    let (copy_to_clipboard, copied) = use_copy_clipboard(None);
     let held = use_signal(|| false);
-
-    // The only reactive input is the copy generation, so the confirmation
-    // window restarts exactly once per successful copy and never per render.
-    use_future(move || {
-        let _generation = copy_generation.read();
-        async move {
-            sleep_ms(COPIED_MS).await;
-            copied.set(false);
-        }
-    });
 
     let toast = {
         let core = pump.core();
@@ -172,7 +158,7 @@ pub fn ToastCard(toast_id: ToastId) -> Element {
                     let session_id = id.subject.clone();
                     // Called inside the click, which is the gesture the
                     // browser refused the original write for.
-                    clipboard::copy_text_then(&text, move |accepted| {
+                    copy_text_then(&text, move |accepted| {
                         if accepted {
                             super::terminal_clipboard::raise_copied_toast(&pump, &session_id);
                         }
@@ -199,14 +185,9 @@ pub fn ToastCard(toast_id: ToastId) -> Element {
         Some(detail) => format!("{}\n{detail}", toast.msg),
         None => toast.msg.clone(),
     };
-    let copy: EventHandler<MouseEvent> = EventHandler::new(move |_event: MouseEvent| {
-        // A denial leaves the label unchanged: the card text stays selectable.
-        if !clipboard::copy_text(&copy_text) {
-            return;
-        }
-        copied.set(true);
-        copy_generation += 1;
-    });
+    // A denial leaves the label unchanged: the card text stays selectable.
+    let copy: EventHandler<MouseEvent> =
+        EventHandler::new(move |_event: MouseEvent| copy_to_clipboard(&copy_text));
 
     let action = rsx! {
         ToastActionRow {
@@ -327,7 +308,7 @@ fn release_toast_dismissal(
 fn ToastActionRow(
     label: Option<String>,
     show_copy: bool,
-    copied: Signal<bool>,
+    copied: ReadSignal<bool>,
     button_size: ButtonSize,
     icon_size: ButtonSize,
     on_reveal: EventHandler<MouseEvent>,

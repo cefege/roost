@@ -194,6 +194,8 @@ fn AssistantMessage(
         })
         .collect::<Vec<_>>()
         .join("\n\n");
+    let (copy_response, response_copied) =
+        crate::components::hooks::use_copy_clipboard::use_copy_clipboard(None);
     let has_text = !copy_text.trim().is_empty();
     rsx! {
         div { class: "group/assistant flex flex-col gap-3", "data-streaming": streaming.then_some("true"),
@@ -226,13 +228,11 @@ fn AssistantMessage(
                 if !streaming && has_text {
                     MessageFooter { class: "-mt-2 gap-1 px-0 opacity-0 transition-opacity group-hover/assistant:opacity-100 group-focus-within/assistant:opacity-100 pointer-coarse:opacity-100",
                         IconButton {
-                            icon: IconType::Copy,
+                            icon: if response_copied() { IconType::Check } else { IconType::Copy },
                             label: "Copy response",
-                            title: "Copy",
+                            title: if response_copied() { "Copied" } else { "Copy" },
                             variant: ButtonVariant::Ghost,
-                            onclick: move |_| {
-                                crate::components::notifications::clipboard::copy_text(&copy_text);
-                            },
+                            onclick: move |_| copy_response(&copy_text),
                         }
                     }
                 }

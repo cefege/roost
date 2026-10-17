@@ -1,53 +1,25 @@
-//! Every decision the workbench chrome makes from a pathname and a viewport,
-//! as pure functions. Ported from `apps/web/src/browser/windowSizeClass.ts`,
-//! `apps/web/src/lib/workbenchTitle.ts` and the two projection memos in
-//! `components/layout/WorkbenchStatusBar.tsx`.
+//! Every decision the workbench chrome makes from a pathname and the layout
+//! switches, as pure functions. Ported from `apps/web/src/lib/workbenchTitle.ts`
+//! and the two projection memos in `components/layout/WorkbenchStatusBar.tsx`;
+//! the phone-size boundary itself is `hooks::use_is_mobile`'s media query.
 //!
 //! Nothing here reads a clock, a DOM node or the store. The components call
-//! these with values they already hold, which is what lets a size-class
-//! boundary, a title fallback and a coordinator staleness window each be a test
-//! rather than a rendering accident. `AppShell` composes the results; the Tailwind
-//! classes in `app_shell.rs` draw them.
+//! these with values they already hold, which is what lets the TV rule, a title
+//! fallback and a coordinator staleness window each be a test rather than a
+//! rendering accident. `AppShell` composes the results; the Tailwind classes in
+//! `app_shell.rs` draw them.
 
 use roost_client_core::sync::redial::SYNC_STALE_TIMEOUT_MS;
 
 use crate::components::ui::IconType;
 
-/// Material 3's window size class, at the boundaries the whole SPA uses.
-///
-/// Named for the layout decision, not the number: the desktop/compact split is
-/// the one the shell acts on, and a caller that wanted the tablet class has to
-/// say so.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SizeClass {
-    /// Short side under the compact boundary: the drawer replaces the rail.
-    Compact,
-    /// Wide enough for the persistent rail.
-    Desktop,
-}
-
-/// Short side below which the window is compact.
-///
-/// Keyed on the SHORT side, not the width, so a phone held in landscape still
-/// classifies compact and gets the full-screen sidebar. An iPad's short side is
-/// above this, so it stays desktop.
-pub const COMPACT_MAX_PX: u32 = 600;
-
-/// Classify a viewport.
-pub fn classify(width: u32, height: u32) -> SizeClass {
-    if width.min(height) < COMPACT_MAX_PX {
-        SizeClass::Compact
-    } else {
-        SizeClass::Desktop
-    }
-}
-
-/// Whether the shell is the compact (phone) one. A television never is: its
-/// browser commonly reports 960×540 CSS px on a 1080p panel, which the size
-/// boundary reads as a phone, and the phone shell's top bar, drawer and docked
-/// composer are the wrong answer for a ten-foot screen driven by a D-pad.
-pub fn is_compact_shell(class: SizeClass, tv_layout: bool) -> bool {
-    class == SizeClass::Compact && !tv_layout
+/// Whether the shell is the compact (phone) one: a phone-sized window
+/// (`hooks::use_is_mobile`) that is not a television. A TV browser commonly
+/// reports 960×540 CSS px on a 1080p panel, which the size boundary reads as a
+/// phone, and the phone shell's top bar, drawer and docked composer are the
+/// wrong answer for a ten-foot screen driven by a D-pad.
+pub fn is_compact_shell(phone_sized: bool, tv_layout: bool) -> bool {
+    phone_sized && !tv_layout
 }
 
 /// Which activity-rail destination a pathname selects.

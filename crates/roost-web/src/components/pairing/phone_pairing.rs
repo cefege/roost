@@ -10,9 +10,9 @@ use roost_client_core::client::rpc::calls::settings::machines::GetCoordinatorIde
 
 #[cfg(target_arch = "wasm32")]
 use super::phone_qr::pairing_qr_svg;
+use crate::components::hooks::use_copy_clipboard::use_copy_clipboard;
 #[cfg(target_arch = "wasm32")]
 use crate::components::machines::enrollment_origin::{EnrollmentDecision, enrollment_decision};
-use crate::components::notifications::clipboard;
 use crate::components::terminal::dom::{now_ms, sleep_ms};
 use crate::components::ui::{
     Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader, CardTitle, FieldError,
@@ -125,7 +125,7 @@ fn ScannableCode(
     clock_ms: u64,
     on_regenerate: EventHandler<MouseEvent>,
 ) -> Element {
-    let mut copied = use_signal(|| false);
+    let (copy_link, link_copied) = use_copy_clipboard(None);
     let remaining = expiry_phrase(clock_ms, pairing.expires_at_ms);
     let link = pairing.link.clone();
     rsx! {
@@ -152,17 +152,14 @@ fn ScannableCode(
                         variant: ButtonVariant::Secondary,
                         icon: Some(IconType::RefreshCw),
                         "data-testid": "phone-pairing-regenerate",
-                        onclick: move |event| {
-                            copied.set(false);
-                            on_regenerate.call(event);
-                        },
+                        onclick: move |event| on_regenerate.call(event),
                         "New code"
                     }
                     Button {
                         variant: ButtonVariant::Ghost,
-                        icon: Some(IconType::Copy),
-                        onclick: move |_| copied.set(clipboard::copy_text(&link)),
-                        if copied() { "Link copied" } else { "Copy link" }
+                        icon: Some(if link_copied() { IconType::Check } else { IconType::Copy }),
+                        onclick: move |_| copy_link(&link),
+                        if link_copied() { "Link copied" } else { "Copy link" }
                     }
                 }
             }

@@ -19,26 +19,13 @@ use super::state::token_color;
 /// lets the target marker be placed by arithmetic on the line number.
 const ROW_HEIGHT_PX: u32 = 20;
 
-/// How long a copied line shows its tick or cross before the row goes back to
-/// `#`. v2's copy feedback window.
-pub const COPY_FEEDBACK_MS: u32 = 1500;
-
-/// What a line's copy-link control is showing right now.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CopiedLine {
-    /// The line whose link was copied.
-    pub line: usize,
-    /// Whether the clipboard took it.
-    pub ok: bool,
-}
-
 /// The scrollable body: every line, in order, with the target line marked.
 #[component]
 pub fn FileBody(
     lines: Vec<String>,
     tokens: Option<Vec<Vec<Token>>>,
     target_line: usize,
-    copied: Option<CopiedLine>,
+    copied_line: Option<usize>,
     on_copy: EventHandler<usize>,
 ) -> Element {
     let mut rows: Vec<Element> = Vec::with_capacity(lines.len());
@@ -51,7 +38,7 @@ pub fn FileBody(
                 text: line.clone(),
                 tokens: tokens.as_ref().and_then(|grid| grid.get(index)).cloned(),
                 is_target: line_number == target_line,
-                copied: copied.filter(|copied| copied.line == line_number),
+                copied: copied_line == Some(line_number),
                 on_copy,
             }
         });
@@ -81,7 +68,7 @@ fn FileBodyLine(
     text: String,
     tokens: Option<Vec<Token>>,
     is_target: bool,
-    copied: Option<CopiedLine>,
+    copied: bool,
     on_copy: EventHandler<usize>,
 ) -> Element {
     let label = format!("Copy link to line {number}");
@@ -110,8 +97,8 @@ fn FileBodyLine(
                 "aria-label": label,
                 onclick: move |_| on_copy.call(number),
                 span {
-                    class: copy_glyph_class(copied),
-                    {copy_glyph(copied)}
+                    class: if copied { "text-success" } else { "text-muted-foreground" },
+                    if copied { "✓" } else { "#" }
                 }
             }
         }
@@ -146,25 +133,5 @@ fn highlighted_line(tokens: &[Token]) -> Element {
 fn plain_line(line: &str) -> Element {
     rsx! {
         span { class: "whitespace-pre text-(--syntax-plain)", {line} }
-    }
-}
-
-/// What the line's control says right now: `#` until the line is copied, then
-/// a tick or a cross for as long as the reader can see it.
-fn copy_glyph(copied: Option<CopiedLine>) -> &'static str {
-    match copied {
-        Some(CopiedLine { ok: true, .. }) => "✓",
-        Some(CopiedLine { ok: false, .. }) => "✕",
-        None => "#",
-    }
-}
-
-/// The glyph's tone right now: the tick and the cross take the clipboard's
-/// verdict, and the `#` stays quiet until a copy happens.
-fn copy_glyph_class(copied: Option<CopiedLine>) -> &'static str {
-    match copied {
-        Some(CopiedLine { ok: true, .. }) => "text-success",
-        Some(CopiedLine { ok: false, .. }) => "text-destructive",
-        None => "text-muted-foreground",
     }
 }

@@ -9,7 +9,8 @@
 use dioxus::prelude::*;
 
 use super::shortcuts::{ShortcutEntry, filtered_shortcuts, grouped_shortcuts, reader_platform};
-use crate::components::notifications::clipboard::copy_text;
+use crate::components::app_error_boundary::diagnostic;
+use crate::components::hooks::use_copy_clipboard::use_copy_clipboard;
 use crate::components::palette::dom::focus_by_test_id_next_frame;
 use crate::components::ui::{
     BindingChip, Button, ButtonVariant, Dialog, DialogContent, DialogHeader, DialogTitle, Input,
@@ -49,15 +50,17 @@ fn HelpOverlayBody() -> Element {
     let mut filter = use_signal(String::new);
     let platform = reader_platform();
     let groups = grouped_shortcuts(&filtered_shortcuts(&filter(), platform));
-    let on_copy = EventHandler::new(|()| copy_diagnostic());
+    let (copy_to_clipboard, copied) = use_copy_clipboard(None);
     rsx! {
         div { class: "flex min-h-0 flex-1 flex-col", "data-testid": "help-overlay",
             div { class: "flex flex-none justify-end px-5 pt-2",
                 Button {
                     variant: ButtonVariant::Secondary,
-                    onclick: move |_| on_copy.call(()),
+                    // The error boundary's payload, so one JSON shape leaves the
+                    // app wherever it is copied from; here it carries no error.
+                    onclick: move |_| copy_to_clipboard(&diagnostic("")),
                     "data-testid": "help-overlay-copy-diagnostic",
-                    "Copy diagnostic"
+                    if copied() { "Copied" } else { "Copy diagnostic" }
                 }
             }
             div { class: "flex-none px-5 pt-3 pb-2",
@@ -119,38 +122,4 @@ fn ShortcutRow(
             }
         }
     }
-}
-
-/// Copy where the reader is, what they are reading it in, and when — the three
-/// fields a bug report needs and the only ones that carry no credential.
-///
-/// The payload is the error boundary's writer, so one JSON shape is pasted out
-/// of the app wherever it comes from; the two fields this surface has nothing
-/// to say about are written empty.
-fn copy_diagnostic() {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let payload = {
-            let Some(window) = web_sys::window() else {
-                return;
-            };
-            let location = window.location();
-            let url = crate::platform::fragment_credential::credential_free_url(
-                &location.pathname().unwrap_or_default(),
-                &location.search().unwrap_or_default(),
-                &location.hash().unwrap_or_default(),
-            );
-            let agent = window.navigator().user_agent().unwrap_or_default();
-            let time = js_sys::Date::new_0()
-                .to_iso_string()
-                .as_string()
-                .unwrap_or_default();
-            crate::components::app_error_boundary::diagnostic_payload(&url, &agent, &time, "")
-        };
-        // A refusal is not an error this surface renders: the reader can still
-        // read the same three facts off their own address bar.
-        let _ = copy_text(&payload);
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    let _ = copy_text;
 }

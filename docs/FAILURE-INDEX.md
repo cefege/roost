@@ -3990,15 +3990,15 @@ the first refused connect and retries everything else exactly as `connect` does;
 
 ### On a TV the app looks like a big phone: top bar, drawer and a docked composer
 
-**Symptom** — "on the TV it just looks like a bigger mobile view"; the `layout` log says `window size class
-changed class=Compact` on a television; `tv.mode` is on.
+**Symptom** — "on the TV it just looks like a bigger mobile view"; the `layout` log says `shell layout
+compact=true` on a television; `tv.mode` is on.
 
-**Wrong** — size the phone shell up for the TV with more `tv.css` tokens, or raise `COMPACT_MAX_PX`. A TV
+**Wrong** — size the phone shell up for the TV with more `tv.css` tokens, or widen `use_is_mobile`'s `MOBILE_QUERY`. A TV
 browser commonly reports 960×540 CSS px on a 1080p panel (devicePixelRatio 2), so the short-side boundary
 reads it as a phone and every compact branch — top bar, drawer, viewport composer — follows; moving the
 boundary hands real phones in landscape the desktop rail.
 
-**Right** — the shell choice is the size class AND the modality: `shell_metrics::is_compact_shell(class,
+**Right** — the shell choice is the phone size AND the modality: `shell_metrics::is_compact_shell(phone_sized,
 tv_layout)` is never compact in TV mode, and `window_size::use_is_compact` is its one caller, so every
 compact branch follows. The ten-foot differences that a desktop width would not afford are TV-only CSS
 (`tv.css`: the sidebar slides over the editor) and the input tray (`floating_mount::key_surface`).

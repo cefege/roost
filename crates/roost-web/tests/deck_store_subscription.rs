@@ -26,7 +26,6 @@ use dioxus::prelude::*;
 use roost_client_core::deck::{DeckFolder, DeckIntent};
 use roost_client_core::{ClientCore, ClientEvent};
 use roost_web::components::deck::terminal_deck::TerminalDeck;
-use roost_web::components::layout::window_size::WindowSize;
 use roost_web::motion::resize_drag::ResizeDrag;
 use roost_web::platform::connect::CoordRpc;
 use roost_web::pump::{Pump, use_pump, use_store};
@@ -78,7 +77,6 @@ fn deck_root() -> Element {
             NAVIGATED.with(|navigated| navigated.borrow_mut().push(path));
         }),
     );
-    WindowSize::provide();
     ResizeDrag::provide();
     rsx! {
         TerminalDeck { active_session_id: None, surface_visible: true }

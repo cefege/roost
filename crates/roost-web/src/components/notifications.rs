@@ -6,7 +6,6 @@
 //! Ports `apps/web/src/components/notifications/`.
 
 pub mod agent_notifications;
-pub mod clipboard;
 pub mod command_finished;
 pub mod command_finished_scheduler;
 pub mod connection_banner;

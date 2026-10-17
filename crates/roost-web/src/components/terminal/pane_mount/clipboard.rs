@@ -1,6 +1,7 @@
 //! Terminal selection copies and their coordinator-history capture. Called by
 //! the pane's reserved copy chord and copy-on-select; depends on its shared
-//! pane state, browser clipboard API and the client RPC pump.
+//! pane state, the client's one clipboard write (`hooks::use_copy_clipboard`)
+//! and the client RPC pump.
 
 use super::PaneShared;
 
@@ -20,10 +21,10 @@ pub(super) fn copy_selection(shared: &PaneShared) {
     }
     let session_id = shared.session_id.clone();
     let pump = shared.pump.clone();
-    let promise = window.navigator().clipboard().write_text(&text);
-    wasm_bindgen_futures::spawn_local(async move {
-        if wasm_bindgen_futures::JsFuture::from(promise).await.is_ok() {
-            add_clipboard_history_entry(&pump, &session_id, text, "selection");
+    let history_text = text.clone();
+    crate::components::hooks::use_copy_clipboard::copy_text_then(&text, move |accepted| {
+        if accepted {
+            add_clipboard_history_entry(&pump, &session_id, history_text, "selection");
         }
     });
 }

@@ -9,8 +9,8 @@ use dioxus::prelude::*;
 use roost_client_core::store::toasts::{ToastId, ToastKind, ToastOptions, ToastSource, add_toast};
 
 use super::agent_notifications::agent_attention;
-use super::clipboard::copy_text_then;
 use super::store_write::write_store;
+use crate::components::hooks::use_copy_clipboard::copy_text_then;
 use crate::components::terminal::dom::now_ms;
 use crate::platform::worker_paths::BrowserWorkerPaths;
 use crate::pump::{Pump, use_store};

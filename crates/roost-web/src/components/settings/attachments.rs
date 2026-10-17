@@ -21,6 +21,7 @@ use roost_client_core::client::rpc::calls::settings::attachments::{
 };
 
 use super::format::{expiry_label, format_age, is_expiring};
+use crate::components::hooks::use_copy_clipboard::use_copy_clipboard;
 use crate::components::ui::{
     Badge, BadgeVariant, Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader,
     CardTitle, EmptyState, FieldError, Icon, IconType, List, ListRow, Select, SelectOption,
@@ -170,16 +171,10 @@ fn AttachmentRow(
         let pump = pump.clone();
         move |_event: MouseEvent| inject(pump.clone(), session.clone(), path.clone())
     };
+    let (copy_path, path_copied) = use_copy_clipboard(None);
     let on_copy = {
         let path = abs_path.clone();
-        move |_event: MouseEvent| {
-            let copied = copy_to_clipboard(&path);
-            view.write().status = Some(if copied {
-                "Copied to clipboard".to_owned()
-            } else {
-                "Copy failed (clipboard permission denied)".to_owned()
-            });
-        }
+        move |_event: MouseEvent| copy_path(&path)
     };
     let on_delete = {
         let pump = pump.clone();
@@ -211,10 +206,10 @@ fn AttachmentRow(
                 }
                 Button {
                     variant: ButtonVariant::Ghost,
-                    icon: Some(IconType::Copy),
+                    icon: Some(if path_copied() { IconType::Check } else { IconType::Copy }),
                     "data-testid": format!("attachments-copy-{filename}"),
                     onclick: on_copy,
-                    "Copy"
+                    if path_copied() { "Copied" } else { "Copy" }
                 }
                 Button {
                     variant: ButtonVariant::Destructive,
@@ -325,25 +320,4 @@ fn remove(pump: Pump, session_id: String, filename: String, view: Signal<Attachm
     });
     #[cfg(not(target_arch = "wasm32"))]
     let _ = (pump, session_id, filename, view);
-}
-
-/// Put a path on the system clipboard, and say whether the browser allowed it.
-fn copy_to_clipboard(text: &str) -> bool {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let Some(window) = web_sys::window() else {
-            return false;
-        };
-        // `write_text` hands back the promise the browser settles after this
-        // handler returns; the pane's own status line reports the attempt, and
-        // a rejection surfaces in the browser's console rather than as a stale
-        // "Copied". What this synchronous answer reports is the capability.
-        let _pending = window.navigator().clipboard().write_text(text);
-        true
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = text;
-        false
-    }
 }

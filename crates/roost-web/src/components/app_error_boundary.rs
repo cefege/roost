@@ -6,6 +6,7 @@
 
 use dioxus::prelude::*;
 
+use crate::components::hooks::use_copy_clipboard::use_copy_clipboard;
 use crate::components::ui::{Button, ButtonSize, ButtonVariant, Icon, IconType, Surface};
 
 /// The diagnostic a reader copies, as pretty JSON (v2's payload shape).
@@ -64,7 +65,8 @@ fn ErrorFallback(message: String, errors: ErrorContext) -> Element {
     });
     #[cfg(not(target_arch = "wasm32"))]
     let _ = &errors;
-    let copied = message.clone();
+    let diagnostic_message = message.clone();
+    let (copy_to_clipboard, copied) = use_copy_clipboard(None);
     rsx! {
         div {
             "data-testid": "error-boundary",
@@ -82,8 +84,8 @@ fn ErrorFallback(message: String, errors: ErrorContext) -> Element {
                     Button {
                         variant: ButtonVariant::Outline,
                         size: ButtonSize::Sm,
-                        onclick: move |_| copy_diagnostic(&copied),
-                        "Copy diagnostic"
+                        onclick: move |_| copy_to_clipboard(&diagnostic(&diagnostic_message)),
+                        if copied() { "Copied" } else { "Copy diagnostic" }
                     }
                     Button {
                         variant: ButtonVariant::Default,
@@ -100,13 +102,18 @@ fn ErrorFallback(message: String, errors: ErrorContext) -> Element {
     }
 }
 
+/// What a bug report needs about `message`: where the reader is (the
+/// credential-free URL), what they read it in, and when. The help overlay
+/// copies the same payload with no message.
 #[cfg(target_arch = "wasm32")]
-fn copy_diagnostic(message: &str) {
-    dom::copy_diagnostic(message);
+pub fn diagnostic(message: &str) -> String {
+    dom::diagnostic(message)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn copy_diagnostic(_message: &str) {}
+pub fn diagnostic(message: &str) -> String {
+    diagnostic_payload("", "", "", message)
+}
 
 #[cfg(target_arch = "wasm32")]
 fn reload() {
@@ -141,10 +148,11 @@ mod dom {
         listener.forget();
     }
 
-    /// Copy the diagnostic; a refusal is logged, never surfaced.
-    pub(super) fn copy_diagnostic(message: &str) {
+    /// The diagnostic payload for `message`: the credential-free URL, the user
+    /// agent and the time, beside the error.
+    pub(super) fn diagnostic(message: &str) -> String {
         let Some(window) = web_sys::window() else {
-            return;
+            return diagnostic_payload("", "", "", message);
         };
         let location = window.location();
         let url = credential_free_url(
@@ -157,12 +165,6 @@ mod dom {
             .to_iso_string()
             .as_string()
             .unwrap_or_default();
-        let payload = diagnostic_payload(&url, &agent, &time, message);
-        let promise = window.navigator().clipboard().write_text(&payload);
-        wasm_bindgen_futures::spawn_local(async move {
-            if wasm_bindgen_futures::JsFuture::from(promise).await.is_err() {
-                tracing::warn!(target: "error-boundary", "copy_diagnostic_failed");
-            }
-        });
+        diagnostic_payload(&url, &agent, &time, message)
     }
 }

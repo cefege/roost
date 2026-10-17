@@ -126,11 +126,8 @@ pub fn is_touch_device() -> bool {
     let Some(window) = web_sys::window() else {
         return false;
     };
-    let coarse = window
-        .match_media("(pointer: coarse)")
-        .ok()
-        .flatten()
-        .is_some_and(|query| query.matches());
+    let coarse = crate::components::hooks::use_media_query::media_query_match("(pointer: coarse)")
+        == Some(true);
     coarse || window.navigator().max_touch_points() > 0
 }
 
