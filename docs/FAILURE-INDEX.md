@@ -4333,3 +4333,25 @@ utilities (renderer-internal classes, `[data-tv]` modality overrides), because a
 wins over a utility on the same element.
 
 **Guard** — `crates/roost-web/tests/index_page.rs` — `every_inline_page_rule_sits_in_the_base_layer`.
+
+### A refused copy shows the previous copy's checkmark
+
+**Symptom** — copy one file-viewer line successfully, then copy another while
+clipboard permission is denied: the second line shows a checkmark although the
+clipboard still holds the first link. An older pending write can also report
+success after a newer attempt has failed.
+
+**Wrong** — wait for each write's verdict but keep the previous `copied` flag
+until its timer expires, or assign the generation only when success arrives.
+The flag then describes the last success rather than the current attempt, and
+reply order decides which text the UI claims was copied.
+
+**Right** — `components/hooks/use_copy_clipboard.rs` allocates an invocation
+ticket and clears the old confirmation before each write. Only that ticket's
+verdict can publish feedback; its reset timer uses the same ticket. Both paths
+tolerate the component disappearing before they settle.
+
+**Guard** — `components::hooks::use_copy_clipboard::tests` in `roost-web`:
+`another_attempt_clears_success_even_when_its_write_is_refused`,
+`an_older_success_cannot_confirm_a_newer_refusal`, and
+`an_older_refusal_cannot_clear_a_newer_success`.

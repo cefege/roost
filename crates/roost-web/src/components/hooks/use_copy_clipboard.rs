@@ -13,8 +13,8 @@ use wasm_bindgen::JsCast as _;
 const DEFAULT_TIMEOUT_MS: i32 = 2000;
 
 /// A copy function and whether its last copy is still being shown, for
-/// `timeout_ms` (two seconds when `None`). The flag rises when the browser
-/// accepts the write; a refused write leaves it down.
+/// `timeout_ms` (two seconds when `None`). Each attempt clears the previous
+/// confirmation; only the latest attempt's accepted verdict raises it.
 pub fn use_copy_clipboard(timeout_ms: Option<i32>) -> (impl Fn(&str) + Clone, ReadSignal<bool>) {
     let copied = use_signal(|| false);
     let latest = use_hook(|| CopyValue::new(0_u64));
@@ -23,30 +23,48 @@ pub fn use_copy_clipboard(timeout_ms: Option<i32>) -> (impl Fn(&str) + Clone, Re
     let timeout = timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS);
 
     let copy_fn = move |text: &str| {
+        let Some(ticket) = begin_copy(latest, copied) else {
+            return;
+        };
         copy_text_then(text, move |accepted| {
-            if accepted {
-                show_copied(timeout, latest, copied);
-            }
+            finish_copy(timeout, ticket, latest, copied, accepted);
         });
     };
 
     (copy_fn, copied_read)
 }
 
-/// Raise `copied` for `timeout_ms`. The verdict can land after the component
-/// unmounted, so every write here tolerates a dropped signal.
-fn show_copied(timeout_ms: i32, latest: CopyValue<u64>, copied: Signal<bool>) {
-    let (mut latest, mut copied) = (latest, copied);
-    let Ok(ticket) = latest.try_write().map(|mut latest| {
-        *latest += 1;
+/// Invalidate both the old confirmation and any write still awaiting a verdict.
+fn begin_copy(mut latest: CopyValue<u64>, mut copied: Signal<bool>) -> Option<u64> {
+    let ticket = {
+        let mut latest = latest.try_write().ok()?;
+        *latest = latest.wrapping_add(1);
         *latest
-    }) else {
+    };
+    *copied.try_write().ok()? = false;
+    Some(ticket)
+}
+
+/// A verdict may land after another attempt or after unmount. Neither may
+/// publish feedback for the text now on screen.
+fn finish_copy(
+    timeout_ms: i32,
+    ticket: u64,
+    latest: CopyValue<u64>,
+    mut copied: Signal<bool>,
+    accepted: bool,
+) {
+    if !latest.try_read().is_ok_and(|latest| *latest == ticket) {
+        return;
+    }
+    let Ok(mut flag) = copied.try_write() else {
         return;
     };
-    if let Ok(mut flag) = copied.try_write() {
-        *flag = true;
+    *flag = accepted;
+    drop(flag);
+    if accepted {
+        clear_after(timeout_ms, ticket, latest, copied);
     }
-    clear_after(timeout_ms, ticket, latest, copied);
 }
 
 /// Lower `copied` once `timeout_ms` has passed, unless a newer copy owns it
@@ -119,4 +137,77 @@ fn clipboard_writer() -> Option<(wasm_bindgen::JsValue, js_sys::Function)> {
         .dyn_into::<js_sys::Function>()
         .ok()?;
     Some((clipboard, write_text))
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use super::*;
+
+    #[derive(Clone, Copy)]
+    struct CopySignals {
+        latest: CopyValue<u64>,
+        copied: Signal<bool>,
+    }
+
+    fn probe(slot: Rc<RefCell<Option<CopySignals>>>) -> Element {
+        let signals = use_hook(|| CopySignals {
+            latest: CopyValue::new(0),
+            copied: Signal::new(false),
+        });
+        *slot.borrow_mut() = Some(signals);
+        rsx! {}
+    }
+
+    fn mounted() -> (VirtualDom, CopySignals) {
+        let slot = Rc::new(RefCell::new(None));
+        let mut dom = VirtualDom::new_with_props(probe, Rc::clone(&slot));
+        dom.rebuild_in_place();
+        let Some(signals) = *slot.borrow() else {
+            panic!("the mounted probe publishes its signals");
+        };
+        (dom, signals)
+    }
+
+    #[test]
+    fn another_attempt_clears_success_even_when_its_write_is_refused() {
+        let (dom, signals) = mounted();
+        dom.in_runtime(|| {
+            let first = begin_copy(signals.latest, signals.copied).unwrap();
+            finish_copy(2000, first, signals.latest, signals.copied, true);
+            assert!(*signals.copied.peek());
+
+            let second = begin_copy(signals.latest, signals.copied).unwrap();
+            assert!(!*signals.copied.peek(), "pending text is not confirmed");
+            finish_copy(2000, second, signals.latest, signals.copied, false);
+            assert!(!*signals.copied.peek(), "refused text is not confirmed");
+        });
+    }
+
+    #[test]
+    fn an_older_success_cannot_confirm_a_newer_refusal() {
+        let (dom, signals) = mounted();
+        dom.in_runtime(|| {
+            let older = begin_copy(signals.latest, signals.copied).unwrap();
+            let newer = begin_copy(signals.latest, signals.copied).unwrap();
+            finish_copy(2000, newer, signals.latest, signals.copied, false);
+            finish_copy(2000, older, signals.latest, signals.copied, true);
+            assert!(!*signals.copied.peek());
+        });
+    }
+
+    #[test]
+    fn an_older_refusal_cannot_clear_a_newer_success() {
+        let (dom, signals) = mounted();
+        dom.in_runtime(|| {
+            let older = begin_copy(signals.latest, signals.copied).unwrap();
+            let newer = begin_copy(signals.latest, signals.copied).unwrap();
+            finish_copy(2000, newer, signals.latest, signals.copied, true);
+            finish_copy(2000, older, signals.latest, signals.copied, false);
+            assert!(*signals.copied.peek());
+        });
+    }
 }
