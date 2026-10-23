@@ -317,7 +317,7 @@ impl AgentRuntime {
                 .await?;
             }
             self.start_goal_clock(id).await?;
-            let _ = self.start_run_now(id, None, None).await?;
+            let _ = self.start_run_now(id, None, None, None).await?;
             Ok(())
         })
     }

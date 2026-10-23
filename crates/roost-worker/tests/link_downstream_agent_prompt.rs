@@ -69,7 +69,7 @@ async fn an_agent_prompt_reaches_its_owner_synchronously_and_is_answered_once() 
     );
     assert!(result.reason.is_empty());
     settle_tasks().await;
-    assert!(receiver.try_recv().is_none(), "exactly one answer");
+    assert!(receiver.try_recv_delivery().is_none(), "exactly one answer");
     assert!(
         link.replies.is_empty(),
         "the owner's answer is fenced, not an immediate reply"

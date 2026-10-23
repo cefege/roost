@@ -41,6 +41,7 @@ fn conversation(id: &str) -> ConversationRecord {
         parent_id: None,
         agent: None,
         advisor: None,
+        read_only: false,
         run_state: AgentRunState::Idle,
         error: None,
         created_ms: 11,
@@ -123,10 +124,14 @@ async fn stale_revisions_conflict_superseded_leases_are_fenced_and_commands_admi
         entries: vec![Entry::User {
             text: "once".into(),
             loop_repeat: false,
+            item_id: None,
         }],
         intent: IntentChange::Activate,
+        fence: None,
+        expected_intent_seq: None,
+        completion_through: None,
     };
-    let AdmitOutcome::Admitted { seqs } = store
+    let AdmitOutcome::Admitted { seqs, .. } = store
         .admit_command("shared", admission.clone())
         .await
         .unwrap()
@@ -145,7 +150,8 @@ async fn stale_revisions_conflict_superseded_leases_are_fenced_and_commands_admi
                 1,
                 Entry::User {
                     text: "once".into(),
-                    loop_repeat: false
+                    loop_repeat: false,
+                    item_id: None,
                 }
             ),
             (

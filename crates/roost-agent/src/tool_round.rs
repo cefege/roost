@@ -4,7 +4,7 @@
 
 use futures::future::join_all;
 use roost_protocol::wire::agent_chat::{
-    ChatEvent, LspArgs, TOOL_BASH, TOOL_LSP, TOOL_WAIT, TranscriptItem, split_intent,
+    ChatEvent, TOOL_BASH, TOOL_LSP, TOOL_WAIT, TranscriptItem, split_intent,
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -18,7 +18,7 @@ use crate::toolset::{
     LSP_READ_ACTIONS, TOOL_ASK, TOOL_FETCH, TOOL_FIND, TOOL_MESSAGE, TOOL_PROPOSE_PLAN, TOOL_TASK,
     TOOL_TODO, TOOL_WEB_SEARCH, TOOL_YIELD, Toolset, is_read_only,
 };
-use crate::traits::{ToolCall, ToolOutcome};
+use crate::traits::{OwnerConversationId, ToolCall, ToolOutcome, WorkerConversationNamespace};
 use crate::web_tools;
 use crate::{ask, find, peer_message, plan_mode, subagents, todo, wait};
 
@@ -146,6 +146,13 @@ async fn run_call(scope: &CallScope<'_>, call_id: &str, name: &str, args: &str) 
         Err(error) => return CallResult::failure(error.to_string()),
     };
     let args = dispatch_args.as_str();
+    let record = match scope.runtime.record(&scope.record.id).await {
+        Ok(record) => record,
+        Err(error) => return CallResult::failure(error.to_string()),
+    };
+    if record.read_only && !crate::read_only_guard::allows(name, args) {
+        return CallResult::failure(format!("Tool `{name}` is disabled in read-only mode."));
+    }
     scope
         .runtime
         .emit(
@@ -155,6 +162,13 @@ async fn run_call(scope: &CallScope<'_>, call_id: &str, name: &str, args: &str) 
             }],
         )
         .await;
+    let latest_record = match scope.runtime.record(&scope.record.id).await {
+        Ok(record) => record,
+        Err(error) => return CallResult::failure(error.to_string()),
+    };
+    if latest_record.read_only && !crate::read_only_guard::allows(name, args) {
+        return CallResult::failure(format!("Tool `{name}` is disabled in read-only mode."));
+    }
     let (out, out_rx) = mpsc::channel::<String>(64);
     let forwarder = tokio::spawn(forward_output(
         scope.runtime.clone(),
@@ -288,28 +302,26 @@ async fn run_worker_tool(
     args: &str,
     out: mpsc::Sender<String>,
 ) -> CallResult {
-    if name == TOOL_LSP && scope.toolset.lsp_read_only {
-        let action = serde_json::from_str::<LspArgs>(args)
-            .ok()
-            .map(|parsed| {
-                serde_json::to_value(parsed.action)
-                    .ok()
-                    .and_then(|value| value.as_str().map(str::to_owned))
-            })
-            .unwrap_or_default();
-        if !action
-            .as_deref()
-            .is_some_and(|action| LSP_READ_ACTIONS.contains(&action))
-        {
-            return CallResult::failure(format!(
-                "Only these lsp actions are available here: {}.",
-                LSP_READ_ACTIONS.join(", ")
-            ));
-        }
+    let latest_record = match scope.runtime.record(&scope.record.id).await {
+        Ok(record) => record,
+        Err(error) => return CallResult::failure(error.to_string()),
+    };
+    if latest_record.read_only && !crate::read_only_guard::allows(name, args) {
+        return CallResult::failure(format!("Tool `{name}` is disabled in read-only mode."));
+    }
+    if name == TOOL_LSP
+        && (latest_record.read_only || scope.toolset.lsp_read_only)
+        && !crate::read_only_guard::lsp_action_allowed(args)
+    {
+        return CallResult::failure(format!(
+            "Only these lsp actions are available here: {}.",
+            LSP_READ_ACTIONS.join(", ")
+        ));
     }
     let call = ToolCall {
         call_id: call_id.to_owned(),
-        conversation_id: scope.record.id.clone(),
+        conversation_id: WorkerConversationNamespace(scope.record.id.clone()),
+        owner_conversation_id: OwnerConversationId(scope.record.id.clone()),
         cwd: scope.record.cwd.clone(),
         tool: name.to_owned(),
         args_json: args.to_owned(),

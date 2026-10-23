@@ -92,30 +92,114 @@ struct RoutedFrame {
     /// `None` for an unfenced send (v2 `link.send`), which waits for whichever
     /// connection is next.
     fence: Option<u64>,
+    admission: Option<tokio::sync::oneshot::Sender<bool>>,
 }
+
+/// A frame received by the link loop, with an optional waiter for actual
+/// outbox admission.
+#[derive(Debug)]
+pub struct UplinkDelivery {
+    pub frame: CoordWorkerUpstream,
+    admission: Option<tokio::sync::oneshot::Sender<bool>>,
+    fence: Option<u64>,
+    current: Arc<AtomicU64>,
+}
+
+impl UplinkDelivery {
+    pub fn admit(self, admit: impl FnOnce(CoordWorkerUpstream) -> bool) {
+        if self
+            .fence
+            .is_some_and(|fence| self.current.load(Ordering::Acquire) != fence)
+        {
+            if let Some(admission) = self.admission {
+                let _ = admission.send(false);
+            }
+            return;
+        }
+        if self
+            .admission
+            .as_ref()
+            .is_some_and(|admission| admission.is_closed())
+        {
+            return;
+        }
+        let admitted = admit(self.frame);
+        if let Some(admission) = self.admission {
+            let _ = admission.send(admitted);
+        }
+    }
+    /// Extracts a fire-and-forget frame for diagnostics without discarding an
+    /// admission waiter.
+    pub fn _take_unconfirmed_frame(self) -> Option<CoordWorkerUpstream> {
+        self.admission.is_none().then_some(self.frame)
+    }
+}
+
+/// A frame could not be admitted on the coordinator connection current at call
+/// time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("the frame was not admitted on the current coordinator connection")]
+pub struct UplinkAdmissionError;
 
 /// The sending half. Clone + Send + Sync; every clone shares one generation.
 #[derive(Clone, Debug)]
 pub struct Uplink {
     sender: Option<mpsc::UnboundedSender<RoutedFrame>>,
     current: Arc<AtomicU64>,
+    connected: Arc<std::sync::atomic::AtomicBool>,
+    generation_changed: tokio::sync::watch::Receiver<u64>,
 }
 
 impl Uplink {
     /// A sender with no link loop behind it, for a test that never sends.
     /// Every send returns false.
     pub fn detached() -> Self {
+        let (_, generation_changed) = tokio::sync::watch::channel(0);
         Self {
             sender: None,
             current: Arc::new(AtomicU64::new(0)),
+            connected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            generation_changed,
         }
     }
-
     /// Hand a frame to the link loop for whichever connection carries it.
     pub fn send(&self, frame: CoordWorkerUpstream) -> bool {
-        self.route(RoutedFrame { frame, fence: None })
+        self.route(RoutedFrame {
+            frame,
+            fence: None,
+            admission: None,
+        })
     }
 
+    /// Wait for admission on the coordinator connection current at call time.
+    pub async fn send_confirmed(
+        &self,
+        frame: CoordWorkerUpstream,
+    ) -> Result<(), UplinkAdmissionError> {
+        let mut generation_changed = self.generation_changed.clone();
+        let generation = *generation_changed.borrow_and_update();
+        if !self.connected.load(Ordering::Acquire)
+            || self.current.load(Ordering::Acquire) != generation
+        {
+            return Err(UplinkAdmissionError);
+        }
+        let (admission, admitted) = tokio::sync::oneshot::channel();
+        if !self.route(RoutedFrame {
+            frame,
+            fence: Some(generation),
+            admission: Some(admission),
+        }) {
+            return Err(UplinkAdmissionError);
+        }
+        tokio::select! {
+            biased;
+            result = admitted => result.map_err(|_| UplinkAdmissionError)?.then_some(()).ok_or(UplinkAdmissionError),
+            changed = generation_changed.changed() => {
+                let _ = changed;
+                Err(UplinkAdmissionError)
+            }
+        }
+    }
     /// Hand a reply to the link loop only while its connection is current.
     /// A stale fence drops the frame here, and the link loop checks again when
     /// it admits, because the link can re-dial while the frame is in the
@@ -132,6 +216,7 @@ impl Uplink {
         self.route(RoutedFrame {
             frame,
             fence: Some(fence.generation),
+            admission: None,
         })
     }
 
@@ -162,6 +247,8 @@ pub struct UplinkReceiver {
     receiver: mpsc::UnboundedReceiver<RoutedFrame>,
     sender: mpsc::UnboundedSender<RoutedFrame>,
     current: Arc<AtomicU64>,
+    connected: Arc<std::sync::atomic::AtomicBool>,
+    generation_changed: tokio::sync::watch::Sender<u64>,
 }
 
 /// A connected pair: the composition root keeps the [`Uplink`] (cloning it to
@@ -169,9 +256,13 @@ pub struct UplinkReceiver {
 pub fn channel() -> (Uplink, UplinkReceiver) {
     let (sender, receiver) = mpsc::unbounded_channel();
     let current = Arc::new(AtomicU64::new(0));
+    let connected = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (generation_changed, generation_updates) = tokio::sync::watch::channel(0);
     let uplink = Uplink {
         sender: Some(sender.clone()),
         current: Arc::clone(&current),
+        connected: Arc::clone(&connected),
+        generation_changed: generation_updates,
     };
     (
         uplink,
@@ -179,6 +270,8 @@ pub fn channel() -> (Uplink, UplinkReceiver) {
             receiver,
             sender,
             current,
+            connected,
+            generation_changed,
         },
     )
 }
@@ -189,25 +282,24 @@ impl UplinkReceiver {
         Uplink {
             sender: Some(self.sender.clone()),
             current: Arc::clone(&self.current),
+            connected: Arc::clone(&self.connected),
+            generation_changed: self.generation_changed.subscribe(),
         }
     }
 
-    /// The next frame whose connection is still current. Cancel-safe: a frame
-    /// skipped here was stale and is dropped on purpose.
-    pub async fn recv(&mut self) -> Option<CoordWorkerUpstream> {
+    pub async fn recv_delivery(&mut self) -> Option<UplinkDelivery> {
         loop {
             let routed = self.receiver.recv().await?;
-            if let Some(frame) = self.admit(routed) {
-                return Some(frame);
+            if let Some(delivery) = self.admit(routed) {
+                return Some(delivery);
             }
         }
     }
 
-    /// [`UplinkReceiver::recv`] without waiting.
-    pub fn try_recv(&mut self) -> Option<CoordWorkerUpstream> {
+    pub fn try_recv_delivery(&mut self) -> Option<UplinkDelivery> {
         while let Ok(routed) = self.receiver.try_recv() {
-            if let Some(frame) = self.admit(routed) {
-                return Some(frame);
+            if let Some(delivery) = self.admit(routed) {
+                return Some(delivery);
             }
         }
         None
@@ -216,26 +308,50 @@ impl UplinkReceiver {
     /// A connection opened or ended: every fence taken before this is stale.
     pub fn advance(&self) -> u64 {
         let generation = self.current.fetch_add(1, Ordering::AcqRel) + 1;
+        self.generation_changed.send_replace(generation);
         tracing::debug!(generation, "the coordinator connection generation advanced");
         generation
+    }
+
+    pub fn link_opened(&self) -> u64 {
+        self.connected.store(true, Ordering::Release);
+        self.advance()
+    }
+
+    pub fn link_detached(&self) -> u64 {
+        self.connected.store(false, Ordering::Release);
+        self.advance()
     }
 
     pub fn generation(&self) -> u64 {
         self.current.load(Ordering::Acquire)
     }
 
-    fn admit(&self, routed: RoutedFrame) -> Option<CoordWorkerUpstream> {
-        match routed.fence {
+    fn admit(&self, routed: RoutedFrame) -> Option<UplinkDelivery> {
+        let RoutedFrame {
+            frame,
+            fence,
+            admission,
+        } = routed;
+        match fence {
             Some(fence) if fence != self.generation() => {
                 tracing::debug!(
-                    kind = routed.frame.kind(),
+                    kind = frame.kind(),
                     fence,
                     generation = self.generation(),
                     "a reply outlived its coordinator connection and was dropped"
                 );
+                if let Some(admission) = admission {
+                    let _ = admission.send(false);
+                }
                 None
             }
-            _ => Some(routed.frame),
+            _ => Some(UplinkDelivery {
+                frame,
+                admission,
+                fence,
+                current: Arc::clone(&self.current),
+            }),
         }
     }
 }

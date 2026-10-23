@@ -85,7 +85,11 @@ async fn agent_tool_call_reads_file_and_returns_hashline_result() {
     );
     let result = timeout(Duration::from_secs(2), async {
         loop {
-            if let Some(CoordWorkerUpstream::AgentToolResult(result)) = frames.recv().await {
+            if let Some(CoordWorkerUpstream::AgentToolResult(result)) = frames
+                .recv_delivery()
+                .await
+                .and_then(|delivery| delivery._take_unconfirmed_frame())
+            {
                 break result;
             }
         }
@@ -113,7 +117,10 @@ async fn agent_tool_call_reads_file_and_returns_hashline_result() {
     );
     let write_result = timeout(Duration::from_secs(2), async {
         loop {
-            if let Some(CoordWorkerUpstream::AgentToolResult(result)) = frames.recv().await
+            if let Some(CoordWorkerUpstream::AgentToolResult(result)) = frames
+                .recv_delivery()
+                .await
+                .and_then(|delivery| delivery._take_unconfirmed_frame())
                 && result.call_id == "write-1"
             {
                 break result;
@@ -138,7 +145,10 @@ async fn agent_tool_call_reads_file_and_returns_hashline_result() {
     );
     let rewind_result = timeout(Duration::from_secs(2), async {
         loop {
-            if let Some(CoordWorkerUpstream::AgentToolResult(result)) = frames.recv().await
+            if let Some(CoordWorkerUpstream::AgentToolResult(result)) = frames
+                .recv_delivery()
+                .await
+                .and_then(|delivery| delivery._take_unconfirmed_frame())
                 && result.call_id == "rewind-1"
             {
                 break result;
@@ -185,7 +195,11 @@ async fn cancelling_agent_bash_returns_error_within_one_second() {
     );
     let result = timeout(Duration::from_secs(1), async {
         loop {
-            if let Some(CoordWorkerUpstream::AgentToolResult(result)) = frames.recv().await {
+            if let Some(CoordWorkerUpstream::AgentToolResult(result)) = frames
+                .recv_delivery()
+                .await
+                .and_then(|delivery| delivery._take_unconfirmed_frame())
+            {
                 break result;
             }
         }
@@ -227,7 +241,11 @@ async fn a_detached_coordinator_link_cancels_running_tool_calls() {
     lifecycle.on_detach();
     let result = timeout(Duration::from_secs(1), async {
         loop {
-            if let Some(CoordWorkerUpstream::AgentToolResult(result)) = frames.recv().await {
+            if let Some(CoordWorkerUpstream::AgentToolResult(result)) = frames
+                .recv_delivery()
+                .await
+                .and_then(|delivery| delivery._take_unconfirmed_frame())
+            {
                 break result;
             }
         }

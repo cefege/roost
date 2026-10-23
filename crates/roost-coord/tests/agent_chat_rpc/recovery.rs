@@ -21,6 +21,7 @@ async fn boot_resumes_durable_progress_without_replaying_unknown_tool_effects() 
             &Entry::User {
                 text: "Continue the existing migration".into(),
                 loop_repeat: false,
+                item_id: None,
             },
             &[],
             None,

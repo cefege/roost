@@ -230,6 +230,9 @@ pub fn build_messages(entries: &[(u64, Entry)], provider: &str) -> Vec<Message> 
             Entry::Ask { .. }
             | Entry::Btw { .. }
             | Entry::Rewind { .. }
+            | Entry::QueuedInput { .. }
+            | Entry::QueuedInputWithdrawn { .. }
+            | Entry::InputConsumed { .. }
             | Entry::ExtraUsage { .. }
             | Entry::RunIntent { .. }
             | Entry::LoopState { .. }

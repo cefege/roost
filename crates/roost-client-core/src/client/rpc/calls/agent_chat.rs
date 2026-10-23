@@ -4,7 +4,7 @@ use crate::client::rpc::codec::{RpcCodecError, decode_message, encode_message};
 use crate::client::rpc::unary::UnaryMethod;
 use roost_proto::*;
 use roost_protocol::wire::agent_chat::{
-    ChatEvent, LoginState, ModelRef, ModelsCatalog, Transcript,
+    AgentInspection, ChatEvent, LoginState, ModelRef, ModelsCatalog, Transcript,
 };
 
 macro_rules! simple_call {
@@ -29,8 +29,10 @@ fn decode_json<T: serde::de::DeserializeOwned>(
     })
 }
 
-simple_call!(SubmitAgentChat,AgentChatSubmitRequest,AgentChatSubmitResponse,(),"AgentChatSubmit",empty; conversation_id:String,text:String,request_id:String);
-simple_call!(AbortAgentChat,AgentChatAbortRequest,AgentChatAbortResponse,(),"AgentChatAbort",empty; conversation_id:String,request_id:String);
+simple_call!(SubmitAgentChat,AgentChatSubmitRequest,AgentChatSubmitResponse,(),"AgentChatSubmit",empty; conversation_id:String,text:String,request_id:String,when_busy:String);
+simple_call!(AbortAgentChat,AgentChatAbortRequest,AgentChatAbortResponse,(),"AgentChatAbort",empty; conversation_id:String,request_id:String,background:Option<bool>);
+simple_call!(WithdrawAgentChat,AgentChatWithdrawRequest,AgentChatWithdrawResponse,bool,"AgentChatWithdraw",|response:AgentChatWithdrawResponse| Ok(response.withdrawn); conversation_id:String,submission_id:String,request_id:String);
+simple_call!(InspectAgentChat,AgentChatInspectRequest,AgentChatInspectResponse,AgentInspection,"AgentChatInspect",|response:AgentChatInspectResponse| decode_json("AgentChatInspect", response.inspection_json); conversation_id:String);
 simple_call!(DeleteAgentChat,AgentChatDeleteRequest,AgentChatDeleteResponse,(),"AgentChatDelete",empty; conversation_id:String);
 simple_call!(StartAgentLogin,AgentAuthLoginStartRequest,AgentAuthLoginStartResponse,String,"AgentAuthLoginStart",|response:AgentAuthLoginStartResponse| Ok(response.login_id); provider:String);
 simple_call!(RespondAgentLogin,AgentAuthLoginRespondRequest,AgentAuthLoginRespondResponse,(),"AgentAuthLoginRespond",empty; login_id:String,prompt_id:String,value:String);
@@ -87,6 +89,7 @@ pub struct ConfigureAgentChat {
     pub worker_fp: Option<String>,
     pub cwd: Option<String>,
     pub title: Option<String>,
+    pub read_only: Option<bool>,
 }
 impl UnaryMethod for ConfigureAgentChat {
     const METHOD: &'static str = "AgentChatConfigure";
@@ -102,6 +105,7 @@ impl UnaryMethod for ConfigureAgentChat {
                 worker_fp: self.worker_fp.clone(),
                 cwd: self.cwd.clone(),
                 title: self.title.clone(),
+                read_only: self.read_only,
                 ..Default::default()
             },
         )

@@ -1,13 +1,6 @@
-//! The `/models` hub mounted for real: its model rows reach the page, and Enter on
-//! a row opens the role-assignment strip with its chips.
-//!
-//! Keys are delivered through the runtime's own event path (`handle_event`), so
-//! the hub's `onkeydown` reads them the way a browser would. Settings reads and
-//! writes are wasm-only, so this drives the strip's presence and chips and leaves
-//! the write of a chosen role to the unit tests that own `apply_settings`.
-//!
-//! Test root, so the unwrap allowance is declared here (`CLAUDE.md` "the test
-//! exemption reaches a test binary and not a fixture").
+//! A loaded model catalog does not make an unhydrated settings document writable.
+//! The native mount leaves the wasm-only settings request pending.
+//! Keyboard actions must not expose role assignments over default settings.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -33,23 +26,17 @@ use roost_web::pump::Pump;
 
 use palette_support::RenderedTree;
 
-const ROW_TEST_ID: &str = "agent-model-hub-row-anthropic/claude-test";
-const ROLES_VIEW_TEST_ID: &str = "agent-model-hub-view-roles";
-const ROWS_TEST_ID: &str = "agent-model-hub-rows";
-const STRIP_TEST_ID: &str = "agent-model-hub-strip";
-const FIRST_CHIP_TEST_ID: &str = "agent-model-hub-strip-chip-0";
-const SECOND_CHIP_TEST_ID: &str = "agent-model-hub-strip-chip-1";
-
-const SETTLE_ROUNDS: usize = 8;
-const MAX_VIEW_STEPS: usize = 8;
-
-thread_local! {
-    /// The pump the root built, handed back out of the render pass.
-    static BUILT: RefCell<Option<Pump>> = const { RefCell::new(None) };
-}
-
-fn catalog() -> ModelsCatalog {
-    ModelsCatalog {
+fn hub_root() -> Element {
+    let pump = use_hook(|| {
+        Pump::new(
+            Rc::new(RefCell::new(ClientCore::in_memory("tab-models-hub"))),
+            Signal::new(0_u64),
+            Rc::new(CoordRpc::new("http://127.0.0.1:4113", "")),
+        )
+    });
+    let open = use_signal(|| true);
+    let connect_provider = use_signal(|| None::<ProviderEntry>);
+    let catalog = ModelsCatalog {
         models: vec![ModelEntry {
             provider: "anthropic".to_owned(),
             model_id: "claude-test".to_owned(),
@@ -57,15 +44,12 @@ fn catalog() -> ModelsCatalog {
             available: true,
             ..ModelEntry::default()
         }],
-        providers: Vec::<ProviderEntry>::new(),
+        providers: Vec::new(),
         thinking_levels: Vec::new(),
         default_model: None,
         recent_models: Vec::new(),
-    }
-}
-
-fn conversation() -> ConversationSummary {
-    ConversationSummary {
+    };
+    let conversation = ConversationSummary {
         id: "conversation-1".to_owned(),
         title: "A chat".to_owned(),
         worker_fp: "00000000000000000000000000000000000000000000000000000000000000ff".to_owned(),
@@ -82,34 +66,12 @@ fn conversation() -> ConversationSummary {
         error: None,
         created_ms: 0,
         updated_ms: 0,
-    }
-}
-
-/// The root `VirtualDom::new` wants: the pump the hub reads, and the hub open.
-fn hub_root() -> Element {
-    let pump = use_hook(|| {
-        let pump = Pump::new(
-            Rc::new(RefCell::new(ClientCore::in_memory("tab-models-hub"))),
-            Signal::new(0_u64),
-            Rc::new(CoordRpc::new("http://127.0.0.1:4113", "")),
-        );
-        BUILT.with(|built| *built.borrow_mut() = Some(pump.clone()));
-        pump
-    });
-    let open = use_signal(|| true);
-    let connect_provider = use_signal(|| None::<ProviderEntry>);
+    };
     rsx! {
-        ModelHub {
-            open,
-            conversation: conversation(),
-            catalog: Some(catalog()),
-            pump,
-            connect_provider,
-        }
+        ModelHub { open, conversation, catalog: Some(catalog), pump, connect_provider }
     }
 }
 
-/// A mounted hub, the pump it reads, and the page it has painted.
 struct Hub {
     dom: VirtualDom,
     tree: RenderedTree,
@@ -117,14 +79,13 @@ struct Hub {
 
 impl Hub {
     fn settle(&mut self) {
-        for _ in 0..SETTLE_ROUNDS {
+        for _ in 0..8 {
             let mutations = self.dom.render_immediate_to_vec();
             self.tree.apply(mutations);
             self.dom.process_events();
         }
     }
 
-    /// One key, delivered to `target` and bubbling the way a browser's would.
     fn press(&mut self, target: ElementId, key: Key) {
         let serialized = SerializedKeyboardData::new(
             key,
@@ -140,22 +101,10 @@ impl Hub {
             .in_runtime(|| self.dom.runtime().handle_event("keydown", event, target));
         self.settle();
     }
-
-    fn first(&self, test_id: &str) -> ElementId {
-        *self
-            .tree
-            .carrying(test_id)
-            .first()
-            .unwrap_or_else(|| panic!("no element carries {test_id} on the page"))
-    }
-
-    fn count(&self, test_id: &str) -> usize {
-        self.tree.count(test_id)
-    }
 }
 
-/// The hub as it boots: open on the Roles view, with the catalog and no strip.
-fn mounted() -> Hub {
+#[test]
+fn unhydrated_settings_block_keyboard_role_assignment() {
     set_event_converter(Box::new(SerializedHtmlEventConverter));
     let mut dom = VirtualDom::new(hub_root);
     let mut tree = RenderedTree::default();
@@ -164,59 +113,17 @@ fn mounted() -> Hub {
     tree.apply(initial);
     let mut hub = Hub { dom, tree };
     hub.settle();
-    hub
-}
-
-/// Move from Roles to All models with the sidebar keys the hub reads: Left takes
-/// focus to the sidebar, Down steps the view until the rows are on the page.
-fn show_all_models(hub: &mut Hub) {
-    let sidebar_entry = hub.first(ROLES_VIEW_TEST_ID);
-    hub.press(sidebar_entry, Key::ArrowLeft);
-    for _ in 0..MAX_VIEW_STEPS {
-        if hub.count(ROWS_TEST_ID) > 0 {
-            return;
-        }
-        hub.press(sidebar_entry, Key::ArrowDown);
+    let target = *hub
+        .tree
+        .carrying("agent-model-hub")
+        .first()
+        .expect("the loading dialog is mounted");
+    hub.press(target, Key::ArrowLeft);
+    for _ in 0..8 {
+        hub.press(target, Key::ArrowDown);
     }
-    panic!("the model rows never reached the page after {MAX_VIEW_STEPS} view steps");
-}
-
-#[test]
-fn the_all_models_view_lists_the_catalog_model() {
-    let mut hub = mounted();
-    show_all_models(&mut hub);
-
-    assert_eq!(
-        hub.count(ROW_TEST_ID),
-        1,
-        "the catalog's one model is not a row on the All models view, so the hub cannot show \
-         or assign it"
-    );
-}
-
-#[test]
-fn enter_on_a_model_row_opens_its_role_strip() {
-    let mut hub = mounted();
-    let sidebar_entry = hub.first(ROLES_VIEW_TEST_ID);
-    show_all_models(&mut hub);
-    assert_eq!(
-        hub.count(STRIP_TEST_ID),
-        0,
-        "the role strip is on the page before any model was activated"
-    );
-
-    hub.press(sidebar_entry, Key::ArrowRight);
-    hub.press(sidebar_entry, Key::Enter);
-
-    assert_eq!(
-        hub.count(STRIP_TEST_ID),
-        1,
-        "Enter on a model row did not open its role-assignment strip, so the model cannot be \
-         assigned to any role from the hub"
-    );
-    assert!(
-        hub.count(FIRST_CHIP_TEST_ID) == 1 && hub.count(SECOND_CHIP_TEST_ID) == 1,
-        "the strip opened without its chips: the first chip is the chat scope and the rest are \
-         the chat roles, so both chip positions must be on the page"
-    );
+    hub.press(target, Key::ArrowRight);
+    hub.press(target, Key::Enter);
+    assert_eq!(hub.tree.count("agent-model-hub-strip"), 0);
+    assert_eq!(hub.tree.count("agent-model-hub-view-roles"), 0);
 }

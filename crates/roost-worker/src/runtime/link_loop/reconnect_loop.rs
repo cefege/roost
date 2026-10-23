@@ -61,7 +61,7 @@ impl LinkLoop {
             self.links_opened += 1;
             // A new connection generation: every fence taken on the previous
             // socket is stale from here on.
-            let generation = self.uplink.advance();
+            let generation = self.uplink.link_opened();
             tracing::info!(
                 attempt,
                 links_opened = self.links_opened,
@@ -99,7 +99,7 @@ impl LinkLoop {
     /// does not reset: a durable row that vanished on reconnect would be a hole
     /// in the coordinator's record of what happened.
     pub(super) fn detach_link(&mut self) {
-        let generation = self.uplink.advance();
+        let generation = self.uplink.link_detached();
         self.pump.on_disconnect();
         self.authorised = None;
         self.snapshot_since = None;

@@ -38,7 +38,14 @@ pub(super) fn submit_direct_command(
     command: String,
     outcome: EventHandler<Result<(), String>>,
 ) {
-    submit_message(pump, conversation_id, command, outcome);
+    submit_message(
+        pump,
+        conversation_id,
+        command,
+        "steer".to_string(),
+        super::request_ids::new_request_id(),
+        outcome,
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -55,9 +62,10 @@ pub(super) fn submit_message(
     pump: Pump,
     conversation_id: String,
     text: String,
+    when_busy: String,
+    request_id: String,
     outcome: EventHandler<Result<(), String>>,
 ) {
-    let request_id = super::request_ids::new_request_id();
     let label = text.clone();
     // The call and its report run apart. The call is unscoped, so it always
     // completes. The report is scoped to the component that sent it: the
@@ -70,6 +78,7 @@ pub(super) fn submit_message(
             .call(&SubmitAgentChat {
                 conversation_id,
                 text,
+                when_busy,
                 request_id,
                 ..Default::default()
             })
@@ -91,7 +100,15 @@ pub(super) fn submit_message(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(super) fn submit_message(_: Pump, _: String, _: String, _: EventHandler<Result<(), String>>) {}
+pub(super) fn submit_message(
+    _: Pump,
+    _: String,
+    _: String,
+    _: String,
+    _: String,
+    _: EventHandler<Result<(), String>>,
+) {
+}
 
 pub(super) struct LocalCommandScope<'a> {
     pub(super) conversation: &'a ConversationSummary,

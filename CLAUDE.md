@@ -9,9 +9,8 @@ of the filesystem.
 
 **This is the `v3` branch: Roost in Rust, with a Dioxus web client.** `main`
 holds v2 (Bun + TypeScript + SolidJS); it is frozen and kept for reference only
-— no fix lands there and nothing merges from it. The v3 checkout is
-`~/repos/roost-v3` on `v3`. This repository contains the Rust v3 product and
-the Dioxus web client.
+— no fix lands there and nothing merges from it. This checkout contains the Rust
+v3 product and the Dioxus web client.
 
 ---
 
@@ -40,6 +39,9 @@ Also live, read when relevant:
   open decision gates.
 - **[`docs/LENS.md`](docs/LENS.md)** — the generic operating doctrine
   (`## Reading lens` below). Read once, not per task.
+- **[`protocol/spec/agent-chat.md`](protocol/spec/agent-chat.md)** — the native
+  Rust agent contract. Full one-to-one OMP-harness parity is out of scope
+  unless the operator explicitly requests it again.
 
 ---
 
@@ -538,10 +540,10 @@ keeper pid changed. It no longer touches the coordinator.
 
 ## Failure index
 
-[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md) is the symptom→fix index: 169
-entries, one `###` heading each, with `**Symptom**` (the grep string),
-`**Wrong**`, `**Right**`, and `**Guard**` (the test or lint check
-that pins it). It is the only actively maintained institutional memory in this repo and
+[`docs/FAILURE-INDEX.md`](docs/FAILURE-INDEX.md) is the symptom→fix index.
+Each `###` entry has `**Symptom**` (the grep string), `**Wrong**`, `**Right**`,
+and `**Guard**` (the test or lint check that pins it). It is the only actively
+maintained institutional memory in this repo and
 it is grep-first by design — grep it BEFORE writing code that matches a
 symptom.
 

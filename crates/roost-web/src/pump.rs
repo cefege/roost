@@ -389,6 +389,7 @@ pub fn use_pump() -> Pump {
 /// the store moves. Every component that renders store state calls this.
 pub fn use_store() -> Pump {
     let pump = use_context::<Pump>();
-    let _ = pump.revision().read();
+    let revision = pump.revision();
+    let _revision = revision();
     pump
 }

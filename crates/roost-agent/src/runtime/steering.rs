@@ -32,6 +32,7 @@ impl AgentRuntime {
             },
             Vec::new(),
             message,
+            None,
         )
         .await
     }
@@ -44,6 +45,7 @@ impl AgentRuntime {
         command: CommandKey<'_>,
         prefix: Vec<Entry>,
         message: Steer,
+        mode: Option<super::SubmitMode>,
     ) -> Result<(), AgentError> {
         let lifecycle = self.lifecycle_lock(id);
         let _guard = lifecycle.lock().await;
@@ -58,10 +60,30 @@ impl AgentRuntime {
         if let Steer::User(text) = &message {
             self.prepare_loop_prompt_capture(id, text).await?;
         }
-        let entry = message.into_entry();
+        let entry = match (&message, mode) {
+            (Steer::User(text), Some(super::SubmitMode::FollowUp)) => Entry::QueuedInput {
+                submission_id: command.request_id.to_owned(),
+                text: text.clone(),
+                state: crate::records::QueuedInputState::Pending,
+            },
+            (Steer::User(text), Some(super::SubmitMode::Steer | super::SubmitMode::Reject)) => {
+                Entry::User {
+                    text: text.clone(),
+                    loop_repeat: false,
+                    item_id: Some(command.request_id.to_owned()),
+                }
+            }
+            _ => message.clone().into_entry(),
+        };
         let mut entries = prefix;
         entries.push(entry.clone());
         let appended = entries.clone();
+        let intent = match mode {
+            Some(super::SubmitMode::FollowUp) => IntentChange::FollowUp,
+            Some(super::SubmitMode::Reject) => IntentChange::RejectIfBusy,
+            Some(super::SubmitMode::Steer) | None if wakes => IntentChange::Activate,
+            Some(super::SubmitMode::Steer) | None => IntentChange::None,
+        };
         let admitted = self
             .inner
             .store
@@ -71,16 +93,15 @@ impl AgentRuntime {
                     request_id: command.request_id.to_owned(),
                     kind: command.kind.to_owned(),
                     entries,
-                    intent: if wakes {
-                        IntentChange::Activate
-                    } else {
-                        IntentChange::None
-                    },
+                    intent,
+                    fence: None,
+                    expected_intent_seq: None,
+                    completion_through: None,
                 },
             )
             .await;
-        let seqs = match admitted {
-            Ok(AdmitOutcome::Admitted { seqs }) => seqs,
+        let (seqs, queued) = match admitted {
+            Ok(AdmitOutcome::Admitted { seqs, queued }) => (seqs, queued),
             Ok(AdmitOutcome::Duplicate { .. }) => {
                 if user_submission {
                     self.cancel_loop_prompt_capture(id).await;
@@ -92,6 +113,24 @@ impl AgentRuntime {
                 );
                 return Ok(());
             }
+            Ok(AdmitOutcome::Busy) => {
+                self.cancel_loop_prompt_capture(id).await;
+                return Err(AgentError::FailedPrecondition(
+                    "conversation is busy".into(),
+                ));
+            }
+            Ok(AdmitOutcome::NotWithdrawable) => {
+                self.cancel_loop_prompt_capture(id).await;
+                return Err(AgentError::FailedPrecondition(
+                    "submission is no longer withdrawable".into(),
+                ));
+            }
+            Ok(AdmitOutcome::Stopped) => {
+                self.cancel_loop_prompt_capture(id).await;
+                return Err(AgentError::FailedPrecondition(
+                    "conversation was stopped before admission".into(),
+                ));
+            }
             Err(error) => {
                 if user_submission {
                     self.cancel_loop_prompt_capture(id).await;
@@ -99,38 +138,99 @@ impl AgentRuntime {
                 return Err(error);
             }
         };
-        let sequence = seqs
+        let queue_sequence = seqs
             .get(appended.len().saturating_sub(1))
             .copied()
             .ok_or_else(|| AgentError::Store("admission returned no sequence".into()))?;
-        // A run that is working reads this message at its next boundary; until
-        // then it waits in the queue rather than appearing above the reply the
-        // run is still writing.
+        let follow_up_activated = mode == Some(super::SubmitMode::FollowUp) && !queued;
+        let sequence = if follow_up_activated {
+            seqs.get(appended.len())
+                .copied()
+                .ok_or_else(|| AgentError::Store("activated follow-up has no user entry".into()))?
+        } else {
+            queue_sequence
+        };
         let joins_live_run = (user_submission || journal_delivery)
             && self
                 .with_run(id, |run| !run.cancel.is_cancelled())
                 .unwrap_or(false);
-        if user_submission && joins_live_run {
+        if user_submission && joins_live_run && mode != Some(super::SubmitMode::FollowUp) {
             self.inner.tools.detach_background_calls(id).await;
         }
-        for (seq, appended_entry) in seqs.iter().zip(appended.iter()) {
-            match appended_entry {
-                Entry::User { text, .. } if joins_live_run && *seq == sequence => {
+        let mut committed_entries = appended.clone();
+        if follow_up_activated
+            && let Entry::QueuedInput {
+                submission_id,
+                text,
+                ..
+            } = &entry
+        {
+            committed_entries.pop();
+            committed_entries.extend([
+                Entry::QueuedInput {
+                    submission_id: submission_id.clone(),
+                    text: text.clone(),
+                    state: crate::records::QueuedInputState::Activated,
+                },
+                Entry::User {
+                    text: text.clone(),
+                    loop_repeat: false,
+                    item_id: Some(submission_id.clone()),
+                },
+            ]);
+            committed_entries.push(Entry::RunIntent {
+                active: true,
+                through_seq: sequence,
+                aborted: false,
+                yielded: false,
+            });
+        }
+        for (seq, appended_entry) in seqs.iter().zip(committed_entries.iter()) {
+            if queued && matches!(appended_entry, Entry::QueuedInput { .. }) {
+                if let Entry::QueuedInput {
+                    submission_id,
+                    text,
+                    ..
+                } = appended_entry
+                {
                     self.emit(
                         id,
                         vec![ChatEvent::Queued {
                             message: QueuedMessage {
-                                id: crate::projection::user_item_id(*seq),
+                                id: submission_id.clone(),
                                 text: text.clone(),
+                                mode: "follow_up".into(),
                             },
                         }],
                     )
                     .await;
                 }
-                _ => self.emit_entry(id, *seq, appended_entry).await?,
+            } else if let Entry::User { text, item_id, .. } = appended_entry
+                && *seq == sequence
+                && joins_live_run
+                && mode != Some(super::SubmitMode::FollowUp)
+            {
+                self.emit(
+                    id,
+                    vec![ChatEvent::Queued {
+                        message: QueuedMessage {
+                            id: item_id
+                                .clone()
+                                .unwrap_or_else(|| crate::projection::user_item_id(*seq)),
+                            text: text.clone(),
+                            mode: String::new(),
+                        },
+                    }],
+                )
+                .await;
+            } else {
+                self.emit_entry(id, *seq, appended_entry).await?;
             }
         }
-        if user_submission && let Err(error) = self.commit_loop_prompt_capture(id, sequence).await {
+        if user_submission
+            && !queued
+            && let Err(error) = self.commit_loop_prompt_capture(id, sequence).await
+        {
             self.schedule_readmission(id);
             return Err(error);
         }
@@ -139,31 +239,45 @@ impl AgentRuntime {
             request_id = command.request_id,
             kind = command.kind,
             sequence,
-            queued = joins_live_run,
+            queued = queued || joins_live_run,
             "agent command admitted"
         );
+        self.arrival_signal(id).notify_waiters();
+        if queued {
+            self.cancel_loop_prompt_capture(id).await;
+            return Ok(());
+        }
+        if mode == Some(super::SubmitMode::FollowUp) {
+            if !wakes {
+                self.inner.signal.conversation_changed(id).await;
+                return Ok(());
+            }
+            return match self.start_run_now_boxed(id).await {
+                Ok(Some(_)) | Ok(None) => Ok(()),
+                Err(error) => {
+                    self.schedule_readmission(id);
+                    Err(error)
+                }
+            };
+        }
         let committed = Steer::Persisted {
             entry: entry.clone(),
             sequence,
         };
-        let queued = self.with_run(id, |run| {
+        let handed_off = self.with_run(id, |run| {
             if run.cancel.is_cancelled() || run.steer.send(committed).is_err() {
                 return false;
             }
             run.queued_seq.fetch_max(sequence, Ordering::SeqCst);
             true
         });
-        self.arrival_signal(id).notify_waiters();
-        if queued == Some(true) {
+        if handed_off == Some(true) {
             return Ok(());
         }
-        // The run stopped between the check and the hand-off: show the message
-        // now; the next run reads it from the journal.
         if joins_live_run {
             self.emit_entry(id, sequence, &entry).await?;
         }
-        if queued == Some(false) {
-            // An unwinding run settles under this lock and restarts for it.
+        if handed_off == Some(false) {
             return Ok(());
         }
         if !wakes {

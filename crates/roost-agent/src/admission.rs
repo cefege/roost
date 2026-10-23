@@ -14,8 +14,12 @@ pub fn intent_entry(
     last_appended: Option<u64>,
 ) -> Option<Entry> {
     match intent {
-        IntentChange::None => None,
-        IntentChange::Activate => Some(Entry::RunIntent {
+        IntentChange::None
+        | IntentChange::RejectIfBusy
+        | IntentChange::FollowUp
+        | IntentChange::Withdraw
+        | IntentChange::Complete => None,
+        IntentChange::Activate | IntentChange::RestartIfCurrent => Some(Entry::RunIntent {
             active: true,
             through_seq: last_appended.unwrap_or(last_before),
             aborted: false,
@@ -28,6 +32,147 @@ pub fn intent_entry(
             yielded: false,
         }),
     }
+}
+
+/// Materializes pending follow-ups exactly once at a normal run boundary.
+#[must_use]
+pub fn queued_inputs_to_activate(entries: &[(u64, Entry)]) -> Vec<Entry> {
+    use std::collections::{HashMap, HashSet};
+
+    use crate::records::QueuedInputState;
+
+    let mut latest: HashMap<String, (u64, String, QueuedInputState)> = HashMap::new();
+    let mut withdrawn = HashSet::new();
+    let mut activated_users = HashSet::new();
+    for (sequence, entry) in entries {
+        match entry {
+            Entry::QueuedInput {
+                submission_id,
+                text,
+                state,
+            } => {
+                latest.insert(submission_id.clone(), (*sequence, text.clone(), *state));
+                withdrawn.remove(submission_id);
+            }
+            Entry::QueuedInputWithdrawn { submission_id } => {
+                withdrawn.insert(submission_id.clone());
+            }
+            Entry::User {
+                item_id: Some(item_id),
+                ..
+            } => {
+                activated_users.insert(item_id.clone());
+            }
+            _ => {}
+        }
+    }
+    let mut pending: Vec<_> = latest
+        .into_iter()
+        .filter_map(|(submission_id, (sequence, text, state))| {
+            (state == QueuedInputState::Pending
+                && !withdrawn.contains(&submission_id)
+                && !activated_users.contains(&submission_id))
+            .then_some((sequence, submission_id, text))
+        })
+        .collect();
+    pending.sort_by_key(|(sequence, _, _)| *sequence);
+    pending
+        .into_iter()
+        .flat_map(|(_, submission_id, text)| {
+            [
+                Entry::QueuedInput {
+                    submission_id: submission_id.clone(),
+                    text: text.clone(),
+                    state: QueuedInputState::Activated,
+                },
+                Entry::User {
+                    text,
+                    loop_repeat: false,
+                    item_id: Some(submission_id),
+                },
+            ]
+        })
+        .collect()
+}
+/// Converts one submitted queue item into the active transcript/history pair.
+#[must_use]
+pub fn activate_followup(entry: Entry) -> Option<[Entry; 2]> {
+    let Entry::QueuedInput {
+        submission_id,
+        text,
+        ..
+    } = entry
+    else {
+        return None;
+    };
+    Some([
+        Entry::QueuedInput {
+            submission_id: submission_id.clone(),
+            text: text.clone(),
+            state: crate::records::QueuedInputState::Activated,
+        },
+        Entry::User {
+            text,
+            loop_repeat: false,
+            item_id: Some(submission_id),
+        },
+    ])
+}
+
+/// Whether a stable submission id still names an unconsumed queued input.
+#[must_use]
+pub fn submission_is_withdrawable(entries: &[(u64, Entry)], submission_id: &str) -> bool {
+    let entries = crate::journal::effective_entries(entries);
+    let mut latest_state = None;
+    let mut user_sequence = None;
+    let mut consumed_through = 0;
+    let mut withdrawn = false;
+    for (sequence, entry) in &entries {
+        match entry {
+            Entry::QueuedInput {
+                submission_id: id,
+                state,
+                ..
+            } if id == submission_id => {
+                latest_state = Some(*state);
+                withdrawn = false;
+            }
+            Entry::QueuedInputWithdrawn { submission_id: id } if id == submission_id => {
+                withdrawn = true;
+            }
+            Entry::User {
+                item_id: Some(id), ..
+            } if id == submission_id => user_sequence = Some(*sequence),
+            Entry::InputConsumed { through_seq } => {
+                consumed_through = consumed_through.max(*through_seq)
+            }
+            Entry::Assistant {
+                metadata: Some(metadata),
+                ..
+            } => consumed_through = consumed_through.max(metadata.input_through_seq),
+            _ => {}
+        }
+    }
+    if withdrawn {
+        return false;
+    }
+    if latest_state == Some(crate::records::QueuedInputState::Pending) {
+        return true;
+    }
+    user_sequence.is_some_and(|sequence| sequence > consumed_through)
+}
+
+/// A conditional restart cannot overtake Stop or work admitted after its boundary.
+#[must_use]
+pub fn restart_boundary_matches(entries: &[(u64, Entry)], expected: Option<u64>) -> bool {
+    entries
+        .iter()
+        .rev()
+        .find_map(|(sequence, entry)| match entry {
+            Entry::RunIntent { aborted, .. } => Some(expected == Some(*sequence) && !aborted),
+            _ => None,
+        })
+        .unwrap_or(false)
 }
 
 /// A stored lease row: owner, epoch and expiry.

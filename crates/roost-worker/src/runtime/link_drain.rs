@@ -49,24 +49,26 @@ enum NextWrite {
 
 /// Admit one frame the uplink carried, on its lane, under v2's outbox gates:
 /// compact metadata only once negotiated, raw PTY metadata only while not.
-pub(super) fn admit_uplink(loop_state: &mut LinkLoop, frame: CoordWorkerUpstream) {
+pub(super) fn admit_uplink(loop_state: &mut LinkLoop, frame: CoordWorkerUpstream) -> bool {
     match frame {
         CoordWorkerUpstream::TerminalMetadata(metadata) => {
             if !loop_state.terminal_metadata_negotiated {
                 tracing::debug!(channel = %metadata.channel_id, "terminal metadata dropped: this link did not negotiate it");
-                return;
+                return false;
             }
             if let Err(error) = loop_state.send_terminal_metadata(metadata.channel_id, &metadata) {
                 tracing::warn!(%error, "terminal metadata was refused by the link");
+                return false;
             }
+            true
         }
         CoordWorkerUpstream::Binary(binary) => {
             if loop_state.terminal_metadata_negotiated {
                 tracing::trace!(channel = %binary.channel_id, "raw metadata dropped: compact metadata is negotiated");
-                return;
+                return false;
             }
             let frame = CoordWorkerUpstream::Binary(binary);
-            admit_to_lane(loop_state, &frame, Lane::RawMetadata, "raw-metadata");
+            admit_to_lane(loop_state, &frame, Lane::RawMetadata, "raw-metadata")
         }
         CoordWorkerUpstream::AgentStatus(frame) => {
             let status = AgentStatusUpdate {
@@ -75,7 +77,9 @@ pub(super) fn admit_uplink(loop_state: &mut LinkLoop, frame: CoordWorkerUpstream
             };
             if let Err(error) = loop_state.send_agent_status(&status) {
                 tracing::warn!(%error, "an agent status was refused by the link");
+                return false;
             }
+            true
         }
         control => push_upstream(loop_state, &control, control.kind()),
     }
@@ -290,30 +294,36 @@ pub(super) fn apply_to(loop_state: &mut LinkLoop, action: Action) {
 /// other answer to the control lane (v2 `send`). A frame that does not fit is
 /// reported, never silently dropped: the caller is a liveness reply or an
 /// answer, and both are worse absent than refused.
-pub(super) fn push_upstream(loop_state: &mut LinkLoop, frame: &CoordWorkerUpstream, label: &str) {
+pub(super) fn push_upstream(
+    loop_state: &mut LinkLoop,
+    frame: &CoordWorkerUpstream,
+    label: &str,
+) -> bool {
     let lane = if matches!(frame, CoordWorkerUpstream::Pong { .. }) {
         Lane::Liveness
     } else {
         Lane::Control
     };
-    admit_to_lane(loop_state, frame, lane, label);
+    admit_to_lane(loop_state, frame, lane, label)
 }
 
-fn admit_to_lane(loop_state: &mut LinkLoop, frame: &CoordWorkerUpstream, lane: Lane, label: &str) {
+fn admit_to_lane(
+    loop_state: &mut LinkLoop,
+    frame: &CoordWorkerUpstream,
+    lane: Lane,
+    label: &str,
+) -> bool {
     let bytes = match loop_state.wire.encode_upstream(frame) {
         Ok(bytes) => bytes,
         Err(error) => {
-            tracing::error!(
-                kind = frame.kind(),
-                %error,
-                "an upstream frame did not encode"
-            );
-            return;
+            tracing::error!(kind = frame.kind(), %error, "an upstream frame did not encode");
+            return false;
         }
     };
     if let Err(error) = loop_state.outbox.admit(lane, bytes, label, Instant::now()) {
         tracing::error!(label, %error, "an upstream frame did not fit the outbox");
-        return;
+        return false;
     }
     loop_state.wake();
+    true
 }

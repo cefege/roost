@@ -30,6 +30,7 @@ roost-observability.workspace = true
 roost-platform.workspace = true
 roost-proto.workspace = true
 roost-protocol.workspace = true
+roost-vcs.workspace = true
 roost-worker.workspace = true
 # `client` here rather than in the workspace default: it pulls `mio` in through
 # hyper, which does not build for `wasm32-unknown-unknown`, and the browser

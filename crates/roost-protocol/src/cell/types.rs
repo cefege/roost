@@ -8,6 +8,7 @@
 //! A second geometry implementation is how a wide glyph gets painted one
 //! column short, so nothing may re-derive columns from the text.
 
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::error::{ProtocolError, ProtocolResult};
@@ -48,7 +49,7 @@ pub const MAX_LINK_URI_BYTES: usize = 2048;
 // byte slice panics, and not a byte, because a multi-byte glyph is one cell.
 
 /// A run of consecutive cells sharing one style.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CellSpan {
     /// Concatenated codepoints of the run (NUL cells render as a space).
     pub text: String,
@@ -76,7 +77,7 @@ pub struct CellSpan {
 
 /// One painted row: a viewport row is numbered 0..rows-1 within the current
 /// grid, a scrollback row by absolute line, 0 = oldest retained.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CellRow {
     /// Row coordinate, as described on the type.
     pub index: u32,
@@ -103,7 +104,7 @@ pub const SB_SNAPSHOT_HISTORY_ROWS: usize = 0;
 
 /// One terminal grid as the worker renders it; `full` marks a viewport-only
 /// authoritative checkpoint, as opposed to a delta.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CellGridFrame {
     /// Coordinator-minted generation for one watched-session stream.
     pub stream_id: String,

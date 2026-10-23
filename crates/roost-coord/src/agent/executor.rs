@@ -34,6 +34,7 @@ impl ToolExecutor for WorkerToolExecutor {
             let spec = AgentToolCallSpec {
                 call_id: call.call_id,
                 conversation_id: call.conversation_id,
+                owner_conversation_id: call.owner_conversation_id,
                 cwd: call.cwd,
                 tool: call.tool,
                 args_json: call.args_json,

@@ -12,6 +12,7 @@ pub mod rpc_accounts;
 pub mod rpc_auth;
 pub mod rpc_chat;
 mod rpc_errors;
+pub mod rpc_inspect;
 pub mod rpc_turns;
 mod sink;
 pub mod store;
@@ -22,10 +23,12 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use roost_agent::{AgentRuntime, RoostLlm, RuntimeConfig};
+use roost_agent::{AgentRuntime, ChatSink, RoostLlm, RuntimeConfig};
 use roost_llm::{AccountPool, CredentialStore, Endpoints};
 
-use crate::cluster::notify::{AGENT_CHANNEL, AgentClusterSignal, ClusterNotifier};
+use crate::cluster::notify::{
+    AGENT_CHANNEL, AGENT_SUMMARY_CHANNEL, AgentClusterSignal, ClusterNotifier,
+};
 use crate::db::CoordDb;
 use crate::events::bus_domains::Buses;
 
@@ -230,6 +233,7 @@ impl AgentService {
             }
         });
         let runtime = self.runtime.clone();
+        let sink = Arc::clone(&self.sink);
         self.spawn_background(async move {
             loop {
                 match notices.recv().await {
@@ -242,10 +246,23 @@ impl AgentService {
                             runtime.apply_remote_change(&notice.payload).await;
                         });
                     }
+                    Ok(notice) if notice.channel == AGENT_SUMMARY_CHANNEL => {
+                        let runtime = runtime.clone();
+                        let sink = Arc::clone(&sink);
+                        let conversation_id = (!notice.resync).then_some(notice.payload);
+                        tokio::spawn(async move {
+                            refresh_summary_bus(&runtime, &sink, conversation_id.as_deref()).await;
+                        });
+                    }
                     Ok(_) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => {
                         tracing::warn!(missed, "agent cluster notices lagged; resynchronizing");
                         runtime.resync_local_runs().await;
+                        let runtime = runtime.clone();
+                        let sink = Arc::clone(&sink);
+                        tokio::spawn(async move {
+                            refresh_summary_bus(&runtime, &sink, None).await;
+                        });
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 }
@@ -285,6 +302,27 @@ impl AgentService {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(handle);
+    }
+}
+
+async fn refresh_summary_bus(
+    runtime: &AgentRuntime,
+    sink: &CoordChatSink,
+    conversation_id: Option<&str>,
+) {
+    let summaries = match conversation_id {
+        Some(id) => runtime.conversation(id).await.map(|summary| vec![summary]),
+        None => runtime.conversations().await,
+    };
+    match summaries {
+        Ok(summaries) => {
+            for summary in &summaries {
+                sink.conversation(summary).await;
+            }
+        }
+        Err(error) => {
+            tracing::warn!(?conversation_id, %error, "conversation summaries could not be refreshed")
+        }
     }
 }
 

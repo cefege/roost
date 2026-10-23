@@ -79,7 +79,7 @@ impl LinkLifecyclePort for RepairOnWritable {
     fn on_open(&self) {
         self.log.push("lifecycle.on_open");
     }
-    fn on_hello_ack(&self, _: bool) {
+    fn on_hello_ack(&self, _capabilities: &[String]) {
         self.sink.set_attached(true);
     }
     fn on_detach(&self) {}

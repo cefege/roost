@@ -1,9 +1,6 @@
-//! How the composer and the mic share one draft.
-//!
-//! Split out of `super::composer` so the composer's own body reads as layout and
-//! submission, and every rule about what a recording does to the draft — the
-//! base it started from, the provisional tail it may not touch — sits in one
-//! place. Ports `apps/web/src/components/terminal/TerminalComposeDictation.ts`.
+//! Shared draft binding for terminal and agent microphone controls.
+//! Composers own the text; this binding paints provisional transcripts, commits
+//! final words and queues Send until capture settles through `MobileVoiceInput`.
 
 use std::cell::RefCell;
 
@@ -15,7 +12,7 @@ use crate::voice::state::{LiveTranscript, VoiceState};
 use crate::voice::transcript::{PaintedDraft, glued, paint};
 
 /// The composer's side of one recording.
-pub(super) struct DictationBinding {
+pub(crate) struct DictationBinding {
     /// A Dioxus signal handle needs `&mut` to write and the binding is shared by
     /// every callback the mic raises, so each written signal sits behind its own
     /// borrow.
@@ -28,7 +25,7 @@ pub(super) struct DictationBinding {
 }
 
 /// Wire the composer's draft to the mic.
-pub(super) fn use_dictation(draft: Signal<String>) -> DictationBinding {
+pub(crate) fn use_dictation(draft: Signal<String>) -> DictationBinding {
     DictationBinding {
         draft: RefCell::new(draft),
         dictation_base: RefCell::new(use_signal(|| Option::<String>::None)),
@@ -87,7 +84,7 @@ impl DictationBinding {
 
     /// A keystroke ends the provisional paint: what the operator typed is now the
     /// draft, and the words the recognizer guessed are not.
-    pub(super) fn forget_provisional(&self) {
+    pub(crate) fn forget_provisional(&self) {
         self.dictation_base.borrow_mut().set(None);
         self.provisional_from.borrow_mut().set(None);
     }
@@ -102,13 +99,13 @@ impl DictationBinding {
     }
 
     /// What a Send press does while the mic is where it is.
-    pub(super) fn send_gate(&self) -> SendGate {
+    pub(crate) fn send_gate(&self) -> SendGate {
         SendGate::for_state(*self.voice_state.borrow().read())
     }
 
     /// Queue a Send with the mic, which submits the draft once the stopped
     /// recording's last words are in it.
-    pub(super) fn send_after_finalize(&self) {
+    pub(crate) fn send_after_finalize(&self) {
         self.send_door.press();
     }
 
@@ -143,7 +140,7 @@ impl DictationBinding {
 /// A comparable handle on a recording's binding, for a component prop: a prop
 /// must be comparable and a bundle of signals is not.
 #[derive(Clone, Debug)]
-pub struct SharedBinding(pub(super) DictationBinding);
+pub struct SharedBinding(pub(crate) DictationBinding);
 
 impl std::fmt::Debug for DictationBinding {
     /// A binding is a bundle of signal handles; what identifies it is that it is
@@ -178,7 +175,7 @@ impl PartialEq for SharedBinding {
 
 /// The composer's keyterm context: the screen the renderer owns, plus the words
 /// the operator has spelled here.
-pub(super) fn use_dictation_context(
+pub(crate) fn use_dictation_context(
     screen: Option<crate::voice::keyterms::ContextReader>,
     draft: Signal<String>,
 ) -> crate::voice::keyterms::ContextReader {
@@ -218,6 +215,7 @@ pub fn GhostMirror(ghost: PaintedDraft) -> Element {
 #[component]
 pub fn VoiceControl(
     owner_id: String,
+    #[props(default)] compact: bool,
     #[props(default)] active: bool,
     #[props(default)] read_context: Option<crate::voice::keyterms::ContextReader>,
     binding: SharedBinding,
@@ -232,6 +230,7 @@ pub fn VoiceControl(
     rsx! {
         crate::components::mobile_voice_input::MobileVoiceInput {
             owner_id,
+            compact,
             active,
             on_state_change: move |state: VoiceState| binding.0.set_voice_state(state),
             on_transcript: move |text: String| commit_binding.commit(text),

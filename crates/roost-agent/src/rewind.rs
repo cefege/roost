@@ -13,7 +13,7 @@ use crate::journal::effective_entries;
 use crate::projection;
 use crate::records::{ConversationRecord, Entry};
 use crate::runtime::{AgentRuntime, now_ms, random_id};
-use crate::traits::ToolCall;
+use crate::traits::{OwnerConversationId, ToolCall, WorkerConversationNamespace};
 
 impl AgentRuntime {
     /// Hides a user turn and optionally restores its worker-side file changes.
@@ -23,20 +23,19 @@ impl AgentRuntime {
         user_item_id: &str,
         restore_files: bool,
     ) -> Result<String, AgentError> {
-        let seq = user_item_id
-            .strip_prefix('u')
-            .and_then(|value| value.parse::<u64>().ok())
-            .ok_or_else(|| AgentError::InvalidArgument("rewind needs a user item id".into()))?;
         let entries = self.inner.store.entries(id).await?;
-        let user_text = entries
+        let (seq, user_text) = entries
             .iter()
-            .find_map(|(entry_seq, entry)| {
-                (*entry_seq == seq)
-                    .then_some(entry)
-                    .and_then(|entry| match entry {
-                        Entry::User { text, .. } => Some(text.clone()),
-                        _ => None,
-                    })
+            .find_map(|(sequence, entry)| match entry {
+                Entry::User { text, item_id, .. }
+                    if item_id.as_deref().map_or_else(
+                        || projection::user_item_id(*sequence) == user_item_id,
+                        |item_id| item_id == user_item_id,
+                    ) =>
+                {
+                    Some((*sequence, text.clone()))
+                }
+                _ => None,
             })
             .ok_or_else(|| {
                 AgentError::InvalidArgument(format!("user item {user_item_id} not found"))
@@ -57,7 +56,8 @@ impl AgentRuntime {
                     &record.worker_fp,
                     ToolCall {
                         call_id: random_id("rewind-"),
-                        conversation_id: record.id,
+                        conversation_id: WorkerConversationNamespace(record.id.clone()),
+                        owner_conversation_id: OwnerConversationId(record.id),
                         cwd: record.cwd,
                         tool: TOOL_REWIND_FILES.to_owned(),
                         args_json: serde_json::json!({"checkpoint_id": seq}).to_string(),
@@ -128,6 +128,7 @@ impl AgentRuntime {
             model: source.model,
             thinking_level: source.thinking_level,
             mode: source.mode,
+            read_only: source.read_only,
             pre_plan_model: source.pre_plan_model,
             parent_id: None,
             agent: None,
@@ -139,25 +140,102 @@ impl AgentRuntime {
             revision: 0,
         };
         child.revision = self.inner.store.save_conversation(&child, 0).await?;
-        for (_, entry) in effective.into_iter().filter(|(seq, _)| *seq <= through_seq) {
-            if matches!(
-                entry,
-                Entry::SubagentContext { .. } | Entry::ExtraUsage { .. }
-            ) {
-                continue;
-            }
-            if let Err(error) = self
+        let mut sequence_mapping = Vec::with_capacity(effective.len());
+        for (source_seq, mut entry) in effective.into_iter().filter(|(seq, entry)| {
+            *seq <= through_seq
+                && !matches!(
+                    entry,
+                    Entry::SubagentContext { .. } | Entry::ExtraUsage { .. }
+                )
+        }) {
+            remap_sequence_fields(&mut entry, &sequence_mapping);
+            match self
                 .inner
                 .store
                 .append_entry(&child.id, &entry, &[], None)
                 .await
             {
-                let _ = self.inner.store.delete_conversation(&child.id).await;
-                return Err(error);
+                Ok(destination_seq) => sequence_mapping.push((source_seq, destination_seq)),
+                Err(error) => {
+                    let _ = self.inner.store.delete_conversation(&child.id).await;
+                    return Err(error);
+                }
             }
         }
+
         tracing::info!(conversation_id = %child.id, source_conversation_id = id, item_id = ?item_id, "agent conversation forked");
         self.publish_summary(&child).await;
         Ok(self.summary(&child).await)
+    }
+}
+
+fn remap_sequence_fields(entry: &mut Entry, mapping: &[(u64, u64)]) {
+    match entry {
+        Entry::InputConsumed { through_seq } => {
+            *through_seq = map_sequence_floor(*through_seq, mapping);
+        }
+        Entry::Assistant {
+            metadata: Some(metadata),
+            ..
+        } => {
+            metadata.input_through_seq = map_sequence_floor(metadata.input_through_seq, mapping);
+        }
+        Entry::RunIntent { through_seq, .. } => {
+            *through_seq = map_sequence_floor(*through_seq, mapping);
+        }
+        Entry::GoalContinuation {
+            input_through_seq, ..
+        } => {
+            *input_through_seq = map_sequence_floor(*input_through_seq, mapping);
+        }
+        Entry::Compaction { first_kept_seq, .. } => {
+            *first_kept_seq = map_sequence_ceiling(*first_kept_seq, mapping);
+        }
+        Entry::Rewind { to_seq } => {
+            *to_seq = map_sequence_ceiling(*to_seq, mapping);
+        }
+        _ => {}
+    }
+}
+
+fn map_sequence_floor(source_seq: u64, mapping: &[(u64, u64)]) -> u64 {
+    let mapped = mapping.partition_point(|(original, _)| *original <= source_seq);
+    mapped.checked_sub(1).map_or(0, |idx| mapping[idx].1)
+}
+
+fn map_sequence_ceiling(source_seq: u64, mapping: &[(u64, u64)]) -> u64 {
+    let mapped = mapping.partition_point(|(original, _)| *original < source_seq);
+    mapping.get(mapped).map_or_else(
+        || {
+            mapping
+                .last()
+                .map_or(1, |(_, destination)| destination.saturating_add(1))
+        },
+        |(_, destination)| *destination,
+    )
+}
+#[cfg(test)]
+mod tests {
+    use super::{map_sequence_ceiling, remap_sequence_fields};
+    use crate::records::Entry;
+
+    #[test]
+    fn fork_compaction_boundary_uses_first_copied_source_at_or_after_it() {
+        let mapping = [(2, 1), (7, 2), (12, 3)];
+        let mut compaction = Entry::Compaction {
+            summary: "summary".to_owned(),
+            first_kept_seq: 4,
+        };
+
+        remap_sequence_fields(&mut compaction, &mapping);
+
+        assert!(matches!(
+            compaction,
+            Entry::Compaction {
+                first_kept_seq: 2,
+                ..
+            }
+        ));
+        assert_eq!(map_sequence_ceiling(13, &mapping), 4);
     }
 }

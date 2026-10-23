@@ -205,7 +205,7 @@ pub(super) fn thinking_label(level: &str) -> String {
         .unwrap_or_default()
 }
 
-fn current_model_label(
+pub(super) fn current_model_label(
     catalog: Option<&ModelsCatalog>,
     conversation: &ConversationSummary,
 ) -> String {

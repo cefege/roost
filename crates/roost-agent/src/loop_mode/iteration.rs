@@ -182,6 +182,7 @@ impl AgentRuntime {
                 Entry::User {
                     text: body,
                     loop_repeat: true,
+                    item_id: None,
                 },
                 &[cancel, expected],
             )

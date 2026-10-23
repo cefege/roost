@@ -203,6 +203,7 @@ async fn usage_near_the_context_window_compacts_before_the_next_call() {
                 Entry::User {
                     text: format!("question {turn} {}", "x".repeat(40_000)),
                     loop_repeat: false,
+                    item_id: None,
                 },
             )
             .await;

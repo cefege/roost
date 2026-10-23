@@ -1,20 +1,25 @@
-//! The chat in an agent deck tab: header, the transcript, and the composer
-//! docked below it — a new chat starts the same way, empty above the composer.
-//! It owns the snapshot lifecycle (fetch when absent or stale, retry, not
-//! found), the model catalog, the draft, stick-to-bottom scrolling and the
-//! code-block Copy delegation. Mounted by the deck's `AgentSlot`.
+//! The native agent workspace: inspector, transcript and composer inside a
+//! deck agent tab. Owns snapshot repair, catalog loading, draft and reader
+//! position; `workspace` owns responsive inspector placement. Mounted by
+//! `AgentSlot`, with all conversation state supplied by the client store.
 
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{AgentRunState, ModelsCatalog, ProviderEntry, Transcript};
 
 use super::composer::AgentComposer;
+use super::draft::use_conversation_draft;
 use super::header::{AgentChatHeader, current_context_window, header_usage};
 use super::interaction_cards::TodoCard;
 use super::loop_controls::LoopControls;
 use super::model_controls::{ModelSetup, ModelSetupCard};
 use super::model_hub::ModelHub;
+use super::queued_band::QueuedBand;
+use super::surface_dom::copy_code_block;
+#[cfg(target_arch = "wasm32")]
+use super::surface_dom::{distance_from_bottom, scroll_to_bottom};
 use super::surface_state::{assistant_is_streaming, latest_todo, loop_status};
 use super::working_row::{WorkingRow, working_label};
+use super::workspace::AgentWorkspace;
 use crate::components::ui::{
     ButtonSize, ButtonVariant, EmptyState, IconButton, IconType, Skeleton,
 };
@@ -22,7 +27,7 @@ use crate::pump::use_store;
 
 const ROOT_CLASS: &str =
     "relative flex h-full w-full min-h-0 min-w-0 flex-col bg-background text-foreground";
-const TRANSCRIPT_CLASS: &str = "min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable_both-edges] px-5 pt-4 pb-6";
+const TRANSCRIPT_CLASS: &str = "min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 py-5";
 const COLUMN_CLASS: &str = "mx-auto w-full max-w-3xl";
 
 #[cfg(target_arch = "wasm32")]
@@ -40,7 +45,7 @@ use roost_client_core::client::rpc::calls::agent_chat::ListAgentModels;
 const STICK_THRESHOLD_PX: i32 = 80;
 
 #[component]
-pub fn AgentChatSurface(conversation_id: String) -> Element {
+pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
     let pump = use_store();
     let _revision = pump.revision()();
     #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
@@ -56,7 +61,7 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
     #[allow(unused_mut)]
     let mut catalog_failed = use_signal(|| false);
     let mut catalog_attempt = use_signal(|| 0_u32);
-    let draft = use_signal(String::new);
+    let draft = use_conversation_draft(&conversation_id);
     let model_hub_open = use_signal(|| false);
     let connect_provider = use_signal(|| None::<ProviderEntry>);
     // Opening the hub refetches the catalog so its recent models are current.
@@ -188,6 +193,7 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
             draft,
             running,
             host_connected,
+            active,
             pump: pump.clone(),
             model_hub_open,
             connect_provider,
@@ -201,8 +207,13 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
         }
     };
     rsx! {
-        div { class: ROOT_CLASS,
-            {header}
+        AgentWorkspace {
+            conversation: conversation.clone(),
+            transcript: transcript.clone(),
+            catalog: catalog(),
+            pump: pump.clone(),
+            active,
+            header,
             div {
                 class: TRANSCRIPT_CLASS,
                 role: "log",
@@ -221,10 +232,13 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
                 },
                 onclick: move |event: MouseEvent| copy_code_block(&event),
                 div { class: COLUMN_CLASS,
+                    if transcript.items.is_empty() && !running {
+                        super::welcome::AgentWelcome { conversation_id: conversation_id.clone(), draft, connected: host_connected }
+                    }
                     super::transcript::AgentTranscriptView { transcript: transcript.clone(), conversation_id: conversation_id.clone(), pump: pump.clone(), draft }
                 }
             }
-            div { class: "relative flex w-full shrink-0 flex-col gap-3 mx-auto max-w-3xl px-5 pb-4 before:absolute before:inset-x-0 before:bottom-full before:h-6 before:pointer-events-none before:bg-linear-to-t before:from-background before:to-transparent before:content-['']",
+            div { class: "relative mx-auto flex w-full max-w-3xl shrink-0 flex-col gap-3 px-4 pt-2 pb-4",
                 if running {
                     WorkingRow {
                         label: if assistant_is_streaming(&transcript) { "Writing…".to_string() } else { working_label(&transcript.items) },
@@ -248,6 +262,7 @@ pub fn AgentChatSurface(conversation_id: String) -> Element {
                     }
                 }
                 if let Some(phases) = latest_todo(&transcript) { TodoCard { phases } }
+                QueuedBand { messages: transcript.queued.clone(), conversation_id: conversation_id.clone(), pump: pump.clone() }
                 ModelSetupCard { setup, on_retry: retry_catalog }
                 {composer}
             }
@@ -304,67 +319,4 @@ fn read_store(pump: &crate::pump::Pump, conversation_id: &str) -> StoreReading {
         store.agent_chat.host_connected,
         online,
     )
-}
-
-/// A click on a code block's Copy button copies that block and says so.
-#[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
-fn copy_code_block(event: &MouseEvent) {
-    #[cfg(target_arch = "wasm32")]
-    {
-        use dioxus::web::WebEventExt as _;
-        use wasm_bindgen::JsCast as _;
-
-        let Some(button) = event
-            .as_web_event()
-            .target()
-            .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
-            .and_then(|element| {
-                element
-                    .closest(&format!("[{}]", super::markdown::COPY_CODE_ATTRIBUTE))
-                    .ok()
-                    .flatten()
-            })
-        else {
-            return;
-        };
-        let code = button
-            .closest("[data-code-block]")
-            .ok()
-            .flatten()
-            .and_then(|block| block.query_selector("code").ok().flatten())
-            .and_then(|code| code.text_content())
-            .unwrap_or_default();
-        crate::components::hooks::use_copy_clipboard::copy_text_then(&code, move |accepted| {
-            if !accepted {
-                return;
-            }
-            button.set_text_content(Some("Copied"));
-            wasm_bindgen_futures::spawn_local(async move {
-                crate::components::terminal::dom::sleep_ms(1_500).await;
-                button.set_text_content(Some("Copy"));
-            });
-        });
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-fn transcript_element(node: &MountedData) -> Option<web_sys::HtmlElement> {
-    use dioxus::web::WebEventExt as _;
-    use wasm_bindgen::JsCast as _;
-
-    node.try_as_web_event()
-        .and_then(|element| element.dyn_into::<web_sys::HtmlElement>().ok())
-}
-
-#[cfg(target_arch = "wasm32")]
-fn distance_from_bottom(node: &MountedData) -> Option<i32> {
-    let element = transcript_element(node)?;
-    Some(element.scroll_height() - element.scroll_top() - element.client_height())
-}
-
-#[cfg(target_arch = "wasm32")]
-fn scroll_to_bottom(node: &MountedData) {
-    if let Some(element) = transcript_element(node) {
-        element.set_scroll_top(element.scroll_height());
-    }
 }

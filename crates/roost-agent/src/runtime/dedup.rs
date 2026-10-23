@@ -44,6 +44,9 @@ impl AgentRuntime {
                     kind: kind.to_owned(),
                     entries: Vec::new(),
                     intent: IntentChange::None,
+                    fence: None,
+                    expected_intent_seq: None,
+                    completion_through: None,
                 },
             )
             .await?;

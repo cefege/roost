@@ -43,6 +43,9 @@ pub fn MobileVoiceInput(
     /// Whether this composer is the one that may record.
     #[props(default)]
     active: bool,
+    /// Inline control for a composer footer; the terminal keeps its FAB layout.
+    #[props(default)]
+    compact: bool,
     /// Where the recording is, after every step it takes.
     on_state_change: EventHandler<VoiceState>,
     /// Final words to insert.
@@ -114,11 +117,11 @@ pub fn MobileVoiceInput(
     // A pane switch commits what was settled and drops the hypothesis.
     {
         let context = context.clone();
-        use_effect(move || {
+        use_effect(use_reactive((&active,), move |(active,)| {
             if !active {
                 context.apply(VoiceEvent::Deactivated);
             }
-        });
+        }));
     }
 
     // Unmounting is the other way a recording ends, and the one a covered
@@ -156,7 +159,7 @@ pub fn MobileVoiceInput(
                 Alert {
                     variant: AlertVariant::Destructive,
                     test_id: "voice-caption",
-                    class: VOICE_CAPTION_CLASS,
+                    class: if compact { "order-last basis-full min-w-0 px-2 py-1 text-xs" } else { VOICE_CAPTION_CLASS },
                     span { class: "text-destructive-foreground", "Mic error: {caption}" }
                 }
             }
@@ -166,8 +169,8 @@ pub fn MobileVoiceInput(
                         icon: IconType::X,
                         label: "Discard recording",
                         variant: ButtonVariant::Secondary,
-                        size: ButtonSize::IconLg,
-                        class: Some(VOICE_DISCARD_CLASS.to_owned()),
+                        size: if compact { ButtonSize::Icon } else { ButtonSize::IconLg },
+                        class: Some(if compact { "size-8 rounded-full" } else { VOICE_DISCARD_CLASS }.to_owned()),
                         "data-testid": "voice-discard",
                         "type": "button",
                         onmousedown: keep_keyboard,
@@ -180,9 +183,11 @@ pub fn MobileVoiceInput(
                 IconButton {
                     icon: mic_icon(state),
                     label: mic_label(state),
-                    variant: if state == VoiceState::Listening { ButtonVariant::Destructive } else { ButtonVariant::Default },
-                    size: ButtonSize::IconLg,
-                    class: Some(VOICE_MIC_CLASS.to_owned()),
+                    variant: if state == VoiceState::Listening { ButtonVariant::Destructive } else if compact { ButtonVariant::Ghost } else { ButtonVariant::Default },
+                    size: if compact { ButtonSize::Icon } else { ButtonSize::IconLg },
+                    class: Some(if compact {
+                        "size-8 rounded-full transition-all data-[recording=true]:rounded-lg data-[starting=true]:opacity-70 data-[starting=true]:[&>svg]:animate-spin data-[finalizing=true]:opacity-60 data-[finalizing=true]:[&>svg]:animate-pulse"
+                    } else { VOICE_MIC_CLASS }.to_owned()),
                     "data-testid": "voice-mic",
                     "type": "button",
                     "data-recording": bool_attr(state == VoiceState::Listening),

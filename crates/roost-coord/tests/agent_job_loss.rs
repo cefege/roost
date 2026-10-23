@@ -45,7 +45,8 @@ async fn a_lost_background_job_is_delivered_to_its_conversation_as_failed() {
     let (worker, mut downstream_rx) = register_worker(&fixture);
     let spec = AgentToolCallSpec {
         call_id: "call-bg".to_owned(),
-        conversation_id: conversation_id.clone(),
+        conversation_id: roost_agent::WorkerConversationNamespace(conversation_id.clone()),
+        owner_conversation_id: roost_agent::OwnerConversationId(conversation_id.clone()),
         cwd: "/tmp/project".to_owned(),
         tool: "bash".to_owned(),
         args_json: r#"{"command":"sleep 600"}"#.to_owned(),

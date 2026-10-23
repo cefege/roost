@@ -96,8 +96,10 @@ pub fn serve(boot: WorkerBoot) -> anyhow::Result<()> {
         .enable_all()
         .build()
         .context("the worker's async runtime could not be built")?;
-    let stop = stop_requests_from_signals()?;
-    runtime.block_on(serve_until(boot, stop))
+    runtime.block_on(async {
+        let stop = stop_requests_from_signals()?;
+        serve_until(boot, stop).await
+    })
 }
 
 /// Run the worker until the given requester asks it to stop.

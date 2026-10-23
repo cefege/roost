@@ -349,6 +349,7 @@ fn AgentSlot(agent: MountedAgent, surface_visible: bool, spotlight_active: bool)
             aria_hidden: hidden,
             crate::components::agent_chat::AgentChatSurface {
                 conversation_id: agent.conversation.id.clone(),
+                active: !hidden,
             }
         }
     }

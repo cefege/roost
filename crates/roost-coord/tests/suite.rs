@@ -18,6 +18,8 @@ mod agent_job_loss;
 mod agent_prompt_handlers;
 #[path = "agent_prompt_status_wait.rs"]
 mod agent_prompt_status_wait;
+#[path = "agent_read_only_cluster.rs"]
+mod agent_read_only_cluster;
 #[path = "agent_status_ordering.rs"]
 mod agent_status_ordering;
 #[path = "agent_status_push.rs"]
@@ -30,6 +32,8 @@ mod agent_status_rpc;
 mod agent_status_wait;
 #[path = "agent_store.rs"]
 mod agent_store;
+#[path = "agent_store_completion.rs"]
+mod agent_store_completion;
 #[path = "agent_store_execution.rs"]
 mod agent_store_execution;
 #[path = "agent_tool_calls.rs"]
@@ -142,8 +146,6 @@ mod mcp_relays_tenancy;
 mod method_route_arm_pairing;
 #[path = "method_route_coverage.rs"]
 mod method_route_coverage;
-#[path = "method_route_implementation.rs"]
-mod method_route_implementation;
 #[path = "middleware_admission_stack.rs"]
 mod middleware_admission_stack;
 #[path = "middleware_audit.rs"]

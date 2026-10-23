@@ -1,9 +1,7 @@
-//! The transcript, laid out as OMP's terminal transcript: user messages as
-//! `Surface` bubbles, assistant replies as full-width prose (the reply being
-//! written paced by `streaming_reveal`), and tool calls inline with their
-//! output folded to each tool's preview window. "Expand tool output" opens
-//! every call at once. The fold and the stream are client-core's; Markdown
-//! safety is `markdown`'s. Rendered by `agent_chat::surface`.
+//! The agent workspace's semantic transcript: labelled messages, compact tool
+//! disclosures and native interactive cards. Snapshot and streaming state
+//! belong to client-core; this module only renders them. Queued input lives
+//! beside the composer so it stays visible while reading older messages.
 
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{
@@ -18,13 +16,12 @@ use super::message_actions::UserMessageActions;
 use super::notice_card::NoticeCard;
 use super::peer_message_card::PeerMessageCard;
 use super::plan_card::PlanCard;
-use super::queued_band::QueuedBand;
 use super::streaming_reveal::StreamingText;
 use super::thinking_block::ThinkingBlock;
 use super::tool_card::ToolCard;
 use crate::components::ui::{
-    Bubble, BubbleAlign, BubbleContent, BubbleVariant, Button, ButtonVariant, IconButton, IconType,
-    Marker, Message, MessageAlign, MessageContent, MessageFooter, StatusDot,
+    Button, ButtonVariant, IconButton, IconType, Marker, Message, MessageAlign, MessageContent,
+    MessageFooter, MessageHeader, StatusDot,
 };
 use crate::pump::Pump;
 
@@ -153,7 +150,6 @@ pub fn AgentTranscriptView(
                     p { {transcript.error.clone().unwrap_or_else(|| "The agent stopped with an error.".to_string())} }
                 }
             }
-            QueuedBand { messages: transcript.queued.clone() }
         }
     }
 }
@@ -167,10 +163,9 @@ fn UserMessage(
     pump: Pump,
 ) -> Element {
     rsx! {
-        Message { align: MessageAlign::End,
-            Bubble { variant: BubbleVariant::Tinted, align: BubbleAlign::End, class: "max-w-4/5",
-                BubbleContent { "{text}" }
-            }
+        Message { align: MessageAlign::End, class: "items-end data-[align=End]:flex-col",
+            MessageHeader { class: "justify-end text-xs text-muted-foreground", "You" }
+            MessageContent { class: "max-w-4/5 whitespace-pre-wrap text-right", "{text}" }
             UserMessageActions { conversation_id, item_id: id, text, draft, pump }
         }
     }
@@ -200,6 +195,7 @@ fn AssistantMessage(
     rsx! {
         div { class: "group/assistant flex flex-col gap-3", "data-streaming": streaming.then_some("true"),
             Message { align: MessageAlign::Start, class: "flex-col gap-3",
+                MessageHeader { class: "text-xs text-muted-foreground", "Agent" }
                 MessageContent { class: "gap-3",
                     for (index, block) in blocks.iter().enumerate() {
                         match block {

@@ -155,7 +155,7 @@ async fn a_refused_relay_chunk_is_answered_with_v2s_message() {
     );
     settle_tasks().await;
     assert!(
-        harness.receiver.try_recv().is_none(),
+        harness.receiver.try_recv_delivery().is_none(),
         "the non-final chunk was never answered"
     );
 }

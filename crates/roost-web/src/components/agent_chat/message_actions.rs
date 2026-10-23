@@ -126,6 +126,7 @@ fn submit_message(pump: Pump, conversation_id: String, text: String) {
                 conversation_id,
                 text,
                 request_id: new_request_id(),
+                when_busy: String::new(),
                 ..Default::default()
             })
             .await

@@ -99,6 +99,7 @@ pub fn Select(
     let mut typeahead = use_signal(Typeahead::default);
 
     let trigger_id = format!("{base_id}-trigger");
+    let listbox_trigger_id = trigger_id.clone();
     let value_id = format!("{base_id}-value");
     let listbox_id = format!("{base_id}-listbox");
     let label_id = label.as_ref().map(|_| format!("{base_id}-label"));
@@ -284,6 +285,7 @@ pub fn Select(
                     selected,
                     highlighted,
                     anchor,
+                    trigger_id: listbox_trigger_id,
                     listbox_id,
                     label_id,
                     on_choose: move |index: usize| {

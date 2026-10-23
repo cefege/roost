@@ -139,7 +139,7 @@ pub fn placement_style(placement: &MenuPlacement) -> String {
 /// aligning to whichever trigger edge keeps it inside the viewport. Falls back
 /// to the origin when there is no layout to measure (off-wasm, or no trigger).
 pub fn anchored_placement(trigger_id: &str, side: MenuSide) -> MenuPlacement {
-    match anchored_placement_style(trigger_id, side.prefers_up()) {
+    match anchored_placement_style(trigger_id, side.prefers_up(), false) {
         Some(style) => MenuPlacement::Anchored(style),
         None => MenuPlacement::Point { x: 0.0, y: 0.0 },
     }

@@ -51,6 +51,7 @@ fn conversation(id: &str, parent_id: Option<&str>) -> ConversationRecord {
         parent_id: parent_id.map(str::to_owned),
         agent: parent_id.map(|_| "scout".to_owned()),
         advisor: Some(true),
+        read_only: false,
         run_state: AgentRunState::Running,
         error: Some("test error".to_owned()),
         created_ms: 11,
@@ -82,6 +83,7 @@ async fn conversation_entries_settings_and_credentials_round_trip() {
             &Entry::User {
                 text: "child entry".to_owned(),
                 loop_repeat: false,
+                item_id: None,
             },
             &[],
             None,
@@ -100,6 +102,7 @@ async fn conversation_entries_settings_and_credentials_round_trip() {
     let first = Entry::User {
         text: "hello".to_owned(),
         loop_repeat: false,
+        item_id: None,
     };
     let second = Entry::Notice {
         level: "info".to_owned(),
@@ -324,6 +327,7 @@ async fn cancelled_entry_rolls_back_without_spending_a_sequence_number() {
     let entry = Entry::User {
         text: "repeat".into(),
         loop_repeat: false,
+        item_id: None,
     };
     let result = store
         .append_entry("cancelled", &entry, &[&cancel], None)
@@ -344,6 +348,49 @@ async fn cancelled_entry_rolls_back_without_spending_a_sequence_number() {
         store.entries("cancelled").await.expect("entries"),
         vec![(1, entry)]
     );
+    db.pool().close().await;
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn deployed_advisor_writer_survives_schema_upgrade() {
+    let root = scratch_root();
+    let db = db_support::open_test_database(&root)
+        .await
+        .expect("database");
+    let store = CoordAgentStore::new(db.clone());
+    store
+        .save_conversation(&conversation("rolling-advisor", None), 0)
+        .await
+        .expect("conversation");
+    for state in ["{\"cursor\":7}", "{\"cursor\":8}"] {
+        sqlx::query("INSERT INTO agent_advisor_state(conversation_id,state_json,updated_ms) VALUES($1,$2,$3) ON CONFLICT(conversation_id) DO UPDATE SET state_json=excluded.state_json,updated_ms=excluded.updated_ms")
+            .bind("rolling-advisor")
+            .bind(state)
+            .bind(10_i64)
+            .execute(db.pool())
+            .await
+            .expect("deployed writer after schema upgrade");
+        assert_eq!(
+            store
+                .advisor_state("rolling-advisor")
+                .await
+                .expect("native reader")
+                .as_deref(),
+            Some(state)
+        );
+    }
+    store
+        .save_advisor_state("rolling-advisor", "{\"cursor\":9}")
+        .await
+        .expect("native writer");
+    let state: String =
+        sqlx::query_scalar("SELECT state_json FROM agent_advisor_state WHERE conversation_id=$1")
+            .bind("rolling-advisor")
+            .fetch_one(db.pool())
+            .await
+            .expect("deployed reader");
+    assert_eq!(state, "{\"cursor\":9}");
     db.pool().close().await;
     let _ = std::fs::remove_dir_all(root);
 }

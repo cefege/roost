@@ -18,6 +18,25 @@ pub struct StraySweeper {
     manager: Arc<SessionManager>,
     tracker: Mutex<StrayTracker>,
     maintenance: Mutex<Option<JoinHandle<()>>>,
+    active_tool_channels: Arc<Mutex<HashSet<u16>>>,
+}
+
+/// A keeper channel remains protected from the sweeper only while this guard lives.
+#[derive(Debug)]
+pub struct ToolChannelOwnership {
+    channels: Weak<Mutex<HashSet<u16>>>,
+    channel_id: u16,
+}
+
+impl Drop for ToolChannelOwnership {
+    fn drop(&mut self) {
+        if let Some(channels) = self.channels.upgrade() {
+            channels
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .remove(&self.channel_id);
+        }
+    }
 }
 
 impl std::fmt::Debug for StraySweeper {
@@ -35,6 +54,18 @@ impl StraySweeper {
             manager,
             tracker: Mutex::new(StrayTracker::new()),
             maintenance: Mutex::new(None),
+            active_tool_channels: Arc::new(Mutex::new(HashSet::new())),
+        })
+    }
+    pub fn claim_tool_channel(self: &Arc<Self>, channel_id: u16) -> Option<ToolChannelOwnership> {
+        let inserted = self
+            .active_tool_channels
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(channel_id);
+        inserted.then(|| ToolChannelOwnership {
+            channels: Arc::downgrade(&self.active_tool_channels),
+            channel_id,
         })
     }
 
@@ -56,16 +87,24 @@ impl StraySweeper {
             }
         };
         let channels: Vec<u16> = live.iter().map(|channel| channel.channel_id).collect();
-        let tracked: HashSet<u16> = channels
-            .iter()
-            .copied()
-            .filter(|channel_id| {
-                self.manager
-                    .sessions
-                    .record_of_channel(*channel_id)
-                    .is_some()
-            })
-            .collect();
+        let tracked: HashSet<u16> = {
+            let active_tool_channels = self
+                .active_tool_channels
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            channels
+                .iter()
+                .copied()
+                .filter(|channel_id| {
+                    active_tool_channels.contains(channel_id)
+                        || self
+                            .manager
+                            .sessions
+                            .record_of_channel(*channel_id)
+                            .is_some()
+                })
+                .collect()
+        };
         let verdicts = self
             .tracker
             .lock()
@@ -144,5 +183,28 @@ impl StraySweeper {
             task.abort();
             tracing::info!("the stray reaper timer was stopped");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::ToolChannelOwnership;
+    use std::collections::HashSet;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn tool_channel_ownership_releases_reaper_protection_on_drop() {
+        let channel_id = 41;
+        let channels = Arc::new(Mutex::new(HashSet::from([channel_id])));
+        let ownership = ToolChannelOwnership {
+            channels: Arc::downgrade(&channels),
+            channel_id,
+        };
+
+        assert!(channels.lock().unwrap().contains(&channel_id));
+        drop(ownership);
+        assert!(!channels.lock().unwrap().contains(&channel_id));
     }
 }

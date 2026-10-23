@@ -14,9 +14,23 @@ use crate::records::{ConversationRecord, Entry};
 use crate::runtime::AgentRuntime;
 
 /// Headroom kept below the context window before compaction triggers.
-const HEADROOM_TOKENS: u64 = 16_384;
+pub(crate) const HEADROOM_TOKENS: u64 = 16_384;
 /// Recent history kept verbatim after a compaction.
-const KEEP_TOKENS: u64 = 20_000;
+pub(crate) const KEEP_TOKENS: u64 = 20_000;
+
+pub(crate) fn latest_compaction_usage_tokens(entries: &[(u64, Entry)]) -> Option<u64> {
+    let (_, window) = active_window(entries);
+    window.iter().rev().find_map(|(_, entry)| match entry {
+        Entry::Assistant { usage, .. } if usage.input + usage.output > 0 => {
+            Some(usage.input + usage.cache_read + usage.cache_write + usage.output)
+        }
+        _ => None,
+    })
+}
+
+pub(crate) fn compaction_trigger_tokens(context_window: u64) -> u64 {
+    context_window.saturating_sub(HEADROOM_TOKENS)
+}
 
 /// `models` is the conversation's candidate chain; its head sets the window.
 pub(crate) async fn compact_if_needed(
@@ -32,14 +46,8 @@ pub(crate) async fn compact_if_needed(
     };
     let entries =
         crate::journal::effective_entries(&runtime.inner.store.entries(&record.id).await?);
-    let (_, window) = active_window(&entries);
-    let last_tokens = window.iter().rev().find_map(|(_, entry)| match entry {
-        Entry::Assistant { usage, .. } if usage.input + usage.output > 0 => {
-            Some(usage.input + usage.cache_read + usage.cache_write + usage.output)
-        }
-        _ => None,
-    });
-    let limit = head.context_window.saturating_sub(HEADROOM_TOKENS);
+    let last_tokens = latest_compaction_usage_tokens(&entries);
+    let limit = compaction_trigger_tokens(head.context_window);
     if last_tokens.is_some_and(|tokens| head.context_window > 0 && tokens > limit) {
         tracing::info!(conversation_id = %record.id, ?last_tokens, limit, "auto-compacting conversation");
         let summary_models = crate::turn::side_task_models(runtime, record).await?;
@@ -144,4 +152,33 @@ fn split_point(window: &[(u64, Entry)]) -> Option<usize> {
         })
         .unwrap_or(window.len());
     (cut > 0 && cut < window.len()).then_some(cut)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{compaction_trigger_tokens, latest_compaction_usage_tokens};
+    use crate::records::Entry;
+    use roost_llm::Usage;
+
+    #[test]
+    fn automatic_compaction_usage_includes_output_tokens() {
+        let assistant = Entry::Assistant {
+            item_id: "assistant".into(),
+            blocks: Vec::new(),
+            usage: Usage {
+                input: 100,
+                output: 25,
+                cache_read: 10,
+                cache_write: 5,
+            },
+            model: None,
+            metadata: None,
+        };
+        assert_eq!(latest_compaction_usage_tokens(&[(1, assistant)]), Some(140));
+    }
+
+    #[test]
+    fn compaction_threshold_matches_native_headroom() {
+        assert_eq!(compaction_trigger_tokens(32_000), 15_616);
+    }
 }

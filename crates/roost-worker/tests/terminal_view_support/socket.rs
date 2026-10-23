@@ -114,7 +114,11 @@ impl Fixture {
         for _ in 0..64 {
             tokio::task::yield_now().await;
         }
-        while let Some(frame) = self.upstream.try_recv() {
+        while let Some(frame) = self
+            .upstream
+            .try_recv_delivery()
+            .and_then(|delivery| delivery._take_unconfirmed_frame())
+        {
             match frame {
                 CoordWorkerUpstream::TerminalViewState(state) => {
                     let frame = state.frame.as_option().cloned().unwrap_or_default();

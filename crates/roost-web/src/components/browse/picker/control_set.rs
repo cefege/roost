@@ -6,12 +6,15 @@
 
 use dioxus::prelude::*;
 
+use crate::components::browse::BrowseLaunchMode;
 use crate::components::browse::dom;
 use crate::components::ui::focus_scope::AutoFocusRequest;
 
 /// Every handler the four bands and the two dialogs report back through.
 #[derive(Clone, PartialEq)]
 pub struct PickerControls {
+    /// The action selected by the entry route.
+    pub launch_mode: BrowseLaunchMode,
     /// The crumb trail the path band paints.
     pub crumb_views: Vec<crate::platform::worker_paths::palette::CrumbView>,
     /// The title the toolbar shows.

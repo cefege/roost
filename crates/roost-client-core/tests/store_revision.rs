@@ -1,17 +1,6 @@
-//! Every public store-plumbing mutation bumps `revision` exactly once, and one
-//! that changes nothing bumps it not at all.
-//!
-//! `revision` is the only thing a host has to watch to know a repaint is owed
-//! (`store.rs:64-65`), so a mutation that writes without bumping is a change the
-//! user never sees — a toast that does not appear, a transfer that stalls at 99%.
-//! The composite cases matter as much as the simple ones: a spawn settlement that
-//! drops a placeholder AND raises a card is one user-visible event, and so is a
-//! sign-out that empties six slices.
-//!
-//! The mutation experiment for this file is in the slice report: delete the
-//! `store.note_change()` inside `toasts::add_toast` and
-//! `toast_mutations_each_bump_the_revision_exactly_once` must fail.
-//!
+//! Public store mutations invalidate views exactly once when state changes.
+//! Hosts observe revision for toasts, transfers, chrome and credential resets.
+//! Composite mutations must not leave stale views or publish duplicate repaints.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use roost_client_core::store::Store;
@@ -241,8 +230,12 @@ fn chrome_and_preference_mutations_each_bump_the_revision_exactly_once() {
     assert_one_bump(&mut core, "set_visible_pane_count", |store| {
         assert!(set_visible_pane_count(store, 3));
     });
+    let next_sidebar = match core.store().ui.sidebar_view {
+        SidebarView::Agents => SidebarView::Folders,
+        SidebarView::Folders => SidebarView::Agents,
+    };
     assert_one_bump(&mut core, "set_sidebar_view", |store| {
-        assert!(set_sidebar_view(store, &storage, SidebarView::Agents));
+        assert!(set_sidebar_view(store, &storage, next_sidebar));
     });
     assert_one_bump(&mut core, "set_sidebar_width", |store| {
         assert!(set_sidebar_width(store, &storage, 320));

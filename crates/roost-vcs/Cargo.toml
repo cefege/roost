@@ -1,0 +1,18 @@
+[package]
+name = "roost-vcs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Git worktree operations for Roost"
+
+[dependencies]
+reflink-copy.workspace = true
+thiserror.workspace = true
+
+tempfile.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

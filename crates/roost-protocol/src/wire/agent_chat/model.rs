@@ -102,6 +102,8 @@ pub struct QueuedMessage {
     /// The id its user item will have.
     pub id: String,
     pub text: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub mode: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -319,6 +321,14 @@ pub enum ChatEvent {
     /// A message joined the queue; its `Item` follows when the run reads it.
     Queued {
         message: QueuedMessage,
+    },
+    /// A queued submission was withdrawn before model dispatch.
+    QueueRemoved {
+        submission_id: String,
+    },
+    /// Queued inputs crossed the durable model-dispatch boundary.
+    QueueDelivered {
+        submission_ids: Vec<String>,
     },
 }
 

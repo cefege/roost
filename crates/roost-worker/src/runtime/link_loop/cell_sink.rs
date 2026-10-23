@@ -279,8 +279,8 @@ impl LinkLoop {
     /// serves the cell wake first, and a baseline written ahead of the view
     /// decision announcing its stream is one the coordinator drops.
     pub fn move_cell_frames_into(&mut self) -> usize {
-        while let Some(frame) = self.uplink.try_recv() {
-            crate::runtime::link_drain::admit_uplink(self, frame);
+        while let Some(delivery) = self.uplink.try_recv_delivery() {
+            delivery.admit(|frame| crate::runtime::link_drain::admit_uplink(self, frame));
         }
         let Some(sink) = self.cell_sink.clone() else {
             return 0;

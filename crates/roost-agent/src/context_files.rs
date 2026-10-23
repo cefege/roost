@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::records::ConversationRecord;
 use crate::runtime::{AgentRuntime, random_id};
-use crate::traits::ToolCall;
+use crate::traits::{OwnerConversationId, ToolCall, WorkerConversationNamespace};
 
 const CACHE_AGE: Duration = Duration::from_secs(60);
 const FETCH_TIMEOUT_MS: u32 = 15_000;
@@ -28,7 +28,8 @@ pub(crate) async fn context_files(
     let (out, _discarded) = mpsc::channel(4);
     let call = ToolCall {
         call_id: random_id("ctx-"),
-        conversation_id: record.id.clone(),
+        conversation_id: WorkerConversationNamespace(record.id.clone()),
+        owner_conversation_id: OwnerConversationId(record.id.clone()),
         cwd: record.cwd.clone(),
         tool: TOOL_CONTEXT_FILES.to_owned(),
         args_json: "{}".to_owned(),

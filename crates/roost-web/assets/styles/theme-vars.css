@@ -112,7 +112,8 @@
 
   /* ── 3. Layout tokens ── */
   /* UI typography. Terminal and path roles keep their monospace stacks below. */
-  --font-ui: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-ui: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif, "JBM Nerd";
+  --font-title: var(--font-ui);
   --term-font-family: Menlo, Consolas, "DejaVu Sans Mono", "Courier New", monospace;
   --term-font-size: 14px;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, "Cascadia Code", "Courier New", monospace;

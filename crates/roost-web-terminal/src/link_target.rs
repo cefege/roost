@@ -162,24 +162,6 @@ pub(crate) fn is_windows_drive_absolute(raw: &str) -> bool {
         && matches!(bytes[2], b'/' | b'\\')
 }
 
-/// JS `\s` (and the set `String.prototype.trim` strips), by UTF-16 code unit.
-pub(crate) fn is_js_whitespace(unit: u32) -> bool {
-    matches!(
-        unit,
-        0x09..=0x0d
-            | 0x20
-            | 0xa0
-            | 0x1680
-            | 0x2000..=0x200a
-            | 0x2028
-            | 0x2029
-            | 0x202f
-            | 0x205f
-            | 0x3000
-            | 0xfeff
-    )
-}
-
 /// JS `\w`: ASCII letters, digits and `_`.
 pub(crate) fn is_word_character(character: char) -> bool {
     character.is_ascii_alphanumeric() || character == '_'
@@ -188,7 +170,8 @@ pub(crate) fn is_word_character(character: char) -> bool {
 fn has_js_whitespace_edge(raw: &str) -> bool {
     let first = raw.chars().next().map(u32::from);
     let last = raw.chars().next_back().map(u32::from);
-    first.is_some_and(is_js_whitespace) || last.is_some_and(is_js_whitespace)
+    first.is_some_and(roost_shell_tokenize::is_javascript_whitespace_code_unit)
+        || last.is_some_and(roost_shell_tokenize::is_javascript_whitespace_code_unit)
 }
 
 fn strip_prefix_ignore_ascii_case<'a>(raw: &'a str, prefix: &str) -> Option<&'a str> {

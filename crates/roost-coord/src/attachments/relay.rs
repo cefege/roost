@@ -147,7 +147,7 @@ pub(super) fn u64_field(reply: &Value, field: &str) -> Result<u64, ConnectError>
 /// already a `ConnectError`, so it propagates unchanged. `browser_id` and
 /// `viewer_id` travel as the SAME value, as `rpc_relay::send_browser_command`
 /// sends them.
-pub(super) async fn relay_once(
+pub(crate) async fn relay_once(
     relay: &ScrollbackRelay,
     worker_fp: &WorkerFp,
     viewer_id: &str,

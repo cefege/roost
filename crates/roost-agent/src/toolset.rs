@@ -12,6 +12,9 @@ use serde_json::json;
 use crate::goal_mode::TOOL_GOAL;
 use crate::prompts;
 use crate::records::{ConversationRecord, Mode};
+mod read_only;
+
+use read_only::read_only_toolset;
 
 pub const TOOL_TASK: &str = "task";
 pub const TOOL_FIND: &str = "find";
@@ -95,8 +98,10 @@ pub fn is_read_only(name: &str) -> bool {
     )
 }
 
-/// The tools for `record` at nesting `depth` (0 = a top-level conversation).
 pub fn toolset_for(record: &ConversationRecord, depth: u32, find_available: bool) -> Toolset {
+    if record.read_only {
+        return read_only_toolset(find_available);
+    }
     let kind = record.agent.as_deref().and_then(SubagentKind::from_name);
     let plan_mode = record.mode == Mode::Plan;
     let read_only_lsp = plan_mode || kind == Some(SubagentKind::Scout);

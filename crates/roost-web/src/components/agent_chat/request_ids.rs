@@ -11,3 +11,7 @@ pub(super) fn new_request_id() -> String {
     }
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) fn new_request_id() -> String {
+    String::new()
+}

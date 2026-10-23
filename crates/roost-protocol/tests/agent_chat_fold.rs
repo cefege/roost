@@ -229,7 +229,20 @@ fn every_chat_event_round_trips_spec_json() {
                 message: QueuedMessage {
                     id: "u7".into(),
                     text: "also check tests".into(),
+                    mode: String::new(),
                 },
+            },
+        ),
+        (
+            r#"{"type":"queue_removed","submission_id":"u7"}"#,
+            ChatEvent::QueueRemoved {
+                submission_id: "u7".into(),
+            },
+        ),
+        (
+            r#"{"type":"queue_delivered","submission_ids":["u7"]}"#,
+            ChatEvent::QueueDelivered {
+                submission_ids: vec!["u7".into()],
             },
         ),
     ];
@@ -252,6 +265,7 @@ fn a_queued_message_waits_outside_the_items_and_lands_after_them_when_read() {
     let queued = QueuedMessage {
         id: "u9".into(),
         text: "steer".into(),
+        mode: String::new(),
     };
     fold_chat_event(
         &mut value,
@@ -273,6 +287,35 @@ fn a_queued_message_waits_outside_the_items_and_lands_after_them_when_read() {
     );
     assert!(value.queued.is_empty());
     assert!(matches!(value.items.last(), Some(TranscriptItem::User { id, .. }) if id == "u9"));
+}
+
+#[test]
+fn queue_removal_removes_the_submission_from_live_transcript_state() {
+    let mut value = transcript();
+    fold_chat_event(
+        &mut value,
+        &ChatEvent::Queued {
+            message: QueuedMessage {
+                id: "request-1".into(),
+                text: "queued text".into(),
+                mode: String::new(),
+            },
+        },
+    );
+    assert_eq!(value.queued.len(), 1);
+    fold_chat_event(
+        &mut value,
+        &ChatEvent::QueueRemoved {
+            submission_id: "request-1".into(),
+        },
+    );
+    assert!(value.queued.is_empty());
+    assert!(
+        !value
+            .items
+            .iter()
+            .any(|item| matches!(item, TranscriptItem::User { id, .. } if id == "request-1"))
+    );
 }
 
 #[test]

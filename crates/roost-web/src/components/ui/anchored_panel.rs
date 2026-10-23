@@ -8,21 +8,66 @@ use crate::components::deck::deck_dom::ClientBox;
 #[cfg(target_arch = "wasm32")]
 use crate::components::menu_placement::{Horizontal, MenuPlacement, Vertical, place_menu};
 
-/// Inline `top`/`bottom`/`left`/`right` longhands that place a fixed panel beside the trigger
-/// with id `trigger_id`, read from the live DOM. `None` when the trigger is not mounted.
+/// Places a fixed panel beside the trigger. Scrollable dialogs also consume the
+/// available height and width; other floating surfaces keep their overflow.
 #[cfg(target_arch = "wasm32")]
-pub fn anchored_placement_style(trigger_id: &str, prefer_up: bool) -> Option<String> {
+pub fn anchored_placement_style(
+    trigger_id: &str,
+    prefer_up: bool,
+    scrollable: bool,
+) -> Option<String> {
     let window = web_sys::window()?;
     let document = window.document()?;
     let trigger = document.get_element_by_id(trigger_id)?;
     let viewport = viewport_box(&window);
     let containing = containing_block_box(&window, &trigger).unwrap_or(viewport);
-    let placement = place_menu(client_box_of(&trigger), viewport, containing, prefer_up);
-    Some(position_longhands(&placement))
+    let bounds = if scrollable {
+        // A pane's stacking context cannot cover the deck's tab rail or workbench chrome.
+        let panel_bounds = trigger
+            .closest("[data-pane-slot]")
+            .ok()
+            .flatten()
+            .map(|pane| client_box_of(&pane))
+            .unwrap_or(containing);
+        let left = viewport.left.max(panel_bounds.left);
+        let top = viewport.top.max(panel_bounds.top);
+        ClientBox {
+            left,
+            top,
+            width: (viewport.right().min(panel_bounds.right()) - left).max(0.0),
+            height: (viewport.bottom().min(panel_bounds.bottom()) - top).max(0.0),
+        }
+    } else {
+        viewport
+    };
+    let placement = place_menu(client_box_of(&trigger), bounds, containing, prefer_up);
+    Some(if scrollable {
+        placement.style()
+    } else {
+        position_longhands(&placement)
+    })
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn anchored_placement_style(_trigger_id: &str, _prefer_up: bool) -> Option<String> {
+pub fn anchored_placement_style(
+    _trigger_id: &str,
+    _prefer_up: bool,
+    _scrollable: bool,
+) -> Option<String> {
+    None
+}
+
+/// The origin a fixed descendant uses instead of viewport coordinates.
+#[cfg(target_arch = "wasm32")]
+pub fn fixed_containing_origin(trigger_id: &str) -> Option<(f64, f64)> {
+    let window = web_sys::window()?;
+    let trigger = window.document()?.get_element_by_id(trigger_id)?;
+    let containing = containing_block_box(&window, &trigger)?;
+    Some((containing.left, containing.top))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn fixed_containing_origin(_trigger_id: &str) -> Option<(f64, f64)> {
     None
 }
 
@@ -88,9 +133,7 @@ fn client_box_of(element: &web_sys::Element) -> ClientBox {
     }
 }
 
-/// The nearest ancestor that becomes the containing block for `position: fixed`:
-/// any ancestor with a non-`none` transform. `None` when no ancestor has one, in
-/// which case the viewport is the containing block.
+/// The nearest ancestor with a transform, including independent transform longhands.
 #[cfg(target_arch = "wasm32")]
 fn containing_block_box(window: &web_sys::Window, trigger: &web_sys::Element) -> Option<ClientBox> {
     let mut ancestor = trigger.parent_element();
@@ -105,10 +148,15 @@ fn containing_block_box(window: &web_sys::Window, trigger: &web_sys::Element) ->
 
 #[cfg(target_arch = "wasm32")]
 fn has_transform(window: &web_sys::Window, element: &web_sys::Element) -> bool {
-    window
-        .get_computed_style(element)
-        .ok()
-        .flatten()
-        .and_then(|style| style.get_property_value("transform").ok())
-        .is_some_and(|transform| !transform.is_empty() && transform != "none")
+    let Some(style) = window.get_computed_style(element).ok().flatten() else {
+        return false;
+    };
+    ["transform", "translate", "rotate", "scale"]
+        .into_iter()
+        .any(|property| {
+            style
+                .get_property_value(property)
+                .ok()
+                .is_some_and(|value| !value.is_empty() && value != "none")
+        })
 }

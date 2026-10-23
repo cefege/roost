@@ -157,7 +157,7 @@ async fn an_input_request_is_answered_once_with_the_owners_result() {
         ("in-1", TerminalInputStatus::Accepted, 3)
     );
     settle_tasks().await;
-    assert!(receiver.try_recv().is_none(), "exactly one answer");
+    assert!(receiver.try_recv_delivery().is_none(), "exactly one answer");
     assert!(link.replies.is_empty());
 }
 
@@ -194,9 +194,15 @@ fn an_input_owner_dropped_before_answering_is_answered_ambiguous() {
         );
         settle_tasks().await;
     });
-    assert!(receiver.try_recv().is_none(), "the owner is still holding");
+    assert!(
+        receiver.try_recv_delivery().is_none(),
+        "the owner is still holding"
+    );
     drop(runtime);
-    let Some(Up::InputResult(result)) = receiver.try_recv() else {
+    let Some(Up::InputResult(result)) = receiver
+        .try_recv_delivery()
+        .and_then(|delivery| delivery._take_unconfirmed_frame())
+    else {
         panic!("a cancelled owner still answers")
     };
     assert_eq!(
@@ -219,7 +225,7 @@ async fn an_owner_reply_produced_after_a_redial_is_dropped() {
     fakes.gate.add_permits(2);
     settle_tasks().await;
     assert!(
-        receiver.try_recv().is_none(),
+        receiver.try_recv_delivery().is_none(),
         "a reply for the superseded connection never reaches the new one"
     );
     assert_eq!(fakes.log.count("input."), 2);

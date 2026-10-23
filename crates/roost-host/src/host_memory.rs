@@ -73,7 +73,9 @@ pub fn host_total_memory_bytes(platform: HostPlatform) -> u64 {
         HostPlatform::Linux => read_linux_memory_file("/proc/meminfo")
             .and_then(|meminfo| status_kib(&meminfo, "MemTotal:"))
             .unwrap_or(0),
-        HostPlatform::MacOs => command_decimal("sysctl", &["-n", "hw.memsize"]).unwrap_or(0),
+        HostPlatform::MacOs => {
+            command_decimal("/usr/sbin/sysctl", &["-n", "hw.memsize"]).unwrap_or(0)
+        }
         HostPlatform::Windows => windows_total_memory_bytes(),
     }
 }
@@ -161,3 +163,7 @@ fn command_decimal(program: &str, args: &[&str]) -> Option<u64> {
         .parse::<u64>()
         .ok()
 }
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "host_memory_macos_tests.rs"]
+mod macos_tests;

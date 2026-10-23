@@ -1,11 +1,14 @@
-//! The sidebar's pinned action bar: the target machine's name — with two or
-//! more machines online, the trigger of a picker menu; with one, a plain
-//! label — then a compact "New" that opens the folder picker on it. Ports
-//! `apps/web/src/components/sidebar/SidebarNewTerminal.tsx`; `SidebarRoot`
-//! mounts it below both panels. The target rule is `new_terminal_target`.
+//! The sidebar's pinned launch bar: its target machine is selectable when
+//! several are online, while New agent and New terminal use the active
+//! workspace when available and otherwise open the target machine's browser.
+//! The target rule is `new_terminal_target`.
 
 use dioxus::prelude::*;
 
+use crate::components::agent_chat::launch_agent;
+use crate::components::browse::BrowseLaunchMode;
+use crate::components::browse::browse_mode_href;
+use crate::components::browse::listing;
 use crate::components::context_menu::MenuFocusEdge;
 use crate::components::ui::dropdown_menu::{
     DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -13,7 +16,9 @@ use crate::components::ui::dropdown_menu::{
 use crate::components::ui::menu_overlay::{
     MenuContext, MenuSide, anchored_placement, request_close, request_open,
 };
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, Icon, IconType, StatusDot};
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, StatusDot,
+};
 use crate::new_terminal_target::{
     default_new_terminal_worker_fp, effective_new_terminal_target, online_workers_by_label,
 };
@@ -70,22 +75,38 @@ pub fn SidebarNewTerminal() -> Element {
     let navigate = use_navigate();
     let mut selected_fp = use_signal(|| None::<String>);
     let mut menu_open = use_signal(|| false);
-    let (online, target_fp) = {
+    let (online, target_fp, context_folder) = {
         let core = pump.core();
         let core = core.borrow();
         let store = core.store();
         let now_ms = i64::try_from(core.clock().now_ms()).unwrap_or(i64::MAX);
         let workers = online_workers_by_label(store, now_ms);
-        let active = active_session_for_path(store, &BrowserWorkerPaths, &path.read())
-            .map(|session| session.worker_fp.to_string());
-        let default = default_new_terminal_worker_fp(store, now_ms, active.as_deref());
+        let session = active_session_for_path(store, &BrowserWorkerPaths, &path.read());
+        let agent = match Route::parse(&path.read()) {
+            Route::Agent { conversation_id } => {
+                store.agent_chat.conversations.get(&conversation_id)
+            }
+            _ => None,
+        };
+        let contextual_worker = session
+            .map(|session| session.worker_fp.to_string())
+            .or_else(|| agent.map(|conversation| conversation.worker_fp.clone()));
+        let context_folder = session
+            .map(|session| (session.worker_fp.to_string(), session.cwd.clone()))
+            .or_else(|| {
+                agent.map(|conversation| (conversation.worker_fp.clone(), conversation.cwd.clone()))
+            })
+            .filter(|(worker_fp, _)| workers.iter().any(|worker| worker.fp.as_str() == worker_fp));
+        let default = default_new_terminal_worker_fp(store, now_ms, contextual_worker.as_deref());
         let target =
             effective_new_terminal_target(selected_fp.read().as_deref(), &workers, default);
         let online: Vec<(String, String)> = workers
             .iter()
             .map(|worker| (worker.fp.to_string(), worker.label.clone()))
             .collect();
-        (online, target)
+        let context_folder =
+            context_folder.filter(|(worker_fp, _)| target.as_deref() == Some(worker_fp.as_str()));
+        (online, target, context_folder)
     };
     let target_label = target_fp.as_ref().map_or_else(String::new, |fp| {
         online
@@ -105,7 +126,14 @@ pub fn SidebarNewTerminal() -> Element {
     if online.len() < 2 && *menu_open.peek() {
         menu_open.set(false);
     }
-    let new_target = target_fp.clone();
+    let agent_target = target_fp.clone();
+    let terminal_target = target_fp.clone();
+    let agent_pump = pump.clone();
+    let agent_navigate = navigate;
+    let agent_context = context_folder.clone();
+    let terminal_pump = pump.clone();
+    let terminal_navigate = navigate;
+    let terminal_context = context_folder.clone();
     rsx! {
         DropdownMenu {
             open: menu_open(),
@@ -132,17 +160,35 @@ pub fn SidebarNewTerminal() -> Element {
                     class: "shrink-0",
                     variant: ButtonVariant::Default,
                     size: ButtonSize::Sm,
-                    icon: IconType::Plus,
-                    "data-testid": "sidebar-new-terminal-button",
-                    "aria-label": "New terminal",
-                    title: "New terminal in a folder",
+                    icon: IconType::Bot,
+                    "data-testid": "sidebar-new-agent-button",
+                    "aria-label": "New agent",
+                    title: "New agent in this workspace",
                     disabled: target_fp.is_none(),
                     onclick: move |_| {
-                        if let Some(fp) = new_target.clone() {
-                            navigate.call(Route::Browse { worker_fp: Some(fp) }.to_path());
+                        if let Some((worker_fp, folder)) = agent_context.clone() {
+                            launch_agent(agent_pump.clone(), worker_fp, folder, agent_navigate);
+                        } else if let Some(worker_fp) = agent_target.clone() {
+                            agent_navigate.call(browse_mode_href(&worker_fp, BrowseLaunchMode::Agent));
                         }
                     },
-                    "New"
+                    "New agent"
+                }
+                IconButton {
+                    variant: ButtonVariant::Ghost,
+                    size: ButtonSize::IconSm,
+                    icon: IconType::Terminal,
+                    label: "Open terminal",
+                    "data-testid": "sidebar-new-terminal-button",
+                    title: "Open a terminal in this workspace",
+                    disabled: target_fp.is_none(),
+                    onclick: move |_| {
+                        if let Some((worker_fp, folder)) = terminal_context.clone() {
+                            listing::launch_terminal(terminal_pump.clone(), worker_fp, folder, terminal_navigate);
+                        } else if let Some(worker_fp) = terminal_target.clone() {
+                            terminal_navigate.call(Route::Browse { worker_fp: Some(worker_fp) }.to_path());
+                        }
+                    },
                 }
                 DropdownMenuContent { class: "w-auto min-w-40 overflow-y-auto",
                     for (fp, label) in online.iter().cloned() {

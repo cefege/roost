@@ -42,6 +42,7 @@ async fn recovered_final_output_admits_the_next_loop_iteration() {
         Entry::User {
             text: "bump".into(),
             loop_repeat: false,
+            item_id: None,
         },
     )
     .await;
@@ -121,6 +122,7 @@ async fn an_identical_user_steer_is_not_charged_as_a_committed_repeat() {
         Entry::User {
             text: "bump".into(),
             loop_repeat: false,
+            item_id: None,
         },
     )
     .await;

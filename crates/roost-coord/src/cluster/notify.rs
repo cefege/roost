@@ -18,11 +18,18 @@ use crate::db::{CoordDb, DbBackend};
 pub const AGENT_CHANNEL: &str = "roost_agent";
 /// Durable chat batches persisted by the agent runtime.
 pub const CHAT_CHANNEL: &str = "roost_chat";
+/// Conversation summary fields changed in the database.
+pub const AGENT_SUMMARY_CHANNEL: &str = "roost_agent_summary";
 /// Cross-replica control-plane state changes.
 pub const CLUSTER_CHANNEL: &str = "roost_cluster";
 
 /// Every channel this process listens on.
-pub const CHANNELS: &[&str] = &[AGENT_CHANNEL, CHAT_CHANNEL, CLUSTER_CHANNEL];
+pub const CHANNELS: &[&str] = &[
+    AGENT_CHANNEL,
+    AGENT_SUMMARY_CHANNEL,
+    CHAT_CHANNEL,
+    CLUSTER_CHANNEL,
+];
 
 /// Notices buffered per subscriber before a slow one starts missing them.
 const NOTICE_BUFFER: usize = 1024;
@@ -139,12 +146,16 @@ impl ClusterNotifier {
     }
 }
 
-/// The agent runtime's view of the notifier: wake the owner of a conversation.
+/// Runtime cluster signals for waking run owners and refreshing summaries.
 #[derive(Debug, Clone)]
 pub struct AgentClusterSignal(pub Arc<ClusterNotifier>);
 
 impl roost_agent::ClusterSignal for AgentClusterSignal {
     fn conversation_changed<'a>(&'a self, conversation_id: &'a str) -> BoxFuture<'a, ()> {
         Box::pin(self.0.notify(AGENT_CHANNEL, conversation_id))
+    }
+
+    fn conversation_summary_changed<'a>(&'a self, conversation_id: &'a str) -> BoxFuture<'a, ()> {
+        Box::pin(self.0.notify(AGENT_SUMMARY_CHANNEL, conversation_id))
     }
 }

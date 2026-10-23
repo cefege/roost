@@ -9,15 +9,16 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, mpsc};
 
+mod passages;
+
 use crate::runtime::AgentRuntime;
 use crate::tool_round::{CallResult, CallScope};
-use crate::traits::{ToolCall, ToolOutcome};
+use crate::traits::{OwnerConversationId, ToolCall, ToolOutcome, WorkerConversationNamespace};
+use passages::{Passage, make_windows, parse_hashline, sketch};
 
 const CANDIDATES: usize = 128;
 const NAME_BATCH: usize = 64;
 const FILES: usize = 20;
-const WINDOW_BYTES: usize = 8192;
-const WINDOWS: usize = 24;
 const SKETCH_BYTES: usize = 384;
 const CUTOFF: f64 = 0.45;
 const THRESHOLD: f64 = 0.2;
@@ -26,14 +27,6 @@ const THRESHOLD: f64 = 0.2;
 struct FindArgs {
     query: String,
     path: Option<String>,
-}
-
-#[derive(Clone)]
-struct Passage {
-    start: usize,
-    end: usize,
-    text: String,
-    lexical: f64,
 }
 
 struct FilePlan {
@@ -284,7 +277,8 @@ async fn worker(
             &scope.record.worker_fp,
             ToolCall {
                 call_id: format!("find-{tool}"),
-                conversation_id: scope.record.id.clone(),
+                conversation_id: WorkerConversationNamespace(scope.record.id.clone()),
+                owner_conversation_id: OwnerConversationId(scope.record.id.clone()),
                 cwd: scope.record.cwd.clone(),
                 tool: tool.to_owned(),
                 args_json: args.to_string(),
@@ -302,85 +296,6 @@ fn probability(answers: &std::collections::BTreeMap<String, Answer>, key: &str) 
         Answer::Bool { probability } if probability.is_finite() => Some(*probability),
         _ => None,
     }
-}
-
-fn parse_hashline(content: &str) -> Vec<(usize, String)> {
-    content
-        .lines()
-        .filter_map(|line| {
-            let (number, text) = line.split_once(':')?;
-            let number = number.parse::<usize>().ok()?;
-            Some((number, text.strip_prefix(' ').unwrap_or(text).to_owned()))
-        })
-        .collect()
-}
-
-fn make_windows(lines: &[(usize, String)], query: &str) -> Vec<Passage> {
-    let mut windows = Vec::new();
-    let mut start = 0;
-    while start < lines.len() && windows.len() < WINDOWS {
-        let mut end = start;
-        let mut bytes = 0;
-        while end < lines.len() {
-            let next = lines[end].1.len() + 16;
-            if end > start && bytes + next > WINDOW_BYTES {
-                break;
-            }
-            bytes += next;
-            end += 1;
-        }
-        let body = lines[start..end]
-            .iter()
-            .map(|(number, text)| format!("{number}: {text}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let query_words = query
-            .split(|ch: char| !ch.is_alphanumeric())
-            .filter(|word| word.len() > 2);
-        let lower = body.to_lowercase();
-        let lexical = query_words
-            .map(|word| lower.matches(&word.to_lowercase()).count() as f64)
-            .sum();
-        windows.push(Passage {
-            start: lines[start].0,
-            end: lines[end - 1].0,
-            text: body,
-            lexical,
-        });
-        start = end;
-    }
-    windows.sort_by(|a, b| b.lexical.total_cmp(&a.lexical).then(a.start.cmp(&b.start)));
-    windows.truncate(WINDOWS);
-    windows
-}
-
-fn sketch(passage: &Passage, query: &str, budget: usize) -> String {
-    let needles: Vec<String> = query
-        .split(|ch: char| !ch.is_alphanumeric())
-        .filter(|word| word.len() > 2)
-        .map(str::to_lowercase)
-        .collect();
-    let mut lines: Vec<&str> = passage.text.lines().collect();
-    lines.sort_by_key(|line| {
-        std::cmp::Reverse(
-            needles
-                .iter()
-                .filter(|needle| line.to_lowercase().contains(needle.as_str()))
-                .count()
-                + usize::from(line.contains('(')),
-        )
-    });
-    let mut selected = Vec::new();
-    let mut used = 0;
-    for line in lines {
-        let clipped: String = line.chars().take(180).collect();
-        if used + clipped.len() > budget {
-            continue;
-        }
-        used += clipped.len();
-        selected.push(clipped);
-    }
-    selected.join("\n")
 }
 
 fn format_hits(mut hits: Vec<Hit>) -> String {

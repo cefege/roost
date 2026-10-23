@@ -16,13 +16,34 @@ pub fn effective_entries(entries: &[(u64, Entry)]) -> Vec<(u64, Entry)> {
                 kept_seq < to_seq
                     || matches!(
                         kept_entry,
-                        Entry::RunIntent { .. } | Entry::LoopState { .. } | Entry::Goal { .. }
+                        Entry::RunIntent { .. }
+                            | Entry::LoopState { .. }
+                            | Entry::Goal { .. }
+                            | Entry::QueuedInput { .. }
+                            | Entry::QueuedInputWithdrawn { .. }
+                            | Entry::InputConsumed { .. }
                     )
             });
             continue;
         }
         kept.push((*seq, entry.clone()));
     }
+    let withdrawn: std::collections::HashSet<String> = kept
+        .iter()
+        .filter_map(|(_, entry)| match entry {
+            Entry::QueuedInputWithdrawn { submission_id } => Some(submission_id.clone()),
+            _ => None,
+        })
+        .collect();
+    kept.retain(|(_, entry)| {
+        !matches!(
+            entry,
+            Entry::User {
+                item_id: Some(item_id),
+                ..
+            } if withdrawn.contains(item_id)
+        )
+    });
     kept
 }
 
@@ -81,6 +102,7 @@ mod tests {
         Entry::User {
             text: text.into(),
             loop_repeat: false,
+            item_id: None,
         }
     }
 

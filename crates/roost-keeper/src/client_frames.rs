@@ -4,7 +4,11 @@
 //! and wait paths, and by the worker through `next_event`. Depends only on
 //! `KeeperClient`'s own fields and the codec's frame type — and on nothing here.
 
-use std::sync::mpsc::RecvTimeoutError;
+use std::collections::VecDeque;
+use std::sync::{
+    Mutex, PoisonError,
+    mpsc::{Receiver, RecvTimeoutError},
+};
 use std::time::{Duration, Instant};
 
 use super::client::KeeperClient;
@@ -130,6 +134,21 @@ impl KeeperClient {
         timeout: Duration,
         accepted: &[MuxFrameType],
     ) -> WaitEnded {
+        wait_for_any_on_events(&self.deferred, &self.events, channel_id, timeout, accepted)
+    }
+
+    /// Observe every non-answer frame before returning the matching response.
+    ///
+    /// Resize callers use this to route preceding PTY output before publishing
+    /// a geometry boundary; later frames remain on the reader queue.
+    pub(crate) fn wait_for_any_with(
+        &self,
+        channel_id: u16,
+        timeout: Duration,
+        accepted: &[MuxFrameType],
+        mut on_other: impl FnMut(MuxFrame),
+    ) -> WaitEnded {
+        replay_deferred_once(&self.deferred, &mut on_other);
         let deadline = Instant::now() + timeout;
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -142,10 +161,7 @@ impl KeeperClient {
                 {
                     return WaitEnded::Answered(frame);
                 }
-                // Not the answer. It is PTY output, an exit or a pong, and it
-                // belongs to the worker -- dropping it here is how terminal
-                // output disappears during a resize drag.
-                Ok(frame) => self.defer(frame),
+                Ok(frame) => on_other(frame),
                 Err(RecvTimeoutError::Timeout) => return WaitEnded::TimedOut,
                 Err(RecvTimeoutError::Disconnected) => return WaitEnded::Disconnected,
             }
@@ -170,5 +186,82 @@ impl KeeperClient {
                 })
             }
         }
+    }
+}
+
+fn wait_for_any_on_events(
+    deferred: &Mutex<VecDeque<MuxFrame>>,
+    events: &Receiver<MuxFrame>,
+    channel_id: u16,
+    timeout: Duration,
+    accepted: &[MuxFrameType],
+) -> WaitEnded {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return WaitEnded::TimedOut;
+        }
+        match events.recv_timeout(remaining) {
+            Ok(frame) if frame.channel_id == channel_id && accepted.contains(&frame.frame_type) => {
+                return WaitEnded::Answered(frame);
+            }
+            Ok(frame) => deferred
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push_back(frame),
+            Err(RecvTimeoutError::Timeout) => return WaitEnded::TimedOut,
+            Err(RecvTimeoutError::Disconnected) => return WaitEnded::Disconnected,
+        }
+    }
+}
+
+fn replay_deferred_once(deferred: &Mutex<VecDeque<MuxFrame>>, mut on_other: impl FnMut(MuxFrame)) {
+    let frames = {
+        let mut deferred = deferred.lock().unwrap_or_else(PoisonError::into_inner);
+        std::mem::take(&mut *deferred)
+    };
+    for frame in frames {
+        on_other(frame);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normal_resize_wait_keeps_previously_deferred_output_available() {
+        let output = MuxFrame {
+            frame_type: MuxFrameType::PtyOut,
+            channel_id: 7,
+            payload: b"already deferred".to_vec(),
+        };
+        let deferred = Mutex::new(VecDeque::from([output]));
+        let (events_tx, events_rx) = std::sync::mpsc::channel();
+        assert!(
+            events_tx
+                .send(MuxFrame {
+                    frame_type: MuxFrameType::ResizeAck,
+                    channel_id: 7,
+                    payload: Vec::new(),
+                })
+                .is_ok()
+        );
+
+        let result = wait_for_any_on_events(
+            &deferred,
+            &events_rx,
+            7,
+            Duration::from_secs(1),
+            &[MuxFrameType::ResizeAck, MuxFrameType::ResizeReject],
+        );
+
+        assert!(
+            matches!(result, WaitEnded::Answered(frame) if frame.frame_type == MuxFrameType::ResizeAck)
+        );
+        let retained = deferred.lock().unwrap_or_else(PoisonError::into_inner);
+        assert_eq!(retained.len(), 1);
+        assert_eq!(retained[0].payload, b"already deferred");
     }
 }

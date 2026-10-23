@@ -40,6 +40,12 @@ pub trait ChannelBinding: Send + Sync {
     /// splice an invisible hole into the parser state the core is holding.
     fn on_output(&self, chunk: &[u8]);
 
+    /// The keeper acknowledged geometry after every preceding output frame.
+    ///
+    /// Bindings that parse terminal output may use this to align their parser
+    /// with the new PTY geometry before any following output is delivered.
+    fn on_resize_boundary(&self, _cols: u16, _rows: u16) {}
+
     /// The child ended. `None` when it was killed by a signal, which is not
     /// the same as a nonzero exit and a client may care which it was.
     fn on_exit(&self, exit_code: Option<i32>);

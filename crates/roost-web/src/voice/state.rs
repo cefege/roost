@@ -271,6 +271,7 @@ impl VoiceMachine {
                 self.error = None;
                 vec![
                     VoiceEffect::ClearFinalizeWatchdog,
+                    VoiceEffect::ClearError,
                     VoiceEffect::ClearEngineText,
                     VoiceEffect::ClaimVoice,
                     VoiceEffect::StartEngine,

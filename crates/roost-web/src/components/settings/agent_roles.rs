@@ -257,21 +257,31 @@ fn provider_name(catalog: &ModelsCatalog, provider_id: &str) -> String {
         .map_or_else(|| provider_id.to_owned(), |provider| provider.name.clone())
 }
 
-pub fn load_settings(pump: Pump, settings: Signal<AgentSettingsView>, error: Signal<String>) {
+pub fn load_settings(
+    pump: Pump,
+    settings: Signal<AgentSettingsView>,
+    error: Signal<String>,
+    mut loaded: Signal<bool>,
+) {
+    loaded.set(false);
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_futures::spawn_local(async move {
         let mut settings = settings;
         let mut error = error;
         match pump.rpc().call(&GetAgentSettings {}).await {
             Ok(json) => match serde_json::from_str(&json) {
-                Ok(value) => settings.set(value),
+                Ok(value) => {
+                    settings.set(value);
+                    error.set(String::new());
+                    loaded.set(true);
+                }
                 Err(failure) => error.set(format!("Could not read agent settings: {failure}")),
             },
             Err(failure) => error.set(format!("Could not load agent settings: {failure}")),
         }
     });
     #[cfg(not(target_arch = "wasm32"))]
-    let _ = (pump, settings, error);
+    let _ = (pump, settings, error, loaded);
 }
 
 pub fn save_settings(

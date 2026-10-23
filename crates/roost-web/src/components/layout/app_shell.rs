@@ -177,7 +177,7 @@ pub fn AppShell(children: Element) -> Element {
 }
 
 /// Collapse or expand the desktop rail. Focus inside the region about to be
-/// hidden moves to the rail's Sessions item first, so it is never stranded in
+/// hidden moves to the rail's Workspaces item first, so it is never stranded in
 /// an `inert` subtree.
 pub fn toggle_desktop_sidebar(pump: &crate::pump::Pump, compact: bool) {
     #[cfg(target_arch = "wasm32")]

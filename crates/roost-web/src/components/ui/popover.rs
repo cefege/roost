@@ -8,6 +8,7 @@ use tw_merge::tw_merge;
 
 use crate::components::context_menu::use_floating_menu_dismiss;
 use crate::components::ui::anchored_panel::{anchored_placement_style, focus_element_by_id};
+use crate::components::ui::button::ButtonSize;
 use crate::components::ui::field::scoped_element_id;
 
 /// What the trigger and panel read from the root. Memoised so consumers re-render
@@ -67,6 +68,7 @@ pub fn PopoverTrigger(
     /// Drops the bordered input look for a control that sits inside a toolbar row.
     #[props(default)]
     ghost: bool,
+    #[props(default)] size: ButtonSize,
     #[props(default)] disabled: bool,
     #[props(into, optional)] aria_label: Option<String>,
     children: Element,
@@ -82,8 +84,9 @@ pub fn PopoverTrigger(
         "border bg-background border-input hover:bg-accent hover:text-accent-foreground"
     };
     let trigger_class = tw_merge!(
-        "px-4 py-2 h-9 inline-flex justify-center items-center text-sm font-medium whitespace-nowrap rounded-md transition-colors w-fit focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&_svg:not(:last-child)]:mr-2 [&_svg:not(:first-child)]:ml-2",
+        "inline-flex items-center justify-center text-sm font-medium whitespace-nowrap rounded-md transition-colors w-fit focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&_svg:not(:last-child)]:mr-2 [&_svg:not(:first-child)]:ml-2",
         surface,
+        size.as_str(),
         class.as_deref().unwrap_or("")
     );
     rsx! {
@@ -151,10 +154,10 @@ fn PopoverPanel(class: Option<String>, test_id: Option<String>, children: Elemen
     use_drop(|| tracing::debug!(target: "ui", "popover closed"));
     // Placement is measured from the trigger, so `position: fixed` is set here rather than by a
     // rust-ui class: the class list below is rust-ui's, and the placement longhands follow it.
-    let placement = anchored_placement_style(&trigger_id, false).unwrap_or_default();
+    let placement = anchored_placement_style(&trigger_id, false, true).unwrap_or_default();
     let style = format!("position: fixed; {placement}");
     let panel_class = tw_merge!(
-        "overflow-visible relative z-50 p-4 rounded-md border bg-card shadow-md my-[1ch] w-[250px] min-h-[150px] pointer-events-none opacity-0 transition-all duration-150 data-[state=open]:opacity-100 data-[state=open]:pointer-events-auto",
+        "overflow-visible relative z-50 p-4 rounded-md border bg-card shadow-md my-0 w-[250px] min-h-0 pointer-events-none opacity-0 transition-all duration-150 data-[state=open]:opacity-100 data-[state=open]:pointer-events-auto",
         class.as_deref().unwrap_or("")
     );
     rsx! {

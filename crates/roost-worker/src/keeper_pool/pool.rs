@@ -35,7 +35,6 @@ use std::time::Instant;
 use roost_keeper::client::KeeperClient;
 use roost_keeper::client_error::ClientError;
 use roost_keeper::client_frames::EventPoll;
-use roost_keeper::client_resize::{ResizeOutcome, ResizeUnknownReason};
 use roost_keeper::codec::{KEEPER_MAX_INPUT_BYTES, MuxFrame};
 use roost_keeper::frames::ChannelBinding as KeeperChannelBinding;
 
@@ -50,6 +49,8 @@ use super::pool_lifecycle::KeeperDeathHook;
 use crate::runtime::keeper_handle::KeeperHandle;
 use crate::session::keeper_channels::{InputNotWritten, KeeperInputCommand};
 use crate::session::sinks::ChannelBinding;
+#[path = "pool_resize.rs"]
+mod resize;
 
 /// A PTY the keeper opened, and the channel it is addressed by.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -197,50 +198,6 @@ impl KeeperPool {
     /// What a channel has written and not yet heard back about.
     pub fn pending_input(&self, channel_id: u16) -> PendingInputUsage {
         self.pending_inputs.usage(channel_id)
-    }
-
-    /// Apply a geometry change, and report what the keeper did with it.
-    ///
-    /// Acknowledged on purpose. A resize that is written and not confirmed is a
-    /// terminal whose grid no longer matches the PTY it is painting, and the
-    /// mismatch stays invisible until a full-screen program redraws at the old
-    /// size.
-    ///
-    /// The outcome is handed back rather than collapsed: a refusal names why the
-    /// PTY will not move, and an unknown is the one case the caller recovers by
-    /// asking `resize_status` instead of resending. A `Disconnected` unknown is
-    /// also the only signal that the connection went, since a resize's refusal
-    /// and its silence are both answers rather than I/O errors now — so the
-    /// loss is reported here, keeping this pool's rule that only a failed
-    /// connection declares the keeper lost.
-    pub fn resize(
-        &self,
-        channel_id: u16,
-        seq: u64,
-        cols: u16,
-        rows: u16,
-    ) -> Result<ResizeOutcome, PoolError> {
-        self.require_connected()?;
-        let Some(_pending) = self.pending_resizes.begin(channel_id, seq) else {
-            tracing::warn!(
-                channel_id,
-                seq,
-                "a resize under an in-flight sequence was refused before it was written"
-            );
-            return Err(PoolError::ResizeInFlight { channel_id, seq });
-        };
-        tracing::debug!(channel_id, seq, cols, rows, "resizing a keeper channel");
-        let outcome = self.request(|client| Ok(client.resize(channel_id, seq, cols, rows)))?;
-        if let ResizeOutcome::Unknown {
-            reason: ResizeUnknownReason::Disconnected,
-            ..
-        } = outcome
-        {
-            self.keeper_lost(format!(
-                "the keeper connection failed during a resize of channel {channel_id}"
-            ));
-        }
-        Ok(outcome)
     }
 
     /// When each resize still in flight on `channel_id` was written, for the

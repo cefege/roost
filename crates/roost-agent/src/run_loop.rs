@@ -64,9 +64,7 @@ async fn drive(
         if let Some(recovered) = recovered.take() {
             memory.continued = recovered.continued;
             memory.yield_reminders = recovered.yield_reminders;
-            if let Some(turn) = recovered.pending_text
-                && steer_rx.is_empty()
-            {
+            if let Some(turn) = recovered.pending_text {
                 match finish_text_turn(
                     runtime,
                     id,
@@ -94,6 +92,7 @@ async fn drive(
             Err(error) => return RunEnd::Failed(error.to_string()),
         };
         match outcome {
+            TurnOutcome::NoWork => return RunEnd::Completed,
             TurnOutcome::Tools { end: Some(end) } => return end,
             TurnOutcome::Tools { end: None } => {}
             TurnOutcome::Text { output, model } => {
@@ -126,7 +125,7 @@ async fn finish_text_turn(
     output: ModelOutput,
     model: Option<ResolvedModel>,
 ) -> Result<Option<RunEnd>, AgentError> {
-    if !steer_rx.is_empty() {
+    if inject_steered(runtime, id, steer_rx, memory).await? > 0 {
         return Ok(None);
     }
     let record = runtime.record(id).await?;
@@ -148,6 +147,7 @@ async fn finish_text_turn(
                 crate::records::Entry::User {
                     text: reminder,
                     loop_repeat: false,
+                    item_id: None,
                 },
             )
             .await?;
@@ -168,6 +168,7 @@ async fn finish_text_turn(
         let nudge = crate::records::Entry::User {
             text: prompts::UNEXPECTED_STOP.to_owned(),
             loop_repeat: false,
+            item_id: None,
         };
         runtime.append(id, nudge).await?;
         return Ok(None);
@@ -177,7 +178,7 @@ async fn finish_text_turn(
             || (goal.status == roost_protocol::wire::agent_chat::GoalStatus::Active
                 && goal.waiting_reason.is_none())
     }) {
-        if !steer_rx.is_empty() {
+        if inject_steered(runtime, id, steer_rx, memory).await? > 0 {
             return Ok(None);
         }
         tokio::select! {
@@ -185,7 +186,9 @@ async fn finish_text_turn(
             accepted = steer_rx.recv() => {
                 if let Some(accepted) = accepted {
                     memory.pending_steers.push_back(accepted);
-                    return Ok(None);
+                    if inject_steered(runtime, id, steer_rx, memory).await? > 0 {
+                        return Ok(None);
+                    }
                 }
             }
             () = tokio::time::sleep(std::time::Duration::from_millis(800)) => {}
@@ -202,7 +205,8 @@ async fn inject_steered(
     id: &str,
     steer_rx: &mut mpsc::UnboundedReceiver<Steer>,
     memory: &mut RunMemory,
-) -> Result<(), AgentError> {
+) -> Result<usize, AgentError> {
+    let mut injected = 0;
     loop {
         let Some(message) = memory
             .pending_steers
@@ -212,14 +216,35 @@ async fn inject_steered(
             break;
         };
         if let Steer::Persisted { entry, sequence } = message {
-            if matches!(entry, crate::records::Entry::User { .. }) {
-                memory.new_submission();
-                // The message left the queue: it appears here, after the
-                // reply and tool round it waited behind.
-                runtime.emit_entry(id, sequence, &entry).await?;
+            let entries = runtime.inner.store.entries(id).await?;
+            let still_present = crate::journal::effective_entries(&entries).iter().any(
+                |(candidate_sequence, candidate)| {
+                    *candidate_sequence == sequence && candidate == &entry
+                },
+            );
+            if !still_present {
+                continue;
             }
+            if matches!(entry, crate::records::Entry::User { .. }) {
+                let consumed_through = entries
+                    .iter()
+                    .filter_map(|(_, candidate)| match candidate {
+                        crate::records::Entry::InputConsumed { through_seq } => Some(*through_seq),
+                        crate::records::Entry::Assistant {
+                            metadata: Some(metadata),
+                            ..
+                        } => Some(metadata.input_through_seq),
+                        _ => None,
+                    })
+                    .max()
+                    .unwrap_or(0);
+                if sequence <= consumed_through {
+                    continue;
+                }
+            }
+            injected += 1;
             runtime.note_processed_seq(id, sequence);
         }
     }
-    Ok(())
+    Ok(injected)
 }

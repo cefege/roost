@@ -66,8 +66,8 @@ pub(super) async fn serve(
             // answers — arrives here and is admitted like any other frame, so
             // the link stays the only thing that writes bytes. `recv` has
             // already dropped a reply whose connection is gone.
-            Some(frame) = loop_state.uplink.recv() => {
-                super::link_drain::admit_uplink(loop_state, frame);
+            Some(delivery) = loop_state.uplink.recv_delivery() => {
+                delivery.admit(|frame| super::link_drain::admit_uplink(loop_state, frame));
             }
             incoming = link.recv() => {
                 let now = Instant::now();

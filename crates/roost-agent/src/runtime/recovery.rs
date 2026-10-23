@@ -67,7 +67,7 @@ impl AgentRuntime {
             },
         )
         .await?;
-        let Some(done) = self.start_run_now(id, parent, recovered_run).await? else {
+        let Some(done) = self.start_run_now(id, parent, recovered_run, None).await? else {
             return Ok(false);
         };
         drop(done);

@@ -1,0 +1,2 @@
+ALTER TABLE agent_conversations
+    ADD COLUMN read_only BOOLEAN NOT NULL DEFAULT FALSE;

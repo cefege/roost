@@ -188,6 +188,7 @@ async fn recovered_successful_output_finishes_without_repeating_its_primary_call
         Entry::User {
             text: "already answered".into(),
             loop_repeat: false,
+            item_id: None,
         },
     )
     .await;
@@ -240,6 +241,7 @@ async fn late_user_and_advisory_inputs_are_not_marked_consumed_by_prior_output()
         Entry::User {
             text: "first request".into(),
             loop_repeat: false,
+            item_id: None,
         },
     )
     .await;
@@ -277,6 +279,7 @@ async fn late_user_and_advisory_inputs_are_not_marked_consumed_by_prior_output()
         Entry::User {
             text: "late steer".into(),
             loop_repeat: false,
+            item_id: None,
         },
     )
     .await;

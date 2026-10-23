@@ -125,11 +125,11 @@ pub fn HomeLanding(reader_platform: BrowserPlatform) -> Element {
                 Empty { class: "flex flex-col items-center gap-3 rounded-none border-0 p-0 text-center text-muted-foreground",
                     EmptyHeader {
                         EmptyMedia { variant: EmptyMediaVariant::Icon,
-                            Icon { icon: IconType::Terminal, class: "size-6 shrink-0" }
+                            Icon { icon: IconType::Bot, class: "size-6 shrink-0" }
                         }
-                        EmptyTitle { class: "text-base font-normal leading-normal text-foreground", "Open a workspace" }
+                        EmptyTitle { class: "text-base font-normal leading-normal text-foreground", "Open an agent workspace" }
                         EmptyDescription { class: "max-w-[42ch] text-sm",
-                            "Select a workspace from the sidebar, or press "
+                            "Select a conversation or start a new agent from the sidebar, or press "
                             Kbd { class: "whitespace-nowrap", {SHORTCUTS[0].glyph(reader_platform)} }
                             " to open the Command palette."
                         }

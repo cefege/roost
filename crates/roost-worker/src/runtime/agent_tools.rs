@@ -263,7 +263,7 @@ pub struct AgentToolsLinkLifecycle(pub Arc<dyn AgentToolsPort>);
 
 impl LinkLifecyclePort for AgentToolsLinkLifecycle {
     fn on_open(&self) {}
-    fn on_hello_ack(&self, _terminal_metadata_negotiated: bool) {}
+    fn on_hello_ack(&self, _capabilities: &[String]) {}
     fn on_detach(&self) {
         self.0.close_all();
     }

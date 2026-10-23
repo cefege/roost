@@ -1,10 +1,7 @@
-//! Path and shell conventions, with no I/O, no clock, no environment and no
-//! async: the host platform vocabulary, a lexical path algebra that
-//! implements POSIX and Windows rules explicitly, the one POSIX shell quoter,
-//! the enrollment command that quoter builds, the browser pairing link, and
-//! the environment entry names an installed service definition carries. Every
-//! crate that touches the filesystem depends on this instead of asking the OS
-//! directly.
+//! Pure platform path and shell conventions, without I/O or environment reads.
+//! Owns POSIX/Windows path algebra and shell quoting.
+//! Enrollment, pairing links and installed-service environment names use these rules.
+//! Native hosts and browser clients share the same explicit platform vocabulary.
 
 #![forbid(unsafe_code)]
 

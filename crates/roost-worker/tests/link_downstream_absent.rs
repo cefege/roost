@@ -37,7 +37,10 @@ fn answers(frame: Down) -> Vec<Up> {
     let mut link = FakeLink::default();
     dispatcher.dispatch(frame, Instant::now(), &mut link);
     assert!(fakes.log.calls().is_empty(), "no wave-1 owner is involved");
-    assert!(receiver.try_recv().is_none(), "nothing is answered later");
+    assert!(
+        receiver.try_recv_delivery().is_none(),
+        "nothing is answered later"
+    );
     link.replies
 }
 
@@ -47,7 +50,10 @@ fn answers_without_owners(frame: Down) -> Vec<Up> {
     let dispatcher = Dispatcher::new(uplink, EPOCH, None);
     let mut link = FakeLink::default();
     dispatcher.dispatch(frame, Instant::now(), &mut link);
-    assert!(receiver.try_recv().is_none(), "nothing is answered later");
+    assert!(
+        receiver.try_recv_delivery().is_none(),
+        "nothing is answered later"
+    );
     link.replies
 }
 
@@ -322,7 +328,7 @@ async fn a_worker_without_owners_refuses_input_and_claims_as_v2_does() {
         &mut link,
     );
     settle_tasks().await;
-    assert!(receiver.try_recv().is_none());
+    assert!(receiver.try_recv_delivery().is_none());
     let [Up::InputResult(result), Up::TerminalInputRouteResult(route)] = link.replies.as_slice()
     else {
         panic!("{:?}", link.replies)

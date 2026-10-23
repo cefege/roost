@@ -1,6 +1,6 @@
 # `crates/` — the v3 crate map
 
-Seventeen crates plus a gate runner (`xtask/`). One Git repository, one wire
+Product crates plus a gate runner (`xtask/`). One Git repository, one wire
 contract; the vendored terminal core lives in `third_party/`, outside the
 workspace.
 
@@ -13,7 +13,8 @@ registry, `Session` is the user-facing row, `Channel` is a PTY connection,
 | `roost-proto` | Generated protobuf messages and Connect service stubs, built from `protocol/proto/roost/v1` by `connectrpc-build`. | — |
 | `roost-observability` | `tracing` JSON-lines init and the log line shape `roost status` / `roost doctor` parse. | — |
 | `roost-protocol` | Pure I/O-free wire and terminal logic: event variants and the canonical fold, cell and grid models, viewport geometry, peer packet framing, the keeper-update contract, layout documents. Builds for `wasm32`. | — |
-| `roost-platform` | Platform path and shell conventions. No I/O, no async, no logging. | — |
+| `roost-platform` | Pure platform path and shell conventions and quoting. No I/O, no async, no logging. | — |
+| `roost-shell-tokenize` | Pure shell lexing and ECMAScript whitespace helpers, shared with terminal links. No dependencies or I/O. | — |
 | `roost-host` | `ROOST_*` config, service names, durable atomic writes, service health probes. | — |
 | `roost-term` | The `TerminalCore` trait, its rio-vt implementation, and the grid→`CellGridFrame` emitter. | — |
 | `roost-keeper` | The keeper daemon: PTY ownership, per-channel byte rings, the framed keeper socket protocol. | `roost-keeper` |
@@ -25,9 +26,10 @@ registry, `Session` is the user-facing row, `Channel` is a PTY connection,
 | `roost-llm` | The agent harness's provider layer: model catalog, Anthropic / OpenAI Codex / OpenRouter / TypeSafe wire clients, OAuth logins, the multi-account credential pool and rotation, usage reports, the judge. | — |
 | `roost-agent` | The agent harness: conversation loop and durable recovery, run leases and cross-replica command delivery, goal lifecycle/budget/progress policy, prompts, model roles, plan mode, subagents, semantic find, the advisor, slash commands. The coordinator drives it through store, tool-executor, sink and cluster-signal traits. | — |
 | `roost-agent-tools` | The worker-side agent tools: hashline read/edit, write, bash, grep, glob, LSP client and on-demand language-server installer. | — |
+| `roost-vcs` | Git-linked worktree creation: reflink staging, clean target reconciliation or retained live changes, safe plain-checkout fallback, and captured checkout hooks. | — |
 | `roost-web-terminal` | The imperative `web-sys` terminal renderer and its input, IME, mouse, selection and link controllers. | — |
 | `roost-web` | The Dioxus 0.7 web application: routes, components, static assets. | — |
-| `roost-cli` | The `roost` binary: `coord`, `worker`, `quickstart`, `join`, `add-machine`, `add-browser`, `status`, `doctor`, `update`, `deploy`, `push`, `api` (28 headless verbs), `skill`, `db-to-postgres`, `db-to-sqlite`, `import-v2`. | `roost` |
+| `roost-cli` | The `roost` binary: `coord`, `worker`, `quickstart`, `join`, `add-machine`, `add-browser`, `status`, `doctor`, `update`, `deploy`, `push`, `api` (28 headless verbs), `skill`, `worktree add`, `db-to-postgres`, `db-to-sqlite`, `import-v2`. | `roost` |
 | `roost-bench` | The v2-vs-v3 speed benchmark: boots each stack in isolation, drives one headless Chromium over CDP, samples `/proc` CPU/RSS, writes `target/bench/runs/<id>/report.md`. A developer tool, never shipped. | `roost-bench` |
 
 ## Dependency DAG
@@ -40,6 +42,8 @@ allowlist in `xtask/src/crate_dag.rs`, and a new edge fails
 roost-proto          → ∅
 roost-observability  → ∅
 roost-platform       → ∅
+roost-shell-tokenize → ∅
+roost-vcs            → ∅
 roost-protocol       → proto, observability
 roost-host           → protocol, platform, observability
 roost-term           → protocol, observability, rio-vt (vendored), rio-graphics
@@ -50,9 +54,9 @@ roost-llm            → observability
 roost-agent          → llm, protocol, observability
 roost-agent-tools    → protocol, platform, observability
 roost-client-core    → protocol, proto, observability
-roost-web-terminal   → client-core, protocol
+roost-web-terminal   → client-core, protocol, shell-tokenize
 roost-web            → web-terminal, client-core, protocol, platform
-roost-cli            → coord, worker, keeper, client-core, host, proto, protocol, platform, observability
+roost-cli            → coord, worker, keeper, client-core, host, proto, protocol, platform, observability, vcs
 roost-bench          → proto, observability
 ```
 

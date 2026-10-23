@@ -18,6 +18,7 @@ async fn late_run_intent_does_not_discard_already_consumed_output() {
             &Entry::User {
                 text: "first".into(),
                 loop_repeat: false,
+                item_id: None,
             },
             &[],
             None,
@@ -46,6 +47,7 @@ async fn late_run_intent_does_not_discard_already_consumed_output() {
             &Entry::User {
                 text: "already consumed".into(),
                 loop_repeat: false,
+                item_id: None,
             },
             &[],
             None,

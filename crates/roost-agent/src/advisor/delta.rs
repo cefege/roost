@@ -110,6 +110,9 @@ fn render_entry(entry: &Entry) -> Option<String> {
         )),
         Entry::Btw { .. }
         | Entry::Rewind { .. }
+        | Entry::QueuedInput { .. }
+        | Entry::QueuedInputWithdrawn { .. }
+        | Entry::InputConsumed { .. }
         | Entry::ExtraUsage { .. }
         | Entry::SubagentContext { .. }
         | Entry::RunIntent { .. }

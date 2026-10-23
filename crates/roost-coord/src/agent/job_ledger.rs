@@ -53,6 +53,14 @@ impl JobLedger {
             .count()
     }
 
+    pub fn running_jobs(&self, conversation_id: &str) -> Vec<RunningJob> {
+        self.running
+            .values()
+            .filter(|job| job.key.conversation_id == conversation_id)
+            .cloned()
+            .collect()
+    }
+
     /// The distinct workers running a job of the conversation, sorted.
     pub fn workers_running(&self, conversation_id: &str) -> Vec<String> {
         let mut workers: Vec<String> = self
@@ -108,6 +116,7 @@ mod tests {
         assert_eq!(ledger.running_count("c1"), 1);
         assert_eq!(ledger.record_settled(&started.key), Some(started));
         assert_eq!(ledger.running_count("c1"), 0);
+        assert!(ledger.running_jobs("c1").is_empty());
     }
 
     #[test]

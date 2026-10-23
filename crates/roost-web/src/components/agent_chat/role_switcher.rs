@@ -22,8 +22,8 @@ use crate::components::settings::agent_roles::{load_settings, role_options, save
 use crate::components::settings::model_scope::{ModelScope, with_role_value};
 use crate::components::ui::anchored_panel::focus_element_by_id;
 use crate::components::ui::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Chip, IconButton, IconType, List,
-    ListRow, Popover, PopoverContent, PopoverTrigger,
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Chip, FieldError, IconButton, IconType,
+    List, ListRow, Popover, PopoverContent, PopoverTrigger, Skeleton,
 };
 use crate::pump::Pump;
 use crate::router_state::use_navigate;
@@ -43,11 +43,12 @@ pub(super) fn RoleSwitcher(
     let mut open = use_signal(|| false);
     let mut editing = use_signal(|| None::<RoleLine>);
     let settings = use_signal(AgentSettingsView::default);
+    let settings_loaded = use_signal(|| false);
     let error = use_signal(String::new);
     let load_pump = pump.clone();
     use_effect(move || {
         if open() {
-            load_settings(load_pump.clone(), settings, error);
+            load_settings(load_pump.clone(), settings, error, settings_loaded);
         }
     });
     let close = EventHandler::new(move |()| {
@@ -68,10 +69,10 @@ pub(super) fn RoleSwitcher(
             test_id: "agent-roles",
             // Escape steps back out of an editor before it closes the panel.
             on_escape: EventHandler::new(move |()| {
+                focus_element_by_id(&escape_trigger_id);
                 if editing.peek().is_some() {
                     editing.set(None);
                 } else {
-                    focus_element_by_id(&escape_trigger_id);
                     close.call(());
                 }
             }),
@@ -84,7 +85,13 @@ pub(super) fn RoleSwitcher(
             }
             PopoverContent {
                 class: "w-80 p-2",
-                RolePanel { editing, on_close: close, conversation, catalog, pump, settings, error }
+                if settings_loaded() {
+                    RolePanel { editing, on_close: close, conversation, catalog, pump, settings, error }
+                } else if !error().is_empty() {
+                    FieldError { {error()} }
+                } else {
+                    Skeleton { class: "h-24 w-full" }
+                }
             }
         }
     }

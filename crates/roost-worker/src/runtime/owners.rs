@@ -210,7 +210,8 @@ impl WorkerOwners {
             Arc::clone(&pool),
             keeper_endpoint,
         );
-        let keeper: Arc<dyn KeeperPipelineSource> = pool;
+        let keeper: Arc<dyn KeeperPipelineSource> =
+            Arc::clone(&pool) as Arc<dyn KeeperPipelineSource>;
         let pipeline = PipelineOwner::new(
             Arc::clone(&stack.table),
             Arc::clone(&stack.manager),

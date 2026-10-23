@@ -1,7 +1,6 @@
-//! The route-stable primary sidebar: the Folders/Agents selector, the shared
-//! debounced filter, both retained panels (only the selected one visible and
-//! interactive), the compact-only terminal text-size row (desktop carries it in
-//! the activity rail; the drawer has no rail) and the pinned new-terminal bar. Ports
+//! The route-stable primary sidebar: the Folders/Agents selector, shared
+//! debounced filter, retained panels, compact terminal text-size row, and
+//! pinned workspace launch bar. Ports
 //! `apps/web/src/components/sidebar/SidebarRoot.tsx`; `AppShell` mounts it once
 //! in the desktop aside or the compact drawer. State changes dispatch
 //! `ClientEvent::Sidebar`.
@@ -35,6 +34,11 @@ pub fn SidebarRoot() -> Element {
     provide_rel_time_ticker();
     let navigate = use_navigate();
     let compact = use_is_compact();
+    let location = crate::router_state::use_location();
+    let terminal_route = matches!(
+        Route::parse(&location()),
+        Route::Session { .. } | Route::Terminal { .. } | Route::Workspace { .. }
+    );
     let mut query = use_signal(String::new);
     let mut debounced = use_signal(String::new);
     let mut debounce_generation = use_signal(|| 0_u64);
@@ -112,6 +116,15 @@ pub fn SidebarRoot() -> Element {
                         aria_label: "Sidebar view",
                         test_id: "sidebar-selector",
                         ToggleGroupItem {
+                            id: "sidebar-view-agents",
+                            test_id: "sidebar-view-agents",
+                            class: "h-8 min-w-0 flex-1 data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm",
+                            title: "Agent workspaces",
+                            pressed: agents_selected,
+                            onclick: move |_| select_view(SidebarView::Agents),
+                            "Workspaces"
+                        }
+                        ToggleGroupItem {
                             id: "sidebar-view-folders",
                             test_id: "sidebar-view-folders",
                             class: "h-8 min-w-0 flex-1 data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm",
@@ -119,15 +132,6 @@ pub fn SidebarRoot() -> Element {
                             pressed: folders_selected,
                             onclick: move |_| select_folders(SidebarView::Folders),
                             "Folders"
-                        }
-                        ToggleGroupItem {
-                            id: "sidebar-view-agents",
-                            test_id: "sidebar-view-agents",
-                            class: "h-8 min-w-0 flex-1 data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm",
-                            title: "Agents",
-                            pressed: agents_selected,
-                            onclick: move |_| select_view(SidebarView::Agents),
-                            "Agents"
                         }
                     }
                     if compact {
@@ -144,7 +148,7 @@ pub fn SidebarRoot() -> Element {
                 SidebarSearch {
                     query: query(),
                     on_change: on_query_change,
-                    placeholder: if folders_selected { "Filter folders…".to_owned() } else { "Filter agents…".to_owned() },
+                    placeholder: if folders_selected { "Filter folders…".to_owned() } else { "Filter workspaces…".to_owned() },
                     shortcut_label: platform_shortcut_label(PlatformShortcut::SidebarSearch, "⌘F", platform).to_owned(),
                 }
             }
@@ -166,7 +170,7 @@ pub fn SidebarRoot() -> Element {
                     SidebarAgents { query: debounced() }
                 }
             }
-            if compact {
+            if compact && terminal_route {
                 div {
                     class: "flex items-center justify-between gap-2 border-t border-border px-3 py-2",
                     "data-testid": "sidebar-text-size",

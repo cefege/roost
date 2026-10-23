@@ -3,7 +3,7 @@
 //! Signatures follow `protocol/proto/roost/v1/coordinator.proto`; each
 //! implemented arm resolves its caller through `service::caller_of` and
 //! delegates to its domain handler. The route-arm test pins each method to its
-//! declared status; the 16 `UnwiredInV2` methods answer a named `Unimplemented`.
+//! declared status; the 16 unwired methods answer a named `Unimplemented`.
 
 use std::future::Future;
 
@@ -30,8 +30,9 @@ use crate::agent::rpc_chat::{
     handle_agent_chat_abort, handle_agent_chat_configure, handle_agent_chat_create,
     handle_agent_chat_delete, handle_agent_chat_events, handle_agent_chat_list,
     handle_agent_chat_plan_decide, handle_agent_chat_snapshot, handle_agent_chat_submit,
-    handle_agent_models_list,
+    handle_agent_chat_withdraw, handle_agent_models_list,
 };
+use crate::agent::rpc_inspect::handle_agent_chat_inspect;
 use crate::agent::rpc_turns::{
     handle_agent_chat_answer, handle_agent_chat_fork, handle_agent_chat_rewind,
 };
@@ -602,6 +603,32 @@ impl CoordinatorService for CoordinatorServiceImpl {
         async move {
             let caller = caller_of(&ctx, "AgentChatAbort")?;
             handle_agent_chat_abort(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn agent_chat_withdraw<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentChatWithdrawRequest>,
+    ) -> impl Future<
+        Output = ServiceResult<impl Encodable<AgentChatWithdrawResponse> + Send + use<'a>>,
+    > + Send {
+        async move {
+            let caller = caller_of(&ctx, "AgentChatWithdraw")?;
+            handle_agent_chat_withdraw(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn agent_chat_inspect<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentChatInspectRequest>,
+    ) -> impl Future<
+        Output = ServiceResult<impl Encodable<AgentChatInspectResponse> + Send + use<'a>>,
+    > + Send {
+        async move {
+            let caller = caller_of(&ctx, "AgentChatInspect")?;
+            handle_agent_chat_inspect(&self.core, caller, r.to_owned_message()).await
         }
     }
 

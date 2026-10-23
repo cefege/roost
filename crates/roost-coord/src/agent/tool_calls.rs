@@ -6,21 +6,22 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
-use roost_agent::AgentRuntime;
+use roost_agent::{AgentRuntime, OwnerConversationId, WorkerConversationNamespace};
 use roost_protocol::versioning::CAPABILITY_AGENT_TOOLS_V1;
 use roost_protocol::wire::coord_worker::{CoordWorkerDownstream, CoordWorkerUpstream};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use super::job_ledger::JobLedger;
+use super::tool_calls_jobs::ActiveToolCall;
 use crate::coord_core::worker_handle::{WorkerHandle, WorkerRegistry};
-use crate::coord_core::worker_lifecycle::{LinkEnd, WorkerLifecycleObserver};
 use crate::db::CoordDb;
+mod dispatch_guard;
+mod lifecycle;
 
 const MAX_TOOL_RESULT_BYTES: usize = 4 * 1024 * 1024;
 const RESULT_TRUNCATION_NOTE: &str = "\n[tool result truncated at 4 MiB]";
 
-/// The result returned by a worker's tool host.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WorkerToolOutcome {
     pub is_error: bool,
@@ -32,7 +33,10 @@ pub struct WorkerToolOutcome {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AgentToolCallSpec {
     pub call_id: String,
-    pub conversation_id: String,
+    /// Worker-local namespace used for per-conversation tool state.
+    pub conversation_id: WorkerConversationNamespace,
+    /// Persisted conversation whose current policy governs this call.
+    pub owner_conversation_id: OwnerConversationId,
     pub cwd: String,
     pub tool: String,
     pub args_json: String,
@@ -43,21 +47,21 @@ pub struct AgentToolCallSpec {
 #[derive(Debug)]
 pub(super) struct PendingCall {
     pub(super) worker_fp: String,
-    worker_label: String,
+    pub(super) worker_label: String,
     pub(super) conversation_id: String,
+    pub(super) tool_name: String,
     completion: oneshot::Sender<Result<WorkerToolOutcome, String>>,
     output: mpsc::Sender<String>,
 }
 
-/// Pending tool calls, the live worker generation registry they target, and
-/// the background jobs the workers report.
+/// Pending tool calls, routable workers, and background jobs.
 pub struct ToolCallRegistry {
     pub(super) workers: Arc<WorkerRegistry>,
     database: CoordDb,
     pub(super) pending: Mutex<HashMap<String, PendingCall>>,
+    pub(super) waiting_calls: Mutex<HashMap<String, ActiveToolCall>>,
     pub(super) jobs: Mutex<JobLedger>,
-    /// Set once the agent runtime exists; it is built after the tool executor
-    /// that holds this registry, so it cannot be a constructor argument.
+    /// Bound after construction because the executor owns this registry.
     pub(super) runtime: OnceLock<AgentRuntime>,
 }
 
@@ -77,13 +81,13 @@ impl ToolCallRegistry {
             workers,
             database,
             pending: Mutex::new(HashMap::new()),
+            waiting_calls: Mutex::new(HashMap::new()),
             jobs: Mutex::new(JobLedger::default()),
             runtime: OnceLock::new(),
         }
     }
 
-    /// Wait for the selected worker, then send one call and await its result.
-    /// A lost link after dispatch never automatically replays the call.
+    /// Wait for the worker and dispatch once; link loss never replays a call.
     pub async fn execute(
         &self,
         worker_fp: &str,
@@ -92,29 +96,78 @@ impl ToolCallRegistry {
         cancel: CancellationToken,
     ) -> Result<WorkerToolOutcome, String> {
         let job_command = super::tool_calls_jobs::bash_command(&call.tool, &call.args_json);
-        let conversation_id = call.conversation_id.clone();
+        let conversation_id = call.conversation_id.0.clone();
         let fingerprint = roost_protocol::wire::WorkerFp::try_from(worker_fp.to_owned())
             .map_err(|_| format!("invalid machine fingerprint {worker_fp}"))?;
         let label = self
             .worker_label(worker_fp)
             .await
             .unwrap_or_else(|| worker_fp.to_owned());
+        {
+            let mut waiting = self
+                .waiting_calls
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            let pending = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
+            if pending.contains_key(&call.call_id) || waiting.contains_key(&call.call_id) {
+                return Err("duplicate agent tool call id".to_owned());
+            }
+            waiting.insert(
+                call.call_id.clone(),
+                ActiveToolCall {
+                    call_id: call.call_id.clone(),
+                    conversation_id: conversation_id.clone(),
+                    tool_name: call.tool.clone(),
+                    worker_label: label.clone(),
+                    state: "queued",
+                },
+            );
+        }
         let Some(worker) = self.await_worker(&fingerprint, &label, &cancel).await else {
-            return Ok(WorkerToolOutcome {
-                is_error: false,
-                content: "Cancelled before dispatch.".to_owned(),
-                details_json: r#"{"cancelled":true}"#.to_owned(),
-            });
+            self.remove_waiting(&call.call_id);
+            return Ok(cancelled_before_dispatch());
         };
+        let policy = dispatch_guard::allows(
+            self.runtime.get(),
+            &call.owner_conversation_id,
+            &call.tool,
+            &call.args_json,
+        )
+        .await;
+        if cancel.is_cancelled() {
+            self.remove_waiting(&call.call_id);
+            return Ok(cancelled_before_dispatch());
+        }
+        let allowed = match policy {
+            Ok(allowed) => allowed,
+            Err(error) => {
+                self.remove_waiting(&call.call_id);
+                return Err(error);
+            }
+        };
+        if !allowed {
+            self.remove_waiting(&call.call_id);
+            return Ok(WorkerToolOutcome {
+                is_error: true,
+                content: format!("Tool `{}` is disabled in read-only mode.", call.tool),
+                details_json: "{}".to_owned(),
+            });
+        }
         if !worker.capabilities.contains(CAPABILITY_AGENT_TOOLS_V1) {
+            self.remove_waiting(&call.call_id);
             return Err(format!("machine {label} does not support agent tools"));
         }
         let offline_message = format!("machine {label} disconnected before dispatch");
         let deadline = std::time::Duration::from_millis(u64::from(call.timeout_ms));
         let (completion, completed) = oneshot::channel();
         {
+            let mut waiting = self
+                .waiting_calls
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
             let mut pending = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
             if pending.contains_key(&call.call_id) {
+                waiting.remove(&call.call_id);
                 return Err("duplicate agent tool call id".to_owned());
             }
             pending.insert(
@@ -123,15 +176,18 @@ impl ToolCallRegistry {
                     worker_fp: worker_fp.to_owned(),
                     worker_label: label.clone(),
                     conversation_id: conversation_id.clone(),
+                    tool_name: call.tool.clone(),
                     completion,
                     output: out,
                 },
             );
+            waiting.remove(&call.call_id);
         }
+        tracing::debug!(conversation_id = %conversation_id, call_id = %call.call_id, tool = %call.tool, worker_label = %label, "agent tool call dispatched");
         let sent = worker.send(CoordWorkerDownstream::AgentToolCall(
             roost_proto::DAgentToolCall {
                 call_id: call.call_id.clone(),
-                conversation_id: call.conversation_id,
+                conversation_id: call.conversation_id.0,
                 cwd: call.cwd,
                 tool: call.tool,
                 args_json: call.args_json,
@@ -258,7 +314,7 @@ impl ToolCallRegistry {
                     return false;
                 };
                 drop(pending);
-                let (content, truncated) = truncate_utf8(
+                let (content, truncated) = lifecycle::truncate_utf8(
                     result.content,
                     MAX_TOOL_RESULT_BYTES - RESULT_TRUNCATION_NOTE.len(),
                 );
@@ -286,6 +342,13 @@ impl ToolCallRegistry {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(call_id)
+    }
+
+    fn remove_waiting(&self, call_id: &str) {
+        self.waiting_calls
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(call_id);
     }
 
     async fn worker_label(&self, worker_fp: &str) -> Option<String> {
@@ -326,34 +389,10 @@ impl ToolCallRegistry {
     }
 }
 
-impl WorkerLifecycleObserver for ToolCallRegistry {
-    fn acknowledge_capabilities(
-        &self,
-        advertised: &std::collections::BTreeSet<String>,
-    ) -> Vec<&'static str> {
-        advertised
-            .contains(CAPABILITY_AGENT_TOOLS_V1)
-            .then_some(CAPABILITY_AGENT_TOOLS_V1)
-            .into_iter()
-            .collect()
+fn cancelled_before_dispatch() -> WorkerToolOutcome {
+    WorkerToolOutcome {
+        is_error: false,
+        content: "Cancelled before dispatch.".to_owned(),
+        details_json: r#"{"cancelled":true}"#.to_owned(),
     }
-
-    fn on_superseded(&self, superseded: &Arc<WorkerHandle>) {
-        self.reject_worker(superseded.worker_fp.as_str(), "superseded");
-    }
-
-    fn on_closed(&self, handle: &Arc<WorkerHandle>, _end: LinkEnd) {
-        self.reject_worker(handle.worker_fp.as_str(), "closed");
-    }
-}
-
-fn truncate_utf8(text: String, limit: usize) -> (String, bool) {
-    if text.len() <= limit {
-        return (text, false);
-    }
-    let mut end = limit;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    (text[..end].to_owned(), true)
 }

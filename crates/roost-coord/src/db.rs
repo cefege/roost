@@ -42,6 +42,7 @@
 
 mod backend;
 mod in_list;
+mod migration_apply;
 mod migration_validation;
 pub mod postgres_to_sqlite;
 mod sql_builder;
@@ -262,7 +263,7 @@ pub async fn open(location: &DatabaseLocation) -> Result<CoordDb, DbError> {
         .await
         .map_err(|error| DbError::PreMigrationBackup(error.to_string()))?;
     }
-    database.apply_migrations(&migrator).await?;
+    database.apply_migrations(&mut migrator).await?;
     migration_validation::enable_and_verify_foreign_keys(&database).await?;
     if let Some(final_migration) = pending.last() {
         migration_validation::validate_integrity(&database, final_migration).await?;
@@ -327,24 +328,13 @@ impl CoordDb {
         self.sqlite_path.as_deref()
     }
 
-    /// Apply every pending embedded migration.
-    ///
-    /// `sqlx` records applied migrations in `_sqlx_migrations` and wraps each in
-    /// a transaction, so a partial migration is not a state this function can
-    /// leave behind. It also stores a **checksum**, which v2's bespoke runner did
-    /// not (`apps/coord/src/db/migrate.ts:295-300` stored only a name and a
-    /// timestamp) -- a stricter contract, and the reason `0001_init.sql` must
-    /// never be edited after it has shipped anywhere. Editing it would produce a
-    /// v3 install whose database does not match its migrations, with something
-    /// to notice.
-    async fn apply_migrations(&self, migrator: &sqlx::migrate::Migrator) -> Result<(), DbError> {
-        migrator
-            .run(&self.pool)
-            .await
-            .map_err(|error| DbError::Migration {
-                name: "embedded".to_string(),
-                reason: error.to_string(),
-            })
+    /// Commit pending schema changes together so old replicas never observe an
+    /// intermediate migration that temporarily invalidates their writes.
+    async fn apply_migrations(
+        &self,
+        migrator: &mut sqlx::migrate::Migrator,
+    ) -> Result<(), DbError> {
+        migration_apply::apply_pending_migrations(&self.pool, migrator).await
     }
 
     /// Run `PRAGMA integrity_check` and require exactly `ok`.

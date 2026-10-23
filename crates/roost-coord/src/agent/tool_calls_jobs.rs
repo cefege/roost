@@ -11,6 +11,15 @@ use roost_protocol::wire::coord_worker::CoordWorkerDownstream;
 use super::job_ledger::{JobKey, RunningJob};
 use super::tool_calls::ToolCallRegistry;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActiveToolCall {
+    pub call_id: String,
+    pub conversation_id: String,
+    pub tool_name: String,
+    pub worker_label: String,
+    pub state: &'static str,
+}
+
 /// The command a bash call runs, recorded so a job notice can name it. Other
 /// tools have no command.
 pub(super) fn bash_command(tool: &str, args_json: &str) -> String {
@@ -190,6 +199,52 @@ impl ToolCallRegistry {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .running_count(conversation_id)
+    }
+
+    pub fn running_jobs_for(&self, conversation_id: &str) -> Vec<RunningJob> {
+        let mut jobs = self
+            .jobs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .running_jobs(conversation_id);
+        jobs.sort_by(|left, right| {
+            left.key
+                .job_id
+                .cmp(&right.key.job_id)
+                .then_with(|| left.key.worker_fp.cmp(&right.key.worker_fp))
+        });
+        jobs
+    }
+
+    /// Foreground tool calls waiting for or executing on their worker.
+    pub fn active_tool_calls_for(&self, conversation_id: &str) -> Vec<ActiveToolCall> {
+        let waiting = self
+            .waiting_calls
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let pending = self
+            .pending
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut calls: Vec<_> = waiting
+            .values()
+            .filter(|call| call.conversation_id == conversation_id)
+            .cloned()
+            .collect();
+        calls.extend(
+            pending
+                .iter()
+                .filter(|(_, call)| call.conversation_id == conversation_id)
+                .map(|(call_id, call)| ActiveToolCall {
+                    call_id: call_id.clone(),
+                    conversation_id: call.conversation_id.clone(),
+                    tool_name: call.tool_name.clone(),
+                    worker_label: call.worker_label.clone(),
+                    state: "running",
+                }),
+        );
+        calls.sort_by(|left, right| left.call_id.cmp(&right.call_id));
+        calls
     }
 
     fn send_to_routable_worker(&self, worker_fp: &str, frame: CoordWorkerDownstream) {

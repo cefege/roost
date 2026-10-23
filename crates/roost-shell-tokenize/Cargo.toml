@@ -1,0 +1,12 @@
+[package]
+name = "roost-shell-tokenize"
+description = "Pure shell tokenization and ECMAScript text boundaries shared by admission and worker guards."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+autotests = false
+
+[lints]
+workspace = true

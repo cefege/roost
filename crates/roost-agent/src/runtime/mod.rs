@@ -3,8 +3,10 @@
 //! holds the coordinator-facing operations and `runs` the run lifecycle.
 
 mod abort;
+mod advisory_delivery;
 mod api;
 mod dedup;
+mod inspection;
 mod lease;
 mod publishing;
 mod readmission;
@@ -32,7 +34,7 @@ use crate::traits::{
     AgentStore, ChatSink, ClusterSignal, LeaseFence, Llm, NoClusterSignal, ToolExecutor,
 };
 
-pub use api::NewConversation;
+pub use api::{NewConversation, SubmitMode};
 pub(crate) use recovery::latest_submission_seq;
 pub(crate) use runs::{RunEnd, Steer};
 pub(crate) use steering::CommandKey;
@@ -227,7 +229,7 @@ impl AgentRuntime {
         loop {
             let mut record = self.record(id).await?;
             change(&mut record);
-            record.updated_ms = now_ms();
+            record.updated_ms = now_ms().max(record.updated_ms.saturating_add(1));
             match self
                 .inner
                 .store

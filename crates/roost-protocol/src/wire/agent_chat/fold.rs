@@ -29,13 +29,36 @@ pub fn fold_chat_event(transcript: &mut Transcript, event: &ChatEvent) {
             }
         }
         ChatEvent::Queued { message } => {
-            let shown = transcript.items.iter().any(|item| item.id() == message.id)
-                || transcript
+            transcript.items.retain(|item| item.id() != message.id);
+            if !transcript
+                .queued
+                .iter()
+                .any(|queued| queued.id == message.id)
+            {
+                transcript.queued.push(message.clone());
+            }
+        }
+        ChatEvent::QueueRemoved { submission_id } => {
+            transcript
+                .queued
+                .retain(|queued| queued.id != *submission_id);
+            transcript.items.retain(|item| item.id() != submission_id);
+        }
+        ChatEvent::QueueDelivered { submission_ids } => {
+            for id in submission_ids {
+                if let Some(position) = transcript
                     .queued
                     .iter()
-                    .any(|queued| queued.id == message.id);
-            if !shown {
-                transcript.queued.push(message.clone());
+                    .position(|message| message.id == *id)
+                {
+                    let message = transcript.queued.remove(position);
+                    if !transcript.items.iter().any(|item| item.id() == id) {
+                        transcript.items.push(TranscriptItem::User {
+                            id: message.id,
+                            text: message.text,
+                        });
+                    }
+                }
             }
         }
         ChatEvent::TextDelta {

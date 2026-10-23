@@ -71,8 +71,9 @@ pub(super) fn ComposerErrorBanner(
                     Button {
                         variant: ButtonVariant::Destructive,
                         "data-testid": "agent-chat-error-stop",
+                        title: "Interrupt foreground work. Background jobs continue.",
                         onclick: move |_| on_stop.call(()),
-                        "Stop"
+                        "Interrupt"
                     }
                 }
                 Button {

@@ -37,6 +37,8 @@ pub struct FakeTools {
     pub delay: Mutex<Option<Duration>>,
     pub panic_next: AtomicBool,
     pub hold_next: AtomicBool,
+    pub tool_entered: tokio::sync::Notify,
+    pub tool_released: tokio::sync::Notify,
     pub running_jobs: AtomicUsize,
 }
 
@@ -76,14 +78,12 @@ impl ToolExecutor for FakeTools {
             .unwrap()
             .push((worker_fp.to_owned(), call.clone()));
         let answer = self.answers.lock().unwrap().get(&call.tool).cloned();
-        let delay = if call.tool != "context_files" && self.hold_next.swap(false, Ordering::SeqCst)
-        {
-            Some(Duration::from_secs(3600))
-        } else {
-            *self.delay.lock().unwrap()
-        };
         let panic_next =
             call.tool != "context_files" && self.panic_next.swap(false, Ordering::SeqCst);
+        let held = call.tool != "context_files" && self.hold_next.swap(false, Ordering::SeqCst);
+        let delay = *self.delay.lock().unwrap();
+        let tool_entered = &self.tool_entered;
+        let tool_released = &self.tool_released;
         Box::pin(async move {
             if panic_next {
                 panic!("simulated worker tool panic");
@@ -96,6 +96,13 @@ impl ToolExecutor for FakeTools {
                 }));
             }
             let _ = out.send(format!("running {}\n", call.tool)).await;
+            if held {
+                tool_entered.notify_one();
+                tokio::select! {
+                    () = cancel.cancelled() => return Ok(ToolOutcome { is_error: true, content: "cancelled".into(), details_json: "{}".into() }),
+                    () = tool_released.notified() => {}
+                }
+            }
             if let Some(delay) = delay {
                 tokio::select! {
                     () = cancel.cancelled() => return Ok(ToolOutcome { is_error: true, content: "cancelled".into(), details_json: "{}".into() }),

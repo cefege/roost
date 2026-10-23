@@ -4355,3 +4355,99 @@ tolerate the component disappearing before they settle.
 `another_attempt_clears_success_even_when_its_write_is_refused`,
 `an_older_success_cannot_confirm_a_newer_refusal`, and
 `an_older_refusal_cannot_clear_a_newer_success`.
+
+### Reachable Rust modules are reported as never compiled
+
+**Symptom** — `cargo xtask lint` rejects a module rustc compiles when its
+declaration uses `pub(in ...)`, `pub(super)` or `pub(self)` visibility.
+
+**Wrong** — change the module's visibility or add a second declaration to satisfy
+a checker that recognizes only private, `pub` and `pub(crate)` declarations.
+
+**Right** — parse the visibility prefix before reading the module declaration.
+Restricted visibility changes access, not reachability; undeclared neighboring
+files must remain unreachable.
+
+**Guard** — `xtask`
+`unreached_module::tests::restricted_visibility_reaches_declared_children_but_not_orphans`
+builds a real module graph with every restricted visibility and an undeclared file.
+
+### macOS service PATH hides terminal memory
+
+**Symptom** — a macOS worker reports `terminal_core_capacity_initialized` with
+zero capacity and `effective_memory_ceiling_bytes=0` under a minimal service
+PATH, even though the machine has physical memory.
+
+**Wrong** — treat an unavailable memory probe as a genuinely memoryless host,
+raise the admission cap, or inject a pretend memory ceiling.
+
+**Right** — run the system memory probe as `/usr/sbin/sysctl`, independently of
+PATH. Keep the ordinary memory-based admission calculation and fail-closed
+behavior when the actual probe fails.
+
+**Guard** — `roost-host`
+`host_memory::macos_tests::macos_memory_probe_works_with_a_minimal_service_path`
+executes the real probe in an isolated child with `PATH=/usr/bin:/bin` and
+compares its byte count with the OS. Native worker proof verifies restored
+admission and a real keeper PTY whose browser input writes the expected file.
+
+
+### Agent rollback targets a retired advisor-state key
+
+**Symptom** — the single-advisor state cannot be saved after restoring the agent:
+SQLite reports `ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint`.
+
+**Wrong** — restore the old conflict target or remove applied migration history.
+
+**Right** — keep numbered migrations and their checksums intact. Native reads
+and writes use the empty `roster_slug` slot and `(conversation_id, roster_slug)`
+key; named slots stay inactive. Migration `0012_agent_advisor_writer_key` retains
+the conversation-only key that deployed writers still use. Commit the pending
+batch atomically under the migration lock so no replica sees the intermediate key.
+
+**Guard** — `roost-coord`:
+`agent_store::conversation_entries_settings_and_credentials_round_trip` checks
+native save/read/cascade behavior;
+`agent_store::deployed_advisor_writer_survives_schema_upgrade` exercises the
+deployed upsert and native reader/writer against the migrated schema;
+`db::migration_apply::tests::failed_upgrade_leaves_no_partial_schema_and_can_retry`
+pins whole-upgrade rollback and recovery.
+
+### A fork treats new input as already consumed
+
+**Symptom** — a new steer in a fork disappears from its queue or cannot be
+withdrawn after the source conversation accumulated auxiliary usage or rewinds.
+
+**Wrong** — copy source journal sequence references unchanged while omitting
+entries. The destination's sequence space is smaller, so a copied consumption
+boundary can incorrectly cover its future user entries.
+
+**Right** — map sequence references onto the actual destination sequences
+returned by append. Inclusive consumed-through boundaries round down; a
+compaction keep-from boundary rounds up across omitted source entries.
+
+**Guard** — `roost-agent`:
+`rewind_fork::queued_inputs::forked_steer_remains_withdrawable_after_source_sequence_gaps`
+holds a real fork request and withdraws a later steer;
+`rewind::tests::fork_compaction_boundary_uses_first_copied_source_at_or_after_it`
+pins the keep-from boundary across source gaps.
+
+### A loaded model catalog exposes unloaded settings to replacement saves
+
+**Symptom** — model roles, folder overrides, presets or search configuration
+disappear after changing the advisor switch or search server during initial load.
+
+**Wrong** — treat `AgentSettingsView::default()` as an editable saved document
+because the independent model catalog request succeeded. Reusing the catalog's
+error signal can also hide a settings-read failure when the catalog succeeds later.
+
+**Right** — mount settings-writing controls only after the settings document
+loads successfully. Keep the settings-read error separate from catalog/account
+errors, and preserve the complete loaded document when changing one field.
+
+**Guard** — `roost-web`
+`model_hub_mount::unhydrated_settings_block_keyboard_role_assignment` prevents
+keyboard assignment over an unhydrated document. Browser proof holds
+`AgentSettingsGet`, checks that advisor/search writes stay unavailable, then
+checks persisted roles, folder overrides and presets after real saves; a failed
+read remains visible after a later successful catalog response.

@@ -18,6 +18,7 @@ const SHEET_BODY_CLASS: &str = "grid min-w-[min(20rem,80vw)] gap-4 p-4";
 #[component]
 pub fn DesignOverlayStates() -> Element {
     let mut dialog_open = use_signal(|| false);
+    let mut fullscreen_dialog_open = use_signal(|| false);
     let mut sheet_open = use_signal(|| false);
     let mut bottom_sheet_open = use_signal(|| false);
 
@@ -28,6 +29,12 @@ pub fn DesignOverlayStates() -> Element {
                 icon: IconType::SquareArrowOutUpRight,
                 onclick: move |_| dialog_open.set(true),
                 "Open dialog"
+            }
+            Button {
+                variant: ButtonVariant::Secondary,
+                icon: IconType::Maximize2,
+                onclick: move |_| fullscreen_dialog_open.set(true),
+                "Open fullscreen dialog"
             }
             Button {
                 variant: ButtonVariant::Secondary,
@@ -55,6 +62,26 @@ pub fn DesignOverlayStates() -> Element {
                     DialogBody {
                         p { class: BODY_TEXT_CLASS,
                             "Dialog body content remains ordinary application markup."
+                        }
+                    }
+                    DialogFooter {
+                        DialogAction { "Done" }
+                    }
+                }
+            }
+            Dialog {
+                open: fullscreen_dialog_open(),
+                on_open_change: move |open: bool| fullscreen_dialog_open.set(open),
+                DialogContent { fullscreen: true, show_close_button: false,
+                    DialogHeader {
+                        DialogTitle { "Fullscreen dialog" }
+                        DialogDescription {
+                            "The shared fullscreen variant fills the viewport without caller-level shape or border overrides."
+                        }
+                    }
+                    DialogBody {
+                        p { class: BODY_TEXT_CLASS,
+                            "Fullscreen presentation is a shared Dialog variant; content layout remains caller-owned."
                         }
                     }
                     DialogFooter {

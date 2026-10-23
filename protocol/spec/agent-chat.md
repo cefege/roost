@@ -11,17 +11,17 @@ Implementation anchors: `crates/roost-coord/src/agent/` (RPC handlers, store),
 
 ## Commands and request ids
 
-Every command that changes a conversation carries a client-minted
-`request_id` (at least 1 character; the web client sends 128 random bits as
-hex):
+The idempotent commands below carry a client-minted `request_id` (at least
+1 character; the web client sends 128 random bits as hex):
 
 | RPC | `request_id` field | Retried with the same id |
 |---|---|---|
 | `AgentChatSubmit` | 3 | applied once; the retry returns OK |
 | `AgentChatAbort` | 2 | applied once |
+| `AgentChatWithdraw` | 3 | applied once |
 | `AgentChatAnswer` | 4 | applied once |
 | `AgentChatPlanDecide` | 5 | returns the first decision's `new_conversation_id` |
-| `AgentChatRewind` | 4 | returns the first rewind's `text` |
+| `AgentChatRewind` | 4 | after completion, returns the first rewind's `text`; while still applying, returns empty `text` |
 | `AgentChatFork` | 3 | returns the conversation the first fork created |
 
 An empty `request_id` is `invalid_argument`. Deduplication is per
@@ -30,9 +30,34 @@ command whose first attempt failed returns `failed_precondition` with the
 first attempt's message; a retry while the first attempt is still applying a
 fork returns `unavailable`.
 
-Plain user text is admitted atomically: the `User` entry, an active
-`RunIntent` through it, and the `agent_commands` row commit in one
-transaction. A slash command records its request row first and then runs.
+`AgentChatSubmit.when_busy` selects how plain user text is admitted:
+
+- `steer` (also the empty legacy value): append a `User` entry and active
+  `RunIntent` atomically with the command row. During a run it joins at the
+  next request boundary, not an already-dispatched provider request.
+- `follow_up`: while busy, persist an opaque pending `QueuedInput` without
+  adding it to active model history. Fenced run completion activates it into
+  a `User` entry and recoverable run intent in one transaction.
+- `reject`: while busy, return a busy error without appending input or
+  reserving the request id. When idle, every mode starts work immediately.
+
+Deduplication precedes the busy check, so an accepted input's retry succeeds
+even when the run state changed. The browser persists the logical submission's
+text, mode and request id before sending; response-loss retries after reload
+reuse that identity. Slash commands retain their separate command admission.
+
+Before a provider request, a fenced `InputConsumed` journal entry claims its
+input boundary. `queue_delivered` moves claimed messages from the queue into
+user transcript items without duplicating an already-visible user item.
+Withdrawal succeeds only before consumption: `withdrawn=true` removes the
+input durably and emits `queue_removed`; consumed or already-withdrawn input
+returns `false`. Repeating the withdrawal request also returns `false` once
+its first attempt removed the input. A false response never claims cancellation.
+
+`AgentChatAbort.background=false` interrupts foreground work but leaves
+background jobs running; absent or `true` stops both. Stop is durable: fenced
+completion and conditional automatic restart cannot overtake a newer Stop.
+A newer explicit input can still start work after Stop.
 
 ## Run ownership
 
@@ -84,3 +109,40 @@ remains. `truncated` means the requested cursor predates retained history.
 Event batches older than 24 hours may be pruned, except that every
 conversation's newest batch is retained so its cursor continues after restart.
 The cursor and retained batches are read from one database snapshot.
+
+## Native inspection and configuration
+
+`AgentChatInspect` returns `AgentInspection`: native conversation/run state,
+context and usage, durable inbox, current activity, offered tool definitions
+and effective read-only setting. The coordinator joins runtime state with the
+live transcript and worker registries; there is no demo shared-state store.
+
+`AgentChatConfigure.read_only` is persisted per conversation, independently
+of Plan mode. Reading tools remain offered; mutating tools and delegation do
+not. Dispatch revalidates the owning conversation's policy after an offline
+worker wait, then rechecks cancellation before sending a frame. The owning
+conversation id is distinct from advisor/loop worker-state namespaces.
+Hidden controller context loading and an explicit user's file rewind remain
+available; neither is a model-offered tool.
+
+Summary changes use `roost_agent_summary`, separate from run wake-ups, and do
+not start model work. A peer reloads the persisted summary; reconnect and lag
+repair resynchronize summaries.
+
+Snapshot replay filters queued/user membership against the newer authoritative
+journal, including membership inside cached `Reset` payloads. A withdrawal
+committed before its removal event was persisted cannot reappear on reconnect.
+
+## Agent scope and storage compatibility
+
+The native Rust agent's behavioral baseline is `d5cf3bda`, immediately before
+the full OMP-harness parity project. Exact OMP parity is not this contract.
+
+Applied SQLite and Postgres migration history remains intact. The single
+advisor reads and writes the empty `roster_slug` slot through the current
+`(conversation_id, roster_slug)` key; named roster slots are inactive.
+
+The rollback does not rewrite operator settings, credentials or conversation
+journals. Compatibility with journal variants written by the retired parity
+features must be checked before a production rollout; fresh-database acceptance
+does not establish that compatibility.

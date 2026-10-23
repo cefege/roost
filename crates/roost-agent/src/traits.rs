@@ -35,6 +35,16 @@ pub enum IntentChange {
     Activate,
     /// An inactive, aborted intent through the journal's last entry.
     Abort,
+    /// Reject the command if the latest durable run intent is active.
+    RejectIfBusy,
+    /// Keep queued input hidden while busy; activate immediately while idle.
+    FollowUp,
+    /// Atomically activate queued follow-ups and close the current run.
+    Complete,
+    /// Withdraw a queued steer or follow-up if no model call has consumed it.
+    Withdraw,
+    /// Restarts only if the expected terminal intent has not been superseded.
+    RestartIfCurrent,
 }
 
 /// One client command, deduplicated by `(conversation, request_id)`.
@@ -44,15 +54,24 @@ pub struct CommandAdmission {
     pub kind: String,
     pub entries: Vec<Entry>,
     pub intent: IntentChange,
+    pub fence: Option<LeaseFence>,
+    pub expected_intent_seq: Option<u64>,
+    pub completion_through: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AdmitOutcome {
     /// The sequence of each appended entry, the intent last.
-    Admitted { seqs: Vec<u64> },
+    Admitted { seqs: Vec<u64>, queued: bool },
     /// The request was admitted before; `result_json` is what completed it,
     /// if anything has.
     Duplicate { result_json: Option<String> },
+    /// The command requested rejection while a run was active.
+    Busy,
+    /// The queued item was already consumed, withdrawn, or never existed.
+    NotWithdrawable,
+    /// A newer durable Stop superseded completion before it committed.
+    Stopped,
 }
 
 pub trait AgentStore: Send + Sync {
@@ -139,12 +158,20 @@ pub trait AgentStore: Send + Sync {
     ) -> BoxFuture<'a, Result<(), AgentError>>;
 }
 
+/// Identifies the persisted agent conversation that owns policy and lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnerConversationId(pub String);
+
+/// Namespaces worker-local state independently from the persisted owner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkerConversationNamespace(pub String);
+
 /// One worker tool invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolCall {
     pub call_id: String,
-    /// Keys the worker's per-conversation tool state (the hashline edit store).
-    pub conversation_id: String,
+    pub conversation_id: WorkerConversationNamespace,
+    pub owner_conversation_id: OwnerConversationId,
     pub cwd: String,
     pub tool: String,
     pub args_json: String,
@@ -197,6 +224,10 @@ pub trait ChatSink: Send + Sync {
 /// journal is the truth and the receiver re-reads it.
 pub trait ClusterSignal: Send + Sync {
     fn conversation_changed<'a>(&'a self, conversation_id: &'a str) -> BoxFuture<'a, ()>;
+    /// Notifies replicas to republish a persisted conversation summary, without waking a run.
+    fn conversation_summary_changed<'a>(&'a self, _conversation_id: &'a str) -> BoxFuture<'a, ()> {
+        Box::pin(async {})
+    }
 }
 
 /// The signal of a process that is the only replica: there is no one to wake.

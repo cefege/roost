@@ -1,5 +1,8 @@
 # v3 gate baselines
 
+> Agent-specific OMP-parity entries are historical and superseded by
+> [the agent-only rollback acceptance](#2026-10-23-agent-only-rollback-acceptance).
+
 Every phase gate in the Rust rewrite ran the same Playwright suite that
 guarded v2. A gate that only says "all tests pass" cannot tell a Rust
 regression from a suite that was already red, so each tier recorded what the
@@ -363,31 +366,16 @@ commit whose `service_impl.rs` arm calls real code: `AuthCoordIdentity`,
 
 `xtask lint` reports 2 violations, both in `crates/roost-keeper/tests/`, and both are `v3`'s rather than this track's: the worker branch has carried the restated keeper lint table and all seven binary-level allows since `84be2a9d`, and they clear when that branch merges. The gate number is 2 pending a queued merge, not 2 with a caveat.
 
-**The permanent backstop, and why the direction it checks is the one that matters.**
-`crates/roost-coord/tests/method_route_implementation.rs` checks the method
-table against the **IMPL**, where `method_route_coverage.rs` checks it against
-the **PROTO**. The proto direction cannot lie silently; the impl direction can: a
-row marked `Implemented` whose arm is still `delegated_reply` compiles, passes
-every other test in the tree, and tells a reader the method works.
+**Historical route-table backstop (retired).** A source-reading test compared
+route metadata with implementation bodies at this baseline. It documented why
+the retired `Sync` method is answered by the listener with 410 before a response
+stream opens, rather than by a throwing stream stub.
 
-**It found one on its first run, and the shape of the symptom is the argument for
-it.** `Sync` was marked `Implemented` with no `fn sync` arm — correct, not a
-defect: the retired Connect Sync is answered by a *mounted route* returning 410
-before `ConnectRpcService` opens a stream, because a throwing stub would keep the
-runtime's abort-listener crash path reachable. So a row and its arm coming apart
-produces **not a compile error but a 410 that reads like a routing bug**, which
-sends the next person to the router instead of to the table. That is the worst
-shape a defect can have, and it is invisible to every other check in the tree.
+Implementation-text checks, fixed method counts and constructor echoes are no
+longer gates. `method_route_coverage.rs` compares the protobuf contract and route
+sets in both directions and checks authorization boundaries; coordinator RPC
+suites exercise handler behavior.
 
-Four guards make the exception set survive contact: `TRANSPORT_ANSWERED` holds
-`Sync` **and a second test asserts that list is exactly the set of `Implemented`
-rows with no arm** (a documented exception with no bound on its number is a
-ratchet with the pin removed); all 16 `UnwiredInV2` delegations are asserted
-**correct**, so nobody "fixes" one into a handler; the implemented count is
-asserted **above 50**, so the main test cannot be satisfied by emptying the
-column; and the test asserts that it read the file `CoordinatorService` is
-actually implemented in — without that it would prove a table true of a file
-nobody uses.
 ### Worker: first-ever total, `v3-worker` @ `8a85f523`
 
 `cargo test -p roost-worker -p roost-keeper -p roost-term --no-fail-fast`, **one
@@ -2517,3 +2505,266 @@ changed the bundle from 5 767 218 to 5 768 393 bytes raw and 1 559 075 to 1 559 
 Retained-marker bounds are worth keeping in view because they are the
 history-corruption tripwire: a Rust renderer that drops the retained floor
 will pass every functional spec and still lose scrollback.
+
+## 2026-10-22 OMP conversion scratch gate: partial acceptance
+
+**Protocol-fixture smoke passed; usable-stack acceptance and full parity remain incomplete.**
+No authorized live-provider coding turn was exercised. The shell had none of
+`ANTHROPIC_API_KEY`, `ANTHROPIC_OAUTH_TOKEN`, `OPENAI_API_KEY`, or
+`OPENROUTER_API_KEY`; no operator credentials were copied or replaced.
+The seven OMP matrices and their design slices remain the full-parity ledger.
+
+Source: `71c2fffa074b695f7ca666dfa10278a8e07efc98` plus dirty changes.
+Before this receipt was written, SHA-256 over `git diff --binary HEAD` followed by
+sorted untracked paths and their bytes was
+`514479ca17770356bb871e0c87075c42b43f440ccd6c610f176e029501b8fb34`
+(447 untracked files). This identifies the observed working tree, not a release.
+
+Builds: `CARGO_INCREMENTAL=0`, `ROOST_REPO_ROOT=/Users/mike/Code/roost`,
+`PATH` preferring `$HOME/.cargo/bin`; serialized with `/tmp/roost-cargo.lock`.
+`cargo build -p roost-cli` succeeded, with the existing macOS linker
+`__eh_frame section too large` warning. `$HOME/.cargo/bin/dx build -p roost-web
+--platform web` succeeded; the served bundle was
+`target/dx/roost-web/debug/web/public`.
+
+Isolation followed the environment recipe above under
+`/tmp/roost-acceptance.ccZjVu`, with separate home/tmp/run/coord/worker/service/
+versions directories and a disposable Git project. Origins: coordinator
+`http://127.0.0.1:47213`, worker door `http://127.0.0.1:47214`, provider fixture
+`http://127.0.0.1:47215`. Unset `ROOST_WEB_PUBLIC_URL` for these HTTP-only local
+launches; its configured value requires HTTPS. Set
+`ROOST_AGENT_ENDPOINT_OVERRIDES` to provider roots, not roots already ending in
+`/v1`: `{"openrouter":"http://127.0.0.1:47215","openrouter-auth":"http://127.0.0.1:47215"}`.
+The fixture answered key validation at `/api/v1/auth/key` and streamed OpenAI
+chat-completion events at `/v1/chat/completions`. Its key was disposable, not a
+real provider credential. Enrollment and browser pairing used real one-shot
+grants; no grant or browser bearer is included here.
+
+| Case | Observed consumer result |
+|---|---|
+| Worker/browser enrollment | Fresh scratch worker online; real browser pairing completed. Desktop 1280×900 and compact 390×844. |
+| Coding turn | Selected OpenRouter `unbiased/pareto-26.10-preview`. Worker read returned `[fixture.txt#CF5C]`; native hashline edit changed the first line to `acceptance edited data`; Bash returned those actual bytes and `bash-proof-ok`. Disk inspection agreed. |
+| Denial | With stored `tools.approvalMode=always-ask`, denied `write` produced `Tool call denied by user: write`; `denied.txt` remained absent before and after settlement. |
+| Approval | Explicitly approved Bash appended one line. `approved-count.txt` contained exactly `once\n` after execution and subsequent coordinator restarts. |
+| Abort/recovery | Stopped a live fixture stream through the real Stop control, then submitted another message and received `ACCEPT_REPLY_OK`. |
+| Shared queue | Compact viewer queued a follow-up with Ctrl+Enter during streaming; desktop saw the same queue. Reload preserved it. Esc restored the exact text into the compact draft, stopped the stream, and removed the queue on desktop. |
+| Reopen/settings | Reload retained transcript, approval resolutions and selected model. After coordinator restart, Settings → Interaction still showed `Always ask`. |
+| Terminal/reconnect | Real terminal printed `roost-smoke-ok`. A process-only worker SIGTERM/restart and coordinator restart preserved keeper PID 57025 and shell PID 59097; subsequent commands printed the same shell PID. Reload retained terminal output. |
+| Coordinator shutdown | Before repair, SIGTERM panicked with `JoinHandle polled after completion`. `cluster/runtime.rs` now records which task the select consumed and only joins remaining handles during cleanup. Rebuilt coordinator accepted a browser turn, then exited 0 on process-only SIGTERM. |
+| `UI.role-menu.viewport` | Shared Popover consumes measured scroll bounds inside its pane. Desktop panel top 78/bottom 803 and compact top 56/bottom 751 were visible; heading hit-testing belonged to the panel. Default-role editor was clickable. |
+| `UI.user-message.compact` | `MessageContent` stacks bubble and `MessageFooter` actions. At 390-wide viewport, the final user bubble was 262.39 wide inside a 328-wide message, rather than competing with Retry/Rewind in one row. |
+
+Design review found no actionable cohesion findings in the four floating-panel
+files or `agent_chat/transcript.rs`; review was source-only. Actual screenshots
+and browser/disk/process observations above are this gate's evidence.
+Earlier provider-fixture route and edit-envelope mistakes produced failed turns;
+only the corrected native hashline/completions path is counted as success.
+Stopping a supervised worker tree also killed its keeper, so that attempt is not
+a worker-restart receipt; the continuity case used SIGTERM on the worker PID only.
+
+Post-repair checks: `cargo nextest run -p roost-coord shutdown::tests` ran
+2 tests, both passed (1281 skipped); these cover the existing drain bounds,
+while the real process exit above covers the double-poll repair.
+`cargo xtask lint` checked 10539 inputs with 0 violations.
+`cargo clippy -p roost-coord --lib -- -D warnings` passed.
+No workspace-wide, Postgres, Windows, or live-provider acceptance is claimed.
+Credential-free captured model requests are retained in the session artifact
+`local://omp-acceptance-requests.jsonl`. Both managed browser tabs and all owned
+scratch services were stopped; the disposable scratch tree and scripts were removed.
+
+## 2026-10-22 canonical numeric settings: partial P10c S1
+
+The thirteen remaining `SettingKind::Number` definitions are now `Decimal`;
+`Number` and its validation/default/cfg/web branches are removed. Decimal
+metadata uses literal-string defaults; stored and runtime values remain finite
+JSON numbers. Genuinely bounded integer definitions retain `Count`.
+This is not completion of P10c S1: canonical typed Rows, scalar Maps and the
+broader settings/consumer reconciliation remain open.
+
+Reference semantics were read in OMP 18.11.0 `config/registry.ts:572–575,608–623`,
+`advisor/settings.ts:84–104`, `session/session-advisors.ts:659–662`,
+`modes/controllers/event-controller.ts:2750,2772–2773`, and the native grep
+context fields. The registry admits finite numbers without a generic 0–1
+restriction. Advisor review cadence truncates finite values at least 1 at the
+scheduling boundary. Recap and idle-compaction timers preserve fractional
+seconds within their respective existing clamps. Bash job settings and grep
+context share native-u32 truncation/wrapping rather than an integer-only JSON
+read that silently replaces fractional inputs with defaults.
+
+| Exercised check | Observed result |
+|---|---|
+| `cargo nextest run -p roost-protocol` | 570 passed, 0 skipped. |
+| Agent recap/advisor/idle-compaction selection | 9 passed, 683 skipped; includes a paused-time recap at 1.25 seconds and inherited advisor cadence 2.75 triggering on the second eligible update. |
+| Agent threshold/provider-budget/settings-gate selection | 17 passed, 675 skipped. |
+| Tool grep/numeric-coercion/Bash-settings/cfg selection | 13 passed, 884 skipped; actual grep output distinguishes fractional context coercion from the old defaults. |
+| `cargo clippy -p roost-agent -p roost-agent-tools -p roost-protocol --all-targets -- -D warnings` | Passed. |
+| `cargo build -p roost-cli` | Passed; existing linker `__eh_frame section too large` warning remains. |
+| `dx build -p roost-web --platform web` | Passed with the pinned Cargo-installed Dioxus CLI. |
+| `cargo xtask lint` | 10541 inputs, 0 violations. |
+
+Actual browser smoke used rebuilt assets and a fresh coordinator database under
+`/tmp/roost-numeric.2Ute2Y`, real one-shot pairing, no worker/provider and no
+operator credentials. Settings → Models & accounts → Advisor Review Interval
+saved `2.75` and retained it after reload. A `NaN` draft disabled Save and
+displayed `Enter a valid finite number.` Saving `-1.5` also survived reload.
+Both writes and subsequent reads returned HTTP 200 from `AgentSettingsSet` and
+`AgentSettingsGet`. Source-only design review found no actionable cohesion issue
+in the shared-row routing change. The owned browser tab was closed, coordinator
+PID 94029 exited 0 on SIGTERM, and the scratch tree was removed.
+
+No full-workspace, Postgres, Windows, live-provider or full-parity acceptance is
+claimed by this receipt.
+
+## 2026-10-23 typed settings and Bash admission: scoped acceptance
+
+Typed `Rows` replace the dedicated interceptor setting kind. Scalar `Map`
+validation preserves string, number, boolean and null values; an empty folder
+map still overrides its global map. Registry, cfg and runtime readers share the
+interceptor default. The pure lexer and JavaScript-whitespace predicates live
+in `roost-shell-tokenize`, shared by admission and worker guards.
+
+The initial build stopped at 1.7 GiB free, below the 8 GiB safety floor. Mike
+then authorized deletion of this checkout's generated `target/debug/` only.
+That cleanup restored 49 GiB free. It preserved source, databases, credentials,
+wasm output and global caches. A later headroom check reported 26 GiB free.
+
+These checks passed before the subsequent settings-patch wire cutover:
+
+| Exercised check | Observed result |
+|---|---|
+| Protocol, web-terminal and selected agent/tool/worker/coordinator consumers | 1,141 passed; 3,909 skipped. Includes cfg refusal/default regressions, ordinary Config Approve/Deny RPC routing and independent-store leaf updates. |
+| Scoped clippy over shell-tokenize, protocol, agent, tools, coordinator, worker, web-terminal and web | Passed with `--all-targets -- -D warnings`. |
+| Native CLI and keeper builds | Passed. macOS debug linking emitted the existing oversized `__eh_frame` warning. |
+| Dioxus browser build | Passed after compiler and clippy repairs. |
+| Last pre-cutover repository lint | 10,609 inputs; zero violations. |
+| Minimal-service-PATH memory regression | Failed before: zero bytes instead of the OS's 8,589,934,592 bytes. Passed after using `/usr/sbin/sysctl`. |
+| Complete host suite and host clippy | 121 tests passed; clippy passed. A diagnostic-text-only edit-mode test and its helper were deleted rather than re-pinned. |
+
+Actual browser checks used the rebuilt bundle and an owned SQLite coordinator,
+worker, keeper and loopback model fixture. Count fields rejected negative,
+fractional and overflowing integers; the advisor notes field also rejected
+values outside its bounds. Valid values survived reload. The Map editor
+rejected duplicate keys and `NaN`; independent SQL inspection confirmed distinct
+string/boolean/null types and exact integer `9007199254740993`. Eight Bash rows
+survived add, edit, reorder, removal, save and reload. Desktop and 390-pixel
+screenshots showed reachable controls without document overflow. The row
+Select keeps its accessible label without repeating it visually.
+
+Native Bash calls proved pattern Deny ahead of a permissive user policy, a
+pattern Prompt with its reason, ordered Deny ahead of a later wildcard Allow,
+and pattern Allow under Always Ask with the broad Bash override removed.
+An allowed literal compound created both files. An unmatched segment required
+approval before either command ran; denial left both files absent.
+
+The real cfg reader returned the shared interceptor table. Ordinary Config
+Approve produced `value=false, source=session` without global persistence.
+Config Deny left the global default unchanged. An approved `/save` preserved a
+second viewer's intervening Count update and returned `source=global`.
+The worker's real hashline edit applied invalid Rust, emitted its parse warning,
+and wrote an edit-blackbox record with exact before/after snapshots and model
+`openrouter/unbiased/pareto-26.10-preview`; auto-repair was disabled.
+
+The memory fix restored the worker's reported terminal capacity from zero to
+140 under the same launch environment. A browser-created keeper PTY accepted
+input, printed `TERMINAL_MEMORY_OK`, and wrote the independently read
+`terminal-memory-ok` marker. Exiting that shell removed its session.
+
+The reverse concurrency check found a stale settings pane deleting an approved
+cfg save. Its coordinator RPC regression failed with `None` instead of the
+preserved `Some(false)`. Settings writes now carry base/edited documents;
+`AgentSettingsPatch` applies only their changed leaves atomically to the latest
+stored document and returns the committed result. Both editing snapshots and
+the merged result receive semantic validation.
+
+The integrated cutover checks passed:
+
+| Exercised check | Observed result |
+|---|---|
+| Scoped nextest across protocol, agent, tools, client-core, host, worker, coordinator and web-terminal | 2,763 passed; 3,237 skipped. Includes stale-pane preservation, independent-store updates, invalid-base refusal and plan approval's workspace-write boundary. |
+| Repository lint | 10,619 inputs; zero violations. |
+| Scoped clippy across the ten affected packages | Passed with `--all-targets -- -D warnings`. |
+| Current CLI, keeper and Dioxus browser builds | Passed. The native debug linker retained its oversized `__eh_frame` warning. |
+
+Two fresh browser views exercised the rebuilt native stack at
+`http://127.0.0.1:47213` with its worker on port 47214 and loopback provider on
+47215. While a real cfg `/save` waited for ordinary Config approval, the second
+view saved Count 4 to 5. Approving cfg preserved that update. Without reloading,
+the stale settings pane then saved Count 5 to 6. The actual worker cfg read
+still returned `value=false, source=global`; reloading settings retained Count 6.
+Read-only SQL confirmed both values, the eight Bash approval rows, distinct
+string/boolean/null Map types and exact integer `9007199254740993`.
+
+A real cfg read also supplied the canonical ten-rule interceptor default.
+Writing that value back completed without another approval; native journal
+entry 64 recorded `text=unchanged, is_error=false`.
+
+Credential-free observations and native build fingerprints are retained in
+`local://typed-settings-atomic-replay.json` and
+`local://typed-settings-build-sha256.txt`. Both owned browser views and all
+three scratch services were closed. The owned keeper PID was absent after
+worker shutdown; the disposable stack directory was removed. Installed services
+and operator databases were not changed.
+
+This closes the typed Rows/scalar-Map implementation and its atomic-writer
+acceptance, not full P10c or P6b parity. The 550-key manifest still has symbolic
+options for `live.voice`, `speech.voice`, `tts.localVoice` and
+`snapcompact.shape`, and no environment-binding metadata. Catalog/env
+reconciliation, remaining P6b cases, Postgres, Windows and authorized
+live-provider coding acceptance remain open.
+
+
+## 2026-10-23 agent-only rollback acceptance
+
+The full one-to-one OMP-harness project is canceled. Agent behavior is restored
+to `d5cf3bda862cf231a6595b5a2cca3bf302d6e160`, the direct parent of
+`8c735821` (`docs: OMP port parity matrices and phase plan`). The original
+instruction is not present in retained local prompt history; Git establishes
+the explicit project's boundary.
+
+The core agent, worker tools and provider crates match all 241 baseline Git
+blobs checked. Agent protocol, coordinator and HTML/client surfaces use the
+same baseline APIs. The later port modules, settings extractor and manifest,
+tokenizer/parser dependencies, phase plans and parity matrices are removed.
+Native interfaces are adapted only where retained shared infrastructure
+requires them: worker lifecycle/delivery types and the advisor persistence key.
+
+A verified source rescue archive and binary working-tree patch are retained
+under `target/agent-rollback.jakhzap_/`. Fingerprints confirmed 3,264 files
+outside the rollback scope unchanged, including current terminal, keeper,
+transport, infrastructure and shared UI work. Shared-file edits are agent-only.
+Applied SQLite/Postgres migration files remain byte-for-byte intact.
+
+The single advisor uses the empty `roster_slug` slot and the current composite
+key. Restoring the old one-column conflict target failed the existing
+`agent_store::conversation_entries_settings_and_credentials_round_trip` test;
+the adapted query passes save, update, readback and cascade deletion.
+
+| Exercised check | Observed result |
+|---|---|
+| Authored-source formatting | `cargo xtask fmt` passed. |
+| Scoped strict clippy | Eleven packages passed `--all-targets -- -D warnings`. |
+| Agent and integration nextest suites | 4,979 passed; 4 skipped. |
+| Repository lint | 7,865 inputs; zero violations. |
+| CLI and keeper build | Passed; the existing macOS debug `__eh_frame` linker warning remains. |
+| Dioxus browser build | Passed. |
+| Native browser/tool scenario | Real coordinator and worker read a fixture file; the provider received its result and the HTML chat rendered the final reply. |
+| Final-binary restart | Existing transcript replayed after restart; another submitted turn completed. |
+
+The disposable stack used coordinator port 47313, worker port 47314 and a
+loopback provider fixture on 47315. The actual worker returned
+`[read-proof.txt#602B]` with `ROLLBACK_READ_OK`, and the UI rendered
+`ROLLBACK_AGENT_OK: native worker read verified.` before and after reload.
+After rebuilding the final native binaries, a coordinator/worker restart
+preserved that transcript and accepted a new turn.
+
+Credential-free receipts are `local://agent-rollback-scope.json`,
+`local://agent-rollback-smoke.json` and
+`local://agent-rollback-build-sha256.txt`. No release, installed service,
+operator database or production credential was changed. Production Postgres,
+live providers and compatibility with post-parity operator journals were not
+exercised; this is working-tree rollback acceptance, not deployment approval.
+
+All owned smoke services and the browser tab were stopped. The owned keeper
+was absent after worker shutdown, and the disposable fixture directory was
+removed. The verified rescue archive remains; final fingerprints still show
+zero unexpected changes among the 3,264 out-of-scope files.

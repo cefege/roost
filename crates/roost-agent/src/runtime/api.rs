@@ -2,7 +2,7 @@
 //! list, transcript, delete, submit, model and thinking changes, settings,
 //! and restart recovery.
 
-use std::collections::HashMap;
+mod read_only;
 
 use roost_llm::{Catalog, THINKING_LEVELS};
 use roost_protocol::wire::agent_chat::{
@@ -11,8 +11,27 @@ use roost_protocol::wire::agent_chat::{
 
 use super::{AgentRuntime, CommandKey, Steer, now_ms, random_id};
 use crate::error::AgentError;
-use crate::records::{AgentSettings, ConversationRecord, Entry, Mode, Role, model_ref};
+use crate::records::{AgentSettings, ConversationRecord, Mode, Role, model_ref};
 use crate::{commands, folder_roles, judging, projection, roles};
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubmitMode {
+    Steer,
+    FollowUp,
+    Reject,
+}
+
+impl SubmitMode {
+    pub fn parse(value: &str) -> Result<Self, AgentError> {
+        match value {
+            "" | "steer" => Ok(Self::Steer),
+            "follow_up" => Ok(Self::FollowUp),
+            "reject" => Ok(Self::Reject),
+            _ => Err(AgentError::InvalidArgument(format!(
+                "unsupported when_busy mode: {value}"
+            ))),
+        }
+    }
+}
 
 const TITLE_CHARS: usize = 60;
 const DEFAULT_THINKING: &str = "medium";
@@ -58,6 +77,7 @@ impl AgentRuntime {
             parent_id: None,
             agent: None,
             advisor: None,
+            read_only: false,
             run_state: AgentRunState::Idle,
             error: None,
             created_ms: now,
@@ -164,6 +184,18 @@ impl AgentRuntime {
         request_id: &str,
         text: String,
     ) -> Result<(), AgentError> {
+        self.submit_request_with_mode(id, request_id, text, SubmitMode::Steer)
+            .await
+    }
+
+    /// Submits user text under an explicit when-busy policy.
+    pub async fn submit_request_with_mode(
+        &self,
+        id: &str,
+        request_id: &str,
+        text: String,
+        mode: SubmitMode,
+    ) -> Result<(), AgentError> {
         if request_id.trim().is_empty() {
             return Err(AgentError::InvalidArgument("request_id is required".into()));
         }
@@ -179,7 +211,7 @@ impl AgentRuntime {
         if text.trim().is_empty() {
             return Err(AgentError::InvalidArgument("message is empty".into()));
         }
-        self.deliver_user_text(&record, text, Some(request_id))
+        self.deliver_user_text_with_mode(&record, text, Some(request_id), mode)
             .await
     }
 
@@ -190,6 +222,17 @@ impl AgentRuntime {
         record: &ConversationRecord,
         text: String,
         request_id: Option<&str>,
+    ) -> Result<(), AgentError> {
+        self.deliver_user_text_with_mode(record, text, request_id, SubmitMode::Steer)
+            .await
+    }
+
+    pub(crate) async fn deliver_user_text_with_mode(
+        &self,
+        record: &ConversationRecord,
+        text: String,
+        request_id: Option<&str>,
+        mode: SubmitMode,
     ) -> Result<(), AgentError> {
         let id = record.id.as_str();
         self.note_goal_user_input(id).await?;
@@ -214,45 +257,9 @@ impl AgentRuntime {
             },
             Vec::new(),
             Steer::User(text),
+            Some(mode),
         )
         .await
-    }
-
-    /// Marks every advisory card still waiting as delivered, so it joins the
-    /// context of the user message that follows it.
-    async fn deliver_pending_advisories(&self, id: &str) -> Result<(), AgentError> {
-        let entries = self.inner.store.entries(id).await?;
-        let mut latest: HashMap<String, Entry> = HashMap::new();
-        let mut order = Vec::new();
-        for (_, entry) in entries {
-            if let Entry::Advisory { item_id, .. } = &entry {
-                if !latest.contains_key(item_id) {
-                    order.push(item_id.clone());
-                }
-                latest.insert(item_id.clone(), entry);
-            }
-        }
-        for item_id in order {
-            if let Some(Entry::Advisory {
-                severity,
-                note,
-                delivered: false,
-                ..
-            }) = latest.remove(&item_id)
-            {
-                self.append(
-                    id,
-                    Entry::Advisory {
-                        item_id,
-                        severity,
-                        note,
-                        delivered: true,
-                    },
-                )
-                .await?;
-            }
-        }
-        Ok(())
     }
 
     pub async fn set_model(&self, id: &str, model: ModelRef) -> Result<(), AgentError> {

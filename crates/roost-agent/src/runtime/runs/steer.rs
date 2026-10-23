@@ -12,6 +12,7 @@ impl Steer {
             Self::User(text) => Entry::User {
                 text,
                 loop_repeat: false,
+                item_id: None,
             },
             Self::Advisory {
                 item_id,

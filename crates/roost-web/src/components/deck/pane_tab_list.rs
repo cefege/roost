@@ -52,7 +52,15 @@ pub fn PaneTabList(
                             .and_then(|conversation_id| {
                                 store.agent_chat.conversations.get(conversation_id)
                             })
-                            .map(|conversation| (id.clone(), conversation.title.clone()))
+                            .map(|conversation| {
+                                (
+                                    id.clone(),
+                                    crate::components::agent_chat::display_conversation_title(
+                                        &conversation.title,
+                                    )
+                                    .to_owned(),
+                                )
+                            })
                     })
             })
             .collect()

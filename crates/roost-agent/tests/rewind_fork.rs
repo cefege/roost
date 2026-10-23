@@ -5,6 +5,8 @@
 #[path = "support/mod.rs"]
 mod support;
 
+#[path = "rewind_fork/queued_inputs.rs"]
+mod queued_inputs;
 #[path = "rewind_fork/recovery.rs"]
 mod recovery;
 
@@ -33,12 +35,24 @@ async fn rewind_hides_turn_and_restores_its_worker_checkpoint() {
         .into_iter()
         .find_map(|(seq, entry)| matches!(entry, Entry::User { .. }).then_some(seq))
         .expect("user entry");
+    let user_item_id = harness
+        .runtime
+        .transcript(&conversation_id)
+        .await
+        .unwrap()
+        .items
+        .into_iter()
+        .find_map(|item| match item {
+            TranscriptItem::User { id, .. } => Some(id),
+            _ => None,
+        })
+        .expect("projected user item");
     harness
         .tools
         .answer("rewind_files", "Restored files:\n/repo/changed.txt");
     let restored_text = harness
         .runtime
-        .rewind(&conversation_id, &format!("u{seq}"), true)
+        .rewind(&conversation_id, &user_item_id, true)
         .await
         .unwrap();
     assert_eq!(restored_text, "old turn text");
@@ -141,6 +155,7 @@ async fn recovery_resumes_current_and_legacy_interrupted_work_once() {
         Entry::User {
             text: "prior request".into(),
             loop_repeat: false,
+            item_id: None,
         },
         Entry::Assistant {
             item_id: "prior-tool-call".into(),
@@ -193,6 +208,7 @@ async fn recovery_resumes_current_and_legacy_interrupted_work_once() {
         Entry::User {
             text: "unfinished request".into(),
             loop_repeat: false,
+            item_id: None,
         },
         Entry::RunIntent {
             active: true,
@@ -213,6 +229,7 @@ async fn recovery_resumes_current_and_legacy_interrupted_work_once() {
         Entry::User {
             text: "legacy unfinished request".into(),
             loop_repeat: false,
+            item_id: None,
         },
         Entry::Assistant {
             item_id: "legacy-tool-call".into(),
@@ -262,6 +279,7 @@ async fn recovery_resumes_current_and_legacy_interrupted_work_once() {
         Entry::User {
             text: "legacy failed request".into(),
             loop_repeat: false,
+            item_id: None,
         },
         Entry::Assistant {
             item_id: "failed-attempt".into(),

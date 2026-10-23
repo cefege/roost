@@ -109,7 +109,7 @@ pub trait TerminalViewPort: Send + Sync + std::fmt::Debug {
 /// `onDetach`, `onWritable`, `onSnapshotReady`.
 pub trait LinkLifecyclePort: Send + Sync + std::fmt::Debug {
     fn on_open(&self);
-    fn on_hello_ack(&self, terminal_metadata_negotiated: bool);
+    fn on_hello_ack(&self, capabilities: &[String]);
     fn on_detach(&self);
     fn on_writable(&self);
     fn on_snapshot_ready(&self);
@@ -134,10 +134,10 @@ impl LinkLifecyclePort for LinkLifecycles {
     fn on_open(&self) {
         self.owners.iter().for_each(|owner| owner.on_open());
     }
-    fn on_hello_ack(&self, terminal_metadata_negotiated: bool) {
+    fn on_hello_ack(&self, capabilities: &[String]) {
         self.owners
             .iter()
-            .for_each(|owner| owner.on_hello_ack(terminal_metadata_negotiated));
+            .for_each(|owner| owner.on_hello_ack(capabilities));
     }
     fn on_detach(&self) {
         self.owners.iter().for_each(|owner| owner.on_detach());

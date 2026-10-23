@@ -29,7 +29,7 @@ pub fn is_compact_shell(phone_sized: bool, tv_layout: bool) -> bool {
 /// highlights nothing rather than defaulting to the first item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Destination {
-    Sessions,
+    Workspaces,
     Search,
     Files,
     Settings,
@@ -42,7 +42,7 @@ impl Destination {
     /// The list is the rail's only source: a destination not in it cannot be
     /// drawn, so adding one is adding a row here and nowhere else.
     pub const ALL: [Destination; 5] = [
-        Destination::Sessions,
+        Destination::Workspaces,
         Destination::Search,
         Destination::Files,
         Destination::Settings,
@@ -52,7 +52,7 @@ impl Destination {
     /// The Lucide icon the rail draws for this destination.
     pub const fn icon(self) -> IconType {
         match self {
-            Self::Sessions => IconType::Terminal,
+            Self::Workspaces => IconType::Bot,
             Self::Search => IconType::Search,
             Self::Files => IconType::FolderOpen,
             Self::Settings => IconType::Settings,
@@ -63,7 +63,7 @@ impl Destination {
     /// The word the rail's label and `aria-label` both read.
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Sessions => "Sessions",
+            Self::Workspaces => "Workspaces",
             Self::Search => "Search",
             Self::Files => "Files",
             Self::Settings => "Settings",
@@ -78,7 +78,7 @@ impl Destination {
     /// is an index they did not ask for.
     pub fn href(self) -> String {
         match self {
-            Self::Sessions => "/".to_string(),
+            Self::Workspaces => "/".to_string(),
             Self::Search => "/search".to_string(),
             Self::Files => "/browse".to_string(),
             Self::Settings => "/settings/machines".to_string(),
@@ -89,7 +89,7 @@ impl Destination {
     /// The `data-testid` the Playwright specs address this destination by.
     pub const fn test_id(self) -> &'static str {
         match self {
-            Self::Sessions => "workbench-activity-sessions",
+            Self::Workspaces => "workbench-activity-workspaces",
             Self::Search => "workbench-activity-search",
             Self::Files => "workbench-activity-files",
             Self::Settings => "workbench-activity-settings",
@@ -99,13 +99,13 @@ impl Destination {
 
     /// Whether a pathname selects this destination.
     ///
-    /// Sessions is the odd one: it owns the three terminal route prefixes as
-    /// well as the root, because every terminal route is a session and a rail
-    /// that greyed out Sessions while a terminal was open would be lying.
+    /// Agent and terminal routes share the workspace destination; neither is
+    /// a separate primary navigation mode.
     pub fn is_active(self, pathname: &str) -> bool {
         match self {
-            Self::Sessions => {
+            Self::Workspaces => {
                 pathname == "/"
+                    || pathname.starts_with("/a/")
                     || pathname.starts_with("/s/")
                     || pathname.starts_with("/t/")
                     || pathname.starts_with("/w/")

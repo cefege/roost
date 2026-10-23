@@ -225,7 +225,10 @@ impl LinkLifecyclePort for CellCadence {
 
     /// v2 `onHelloAck` (session half): negotiate, then re-baseline the coord
     /// sink ONLY — stream identity and local viewers are untouched.
-    fn on_hello_ack(&self, terminal_metadata_negotiated: bool) {
+    fn on_hello_ack(&self, capabilities: &[String]) {
+        let terminal_metadata_negotiated = capabilities.iter().any(|capability| {
+            capability == roost_protocol::versioning::CAPABILITY_TERMINAL_METADATA_V1
+        });
         self.shared.coord_sink.set_attached(true);
         let mut emitter = lock(&self.shared.emitter);
         emitter.set_terminal_metadata_negotiated(terminal_metadata_negotiated);

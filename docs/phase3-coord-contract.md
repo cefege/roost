@@ -191,7 +191,7 @@ added to a populated table without a rebuild.
 ### 2.4 The migration runner
 
 v2 wrote its own (`apps/coord/src/db/migrate.ts`) and stores **no checksums**.
-Four properties carry over and one hazard does not.
+v3 retains history validation and foreign-key enforcement, but commits a pending upgrade atomically.
 
 1. **Exact-prefix history.** The applied history must be an exact prefix of the
    known migrations, or boot fails with *"Applied migration history is not an
@@ -206,18 +206,19 @@ Four properties carry over and one hazard does not.
    `0030_pair_request_provenance` and `0030_workers_terminal_core_capacity`.
    A Rust port that sorts by slot number applies them in the wrong order and the
    squashed schema comes out different.
-3. **One transaction per migration, with the history row inside it**
-   (`migrate.ts:337-360`). A partially-applied migration is therefore
-   impossible: any failure rolls back and the next boot re-runs the file clean.
+3. **v2 commits each migration and its history row separately**
+   (`migrate.ts:337-360`). v3 wraps the entire pending batch in one outer
+   transaction; SQLx's per-file transactions become savepoints. The migration
+   lock remains held through commit or rollback, so old replicas cannot observe
+   an intermediate schema that temporarily invalidates their writes.
 4. **Foreign keys are re-verified before each migration and validated after**,
    and `PRAGMA integrity_check` runs on the final pending migration
    (`migrate.ts:293-294, 343-350`).
 
-The hazard: **no checksums**, so an edited `.sql` for an already-applied name is
-silently ignored. v3 has one migration, so this is moot for the squashed file —
-but any future migration must be a new name, never an edit to `0001_init.sql`.
-Editing it would produce a v3 install whose database does not match its
-migrations, with nothing to notice.
+The v2 hazard is **no checksums**, so an edited `.sql` for an already-applied
+name is silently ignored. SQLx checksums applied files. Every schema change
+therefore needs a new migration name, never an edit to an applied file, even
+when that file was applied only to a local development database.
 
 **v3 runs `sqlx::migrate!` over `crates/roost-coord/migrations/`.** `sqlx`
 records applied migrations in `_sqlx_migrations`, which is why

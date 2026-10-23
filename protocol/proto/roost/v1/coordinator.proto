@@ -980,14 +980,26 @@ message AgentChatSubmitRequest {
   string conversation_id = 1;
   string text = 2;
   string request_id = 3;
+  // Empty preserves the legacy steer behavior.
+  string when_busy = 4;
 }
 message AgentChatSubmitResponse {}
 message AgentChatAbortRequest {
   string conversation_id = 1;
   // Client-minted; a retry with the same id is applied once.
   string request_id = 2;
+  // Absent preserves stop-all; false stops foreground work only.
+  optional bool background = 3;
 }
 message AgentChatAbortResponse {}
+message AgentChatWithdrawRequest {
+  string conversation_id = 1;
+  string submission_id = 2;
+  string request_id = 3;
+}
+message AgentChatWithdrawResponse { bool withdrawn = 1; }
+message AgentChatInspectRequest { string conversation_id = 1; }
+message AgentChatInspectResponse { string inspection_json = 1; }
 message AgentChatConfigureRequest {
   string conversation_id = 1;
   optional string model_provider = 2;
@@ -996,6 +1008,7 @@ message AgentChatConfigureRequest {
   optional string worker_fp = 5;
   optional string cwd = 6;
   optional string title = 7;
+  optional bool read_only = 8;
 }
 message AgentChatDeleteRequest { string conversation_id = 1; }
 message AgentChatDeleteResponse {}
@@ -1128,6 +1141,8 @@ service CoordinatorService {
   rpc AgentChatCreate(AgentChatCreateRequest) returns (AgentConversation);
   rpc AgentChatSubmit(AgentChatSubmitRequest) returns (AgentChatSubmitResponse);
   rpc AgentChatAbort(AgentChatAbortRequest) returns (AgentChatAbortResponse);
+  rpc AgentChatWithdraw(AgentChatWithdrawRequest) returns (AgentChatWithdrawResponse);
+  rpc AgentChatInspect(AgentChatInspectRequest) returns (AgentChatInspectResponse);
   rpc AgentChatConfigure(AgentChatConfigureRequest) returns (AgentConversation);
   rpc AgentChatDelete(AgentChatDeleteRequest) returns (AgentChatDeleteResponse);
   rpc AgentChatSnapshot(AgentChatSnapshotRequest) returns (AgentChatSnapshotResponse);

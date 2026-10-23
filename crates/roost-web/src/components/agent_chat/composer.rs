@@ -1,6 +1,6 @@
-//! The agent composer: one box holding the draft field and, under it, the
-//! footer row (`composer_footer`). The slash menu opens above the box. The
-//! surface keeps the draft; the pump submits input and explicit Stop.
+//! The agent composer keeps the draft, slash commands and voice input together.
+//! Its footer exposes models, busy submission modes and foreground interruption.
+//! Submissions reuse their request ID until the outcome is known.
 
 use std::rc::Rc;
 
@@ -20,9 +20,13 @@ use super::slash_menu::{
     scroll_option_into_view, slash_menu_state, slash_sources,
 };
 use crate::components::settings::agent_connect_dialog::AgentConnectDialog;
+use crate::components::terminal_chrome::composer_dictation::{
+    SharedBinding, VoiceControl, use_dictation, use_dictation_context,
+};
 use crate::components::ui::{FieldError, InputPrompt, InputPromptTextarea};
 use crate::pump::Pump;
 use crate::router_state::use_navigate;
+use crate::voice::send_gate::SendGate;
 
 use super::composer_commands::{
     LocalCommandScope, report_command, run_local_command, submit_message,
@@ -37,11 +41,14 @@ pub fn AgentComposer(
     draft: Signal<String>,
     running: bool,
     host_connected: bool,
+    active: bool,
     pump: Pump,
     model_hub_open: Signal<bool>,
     connect_provider: Signal<Option<ProviderEntry>>,
 ) -> Element {
     let mut draft = draft;
+    let dictation = use_dictation(draft);
+    let dictation_context = use_dictation_context(None, draft);
     let disabled = !host_connected;
     let conversation_id = conversation.id.clone();
     let navigate = use_navigate();
@@ -53,6 +60,15 @@ pub fn AgentComposer(
     let mut goal_open = use_signal(|| false);
     let mut goal_view_request = use_signal(String::new);
     let mut goal_pending = use_signal(|| false);
+    let mut unresolved_send = use_signal(|| super::submission::restore(&conversation_id));
+    let busy_mode = use_signal(|| {
+        unresolved_send
+            .peek()
+            .as_ref()
+            .map(|pending| pending.when_busy.clone())
+            .unwrap_or_else(|| "follow_up".to_owned())
+    });
+    let mut submit_pending = use_signal(|| false);
     let goal_result = EventHandler::new(move |result: Result<(), String>| {
         goal_pending.set(false);
         command_error.set(result.err());
@@ -74,13 +90,19 @@ pub fn AgentComposer(
         roost_protocol::wire::agent_chat::TranscriptItem::Goal { state, .. } => Some(state.clone()),
         _ => None,
     });
-    let send = EventHandler::new({
+    let submit = EventHandler::new({
         let pump = pump.clone();
         let conversation_id = conversation_id.clone();
         let conversation = conversation.clone();
         let catalog = catalog.clone();
         move |()| {
+            if disabled || submit_pending() {
+                return;
+            }
             let text = draft.peek().trim().to_string();
+            if text.is_empty() {
+                return;
+            }
             if let Some((command, args)) = parse_slash_command(&text) {
                 if command.name == "goal"
                     && (args.is_empty()
@@ -114,8 +136,39 @@ pub fn AgentComposer(
                     return;
                 }
             }
-            submit_message(pump.clone(), conversation_id.clone(), text, report);
-            draft.set(String::new());
+            let selected_mode = busy_mode.peek().clone();
+            let pending = super::submission::prepare(
+                &conversation_id,
+                &text,
+                &selected_mode,
+                unresolved_send.peek().as_ref(),
+            );
+            let (mode, request_id) = (pending.when_busy.clone(), pending.request_id.clone());
+            unresolved_send.set(Some(pending));
+            submit_pending.set(true);
+            let completion = super::submission::completion_callback(
+                conversation_id.clone(),
+                draft,
+                submit_pending,
+                unresolved_send,
+                report,
+            );
+            submit_message(
+                pump.clone(),
+                conversation_id.clone(),
+                text,
+                mode,
+                request_id,
+                completion,
+            );
+        }
+    });
+    let send = EventHandler::new({
+        let dictation = dictation.clone();
+        move |()| match dictation.send_gate() {
+            SendGate::Submit => submit.call(()),
+            SendGate::AfterFinalize => dictation.send_after_finalize(),
+            SendGate::Withheld => {}
         }
     });
     let accept = EventHandler::new({
@@ -160,10 +213,17 @@ pub fn AgentComposer(
         }
     });
     let empty = draft().trim().is_empty();
+    let send_available = dictation.send_gate().offers_send();
     let placeholder = if disabled {
         "The agent host is offline"
+    } else if !send_available {
+        "Listening…"
     } else if running {
-        "Steer the agent…"
+        match busy_mode().as_str() {
+            "follow_up" => "Add a follow-up…",
+            "reject" => "This message will be rejected while busy",
+            _ => "Steer the agent…",
+        }
     } else {
         "Ask the agent, or type / for commands…"
     };
@@ -173,7 +233,9 @@ pub fn AgentComposer(
     // needs nothing more, completes one that needs an argument.
     let pick = accept;
     let capture_field = EventHandler::new(move |event: MountedEvent| field.set(Some(event.data())));
+    let input_dictation = dictation.clone();
     let handle_draft_input = EventHandler::new(move |value: String| {
+        input_dictation.forget_provisional();
         let next = slash_menu_state(&value, &sources_for_input);
         selected_option.set(
             next.as_ref()
@@ -186,6 +248,12 @@ pub fn AgentComposer(
         if menu_open && key == "Escape" {
             event.prevent_default();
             menu_dismissed.set(true);
+            return;
+        }
+        if running && key == "Escape" {
+            event.prevent_default();
+            event.stop_propagation();
+            stop.call(());
             return;
         }
         if options_open {
@@ -239,10 +307,12 @@ pub fn AgentComposer(
                     on_switch_model: switch_model,
                 }
                 InputPromptTextarea {
+                    id: super::composer_helpers::composer_input_id(&conversation_id),
                     value: draft,
                     placeholder,
                     aria_label: "Message the agent",
                     disabled,
+                    submit_on_enter: send_available,
                     class: "w-full min-h-6 max-h-60 py-1 px-3 text-base leading-6",
                     on_mounted: capture_field,
                     on_keydown: handle_draft_key,
@@ -282,7 +352,20 @@ pub fn AgentComposer(
                     },
                     running,
                     has_draft: !empty,
+                    send_available,
+                    voice_controls: rsx! {
+                        VoiceControl {
+                            owner_id: conversation_id.clone(),
+                            active: active && !disabled,
+                            compact: true,
+                            read_context: Some(dictation_context.clone()),
+                            binding: SharedBinding(dictation.clone()),
+                            on_submit: submit,
+                        }
+                    },
                     disabled,
+                    busy_mode,
+                    submit_pending: submit_pending(),
                     on_send: send,
                     on_stop: stop,
                 }

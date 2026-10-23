@@ -45,6 +45,8 @@ pub fn AgentModelsPane() -> Element {
     let mut refresh = use_signal(|| 0_u64);
     let mut section = use_signal(|| "models");
     let settings = use_signal(AgentSettingsView::default);
+    let settings_loaded = use_signal(|| false);
+    let settings_error = use_signal(String::new);
     let mut search_url = use_signal(String::new);
     let saved_search_url = use_memo(move || settings().searxng_url.unwrap_or_default());
     use_effect(move || search_url.set(saved_search_url()));
@@ -54,13 +56,21 @@ pub fn AgentModelsPane() -> Element {
         load_everything(load_pump.clone(), catalog, accounts, error);
     });
     let settings_pump = pump.clone();
-    use_effect(move || load_settings(settings_pump.clone(), settings, error));
+    use_effect(move || {
+        load_settings(
+            settings_pump.clone(),
+            settings,
+            settings_error,
+            settings_loaded,
+        )
+    });
     let now_ms = crate::platform::clock::WallClock.now_ms();
     let mut reload = move |()| refresh += 1;
     let Some(catalog_value) = catalog() else {
         return rsx! {
         div { "data-testid": "agent-models-pane",
             if !error().is_empty() { FieldError { {error()} } }
+            if !settings_error().is_empty() { FieldError { {settings_error()} } }
                 Skeleton { class: "h-24 w-full" }
             }
         };
@@ -78,6 +88,7 @@ pub fn AgentModelsPane() -> Element {
     rsx! {
         div { "data-testid": "agent-models-pane",
             if !error().is_empty() { FieldError { {error()} } }
+            if !settings_error().is_empty() { FieldError { {settings_error()} } }
             Tabs {
                 value: section(),
                 on_value_change: move |next: String| {
@@ -112,7 +123,11 @@ pub fn AgentModelsPane() -> Element {
                                 "Connect a model provider"
                             }
                         }
-                        AgentRoles { catalog: catalog_value.clone(), settings, error }
+                        if settings_loaded() {
+                            AgentRoles { catalog: catalog_value.clone(), settings, error }
+                        } else if settings_error().is_empty() {
+                            Skeleton { class: "h-24 w-full" }
+                        }
                     }
                     }
                 } else if section() == "accounts" {
@@ -177,6 +192,7 @@ pub fn AgentModelsPane() -> Element {
                             providers: web_search.iter().filter(|summary| !summary.provider.configured).cloned().collect::<Vec<_>>(),
                             on_connect: move |provider| connect_provider.set(Some(provider)),
                         }
+                        if settings_loaded() {
                         form {
                             onsubmit: move |event| {
                                 event.prevent_default();
@@ -199,6 +215,9 @@ pub fn AgentModelsPane() -> Element {
                                 disabled: search_url().trim() == saved_search_url(),
                                 "Save server"
                             }
+                        }
+                        } else if settings_error().is_empty() {
+                            Skeleton { class: "h-24 w-full" }
                         }
                     }
                     }

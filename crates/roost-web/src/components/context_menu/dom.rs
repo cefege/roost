@@ -153,26 +153,36 @@ impl DismissListeners {
         // menu may re-render it before this document listener runs, detaching
         // the target, so `contains` on the live tree would call an inside click
         // outside and close the menu the click just changed.
+        let within_ids = Rc::new(within_ids);
+        let click_ids = Rc::clone(&within_ids);
         let click =
             Closure::<dyn FnMut(web_sys::MouseEvent)>::new(move |event: web_sys::MouseEvent| {
                 let inside = event.composed_path().iter().any(|node| {
                     node.dyn_ref::<web_sys::Element>()
-                        .is_some_and(|element| within_ids.iter().any(|id| element.id() == *id))
+                        .is_some_and(|element| click_ids.iter().any(|id| element.id() == *id))
                 });
                 if !inside {
                     on_close.call(());
                 }
             });
         let keydown = Closure::<dyn FnMut(KeyboardEvent)>::new(move |event: KeyboardEvent| {
-            if event.key() == "Escape" {
+            if event.key() == "Escape"
+                && !event.default_prevented()
+                && escape_belongs_to(&event, &within_ids)
+            {
+                event.prevent_default();
+                event.stop_immediate_propagation();
                 on_escape.unwrap_or(on_close).call(());
             }
         });
         if let Some(document) = web_sys::window().and_then(|window| window.document()) {
             let _ =
                 document.add_event_listener_with_callback("click", click.as_ref().unchecked_ref());
-            let _ = document
-                .add_event_listener_with_callback("keydown", keydown.as_ref().unchecked_ref());
+            let _ = document.add_event_listener_with_callback_and_bool(
+                "keydown",
+                keydown.as_ref().unchecked_ref(),
+                true,
+            );
         }
         Self { click, keydown }
     }
@@ -182,10 +192,31 @@ impl DismissListeners {
         if let Some(document) = web_sys::window().and_then(|window| window.document()) {
             let _ = document
                 .remove_event_listener_with_callback("click", self.click.as_ref().unchecked_ref());
-            let _ = document.remove_event_listener_with_callback(
+            let _ = document.remove_event_listener_with_callback_and_bool(
                 "keydown",
                 self.keydown.as_ref().unchecked_ref(),
+                true,
             );
         }
     }
+}
+
+/// A nested dialog, menu or listbox owns Escape before its enclosing popover.
+fn escape_belongs_to(event: &KeyboardEvent, within_ids: &[String]) -> bool {
+    for node in event.composed_path().iter() {
+        let Some(element) = node.dyn_ref::<Element>() else {
+            continue;
+        };
+        let id = element.id();
+        if within_ids.contains(&id) {
+            return true;
+        }
+        if matches!(
+            element.get_attribute("role").as_deref(),
+            Some("dialog" | "listbox" | "menu")
+        ) {
+            return false;
+        }
+    }
+    true
 }

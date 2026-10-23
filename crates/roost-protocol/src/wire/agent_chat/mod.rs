@@ -4,6 +4,7 @@
 mod catalog;
 mod commands;
 mod fold;
+mod inspection;
 mod interaction;
 mod jobs;
 mod model;
@@ -18,6 +19,7 @@ pub use tools::*;
 
 pub use catalog::*;
 pub use fold::fold_chat_event;
+pub use inspection::{AgentActivity, AgentInspection, ContextInspection, InspectedTool};
 pub use model::*;
 pub use model_order::{
     compare_models_newest_first, compare_newest_first, model_family, model_version,

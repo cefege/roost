@@ -80,7 +80,7 @@ impl KeeperPool {
     }
 
     /// Hand one frame to the session it belongs to.
-    fn route(&self, frame: MuxFrame) {
+    pub(super) fn route(&self, frame: MuxFrame) {
         match frame.frame_type {
             MuxFrameType::PtyOut => match self.output_binding_for(frame.channel_id) {
                 Some(output) => {

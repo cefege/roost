@@ -11,7 +11,7 @@ use crate::components::ui::{
 
 #[component]
 pub(super) fn ThinkingBlock(text: String, live: bool, globally_visible: bool) -> Element {
-    let mut expanded = use_signal(|| live);
+    let mut expanded = use_signal(|| false);
     let mut manually_changed = use_signal(|| false);
     let started_ms = use_hook(now_ms);
     let mut observed_seconds = use_signal(|| 0_u64);

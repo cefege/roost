@@ -2,7 +2,7 @@
 //! radius. Spacing is a closed set, so the gap is a Tailwind class and the
 //! grouped (flush) layout rounds only the outer corners.
 //!
-//! Each `ToggleGroupItem` is a button with `aria-pressed` and reports clicks to
+//! Each `ToggleGroupItem` is a radio button with `aria-checked` and reports clicks to
 //! its caller, who owns the pressed state.
 
 use dioxus::prelude::*;
@@ -167,7 +167,7 @@ pub fn ToggleGroupItem(
             id,
             "data-testid": test_id,
             title: "{title}",
-            "aria-pressed": "{pressed}",
+            "aria-checked": "{pressed}",
             "data-state": "{state}",
             onclick: move |event| {
                 if let Some(handler) = &onclick {

@@ -1,7 +1,7 @@
-//! The composer's bottom row, laid out as chat composers lay theirs out: a `+`
-//! that opens the command menu and the modes that are on (plan, advisor, a
-//! goal) on the left; the model, thinking effort and send or stop on the right.
-//! Mounted by `composer`; commands it starts go through `composer_commands`.
+//! The footer keeps mode controls and existing agent settings beside the input.
+//! It exposes the busy-send choice and foreground interrupt while preserving
+//! model selection, voice controls, planning, advisor and goal actions.
+//! Commands continue through `composer_commands`.
 
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{ConversationSummary, GoalState, ModelsCatalog};
@@ -10,8 +10,8 @@ use super::composer_commands::{advisor_title, report_command, submit_direct_comm
 use super::goal_dock::GoalDock;
 use super::model_controls::AgentModelControls;
 use crate::components::ui::{
-    ButtonVariant, Chip, Icon, IconButton, IconType, InputPromptFooter, InputPromptSubmit,
-    InputPromptTools,
+    Button, ButtonSize, ButtonVariant, Chip, Icon, IconButton, IconType, InputPromptFooter,
+    InputPromptSubmit, InputPromptTools, Select, SelectOption,
 };
 use crate::pump::Pump;
 
@@ -30,9 +30,12 @@ pub(super) fn ComposerFooter(
     listbox: String,
     on_commands: EventHandler<()>,
     running: bool,
-    /// Whether the draft holds something to send.
     has_draft: bool,
+    send_available: bool,
+    voice_controls: Element,
     disabled: bool,
+    busy_mode: Signal<String>,
+    submit_pending: bool,
     on_send: EventHandler<()>,
     on_stop: EventHandler<()>,
 ) -> Element {
@@ -85,23 +88,49 @@ pub(super) fn ComposerFooter(
                 }
                 GoalDock { goal, view_request: goal_view_request, on_open: on_goal_open }
             }
-            InputPromptTools { class: "shrink-0",
+            InputPromptTools { class: "min-w-0 flex-wrap justify-end",
                 AgentModelControls { conversation: conversation.clone(), catalog, catalog_failed, pump }
+                {voice_controls}
+                    Select {
+                        test_id: "agent-chat-when-busy",
+                        label: "When busy",
+                        value: busy_mode(),
+                        options: vec![
+                            SelectOption::new("follow_up", "Follow-up"),
+                            SelectOption::new("steer", "Steer"),
+                            SelectOption::new("reject", "Reject if busy"),
+                        ],
+                        on_change: move |mode| busy_mode.set(mode),
+                    }
                 if running {
-                    InputPromptSubmit {
-                        variant: ButtonVariant::Secondary,
-                        aria_label: "Stop the agent",
-                        title: "Stop",
-                        test_id: "agent-chat-stop",
+                    Button {
+                        icon: IconType::Square,
+                        size: ButtonSize::Sm,
+                        "aria-label": "Interrupt foreground work",
+                        title: "Interrupt foreground work. Background jobs continue.",
+                        variant: ButtonVariant::Destructive,
+                        "data-testid": "agent-chat-stop",
                         onclick: move |_| on_stop.call(()),
-                        Icon { icon: IconType::Square, class: "size-4" }
+                        "Interrupt"
                     }
                 }
-                if !running || has_draft {
+                if send_available {
                     InputPromptSubmit {
-                        disabled: disabled || !has_draft,
-                        aria_label: if running { "Steer the agent" } else { "Send message" },
-                        title: if running { "Steer" } else { "Send" },
+                        disabled: disabled || !has_draft || submit_pending,
+                        aria_label: if running {
+                            match busy_mode().as_str() {
+                                "follow_up" => "Send follow-up",
+                                "reject" => "Reject if busy",
+                                _ => "Steer the agent",
+                            }
+                        } else { "Send message" },
+                        title: if running {
+                            match busy_mode().as_str() {
+                                "follow_up" => "Follow-up",
+                                "reject" => "Reject if busy",
+                                _ => "Steer",
+                            }
+                        } else { "Send" },
                         test_id: "agent-chat-send",
                         onclick: move |_| on_send.call(()),
                         Icon { icon: IconType::ArrowUp, class: "size-4" }

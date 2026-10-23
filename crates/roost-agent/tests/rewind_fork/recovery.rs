@@ -19,6 +19,7 @@ async fn recovery_replays_unexpected_stop_policy_once_for_completed_output() {
             &Entry::User {
                 text: "fix the bug".into(),
                 loop_repeat: false,
+                item_id: None,
             },
             &[],
             None,

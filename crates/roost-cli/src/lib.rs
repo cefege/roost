@@ -34,6 +34,7 @@ pub mod status;
 pub mod update;
 pub mod utc_clock;
 pub mod wall_clock;
+pub mod worktree;
 
 use std::process::ExitCode;
 
@@ -145,6 +146,8 @@ pub enum Command {
     KeeperContract(KeeperContractArgs),
     #[command(name = "__self-update", hide = true)]
     SelfUpdate(crate::self_update::SelfUpdateArgs),
+    /// Create Git-linked worktrees.
+    Worktree(crate::worktree::WorktreeArgs),
 }
 
 impl Command {
@@ -183,6 +186,7 @@ impl Command {
             Command::Test(_) => "test",
             Command::KeeperContract(_) => "__keeper-contract",
             Command::SelfUpdate(_) => "__self-update",
+            Command::Worktree(_) => "worktree",
         }
     }
 }
@@ -222,5 +226,6 @@ pub async fn dispatch(cli: Cli) -> Result<ExitCode, CommandFailure> {
         Command::Test(args) => ops::test::run(&args),
         Command::KeeperContract(args) => ops::keeper_contract::run(&args),
         Command::SelfUpdate(args) => self_update::run(&args).await,
+        Command::Worktree(args) => worktree::run(&args),
     }
 }

@@ -2,12 +2,15 @@
 //! full transcript a client resets to, and the single item a freshly appended
 //! entry becomes, both with the same stable item ids.
 
+mod inbox;
+
 use std::collections::HashMap;
 
 use roost_llm::{AssistantBlock, Catalog, Usage};
 use roost_protocol::wire::agent_chat::{Transcript, TranscriptBlock, TranscriptItem, UsageTotals};
 
 use crate::records::{ConversationRecord, Entry};
+use inbox::queued_follow_ups;
 
 /// The one task-list card of a conversation; each `todo` call replaces it.
 pub const TODO_ITEM_ID: &str = "todo";
@@ -84,8 +87,8 @@ pub fn user_item_id(seq: u64) -> String {
 /// The item one entry projects to, if it is user-visible.
 pub fn entry_item(seq: u64, entry: &Entry, tools: &ToolCallIndex) -> Option<TranscriptItem> {
     match entry {
-        Entry::User { text, .. } => Some(TranscriptItem::User {
-            id: user_item_id(seq),
+        Entry::User { text, item_id, .. } => Some(TranscriptItem::User {
+            id: item_id.clone().unwrap_or_else(|| user_item_id(seq)),
             text: text.clone(),
         }),
         Entry::Assistant {
@@ -219,6 +222,9 @@ pub fn entry_item(seq: u64, entry: &Entry, tools: &ToolCallIndex) -> Option<Tran
             state: state.clone(),
         }),
         Entry::Rewind { .. }
+        | Entry::QueuedInput { .. }
+        | Entry::QueuedInputWithdrawn { .. }
+        | Entry::InputConsumed { .. }
         | Entry::ExtraUsage { .. }
         | Entry::SubagentContext { .. }
         | Entry::RunIntent { .. }
@@ -327,65 +333,21 @@ pub fn transcript(
     entries: &[(u64, Entry)],
     usage: UsageTotals,
 ) -> Transcript {
+    let queued = queued_follow_ups(entries);
+    let mut items = project_items(entries);
+    items.retain(|item| !queued.iter().any(|message| message.id == item_id(item)));
     Transcript {
-        items: project_items(entries),
+        items,
         run_state: record.run_state,
         error: record.error.clone(),
         model: record.model.clone(),
         thinking_level: Some(record.thinking_level.clone()),
         usage,
         mode: Some(record.mode.as_str().to_owned()),
-        queued: Vec::new(),
+        queued,
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use roost_llm::{Catalog, Usage};
-    use roost_protocol::wire::agent_chat::{ModelRef, UsageTotals};
-
-    use super::usage_totals;
-    use crate::records::Entry;
-
-    fn assistant(input: u64, output: u64) -> (u64, Entry) {
-        (
-            0,
-            Entry::Assistant {
-                item_id: "a".into(),
-                blocks: Vec::new(),
-                usage: Usage {
-                    input,
-                    output,
-                    cache_read: 0,
-                    cache_write: 0,
-                },
-                model: Some(ModelRef {
-                    provider: "test".into(),
-                    model_id: "model".into(),
-                }),
-                metadata: None,
-            },
-        )
-    }
-
-    #[test]
-    fn context_tokens_holds_only_the_latest_calls_own_prompt_size() {
-        let catalog = Catalog::builtin();
-        let entries = [assistant(100, 10), assistant(40, 5)];
-        let totals = usage_totals(&catalog, &entries, &UsageTotals::default());
-        assert_eq!(totals.context_tokens, 40, "not the 140-token sum");
-        assert_eq!(totals.input_tokens, 140, "the session total still sums");
-        assert_eq!(totals.output_tokens, 15);
-    }
-
-    #[test]
-    fn a_call_with_no_usage_keeps_the_last_real_calls_context_size() {
-        let catalog = Catalog::builtin();
-        let entries = [assistant(100, 10), assistant(0, 0)];
-        let totals = usage_totals(&catalog, &entries, &UsageTotals::default());
-        assert_eq!(
-            totals.context_tokens, 100,
-            "a failed or stopped call must not zero the ring"
-        );
-    }
-}
+#[path = "projection/tests.rs"]
+mod tests;

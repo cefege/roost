@@ -52,7 +52,10 @@ pub fn PaneTab(
         if let Some(conversation_id) = session_id.strip_prefix("agent:") {
             let conversation = store.agent_chat.conversations.get(conversation_id);
             (
-                conversation.map_or_else(String::new, |conversation| conversation.title.clone()),
+                crate::components::agent_chat::display_conversation_title(
+                    conversation.map_or("", |conversation| conversation.title.as_str()),
+                )
+                .to_owned(),
                 None,
                 conversation.map(|conversation| match conversation.run_state {
                     roost_protocol::wire::agent_chat::AgentRunState::Running => "info",

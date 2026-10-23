@@ -3,7 +3,7 @@
 //! catalog, and plan decisions. Worker metadata comes from the registry.
 
 use connectrpc::{ConnectError, ErrorCode, ServiceResult};
-use roost_agent::NewConversation;
+use roost_agent::{NewConversation, SubmitMode};
 use roost_proto as proto;
 use roost_protocol::wire::agent_chat::{ModelRef, conversation_to_proto};
 
@@ -110,13 +110,43 @@ pub async fn handle_agent_chat_submit(
 ) -> ServiceResult<proto::AgentChatSubmitResponse> {
     require_account_device(caller)?;
     require_request_id(&request.request_id)?;
+    let mode = SubmitMode::parse(&request.when_busy).map_err(agent_status)?;
     core.services
         .agent
         .runtime
-        .submit_request(&request.conversation_id, &request.request_id, request.text)
+        .submit_request_with_mode(
+            &request.conversation_id,
+            &request.request_id,
+            request.text,
+            mode,
+        )
         .await
         .map_err(agent_status)?;
     ok_response(proto::AgentChatSubmitResponse::default())
+}
+
+pub async fn handle_agent_chat_withdraw(
+    core: &CoordCore,
+    caller: &Caller,
+    request: proto::AgentChatWithdrawRequest,
+) -> ServiceResult<proto::AgentChatWithdrawResponse> {
+    require_account_device(caller)?;
+    require_request_id(&request.request_id)?;
+    let withdrawn = core
+        .services
+        .agent
+        .runtime
+        .withdraw(
+            &request.conversation_id,
+            &request.request_id,
+            &request.submission_id,
+        )
+        .await
+        .map_err(agent_status)?;
+    ok_response(proto::AgentChatWithdrawResponse {
+        withdrawn,
+        ..Default::default()
+    })
 }
 
 pub async fn handle_agent_chat_abort(
@@ -133,7 +163,12 @@ pub async fn handle_agent_chat_abort(
             &request.request_id,
             "abort",
             || async {
-                runtime.abort(&request.conversation_id).await?;
+                runtime
+                    .abort_with_background(
+                        &request.conversation_id,
+                        request.background.unwrap_or(true),
+                    )
+                    .await?;
                 Ok(String::new())
             },
         )
@@ -179,10 +214,16 @@ pub async fn handle_agent_chat_configure(
         Some(fp) => Some(live_worker(core, fp).await?),
         None => None,
     };
-    let summary = runtime
+    let mut summary = runtime
         .set_details(id, request.title, worker, request.cwd)
         .await
         .map_err(agent_status)?;
+    if let Some(read_only) = request.read_only {
+        summary = runtime
+            .set_read_only(id, read_only)
+            .await
+            .map_err(agent_status)?;
+    }
     ok_response(conversation_to_proto(&summary))
 }
 

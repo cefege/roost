@@ -1,8 +1,7 @@
-//! One tool call as OMP's transcript draws its box: a head with the tool's
-//! neutral icon, verb, target and diff stats, a status indicator for the call's
-//! state, the intent the model declared, then the body the tool calls for. The
-//! bodies live in their own modules; this file dispatches and owns the details
-//! disclosure. All host-provided content is rendered as text, never as markup.
+//! A compact tool disclosure with its execution state and argument summary.
+//! Expanding reveals native output, diffs, child agents and executor details;
+//! the transcript-wide expand action opens every disclosure. Tool content is
+//! text, never trusted markup. Called by the semantic transcript renderer.
 
 use dioxus::prelude::*;
 
@@ -20,7 +19,7 @@ use super::tool_view::{
 use super::write_view::WriteBody;
 use crate::components::ui::{
     Button, ButtonSize, ButtonVariant, Card, CardSize, CardVariant, Collapsible,
-    CollapsibleContent, CollapsibleTrigger, Icon, Spinner, StatusDot,
+    CollapsibleContent, CollapsibleTrigger, Icon, IconType, Spinner, StatusDot,
 };
 
 #[component]
@@ -38,6 +37,7 @@ pub fn ToolCard(
     expanded: bool,
 ) -> Element {
     let mut body_open = use_signal(|| false);
+    let mut disclosure_open = use_signal(|| false);
     let mut agents_open = use_signal(|| false);
     let mut details_open = use_signal(|| false);
     let details = serde_json::from_str::<serde_json::Value>(&details_json).ok();
@@ -61,11 +61,7 @@ pub fn ToolCard(
     let open = expanded || body_open();
     let agents_expanded = expanded || agents_open();
     let (icon, verb) = presentation(&tool_name, running);
-    let target = if tool_name == "bash" {
-        String::new()
-    } else {
-        argument_summary(&tool_name, &args_json)
-    };
+    let target = argument_summary(&tool_name, &args_json);
     let intent = intent_for(&args_json);
     let facts = detail_facts(details.as_ref());
     let command = string_field(&args_json, "command");
@@ -82,7 +78,10 @@ pub fn ToolCard(
     let on_body_expand = EventHandler::new(move |value: bool| body_open.set(value));
     let on_agents_expand = EventHandler::new(move |value: bool| agents_open.set(value));
 
-    let body = if tool_name == "bash" {
+    let disclosure_visible = expanded || disclosure_open();
+    let body = if !disclosure_visible {
+        rsx! {}
+    } else if tool_name == "bash" {
         rsx! {
             BashBody {
                 command: command.clone(),
@@ -137,7 +136,13 @@ pub fn ToolCard(
             class: Some("min-w-0 gap-1 rounded-md p-2 data-[state=error]:border-destructive/40".to_owned()),
             "data-state": state,
             "data-tool": tool_name.clone(),
-            div { class: "flex min-w-0 items-center gap-2 text-sm text-muted-foreground",
+            Collapsible {
+                open: expanded || disclosure_open(),
+                on_open_change: move |next| disclosure_open.set(next),
+                CollapsibleTrigger {
+                    variant: ButtonVariant::Ghost,
+                    size: ButtonSize::Sm,
+                    class: "h-auto w-full min-w-0 justify-start gap-2 px-1 py-1 text-left text-sm",
                 span { class: "inline-flex flex-none items-center gap-1", Icon { icon, class: "size-4" } }
                 span { class: "flex-none font-medium text-foreground", "{verb}" }
                 if !target.is_empty() {
@@ -160,10 +165,18 @@ pub fn ToolCard(
                         span { "{state_text}" }
                     }
                 }
-            }
+                    Icon { icon: if expanded || disclosure_open() { IconType::ChevronUp } else { IconType::ChevronDown }, class: "size-4 text-muted-foreground" }
+                }
+                CollapsibleContent { class: "flex min-w-0 flex-col gap-2 pt-2",
+                    if disclosure_visible {
+                    if !args_json.is_empty() && args_json != "{}" {
+                        span { class: "text-xs font-medium text-muted-foreground", "Input" }
+                        pre { class: "m-0 max-h-48 overflow-auto overscroll-y-auto whitespace-pre-wrap break-words font-mono text-xs", "{args_json}" }
+                    }
             if let Some(text) = intent {
                 p { class: "m-0 break-words text-xs italic text-muted-foreground", "{text}" }
             }
+            span { class: "text-xs font-medium text-muted-foreground", if running { "Live output" } else { "Result" } }
             {body}
             if tool_name == "edit" && !diff_text.is_empty() && !notes.is_empty() {
                 pre { class: "m-0 whitespace-pre-wrap break-words py-1 font-mono text-xs text-muted-foreground", "{notes}" }
@@ -193,9 +206,6 @@ pub fn ToolCard(
                         if !facts.is_empty() {
                             ul { class: "m-0 flex list-none flex-wrap gap-x-4 gap-y-2 p-0 text-xs text-muted-foreground", for fact in facts { li { "{fact}" } } }
                         }
-                        if !args_json.is_empty() && args_json != "{}" {
-                            pre { class: "m-0 whitespace-pre-wrap break-words font-mono text-xs", "{args_json}" }
-                        }
                         if !details_json.is_empty() && details_json != "{}" {
                             pre { class: "m-0 whitespace-pre-wrap break-words font-mono text-xs", "{details_json}" }
                         }
@@ -207,6 +217,9 @@ pub fn ToolCard(
                                 Button { variant: ButtonVariant::Link, onclick: move |_| copy_output_to_clipboard(&output_text), if output_copied() { "Copied" } else { "Copy output" } }
                             }
                         }
+                    }
+                }
+            }
                     }
                 }
             }

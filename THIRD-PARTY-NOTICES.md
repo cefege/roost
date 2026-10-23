@@ -2,8 +2,24 @@
 
 Parts of the agent harness (`crates/roost-llm`, `crates/roost-agent`,
 `crates/roost-agent-tools`, and the agent-chat tool shapes in
-`crates/roost-protocol`) are ported from the projects below. Each ported file
-names its source path on the first line of its `//!` header.
+`crates/roost-protocol`) are ported from the projects below. The agent
+workspace UI adaptation is attributed centrally to the pinned durable-pi
+repository and commit below. This reference UI is distinct from Roost's native
+Rust agent engine. Roost did not import the JavaScript runtime, demo workflows,
+Jev registry or extensions. Ported Rust files name their source path on the
+first line of their `//!` header; the centrally attributed UI adaptation does
+not use that per-file attribution.
+
+## durable-pi
+
+The agent workspace UI adaptation is based on
+https://github.com/disler/durable-pi at commit
+`37165c619573dbaf425463038bbffecfe576beec`.
+
+MIT License. Copyright (c) 2026 IndyDevDan. The MIT license text in the
+oh-my-pi section below applies with this copyright line. The pinned original:
+https://raw.githubusercontent.com/disler/durable-pi/37165c619573dbaf425463038bbffecfe576beec/LICENSE
+
 
 ## oh-my-pi
 

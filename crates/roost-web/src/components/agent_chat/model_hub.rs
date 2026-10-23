@@ -45,8 +45,8 @@ use self::roles::HubRolesView;
 use super::agent_alert::ERROR_TEXT_CLASS;
 use crate::components::settings::agent_roles::load_settings;
 use crate::components::ui::{
-    Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle, Skeleton,
-    TextField,
+    Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle, FieldError,
+    Skeleton, TextField,
 };
 use crate::pump::Pump;
 
@@ -70,6 +70,7 @@ pub fn ModelHub(
     let mut selected = use_signal(|| 0_usize);
     let mut focus_pane = use_signal(|| HubFocus::List);
     let settings = use_signal(AgentSettingsView::default);
+    let settings_loaded = use_signal(|| false);
     let mut error = use_signal(String::new);
     let mut strip = use_signal(|| None::<OpenStrip>);
     let load_pump = pump.clone();
@@ -80,7 +81,7 @@ pub fn ModelHub(
             selected.set(0);
             error.set(String::new());
             strip.set(None);
-            load_settings(load_pump.clone(), settings, error);
+            load_settings(load_pump.clone(), settings, error, settings_loaded);
             refocus_frame();
         }
     });
@@ -92,7 +93,7 @@ pub fn ModelHub(
             open.set(false);
         }
     };
-    let Some(catalog) = catalog else {
+    let Some(catalog) = catalog.filter(|_| settings_loaded()) else {
         return rsx! {
             Dialog { open: true, on_open_change: close,
                 DialogContent { class: HUB_DIALOG_CLASS, test_id: "agent-model-hub",
@@ -100,8 +101,12 @@ pub fn ModelHub(
                         DialogTitle { "Models" }
                     }
                     DialogBody { class: "min-h-0 flex-1 gap-0 p-5",
-                        div { class: "flex flex-col gap-2", role: "status", "aria-label": "Loading models",
-                            for index in 0..4 { Skeleton { key: "{index}", class: "h-8" } }
+                        if !error().is_empty() {
+                            FieldError { {error()} }
+                        } else {
+                            div { class: "flex flex-col gap-2", role: "status", "aria-label": "Loading models",
+                                for index in 0..4 { Skeleton { key: "{index}", class: "h-8" } }
+                            }
                         }
                     }
                 }

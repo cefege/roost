@@ -1,11 +1,9 @@
-//! Frame-to-frame diffing: how a replica turns two consecutive grid frames into
-//! a scroll shift plus the rows that changed.
-//!
-//! The producing side is the cell emitter's delta decision, and ITS reframe rule
-//! (cols/rows change, alt-screen toggle, scrollback shrink → full frame) is what
-//! makes a delta safely applicable here. A delta that fails an admission fact
-//! below is refused, never approximated: a replica that guessed would freeze a
-//! stale repaint generation into history.
+//! Reconstructs terminal frames and viewport shifts for replicas.
+//! Emitters provide immutable epochs and consecutive sequence chains.
+//! Invalid delta geometry or row numbering leaves the held frame intact.
+//! Viewport checkpoints omit history without discarding incoming shift data.
+
+use std::borrow::BorrowMut;
 
 use crate::cell::types::{CellGridFrame, CellRow, no_image_placements};
 
@@ -23,6 +21,13 @@ pub fn clone_cell_grid_frame(frame: &CellGridFrame) -> CellGridFrame {
 /// For a fold that never reads the base's history: copying a renderer's held
 /// history on every paint is the cost this avoids.
 pub fn clone_cell_grid_frame_without_history(frame: &CellGridFrame) -> CellGridFrame {
+    clone_frame_without_retained_history(frame, true)
+}
+
+fn clone_frame_without_retained_history(
+    frame: &CellGridFrame,
+    retain_append: bool,
+) -> CellGridFrame {
     CellGridFrame {
         stream_id: frame.stream_id.clone(),
         grid_epoch: frame.grid_epoch.clone(),
@@ -41,7 +46,11 @@ pub fn clone_cell_grid_frame_without_history(frame: &CellGridFrame) -> CellGridF
         full: frame.full,
         viewport_rows: clone_rows(&frame.viewport_rows),
         scrollback_rows: Vec::new(),
-        scrollback_append: clone_rows(&frame.scrollback_append),
+        scrollback_append: if retain_append {
+            clone_rows(&frame.scrollback_append)
+        } else {
+            Vec::new()
+        },
         scrollback_total: frame.scrollback_total,
         sb_base: frame.sb_base,
         base_seq: frame.base_seq,
@@ -63,6 +72,30 @@ pub fn normalize_cell_grid_frame(frame: &mut CellGridFrame) {
     frame
         .image_placements
         .get_or_insert_with(no_image_placements);
+}
+
+/// Applies a frame to a viewport-only checkpoint without copying retained history.
+/// Incoming delta history still participates in viewport-shift detection.
+/// A missing baseline or invalid delta leaves the checkpoint unchanged.
+pub fn apply_viewport_frame<Checkpoint>(
+    checkpoint: &mut Option<Checkpoint>,
+    frame: &CellGridFrame,
+) -> Option<()>
+where
+    Checkpoint: BorrowMut<CellGridFrame> + From<CellGridFrame>,
+{
+    if let Some(current) = checkpoint {
+        let current: &mut CellGridFrame = current.borrow_mut();
+        apply_delta_with_history(current, frame, false)?;
+        normalize_cell_grid_frame(current);
+    } else if frame.full {
+        let mut current = clone_frame_without_retained_history(frame, false);
+        normalize_cell_grid_frame(&mut current);
+        *checkpoint = Some(current.into());
+    } else {
+        return None;
+    }
+    Some(())
 }
 
 /// Number of held viewport rows reusable by a global viewport shift.
@@ -105,8 +138,20 @@ pub fn delta_viewport_shift(base: &CellGridFrame, delta: &CellGridFrame) -> u32 
 /// The delta is borrowed, never mutated: `fold_cell_delta_batch` reads a delta's
 /// rows after applying it, and an invalid chain must leave every input untouched.
 pub fn apply_delta(base: &mut CellGridFrame, delta: &CellGridFrame) -> Option<()> {
+    apply_delta_with_history(base, delta, true)
+}
+
+fn apply_delta_with_history(
+    base: &mut CellGridFrame,
+    delta: &CellGridFrame,
+    retain_history: bool,
+) -> Option<()> {
     if delta.full {
-        *base = delta.clone();
+        *base = if retain_history {
+            delta.clone()
+        } else {
+            clone_frame_without_retained_history(delta, false)
+        };
         return Some(());
     }
     if delta.stream_id != base.stream_id
@@ -147,9 +192,10 @@ pub fn apply_delta(base: &mut CellGridFrame, delta: &CellGridFrame) -> Option<()
         base.viewport_rows[row.index as usize] = row.clone();
     }
 
-    // Scrollback is append-only, so the held history extends rather than copies.
-    base.scrollback_rows
-        .extend(delta.scrollback_append.iter().cloned());
+    if retain_history {
+        base.scrollback_rows
+            .extend(delta.scrollback_append.iter().cloned());
+    }
     base.scrollback_append.clear();
 
     base.stream_id.clone_from(&delta.stream_id);
@@ -181,3 +227,7 @@ pub fn apply_delta(base: &mut CellGridFrame, delta: &CellGridFrame) -> Option<()
 fn clone_rows(rows: &[CellRow]) -> Vec<CellRow> {
     rows.to_vec()
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod viewport_tests;

@@ -350,6 +350,8 @@ impl Drop for Fixture {
         self.door.dispose();
         self.view.dispose();
         self.cadence.abort();
-        while self.upstream.try_recv().is_some() {}
+        while let Some(delivery) = self.upstream.try_recv_delivery() {
+            let _ = delivery._take_unconfirmed_frame();
+        }
     }
 }

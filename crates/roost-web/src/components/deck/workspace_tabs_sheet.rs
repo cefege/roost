@@ -209,7 +209,7 @@ pub fn WorkspaceTabsSheet(
                                                 aria_current: (tab_id == selected_tab).then_some("page"),
                                                 onclick: move |_| on_select.call(tab_id.clone()),
                                                 Icon { icon: IconType::Bot, class: "size-4 shrink-0" }
-                                                span { class: "min-w-0 flex-1 truncate", "{conversation.title}" }
+                                                span { class: "min-w-0 flex-1 truncate", "{crate::components::agent_chat::display_conversation_title(&conversation.title)}" }
                                                 StatusDot { status: status.to_owned() }
                                             }
                                         }

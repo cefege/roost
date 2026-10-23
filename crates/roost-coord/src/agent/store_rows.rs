@@ -52,6 +52,13 @@ pub(super) fn decode_record(
         parent_id: row.try_get("parent_id").map_err(store_error)?,
         agent: row.try_get("agent").map_err(store_error)?,
         advisor,
+        read_only: match backend {
+            DbBackend::Sqlite => row
+                .try_get::<i64, _>("read_only")
+                .map(|value| value != 0)
+                .map_err(store_error)?,
+            DbBackend::Postgres => row.try_get("read_only").map_err(store_error)?,
+        },
         run_state: AgentRunState::from_wire(
             &row.try_get::<String, _>("run_state").map_err(store_error)?,
         ),

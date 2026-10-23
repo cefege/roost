@@ -73,6 +73,12 @@
   scrollbar-gutter: stable;
 }
 
+/* A completed PTY cannot be resized to fit a narrow viewport. Let its fixed
+   cell grid scroll sideways while preserving the live pane's clipped width. */
+.wterm[data-pty-complete="true"] {
+  overflow-x: auto;
+}
+
 /* Pane-local terminal keyboard/IME surface. It remains focusable (unlike
    display:none/visibility:hidden) while contributing no grid nodes or layout.
    One textarea belongs to each pane so focus, selection and composition state

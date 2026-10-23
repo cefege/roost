@@ -62,7 +62,7 @@ pub fn AgentConversationRow(
     rsx! {
         ListRow {
             leading_icon: Some(IconType::Bot),
-            headline: rsx! { span { class: "min-w-0 truncate text-sm text-foreground group-data-[selected=true]:text-accent-foreground", "{conversation.title}" } },
+            headline: rsx! { span { class: "min-w-0 truncate text-sm text-foreground group-data-[selected=true]:text-accent-foreground", "{crate::components::agent_chat::display_conversation_title(&conversation.title)}" } },
             // Under a folder the row is one line, like the session rows: the
             // model is the chat's business, not the tree's.
             support: (!compact).then(|| rsx! { span { class: "min-w-0 truncate text-xs text-muted-foreground group-data-[selected=true]:text-accent-foreground", "{model_name}" } }),

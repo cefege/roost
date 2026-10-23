@@ -11,7 +11,7 @@ use super::parse::Condition;
 use super::state::LoopCheck;
 use crate::records::ConversationRecord;
 use crate::runtime::AgentRuntime;
-use crate::traits::{ToolCall, ToolOutcome};
+use crate::traits::{OwnerConversationId, ToolCall, ToolOutcome, WorkerConversationNamespace};
 
 const CHECK_TIMEOUT_SECS: u32 = 120;
 
@@ -73,7 +73,8 @@ pub(crate) async fn evaluate(
     let drain = tokio::spawn(async move { while receiver.recv().await.is_some() {} });
     let call = ToolCall {
         call_id: check.id.clone(),
-        conversation_id: format!("{}-loop", record.id),
+        conversation_id: WorkerConversationNamespace(format!("{}-loop", record.id)),
+        owner_conversation_id: OwnerConversationId(record.id.clone()),
         cwd: record.cwd.clone(),
         tool: TOOL_BASH.to_owned(),
         args_json: json!({ "command": condition.command, "timeout": CHECK_TIMEOUT_SECS })

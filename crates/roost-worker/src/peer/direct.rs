@@ -264,8 +264,8 @@ impl LinkLifecyclePort for DirectLinkLifecycle {
         self.sessions.on_open();
     }
 
-    fn on_hello_ack(&self, terminal_metadata_negotiated: bool) {
-        self.sessions.on_hello_ack(terminal_metadata_negotiated);
+    fn on_hello_ack(&self, capabilities: &[String]) {
+        self.sessions.on_hello_ack(capabilities);
     }
 
     fn on_detach(&self) {

@@ -6,6 +6,7 @@
 
 use dioxus::prelude::*;
 
+use crate::components::browse::BrowseLaunchMode;
 use crate::components::browse::picker::NewFolderForm;
 use crate::components::browse::picker::control_set::focus_region;
 use crate::components::browse::picker::controls::build_controls;
@@ -18,7 +19,7 @@ fn controls_unavailable(reading: &PickerReading) -> bool {
     !reading.view.scoped && reading.view.hydrated
 }
 
-/// One machine's directory, its history and the terminal-launch flow.
+/// One machine's directory, history and launch controls.
 #[allow(clippy::too_many_arguments)]
 #[component]
 pub fn PickerPage(
@@ -34,6 +35,7 @@ pub fn PickerPage(
     server_menu_open: Signal<bool>,
     crumb_menu_open: Signal<bool>,
     navigate: EventHandler<String>,
+    launch_mode: BrowseLaunchMode,
 ) -> Element {
     // The sheet's auto-focus would put the cursor on its own close control,
     // which is a keyboard reader's first Tab away from the entries.
@@ -56,6 +58,7 @@ pub fn PickerPage(
         server_menu_open,
         crumb_menu_open,
         navigate,
+        launch_mode,
     );
 
     rsx! {

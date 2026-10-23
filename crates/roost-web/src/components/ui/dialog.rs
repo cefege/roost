@@ -26,11 +26,10 @@ pub use super::dialog_parts::{
 };
 
 const TRIGGER_CLASS: &str = "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 cursor-pointer";
-
 const DIALOG_PANEL_CLASS: &str = "relative bg-background border rounded-2xl shadow-lg p-6 w-full max-w-[calc(100%-2rem)] max-h-[85vh] fixed top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%] z-100 transition-all duration-200 data-[state=closed]:opacity-0 data-[state=closed]:scale-95 data-[state=open]:opacity-100 data-[state=open]:scale-100";
+const DIALOG_FULLSCREEN_PANEL_CLASS: &str = "relative bg-background shadow-lg p-6 w-full h-dvh max-w-none max-h-none fixed top-0 left-0 z-100 transition-all duration-200 data-[state=closed]:opacity-0 data-[state=closed]:scale-95 data-[state=open]:opacity-100 data-[state=open]:scale-100";
 
 const CLOSE_BUTTON_CLASS: &str = "absolute top-4 right-4 p-1 rounded-sm focus:ring-2 focus:ring-offset-2 focus:outline-none [&_svg:not([class*='size-'])]:size-4 focus:ring-ring";
-
 /// Whether the close button shows: as the caller says, or, when the caller does
 /// not say, only when there is no footer to close the dialog with.
 pub fn dialog_shows_close_button(show_close_button: Option<bool>, has_actions: bool) -> bool {
@@ -147,13 +146,19 @@ pub fn DialogContent(
     #[props(default = true)] close_on_backdrop_click: bool,
     on_open_auto_focus: Option<EventHandler<AutoFocusRequest>>,
     on_close_auto_focus: Option<EventHandler<AutoFocusRequest>>,
+    #[props(default = false)] fullscreen: bool,
     children: Element,
 ) -> Element {
     let context = use_context::<DialogContext>();
     if !*context.open.read() {
         return rsx! {};
     }
-    let panel_class = tw_merge!(DIALOG_PANEL_CLASS, class.as_deref().unwrap_or(""));
+    let panel_recipe = if fullscreen {
+        DIALOG_FULLSCREEN_PANEL_CLASS
+    } else {
+        DIALOG_PANEL_CLASS
+    };
+    let panel_class = tw_merge!(panel_recipe, class.as_deref().unwrap_or(""));
     rsx! {
         ModalPanel {
             kind: ModalKind::Dialog,
@@ -185,6 +190,7 @@ pub(crate) fn ModalPanel(
     close_on_backdrop_click: bool,
     on_open_auto_focus: Option<EventHandler<AutoFocusRequest>>,
     on_close_auto_focus: Option<EventHandler<AutoFocusRequest>>,
+    #[props(default)] on_keydown: Option<EventHandler<KeyboardEvent>>,
     children: Element,
 ) -> Element {
     let context = use_context::<DialogContext>();
@@ -316,6 +322,8 @@ pub(crate) fn ModalPanel(
                     event.prevent_default();
                     event.stop_propagation();
                     key_context.request_open(false);
+                } else if let Some(on_keydown) = on_keydown {
+                    on_keydown.call(event);
                 }
             },
             span {

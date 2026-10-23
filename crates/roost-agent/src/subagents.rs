@@ -187,6 +187,7 @@ async fn create_child(
         parent_id: Some(scope.record.id.clone()),
         agent: Some(kind.as_str().to_owned()),
         advisor: Some(false),
+        read_only: scope.record.read_only,
         run_state: AgentRunState::Idle,
         error: None,
         created_ms: now,
@@ -213,6 +214,7 @@ async fn create_child(
             Entry::User {
                 text: task.to_owned(),
                 loop_repeat: false,
+                item_id: None,
             },
         )
         .await?;
@@ -223,7 +225,7 @@ async fn create_child(
 async fn run_child(scope: &CallScope<'_>, child_id: &str) -> Result<RunEnd, AgentError> {
     let Some(done) = scope
         .runtime
-        .start_run(child_id, Some(scope.cancel))
+        .start_run(child_id, Some(scope.cancel), None)
         .await?
     else {
         return Err(AgentError::FailedPrecondition(

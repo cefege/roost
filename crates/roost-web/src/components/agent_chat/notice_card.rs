@@ -1,5 +1,5 @@
-//! Durable harness notices retain severity and their complete safe-Markdown body.
-//! Long details are disclosed explicitly rather than truncated or hidden behind hover.
+//! Durable harness notices retain severity and safe-Markdown details.
+//! Fork notices replace embedded navigation with the native route action.
 //! The transcript mounts each notice under its durable item identity.
 
 use dioxus::prelude::*;
@@ -22,8 +22,14 @@ pub fn NoticeCard(id: String, level: String, title: String, body: String) -> Ele
         "warn" | "warning" => ("Warning", IconType::TriangleAlert, "warning"),
         _ => ("Notice", IconType::Info, "info"),
     };
-    let rendered = markdown_to_safe_html(&body);
-    let long_body = body.lines().count() > 3 || body.chars().count() > 360;
+    let display_body = if fork_target.is_some() {
+        body.rsplit_once('[')
+            .map_or(body.as_str(), |(prefix, _)| prefix)
+    } else {
+        body.as_str()
+    };
+    let rendered = markdown_to_safe_html(display_body);
+    let long_body = display_body.lines().count() > 3 || display_body.chars().count() > 360;
     let mut details_open = use_signal(|| false);
     rsx! {
         Card {
@@ -51,7 +57,7 @@ pub fn NoticeCard(id: String, level: String, title: String, body: String) -> Ele
                             Markdown { html: rendered }
                         }
                     }
-                } else if !body.is_empty() {
+                } else if !display_body.is_empty() {
                     Markdown { html: rendered }
                 }
                 if let Some(conversation_id) = fork_target {

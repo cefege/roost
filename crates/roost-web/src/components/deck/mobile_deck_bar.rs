@@ -54,7 +54,12 @@ pub fn MobileDeckBar(
             || {
                 agent.map_or_else(
                     || "Terminal".to_owned(),
-                    |conversation| conversation.title.clone(),
+                    |conversation| {
+                        crate::components::agent_chat::display_conversation_title(
+                            &conversation.title,
+                        )
+                        .to_owned()
+                    },
                 )
             },
             |session| session_title(store, session),

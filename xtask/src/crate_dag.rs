@@ -42,6 +42,8 @@ const ALLOWED: &[(&str, &[&str])] = &[
     ("roost-proto", &[]),
     ("roost-observability", &[]),
     ("roost-platform", &[]),
+    ("roost-shell-tokenize", &[]),
+    ("roost-vcs", &[]),
     ("roost-protocol", &["roost-proto", "roost-observability"]),
     (
         "roost-host",
@@ -115,9 +117,8 @@ const ALLOWED: &[(&str, &[&str])] = &[
             "roost-llm",
         ],
     ),
-    // The agent harness. Providers and accounts sit below the loop, and the
-    // worker-side tools share only the protocol's argument shapes with it:
-    // the coordinator runs the loop, the worker runs the tools.
+    // Providers and accounts sit below the agent loop. The worker tools share
+    // the protocol's argument shapes with the coordinator-owned harness.
     ("roost-llm", &["roost-observability"]),
     (
         "roost-agent",
@@ -133,7 +134,11 @@ const ALLOWED: &[(&str, &[&str])] = &[
     ),
     (
         "roost-web-terminal",
-        &["roost-client-core", "roost-protocol"],
+        &[
+            "roost-client-core",
+            "roost-protocol",
+            "roost-shell-tokenize",
+        ],
     ),
     // `roost-web` depends on `roost-platform` for path handling: the browser's
     // `WorkerPaths` delegates to its native-path module.
@@ -158,6 +163,7 @@ const ALLOWED: &[(&str, &[&str])] = &[
             "roost-protocol",
             "roost-platform",
             "roost-observability",
+            "roost-vcs",
         ],
     ),
     // The v2-vs-v3 benchmark harness: a developer tool, never shipped. It

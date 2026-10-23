@@ -23,6 +23,7 @@ Each worker dials one long-lived, full-duplex binary WebSocket to the coordinato
 | Direct grant/peer/attachment result frames | `protocol/proto/roost/v1/worker_transport.proto` | Coordinator-authorized direct terminal/attachment admission and liveness. |
 | `WTerminalMetadata` | `protocol/proto/roost/v1/worker_transport.proto` | Volatile semantic title/activity updates plus one-shot OSC 52 clipboard writes, long-command completion and bell events; events are not replayed after link loss. |
 | `WAgentJobResult` | `protocol/proto/roost/v1/worker_transport.proto` | Settled background `bash` job (`Completed`, `Failed` or `Cancelled`) for one conversation; a running state is refused. Not replayed after link loss: the coordinator records the job as lost. |
+| `DAgentToolCall`, `WAgentToolResult` | `protocol/proto/roost/v1/worker_transport.proto` | Native tool execution correlated by `call_id`; the call names its conversation, working directory and file-restore checkpoint. |
 | `DAgentToolBackground`, `DAgentJobsAbort` | `protocol/proto/roost/v1/worker_transport.proto` | Coordinator asks a worker to detach a running `bash` call into a job, or to cancel a conversation's running jobs. |
 
 ## State machine
@@ -35,10 +36,11 @@ Each worker dials one long-lived, full-duplex binary WebSocket to the coordinato
 6. Disconnect resets application state to `hello` and clears volatile lanes; durable SQLite outbox rows remain. Reconnect repeats hello, one-at-a-time replay, snapshot, then live. A newer authenticated hello immediately supersedes the old connection generation; delayed callbacks are identity-fenced.
 7. View ownership capability `terminal-view-owner-v1` delegates membership/geometry/stream generations to `TerminalViewOwner`; otherwise the coordinator `TerminalViewHub` owns them. Grants and direct peer signaling retain the exact worker epoch and connection fence.
 8. A worker may refresh its JWT in band before expiry. Valid refresh updates the same stream; invalid, expired, revoked, fingerprint-changing, or generation-changing refresh closes it.
+9. Frame admission is fenced by the current connection. Disconnect or generation replacement rejects pending confirmations; old deliveries cannot enter a redialed link.
 
 ## Limits
 
-| Constant | Value | TypeScript source |
+| Constant | Value | Source |
 | --- | ---: | --- |
 | `WORKER_SNAPSHOT_MAX_SESSIONS` | `1,024` | `apps/worker/src/transport/coord-link-constants.ts:39` |
 | `WORKER_SNAPSHOT_MAX_BYTES` | `4 MiB` | `apps/worker/src/transport/coord-link-constants.ts:40` |

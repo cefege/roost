@@ -1,7 +1,7 @@
 //! The shared half of the single `CoordinatorService` implementation: the type,
 //! caller resolution and auth checks, `MiscHealth`/`MiscDbExportUrl` replies, and
 //! the named `Unimplemented` errors. Called by the one impl in `service_impl.rs`
-//! (one block, E0119). 106 of 122 methods are implemented; the 16 marked
+//! (one block, E0119). 108 of 124 methods are implemented; the 16 marked
 //! `UnwiredInV2` in `method_route_rows.rs` answer `Unimplemented`, guarded by
 //! `tests/method_route_coverage.rs`. Depends on `coord_core` and `auth`.
 

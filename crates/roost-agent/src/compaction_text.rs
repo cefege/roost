@@ -41,6 +41,9 @@ pub fn estimate_tokens(entry: &Entry) -> u64 {
         | Entry::Notice { .. }
         | Entry::Btw { .. }
         | Entry::Rewind { .. }
+        | Entry::QueuedInput { .. }
+        | Entry::QueuedInputWithdrawn { .. }
+        | Entry::InputConsumed { .. }
         | Entry::ExtraUsage { .. }
         | Entry::RunIntent { .. }
         | Entry::LoopState { .. }
@@ -112,6 +115,9 @@ pub fn render_for_summary(entries: &[(u64, Entry)]) -> String {
             | Entry::ExtraUsage { .. }
             | Entry::SubagentContext { .. }
             | Entry::Rewind { .. }
+            | Entry::QueuedInput { .. }
+            | Entry::QueuedInputWithdrawn { .. }
+            | Entry::InputConsumed { .. }
             | Entry::RunIntent { .. }
             | Entry::LoopState { .. }
             | Entry::Goal { .. }

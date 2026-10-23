@@ -270,6 +270,9 @@ impl SessionStack {
     ) -> Result<crate::shell_spec::ShellSpec, String> {
         self.resolver.resolve_shell_spec(cwd, session_id)
     }
+    pub fn shell_spec_resolver(&self) -> Arc<dyn crate::session::spawn::ShellSpecResolver> {
+        Arc::clone(&self.resolver)
+    }
 
     /// The one production [`crate::browser_commands::Deps`], built from the
     /// values this stack already owns.

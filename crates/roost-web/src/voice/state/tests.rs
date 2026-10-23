@@ -34,6 +34,27 @@ fn a_tap_starts_in_starting_and_only_live_promotes_it() {
 }
 
 #[test]
+fn a_retry_clears_the_old_caption_before_the_engine_can_refuse_again() {
+    let mut machine = VoiceMachine::default();
+    let _ = machine.apply(start());
+    let _ = machine.apply(VoiceEvent::Failed);
+    assert_eq!(machine.state(), VoiceState::Idle);
+    let effects = machine.apply(start());
+    let clear_index = effects
+        .iter()
+        .position(|effect| *effect == VoiceEffect::ClearError);
+    let start_index = effects
+        .iter()
+        .position(|effect| *effect == VoiceEffect::StartEngine);
+    assert!(
+        clear_index
+            .zip(start_index)
+            .is_some_and(|(clear_index, start_index)| clear_index < start_index),
+        "{effects:?}"
+    );
+}
+
+#[test]
 fn a_tap_while_starting_is_inert() {
     let mut machine = VoiceMachine::default();
     let _ = machine.apply(start());

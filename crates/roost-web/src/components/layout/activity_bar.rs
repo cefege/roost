@@ -1,9 +1,8 @@
 //! The desktop activity rail: the five fixed destinations and which one the
-//! current path selects; clicking the ACTIVE Sessions item toggles the sidebar
-//! instead of navigating. The bottom group also carries the vertical terminal
-//! text-size stepper above Settings and Help. Ported from
-//! `apps/web/src/components/layout/WorkbenchActivityBar.tsx`; mounted by
-//! `AppShell` on a desktop layout.
+//! current path selects; clicking the ACTIVE Workspaces item toggles the sidebar
+//! instead of navigating. Terminal text controls appear only on terminal
+//! routes; agent work has no terminal chrome. Mounted by `AppShell` on a
+//! desktop layout.
 //!
 //! Every destination, its icon, label, href and active test live in
 //! `shell_metrics::Destination`; this component draws the list.
@@ -15,18 +14,18 @@ use crate::components::term_font_stepper::TermFontStepper;
 use crate::components::ui::{ButtonSize, Icon};
 use crate::router_state::{use_location, use_navigate};
 
-/// The DOM id of the Sessions item, where focus goes before a collapse.
-pub const SESSIONS_ITEM_ID: &str = "workbench-activity-sessions";
+/// The DOM id of the Workspaces item, where focus goes before a collapse.
+pub const WORKSPACES_ITEM_ID: &str = "workbench-activity-workspaces";
 
 /// Whether a click on `destination` toggles the sidebar rather than
-/// navigating: only an unmodified primary click on the ACTIVE Sessions item.
+/// navigating: only an unmodified primary click on the ACTIVE Workspaces item.
 pub fn click_toggles_sidebar(
     destination: Destination,
     active: Option<Destination>,
     primary_button: bool,
     modified: bool,
 ) -> bool {
-    destination == Destination::Sessions
+    destination == Destination::Workspaces
         && active == Some(destination)
         && primary_button
         && !modified
@@ -37,8 +36,14 @@ pub fn click_toggles_sidebar(
 pub fn ActivityBar(on_toggle_sidebar: EventHandler<()>) -> Element {
     let path = use_location();
     let active = active_destination(&path());
+    let terminal_route = matches!(
+        crate::routes::Route::parse(&path()),
+        crate::routes::Route::Session { .. }
+            | crate::routes::Route::Terminal { .. }
+            | crate::routes::Route::Workspace { .. }
+    );
     let top = [
-        Destination::Sessions,
+        Destination::Workspaces,
         Destination::Search,
         Destination::Files,
     ];
@@ -51,11 +56,13 @@ pub fn ActivityBar(on_toggle_sidebar: EventHandler<()>) -> Element {
                 }
             }
             div { class: "mt-auto flex flex-col",
-                TermFontStepper {
-                    test_id: "rail-term-font",
-                    size: ButtonSize::IconSm,
-                    vertical: true,
-                    class: "self-center border-b border-border py-1",
+                if terminal_route {
+                    TermFontStepper {
+                        test_id: "rail-term-font",
+                        size: ButtonSize::IconSm,
+                        vertical: true,
+                        class: "self-center border-b border-border py-1",
+                    }
                 }
                 for destination in bottom {
                     ActivityItem { destination, active, on_toggle_sidebar }
@@ -78,7 +85,7 @@ fn ActivityItem(
     let target = href.clone();
     rsx! {
         a {
-            id: (destination == Destination::Sessions).then_some(SESSIONS_ITEM_ID),
+            id: (destination == Destination::Workspaces).then_some(WORKSPACES_ITEM_ID),
             class: "relative flex h-[var(--workbench-activity-width)] items-center justify-center text-muted-foreground no-underline hover:bg-accent/50 hover:text-foreground focus-visible:outline focus-visible:outline-ring focus-visible:-outline-offset-px data-[active=true]:bg-accent data-[active=true]:text-accent-foreground data-[active=true]:before:absolute data-[active=true]:before:inset-y-2 data-[active=true]:before:left-0 data-[active=true]:before:w-px data-[active=true]:before:bg-sidenav-primary",
             "data-active": if is_active { "true" } else { "false" },
             "data-testid": destination.test_id(),

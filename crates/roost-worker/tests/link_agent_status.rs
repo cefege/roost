@@ -229,7 +229,7 @@ struct ResendOnSnapshot {
 
 impl LinkLifecyclePort for ResendOnSnapshot {
     fn on_open(&self) {}
-    fn on_hello_ack(&self, _: bool) {}
+    fn on_hello_ack(&self, _capabilities: &[String]) {}
     fn on_detach(&self) {}
     fn on_writable(&self) {}
     fn on_snapshot_ready(&self) {

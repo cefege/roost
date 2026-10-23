@@ -15,6 +15,7 @@ workspace = true
 js-sys = { workspace = true }
 roost-client-core = { workspace = true }
 roost-protocol = { workspace = true }
+roost-shell-tokenize = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }

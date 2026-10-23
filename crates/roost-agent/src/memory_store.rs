@@ -2,6 +2,8 @@
 //! fixtures run the real loop against it. It honours the same contract as the
 //! database store, including cascading deletes of child conversations.
 
+mod command_admission;
+
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
@@ -9,7 +11,7 @@ use futures::future::BoxFuture;
 use roost_protocol::wire::agent_chat::AgentRunState;
 use tokio_util::sync::CancellationToken;
 
-use crate::admission::{LeaseRow, intent_entry, lease_expiry, next_lease_epoch};
+use crate::admission::{LeaseRow, lease_expiry, next_lease_epoch};
 use crate::error::AgentError;
 use crate::records::{AgentSettings, ConversationRecord, Entry};
 use crate::traits::{AdmitOutcome, AgentStore, CommandAdmission, LeaseFence};
@@ -151,32 +153,7 @@ impl AgentStore for InMemoryAgentStore {
         id: &'a str,
         admission: CommandAdmission,
     ) -> BoxFuture<'a, Result<AdmitOutcome, AgentError>> {
-        Box::pin(async move {
-            self.with_state(|state| {
-                if !state.conversations.contains_key(id) {
-                    return Err(AgentError::NotFound(id.to_owned()));
-                }
-                let key = (id.to_owned(), admission.request_id.clone());
-                if let Some(result_json) = state.commands.get(&key) {
-                    return Ok(AdmitOutcome::Duplicate {
-                        result_json: result_json.clone(),
-                    });
-                }
-                let last_before = state.last_seq(id);
-                let mut seqs: Vec<u64> = admission
-                    .entries
-                    .into_iter()
-                    .map(|entry| state.append(id, entry))
-                    .collect();
-                if let Some(intent) =
-                    intent_entry(admission.intent, last_before, seqs.last().copied())
-                {
-                    seqs.push(state.append(id, intent));
-                }
-                state.commands.insert(key, None);
-                Ok(AdmitOutcome::Admitted { seqs })
-            })?
-        })
+        Box::pin(async move { self.with_state(|state| state.admit_command(id, admission))? })
     }
 
     fn complete_command<'a>(

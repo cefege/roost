@@ -1,10 +1,6 @@
 //! Where the open select listbox sits: under its trigger, the trigger's width,
 //! flipped above when it would run off the bottom and there is more room above.
 //! Called by `select_listbox.rs`; depends on nothing.
-//!
-//! The listbox is a `position: fixed` element whose geometry is computed from
-//! the trigger's client rect, so it escapes any clipping ancestor without a
-//! portal.
 
 /// The gap between the trigger and the listbox, in CSS pixels.
 pub const SELECT_GUTTER_PX: f64 = 8.0;

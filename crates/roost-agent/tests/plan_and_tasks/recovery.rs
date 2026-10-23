@@ -18,6 +18,7 @@ async fn recovered_partial_assistant_output_retries_the_primary_call() {
         Entry::User {
             text: "retry this response".into(),
             loop_repeat: false,
+            item_id: None,
         },
     )
     .await;

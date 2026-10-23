@@ -63,7 +63,7 @@ impl AgentRuntime {
             .into_iter()
             .any(|(seq, entry)| {
                 seq == user_seq
-                    && matches!(entry, Entry::User { text, loop_repeat: false } if text == pending.body)
+                    && matches!(entry, Entry::User { text, loop_repeat: false, .. } if text == pending.body)
             });
         if !accepted {
             return Ok(());
@@ -106,7 +106,7 @@ impl AgentRuntime {
         };
         if let Some(user_seq) = entries.into_iter().find_map(|(seq, entry)| {
             (seq > pending.after_seq
-                && matches!(entry, Entry::User { text, loop_repeat: false } if text == pending.body))
+                && matches!(entry, Entry::User { text, loop_repeat: false, .. } if text == pending.body))
                 .then_some(seq)
         }) {
             if let Err(error) = self.commit_loop_prompt_capture(id, user_seq).await {

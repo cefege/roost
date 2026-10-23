@@ -154,7 +154,7 @@ impl AgentStatusStack {
 /// registry holds — its occupants outlive every socket.
 impl LinkLifecyclePort for AgentStatusStack {
     fn on_open(&self) {}
-    fn on_hello_ack(&self, _terminal_metadata_negotiated: bool) {}
+    fn on_hello_ack(&self, _capabilities: &[String]) {}
     fn on_detach(&self) {}
     fn on_writable(&self) {}
     fn on_snapshot_ready(&self) {

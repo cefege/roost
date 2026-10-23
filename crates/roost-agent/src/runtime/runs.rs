@@ -2,6 +2,8 @@
 //! The runtime owns the task registry; the journal owns which accepted work
 //! remains unfinished across failures, cancellation and process restart.
 
+mod settle;
+mod start_intent;
 mod steer;
 
 use std::panic::AssertUnwindSafe;
@@ -11,7 +13,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use futures::FutureExt;
 use futures::future::BoxFuture;
 
-use super::recovery::latest_submission_seq;
 use roost_protocol::wire::agent_chat::{AgentRunState, ChatEvent};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
@@ -65,6 +66,7 @@ impl AgentRuntime {
         &self,
         id: &str,
         parent: Option<&CancellationToken>,
+        expected_intent: Option<u64>,
     ) -> BoxFuture<'static, Result<Option<oneshot::Receiver<RunEnd>>, AgentError>> {
         let runtime = self.clone();
         let id = id.to_owned();
@@ -72,7 +74,9 @@ impl AgentRuntime {
         let lifecycle = runtime.lifecycle_lock(&id);
         Box::pin(async move {
             let _guard = lifecycle.lock().await;
-            runtime.start_run_now(&id, parent.as_ref(), None).await
+            runtime
+                .start_run_now(&id, parent.as_ref(), None, expected_intent)
+                .await
         })
     }
 
@@ -86,7 +90,7 @@ impl AgentRuntime {
     ) -> BoxFuture<'static, Result<Option<oneshot::Receiver<RunEnd>>, AgentError>> {
         let runtime = self.clone();
         let id = id.to_owned();
-        Box::pin(async move { runtime.start_run_now(&id, None, None).await })
+        Box::pin(async move { runtime.start_run_now(&id, None, None, None).await })
     }
 
     pub(crate) async fn start_run_now(
@@ -94,6 +98,7 @@ impl AgentRuntime {
         id: &str,
         parent: Option<&CancellationToken>,
         mut recovered: Option<run_loop::RecoveredRun>,
+        expected_intent: Option<u64>,
     ) -> Result<Option<oneshot::Receiver<RunEnd>>, AgentError> {
         if self.is_running(id) {
             return Ok(None);
@@ -114,7 +119,8 @@ impl AgentRuntime {
         let user_aborted = new_abort_flag();
         let fenced = Arc::new(AtomicBool::new(false));
         let processed_seq = Arc::new(AtomicU64::new(through_seq));
-        let start_intent_seq = Arc::new(AtomicU64::new(u64::MAX));
+        // Ignore historical Stop notices, but not one admitted while startup awaits storage.
+        let start_intent_seq = Arc::new(AtomicU64::new(through_seq));
         let handle = RunHandle {
             cancel: cancel.clone(),
             steer,
@@ -129,18 +135,15 @@ impl AgentRuntime {
             return Ok(None);
         }
         match self
-            .append(
-                id,
-                Entry::RunIntent {
-                    active: true,
-                    through_seq,
-                    aborted: false,
-                    yielded: false,
-                },
-            )
+            .commit_start_intent(id, through_seq, expected_intent)
             .await
         {
-            Ok(sequence) => start_intent_seq.store(sequence, Ordering::SeqCst),
+            Ok(Some(sequence)) => start_intent_seq.store(sequence, Ordering::SeqCst),
+            Ok(None) => {
+                let _ = self.take_run(id);
+                self.release_lease(id).await;
+                return Ok(None);
+            }
             Err(error) => {
                 let _ = self.take_run(id);
                 self.release_lease(id).await;
@@ -299,102 +302,5 @@ impl AgentRuntime {
             let _ = done.send(end);
         });
         Ok(Some(done_rx))
-    }
-
-    async fn settle_run(
-        &self,
-        id: &str,
-        end: &RunEnd,
-        user_aborted: bool,
-        mut steer_rx: mpsc::UnboundedReceiver<Steer>,
-    ) {
-        let lifecycle = self.lifecycle_lock(id);
-        let _guard = lifecycle.lock().await;
-        if let Err(error) = self.checkpoint_goal_clock(id).await {
-            tracing::warn!(conversation_id = id, %error, "goal execution clock did not settle");
-        }
-        self.stop_goal_clock(id);
-        let handle = self.take_run(id);
-        let processed_seq = handle
-            .as_ref()
-            .map_or(0, |run| run.processed_seq.load(Ordering::SeqCst));
-        let mut queued = 0_usize;
-        while steer_rx.try_recv().is_ok() {
-            queued = queued.saturating_add(1);
-        }
-        let (entries, entries_read_failed) = match self.inner.store.entries(id).await {
-            Ok(entries) => (entries, false),
-            Err(error) => {
-                tracing::warn!(conversation_id = id, %error, "agent run journal could not be read while settling");
-                (Vec::new(), true)
-            }
-        };
-        let latest_active = super::recovery::latest_active_intent_seq(&entries).unwrap_or(0);
-        let superseded_abort = user_aborted
-            && handle
-                .as_ref()
-                .is_some_and(|run| latest_active > run.abort_seq.load(Ordering::SeqCst));
-        let aborted = (user_aborted || matches!(end, RunEnd::Aborted)) && !superseded_abort;
-        self.mark_aborted(id, aborted);
-        let last_seq = entries.last().map_or(0, |(sequence, _)| *sequence);
-        let through_seq = if aborted { last_seq } else { processed_seq };
-        let pending =
-            latest_submission_seq(&entries).is_some_and(|sequence| sequence > processed_seq);
-        let intent_error = self
-            .append(
-                id,
-                Entry::RunIntent {
-                    active: false,
-                    through_seq,
-                    aborted,
-                    yielded: matches!(end, RunEnd::Yielded(_)),
-                },
-            )
-            .await
-            .err();
-        if matches!(intent_error, Some(AgentError::Fenced(_))) {
-            drop(_guard);
-            self.abandon_fenced_run(id).await;
-            return;
-        }
-        if intent_error.is_none() {
-            self.release_lease(id).await;
-        }
-        let (run_state, error) = if let Some(error) = &intent_error {
-            (AgentRunState::Failed, Some(error.to_string()))
-        } else {
-            match end {
-                RunEnd::Failed(error) => (AgentRunState::Failed, Some(error.clone())),
-                RunEnd::Completed | RunEnd::Yielded(_) | RunEnd::Aborted => {
-                    (AgentRunState::Idle, None)
-                }
-            }
-        };
-        tracing::info!(conversation_id = id, ?end, "agent run ended");
-        if let Err(store_error) = self
-            .update_record(id, |record| {
-                record.run_state = run_state;
-                record.error = error.clone();
-            })
-            .await
-        {
-            tracing::warn!(conversation_id = id, %store_error, "agent run state was not saved");
-        }
-        if let Some(error) = &intent_error {
-            tracing::warn!(conversation_id = id, %error, "agent terminal intent was not saved");
-        }
-        self.emit(id, vec![ChatEvent::RunState { run_state, error }])
-            .await;
-        self.release_unread_queue(id, &entries, processed_seq).await;
-        // A yielded subagent's caller already took its result; a restart would run a
-        // turn no one reads, so its unread messages stay in the journal.
-        let restart = !aborted && !matches!(end, RunEnd::Yielded(_)) && (pending || queued > 0);
-        drop(_guard);
-        if intent_error.is_some() || (entries_read_failed && !aborted) {
-            self.schedule_readmission(id);
-        } else if restart && let Err(error) = self.start_run(id, None).await {
-            tracing::warn!(conversation_id = id, %error, "accepted late steer did not start another run");
-            self.schedule_readmission(id);
-        }
     }
 }

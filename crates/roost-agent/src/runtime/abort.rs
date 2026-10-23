@@ -8,11 +8,73 @@ use crate::error::AgentError;
 use crate::records::{ConversationRecord, Entry};
 use crate::runtime::{AgentRuntime, random_id};
 use crate::traits::{AdmitOutcome, CommandAdmission, IntentChange};
-use roost_protocol::wire::agent_chat::AgentRunState;
+use roost_protocol::wire::agent_chat::{AgentRunState, ChatEvent};
+
+impl AgentRuntime {
+    /// Withdraws an unconsumed queued steer or follow-up exactly once.
+    pub async fn withdraw(
+        &self,
+        id: &str,
+        request_id: &str,
+        submission_id: &str,
+    ) -> Result<bool, AgentError> {
+        if request_id.trim().is_empty() || submission_id.trim().is_empty() {
+            return Err(AgentError::InvalidArgument(
+                "request_id and submission_id are required".into(),
+            ));
+        }
+        let lifecycle = self.lifecycle_lock(id);
+        let _guard = lifecycle.lock().await;
+        let outcome = self
+            .inner
+            .store
+            .admit_command(
+                id,
+                CommandAdmission {
+                    request_id: request_id.to_owned(),
+                    kind: "withdraw".into(),
+                    entries: vec![Entry::QueuedInputWithdrawn {
+                        submission_id: submission_id.to_owned(),
+                    }],
+                    intent: IntentChange::Withdraw,
+                    fence: None,
+                    expected_intent_seq: None,
+                    completion_through: None,
+                },
+            )
+            .await?;
+        match outcome {
+            AdmitOutcome::Admitted { .. } => {
+                self.emit(
+                    id,
+                    vec![ChatEvent::QueueRemoved {
+                        submission_id: submission_id.to_owned(),
+                    }],
+                )
+                .await;
+                self.inner.signal.conversation_changed(id).await;
+                Ok(true)
+            }
+            AdmitOutcome::Duplicate { .. }
+            | AdmitOutcome::Busy
+            | AdmitOutcome::Stopped
+            | AdmitOutcome::NotWithdrawable => Ok(false),
+        }
+    }
+}
 
 impl AgentRuntime {
     /// Cancels the run tree after its stopped state is durable.
     pub async fn abort(&self, id: &str) -> Result<bool, AgentError> {
+        self.abort_with_background(id, true).await
+    }
+
+    /// Cancels foreground work and optionally background jobs.
+    pub async fn abort_with_background(
+        &self,
+        id: &str,
+        include_background: bool,
+    ) -> Result<bool, AgentError> {
         let records = self.inner.store.conversations().await?;
         let Some(root) = self.inner.store.conversation(id).await? else {
             return Ok(false);
@@ -40,8 +102,10 @@ impl AgentRuntime {
             .collect();
         let _guards =
             futures::future::join_all(locks.iter().map(|lifecycle| lifecycle.lock())).await;
-        for record in &doomed {
-            self.inner.tools.abort_background_jobs(&record.id).await;
+        if include_background {
+            for record in &doomed {
+                self.inner.tools.abort_background_jobs(&record.id).await;
+            }
         }
         let active = self.has_active_work(&doomed).await?;
         if !active {
@@ -61,16 +125,25 @@ impl AgentRuntime {
                         kind: "abort".into(),
                         entries: Vec::new(),
                         intent: IntentChange::Abort,
+                        fence: None,
+                        expected_intent_seq: None,
+                        completion_through: None,
                     },
                 )
                 .await;
             match admitted {
-                Ok(AdmitOutcome::Admitted { seqs }) => {
+                Ok(AdmitOutcome::Admitted { seqs, .. }) => {
                     if let Some(sequence) = seqs.last() {
                         abort_sequences.insert(record.id.clone(), *sequence);
                     }
                 }
-                Ok(AdmitOutcome::Duplicate { .. }) => {}
+                Ok(AdmitOutcome::Duplicate { .. } | AdmitOutcome::Busy | AdmitOutcome::Stopped) => {
+                }
+                Ok(AdmitOutcome::NotWithdrawable) => {
+                    first_error.get_or_insert(AgentError::Store(
+                        "abort admission returned a withdrawal result".to_owned(),
+                    ));
+                }
                 Err(error) => {
                     first_error.get_or_insert(error);
                 }

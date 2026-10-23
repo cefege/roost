@@ -42,9 +42,9 @@ pub const SIDEBAR_WIDTH_MAX: u32 = 600;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SidebarView {
     /// Folders, with the sessions inside them.
-    #[default]
     Folders,
     /// Agents, with their status.
+    #[default]
     Agents,
 }
 
@@ -57,12 +57,11 @@ impl SidebarView {
         }
     }
 
-    /// Read a stored value. Anything else is `folders`: a value no build wrote
-    /// is not a preference, and refusing it closed is the only safe reading.
+    /// A stored choice wins; a new device opens the agent workspace.
     pub fn parse(value: Option<&str>) -> Self {
         match value {
-            Some("agents") => Self::Agents,
-            _ => Self::Folders,
+            Some("folders") => Self::Folders,
+            _ => Self::Agents,
         }
     }
 }
@@ -89,7 +88,7 @@ impl Default for UiState {
         Self {
             sidebar_open: false,
             sidebar_collapsed: false,
-            sidebar_view: SidebarView::Folders,
+            sidebar_view: SidebarView::Agents,
             sidebar_width: SIDEBAR_WIDTH_DEFAULT,
             home_folder_show_files: false,
         }

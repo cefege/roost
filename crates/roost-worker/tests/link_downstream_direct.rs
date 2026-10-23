@@ -236,7 +236,7 @@ async fn an_answer_for_a_superseded_coordinator_connection_is_dropped() {
     receiver.advance();
     settle_tasks().await;
     assert!(
-        receiver.try_recv().is_none(),
+        receiver.try_recv_delivery().is_none(),
         "the answer was fenced to the connection that asked"
     );
 }

@@ -22,6 +22,7 @@ struct Holds {
     user_appends: usize,
     user_append_target: Option<usize>,
     user_append_after_commit: bool,
+    completion_admission_armed: bool,
 }
 
 /// Wraps the in-memory store. Each park is one-shot: only the call it targets
@@ -33,6 +34,8 @@ pub struct GatedStore {
     conversation_resume: Notify,
     user_append_parked: Notify,
     user_append_resume: Notify,
+    completion_admission_parked: Notify,
+    completion_admission_resume: Notify,
 }
 
 impl GatedStore {
@@ -44,6 +47,8 @@ impl GatedStore {
             conversation_resume: Notify::new(),
             user_append_parked: Notify::new(),
             user_append_resume: Notify::new(),
+            completion_admission_parked: Notify::new(),
+            completion_admission_resume: Notify::new(),
         }
     }
 
@@ -82,6 +87,21 @@ impl GatedStore {
         self.user_append_resume.notify_one();
     }
 
+    pub fn hold_completion_admission(&self) {
+        self.holds.lock().completion_admission_armed = true;
+    }
+
+    pub async fn completion_admission_held(&self) {
+        self.completion_admission_parked.notified().await;
+    }
+
+    pub fn release_completion_admission(&self) {
+        self.completion_admission_resume.notify_one();
+    }
+
+    fn take_completion_admission_hold(&self) -> bool {
+        std::mem::take(&mut self.holds.lock().completion_admission_armed)
+    }
     fn take_conversation_hold(&self) -> bool {
         std::mem::take(&mut self.holds.lock().conversation_armed)
     }
@@ -160,12 +180,22 @@ impl AgentStore for GatedStore {
         admission: CommandAdmission,
     ) -> BoxFuture<'a, Result<AdmitOutcome, AgentError>> {
         Box::pin(async move {
-            let held = admission
-                .entries
-                .iter()
-                .any(|entry| matches!(entry, Entry::User { .. }))
-                .then(|| self.take_user_append_hold())
-                .flatten();
+            let completion_held = admission.intent == roost_agent::IntentChange::Complete
+                && self.take_completion_admission_hold();
+            if completion_held {
+                self.completion_admission_parked.notify_one();
+                self.completion_admission_resume.notified().await;
+            }
+            let held = if completion_held {
+                None
+            } else {
+                admission
+                    .entries
+                    .iter()
+                    .any(|entry| matches!(entry, Entry::User { .. }))
+                    .then(|| self.take_user_append_hold())
+                    .flatten()
+            };
             if held == Some(false) {
                 self.user_append_parked.notify_one();
                 self.user_append_resume.notified().await;

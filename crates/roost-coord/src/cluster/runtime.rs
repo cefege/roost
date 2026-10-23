@@ -63,19 +63,27 @@ pub async fn serve(
     });
     tokio::pin!(ownership_task);
     tokio::pin!(listener_task);
+    let mut ownership_joined = false;
+    let mut listener_joined = false;
     let served = drain
         .bound(async {
             tokio::select! {
                 outcome = &mut ownership_task => {
+                    ownership_joined = true;
                     outcome.context("coordinator ownership task")?
                         .context("coordinator ownership")?;
-                    (&mut listener_task).await
+                    let outcome = (&mut listener_task).await;
+                    listener_joined = true;
+                    outcome
                         .context("coordinator listener task")?
                         .context("coordinator listener")
                 },
-                outcome = &mut listener_task => outcome
-                    .context("coordinator listener task")?
-                    .context("coordinator listener"),
+                outcome = &mut listener_task => {
+                    listener_joined = true;
+                    outcome
+                        .context("coordinator listener task")?
+                        .context("coordinator listener")
+                },
             }
         })
         .await;
@@ -83,8 +91,12 @@ pub async fn serve(
         listener_task.abort();
     }
     let _ = shutdown_tx.send(true);
-    let _ = ownership_task.await;
-    let _ = listener_task.await;
+    if !ownership_joined {
+        let _ = ownership_task.await;
+    }
+    if !listener_joined {
+        let _ = listener_task.await;
+    }
     signal_task.abort();
     agent.leave_cluster().await;
     served.unwrap_or(Ok(()))

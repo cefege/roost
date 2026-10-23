@@ -280,7 +280,10 @@ impl LinkLifecyclePort for Fakes {
     fn on_open(&self) {
         self.log.push("lifecycle.on_open");
     }
-    fn on_hello_ack(&self, terminal_metadata_negotiated: bool) {
+    fn on_hello_ack(&self, capabilities: &[String]) {
+        let terminal_metadata_negotiated = capabilities.iter().any(|capability| {
+            capability == roost_protocol::versioning::CAPABILITY_TERMINAL_METADATA_V1
+        });
         self.log.push(format!(
             "lifecycle.on_hello_ack:{terminal_metadata_negotiated}"
         ));
@@ -338,10 +341,12 @@ pub async fn settle_tasks() {
 
 /// The next frame the uplink carries, or a failure after a bounded wait.
 pub async fn next_uplink(receiver: &mut UplinkReceiver) -> CoordWorkerUpstream {
-    tokio::time::timeout(Duration::from_secs(5), receiver.recv())
+    tokio::time::timeout(Duration::from_secs(5), receiver.recv_delivery())
         .await
         .expect("an owner answered within the bound")
         .expect("the uplink channel is open")
+        ._take_unconfirmed_frame()
+        .expect("the owner answer has no admission waiter")
 }
 
 impl LocalTerminalGrantPort for Fakes {

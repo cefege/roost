@@ -36,7 +36,7 @@ impl AgentRuntime {
         let repeat_committed = pending_repeat.as_ref().and_then(|pending| {
             effective.iter().find_map(|(seq, entry)| {
                 (*seq > pending.after_seq
-                    && matches!(entry, Entry::User { text, loop_repeat: true } if text == &pending.body))
+                    && matches!(entry, Entry::User { text, loop_repeat: true, .. } if text == &pending.body))
                     .then_some(*seq)
             })
         });
@@ -53,7 +53,7 @@ impl AgentRuntime {
         let capture_committed = pending_capture.as_ref().and_then(|pending| {
             effective.iter().find_map(|(seq, entry)| {
                 (*seq > pending.after_seq
-                    && matches!(entry, Entry::User { text, loop_repeat: false } if text == &pending.body))
+                    && matches!(entry, Entry::User { text, loop_repeat: false, .. } if text == &pending.body))
                     .then_some((*seq, pending.body.clone()))
             })
         });
@@ -150,7 +150,7 @@ impl AgentRuntime {
         };
         let committed = self.inner.store.entries(id).await?.iter().any(|(sequence, entry)| {
             *sequence > pending.after_seq
-                && matches!(entry, Entry::User { text, loop_repeat: true } if text == &pending.body)
+                && matches!(entry, Entry::User { text, loop_repeat: true, .. } if text == &pending.body)
         });
         self.update_loop_state(id, Some(&expected), |state| {
             if committed {

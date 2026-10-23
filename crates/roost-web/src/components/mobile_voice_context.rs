@@ -151,9 +151,10 @@ impl ComposerContext {
                     self.on_live_transcript.call(None);
                 }
                 VoiceEffect::SubmitDraft => self.on_submit.call(()),
+                VoiceEffect::ClearError => self.error.borrow_mut().set(None),
                 // The engine's own caption is written where the engine reports
                 // it; a refusal from the machine carries no text of its own.
-                VoiceEffect::ShowError(_) | VoiceEffect::ClearError => {}
+                VoiceEffect::ShowError(_) => {}
             }
         }
         self.on_state_change.call(self.machine().state());

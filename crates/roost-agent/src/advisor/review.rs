@@ -13,7 +13,7 @@ use crate::model_call::{Silent, call_chain};
 use crate::records::{AdvisorySeverity, ConversationRecord, Role};
 use crate::roles::{ResolvedModel, role_chain};
 use crate::runtime::AgentRuntime;
-use crate::traits::{ToolCall, ToolOutcome};
+use crate::traits::{OwnerConversationId, ToolCall, ToolOutcome, WorkerConversationNamespace};
 
 use super::delivery;
 
@@ -303,7 +303,8 @@ async fn worker_call(
             &record.worker_fp,
             ToolCall {
                 call_id: call_id.to_owned(),
-                conversation_id: format!("{}-advisor", record.id),
+                conversation_id: WorkerConversationNamespace(format!("{}-advisor", record.id)),
+                owner_conversation_id: OwnerConversationId(record.id.clone()),
                 cwd: record.cwd.clone(),
                 tool: tool.to_owned(),
                 args_json: args.to_owned(),

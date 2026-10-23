@@ -34,7 +34,7 @@ impl Dispatcher {
         link.hello_acknowledged(negotiated);
         if let Some(owners) = &self.owners {
             owners.view.drop_coordinator_sockets();
-            owners.lifecycle.on_hello_ack(negotiated);
+            owners.lifecycle.on_hello_ack(capabilities);
         }
         tracing::info!(
             terminal_metadata_v1 = negotiated,

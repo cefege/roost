@@ -5,13 +5,13 @@
 //! remains in the runtime journal; `chat_events::relay` carries batches
 //! appended elsewhere.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
 use futures::future::BoxFuture;
 use roost_agent::{AgentRuntime, ChatSink};
-use roost_protocol::wire::agent_chat::{ChatEvent, ConversationSummary};
+use roost_protocol::wire::agent_chat::{ChatEvent, ConversationSummary, TranscriptItem};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
@@ -85,6 +85,20 @@ impl CoordChatSink {
             .await
             .map_err(|error| roost_agent::AgentError::Store(error.to_string()))?;
         let mut transcript = runtime.transcript(id).await?;
+        let queued_ids: HashSet<_> = transcript
+            .queued
+            .iter()
+            .map(|message| message.id.clone())
+            .collect();
+        let user_ids: HashSet<_> = transcript
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                TranscriptItem::User { id, .. } => Some(id.clone()),
+                _ => None,
+            })
+            .chain(queued_ids.iter().cloned())
+            .collect();
         let start = rows
             .first()
             .map(|row| row.cursor)
@@ -97,7 +111,29 @@ impl CoordChatSink {
                     ))
                 })?;
             for event in &events {
-                roost_protocol::wire::agent_chat::fold_chat_event(&mut transcript, event);
+                // Journal membership is newer than these batches, including withdrawals
+                // committed before their removal event could be persisted.
+                match event {
+                    ChatEvent::Reset {
+                        transcript: replacement,
+                    } => {
+                        let mut replacement = replacement.clone();
+                        replacement
+                            .queued
+                            .retain(|message| queued_ids.contains(&message.id));
+                        replacement.items.retain(|item| {
+                            !matches!(item,
+                                TranscriptItem::User { id, .. } if !user_ids.contains(id)
+                            )
+                        });
+                        transcript = replacement;
+                    }
+                    ChatEvent::Queued { message } if !queued_ids.contains(&message.id) => {}
+                    ChatEvent::Item {
+                        item: TranscriptItem::User { id, .. },
+                    } if !user_ids.contains(id) => {}
+                    _ => roost_protocol::wire::agent_chat::fold_chat_event(&mut transcript, event),
+                }
             }
         }
 

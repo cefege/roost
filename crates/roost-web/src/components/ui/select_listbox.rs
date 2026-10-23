@@ -59,6 +59,7 @@ pub fn SelectListbox(
     selected: Option<usize>,
     highlighted: Signal<Option<usize>>,
     anchor: AnchorRect,
+    trigger_id: String,
     listbox_id: String,
     label_id: Option<String>,
     on_choose: EventHandler<usize>,
@@ -68,7 +69,11 @@ pub fn SelectListbox(
     let mut content_height = use_signal(|| None::<f64>);
     let mut typeahead = use_signal(Typeahead::default);
     let mut items = use_signal(Vec::<Option<Rc<MountedData>>>::new);
-    let placement = listbox_placement(anchor, content_height(), viewport_height());
+    let mut placement = listbox_placement(anchor, content_height(), viewport_height());
+    if let Some((left, top)) = super::anchored_panel::fixed_containing_origin(&trigger_id) {
+        placement.left -= left;
+        placement.top -= top;
+    }
     let mut entered = use_signal(|| false);
     let mut can_scroll_up = use_signal(|| false);
     let mut can_scroll_down = use_signal(|| false);

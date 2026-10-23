@@ -7,6 +7,8 @@
 
 mod agent_cluster_support;
 mod db_support;
+#[path = "agent_two_instances/inbox.rs"]
+mod inbox;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -105,6 +107,7 @@ async fn concurrent_boot_recovery_asks_the_model_once_per_interrupted_conversati
                 &Entry::User {
                     text: format!("interrupted {index}"),
                     loop_repeat: false,
+                    item_id: None,
                 },
                 &[],
                 None,

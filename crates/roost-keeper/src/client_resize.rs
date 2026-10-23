@@ -46,11 +46,35 @@ impl KeeperClient {
     /// a caller that cannot tell them apart cannot choose between resending and
     /// asking.
     pub fn resize(&self, channel_id: u16, seq: u64, cols: u16, rows: u16) -> ResizeOutcome {
+        self.resize_inner(channel_id, seq, cols, rows, None::<fn(MuxFrame)>)
+    }
+
+    /// Resize while delivering frames received before the acknowledgement.
+    ///
+    /// The worker's geometry owner uses this callback to place PTY output and
+    /// the boundary marker on one ordered channel.
+    pub fn resize_with_intervening(
+        &self,
+        channel_id: u16,
+        seq: u64,
+        cols: u16,
+        rows: u16,
+        on_intervening: impl FnMut(MuxFrame),
+    ) -> ResizeOutcome {
+        self.resize_inner(channel_id, seq, cols, rows, Some(on_intervening))
+    }
+
+    fn resize_inner<F: FnMut(MuxFrame)>(
+        &self,
+        channel_id: u16,
+        seq: u64,
+        cols: u16,
+        rows: u16,
+        on_intervening: Option<F>,
+    ) -> ResizeOutcome {
         let request = ResizeRequest { seq, cols, rows };
         let payload = match request.encode() {
             Ok(payload) => payload,
-            // A geometry this build cannot encode never reached the keeper, so
-            // the refusal is the honest answer and it costs no round trip.
             Err(error) => {
                 tracing::warn!(
                     channel_id,
@@ -83,11 +107,20 @@ impl KeeperClient {
             };
         }
 
-        match self.wait_for_any(
-            channel_id,
-            RESIZE_ACK_TIMEOUT,
-            &[MuxFrameType::ResizeAck, MuxFrameType::ResizeReject],
-        ) {
+        let wait = match on_intervening {
+            Some(on_intervening) => self.wait_for_any_with(
+                channel_id,
+                RESIZE_ACK_TIMEOUT,
+                &[MuxFrameType::ResizeAck, MuxFrameType::ResizeReject],
+                on_intervening,
+            ),
+            None => self.wait_for_any(
+                channel_id,
+                RESIZE_ACK_TIMEOUT,
+                &[MuxFrameType::ResizeAck, MuxFrameType::ResizeReject],
+            ),
+        };
+        match wait {
             WaitEnded::Answered(answer) => decode_resize_answer(seq, &answer),
             WaitEnded::TimedOut => {
                 tracing::warn!(channel_id, seq, "keeper: the resize answer never arrived");

@@ -2,6 +2,9 @@
 //! resolution, request assembly, the streamed model call, then the tool round
 //! its tool calls ask for. The run loop repeats turns until one ends the run.
 
+mod dispatch;
+
+use dispatch::{ClaimedInputs, claim_dispatch_inputs};
 use roost_llm::{ChatRequest, Message, ModelInfo};
 use roost_protocol::wire::agent_chat::ModelRef;
 use std::collections::VecDeque;
@@ -12,7 +15,7 @@ use crate::model_call::{self, ModelOutput};
 use crate::prompts::{self, SubagentPrompt};
 use crate::records::{ConversationRecord, Entry, Mode, Role};
 use crate::roles::{self, ResolvedModel};
-use crate::runtime::{AgentRuntime, RunEnd, Steer, latest_submission_seq};
+use crate::runtime::{AgentRuntime, RunEnd, Steer};
 use crate::toolset::{SubagentKind, toolset_for};
 use crate::{auto_thinking, compaction, context_files, find, history, tool_round};
 
@@ -45,6 +48,8 @@ pub(crate) enum TurnOutcome {
     },
     /// A tool round ran; the run continues unless it carries an end.
     Tools { end: Option<RunEnd> },
+    /// The only new user input was withdrawn before its dispatch claim.
+    NoWork,
 }
 
 /// The model a turn calls first: the head of its candidate chain.
@@ -210,7 +215,17 @@ pub(crate) async fn take_turn(
         .map(|candidate| candidate.info.clone())
         .collect();
     compaction::compact_if_needed(runtime, &record, &models, cancel).await?;
-    let entries = runtime.inner.store.entries(id).await?;
+    let Some(ClaimedInputs {
+        entries,
+        through_seq: dispatch_through,
+        new_submission,
+    }) = claim_dispatch_inputs(runtime, id, cancel, &chain[0].info.provider).await?
+    else {
+        return Ok(TurnOutcome::NoWork);
+    };
+    if new_submission {
+        memory.new_submission();
+    }
     let depth = depth_of(runtime, &record).await;
     let find_available = find::available(runtime, id).await;
     let toolset = toolset_for(&record, depth, find_available);
@@ -282,7 +297,7 @@ pub(crate) async fn take_turn(
             model: candidate.info.clone(),
         });
     }
-    let input_through_seq = latest_submission_seq(&entries).unwrap_or(0);
+    let input_through_seq = dispatch_through;
     let captured_goal = entries.iter().rev().find_map(|(_, entry)| match entry {
         Entry::Goal { state } => Some(state),
         _ => None,

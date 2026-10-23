@@ -102,6 +102,7 @@ pub fn SheetContent(
     #[props(default = true)] close_on_backdrop_click: bool,
     on_open_auto_focus: Option<EventHandler<AutoFocusRequest>>,
     on_close_auto_focus: Option<EventHandler<AutoFocusRequest>>,
+    #[props(default)] on_keydown: Option<EventHandler<KeyboardEvent>>,
     children: Element,
 ) -> Element {
     let context = use_context::<DialogContext>();
@@ -123,6 +124,7 @@ pub fn SheetContent(
             show_close_button: Some(show_close_button),
             close_on_backdrop_click,
             on_open_auto_focus,
+            on_keydown,
             on_close_auto_focus,
             {children}
         }

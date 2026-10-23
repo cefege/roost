@@ -5,10 +5,11 @@
 //! pixels are fetched once per `image_key` (`SessionsGetTerminalImage`, or the
 //! direct carriers' image request) and cached by the browser.
 
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// One image placed on the grid.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ImagePlacement {
     /// Content identity of the image's pixels: equal pixels, equal key, so a
     /// browser fetches each image once however often it is placed.

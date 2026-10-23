@@ -35,6 +35,7 @@ mod peer_notice;
 mod plan_mode;
 pub mod projection;
 pub mod prompts;
+mod read_only_guard;
 pub mod records;
 mod rewind;
 pub mod roles;
@@ -56,8 +57,9 @@ pub use error::AgentError;
 pub use llm_adapter::RoostLlm;
 pub use memory_store::InMemoryAgentStore;
 pub use records::{AgentSettings, ConversationRecord, Entry, Mode, Role};
-pub use runtime::{AgentRuntime, NewConversation, RuntimeConfig};
+pub use runtime::{AgentRuntime, NewConversation, RuntimeConfig, SubmitMode};
 pub use traits::{
     AccountUsage, AdmitOutcome, AgentStore, ChatSink, ClusterSignal, CommandAdmission,
-    IntentChange, LeaseFence, Llm, NoClusterSignal, ToolCall, ToolExecutor, ToolOutcome,
+    IntentChange, LeaseFence, Llm, NoClusterSignal, OwnerConversationId, ToolCall, ToolExecutor,
+    ToolOutcome, WorkerConversationNamespace,
 };

@@ -176,5 +176,5 @@ async fn without_a_stream_owner_a_request_is_admitted_and_unanswered() {
         link.replies.is_empty(),
         "v2 `onTerminalStreamState?.()` answers nothing and frees its slot"
     );
-    assert!(receiver.try_recv().is_none());
+    assert!(receiver.try_recv_delivery().is_none());
 }

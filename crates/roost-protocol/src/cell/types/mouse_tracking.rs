@@ -3,11 +3,13 @@
 //! Mouse tracking is normalized at the protocol boundary so clients share the
 //! worker's known modes while retaining unknown wire values for round trips.
 
+use serde::{Deserialize, Serialize};
 /// Mouse reporting mode the foreground application requested: 0 = none, 1000 =
 /// press/release, 1002 = press/release plus motion while held. The core folds
 /// legacy mode 9 and any-motion 1003 into these three, so no other value is
 /// representable — but the wire is a raw integer, so one still has to decode.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum MouseTracking {
     /// No tracking requested, so the browser keeps native selection and scroll.
     #[default]

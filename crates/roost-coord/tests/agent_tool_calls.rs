@@ -7,6 +7,11 @@
 mod agent_fixture;
 mod db_support;
 
+#[path = "agent_tool_calls/controller.rs"]
+mod controller;
+#[path = "agent_tool_calls/policy.rs"]
+mod policy;
+use roost_agent::{OwnerConversationId, WorkerConversationNamespace};
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
@@ -20,10 +25,27 @@ use roost_protocol::wire::coord_worker::CoordWorkerDownstream;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-fn call_spec() -> AgentToolCallSpec {
+async fn call_spec(fixture: &AgentFixture) -> AgentToolCallSpec {
+    let record = fixture
+        .core
+        .services
+        .agent
+        .runtime
+        .create_conversation(roost_agent::NewConversation {
+            worker_fp: agent_fixture::WORKER_A.to_owned(),
+            worker_label: "worker-a".to_owned(),
+            worker_os: "linux".to_owned(),
+            cwd: "/tmp/project".to_owned(),
+            title: Some("tool call test".to_owned()),
+            model: None,
+            thinking_level: None,
+        })
+        .await
+        .expect("test conversation");
     AgentToolCallSpec {
         call_id: "call-1".to_owned(),
-        conversation_id: "conversation-1".to_owned(),
+        conversation_id: WorkerConversationNamespace(record.id.clone()),
+        owner_conversation_id: OwnerConversationId(record.id),
         cwd: "/tmp/project".to_owned(),
         tool: "read".to_owned(),
         args_json: r#"{"path":"README.md"}"#.to_owned(),
@@ -35,6 +57,8 @@ fn call_spec() -> AgentToolCallSpec {
 #[tokio::test]
 async fn an_offline_worker_waits_then_dispatches_once_after_reconnect() {
     let fixture = AgentFixture::new("tool-call-offline").await;
+    let spec = call_spec(&fixture).await;
+    let conversation_id = spec.owner_conversation_id.0.clone();
     let (output, _chunks) = mpsc::channel(4);
     let services = Arc::clone(&fixture.core.services);
     let mut execute = tokio::spawn(async move {
@@ -42,7 +66,7 @@ async fn an_offline_worker_waits_then_dispatches_once_after_reconnect() {
             .agent_tools
             .execute(
                 agent_fixture::WORKER_A,
-                call_spec(),
+                spec,
                 output,
                 CancellationToken::new(),
             )
@@ -53,6 +77,14 @@ async fn an_offline_worker_waits_then_dispatches_once_after_reconnect() {
             .await
             .is_err()
     );
+    fixture
+        .core
+        .services
+        .agent
+        .runtime
+        .set_read_only(&conversation_id, true)
+        .await
+        .expect("read-only setting persists");
     let (_worker, mut downstream) = register_worker(&fixture);
     let frame = tokio::time::timeout(std::time::Duration::from_secs(5), downstream.recv())
         .await
@@ -79,6 +111,7 @@ async fn an_offline_worker_waits_then_dispatches_once_after_reconnect() {
 #[tokio::test]
 async fn waiting_for_an_offline_worker_remains_cancellable() {
     let fixture = AgentFixture::new("tool-call-offline-abort").await;
+    let spec = call_spec(&fixture).await;
     let (output, _chunks) = mpsc::channel(4);
     let cancel = CancellationToken::new();
     let services = Arc::clone(&fixture.core.services);
@@ -86,7 +119,7 @@ async fn waiting_for_an_offline_worker_remains_cancellable() {
     let mut execute = tokio::spawn(async move {
         services
             .agent_tools
-            .execute(agent_fixture::WORKER_A, call_spec(), output, execute_cancel)
+            .execute(agent_fixture::WORKER_A, spec, output, execute_cancel)
             .await
     });
     assert!(
@@ -110,6 +143,7 @@ async fn waiting_for_an_offline_worker_remains_cancellable() {
 #[tokio::test]
 async fn a_dispatched_call_is_rejected_on_disconnect_and_not_replayed_on_reconnect() {
     let fixture = AgentFixture::new("tool-call-disconnect").await;
+    let spec = call_spec(&fixture).await;
     let (worker, mut downstream_rx) = register_worker(&fixture);
     let (output, _chunks) = mpsc::channel(4);
     let services = Arc::clone(&fixture.core.services);
@@ -118,7 +152,7 @@ async fn a_dispatched_call_is_rejected_on_disconnect_and_not_replayed_on_reconne
             .agent_tools
             .execute(
                 agent_fixture::WORKER_A,
-                call_spec(),
+                spec,
                 output,
                 CancellationToken::new(),
             )
@@ -158,6 +192,7 @@ async fn a_dispatched_call_is_rejected_on_disconnect_and_not_replayed_on_reconne
 #[tokio::test]
 async fn a_dispatched_cancel_is_neutral_but_preserves_uncertainty() {
     let fixture = AgentFixture::new("tool-call-dispatched-abort").await;
+    let spec = call_spec(&fixture).await;
     let (_worker, mut downstream) = register_worker(&fixture);
     let (output, _chunks) = mpsc::channel(4);
     let cancel = CancellationToken::new();
@@ -166,7 +201,7 @@ async fn a_dispatched_cancel_is_neutral_but_preserves_uncertainty() {
     let execute = tokio::spawn(async move {
         services
             .agent_tools
-            .execute(agent_fixture::WORKER_A, call_spec(), output, execute_cancel)
+            .execute(agent_fixture::WORKER_A, spec, output, execute_cancel)
             .await
     });
     assert!(matches!(
@@ -199,12 +234,12 @@ async fn a_dispatched_cancel_is_neutral_but_preserves_uncertainty() {
 #[tokio::test]
 async fn a_dispatched_timeout_retains_warning_and_unknown_outcome() {
     let fixture = AgentFixture::new("tool-call-dispatched-timeout").await;
+    let mut spec = call_spec(&fixture).await;
+    spec.timeout_ms = 10;
     let (_worker, mut downstream) = register_worker(&fixture);
     let (output, _chunks) = mpsc::channel(4);
     let services = Arc::clone(&fixture.core.services);
     let execute = tokio::spawn(async move {
-        let mut spec = call_spec();
-        spec.timeout_ms = 10;
         services
             .agent_tools
             .execute(
@@ -229,6 +264,52 @@ async fn a_dispatched_timeout_retains_warning_and_unknown_outcome() {
         downstream.recv().await.unwrap(),
         CoordWorkerDownstream::AgentToolCancel(_)
     ));
+}
+#[tokio::test]
+async fn an_offline_mutation_is_rejected_after_read_only_is_enabled() {
+    let fixture = AgentFixture::new("tool-call-offline-read-only").await;
+    let mut spec = call_spec(&fixture).await;
+    spec.tool = "bash".to_owned();
+    spec.args_json = r#"{"command":"touch forbidden"}"#.to_owned();
+    let conversation_id = spec.owner_conversation_id.0.clone();
+    let (output, _chunks) = mpsc::channel(4);
+    let services = Arc::clone(&fixture.core.services);
+    let mut execute = tokio::spawn(async move {
+        services
+            .agent_tools
+            .execute(
+                agent_fixture::WORKER_A,
+                spec,
+                output,
+                CancellationToken::new(),
+            )
+            .await
+    });
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(50), &mut execute)
+            .await
+            .is_err()
+    );
+    fixture
+        .core
+        .services
+        .agent
+        .runtime
+        .set_read_only(&conversation_id, true)
+        .await
+        .expect("read-only setting persists");
+    let (_worker, mut downstream) = register_worker(&fixture);
+    let outcome = tokio::time::timeout(std::time::Duration::from_secs(5), execute)
+        .await
+        .expect("queued call settles")
+        .expect("tool call task")
+        .expect("denial is a tool outcome");
+    assert!(outcome.is_error);
+    assert!(outcome.content.contains("disabled in read-only mode"));
+    assert!(
+        downstream.try_recv().is_err(),
+        "mutation never reaches worker"
+    );
 }
 
 fn register_worker(

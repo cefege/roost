@@ -20,12 +20,19 @@ fn a_television_reporting_a_phone_sized_viewport_gets_the_desktop_shell() {
 }
 
 #[test]
-fn every_terminal_route_highlights_sessions() {
-    for pathname in ["/", "/s/abc", "/t/fp123/src", "/w/ws1", "/w/ws1/t/ch1"] {
+fn agent_and_terminal_routes_highlight_workspaces() {
+    for pathname in [
+        "/",
+        "/a/c-agent",
+        "/s/abc",
+        "/t/fp123/src",
+        "/w/ws1",
+        "/w/ws1/t/ch1",
+    ] {
         assert_eq!(
             active_destination(pathname),
-            Some(Destination::Sessions),
-            "{pathname} is a session destination"
+            Some(Destination::Workspaces),
+            "{pathname} is a workspace destination"
         );
     }
 }

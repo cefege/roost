@@ -35,6 +35,7 @@ pub struct ScriptedLlm {
     pub providers: Mutex<Vec<String>>,
     pub scripts: Mutex<HashMap<String, VecDeque<Script>>>,
     pub stream_gates: Mutex<HashMap<(String, usize), Arc<ModelStreamGate>>>,
+    pub credential_gate: Mutex<Option<Arc<ModelStreamGate>>>,
     pub partials: Mutex<HashMap<String, VecDeque<PartialScript>>>,
     pub judgments: Mutex<VecDeque<JudgeScript>>,
     pub requests: Mutex<Vec<ChatRequest>>,
@@ -78,6 +79,12 @@ impl ScriptedLlm {
             .lock()
             .unwrap()
             .insert((session_id.to_owned(), request_number), gate.clone());
+        gate
+    }
+
+    pub fn hold_credential_check(&self) -> Arc<ModelStreamGate> {
+        let gate = Arc::new(ModelStreamGate::default());
+        *self.credential_gate.lock().unwrap() = Some(Arc::clone(&gate));
         gate
     }
 
@@ -136,7 +143,14 @@ impl Llm for ScriptedLlm {
             .unwrap()
             .iter()
             .any(|known| known == provider);
-        Box::pin(async move { known })
+        let gate = self.credential_gate.lock().unwrap().take();
+        Box::pin(async move {
+            if let Some(gate) = gate {
+                gate.entered.notify_one();
+                gate.released.notified().await;
+            }
+            known
+        })
     }
 
     fn resolve<'a>(

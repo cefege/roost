@@ -85,15 +85,15 @@ impl AgentStore for CoordAgentStore {
             let statement = if expected_revision == 0 {
                 sqlx::query(
                     "INSERT INTO agent_conversations \
-                    (id,title,worker_fp,worker_label,worker_os,cwd,model_provider,model_id,thinking_level,mode,pre_plan_model,parent_id,agent,advisor,run_state,error,created_ms,updated_ms,revision) \
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) \
+                    (id,title,worker_fp,worker_label,worker_os,cwd,model_provider,model_id,thinking_level,mode,pre_plan_model,parent_id,agent,advisor,read_only,run_state,error,created_ms,updated_ms,revision) \
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) \
                     ON CONFLICT(id) DO NOTHING",
                 )
             } else {
                 sqlx::query(
                     "UPDATE agent_conversations SET \
-                    title=$2,worker_fp=$3,worker_label=$4,worker_os=$5,cwd=$6,model_provider=$7,model_id=$8,thinking_level=$9,mode=$10,pre_plan_model=$11,parent_id=$12,agent=$13,advisor=$14,run_state=$15,error=$16,created_ms=$17,updated_ms=$18,revision=$19 \
-                    WHERE id=$1 AND revision=$20",
+                    title=$2,worker_fp=$3,worker_label=$4,worker_os=$5,cwd=$6,model_provider=$7,model_id=$8,thinking_level=$9,mode=$10,pre_plan_model=$11,parent_id=$12,agent=$13,advisor=$14,read_only=$15,run_state=$16,error=$17,created_ms=$18,updated_ms=$19,revision=$20 \
+                    WHERE id=$1 AND revision=$21",
                 )
             };
             let written = statement
@@ -111,6 +111,7 @@ impl AgentStore for CoordAgentStore {
                 .bind(&record.parent_id)
                 .bind(&record.agent)
                 .bind(record.advisor)
+                .bind(record.read_only)
                 .bind(record.run_state.as_str())
                 .bind(&record.error)
                 .bind(record.created_ms)
@@ -264,8 +265,9 @@ impl AgentStore for CoordAgentStore {
         id: &'a str,
     ) -> BoxFuture<'a, Result<Option<String>, AgentError>> {
         Box::pin(async move {
+            // The empty roster slot owns the single advisor; named slots stay inactive.
             sqlx::query_scalar(
-                "SELECT state_json FROM agent_advisor_state WHERE conversation_id=$1",
+                "SELECT state_json FROM agent_advisor_state WHERE conversation_id=$1 AND roster_slug=''",
             )
             .bind(id)
             .fetch_optional(self.db.pool())
@@ -280,7 +282,7 @@ impl AgentStore for CoordAgentStore {
         state_json: &'a str,
     ) -> BoxFuture<'a, Result<(), AgentError>> {
         Box::pin(async move {
-            sqlx::query("INSERT INTO agent_advisor_state(conversation_id,state_json,updated_ms) VALUES($1,$2,$3) ON CONFLICT(conversation_id) DO UPDATE SET state_json=excluded.state_json,updated_ms=excluded.updated_ms")
+            sqlx::query("INSERT INTO agent_advisor_state(conversation_id,roster_slug,state_json,updated_ms) VALUES($1,'',$2,$3) ON CONFLICT(conversation_id,roster_slug) DO UPDATE SET state_json=excluded.state_json,updated_ms=excluded.updated_ms")
                 .bind(id)
                 .bind(state_json)
                 .bind(now_ms())

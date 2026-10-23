@@ -3,10 +3,13 @@
 //! `store.rs` delegates its `AgentStore` methods here; every multi-statement
 //! decision runs inside one `CoordDb::begin_write` transaction.
 
-use roost_agent::admission::{LeaseRow, intent_entry, lease_expiry, next_lease_epoch};
+use roost_agent::admission::{
+    LeaseRow, intent_entry, lease_expiry, next_lease_epoch, queued_inputs_to_activate,
+    restart_boundary_matches, submission_is_withdrawable,
+};
 use roost_agent::error::AgentError;
 use roost_agent::records::Entry;
-use roost_agent::traits::{AdmitOutcome, CommandAdmission, LeaseFence};
+use roost_agent::traits::{AdmitOutcome, CommandAdmission, IntentChange, LeaseFence};
 use sqlx::Row as _;
 use tokio_util::sync::CancellationToken;
 
@@ -59,18 +62,122 @@ pub(super) async fn admit_command(
         tx.rollback().await.map_err(store_error)?;
         return Ok(AdmitOutcome::Duplicate { result_json });
     }
+    let rows = sqlx::query(
+        "SELECT seq,entry_json FROM agent_entries WHERE conversation_id=$1 ORDER BY seq",
+    )
+    .bind(id)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(store_error)?;
+    let mut journal = Vec::with_capacity(rows.len());
+    for row in rows {
+        let sequence: i64 = row.try_get("seq").map_err(store_error)?;
+        let entry_json: String = row.try_get("entry_json").map_err(store_error)?;
+        let entry = serde_json::from_str(&entry_json).map_err(serialize_error)?;
+        journal.push((u64::try_from(sequence).map_err(serialize_error)?, entry));
+    }
+    if matches!(
+        admission.intent,
+        IntentChange::Complete | IntentChange::RestartIfCurrent
+    ) {
+        let Some(fence) = admission.fence.as_ref() else {
+            tx.rollback().await.map_err(store_error)?;
+            return Err(AgentError::Fenced(id.to_owned()));
+        };
+        if !holds_lease(&mut tx, id, fence).await? {
+            tx.rollback().await.map_err(store_error)?;
+            return Err(AgentError::Fenced(id.to_owned()));
+        }
+    }
+    if admission.intent == IntentChange::RestartIfCurrent
+        && !restart_boundary_matches(&journal, admission.expected_intent_seq)
+    {
+        tx.rollback().await.map_err(store_error)?;
+        return Ok(AdmitOutcome::Stopped);
+    }
+    if admission.intent == IntentChange::Complete {
+        let expected_intent = admission.expected_intent_seq.unwrap_or(0);
+        if journal.iter().any(|(sequence, entry)| {
+            *sequence > expected_intent && matches!(entry, Entry::RunIntent { aborted: true, .. })
+        }) {
+            tx.rollback().await.map_err(store_error)?;
+            return Ok(AdmitOutcome::Stopped);
+        }
+    }
+    if admission.intent == IntentChange::Withdraw {
+        let submission_id = admission.entries.iter().find_map(|entry| match entry {
+            Entry::QueuedInputWithdrawn { submission_id } => Some(submission_id),
+            _ => None,
+        });
+        if submission_id
+            .is_none_or(|submission_id| !submission_is_withdrawable(&journal, submission_id))
+        {
+            tx.rollback().await.map_err(store_error)?;
+            return Ok(AdmitOutcome::NotWithdrawable);
+        }
+    }
+    let busy = journal
+        .iter()
+        .rev()
+        .find_map(|(_, entry)| match entry {
+            Entry::RunIntent { active, .. } => Some(*active),
+            _ => None,
+        })
+        .unwrap_or(false);
+    if admission.intent == IntentChange::RejectIfBusy && busy {
+        tx.rollback().await.map_err(store_error)?;
+        return Ok(AdmitOutcome::Busy);
+    }
+    let queued = admission.intent == IntentChange::FollowUp && busy;
+    let intent = match admission.intent {
+        IntentChange::RejectIfBusy => IntentChange::Activate,
+        IntentChange::FollowUp if busy => IntentChange::None,
+        IntentChange::FollowUp => IntentChange::Activate,
+        intent => intent,
+    };
+    let mut entries = admission.entries;
+    if admission.intent == IntentChange::FollowUp && !busy {
+        entries = entries
+            .into_iter()
+            .flat_map(|entry| {
+                roost_agent::admission::activate_followup(entry)
+                    .into_iter()
+                    .flatten()
+            })
+            .collect();
+    }
+    if intent == IntentChange::Complete {
+        entries.extend(queued_inputs_to_activate(&journal));
+    }
     let last_before = last_seq(&mut tx, id).await?;
     let mut seq = last_before;
-    let mut seqs = Vec::with_capacity(admission.entries.len() + 1);
-    for entry in &admission.entries {
+    let mut seqs = Vec::with_capacity(entries.len() + 1);
+    let boundary = admission.completion_through.unwrap_or(last_before);
+    let mut has_unconsumed = roost_agent::journal::effective_entries(&journal)
+        .iter()
+        .any(|(sequence, entry)| *sequence > boundary && matches!(entry, Entry::User { .. }));
+    for entry in &entries {
         seq = seq.saturating_add(1);
         let json = serde_json::to_string(entry).map_err(serialize_error)?;
         insert_entry(&mut tx, id, seq, &json).await?;
+        if seq > boundary && matches!(entry, Entry::User { .. }) {
+            has_unconsumed = true;
+        }
         seqs.push(seq);
     }
-    if let Some(intent) = intent_entry(admission.intent, last_before, seqs.last().copied()) {
+    let intent_entry = if admission.intent == IntentChange::Complete {
+        Some(Entry::RunIntent {
+            active: has_unconsumed,
+            through_seq: boundary,
+            aborted: false,
+            yielded: false,
+        })
+    } else {
+        intent_entry(intent, last_before, seqs.last().copied())
+    };
+    if let Some(intent_entry) = intent_entry {
         seq = seq.saturating_add(1);
-        let json = serde_json::to_string(&intent).map_err(serialize_error)?;
+        let json = serde_json::to_string(&intent_entry).map_err(serialize_error)?;
         insert_entry(&mut tx, id, seq, &json).await?;
         seqs.push(seq);
     }
@@ -83,7 +190,7 @@ pub(super) async fn admit_command(
         .await
         .map_err(store_error)?;
     tx.commit().await.map_err(store_error)?;
-    Ok(AdmitOutcome::Admitted { seqs })
+    Ok(AdmitOutcome::Admitted { seqs, queued })
 }
 
 pub(super) async fn complete_command(

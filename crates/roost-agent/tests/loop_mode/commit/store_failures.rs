@@ -3,6 +3,7 @@
 //! User, run-intent and repeat-stage failures are independently controlled.
 
 use futures::future::BoxFuture;
+use roost_agent::traits::IntentChange;
 use roost_agent::{
     AdmitOutcome, AgentError, AgentSettings, AgentStore, CommandAdmission, ConversationRecord,
     Entry, InMemoryAgentStore, LeaseFence,
@@ -53,6 +54,12 @@ impl AgentStore for FailAppendStore {
             return Box::pin(async {
                 Err(AgentError::Store("injected User append failure".into()))
             });
+        }
+        if !self.fail_active
+            && admission.intent == IntentChange::Complete
+            && spend_failure(&self.intent_failures)
+        {
+            return Box::pin(async { Err(AgentError::Store("injected run-intent outage".into())) });
         }
         self.inner.admit_command(id, admission)
     }

@@ -15,6 +15,8 @@ use crate::database_location::DatabaseLocation;
 
 mod secret_key;
 pub use secret_key::CoordinatorSecretKey;
+mod cf_access;
+use cf_access::{validate_cf_access_aud, validate_cf_access_team_domain};
 
 /// The bind an unset `ROOST_COORDINATOR_BIND` resolves to.
 ///
@@ -35,12 +37,6 @@ pub const COORD_DB_FILE_NAME: &str = "coordinator_v3.db";
 
 /// The authorized-keys filename inside the coordinator data directory.
 pub const AUTHORIZED_KEYS_FILE_NAME: &str = "authorized_keys.roost";
-
-/// The Cloudflare Access host suffix a team domain must end in.
-const CF_ACCESS_TEAM_DOMAIN_SUFFIX: &str = ".cloudflareaccess.com";
-
-/// The length of a hex-encoded Cloudflare Access application audience tag.
-const CF_ACCESS_AUD_LEN: usize = 64;
 
 /// Every setting a booting coordinator reads, resolved.
 #[derive(Clone, PartialEq, Eq)]
@@ -222,46 +218,6 @@ fn positive_or(raw: Option<i64>, default: u64, field: &str) -> ProtocolResult<u6
         Some(value) if value > 0 => Ok(value as u64),
         Some(_) => Err(ProtocolError::new(field, "must be a positive integer")),
     }
-}
-
-/// A Cloudflare Access team domain is one label, lowercase, under the Access
-/// suffix. The trailing-newline case a JavaScript `$` anchor accepts is
-/// refused here rather than reproduced.
-fn validate_cf_access_team_domain(team_domain: &str) -> ProtocolResult<()> {
-    let invalid = || {
-        ProtocolError::new(
-            "config.cf_access_team_domain",
-            format!("must be one lowercase label under {CF_ACCESS_TEAM_DOMAIN_SUFFIX}"),
-        )
-    };
-    let Some(team) = team_domain.strip_suffix(CF_ACCESS_TEAM_DOMAIN_SUFFIX) else {
-        return Err(invalid());
-    };
-    if team.is_empty() {
-        return Err(invalid());
-    }
-    if !team
-        .bytes()
-        .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
-    {
-        return Err(invalid());
-    }
-    Ok(())
-}
-
-/// A Cloudflare Access audience tag is 64 lowercase hex characters.
-fn validate_cf_access_aud(aud: &str) -> ProtocolResult<()> {
-    let valid = aud.len() == CF_ACCESS_AUD_LEN
-        && aud
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
-    if valid {
-        return Ok(());
-    }
-    Err(ProtocolError::new(
-        "config.cf_access_aud",
-        format!("must be {CF_ACCESS_AUD_LEN} lowercase hex characters"),
-    ))
 }
 
 #[cfg(test)]
