@@ -95,5 +95,7 @@ async fn read_only_update_reaches_peer_summary_without_waking_a_run() {
     assert!(second.fake.bodies.lock().is_empty());
     first.service.leave_cluster().await;
     second.service.leave_cluster().await;
+    first.db.pool().close().await;
+    second.db.pool().close().await;
     std::fs::remove_dir_all(root).unwrap();
 }

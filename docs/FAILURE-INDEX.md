@@ -4451,3 +4451,19 @@ keyboard assignment over an unhydrated document. Browser proof holds
 `AgentSettingsGet`, checks that advisor/search writes stay unavailable, then
 checks persisted roles, folder overrides and presets after real saves; a failed
 read remains visible after a later successful catalog response.
+
+### Cluster test cleanup removes an open SQLite database on Windows
+
+**Symptom** — the read-only cluster regression passes its behavioral assertions,
+then Windows rejects `remove_dir_all` with sharing violation 32.
+
+**Wrong** — delete the scratch directory while replica pools still own SQLite
+connections, or ignore the deletion failure.
+
+**Right** — leave the cluster and await closure of both replica database pools
+before removing their shared scratch directory.
+
+**Guard** — `roost-coord`
+`agent_read_only_cluster::read_only_update_reaches_peer_summary_without_waking_a_run`
+checks persisted peer visibility without model calls and requires scratch removal
+to succeed; the Windows CI job exercises the file-sharing constraint.
