@@ -789,6 +789,11 @@ The coordinator's release wins over `roost update`: a following worker that
 Update such a machine by updating its coordinator, or set
 `ROOST_AUTO_UPDATE=0` to manage it by hand.
 
+`cargo xtask fleet install --version <tag> --host <name>` installs a published
+release immediately on selected fleet hosts. It downloads and verifies only
+their platform assets and the shared web bundle; other platforms need not be
+published.
+
 ### Rolling a fleet from a source checkout: `roost push`
 
 To roll a source-installed coordinator and its registered fleet onto one

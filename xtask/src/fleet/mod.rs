@@ -64,11 +64,15 @@ fn install_command(arguments: &InstallArgs) -> Result<(), String> {
     {
         return Err(format!("{unknown} is not a host in xtask/fleet.json"));
     }
-    // Only the platforms some host runs: a tag published before a platform
-    // existed has no assets for it, and asking `gh` for them fails the fetch.
+    // A platform-specific release need not publish assets for unselected hosts.
     let platforms: Vec<manifest::Platform> = manifest::Platform::ALL
         .into_iter()
-        .filter(|platform| fleet.hosts.iter().any(|host| host.platform == *platform))
+        .filter(|platform| {
+            fleet
+                .hosts
+                .iter()
+                .any(|host| selected(&host.name) && host.platform == *platform)
+        })
         .collect();
     fetch::fetch_release(&arguments.version, &platforms)?;
     let release = install::BuiltRelease::load(&arguments.version)?;
