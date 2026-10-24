@@ -27,6 +27,10 @@ on:
       tag:
         type: string
         required: true
+    secrets:
+      ROOST_PROMOTE_TOKEN:
+        description: 'Protected production credential with contents and workflow write access'
+        required: true
   workflow_dispatch:
     inputs:
       tag:

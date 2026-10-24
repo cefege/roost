@@ -504,6 +504,8 @@ gh workflow run promote.yml -f tag=<older tag>   # roll back (see below)
    Checkout and push use `ROOST_PROMOTE_TOKEN` from that environment, with
    repository contents and workflow write access. The built-in `GITHUB_TOKEN`
    cannot move the branch across changes to `.github/workflows/`.
+   `release.yml` passes that named secret across the reusable-workflow boundary;
+   the `production` environment supplies its value after approval.
 3. **Coordinator.** Flux on ovh1 (`deploy/flux/`: a GitRepository on
    `production`, a Kustomization applying `deploy/flux/production/`, whose
    HelmRelease upgrades `roost-coordinator` with the chart and

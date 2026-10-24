@@ -357,3 +357,6 @@ jobs:
     uses: ./.github/workflows/promote.yml
     with:
       tag: ${{ inputs.tag || github.ref_name }}
+    secrets:
+      # Environment secrets still require a named workflow-call binding.
+      ROOST_PROMOTE_TOKEN: ${{ secrets.ROOST_PROMOTE_TOKEN }}
