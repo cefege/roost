@@ -14,8 +14,7 @@ use roost_protocol::wire::SessionStatus;
 use crate::components::agents::agent_status_indicator::AgentStatusIndicator;
 use crate::components::ui::list::is_in_app_navigation_click;
 use crate::components::ui::{
-    Card, CardContent, CardDescription, CardHeader, CardTitle, CardVariant, Chip, EmptyState,
-    IconType,
+    Card, CardContent, CardDescription, CardHeader, CardTitle, Chip, EmptyState, IconType,
 };
 use crate::platform::BrowserWorkerPaths;
 use crate::pump::use_store;
@@ -128,8 +127,7 @@ pub fn TvHomeBoard() -> Element {
                             navigate.call(href.clone());
                         },
                         Card {
-                            variant: CardVariant::Elevated,
-                            class: Some(if document.agent_unseen || needs_operator_input(document) { "min-h-40 justify-center p-5 border-s-8 border-s-primary" } else { "min-h-40 justify-center p-5" }.to_owned()),
+                            class: Some(if document.agent_unseen || needs_operator_input(document) { "min-h-40 justify-center border-s-8 border-s-primary" } else { "min-h-40 justify-center" }.to_owned()),
                             "data-testid": "tv-home-card-{document.session_id}",
                             CardHeader {
                                 CardTitle { {document.display_title.clone()} }

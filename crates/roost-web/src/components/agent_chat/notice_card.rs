@@ -6,7 +6,7 @@ use dioxus::prelude::*;
 
 use super::markdown::markdown_to_safe_html;
 use crate::components::ui::{
-    Button, ButtonVariant, Card, CardContent, CardHeader, CardTitle, CardVariant, Collapsible,
+    Button, ButtonVariant, Card, CardContent, CardHeader, CardTitle, Collapsible,
     CollapsibleContent, CollapsibleTrigger, Icon, IconType, Markdown,
 };
 use crate::router_state::use_navigate;
@@ -34,7 +34,6 @@ pub fn NoticeCard(id: String, level: String, title: String, body: String) -> Ele
     rsx! {
         Card {
             key: "{id}",
-            variant: CardVariant::Outlined,
             CardHeader {
                 CardTitle { "{title}" }
             }

@@ -326,26 +326,7 @@ fn link_stylesheet() -> String {
 }}
 /* File links pick up the accent so they read as \"opens in Roost\", not the web. */
 .wterm[data-link-armed=\"1\"] .{link}[data-kind=\"file\"] {{
-  text-decoration-color: var(--md-primary, currentColor);
-}}
-.wterm-link-hint {{
-  position: fixed;
-  z-index: 2147483000;
-  display: none;
-  max-width: 60vw;
-  padding: 3px 8px;
-  border-radius: var(--md-shape-sm, 6px);
-  background: var(--surface-2);
-  color: var(--text-hi);
-  border: 1px solid var(--border-subtle);
-  box-shadow: var(--md-elev-3);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  line-height: 1.4;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  pointer-events: none;
+  text-decoration-color: var(--primary);
 }}
 "
     )

@@ -11,10 +11,10 @@ use super::catalog::{
 };
 use crate::components::terminal::stream_indicator::StreamIndicator;
 use crate::components::ui::{
-    BindingChip, Button, ButtonVariant, Card, CardAction, CardContent, CardDescription, CardHeader,
-    CardTitle, CardVariant, Chip, EmptyState, Icon, IconButton, IconType, List, ListLayout,
-    ListRow, MetricTile, Progress, SectionTitle, Skeleton, StatusDot, Surface, SurfaceRadius,
-    UsageRing,
+    BindingChip, Button, ButtonVariant, Card, CardAction, CardContent, CardDescription, CardFooter,
+    CardHeader, CardSize, CardTitle, Chip, EmptyState, Icon, IconButton, IconType, List,
+    ListLayout, ListRow, MetricTile, Progress, SectionTitle, Skeleton, StatusDot, Surface,
+    SurfaceRadius, UsageRing,
 };
 
 /// Body copy in the small body ramp.
@@ -41,16 +41,16 @@ pub fn ContentPrimitives() -> Element {
             Card {
                 CardHeader {
                     CardTitle { "Default card" }
-                    CardDescription { "default variant" }
+                    CardDescription { "Default size" }
                 }
                 CardContent {
                     span { class: BODY_SMALL_CLASS, "Body content." }
                 }
             }
-            Card { variant: CardVariant::Elevated,
+            Card { size: CardSize::Sm,
                 CardHeader {
-                    CardTitle { "Elevated card" }
-                    CardDescription { "variant=elevated" }
+                    CardTitle { "Small card" }
+                    CardDescription { "Dense content with shared insets" }
                     CardAction {
                         IconButton { icon: IconType::EllipsisVertical, label: "More" }
                     }
@@ -59,13 +59,20 @@ pub fn ContentPrimitives() -> Element {
                     span { class: BODY_SMALL_CLASS, "Body content." }
                 }
             }
-            Card { variant: CardVariant::Outlined,
+            Card {
                 CardHeader {
-                    CardTitle { "Outlined card" }
-                    CardDescription { "variant=outlined" }
+                    CardTitle { "Composed card" }
+                    CardDescription { "Header, content and footer" }
+                    CardAction {
+                        IconButton { icon: IconType::EllipsisVertical, label: "Card actions" }
+                    }
                 }
                 CardContent {
                     span { class: BODY_SMALL_CLASS, "Body content." }
+                }
+                CardFooter {
+                    Button { variant: ButtonVariant::Outline, "Cancel" }
+                    Button { "Save" }
                 }
             }
         }

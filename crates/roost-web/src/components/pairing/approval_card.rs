@@ -11,7 +11,7 @@ use crate::components::terminal::dom::now_ms;
 use crate::components::ui::field::scoped_element_id;
 use crate::components::ui::{
     Button, ButtonSize, ButtonVariant, Card, CardContent, CardDescription, CardFooter, CardHeader,
-    CardTitle, CardVariant, Chip, IconType, List, ListRow, StatusDot,
+    CardTitle, Chip, IconType, List, ListRow, StatusDot,
 };
 
 use super::approver::PairApprover;
@@ -48,7 +48,7 @@ pub fn PairRequestCard(request: PairRequest, busy: bool, approver: PairApprover)
     let details_expanded = *details_open.read();
     rsx! {
         div { "data-testid": "pair-request-card", "data-ephemeral-id": ephemeral_id.clone(),
-            Card { variant: CardVariant::Elevated,
+            Card {
                 CardHeader {
                     CardTitle { "New browser wants to pair" }
                     CardDescription {

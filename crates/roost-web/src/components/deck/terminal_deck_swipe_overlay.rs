@@ -40,7 +40,7 @@ pub fn TerminalDeckSwipeOverlay(
             }
         }
         div {
-            class: "flex items-center justify-center bg-secondary text-secondary-foreground shadow-[0_6px_20px_color-mix(in_srgb,black_45%,transparent)] transition-[background-color,color,box-shadow] duration-150 ease-[cubic-bezier(0.2,0,0,1)] [-webkit-tap-highlight-color:transparent] data-[armed=true]:bg-primary data-[armed=true]:text-primary-foreground data-[armed=true]:shadow-[0_8px_26px_color-mix(in_srgb,black_50%,transparent),0_0_0_12px_color-mix(in_srgb,var(--accent)_18%,transparent)]",
+            class: "flex items-center justify-center bg-secondary text-secondary-foreground shadow-lg transition-[background-color,color,box-shadow] duration-150 ease-[cubic-bezier(0.2,0,0,1)] [-webkit-tap-highlight-color:transparent] data-[armed=true]:bg-primary data-[armed=true]:text-primary-foreground data-[armed=true]:ring-4 data-[armed=true]:ring-primary/20",
             "data-testid": "deck-new-fab",
             "data-armed": armed.then_some("true"),
             style: new_fab_style(Some(pull), pane_rect, deck_width, strip_height).css(),

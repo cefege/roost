@@ -134,7 +134,7 @@ fn MetadataRow(
     rsx! {
         CommandItem {
             value: session_id.clone(),
-            class: "flex items-start gap-3 rounded-md px-3 py-2.5",
+            class: "flex items-start gap-3",
             test_id: format!("global-search-result-{session_id}"),
             show_check: false,
             on_select: move |()| on_open.call(()),

@@ -18,6 +18,7 @@ pub mod tokens;
 
 #[cfg(target_arch = "wasm32")]
 mod document;
+pub(crate) mod terminal_palette;
 
 use roost_client_core::KeyValueStore;
 

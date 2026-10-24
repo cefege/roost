@@ -10,7 +10,7 @@ use roost_client_core::client::rpc::calls::pairing::RedeemPairToken;
 use crate::components::ui::field::scoped_element_id;
 use crate::components::ui::{
     Button, ButtonSize, ButtonVariant, Card, CardAction, CardContent, CardHeader, CardTitle,
-    CardVariant, IconType, TextField,
+    IconType, TextField,
 };
 use crate::platform::device_key::WebDeviceKey;
 use crate::platform::self_label::current_browser_self_label;
@@ -88,7 +88,7 @@ pub fn PairingOtherOptions(requester: PairingRequester) -> Element {
     let reset_busy = *resetting.read();
     let reset_message = reset_error.read().clone();
     rsx! {
-        Card { variant: CardVariant::Outlined,
+        Card {
             CardHeader {
                 CardTitle { "Other pairing options" }
                 CardAction {

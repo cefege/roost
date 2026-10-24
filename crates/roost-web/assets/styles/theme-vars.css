@@ -1,41 +1,11 @@
 /*
- * theme-vars.css — the Roost-named aliases onto rust-ui's theme roles, and the
- * layout tokens.
- *
- * The theme engine (`src/theme/`) writes the active base palette, accent
- * palette and mode's custom properties inline on <html> (rust-ui's `background`,
- * `primary`, `sidenav`, … roles), plus Roost's terminal, ANSI, syntax and chat
- * roles. `tailwind.css` maps the rust-ui roles to Tailwind colours. THIS FILE
- * declares:
- *   1. The aliases older Roost selectors read (`--surface-*`, `--text-*`,
- *      `--accent`, `--status-*`, `--wb-*`) onto those rust-ui roles.
- *   2. The terminal palette bridge, and the workbench chrome names.
- *   3. Layout tokens that runtime styles and arbitrary Tailwind values read.
+ * theme-vars.css owns terminal palette bridges and runtime layout tokens.
+ * The theme engine writes rust-ui's base and accent roles on <html>;
+ * tailwind.css exposes those roles directly to component utilities.
  */
 
 :root {
   --roost-main-left: 0px;
-  /* ── 1. ALIASES onto rust-ui theme roles ── */
-  --bg-base: var(--background);
-  --surface-0: var(--background);
-  --surface-1: var(--card);
-  --surface-2: var(--muted);
-  --surface-3: var(--accent);
-  --text-hi: var(--foreground);
-  --text-mid: var(--secondary-foreground);
-  --text-lo: var(--muted-foreground);
-  --accent: var(--primary);
-  --on-accent: var(--primary-foreground);
-  --accent-container: var(--secondary);
-  --on-accent-container: var(--secondary-foreground);
-  --secondary-container: var(--secondary);
-  --on-secondary-container: var(--secondary-foreground);
-  --border-strong: var(--input);
-  --border-subtle: var(--border);
-  --status-ok: var(--success);
-  --status-warn: var(--warning);
-  --status-err: var(--destructive);
-  --status-info: var(--info);
   /* Fixed Roost brand coral remains product identity, not selection chrome. */
   --brand-coral: #db7556;
   /* Pairing QR code. Theme-invariant on purpose: a phone camera reads dark
@@ -67,48 +37,11 @@
   --term-color-15: var(--ansi-bright-white);
   --terminal-grid-bg: var(--term-bg);
   --terminal-grid-fg: var(--term-fg);
-  --terminal-cursor: var(--accent);
-  --terminal-selection: var(--secondary-container);
+  --terminal-cursor: var(--primary);
+  --terminal-selection: var(--secondary);
 
-  /* Workbench chrome: the --wb-* fallbacks the engine overrides, and the
-     --workbench-* names the shell reads. */
-  --wb-titlebar: var(--surface-1);
-  --wb-activity: var(--surface-1);
-  --wb-sidebar: var(--surface-1);
-  --wb-editor: var(--bg-base);
-  --wb-statusbar: var(--surface-1);
-  --wb-border: var(--border-subtle);
-  --wb-active: var(--text-hi);
-  --wb-active-contrast: var(--bg-base);
-  --wb-focus: var(--text-hi);
-  --wb-selected: var(--secondary-container);
-  --wb-selected-contrast: var(--text-hi);
-  --wb-tab-active: var(--bg-base);
-  --wb-tab-inactive: var(--surface-1);
-  --wb-tab-hover: var(--secondary-container);
-  --wb-pane-drop: color-mix(in srgb, var(--text-hi) 15%, transparent);
-  --wb-pane-focus: var(--text-hi);
-  --workbench-titlebar: var(--wb-titlebar);
-  --workbench-activity: var(--wb-activity);
-  --workbench-sidebar: var(--wb-sidebar);
-  --workbench-editor: var(--wb-editor);
-  --workbench-status: var(--wb-statusbar);
-  --workbench-active: var(--wb-active);
-  --workbench-focus-ring: var(--wb-focus);
-  --workbench-border: var(--wb-border);
-  --workbench-pane-divider: var(--border-strong);
-  --workbench-sidebar-border: var(--wb-border);
-  --workbench-tab-strip: var(--wb-tab-inactive);
-  --workbench-tab-hover: var(--wb-tab-hover);
-  --workbench-tab-border: var(--wb-border);
-  --workbench-tab-active-foreground: var(--text-hi);
-  --workbench-tab-inactive-foreground: var(--text-mid);
-  --workbench-tab-hover-foreground: var(--text-hi);
-  --workbench-tab-unfocused-active-foreground: var(--text-mid);
-  --workbench-pane-focus: var(--wb-pane-focus);
-  --workbench-pane-drop: var(--wb-pane-drop);
   /* Written inline per row by the sidebar; this is the base for the cascade. */
-  --avatar-bg: var(--surface-3);
+  --avatar-bg: var(--accent);
 
   /* ── 3. Layout tokens ── */
   /* UI typography. Terminal and path roles keep their monospace stacks below. */

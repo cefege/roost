@@ -14,7 +14,7 @@ use super::dom::{now_ms, sleep_ms};
 use super::pane_registry::use_pane_registry;
 use crate::components::agents::agent_status_indicator::AgentStatusIndicator;
 use crate::components::deck::deck_swipe::card_swipe_alpha;
-use crate::components::ui::{Card, Checkbox, IconButton, IconType};
+use crate::components::ui::{Card, CardContent, CardSize, Checkbox, Icon, IconButton, IconType};
 use crate::pump::use_store;
 use crate::session_naming::{program_subtitle, session_title};
 
@@ -83,7 +83,11 @@ pub fn TerminalCard(
 
     rsx! {
         Card {
-            class: Some("relative min-w-0 cursor-pointer overflow-hidden rounded-3xl border-0 py-0 gap-0 text-left text-foreground shadow-sm [-webkit-tap-highlight-color:transparent] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[active=true]:ring-2 data-[active=true]:ring-primary data-[selected=true]:ring-2 data-[selected=true]:ring-primary".to_owned()),
+            size: CardSize::Sm,
+            class: Some(
+                "relative h-[204px] min-w-0 cursor-pointer overflow-hidden text-left [-webkit-tap-highlight-color:transparent] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring data-[active=true]:ring-2 data-[active=true]:ring-primary data-[selected=true]:ring-2 data-[selected=true]:ring-primary"
+                    .to_owned(),
+            ),
             "data-testid": "terminal-card-{id}",
             "data-active": if active { "true" } else { "false" },
             "data-selected": if selected { "true" } else { "false" },
@@ -127,14 +131,16 @@ pub fn TerminalCard(
                     on_key();
                 }
             },
-            div { class: "flex h-9 shrink-0 items-center gap-2 overflow-hidden pl-[11px] pr-11",
-                span { class: "flex size-6 shrink-0 items-center justify-center rounded-[3px] bg-[var(--surface-3)]",
-                    span { class: "font-mono font-bold", "$" }
+            CardContent { class: "flex h-9 shrink-0 items-center gap-2 overflow-hidden pr-11",
+                span { class: "flex size-6 shrink-0 items-center justify-center rounded-md bg-accent text-accent-foreground",
+                    Icon { icon: IconType::Terminal, class: "size-4" }
                 }
                 div { class: "flex min-w-0 flex-1 flex-col overflow-hidden",
                     span { class: "min-w-0 truncate text-sm font-medium", "{name}" }
                     if let Some(subtitle) = subtitle {
-                        span { class: "block truncate text-xs text-[var(--text-mid)]", "{subtitle}" }
+                        span { class: "block truncate text-xs text-muted-foreground",
+                            "{subtitle}"
+                        }
                     }
                     AgentStatusIndicator { session_id: id.clone() }
                 }
@@ -143,7 +149,7 @@ pub fn TerminalCard(
                 IconButton {
                     icon: IconType::X,
                     label: "Close terminal session",
-                    class: Some("absolute top-0 right-0 size-12 text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent".to_owned()),
+                    class: Some("absolute top-0 right-0 size-12".to_owned()),
                     "data-testid": "terminal-card-close-{id}",
                     onclick: move |event: MouseEvent| {
                         event.stop_propagation();
@@ -154,7 +160,7 @@ pub fn TerminalCard(
             }
             if selection_mode {
                 Checkbox {
-                    class: Some("absolute top-1.5 right-1.5 z-[1] size-6 rounded-full border-2 bg-card dark:bg-card".to_owned()),
+                    class: Some("absolute top-1.5 right-1.5 z-[1] size-6".to_owned()),
                     checked: selected,
                     test_id: format!("terminal-card-check-{id}"),
                     presentational: true,
@@ -163,20 +169,22 @@ pub fn TerminalCard(
             // The per-device colour scheme writes --terminal-grid-* inline on
             // <html>; the theme's terminal role would ignore it, and the preview
             // must look like the terminal it previews (as the tab hover card does).
-            div { class: "relative m-1 h-40 overflow-hidden rounded-[12px_12px_20px_20px] bg-[var(--terminal-grid-bg)]",
-                match preview {
-                    Some(rows) if !rows.is_empty() => rsx! {
-                        div { class: "block size-full overflow-hidden rounded-[inherit] px-1.5 py-1 font-mono text-preview whitespace-pre box-border text-[var(--terminal-grid-fg)] [&_span]:animate-none!",
-                            for (index, row) in rows.iter().enumerate() {
-                                PreviewRow { key: "{index}", row: row.clone() }
+            CardContent { class: "min-h-0 flex-1",
+                div { class: "relative h-full overflow-hidden rounded-md bg-[var(--terminal-grid-bg)]",
+                    match preview {
+                        Some(rows) if !rows.is_empty() => rsx! {
+                            div { class: "block size-full overflow-hidden rounded-[inherit] px-1.5 py-1 font-mono text-xs whitespace-pre box-border text-[var(--terminal-grid-fg)] [&_span]:animate-none!",
+                                for (index, row) in rows.iter().enumerate() {
+                                    PreviewRow { key: "{index}", row: row.clone() }
+                                }
                             }
-                        }
-                    },
-                    _ => rsx! {
-                        span { class: "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[2.5rem] leading-none text-muted-foreground opacity-70",
-                            span { class: "font-mono font-bold", "$" }
-                        }
-                    },
+                        },
+                        _ => rsx! {
+                            span { class: "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-muted-foreground opacity-70",
+                                Icon { icon: IconType::Terminal, class: "size-10" }
+                            }
+                        },
+                    }
                 }
             }
         }

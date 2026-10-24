@@ -5,7 +5,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::ui::{Card, CardContent, CardHeader, CardTitle, CardVariant};
+use crate::components::ui::{Card, CardContent, CardHeader, CardTitle};
 
 #[component]
 pub fn PeerMessageCard(id: String, from: String, broadcast: bool, text: String) -> Element {
@@ -17,7 +17,6 @@ pub fn PeerMessageCard(id: String, from: String, broadcast: bool, text: String) 
     rsx! {
         Card {
             key: "{id}",
-            variant: CardVariant::Outlined,
             CardHeader {
                 CardTitle { "{title}" }
             }

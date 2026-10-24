@@ -149,10 +149,9 @@ impl DismissListeners {
         on_escape: Option<EventHandler<()>>,
         within_ids: Vec<String>,
     ) -> Self {
-        // The click's path is fixed when it is dispatched. A handler inside the
-        // menu may re-render it before this document listener runs, detaching
-        // the target, so `contains` on the live tree would call an inside click
-        // outside and close the menu the click just changed.
+        // Capture has already passed when a click mounts its menu, so the
+        // opening click cannot immediately dismiss it. The dispatch path stays
+        // valid even when an earlier handler has detached its target.
         let within_ids = Rc::new(within_ids);
         let click_ids = Rc::clone(&within_ids);
         let click =
@@ -176,8 +175,11 @@ impl DismissListeners {
             }
         });
         if let Some(document) = web_sys::window().and_then(|window| window.document()) {
-            let _ =
-                document.add_event_listener_with_callback("click", click.as_ref().unchecked_ref());
+            let _ = document.add_event_listener_with_callback_and_bool(
+                "click",
+                click.as_ref().unchecked_ref(),
+                true,
+            );
             let _ = document.add_event_listener_with_callback_and_bool(
                 "keydown",
                 keydown.as_ref().unchecked_ref(),
@@ -190,8 +192,11 @@ impl DismissListeners {
     /// Stop listening.
     pub fn remove(&self) {
         if let Some(document) = web_sys::window().and_then(|window| window.document()) {
-            let _ = document
-                .remove_event_listener_with_callback("click", self.click.as_ref().unchecked_ref());
+            let _ = document.remove_event_listener_with_callback_and_bool(
+                "click",
+                self.click.as_ref().unchecked_ref(),
+                true,
+            );
             let _ = document.remove_event_listener_with_callback_and_bool(
                 "keydown",
                 self.keydown.as_ref().unchecked_ref(),

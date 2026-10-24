@@ -25,7 +25,8 @@ use dioxus::web::WebEventExt as _;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::{JsCast, JsValue};
 
-use super::pane_geometry::PaneMeasurement;
+use super::pane_geometry::{PaneMeasurement, field_growth};
+use super::pane_row_dom::control_height_in_field_row;
 
 /// What one update needs, captured so the callback can reach it.
 struct GeometryState {
@@ -298,7 +299,11 @@ fn measure(
 
     Some(PaneMeasurement {
         box_height,
-        field_growth: (input_height - computed_px(&input, "min-height")).max(0.0),
+        field_growth: field_growth(
+            input_height,
+            computed_px(&input, "min-height"),
+            control_height_in_field_row(&box_element, &input)?,
+        ),
         overflow_above: dock_rect.top() - box_rect.top(),
         // The dock scrolls sideways, or its content is taller than the room it
         // has above the pane's top edge. Whether the resting row still fits

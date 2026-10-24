@@ -4,7 +4,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::ui::{Card, CardContent, CardSize, CardVariant, Icon, IconType};
+use crate::components::ui::{Card, CardContent, CardSize, Icon, IconType};
 
 #[component]
 pub fn AdvisoryCard(id: String, severity: String, note: String, delivered: bool) -> Element {
@@ -17,7 +17,6 @@ pub fn AdvisoryCard(id: String, severity: String, note: String, delivered: bool)
         Card {
             key: "{id}",
             size: CardSize::Sm,
-            variant: CardVariant::Outlined,
             CardContent { class: Some("flex flex-col gap-2".to_owned()),
                 div { class: "flex items-center gap-2 font-medium {tone_class}",
                     Icon { icon, class: tone_class }

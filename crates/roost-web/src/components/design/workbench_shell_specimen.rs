@@ -17,7 +17,7 @@ use crate::components::ui::{
 const SPECIMEN_GRID_CLASS: &str = "grid min-h-[18rem] overflow-hidden \
     grid-cols-[var(--workbench-activity-width)_minmax(3rem,1fr)_minmax(3rem,2fr)] \
     grid-rows-[var(--workbench-titlebar-height)_minmax(12rem,1fr)_var(--workbench-statusbar-height)] \
-    bg-[var(--workbench-editor)]";
+    bg-background";
 
 /// One editor tab: its select button and close button. `name` is the accessible
 /// name; `label` is the visible title.
@@ -31,7 +31,7 @@ fn SpecimenTab(
 ) -> Element {
     rsx! {
         div {
-            class: "flex h-8 min-w-0 shrink-0 items-center gap-1 rounded-t-md px-1 text-sm text-muted-foreground data-[active=true]:bg-[var(--workbench-editor)] data-[active=true]:text-foreground data-[focused=true]:ring-1 data-[focused=true]:ring-ring",
+            class: "flex h-8 min-w-0 shrink-0 items-center gap-1 rounded-t-md px-1 text-sm text-muted-foreground data-[active=true]:bg-background data-[active=true]:text-foreground data-[focused=true]:ring-1 data-[focused=true]:ring-ring",
             "data-testid": test_id,
             "data-active": active.to_string(),
             "data-focused": focused.then_some("true"),
@@ -59,7 +59,7 @@ pub fn WorkbenchShellSpecimen() -> Element {
     rsx! {
         Surface { level: 0, radius: SurfaceRadius::Xs, border: true, class: SPECIMEN_GRID_CLASS,
             header {
-                class: "col-span-full flex items-center bg-[var(--workbench-titlebar)] px-3",
+                class: "col-span-full flex items-center bg-card px-3",
                 div { class: "flex items-center gap-3",
                     Icon { icon: IconType::Terminal, class: "size-4" }
                     span { class: "text-base font-semibold", "Roost" }
@@ -67,7 +67,7 @@ pub fn WorkbenchShellSpecimen() -> Element {
                 }
             }
             nav {
-                class: "flex flex-col items-center gap-2 bg-[var(--workbench-activity)] p-2",
+                class: "flex flex-col items-center gap-2 bg-sidenav p-2",
                 "aria-label": "Workbench activity",
                 Icon { icon: IconType::Terminal, class: "size-5 text-sidenav-primary" }
                 Icon { icon: IconType::Search, class: "size-5 text-muted-foreground" }
@@ -83,13 +83,13 @@ pub fn WorkbenchShellSpecimen() -> Element {
                         spacing: ToggleGroupSpacing::Flush,
                         aria_label: "Sidebar view",
                         ToggleGroupItem {
-                            class: "h-8 flex-1 data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm",
+                            class: "h-8 min-w-0 flex-1",
                             title: "Folders",
                             pressed: true,
                             "Folders"
                         }
                         ToggleGroupItem {
-                            class: "h-8 flex-1 data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm",
+                            class: "h-8 min-w-0 flex-1",
                             title: "Agents",
                             pressed: false,
                             "Agents"
@@ -143,7 +143,7 @@ pub fn WorkbenchShellSpecimen() -> Element {
                 }
             }
             footer {
-                class: "col-span-full flex items-center gap-3 bg-[var(--workbench-status)] px-3 text-xs text-muted-foreground",
+                class: "col-span-full flex items-center gap-3 bg-card px-3 text-xs text-muted-foreground",
                 StatusDot { status: "ok" }
                 span { "Synced" }
                 span { "1 session" }

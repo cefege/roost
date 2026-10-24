@@ -28,7 +28,7 @@ pub fn SidebarRegion(collapsed: bool, children: Element) -> Element {
             "aria-hidden": collapsed.then_some("true"),
             inert: collapsed.then_some(true),
             aside {
-                class: "grid h-full min-h-0 min-w-0 box-border w-[var(--workbench-sidebar-expanded-width)] grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] overflow-hidden border-r border-sidenav-border bg-sidenav font-sans text-xs text-[var(--text-mid)]",
+                class: "grid h-full min-h-0 min-w-0 box-border w-[var(--workbench-sidebar-expanded-width)] grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] overflow-hidden border-r border-sidenav-border bg-sidenav font-sans text-xs text-muted-foreground",
                 "data-testid": "sidebar-desktop",
                 "data-collapsed": flag,
                 {children}

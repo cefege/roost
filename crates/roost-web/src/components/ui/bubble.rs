@@ -2,8 +2,8 @@
 //! recipes that restyle its `BubbleContent` child by `data-name`. Ported from
 //! rust-ui's `bubble.rs`; the transcript's user and assistant messages sit
 //! inside `Message`, and reaction chips use `BubbleReactions`. Colour mixes
-//! read Roost's token variables (`--surface-*`, `--text-hi`, `--accent`)
-//! because rust-ui's `--secondary`/`--muted`/`--primary` are not defined here.
+//! read rust-ui's semantic role variables (`--secondary`, `--muted`, `--primary`)
+//! so their surfaces follow the active theme palette.
 
 use dioxus::prelude::*;
 use tw_merge::tw_merge;

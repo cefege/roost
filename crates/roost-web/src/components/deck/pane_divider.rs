@@ -67,7 +67,7 @@ pub fn PaneDivider(
     rsx! {
         div {
             "data-testid": "pane-divider-{divider.split_id}",
-            class: "bg-[var(--workbench-pane-divider)] opacity-40 transition-[opacity,background-color] duration-150 hover:opacity-100 hover:bg-[var(--workbench-pane-focus)] active:opacity-100 active:bg-[var(--workbench-pane-focus)] data-[dragging=true]:opacity-100 data-[dragging=true]:bg-[var(--workbench-pane-focus)] data-[dragging=true]:transition-none",
+            class: "bg-input opacity-40 transition-[opacity,background-color] duration-150 hover:opacity-100 hover:bg-ring active:opacity-100 active:bg-ring data-[dragging=true]:opacity-100 data-[dragging=true]:bg-ring data-[dragging=true]:transition-none",
             "data-dir": divider.direction.as_wire().to_owned(),
             "data-dragging": dragging().then_some("true"),
             style,

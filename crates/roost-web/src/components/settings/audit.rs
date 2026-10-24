@@ -104,7 +104,7 @@ pub fn AuditLogPane() -> Element {
                             supporting: "Nothing has matched yet. Widen the filter, or drive some coordinator traffic.",
                         }
                     } else {
-                        TableWrapper { class: "max-h-none rounded-none border-0",
+                        TableWrapper { class: "max-h-none",
                             Table {
                                 TableBody {
                                     for row in rows {
@@ -146,21 +146,21 @@ fn AuditTableRow(row: AuditLogRow) -> Element {
     };
     rsx! {
         TableRow { test_id: "audit-row",
-            TableCell { class: "min-w-[10ch] py-2 font-mono text-muted-foreground",
+            TableCell { class: "min-w-[10ch] font-mono text-muted-foreground",
                 {format_timestamp(row.ts)}
             }
-            TableCell { class: "max-w-0 w-full py-2",
+            TableCell { class: "max-w-0 w-full",
                 span { class: "block truncate font-mono", title: row.path.clone(),
                     {row.method.clone()}
                 }
             }
-            TableCell { class: "py-2 font-mono text-muted-foreground",
+            TableCell { class: "font-mono text-muted-foreground",
                 {row.path.clone()}
             }
-            TableCell { class: "py-2",
+            TableCell {
                 Badge { variant: tone_variant, {row.status.to_string()} }
             }
-            TableCell { class: "py-2 text-xs font-medium text-muted-foreground",
+            TableCell { class: "text-xs font-medium text-muted-foreground",
                 {row.caller_label.clone().unwrap_or_else(|| {
                     short_identifier(row.caller_fp.as_deref().unwrap_or("no caller"), 12)
                 })}

@@ -251,7 +251,7 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
                         title: "Jump to latest",
                         variant: ButtonVariant::Secondary,
                         size: ButtonSize::IconSm,
-                        class: "absolute bottom-full left-1/2 z-10 mb-2 -translate-x-1/2 shadow-md",
+                        class: "absolute bottom-full left-1/2 z-10 mb-2 -translate-x-1/2",
                         onclick: move |_| {
                             pinned_to_bottom.set(true);
                             #[cfg(target_arch = "wasm32")]

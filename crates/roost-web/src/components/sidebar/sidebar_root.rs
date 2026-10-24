@@ -118,7 +118,7 @@ pub fn SidebarRoot() -> Element {
                         ToggleGroupItem {
                             id: "sidebar-view-agents",
                             test_id: "sidebar-view-agents",
-                            class: "h-8 min-w-0 flex-1 data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm",
+                            class: "h-8 min-w-0 flex-1",
                             title: "Agent workspaces",
                             pressed: agents_selected,
                             onclick: move |_| select_view(SidebarView::Agents),
@@ -127,7 +127,7 @@ pub fn SidebarRoot() -> Element {
                         ToggleGroupItem {
                             id: "sidebar-view-folders",
                             test_id: "sidebar-view-folders",
-                            class: "h-8 min-w-0 flex-1 data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm",
+                            class: "h-8 min-w-0 flex-1",
                             title: "Folders",
                             pressed: folders_selected,
                             onclick: move |_| select_folders(SidebarView::Folders),

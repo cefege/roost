@@ -55,5 +55,6 @@ impl ThemeDocument for BrowserThemeDocument {
         // Tailwind's `dark:` variant also matches on this attribute (tailwind.css).
         let _ = root.set_attribute("data-color-scheme", scheme);
         let _ = style.set_property("color-scheme", scheme);
+        super::terminal_palette::apply_stored_palette();
     }
 }

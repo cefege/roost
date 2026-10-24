@@ -30,7 +30,7 @@ pub fn TerminalDeckSpotlight(rect: Option<PaneRect>, on_dismiss: EventHandler<()
             },
         }
         div {
-            class: "rounded-xl shadow-[0_0_0_1px_var(--border-strong),_0_8px_12px_6px_color-mix(in_srgb,black_15%,transparent),_0_4px_4px_0_color-mix(in_srgb,black_30%,transparent)]",
+            class: "rounded-xl ring-1 ring-input shadow-lg",
             style: "position: absolute; left: {px(rect.x)}; top: {px(rect.y)}; width: {px(rect.w)}; height: {px(rect.h)}; z-index: 8; pointer-events: none;",
             "aria-hidden": "true",
         }

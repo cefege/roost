@@ -60,7 +60,7 @@ pub fn desktop_chrome(
         }
         if let Some(overlay) = drop_overlay {
             div {
-                class: "rounded-md border-2 border-solid border-[var(--workbench-pane-focus)] bg-[color-mix(in_srgb,var(--workbench-pane-drop)_22%,transparent)] transition-[left,top,width,height] duration-150 motion-reduce:transition-none data-[zone=reorder]:border-dashed data-[zone=reorder]:bg-[color-mix(in_srgb,var(--workbench-pane-drop)_10%,transparent)]",
+                class: "rounded-md border-2 border-solid border-ring bg-primary/20 transition-[left,top,width,height] duration-150 motion-reduce:transition-none data-[zone=reorder]:border-dashed data-[zone=reorder]:bg-primary/10",
                 "data-zone": zone_name(overlay.zone),
                 style: "position: absolute; left: {px(overlay.rect.x)}; top: {px(overlay.rect.y)}; width: {px(overlay.rect.w)}; height: {px(overlay.rect.h)}; z-index: 5; pointer-events: none;",
             }

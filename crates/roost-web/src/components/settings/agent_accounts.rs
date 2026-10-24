@@ -10,8 +10,7 @@ use super::agent_provider_status::{AccountHealth, ProviderSummary};
 use super::format::time_until;
 use crate::components::ui::{
     Button, ButtonSize, ButtonVariant, Card, CardAction, CardContent, CardDescription, CardHeader,
-    CardTitle, CardVariant, Chip, FieldError, IconType, List, ListRow, MetricTile, SectionTitle,
-    StatusDot,
+    CardTitle, Chip, FieldError, IconType, List, ListRow, MetricTile, SectionTitle, StatusDot,
 };
 use crate::pump::{Pump, use_store};
 #[cfg(target_arch = "wasm32")]
@@ -39,8 +38,6 @@ pub fn ConnectedProviderCard(
     let state = provider_state(&health, account_count, now_ms);
     rsx! {
         Card {
-            variant: CardVariant::Outlined,
-            class: Some("gap-3".to_owned()),
             "data-testid": format!("agent-provider-{}", summary.provider.id),
             CardHeader {
                 CardTitle { "{summary.provider.name}" }

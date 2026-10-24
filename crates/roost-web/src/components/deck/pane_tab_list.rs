@@ -78,7 +78,7 @@ pub fn PaneTabList(
     rsx! {
         Command { class: "h-auto overflow-visible",
             CommandInput {
-                class: "h-auto min-w-0 px-2 py-1 mb-1 rounded-none border-0 border-b border-solid border-[var(--workbench-tab-border)] text-foreground outline-none",
+                class: "h-auto min-w-0 mb-1",
                 value: filter(),
                 placeholder: "Filter terminals…",
                 aria_label: "Filter terminals in this pane",

@@ -13,7 +13,7 @@ use crate::components::settings::model_scope::{
 };
 use crate::components::ui::{
     Button, ButtonSize, ButtonVariant, Card, CardAction, CardContent, CardDescription, CardHeader,
-    CardTitle, CardVariant, Chip,
+    CardTitle, Chip,
 };
 use crate::pump::Pump;
 
@@ -79,8 +79,6 @@ pub(super) fn role_row(row: RoleRow, context: &RoleContext<'_>) -> Element {
     rsx! {
         Card {
             key: "{role}",
-            variant: CardVariant::Outlined,
-            class: Some("gap-3".to_owned()),
             "data-testid": format!("agent-role-{role}"),
             CardHeader {
                 CardTitle { {title} }

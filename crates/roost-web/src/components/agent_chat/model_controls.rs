@@ -11,8 +11,7 @@ use super::composer_commands::model_picker_trigger_id;
 use super::role_switcher::RoleSwitcher;
 use super::toolbar_menu::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
 use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Card, CardContent, CardHeader, CardTitle, CardVariant,
-    IconType,
+    Button, ButtonSize, ButtonVariant, Card, CardContent, CardHeader, CardTitle, IconType,
 };
 use crate::pump::Pump;
 use crate::router_state::use_navigate;
@@ -158,7 +157,6 @@ pub fn ModelSetupCard(setup: ModelSetup, on_retry: EventHandler<()>) -> Element 
     };
     rsx! {
         Card {
-            variant: CardVariant::Outlined,
             class: Some("gap-3".to_string()),
             "data-testid": "agent-chat-model-setup-card",
             CardHeader {

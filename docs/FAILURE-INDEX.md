@@ -355,7 +355,15 @@ under the drawer) and handles the soft keyboard only by translation —
 `--term-chat-dock-rest-offset` excludes `--kb-offset`. Only a real pane/window
 resize (or the explicit `keyboardResize` preference) may resize the PTY.
 
-**Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
+The resting row includes the tallest control in the field's grid row. Subtracting
+all field height above its CSS minimum also subtracts a taller microphone's
+contribution: a 64px reserve becomes 52px as the draft grows. `pane_row_dom.rs`
+measures same-row controls through `display: contents`; controls in another row
+do not raise the field's baseline.
+
+**Guard** — `components::terminal_chrome::pane_geometry::tests::a_taller_control_keeps_the_resting_row_constant_as_the_field_grows`
+pins the taller-control boundary before and after the field overtakes it. Browser
+smoke must also prove live grid-row measurement and unchanged terminal dimensions.
 
 ### A fast in-place row rewrite duplicates rows into history
 
@@ -2721,6 +2729,20 @@ placements declare one property set); `crates/roost-web/tests/deck_swipe_style.r
 `the_phone_bar_declares_one_property_set_through_every_swipe_state` (the COMPOSED style, placement plus swipe
 layer, across every swipe state); `crates/roost-web/tests/deck_swipe_settle.rs`
 `the_route_outlives_a_landed_slide_or_a_drag_it_moved_away_from`.
+
+### A status dot loses its hollow border after a Dioxus style update
+
+**Symptom** — filled → hollow leaves a transparent border although the new style specifies
+`border-color: var(--destructive)`; the initial mount can look correct.
+
+**Wrong** — treat `border-color` as a longhand because its name contains a hyphen.
+Dioxus restores old side colours when a variable-bearing shorthand reports those sides empty.
+
+**Right** — `ui/status.rs::status_dot_style` writes all four `border-*-color` longhands in
+both branches, including transparent resets for filled dots. Keep runtime width and height.
+
+**Guard** — `crates/roost-web/tests/ui_status.rs::a_status_dot_never_puts_its_token_in_a_shorthand`
+rejects variable-bearing colour shorthands. Browser proof cycles running/error/idle × filled/hollow.
 
 ### A phone swipe freezes mid-drag when its release never reaches the deck
 

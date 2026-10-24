@@ -1,8 +1,8 @@
-//! Roost-owned colour roles that rust-ui has no counterpart for: the terminal
-//! surface and ANSI and syntax palettes, and the chat accent. Each appearance
-//! has one set; the base and accent palettes never touch them.
+//! Roost-owned colour roles that rust-ui has no counterpart for: terminal
+//! surfaces, ANSI and syntax palettes. Each appearance has one set;
+//! the base and accent palettes never touch them.
 
-/// The dark terminal, syntax and chat roles.
+/// The dark terminal and syntax roles.
 pub const ROOST_DARK: &[(&str, &str)] = &[
     ("--term-bg", "#0a0f11"),
     ("--term-fg", "#e3e3e1"),
@@ -27,10 +27,9 @@ pub const ROOST_DARK: &[(&str, &str)] = &[
     ("--ansi-bright-magenta", "#d7aefb"),
     ("--ansi-bright-cyan", "#a1e4f2"),
     ("--ansi-bright-white", "#ffffff"),
-    ("--chat-accent", "#ed4abf"),
 ];
 
-/// The light terminal, syntax and chat roles.
+/// The light terminal and syntax roles.
 pub const ROOST_LIGHT: &[(&str, &str)] = &[
     ("--term-bg", "#ffffff"),
     ("--term-fg", "#1f1f1f"),
@@ -55,5 +54,4 @@ pub const ROOST_LIGHT: &[(&str, &str)] = &[
     ("--ansi-bright-magenta", "#a626a4"),
     ("--ansi-bright-cyan", "#0184bc"),
     ("--ansi-bright-white", "#ffffff"),
-    ("--chat-accent", "#c4268f"),
 ];

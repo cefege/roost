@@ -10,7 +10,7 @@ use super::hub_catalog::wrap_index;
 use super::model_hub_actions::{StripCommit, apply_strip_chip};
 use super::strip_chips::{StripChip, StripKey};
 use crate::components::settings::model_scope::ModelScope;
-use crate::components::ui::{Card, CardSize, Chip};
+use crate::components::ui::{Card, CardContent, CardSize, Chip};
 
 /// The footer legend while the strip is open.
 pub(super) const STRIP_FOOTER: &str = "←/→ pick · ⏎ apply · ⎋ back to models";
@@ -70,32 +70,37 @@ pub(super) fn ModelRoleStrip(
     rsx! {
         Card {
             size: CardSize::Sm,
-            class: "gap-2 rounded-md p-2 shadow-none",
+            class: "gap-2",
             role: "group",
             "aria-label": "Assign this model to a role",
             "data-testid": "{STRIP_TEST_ID}",
-            div { class: "flex flex-wrap items-center gap-2", role: "group", "aria-label": "Role scope",
-                Chip {
-                    label: "All folders".to_owned(),
-                    selected: Some(!on_folder),
-                    test_id: "agent-model-hub-strip-scope-global".to_owned(),
-                    onclick: move |_| on_scope.call(ModelScope::Global),
+            CardContent { class: "flex flex-col gap-2",
+                div {
+                    class: "flex flex-wrap items-center gap-2",
+                    role: "group",
+                    "aria-label": "Role scope",
+                    Chip {
+                        label: "All folders".to_owned(),
+                        selected: Some(!on_folder),
+                        test_id: "agent-model-hub-strip-scope-global".to_owned(),
+                        onclick: move |_| on_scope.call(ModelScope::Global),
+                    }
+                    Chip {
+                        label: "This folder".to_owned(),
+                        selected: Some(on_folder),
+                        test_id: "agent-model-hub-strip-scope-folder".to_owned(),
+                        onclick: move |_| on_scope.call(folder.clone()),
+                    }
                 }
-                Chip {
-                    label: "This folder".to_owned(),
-                    selected: Some(on_folder),
-                    test_id: "agent-model-hub-strip-scope-folder".to_owned(),
-                    onclick: move |_| on_scope.call(folder.clone()),
-                }
-            }
-            for (index, chip) in chips.iter().enumerate() {
-                Chip {
-                    key: "{index}",
-                    label: chip.label.clone(),
-                    selected: Some(chip.assigned),
-                    test_id: format!("agent-model-hub-strip-chip-{index}"),
-                    class: if index == cursor { "ring-2 ring-ring ring-offset-2 ring-offset-background" } else { "" },
-                    onclick: move |_| on_activate.call(index),
+                for (index, chip) in chips.iter().enumerate() {
+                    Chip {
+                        key: "{index}",
+                        label: chip.label.clone(),
+                        selected: Some(chip.assigned),
+                        test_id: format!("agent-model-hub-strip-chip-{index}"),
+                        class: if index == cursor { "ring-2 ring-ring ring-offset-2 ring-offset-background" } else { "" },
+                        onclick: move |_| on_activate.call(index),
+                    }
                 }
             }
         }

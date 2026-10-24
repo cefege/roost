@@ -109,7 +109,7 @@ pub use button_group::{
 };
 pub use card::{
     Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardItem, CardList,
-    CardSize, CardTitle, CardVariant,
+    CardSize, CardTitle,
 };
 pub use checkbox::Checkbox;
 pub use chip::{BindingChip, Chip};

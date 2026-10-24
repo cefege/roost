@@ -5,6 +5,7 @@
 @import "./vendor/rust-ui-style/highlight_code.css";
 
 @source "./src/**/*.rs";
+@source "../roost-web-terminal/src/**/*.rs";
 
 /* =========================================================================
    DO NOT REMOVE: bottom-nav / iOS safe-area utility pins.

@@ -40,7 +40,7 @@ pub fn PadHintBar() -> Element {
                 span {
                     class: "inline-flex items-center gap-1",
                     BindingChip { "{hint.cap}" }
-                    span { class: "text-xs whitespace-nowrap text-[var(--text-mid)]", "{hint.label}" }
+                    span { class: "text-xs whitespace-nowrap text-muted-foreground", "{hint.label}" }
                 }
             }
         }

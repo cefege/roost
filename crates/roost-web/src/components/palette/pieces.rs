@@ -38,7 +38,8 @@ pub fn KindBadge(kind: ItemKind) -> Element {
 
 /// The row's own styling. The highlight comes from `aria-selected`, which
 /// `CommandItem` sets from its `selected` prop, so no active/idle class pair.
-const ROW_CLASS: &str = "h-auto w-full justify-between gap-3 rounded-none px-4 py-2 text-start font-normal whitespace-normal text-foreground aria-selected:bg-accent aria-selected:text-accent-foreground";
+const ROW_CLASS: &str =
+    "h-auto w-full justify-between gap-3 text-start font-normal whitespace-normal";
 
 /// One result: what it is, what it is called, and the dimmer hint beside it.
 #[component]

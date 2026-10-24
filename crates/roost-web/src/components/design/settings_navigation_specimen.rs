@@ -17,7 +17,7 @@ const SPECIMEN_SELECTED_PANE: &str = "machines";
 #[component]
 pub fn SettingsNavigationSpecimen(on_navigate: EventHandler<String>) -> Element {
     rsx! {
-        div { class: "flex h-[36rem] w-full min-w-0 bg-[var(--workbench-editor)] text-foreground",
+        div { class: "flex h-[36rem] w-full min-w-0 bg-background text-foreground",
             aside { class: "flex w-56 shrink-0 flex-col gap-4 overflow-y-auto border-r border-border bg-sidenav p-3", "aria-label": "Settings sections",
                 h1 { class: "px-2 text-xl", "Settings" }
                 for group in SETTINGS_GROUPS {
@@ -37,11 +37,11 @@ pub fn SettingsNavigationSpecimen(on_navigate: EventHandler<String>) -> Element 
                     }
                 }
             }
-            main { class: "flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--workbench-editor)]",
-                header { class: "flex h-12 shrink-0 items-center border-b border-border bg-[var(--workbench-editor)] px-4",
+            main { class: "flex min-h-0 min-w-0 flex-1 flex-col bg-background",
+                header { class: "flex h-12 shrink-0 items-center border-b border-border bg-background px-4",
                     h2 { class: "text-base text-foreground", "Machines" }
                 }
-                div { class: "min-h-0 flex-1 overflow-y-auto bg-[var(--workbench-editor)]" }
+                div { class: "min-h-0 flex-1 overflow-y-auto bg-background" }
             }
         }
     }

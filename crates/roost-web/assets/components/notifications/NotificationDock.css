@@ -6,6 +6,6 @@
    layout, so nothing shifts under the pointer. */
 [data-notify-target="true"],
 [data-notify-ring="child"][data-notify-target="true"] > a {
-  box-shadow: inset 0 0 0 calc(var(--workbench-border-width) * 2) var(--accent);
+  box-shadow: inset 0 0 0 calc(var(--workbench-border-width) * 2) var(--primary);
 }
 

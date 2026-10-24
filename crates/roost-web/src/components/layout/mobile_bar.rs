@@ -26,7 +26,7 @@ pub fn MobileTopBar(
     let pump = use_pump();
     let title = workbench_title(&path, session_title.as_deref(), session_folder.as_deref());
     rsx! {
-        header { class: "flex h-[var(--workbench-activity-width)] shrink-0 items-center gap-2 border-b border-border bg-[var(--workbench-titlebar)] px-2 text-foreground", "data-testid": "mobile-topbar",
+        header { class: "flex h-[var(--workbench-activity-width)] shrink-0 items-center gap-2 border-b border-border bg-card px-2 text-foreground", "data-testid": "mobile-topbar",
             IconButton {
                 class: "shrink-0",
                 icon: IconType::Menu,

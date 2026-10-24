@@ -8,9 +8,9 @@ use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{AskQuestion, TodoPhase, TodoStatus};
 
 use crate::components::ui::{
-    Button, ButtonVariant, Card, CardContent, CardHeader, CardTitle, CardVariant, Checkbox, Chip,
-    Collapsible, CollapsibleContent, CollapsibleTrigger, FieldError, Icon, IconType, Label,
-    ListRow, SectionTitle, Shimmer, StatusDot, Surface, SurfaceElement, TextField,
+    Button, ButtonVariant, Card, CardContent, CardHeader, CardTitle, Checkbox, Chip, Collapsible,
+    CollapsibleContent, CollapsibleTrigger, FieldError, Icon, IconType, Label, ListRow,
+    SectionTitle, Shimmer, StatusDot, Surface, SurfaceElement, TextField,
 };
 use crate::pump::Pump;
 
@@ -140,7 +140,7 @@ pub fn AskCard(
     let send_conversation = conversation_id.clone();
     let send_item = item_id.clone();
     rsx! {
-        Card { variant: CardVariant::Outlined,
+        Card {
             CardHeader { CardTitle { "A question for you" } }
             CardContent { class: "flex flex-col gap-3",
                 for question in &questions {
@@ -313,7 +313,7 @@ fn submit_answers(
 pub fn BtwCard(question: String, answer: Option<String>, error: Option<String>) -> Element {
     let loading = use_signal(|| true);
     rsx! {
-        Card { variant: CardVariant::Outlined,
+        Card {
             CardHeader { CardTitle { "Side question" } }
             CardContent { class: "flex flex-col gap-3",
                 p { class: "text-sm text-foreground", "{question}" }

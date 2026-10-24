@@ -8,12 +8,12 @@
    so Chromium's focus-visible heuristic may never arm and the user would be
    left with no cursor at all. */
 [data-pad="true"] :focus {
-  outline: 0.25rem solid var(--workbench-focus-ring);
+  outline: 0.25rem solid var(--ring);
   outline-offset: 0.25rem;
 }
 
 /* Pane focus, not control focus: a terminal box is a pane surface. */
 [data-pad="true"] .wterm:focus {
-  outline: 0.25rem solid var(--workbench-pane-focus);
+  outline: 0.25rem solid var(--ring);
   outline-offset: -0.25rem;
 }

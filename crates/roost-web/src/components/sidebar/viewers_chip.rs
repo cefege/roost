@@ -43,7 +43,7 @@ pub fn ViewersChip(session_id: String) -> Element {
 /// outside the surface ring, and it raises the avatar above its neighbours.
 fn avatar_class(controlling: bool) -> &'static str {
     if controlling {
-        "relative z-1 inline-flex size-5.5 shrink-0 cursor-default select-none items-center justify-center rounded-full text-xs font-semibold leading-none ring-2 ring-background shadow-[0_0_0_3px_var(--accent)]"
+        "relative z-1 inline-flex size-5.5 shrink-0 cursor-default select-none items-center justify-center rounded-full text-xs font-semibold leading-none ring-2 ring-background shadow-[0_0_0_3px_var(--primary)]"
     } else {
         "relative z-0 inline-flex size-5.5 shrink-0 cursor-default select-none items-center justify-center rounded-full text-xs font-semibold leading-none ring-2 ring-background"
     }

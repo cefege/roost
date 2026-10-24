@@ -14,31 +14,10 @@ pub enum CardSize {
     Sm,
 }
 
-/// The three presentations: the base card, a lifted card, and a card with no fill.
-#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
-pub enum CardVariant {
-    #[default]
-    Filled,
-    Elevated,
-    Outlined,
-}
-
-impl CardVariant {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Filled => "",
-            Self::Elevated => "shadow-md",
-            Self::Outlined => "bg-transparent",
-        }
-    }
-}
-
 #[derive(Props, Clone, PartialEq, Debug)]
 pub struct CardProps {
     #[props(default)]
     pub size: CardSize,
-    #[props(default)]
-    pub variant: CardVariant,
     pub class: Option<String>,
     /// Interaction handlers for a card that is itself the control (a terminal
     /// card in the mobile tab grid). Absent, the card is inert.
@@ -66,7 +45,6 @@ pub fn Card(props: CardProps) -> Element {
     };
     let merged_class = tw_merge!(
         "bg-card text-card-foreground flex flex-col rounded-xl border shadow-sm",
-        props.variant.as_str(),
         size_classes,
         props.class.as_deref().unwrap_or("")
     );

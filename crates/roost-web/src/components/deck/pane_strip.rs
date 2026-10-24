@@ -112,7 +112,7 @@ pub fn PaneStrip(
 
     rsx! {
         div {
-            class: "relative isolate flex min-w-0 h-[var(--workbench-tab-strip-height)] min-h-[var(--workbench-tab-strip-height)] items-center overflow-hidden bg-[var(--workbench-tab-strip)] pe-[var(--workbench-editor-actions-reserve)]",
+            class: "relative isolate flex min-w-0 h-[var(--workbench-tab-strip-height)] min-h-[var(--workbench-tab-strip-height)] items-center overflow-hidden bg-card pe-[var(--workbench-editor-actions-reserve)]",
             "data-testid": "pane-strip-{pane_id}",
             "data-pane-strip": "{pane_id}",
             "data-focused": if focused { "true" } else { "false" },
@@ -232,7 +232,7 @@ pub fn PaneStrip(
                         trigger_id: "tab-overflow-{pane_id}",
                         menu_id: TAB_LIST_MENU_ID,
                         DropdownMenuTrigger {
-                            class: "shrink-0 size-[var(--workbench-tab-action-size)] p-0 rounded-none border-0 bg-[var(--workbench-tab-strip)] text-muted-foreground hover:text-foreground",
+                            class: "shrink-0 size-[var(--workbench-tab-action-size)] p-0 text-muted-foreground hover:text-foreground",
                             test_id: "tab-overflow",
                             aria_label: "All terminals in this pane",
                             Icon { icon: IconType::ChevronDown, class: "size-4" }

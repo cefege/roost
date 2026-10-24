@@ -29,9 +29,9 @@ pub struct PaneGrowth {
 pub struct PaneMeasurement {
     /// `box.offsetHeight`: the pill's laid-out height, including its field.
     pub box_height: f64,
-    /// `input.offsetHeight - minHeight`: the part of the box the field's own
-    /// growth accounts for, so the resting row can be measured without the
-    /// draft that is currently in it.
+    /// The field's contribution above the one-line row, accounting for a
+    /// taller control in the same grid row. Controls in another row do not
+    /// reduce the field's contribution.
     pub field_growth: f64,
     /// How far the dock's top edge sits above the box's top edge. Positive
     /// only when the box has overflowed upward.
@@ -100,6 +100,14 @@ impl PaneMeasurement {
     }
 }
 
+pub(super) fn field_growth(
+    input_height: f64,
+    min_input_height: f64,
+    row_control_height: f64,
+) -> f64 {
+    (input_height - min_input_height.max(row_control_height)).max(0.0)
+}
+
 /// The live DOM readings one update needs. Implemented against a mounted dock.
 pub trait PaneGeometryProbe {
     /// Everything one update reads, or `None` when an element is not laid out
@@ -138,6 +146,18 @@ mod tests {
             ..resting()
         };
         assert_eq!(measured.resting_height(), 52.0);
+    }
+
+    #[test]
+    fn a_taller_control_keeps_the_resting_row_constant_as_the_field_grows() {
+        for input_height in [44.0_f64, 68.0, 164.0] {
+            let measured = PaneMeasurement {
+                box_height: input_height.max(56.0) + 8.0,
+                field_growth: field_growth(input_height, 44.0, 56.0),
+                ..resting()
+            };
+            assert_eq!(measured.resting_height(), 64.0);
+        }
     }
 
     #[test]

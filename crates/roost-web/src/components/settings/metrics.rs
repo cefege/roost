@@ -105,7 +105,7 @@ pub fn MetricsPane() -> Element {
                         supporting: "Counters reset on coord restart. Drive some traffic and metrics will appear here within 5 s.",
                     }
                 } else {
-                    TableWrapper { class: "max-h-none rounded-none border-0",
+                    TableWrapper { class: "max-h-none",
                         Table {
                             TableBody {
                                 for route in state
@@ -142,14 +142,14 @@ pub fn MetricsPane() -> Element {
 fn RouteRow(path: String, requests: String, errors: String, error_percent: String) -> Element {
     rsx! {
         TableRow { test_id: "metrics-row",
-            TableCell { class: "max-w-0 w-full py-2",
+            TableCell { class: "max-w-0 w-full",
                 span { class: "block truncate font-mono", title: path.clone(),
                     {path.clone()}
                 }
             }
-            TableCell { class: "py-2 font-mono whitespace-nowrap text-muted-foreground", {requests.clone()} }
-            TableCell { class: "py-2 font-mono whitespace-nowrap text-muted-foreground", {errors.clone()} }
-            TableCell { class: "py-2 font-mono whitespace-nowrap text-muted-foreground", {error_percent.clone()} }
+            TableCell { class: "font-mono whitespace-nowrap text-muted-foreground", {requests.clone()} }
+            TableCell { class: "font-mono whitespace-nowrap text-muted-foreground", {errors.clone()} }
+            TableCell { class: "font-mono whitespace-nowrap text-muted-foreground", {error_percent.clone()} }
         }
     }
 }

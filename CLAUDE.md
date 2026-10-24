@@ -272,19 +272,22 @@ fork" link).
 New UI MUST be cohesive by construction, not by memory. The UI layer is
 **rust-ui** (rust-ui.com, `github.com/rust-ui/ui`): a shadcn-style registry
 for Dioxus 0.7 + Tailwind v4 whose components are copied into the web crate's
-`ui` component directory and adapted to these rules. Three rules,
-mechanically enforced so drift can't return:
+`ui` component directory and adapted to these rules. Recipe source:
+`rust-ui/ui@7120636e68556ddd023a4ec8e083663c7b745318`,
+`app_crates/registry/src/ui/`. Three rules enforce cohesion:
 
 1. **No raw values.** No hex / `rgb()` / px font-size in components —
    including Tailwind arbitrary values (`text-[13px]`, `bg-[#fff]`). Colour
    through the Tailwind roles (`bg-background`, `bg-card`, `bg-primary`,
    `text-muted-foreground`, `border-border`, `bg-accent`, `bg-destructive`, …),
-   which `crates/roost-web/tailwind.css` (rust-ui's own theme file, verbatim)
-   maps onto rust-ui's theme variables. The theme engine (`src/theme/`) writes
-   rust-ui's base × accent palettes (`src/theme/palettes/`, verbatim) and the
-   `dark` class; default dark Neutral. Roost's older tokens (`--surface-*`,
-   `--text-*`, …) alias onto rust-ui's in `theme-vars.css`. Type through the
-   `text-xs…` scale. Token files (`theme-vars.css`, `tailwind.css`,
+   which `crates/roost-web/tailwind.css` maps onto rust-ui's theme variables.
+   The theme engine (`src/theme/`) writes rust-ui's base × accent palettes
+   (`src/theme/palettes/`) and the `dark` class; default dark Neutral.
+   Components and CSS consume those roles directly; `theme-vars.css` retains
+   terminal bridges and layout/runtime tokens, not legacy visual aliases.
+   `theme/terminal_palette.rs` reapplies the saved terminal palette after app
+   roles at boot and on theme changes. Type through the `text-xs…` scale.
+   Token files (`theme-vars.css`, `tailwind.css`,
    `agents.rs`, `src/theme/palettes/`, vendored rust-ui CSS under
    `crates/roost-web/vendor/`) DECLARE values and are exempt. Components copy
    rust-ui's class recipes byte for byte; the few raw values rust-ui itself

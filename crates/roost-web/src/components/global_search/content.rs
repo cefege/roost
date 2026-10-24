@@ -21,8 +21,8 @@ use roost_web_terminal::find::intent::TerminalFindIntentOptions;
 
 use crate::components::global_search::{driver, query::SearchRouteQuery};
 use crate::components::ui::{
-    Button, ButtonGroup, ButtonVariant, Card, CardSize, CommandItem, CommandList, EmptyState, Icon,
-    IconType,
+    Button, ButtonGroup, ButtonVariant, Card, CardContent, CardHeader, CardSize, CommandItem,
+    CommandList, EmptyState, Icon, IconType,
 };
 use crate::platform::worker_paths::BrowserWorkerPaths;
 use crate::pump::{Pump, use_store};
@@ -75,109 +75,137 @@ pub fn ContentResults(route_query: SearchRouteQuery) -> Element {
     };
 
     rsx! {
-        Card { size: CardSize::Sm, class: Some("px-4".to_owned()), role: "region",
+        Card {
+            size: CardSize::Sm,
+            role: "region",
             "aria-labelledby": "global-content-search-title",
-            h2 { id: "global-content-search-title", class: "m-0 text-lg font-semibold",
-                "Terminal content"
+            CardHeader {
+                h2 {
+                    id: "global-content-search-title",
+                    class: "m-0 text-lg font-semibold",
+                    "Terminal content"
+                }
+                div {
+                    class: "text-sm",
+                    role: "status",
+                    "aria-live": "polite",
+                    "aria-atomic": "true",
+                    "data-testid": "global-content-summary",
+                    {summary(&results, &rows, waiting, &route_query.text)}
+                }
             }
-            div { class: "text-sm", role: "status", "aria-live": "polite", "aria-atomic": "true",
-                "data-testid": "global-content-summary",
-                {summary(&results, &rows, waiting, &route_query.text)}
-            }
-            if searching {
-                if rows.is_empty() {
-                    if !waiting {
-                        EmptyState {
-                            icon: if results.error.is_some() { IconType::CircleAlert } else { IconType::SearchX },
-                            title: if results.error.is_some() {
-                                "Terminal content search failed".to_owned()
-                            } else if incomplete {
-                                "No matches in the completed portion".to_owned()
-                            } else {
-                                "No terminal content matches".to_owned()
-                            },
-                            supporting: Some(results.error.clone().unwrap_or_else(|| {
-                                if incomplete {
-                                    "Some sessions or retained rows could not be searched.".to_owned()
-                                } else {
-                                    "No retained terminal row contains this literal query.".to_owned()
-                                }
-                            })),
-                            action: results.retryable.then(|| rsx! {
-                                Button {
-                                    variant: ButtonVariant::Secondary,
-                                    icon: Some(IconType::RefreshCw),
-                                    "data-testid": "global-content-retry",
-                                    onclick: {
-                                        let pump = pump.clone();
-                                        move |_| driver::retry(&pump)
-                                    },
-                                    "Retry"
-                                }
-                            }),
+            CardContent { class: "flex min-w-0 flex-col gap-3",
+                if searching {
+                    if rows.is_empty() {
+                        if !waiting {
+                            EmptyState {
+                                icon: if results.error.is_some() { IconType::CircleAlert } else { IconType::SearchX },
+                                title: if results.error.is_some() { "Terminal content search failed".to_owned() } else if incomplete { "No matches in the completed portion".to_owned() } else { "No terminal content matches".to_owned() },
+                                supporting: Some(
+                                    results
+                                        .error
+                                        .clone()
+                                        .unwrap_or_else(|| {
+                                            if incomplete {
+                                                "Some sessions or retained rows could not be searched.".to_owned()
+                                            } else {
+                                                "No retained terminal row contains this literal query.".to_owned()
+                                            }
+                                        }),
+                                ),
+                                action: results.retryable.then(|| rsx! {
+                                    Button {
+                                        variant: ButtonVariant::Secondary,
+                                        icon: Some(IconType::RefreshCw),
+                                        "data-testid": "global-content-retry",
+                                        onclick: {
+                                            let pump = pump.clone();
+                                            move |_| driver::retry(&pump)
+                                        },
+                                        "Retry"
+                                    }
+                                }),
+                            }
                         }
-                    }
-                } else {
-                    CommandList { class: "flex flex-col gap-2 max-h-none min-h-0 overflow-visible",
-                        for (index, row) in rows.iter().enumerate() {
-                            ContentRow {
-                                row: row.clone(),
-                                index,
-                                on_open: {
-                                    let open = open_result(&pump, navigate, row, &route_query);
-                                    move |_| open.call(())
-                                },
+                    } else {
+                        CommandList { class: "flex flex-col gap-2 max-h-none min-h-0 overflow-visible",
+                            for (index, row) in rows.iter().enumerate() {
+                                ContentRow {
+                                    row: row.clone(),
+                                    index,
+                                    on_open: {
+                                        let open = open_result(&pump, navigate, row, &route_query);
+                                        move |_| open.call(())
+                                    },
+                                }
                             }
                         }
                     }
-                }
-                if incomplete {
-                    Card { size: CardSize::Sm, class: Some("px-3 py-3 gap-2".to_owned()),
+                    if incomplete {
+                        Card {
+                            size: CardSize::Sm,
                             "data-testid": "global-content-incomplete",
                             role: if results.error.is_some() { "alert" } else { "status" },
                             "aria-live": if results.error.is_some() { "assertive" } else { "polite" },
-                            span { class: "text-sm font-medium", "Search incomplete" }
-                            if results.next_cursor.is_some() {
-                                span { class: "text-sm", "More retained terminal rows are available." }
-                            }
-                            if results.eligible_sessions > 0
-                                && results.searched_sessions < results.eligible_sessions {
-                                span { class: "text-sm", "data-testid": "global-content-unsearched",
-                                    "{unsearched} of {eligible} eligible {unsearched_noun} not searched."
+                            CardContent { class: "flex flex-col gap-2",
+                                span { class: "text-sm font-medium", "Search incomplete" }
+                                if results.next_cursor.is_some() {
+                                    span { class: "text-sm",
+                                        "More retained terminal rows are available."
+                                    }
+                                }
+                                if results.eligible_sessions > 0
+                                    && results.searched_sessions < results.eligible_sessions
+                                {
+                                    span {
+                                        class: "text-sm",
+                                        "data-testid": "global-content-unsearched",
+                                        "{unsearched} of {eligible} eligible {unsearched_noun} not searched."
+                                    }
+                                }
+                                if results.truncated && results.next_cursor.is_none() {
+                                    span { class: "text-sm",
+                                        "The bounded page ended before every retained row could be searched."
+                                    }
+                                }
+                                if missing > 0 {
+                                    span { class: "text-sm",
+                                        "{missing} {missing_noun} sessions no longer present in the current session list."
+                                    }
+                                }
+                                for partial in results.partials.iter() {
+                                    span {
+                                        class: "text-sm",
+                                        "data-testid": format!("global-content-partial-{}", partial.session_id.as_str()),
+                                        {partial_line(partial, &documents)}
+                                    }
                                 }
                             }
-                            if results.truncated && results.next_cursor.is_none() {
-                                span { class: "text-sm",
-                                    "The bounded page ended before every retained row could be searched."
+                        }
+                    }
+                    if results.next_cursor.is_some() && results.error.is_none() {
+                        div {
+                            role: "group",
+                            "aria-label": "Terminal content pagination",
+                            class: "flex justify-center",
+                            ButtonGroup {
+                                Button {
+                                    variant: ButtonVariant::Secondary,
+                                    icon: Some(IconType::ChevronDown),
+                                    disabled: waiting,
+                                    "data-testid": "global-content-load-more",
+                                    onclick: {
+                                        let pump = pump.clone();
+                                        move |_| {
+                                            driver::take_next_page(&pump);
+                                        }
+                                    },
+                                    if waiting {
+                                        "Loading…"
+                                    } else {
+                                        "Load more"
+                                    }
                                 }
-                            }
-                            if missing > 0 {
-                                span { class: "text-sm",
-                                    "{missing} {missing_noun} sessions no longer present in the current session list."
-                                }
-                            }
-                            for partial in results.partials.iter() {
-                                span { class: "text-sm",
-                                    "data-testid": format!("global-content-partial-{}", partial.session_id.as_str()),
-                                    {partial_line(partial, &documents)}
-                                }
-                            }
-                }
-                }
-                if results.next_cursor.is_some() && results.error.is_none() {
-                    div { role: "group", "aria-label": "Terminal content pagination",
-                        class: "flex justify-center",
-                        ButtonGroup {
-                            Button {
-                                variant: ButtonVariant::Secondary,
-                                icon: Some(IconType::ChevronDown),
-                                disabled: waiting,
-                                "data-testid": "global-content-load-more",
-                                onclick: {
-                                    let pump = pump.clone();
-                                    move |_| { driver::take_next_page(&pump); }
-                                },
-                                if waiting { "Loading…" } else { "Load more" }
                             }
                         }
                     }
@@ -198,13 +226,18 @@ fn ContentRow(row: JoinedMatch, index: usize, on_open: EventHandler<()>) -> Elem
     rsx! {
         CommandItem {
             value: format!("{session_id}-{index}"),
-            class: "flex items-start gap-3 rounded-md px-3 py-2.5",
+            class: "flex items-start gap-3",
             test_id: format!("global-content-result-{session_id}-{index}"),
             show_check: false,
             on_select: move |()| on_open.call(()),
-            Icon { icon: IconType::FileSearch, class: "mt-0.5 size-4 shrink-0 text-muted-foreground" }
+            Icon {
+                icon: IconType::FileSearch,
+                class: "mt-0.5 size-4 shrink-0 text-muted-foreground",
+            }
             span { class: "flex min-w-0 flex-1 flex-col gap-1",
-                span { class: "text-sm font-medium text-foreground", "data-testid": format!("global-content-title-{session_id}"),
+                span {
+                    class: "text-sm font-medium text-foreground",
+                    "data-testid": format!("global-content-title-{session_id}"),
                     {document.display_title.clone()}
                 }
                 span { class: "flex flex-col gap-1 text-xs text-muted-foreground",
@@ -216,7 +249,9 @@ fn ContentRow(row: JoinedMatch, index: usize, on_open: EventHandler<()>) -> Elem
                     span { "{document.cwd} · {document.worker_label}" }
                 }
             }
-            span { class: "shrink-0 whitespace-nowrap text-xs text-muted-foreground", "Open find" }
+            span { class: "shrink-0 whitespace-nowrap text-xs text-muted-foreground",
+                "Open find"
+            }
         }
     }
 }

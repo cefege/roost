@@ -312,7 +312,7 @@ impl LinkHost for WebLinkHost {
             else {
                 return;
             };
-            created.set_class_name("wterm-link-hint");
+            created.set_class_name("wterm-link-hint fixed z-[2147483000] hidden max-w-[60vw] overflow-hidden whitespace-nowrap text-ellipsis pointer-events-none py-2 px-2.5 text-xs shadow-lg text-background bg-foreground/90");
             let _ = body.append_child(&created);
             *hint = Some(created);
         }

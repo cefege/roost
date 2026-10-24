@@ -281,7 +281,7 @@ fn load_everything(
     error: Signal<String>,
 ) {
     #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_futures::spawn_local(async move {
+    spawn(async move {
         let (mut catalog, mut accounts, mut error) = (catalog, accounts, error);
         match pump.rpc().call(&ListAgentModels).await {
             Ok(value) => {

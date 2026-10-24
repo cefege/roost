@@ -8,8 +8,8 @@ use roost_client_core::client::auth::PairPollStatus;
 
 use crate::components::ui::field::scoped_element_id;
 use crate::components::ui::{
-    Button, ButtonVariant, Card, CardContent, CardHeader, CardTitle, CardVariant, FieldError,
-    FieldLabel, StatusDot,
+    Button, ButtonVariant, Card, CardContent, CardHeader, CardTitle, FieldError, FieldLabel,
+    StatusDot,
 };
 use crate::pump::use_store;
 
@@ -28,7 +28,7 @@ pub fn RequestAccessCard(requester: PairingRequester) -> Element {
     let state = requester.state().read().clone();
     let idle = state.status == PairPollStatus::Idle;
     rsx! {
-        Card { variant: CardVariant::Outlined, "data-testid": "onboarding-pair-step",
+        Card { "data-testid": "onboarding-pair-step",
             CardHeader {
                 CardTitle { "Request access" }
             }

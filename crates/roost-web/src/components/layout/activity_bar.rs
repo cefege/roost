@@ -49,7 +49,7 @@ pub fn ActivityBar(on_toggle_sidebar: EventHandler<()>) -> Element {
     ];
     let bottom = [Destination::Settings, Destination::Help];
     rsx! {
-        nav { class: "flex min-h-0 flex-col border-r border-border bg-[var(--workbench-activity)] [grid-area:activity]", "aria-label": "Workbench navigation",
+        nav { class: "flex min-h-0 flex-col border-r border-sidenav-border bg-sidenav [grid-area:activity]", "aria-label": "Workbench navigation",
             div { class: "flex flex-col",
                 for destination in top {
                     ActivityItem { destination, active, on_toggle_sidebar }

@@ -13,11 +13,10 @@ use crate::components::ui::{
     Select, SelectOption, TextField,
 };
 use crate::platform::LocalStorageKeyValueStore;
-use crate::terminal_schemes::{TerminalPalette, TerminalScheme, built_in_schemes, parse_scheme};
-
-const SELECTED_SCHEME_KEY: &str = "roost.terminalColorScheme";
-const IMPORTED_SCHEMES_KEY: &str = "roost.importedTerminalColorSchemes";
-const MATCH_APP_THEME: &str = "match";
+use crate::terminal_schemes::{TerminalScheme, built_in_schemes, parse_scheme};
+use crate::theme::terminal_palette::{
+    IMPORTED_SCHEMES_KEY, MATCH_APP_THEME, SELECTED_SCHEME_KEY, load_imported_schemes,
+};
 
 /// The terminal palette controls shown in Settings → Terminal.
 #[component]
@@ -33,10 +32,9 @@ pub fn TerminalColorSchemes() -> Element {
 
     use_effect(move || {
         let choice = selected();
-        let user_schemes = imported();
         LocalStorageKeyValueStore::new().set(SELECTED_SCHEME_KEY, &choice);
-        let palette = selected_palette(&choice, &user_schemes);
-        apply_palette(palette.as_ref());
+        #[cfg(target_arch = "wasm32")]
+        crate::theme::terminal_palette::apply_current_palette(&choice, &imported());
     });
 
     let mut options = vec![SelectOption::new(MATCH_APP_THEME, "Match app theme")];
@@ -199,97 +197,6 @@ fn SchemeSwatch(
                     onclick: move |_| on_delete.call(scheme_id.clone()),
                     "Delete"
                 }
-            }
-        }
-    }
-}
-
-fn load_imported_schemes() -> Vec<TerminalScheme> {
-    LocalStorageKeyValueStore::new()
-        .get(IMPORTED_SCHEMES_KEY)
-        .and_then(|source| serde_json::from_str(&source).ok())
-        .unwrap_or_default()
-}
-
-fn selected_palette(choice: &str, imported: &[TerminalScheme]) -> Option<TerminalPalette> {
-    if choice == MATCH_APP_THEME {
-        return None;
-    }
-    imported
-        .iter()
-        .find(|scheme| scheme.id == choice)
-        .map(|scheme| scheme.palette.clone())
-        .or_else(|| {
-            built_in_schemes()
-                .iter()
-                .find(|scheme| scheme.id == choice)
-                .map(|scheme| scheme.palette.clone())
-        })
-}
-
-fn apply_palette(palette: Option<&TerminalPalette>) {
-    let Some(root) = web_sys::window()
-        .and_then(|window| window.document())
-        .and_then(|document| document.document_element())
-        .and_then(|element| element.dyn_into::<web_sys::HtmlElement>().ok())
-    else {
-        return;
-    };
-    let style = root.style();
-    let mut values = vec![
-        (
-            "--terminal-grid-bg",
-            palette.map(|palette| palette.background),
-        ),
-        (
-            "--terminal-grid-fg",
-            palette.map(|palette| palette.foreground),
-        ),
-        ("--terminal-cursor", palette.map(|palette| palette.cursor)),
-        (
-            "--terminal-cursor-text",
-            palette.map(|palette| palette.cursor_text),
-        ),
-        (
-            "--terminal-selection",
-            palette.map(|palette| palette.selection_background),
-        ),
-        (
-            "--terminal-selection-fg",
-            palette.map(|palette| palette.selection_foreground),
-        ),
-    ];
-    let ansi_names = [
-        "--ansi-black",
-        "--ansi-red",
-        "--ansi-green",
-        "--ansi-yellow",
-        "--ansi-blue",
-        "--ansi-magenta",
-        "--ansi-cyan",
-        "--ansi-white",
-        "--ansi-bright-black",
-        "--ansi-bright-red",
-        "--ansi-bright-green",
-        "--ansi-bright-yellow",
-        "--ansi-bright-blue",
-        "--ansi-bright-magenta",
-        "--ansi-bright-cyan",
-        "--ansi-bright-white",
-    ];
-    values.extend(
-        ansi_names
-            .iter()
-            .enumerate()
-            .map(|(index, name)| (*name, palette.map(|palette| palette.ansi[index]))),
-    );
-    for (name, color) in values {
-        match color {
-            Some(color) => {
-                let _ = style.set_property(name, &color.css());
-            }
-            None => {
-                let _ = style.remove_property(name);
             }
         }
     }

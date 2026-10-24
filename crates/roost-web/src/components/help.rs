@@ -36,14 +36,14 @@ pub fn HelpSurface() -> Element {
         .map(|entry| (entry.binding_label(platform), entry.label))
         .collect();
     rsx! {
-        div { class: "box-border flex h-full min-h-0 w-full flex-col overflow-auto bg-[var(--workbench-editor)] p-6 text-foreground",
+        div { class: "box-border flex h-full min-h-0 w-full flex-col overflow-auto bg-background p-6 text-foreground",
             div { class: "mx-auto max-w-lg",
                 h2 { class: "mt-0 mb-5 text-xl", "Help / Keybindings" }
                 Table { class: "border-collapse",
                     TableBody {
                         for (binding, label) in rows {
                             TableRow { class: "border-border",
-                                TableCell { class: "w-2/5 pl-0 pr-4 py-2 font-mono text-[var(--workbench-active)]", {binding} }
+                                TableCell { class: "w-2/5 pl-0 pr-4 py-2 font-mono text-foreground", {binding} }
                                 TableCell { class: "px-0 py-2", {label} }
                             }
                         }

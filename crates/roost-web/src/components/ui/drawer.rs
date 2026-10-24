@@ -128,7 +128,7 @@ pub fn DrawerContent(
 #[component]
 pub fn DrawerHandle() -> Element {
     rsx! {
-        div { class: "block relative mx-auto mb-8 w-8 rounded-2xl opacity-70 hover:opacity-100 active:opacity-100 shrink-0 bg-[#e2e2e4] h-[5px]" }
+        div { class: "block relative mx-auto mb-8 w-8 rounded-2xl opacity-70 hover:opacity-100 active:opacity-100 shrink-0 bg-muted-foreground h-1.5" }
     }
 }
 
