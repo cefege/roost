@@ -147,6 +147,7 @@ jobs:
         with:
           ref: ${{ inputs.tag }}
           fetch-depth: 1
+          token: ${{ secrets.ROOST_PROMOTE_TOKEN }}
 
       - name: the tag carries the Flux release definition
         run: |

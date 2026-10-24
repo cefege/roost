@@ -501,6 +501,9 @@ gh workflow run promote.yml -f tag=<older tag>   # roll back (see below)
    force-pushes the `production` branch to the tag's commit plus one commit
    writing `deploy/helm/production.values.yaml` (`image.tag`). It finishes when
    `https://mike.roosttt.com/version` reports the tag.
+   Checkout and push use `ROOST_PROMOTE_TOKEN` from that environment, with
+   repository contents and workflow write access. The built-in `GITHUB_TOKEN`
+   cannot move the branch across changes to `.github/workflows/`.
 3. **Coordinator.** Flux on ovh1 (`deploy/flux/`: a GitRepository on
    `production`, a Kustomization applying `deploy/flux/production/`, whose
    HelmRelease upgrades `roost-coordinator` with the chart and
