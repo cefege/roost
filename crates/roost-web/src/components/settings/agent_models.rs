@@ -12,15 +12,22 @@ use super::agent_connect_dialog::AgentConnectDialog;
 use super::agent_provider_list::AvailableProviders;
 use super::agent_provider_status::{ProviderSummary, provider_summaries};
 use super::agent_roles::{AgentRoles, load_settings, save_settings};
-use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, EmptyState, FieldError, Icon, IconButton, IconType,
-    Skeleton, Tabs, TabsContent, TabsList, TabsTrigger, TextField,
-};
 use crate::pump::{Pump, use_store};
+use libero::components::{
+    Button, Flex, OptionLabel, Options, Pictogram, Skeleton, Tabs, Text, TextField, Title,
+};
+use libero::sx::sx;
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::client::rpc::calls::agent_chat::{
     GetAgentUsage, ListAgentAccounts, ListAgentModels,
 };
+
+#[derive(Clone, Copy, PartialEq, Options)]
+enum AgentModelsSection {
+    Models,
+    ProviderAccounts,
+    WebSearch,
+}
 
 /// Web-search engines that take a key; the keyless ones need no row here.
 const KEYED_ENGINES: [&str; 8] = [
@@ -43,7 +50,7 @@ pub fn AgentModelsPane() -> Element {
     let error = use_signal(String::new);
     let mut connect_provider = use_signal(|| None::<ProviderEntry>);
     let mut refresh = use_signal(|| 0_u64);
-    let mut section = use_signal(|| "models");
+    let mut section = use_signal(|| AgentModelsSection::Models);
     let settings = use_signal(AgentSettingsView::default);
     let settings_loaded = use_signal(|| false);
     let settings_error = use_signal(String::new);
@@ -65,13 +72,23 @@ pub fn AgentModelsPane() -> Element {
         )
     });
     let now_ms = crate::platform::clock::WallClock.now_ms();
-    let mut reload = move |()| refresh += 1;
+    let reload = EventHandler::new(move |()| refresh += 1);
+    let content_sx = use_hook(|| sx().gap("md"));
+    let heading_row_sx = use_hook(|| sx().gap("sm").align_items("center").flex_wrap("wrap"));
+    let provider_list_sx = use_hook(|| sx().gap("sm"));
+    let refresh_button_sx = use_hook(|| sx().with("margin-inline-start", "auto"));
     let Some(catalog_value) = catalog() else {
         return rsx! {
-        div { "data-testid": "agent-models-pane",
-            if !error().is_empty() { FieldError { {error()} } }
-            if !settings_error().is_empty() { FieldError { {settings_error()} } }
-                Skeleton { class: "h-24 w-full" }
+            Flex { direction: "column", gap: "md", "data-testid": "agent-models-pane",
+                if !error().is_empty() {
+                    Text { color: "error", role: "alert", "{error()}" }
+                Button { variant: "outlined", onclick: move |_| reload.call(()), "Retry" }
+                } else {
+                    Skeleton { width: "100%", height: "6rem" }
+                }
+                if !settings_error().is_empty() {
+                    Text { color: "error", role: "alert", "{settings_error()}" }
+                }
             }
         };
     };
@@ -86,145 +103,154 @@ pub fn AgentModelsPane() -> Element {
             .filter(|summary| KEYED_ENGINES.contains(&summary.provider.id.as_str()))
             .collect();
     rsx! {
-        div { "data-testid": "agent-models-pane",
-            if !error().is_empty() { FieldError { {error()} } }
-            if !settings_error().is_empty() { FieldError { {settings_error()} } }
+        Flex { direction: "column", gap: "md", "data-testid": "agent-models-pane",
+            if !error().is_empty() { Text { color: "error", role: "alert", "{error()}" } }
+            if !settings_error().is_empty() { Text { color: "error", role: "alert", "{settings_error()}" } }
             Tabs {
+                aria_label: "Model provider settings",
                 value: section(),
-                on_value_change: move |next: String| {
-                    if let Some(key) = ["models", "accounts", "search"].into_iter().find(|key| *key == next) {
-                        section.set(key);
-                    }
+                option_label: |active| match active {
+                    AgentModelsSection::Models => OptionLabel::rich(
+                        "Models",
+                        rsx! { Pictogram { icon: pictogram_icons_lucide::bot::outlined } },
+                    ),
+                    AgentModelsSection::ProviderAccounts => OptionLabel::rich(
+                        "Provider accounts",
+                        rsx! { Pictogram { icon: pictogram_icons_lucide::key::outlined } },
+                    ),
+                    AgentModelsSection::WebSearch => OptionLabel::rich(
+                        "Web search",
+                        rsx! { Pictogram { icon: pictogram_icons_lucide::globe::outlined } },
+                    ),
                 },
-                TabsList { aria_label: "Model settings",
-                    for (key, label, icon) in [
-                        ("models", "Models", IconType::Bot),
-                        ("accounts", "Provider accounts", IconType::Key),
-                        ("search", "Web search", IconType::Globe),
-                    ] {
-                        TabsTrigger { value: key, test_id: format!("agent-settings-tab-{key}"),
-                            Icon { icon }
-                            "{label}"
-                        }
-                    }
-                }
-                if section() == "models" {
-                    TabsContent { value: "models",
-                    section { class: "flex flex-col gap-4", "data-testid": "agent-model-roles",
-                        p { class: "text-sm text-muted-foreground",
-                            "Choose a default once. Override a task or folder only when you need to. The chat picker changes one session."
-                        }
-                        if signed_in.is_empty() {
-                            Button {
-                                variant: ButtonVariant::Outline,
-                                size: ButtonSize::Sm,
-                                icon: Some(IconType::Link),
-                                onclick: move |_| section.set("accounts"),
-                                "Connect a model provider"
+                onchange: move |next| section.set(next),
+                panel: move |active: AgentModelsSection| match active {
+                    AgentModelsSection::Models => rsx! {
+                        Flex { direction: "column", sx: content_sx.clone(), "data-testid": "agent-model-roles",
+                            Text { size: "sm", color: "muted",
+                                "Choose a default once. Override a task or folder only when you need to. The chat picker changes one session."
+                            }
+                            if signed_in.is_empty() {
+                                Button {
+                                    variant: "outlined",
+                                    size: "sm",
+                                    icon: Some(rsx! { Pictogram { icon: pictogram_icons_lucide::link::outlined } }),
+                                    onclick: move |_| section.set(AgentModelsSection::ProviderAccounts),
+                                    "Connect a model provider"
+                                }
+                            }
+                            if settings_loaded() {
+                                AgentRoles { catalog: catalog_value.clone(), settings, error }
+                            } else if settings_error().is_empty() {
+                                Skeleton { width: "100%", height: "6rem" }
                             }
                         }
-                        if settings_loaded() {
-                            AgentRoles { catalog: catalog_value.clone(), settings, error }
-                        } else if settings_error().is_empty() {
-                            Skeleton { class: "h-24 w-full" }
-                        }
-                    }
-                    }
-                } else if section() == "accounts" {
-                    TabsContent { value: "accounts",
-                    section { class: "flex flex-col gap-4", "data-testid": "agent-connected-providers",
-                        div { class: "flex flex-wrap items-center gap-2",
-                            h2 { class: "text-base font-semibold", "Connected providers" }
-                            span { class: "text-sm text-muted-foreground", {plural(signed_in.len(), "provider", "providers")} }
-                            IconButton { icon: IconType::RefreshCw, label: "Refresh accounts and usage", title: "Refresh accounts and usage", size: ButtonSize::IconSm, class: "ml-auto", onclick: move |_| reload(()) }
-                        }
-                        if signed_in.is_empty() {
-                            EmptyState {
-                                icon: IconType::Link2Off,
-                                title: "Connect your first model provider",
-                                supporting: "Use an existing subscription or add an API key. Then choose a model in the Models section.",
-                                action: quick_sign_in(&not_signed_in, connect_provider),
+                    },
+                    AgentModelsSection::ProviderAccounts => rsx! {
+                        Flex { direction: "column", sx: content_sx.clone(),
+                            "data-testid": "agent-connected-providers",
+                            Flex { direction: "row", sx: heading_row_sx.clone(),
+                                Title { size: "sm", "Connected providers" }
+                                Text { size: "sm", color: "muted", {plural(signed_in.len(), "provider", "providers")} }
+                                Button { variant: "standard", color: "muted", sx: refresh_button_sx.clone(),
+                                    onclick: move |_| reload.call(()), "Refresh accounts and usage"
+                                }
                             }
-                        } else {
-                            div { class: "flex flex-col gap-3",
-                                for summary in signed_in {
-                                    ConnectedProviderCard {
-                                        key: "{summary.provider.id}",
-                                        models: provider_models(&catalog_value, &summary.provider.id),
-                                        on_add: {
-                                            let provider = summary.provider.clone();
-                                            move |()| connect_provider.set(Some(provider.clone()))
-                                        },
-                                        summary,
-                                        now_ms,
-                                        on_changed: reload,
+                            if signed_in.is_empty() {
+                                Flex { direction: "row", gap: "sm",
+                                    Pictogram { icon: pictogram_icons_lucide::link_2_off::outlined }
+                                    Flex { direction: "column", gap: "xs",
+                                        Text { size: "sm", "Connect your first model provider" }
+                                        Text { size: "xs", color: "muted",
+                                            "Use an existing subscription or add an API key. Then choose a model in the Models section."
+                                        }
+                                        {quick_sign_in(&not_signed_in, connect_provider)}
+                                    }
+                                }
+                            } else {
+                                Flex { direction: "column", sx: provider_list_sx.clone(),
+                                    for summary in signed_in.iter().cloned() {
+                                        ConnectedProviderCard {
+                                            key: "{summary.provider.id}",
+                                            models: provider_models(&catalog_value, &summary.provider.id),
+                                            on_add: {
+                                                let provider = summary.provider.clone();
+                                                move |()| connect_provider.set(Some(provider.clone()))
+                                            },
+                                            summary,
+                                            now_ms,
+                                            on_changed: reload,
+                                        }
                                     }
                                 }
                             }
-                        }
-                    }
-                    section { class: "flex flex-col gap-4", "data-testid": "agent-available-providers",
-                        div { class: "flex flex-wrap items-center gap-2",
-                            h2 { class: "text-base font-semibold", "Add a provider" }
-                        }
-                        AvailableProviders { providers: not_signed_in, on_connect: move |provider| connect_provider.set(Some(provider)) }
-                    }
-                    }
-                } else {
-                    TabsContent { value: "search",
-                    section { class: "flex flex-col gap-4", "data-testid": "agent-web-search",
-                        h2 { class: "text-base font-semibold", "Search services" }
-                        p { class: "text-sm text-muted-foreground", "Keyless engines work out of the box. Connect a service below to use its search API; engine order lives under Models → Customize by task." }
-                        for summary in web_search.iter().filter(|summary| summary.provider.configured).cloned() {
-                            ConnectedProviderCard {
-                                key: "{summary.provider.id}",
-                                models: Vec::new(),
-                                on_add: {
-                                    let provider = summary.provider.clone();
-                                    move |()| connect_provider.set(Some(provider.clone()))
-                                },
-                                summary,
-                                now_ms,
-                                on_changed: reload,
+                            Flex { direction: "column", sx: content_sx.clone(), "data-testid": "agent-available-providers",
+                                Flex { direction: "row", sx: heading_row_sx.clone(),
+                                    Title { size: "sm", "Add a provider" }
+                                }
+                                AvailableProviders { providers: not_signed_in.clone(), on_connect: move |provider| connect_provider.set(Some(provider)) }
                             }
                         }
-                        AvailableProviders {
-                            providers: web_search.iter().filter(|summary| !summary.provider.configured).cloned().collect::<Vec<_>>(),
-                            on_connect: move |provider| connect_provider.set(Some(provider)),
-                        }
-                        if settings_loaded() {
-                        form {
-                            onsubmit: move |event| {
-                                event.prevent_default();
-                                let mut updated = settings();
-                                let value = search_url().trim().to_owned();
-                                updated.searxng_url = (!value.is_empty()).then_some(value);
-                                save_settings(pump.clone(), updated, settings, error);
-                            },
-                            TextField {
-                                value: search_url(),
-                                on_input: move |value| search_url.set(value),
-                                label: "SearXNG server",
-                                placeholder: "https://search.example.com",
-                                test_id: "agent-searxng-url",
-                                description: rsx! { "Leave empty to use the default search services." },
+                    },
+                    AgentModelsSection::WebSearch => rsx! {
+                        Flex { direction: "column", sx: content_sx.clone(), "data-testid": "agent-web-search",
+                            Title { size: "sm", "Search services" }
+                            Text { size: "sm", color: "muted",
+                                "Keyless engines work out of the box. Connect a service below to use its search API; engine order lives under Models → Customize by task."
                             }
-                            Button {
-                                variant: ButtonVariant::Outline,
-                                r#type: "submit",
-                                disabled: search_url().trim() == saved_search_url(),
-                                "Save server"
+                            for summary in web_search.iter().filter(|summary| summary.provider.configured).cloned() {
+                                ConnectedProviderCard {
+                                    key: "{summary.provider.id}",
+                                    models: Vec::new(),
+                                    on_add: {
+                                        let provider = summary.provider.clone();
+                                        move |()| connect_provider.set(Some(provider.clone()))
+                                    },
+                                    summary,
+                                    now_ms,
+                                    on_changed: reload,
+                                }
+                            }
+                            AvailableProviders {
+                                providers: web_search.iter().filter(|summary| !summary.provider.configured).cloned().collect::<Vec<_>>(),
+                                on_connect: move |provider| connect_provider.set(Some(provider)),
+                            }
+                            if settings_loaded() {
+                                form {
+                                    onsubmit: {
+                                        let pump = pump.clone();
+                                        move |event: FormEvent| {
+                                            event.prevent_default();
+                                            let mut updated = settings();
+                                            let value = search_url().trim().to_owned();
+                                            updated.searxng_url = (!value.is_empty()).then_some(value);
+                                            save_settings(pump.clone(), updated, settings, error);
+                                        }
+                                    },
+                                    TextField {
+                                        value: Some(search_url()),
+                                        oninput: move |value| search_url.set(value),
+                                        label: "SearXNG server",
+                                        placeholder: "https://search.example.com",
+                                        "data-testid": "agent-searxng-url",
+                                        description: "Leave empty to use the default search services.",
+                                    }
+                                    Button {
+                                        variant: "outlined",
+                                        r#type: "submit",
+                                        disabled: search_url().trim() == saved_search_url(),
+                                        "Save server"
+                                    }
+                                }
+                            } else if settings_error().is_empty() {
+                                Skeleton { width: "100%", height: "6rem" }
                             }
                         }
-                        } else if settings_error().is_empty() {
-                            Skeleton { class: "h-24 w-full" }
-                        }
-                    }
-                    }
+                    },
                 }
             }
             if let Some(provider) = connect_provider() {
-                AgentConnectDialog { provider, on_close: move |_| { connect_provider.set(None); reload(()); } }
+                AgentConnectDialog { provider, on_close: move |_| { connect_provider.set(None); reload.call(()); } }
             }
         }
     }
@@ -245,12 +271,12 @@ fn quick_sign_in(
         return None;
     }
     Some(rsx! {
-        div { class: "flex flex-wrap items-center gap-2",
+        Flex { direction: "row", wrap: true, gap: "sm",
             for provider in oauth {
                 Button {
                     key: "{provider.id}",
-                    variant: ButtonVariant::Default,
-                    icon: Some(IconType::LogIn),
+                    variant: "filled",
+                    icon: Some(rsx! { Pictogram { icon: pictogram_icons_lucide::log_in::outlined } }),
                     onclick: {
                         let provider = provider.clone();
                         move |_| connect_provider.set(Some(provider.clone()))

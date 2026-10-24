@@ -12,21 +12,23 @@
 //! Ports `apps/web/src/components/search/GlobalSearchContentResults.tsx`.
 
 use dioxus::prelude::*;
-use roost_client_core::client::global_search::GlobalSearchResults;
-use roost_client_core::search::global::{GlobalSearchMatch, GlobalSearchPartial};
+use libero::components::Pictogram;
+use roost_client_core::search::global::GlobalSearchMatch;
 use roost_client_core::store::navigation::NavigationSearchDocument;
 use roost_client_core::store::sidebar::documents::store_navigation_documents;
 use roost_web_terminal::find::hits::PreferredMatch;
 use roost_web_terminal::find::intent::TerminalFindIntentOptions;
 
 use crate::components::global_search::{driver, query::SearchRouteQuery};
-use crate::components::ui::{
-    Button, ButtonGroup, ButtonVariant, Card, CardSize, CommandItem, CommandList, EmptyState, Icon,
-    IconType,
-};
 use crate::platform::worker_paths::BrowserWorkerPaths;
 use crate::pump::{Pump, use_store};
+use libero::components::{Box, Button, ButtonGroup};
+use libero::sx::sx;
+
 use crate::router_state::use_navigate;
+
+mod summary;
+pub use summary::{incomplete, join_matches, partial_line, summary};
 
 /// One match, with the session row it belongs to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,40 +75,96 @@ pub fn ContentResults(route_query: SearchRouteQuery) -> Element {
     } else {
         "matches belong"
     };
+    let panel_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("column")
+            .gap("md")
+            .border_radius("xl")
+            .border_width("1px")
+            .border_color("var(--border)")
+            .background_color("var(--card)")
+            .padding("md")
+    });
+    let incomplete_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("column")
+            .gap("sm")
+            .border_radius("lg")
+            .border_width("1px")
+            .border_color("var(--border)")
+            .background_color("var(--muted)")
+            .padding("sm")
+    });
+    let empty_icon_sx = use_hook(|| sx().width("1rem").height("1rem"));
+    let section_title_sx = use_hook(|| sx().margin("0").font_size("lg").font_weight("600"));
+    let summary_text_sx = use_hook(|| sx().font_size("sm"));
+    let empty_message_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("column")
+            .align_items("flex-start")
+            .gap("sm")
+            .padding_block("md")
+    });
+    let empty_title_sx = use_hook(|| {
+        sx().display("flex")
+            .align_items("center")
+            .gap("sm")
+            .font_weight("500")
+    });
+    let supporting_sx = use_hook(|| {
+        sx().margin("0")
+            .font_size("sm")
+            .color("var(--muted-foreground)")
+    });
+    let result_list_sx = use_hook(|| sx().display("flex").flex_direction("column").gap("sm"));
+    let small_text_sx = use_hook(|| sx().font_size("sm"));
+    let small_emphasis_sx = use_hook(|| sx().font_size("sm").font_weight("500"));
+    let pagination_sx = use_hook(|| sx().display("flex").justify_content("center"));
 
     rsx! {
-        Card { size: CardSize::Sm, class: Some("px-4".to_owned()), role: "region",
+        Box { component: "section", sx: panel_sx.clone(),
+            role: "region",
             "aria-labelledby": "global-content-search-title",
-            h2 { id: "global-content-search-title", class: "m-0 text-lg font-semibold",
+            Box { component: "h2", id: "global-content-search-title", sx: section_title_sx.clone(),
                 "Terminal content"
             }
-            div { class: "text-sm", role: "status", "aria-live": "polite", "aria-atomic": "true",
+            Box { component: "div", sx: summary_text_sx.clone(), role: "status", "aria-live": "polite", "aria-atomic": "true",
                 "data-testid": "global-content-summary",
                 {summary(&results, &rows, waiting, &route_query.text)}
             }
             if searching {
                 if rows.is_empty() {
                     if !waiting {
-                        EmptyState {
-                            icon: if results.error.is_some() { IconType::CircleAlert } else { IconType::SearchX },
-                            title: if results.error.is_some() {
-                                "Terminal content search failed".to_owned()
-                            } else if incomplete {
-                                "No matches in the completed portion".to_owned()
-                            } else {
-                                "No terminal content matches".to_owned()
-                            },
-                            supporting: Some(results.error.clone().unwrap_or_else(|| {
-                                if incomplete {
-                                    "Some sessions or retained rows could not be searched.".to_owned()
-                                } else {
-                                    "No retained terminal row contains this literal query.".to_owned()
+                        Box { component: "div", sx: empty_message_sx.clone(),
+                            Box { component: "div", sx: empty_title_sx.clone(),
+                                Box { component: "span", sx: empty_icon_sx.clone(),
+                                    Pictogram {
+                                        icon: if results.error.is_some() { pictogram_icons_lucide::circle_alert::outlined } else { pictogram_icons_lucide::search_x::outlined },
+                                        width: "1rem",
+                                        height: "1rem",
+                                    }
                                 }
-                            })),
-                            action: results.retryable.then(|| rsx! {
+                                {if results.error.is_some() {
+                                    "Terminal content search failed"
+                                } else if incomplete {
+                                    "No matches in the completed portion"
+                                } else {
+                                    "No terminal content matches"
+                                }}
+                            }
+                            Box { component: "p", sx: supporting_sx.clone(),
+                                {results.error.clone().unwrap_or_else(|| {
+                                    if incomplete {
+                                        "Some sessions or retained rows could not be searched.".to_owned()
+                                    } else {
+                                        "No retained terminal row contains this literal query.".to_owned()
+                                    }
+                                })}
+                            }
+                            if results.retryable {
                                 Button {
-                                    variant: ButtonVariant::Secondary,
-                                    icon: Some(IconType::RefreshCw),
+                                    variant: "outlined",
+                                    icon: rsx! { Pictogram { icon: pictogram_icons_lucide::refresh_cw::outlined, width: "1rem", height: "1rem" } },
                                     "data-testid": "global-content-retry",
                                     onclick: {
                                         let pump = pump.clone();
@@ -114,11 +172,11 @@ pub fn ContentResults(route_query: SearchRouteQuery) -> Element {
                                     },
                                     "Retry"
                                 }
-                            }),
+                            }
                         }
                     }
                 } else {
-                    CommandList { class: "flex flex-col gap-2 max-h-none min-h-0 overflow-visible",
+                    Box { component: "div", sx: result_list_sx.clone(),
                         for (index, row) in rows.iter().enumerate() {
                             ContentRow {
                                 row: row.clone(),
@@ -132,45 +190,44 @@ pub fn ContentResults(route_query: SearchRouteQuery) -> Element {
                     }
                 }
                 if incomplete {
-                    Card { size: CardSize::Sm, class: Some("px-3 py-3 gap-2".to_owned()),
-                            "data-testid": "global-content-incomplete",
-                            role: if results.error.is_some() { "alert" } else { "status" },
-                            "aria-live": if results.error.is_some() { "assertive" } else { "polite" },
-                            span { class: "text-sm font-medium", "Search incomplete" }
-                            if results.next_cursor.is_some() {
-                                span { class: "text-sm", "More retained terminal rows are available." }
+                    Box { component: "section", sx: incomplete_sx.clone(),
+                        "data-testid": "global-content-incomplete",
+                        role: if results.error.is_some() { "alert" } else { "status" },
+                        "aria-live": if results.error.is_some() { "assertive" } else { "polite" },
+                        Box { component: "span", sx: small_emphasis_sx.clone(), "Search incomplete" }
+                        if results.next_cursor.is_some() {
+                            Box { component: "span", sx: small_text_sx.clone(), "More retained terminal rows are available." }
+                        }
+                        if results.eligible_sessions > 0
+                            && results.searched_sessions < results.eligible_sessions {
+                            Box { component: "span", sx: small_text_sx.clone(), "data-testid": "global-content-unsearched",
+                                "{unsearched} of {eligible} eligible {unsearched_noun} not searched."
                             }
-                            if results.eligible_sessions > 0
-                                && results.searched_sessions < results.eligible_sessions {
-                                span { class: "text-sm", "data-testid": "global-content-unsearched",
-                                    "{unsearched} of {eligible} eligible {unsearched_noun} not searched."
-                                }
+                        }
+                        if results.truncated && results.next_cursor.is_none() {
+                            Box { component: "span", sx: small_text_sx.clone(),
+                                "The bounded page ended before every retained row could be searched."
                             }
-                            if results.truncated && results.next_cursor.is_none() {
-                                span { class: "text-sm",
-                                    "The bounded page ended before every retained row could be searched."
-                                }
+                        }
+                        if missing > 0 {
+                            Box { component: "span", sx: small_text_sx.clone(),
+                                "{missing} {missing_noun} sessions no longer present in the current session list."
                             }
-                            if missing > 0 {
-                                span { class: "text-sm",
-                                    "{missing} {missing_noun} sessions no longer present in the current session list."
-                                }
+                        }
+                        for partial in results.partials.iter() {
+                            Box { component: "span", sx: small_text_sx.clone(),
+                                "data-testid": format!("global-content-partial-{}", partial.session_id.as_str()),
+                                {partial_line(partial, &documents)}
                             }
-                            for partial in results.partials.iter() {
-                                span { class: "text-sm",
-                                    "data-testid": format!("global-content-partial-{}", partial.session_id.as_str()),
-                                    {partial_line(partial, &documents)}
-                                }
-                            }
-                }
+                        }
+                    }
                 }
                 if results.next_cursor.is_some() && results.error.is_none() {
-                    div { role: "group", "aria-label": "Terminal content pagination",
-                        class: "flex justify-center",
+                    Box { component: "div", sx: pagination_sx.clone(), role: "group", "aria-label": "Terminal content pagination",
                         ButtonGroup {
                             Button {
-                                variant: ButtonVariant::Secondary,
-                                icon: Some(IconType::ChevronDown),
+                                variant: "outlined",
+                                icon: rsx! { Pictogram { icon: pictogram_icons_lucide::chevron_down::outlined, width: "1rem", height: "1rem" } },
                                 disabled: waiting,
                                 "data-testid": "global-content-load-more",
                                 onclick: {
@@ -191,32 +248,78 @@ pub fn ContentResults(route_query: SearchRouteQuery) -> Element {
 /// that row lives.
 #[component]
 fn ContentRow(row: JoinedMatch, index: usize, on_open: EventHandler<()>) -> Element {
+    let row_button_sx = use_hook(|| {
+        sx().display("flex")
+            .width("100%")
+            .height("auto")
+            .align_items("flex-start")
+            .justify_content("flex-start")
+            .gap("md")
+            .border_radius("md")
+            .padding_block("sm")
+            .padding_inline("md")
+            .text_align("left")
+    });
+    let row_icon_sx = use_hook(|| {
+        sx().width("1rem")
+            .height("1rem")
+            .flex_shrink("0")
+            .margin_top("xs")
+            .color("var(--muted-foreground)")
+    });
+    let row_body_sx = use_hook(|| {
+        sx().display("flex")
+            .min_width("0")
+            .flex("1")
+            .flex_direction("column")
+            .gap("xs")
+    });
+    let row_title_sx = use_hook(|| {
+        sx().font_size("sm")
+            .font_weight("500")
+            .color("var(--foreground)")
+    });
+    let row_details_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("column")
+            .gap("xs")
+            .font_size("xs")
+            .color("var(--muted-foreground)")
+    });
+    let preview_sx = use_hook(|| {
+        sx().white_space("pre-wrap")
+            .with("overflow-wrap", "anywhere")
+    });
+    let open_find_sx = use_hook(|| {
+        sx().flex_shrink("0")
+            .white_space("nowrap")
+            .font_size("xs")
+            .color("var(--muted-foreground)")
+    });
     let Some(document) = row.document.clone() else {
         return rsx! {};
     };
     let session_id = document.session_id.clone();
     rsx! {
-        CommandItem {
-            value: format!("{session_id}-{index}"),
-            class: "flex items-start gap-3 rounded-md px-3 py-2.5",
-            test_id: format!("global-content-result-{session_id}-{index}"),
-            show_check: false,
-            on_select: move |()| on_open.call(()),
-            Icon { icon: IconType::FileSearch, class: "mt-0.5 size-4 shrink-0 text-muted-foreground" }
-            span { class: "flex min-w-0 flex-1 flex-col gap-1",
-                span { class: "text-sm font-medium text-foreground", "data-testid": format!("global-content-title-{session_id}"),
+        Button {
+            variant: "standard",
+            sx: row_button_sx.clone(),
+            "data-testid": format!("global-content-result-{session_id}-{index}"),
+            onclick: move |_| on_open.call(()),
+            icon: rsx! { Box { component: "span", sx: row_icon_sx.clone(), Pictogram { icon: pictogram_icons_lucide::file_search::outlined, width: "1rem", height: "1rem" } } },
+            Box { component: "span", sx: row_body_sx.clone(),
+                Box { component: "span", sx: row_title_sx.clone(), "data-testid": format!("global-content-title-{session_id}"),
                     {document.display_title.clone()}
                 }
-                span { class: "flex flex-col gap-1 text-xs text-muted-foreground",
-                    span {
+                Box { component: "span", sx: row_details_sx.clone(),
+                    Box { component: "span", sx: preview_sx.clone(),
                         "data-testid": format!("global-content-preview-{session_id}-{index}"),
-                        class: "whitespace-pre-wrap [overflow-wrap:anywhere]",
                         {row.candidate.preview.clone()}
                     }
-                    span { "{document.cwd} · {document.worker_label}" }
+                    Box { component: "span", "{document.cwd} · {document.worker_label}" }
                 }
             }
-            span { class: "shrink-0 whitespace-nowrap text-xs text-muted-foreground", "Open find" }
+            Box { component: "span", sx: open_find_sx.clone(), "Open find" }
         }
     }
 }
@@ -256,82 +359,4 @@ fn open_result(
         );
         navigate.call(document.href.clone());
     })
-}
-
-/// The matches, each joined to the session row the projection knows.
-#[must_use]
-pub fn join_matches(
-    matches: &[GlobalSearchMatch],
-    documents: &[NavigationSearchDocument],
-) -> Vec<JoinedMatch> {
-    matches
-        .iter()
-        .map(|candidate| JoinedMatch {
-            candidate: candidate.clone(),
-            document: documents
-                .iter()
-                .find(|document| document.session_id == candidate.session_id.as_str())
-                .cloned(),
-        })
-        .collect()
-}
-
-/// Whether the answer is anything short of the whole fleet.
-#[must_use]
-pub fn incomplete(results: &GlobalSearchResults, missing_projections: usize) -> bool {
-    results.truncated
-        || results.next_cursor.is_some()
-        || !results.partials.is_empty()
-        || missing_projections > 0
-        || (results.eligible_sessions > 0 && results.searched_sessions < results.eligible_sessions)
-        || (results.error.is_some() && !results.matches.is_empty())
-}
-
-/// The sentence under the panel's heading.
-#[must_use]
-pub fn summary(
-    results: &GlobalSearchResults,
-    rows: &[JoinedMatch],
-    waiting: bool,
-    query: &str,
-) -> String {
-    if query.trim().is_empty() {
-        return "Search retained terminal content with the field above.".to_owned();
-    }
-    if waiting && !results.has_searched {
-        return "Searching retained terminal content…".to_owned();
-    }
-    if let Some(error) = results.error.as_ref() {
-        return format!("Terminal content search failed: {error}");
-    }
-    let matches = rows.iter().filter(|row| row.document.is_some()).count();
-    let noun = if matches == 1 { "match" } else { "matches" };
-    if results.eligible_sessions == 0 {
-        return format!("{matches} {noun}");
-    }
-    if results.searched_sessions < results.eligible_sessions {
-        format!(
-            "{matches} {noun} across {} of {} sessions — coverage is partial",
-            results.searched_sessions, results.eligible_sessions
-        )
-    } else {
-        format!(
-            "{matches} {noun} across all {} sessions searched",
-            results.eligible_sessions
-        )
-    }
-}
-
-/// One partial, named for the session it belongs to.
-#[must_use]
-pub fn partial_line(
-    partial: &GlobalSearchPartial,
-    documents: &[NavigationSearchDocument],
-) -> String {
-    let name = documents
-        .iter()
-        .find(|document| document.session_id == partial.session_id.as_str())
-        .map(|document| document.display_title.clone())
-        .unwrap_or_else(|| "A session no longer in the current view".to_owned());
-    format!("{name} {}.", partial.reason.label())
 }

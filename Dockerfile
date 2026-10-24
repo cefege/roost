@@ -19,7 +19,7 @@ WORKDIR /src
 # copying it first lets this layer cache across source edits.
 COPY rust-toolchain.toml ./
 RUN rustup show active-toolchain \
- && cargo install dioxus-cli --version 0.7.10 --locked
+ && cargo install dioxus-cli --version 0.8.0-alpha.3 --locked
 COPY . .
 ENV ROOST_BUILD_VERSION=$ROOST_BUILD_VERSION ROOST_BUILD_SHA=$ROOST_BUILD_SHA
 # One RUN, so the cache-mounted target directory never has to be an image
@@ -31,7 +31,14 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
  && rm -rf target/dx/roost-web/release/web/public \
  && dx build --release --profile wasm-release -p roost-web --platform web \
  && test -f target/dx/roost-web/release/web/public/index.html \
- && grep -q '\.bg-primary' target/dx/roost-web/release/web/public/styles/tailwind.css \
+ && test -s target/dx/roost-web/release/web/public/styles/theme-vars.css \
+ && test -s target/dx/roost-web/release/web/public/styles/product-motion.css \
+ && test -s target/dx/roost-web/release/web/public/styles/terminal-grid.css \
+ && test -s target/dx/roost-web/release/web/public/styles/tv.css \
+ && test -s target/dx/roost-web/release/web/public/styles/gamepad.css \
+ && test -s target/dx/roost-web/release/web/public/components/notifications/NotificationDock.css \
+ && find target/dx/roost-web/release/web/public -name '*.wasm' -type f -size +0c -print -quit | grep -q . \
+ && ! grep -q '/styles/tailwind\.css' target/dx/roost-web/release/web/public/index.html \
  && if grep -rl '__smoke' target/dx/roost-web/release/web/public; then \
       echo "the web bundle carries __smoke; this is not a production bundle" >&2; exit 1; \
     fi \

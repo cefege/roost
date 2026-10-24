@@ -19,12 +19,13 @@ use roost_protocol::wire::{Session, SessionKind};
 use super::agent_conversation_row::AgentConversationRow;
 use super::folder_row::FolderRow;
 use super::session_row::SessionRow;
-use crate::components::ui::IconType;
-use crate::components::ui::empty::EmptyState;
+
 use crate::platform::BrowserWorkerPaths;
 use crate::pump::{Pump, use_store};
 use crate::route_session::active_session_for_path;
 use crate::router_state::use_location;
+use libero::components::{Flex, Pictogram, Text, Title};
+use libero::sx::sx;
 
 /// Quick-chat folders live under this segment and never show as folders.
 pub const CHAT_FOLDER_SEGMENT: &str = "/.roost/chats/";
@@ -39,6 +40,19 @@ pub fn is_chat_folder(cwd: &str) -> bool {
 #[component]
 pub fn FolderList(active: bool, query: String) -> Element {
     let pump = use_store();
+    let list_sx = use_hook(|| {
+        sx().flex("1")
+            .min_height("0")
+            .gap("0")
+            .overflow_y("auto")
+            .padding_block("xs")
+    });
+    let rows_sx = use_hook(|| sx().display("flex").flex_direction("column").gap("0"));
+    let empty_sx = use_hook(|| {
+        sx().align_items("center")
+            .text_align("center")
+            .padding("lg")
+    });
     let path = use_location();
     let core = pump.core();
     let (groups, filtered_ids, active_folder_key, cursor_id, active_agent_id) = {
@@ -89,16 +103,16 @@ pub fn FolderList(active: bool, query: String) -> Element {
     publish_cursor_targets(&pump, active, visible_ids);
 
     rsx! {
-        div { class: "flex min-h-0 flex-1 flex-col overflow-y-auto py-1", "data-testid": "folder-list",
+        Flex { direction: "column", sx: list_sx, "data-testid": "folder-list",
             if !filtering {
                 if groups.is_empty() {
-                    EmptyState {
-                        icon: IconType::FolderX,
-                        title: "No folders yet",
-                        supporting: "Open a terminal to add your first folder.",
+                    Flex { sx: empty_sx.clone(), direction: "column", gap: "md",
+                        Pictogram { icon: pictogram_icons_lucide::folder_x::outlined, width: "1.5rem", height: "1.5rem" }
+                        Title { size: "md", "No folders yet" }
+                        Text { size: "sm", color: "muted", "Open a terminal to add your first folder." }
                     }
                 } else {
-                    div { class: "flex flex-col",
+                    Flex { direction: "column", sx: rows_sx,
                         for group in groups {
                             FolderRow {
                                 key: "{group.key}",
@@ -120,13 +134,13 @@ pub fn FolderList(active: bool, query: String) -> Element {
                     }
                 }
             } else if filtered_ids.is_empty() {
-                EmptyState {
-                    icon: IconType::SearchX,
-                    title: "No matches",
-                    supporting: format!("Nothing matches \"{query}\". Esc clears the search."),
+                Flex { sx: empty_sx.clone(), direction: "column", gap: "md",
+                    Pictogram { icon: pictogram_icons_lucide::search_x::outlined, width: "1.5rem", height: "1.5rem" }
+                    Title { size: "md", "No matches" }
+                    Text { size: "sm", color: "muted", "Nothing matches \"{query}\". Esc clears the search." }
                 }
             } else {
-                div { class: "flex flex-col",
+                Flex { direction: "column", sx: rows_sx,
                     for session_id in filtered_ids {
                         SessionRow {
                             key: "{session_id}",

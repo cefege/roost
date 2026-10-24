@@ -1,91 +1,94 @@
-//! `DesignGallery`: the single visual reference for the Roost design system —
-//! the workbench shell specimen, every colour role, the type, spacing, shape and
-//! elevation scales, and live examples of every shared `ui` primitive on one
-//! `/design` page. `app.rs` routes `/design` here.
-//!
-//! Colours, radii and type come from the Tailwind theme roles in `tailwind.css`
-//! (`bg-card`, `text-muted-foreground`, `rounded-lg`, …), never raw values, so a
-//! specimen tracks the theme the product uses.
+//! The `/design` route is a live catalogue of Libero controls and Roost's visual roles.
 
 use dioxus::prelude::*;
+use libero::{
+    components::{Box, Flex, NavLink, Paper, ScrollArea, Sidebar, Text, Title},
+    sx::sx,
+};
 
-use super::content_primitives::ContentPrimitives;
-use super::control_states::DesignControlStates;
-use super::loader_specimen::LoaderSpecimen;
-use super::overlay_states::DesignOverlayStates;
-use super::settings_navigation_specimen::SettingsNavigationSpecimen;
-use super::token_sections::{ColorRoles, ElevationScale, ShapeScale, SpacingScale, TypeRamp};
-use super::workbench_shell_specimen::WorkbenchShellSpecimen;
-use crate::components::ui::{Surface, SurfaceRadius};
+use super::theme_roles::ThemeRoles;
+use super::{
+    content_primitives::ContentPrimitives, control_states::DesignControlStates,
+    overlay_states::DesignOverlayStates,
+};
+use crate::components::settings::theme::ThemePane;
+use crate::components::settings_navigation::SETTINGS_GROUPS;
 
-/// The gallery root's `data-testid`, the one `app::ServedSurface::Design` names.
 pub const DESIGN_GALLERY_TEST_ID: &str = "design-gallery";
 
-/// The page's own frame: full height, its own scroll, the base surface.
-const GALLERY_CLASS: &str =
-    "box-border min-h-screen overflow-y-auto bg-background p-6 text-foreground";
-
-/// A gallery section's title.
-const SECTION_HEADER_CLASS: &str = "mt-0 mb-4 text-xl font-semibold text-foreground";
-
-/// A gallery section's lead paragraph.
-const LEAD_TEXT_CLASS: &str = "mt-0 mb-4 text-sm text-muted-foreground";
-
-/// A gallery section's own surface, spaced from the next section.
-const SECTION_SURFACE_CLASS: &str = "mb-6 block";
-
-/// A gallery section's title, rendered as an `h2`.
-#[component]
-pub fn GallerySectionHeader(children: Element) -> Element {
-    rsx! {
-        h2 { class: SECTION_HEADER_CLASS, {children} }
-    }
-}
-
-/// One titled gallery section on its own elevated surface.
-#[component]
-pub fn GallerySection(title: String, children: Element) -> Element {
-    rsx! {
-        Surface {
-            level: 1,
-            elevation: 1,
-            radius: SurfaceRadius::Lg,
-            pad: 6,
-            border: true,
-            class: SECTION_SURFACE_CLASS,
-            GallerySectionHeader { {title} }
-            {children}
-        }
-    }
-}
-
-/// The `/design` page. `on_navigate` carries the specimen rail's in-app links.
 #[component]
 pub fn DesignGallery(on_navigate: EventHandler<String>) -> Element {
+    let page_sx = use_hook(|| {
+        sx().padding("md")
+            .gap("lg")
+            .width("100%")
+            .height("100%")
+            .min_height("0")
+            .overflow_y("auto")
+            .max_width("88rem")
+            .margin_inline("auto")
+            .box_sizing("border-box")
+    });
+    let section_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("column")
+            .padding("md")
+            .gap("md")
+            .min_width("0")
+    });
+    let grid_sx = use_hook(|| {
+        sx().display("grid")
+            .gap("md")
+            .align_items("start")
+            .grid_template_columns("repeat(auto-fit,minmax(min(100%,24rem),1fr))")
+    });
+    let navigation_sx = use_hook(|| sx().width("100%").min_height("0"));
     rsx! {
-        div { class: GALLERY_CLASS, "data-testid": DESIGN_GALLERY_TEST_ID,
-            header { class: "mb-6",
-                h1 { class: "m-0 text-3xl font-semibold text-foreground", "Design system" }
-                p { class: "mt-2 mb-0 text-base text-muted-foreground",
-                    "Every token + primitive on one page. Colors + type are token-only."
+        Flex { direction: "column", sx: page_sx, "data-testid": DESIGN_GALLERY_TEST_ID,
+            Flex { direction: "column", gap: "xs",
+                Title { component: "h1", size: "xl", "Roost components" }
+                Text { size: "sm", color: "muted",
+                    "Live controls, shared appearance and compact workbench surfaces."
                 }
             }
-            GallerySection { title: "Canonical workbench shell",
-                p { class: LEAD_TEXT_CLASS,
-                    "Title bar, activity rail, primary sidebar, terminal editor, and truthful status bar share one contiguous desktop surface."
-                }
-                WorkbenchShellSpecimen {}
+            Box { sx: grid_sx.clone(),
+                Paper { sx: section_sx.clone(), DesignControlStates {} }
+                Paper { sx: section_sx.clone(), ContentPrimitives {} }
             }
-            GallerySection { title: "Settings navigation", SettingsNavigationSpecimen { on_navigate } }
-            GallerySection { title: "Color roles", ColorRoles {} }
-            GallerySection { title: "Type ramp", TypeRamp {} }
-            GallerySection { title: "Spacing scale", SpacingScale {} }
-            GallerySection { title: "Shape / radii", ShapeScale {} }
-            GallerySection { title: "Elevation", ElevationScale {} }
-            GallerySection { title: "Control states", DesignControlStates {} }
-            GallerySection { title: "Loader", LoaderSpecimen {} }
-            GallerySection { title: "Content primitives", ContentPrimitives {} }
-            GallerySection { title: "Overlay states", DesignOverlayStates {} }
+            Paper { sx: section_sx.clone(), DesignOverlayStates {} }
+            Box { sx: grid_sx,
+                Paper { sx: section_sx.clone(),
+                    Title { component: "h2", size: "lg", "Appearance" }
+                    ThemePane {}
+                }
+                Paper { sx: section_sx.clone(),
+                    Title { component: "h2", size: "lg", "Theme roles" }
+                    ThemeRoles {}
+                }
+            }
+            Paper { sx: section_sx,
+                Title { component: "h2", size: "lg", "Settings navigation" }
+                ScrollArea { height: "18rem",
+                    Sidebar { sx: navigation_sx,
+                        Flex { direction: "column", gap: "xs",
+                            for group in SETTINGS_GROUPS {
+                                Title { component: "h3", size: "sm", "{group.label}" }
+                                for pane in group.panes {
+                                    NavLink {
+                                        size: "sm",
+                                        to: crate::routes::Route::Settings { pane: Some(pane.id.to_owned()) }.to_path(),
+                                        onclick: move |event: MouseEvent| {
+                                            event.prevent_default();
+                                            on_navigate.call(crate::routes::Route::Settings { pane: Some(pane.id.to_owned()) }.to_path());
+                                        },
+                                        "{pane.label}"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

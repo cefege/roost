@@ -6,6 +6,10 @@
 //! opens it. Spawn and kill go through `client::rpc::calls::sessions`.
 
 use dioxus::prelude::*;
+use libero::{
+    components::{Button, Divider},
+    sx::sx,
+};
 use roost_client_core::ClientEvent;
 use roost_client_core::store::navigation::worker_online;
 use roost_client_core::store::selectors::session_by_id;
@@ -14,7 +18,6 @@ use roost_client_core::store::shell_intent::ShellIntent;
 
 use super::context_menu_frame::ContextMenuFrame;
 use super::machine_action_items::MachineActionItems;
-use crate::components::ui::context_menu::{ContextMenuItem, ContextMenuSeparator};
 use crate::machine_actions::MachineMenuKind;
 use crate::pump::{Pump, use_store};
 use crate::router_state::use_navigate;
@@ -53,6 +56,11 @@ pub fn SessionRowContextMenu(
 ) -> Element {
     let pump = use_store();
     let navigate = use_navigate();
+    let item_sx = use_hook(|| {
+        sx().width("100%")
+            .justify_content("flex-start")
+            .text_align("start")
+    });
     let (rename_request, worker_offline, worker_fp) = {
         let core = pump.core();
         let core = core.borrow();
@@ -80,8 +88,6 @@ pub fn SessionRowContextMenu(
         };
         (request, offline, session.worker_fp.to_string())
     };
-    // Activating an item runs its handler and then the ui closes the menu, so
-    // the handlers here do not close it themselves.
     let call = {
         let pump = pump.clone();
         let session_id = session_id.clone();
@@ -98,41 +104,47 @@ pub fn SessionRowContextMenu(
             test_id: "session-context-menu-{session_id}",
             label: "Terminal actions",
             on_close,
-            ContextMenuItem {
-                test_id: "session-ctx-rename-{session_id}",
-                onclick: move |_: MouseEvent| {
+            Button {
+                sx: item_sx.clone(), variant: "standard", size: "sm", role: "menuitem", tabindex: "-1",
+                "data-testid": "session-ctx-rename-{session_id}",
+                onclick: move |_| {
                     rename_pump.dispatch(ClientEvent::Shell(ShellIntent::OpenRenameDialog(rename_request.clone())));
+                    on_close.call(());
                 },
                 "Rename…"
             }
-            ContextMenuItem {
-                test_id: "session-ctx-duplicate-{session_id}",
-                onclick: move |_: MouseEvent| duplicate(SessionMenuCall::Duplicate),
+            Button {
+                sx: item_sx.clone(), variant: "standard", size: "sm", role: "menuitem", tabindex: "-1",
+                "data-testid": "session-ctx-duplicate-{session_id}",
+                onclick: move |_| { duplicate(SessionMenuCall::Duplicate); on_close.call(()); },
                 "Duplicate terminal"
             }
-            ContextMenuItem {
-                test_id: "session-ctx-restart-{session_id}",
-                onclick: move |_: MouseEvent| restart(SessionMenuCall::Restart),
+            Button {
+                sx: item_sx.clone(), variant: "standard", size: "sm", role: "menuitem", tabindex: "-1",
+                "data-testid": "session-ctx-restart-{session_id}",
+                onclick: move |_| { restart(SessionMenuCall::Restart); on_close.call(()); },
                 "Restart"
             }
             MachineActionItems {
+                pump: pump.clone(),
                 worker_fp,
                 menu: MachineMenuKind::Session,
                 test_id_prefix: "session-ctx",
                 test_id_suffix: "-{session_id}",
+                on_close,
             }
-            ContextMenuSeparator {}
-            ContextMenuItem {
-                test_id: "session-ctx-delete-{session_id}",
-                class: "text-destructive hover:text-destructive focus:text-destructive",
-                onclick: move |_: MouseEvent| on_delete.call(()),
+            Divider {}
+            Button {
+                sx: item_sx.clone(), variant: "standard", size: "sm", role: "menuitem", tabindex: "-1",
+                "data-testid": "session-ctx-delete-{session_id}",
+                onclick: move |_| { on_delete.call(()); on_close.call(()); },
                 "Close terminal"
             }
             if worker_offline {
-                ContextMenuItem {
-                    test_id: "session-ctx-force-remove-{session_id}",
-                    class: "text-destructive hover:text-destructive focus:text-destructive",
-                    onclick: move |_: MouseEvent| force(SessionMenuCall::ForceRemove),
+                Button {
+                    sx: item_sx, variant: "standard", size: "sm", role: "menuitem", tabindex: "-1",
+                    "data-testid": "session-ctx-force-remove-{session_id}",
+                    onclick: move |_| { force(SessionMenuCall::ForceRemove); on_close.call(()); },
                     "Force remove (worker offline)"
                 }
             }

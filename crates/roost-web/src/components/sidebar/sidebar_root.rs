@@ -17,12 +17,12 @@ use super::sidebar_new_terminal::SidebarNewTerminal;
 use super::sidebar_search::SidebarSearch;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::term_font_stepper::TermFontStepper;
-use crate::components::ui::toggle_group::ToggleGroupSpacing;
-use crate::components::ui::{ButtonSize, IconButton, IconType, ToggleGroup, ToggleGroupItem};
 use crate::platform::browser_platform::{PlatformShortcut, platform_shortcut_label};
 use crate::pump::use_store;
 use crate::router_state::use_navigate;
 use crate::routes::Route;
+use libero::components::{ActionIcon, Flex, Pictogram, SegmentedControl};
+use libero::sx::sx;
 
 /// How long the filter waits after the last keystroke before re-projecting.
 pub const SEARCH_DEBOUNCE_MS: u32 = 120;
@@ -43,22 +43,6 @@ pub fn SidebarRoot() -> Element {
     let mut debounced = use_signal(String::new);
     let mut debounce_generation = use_signal(|| 0_u64);
     let ui = pump.core().borrow().store().ui;
-    // The listener outlives renders, so it reads the size class through a cell
-    // every render refreshes rather than the value captured at mount.
-    let compact_now = use_hook(|| std::rc::Rc::new(std::cell::Cell::new(compact)));
-    compact_now.set(compact);
-    #[cfg(target_arch = "wasm32")]
-    {
-        let pump = pump.clone();
-        let compact_now = std::rc::Rc::clone(&compact_now);
-        use_hook(move || {
-            std::rc::Rc::new(super::dom::listen_for_search_shortcut(move || {
-                pump.dispatch(ClientEvent::Sidebar(SidebarIntent::RevealForSearch {
-                    compact: compact_now.get(),
-                }));
-            }))
-        });
-    }
     #[cfg(target_arch = "wasm32")]
     let platform = crate::platform::browser_platform::browser_platform();
     #[cfg(not(target_arch = "wasm32"))]
@@ -91,60 +75,95 @@ pub fn SidebarRoot() -> Element {
     let folders_active = interactive && folders_selected;
     let agents_active = interactive && agents_selected;
     let selected = |on: bool| if on { "true" } else { "false" };
+    let segment_sx = use_hook(|| sx().flex_grow(1));
+    let root_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("column")
+            .height("100%")
+            .min_height("0")
+            .gap("0")
+            .background("surface")
+            .color("ink")
+    });
+    let header_sx = use_hook(|| {
+        sx().display("flex")
+            .align_items("center")
+            .gap("sm")
+            .padding_inline("sm")
+            .padding_block("sm")
+    });
+    let panel_stack_sx = use_hook(|| {
+        sx().display("grid")
+            .min_height("0")
+            .flex("1")
+            .gap("0")
+            .with("grid-template-columns", "minmax(0, 1fr)")
+            .with("grid-template-rows", "minmax(0, 1fr)")
+    });
+    let panel_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("column")
+            .min_height("0")
+            .gap("0")
+            .with("grid-area", "1 / 1")
+            .selector(
+                "[data-active=false]",
+                sx().visibility("hidden").pointer_events("none"),
+            )
+    });
+    let footer_sx = use_hook(|| {
+        sx().display("flex")
+            .align_items("center")
+            .justify_content("space-between")
+            .gap("sm")
+            .border_top("1px solid")
+            .border_color("muted.4")
+            .padding_inline("md")
+            .padding_block("sm")
+    });
     let select_view = {
         let pump = pump.clone();
         move |view: SidebarView| pump.dispatch(ClientEvent::Sidebar(SidebarIntent::SetView(view)))
     };
-    let select_folders = select_view.clone();
     let close_drawer = pump.clone();
-
+    let segment_value = if folders_selected {
+        "folders"
+    } else {
+        "agents"
+    }
+    .to_owned();
     rsx! {
-        div { class: "flex h-full min-h-0 flex-col bg-sidenav text-foreground", "data-testid": "sidebar-root",
-            div {
-                div { class: "flex items-center gap-2 px-2 pt-2",
+        Flex { direction: "column", sx: root_sx, "data-testid": "sidebar-root",
+            Flex { direction: "row", sx: header_sx,
                     if compact {
-                        IconButton {
-                            icon: IconType::X,
-                            label: "Close sidebar",
+                        ActionIcon {
+                            aria_label: "Close sidebar",
                             onclick: move |_| close_drawer.dispatch(ClientEvent::Sidebar(SidebarIntent::CloseDrawer)),
                             "data-testid": "brand-row-collapse",
+                            Pictogram { icon: pictogram_icons_lucide::x::outlined, width: "1rem", height: "1rem" }
                         }
                     }
-                    ToggleGroup {
-                        class: "min-w-0 flex-1 bg-muted p-0.5",
-                        spacing: ToggleGroupSpacing::Flush,
-                        aria_label: "Sidebar view",
-                        test_id: "sidebar-selector",
-                        ToggleGroupItem {
-                            id: "sidebar-view-agents",
-                            test_id: "sidebar-view-agents",
-                            class: "h-8 min-w-0 flex-1 data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm",
-                            title: "Agent workspaces",
-                            pressed: agents_selected,
-                            onclick: move |_| select_view(SidebarView::Agents),
-                            "Workspaces"
-                        }
-                        ToggleGroupItem {
-                            id: "sidebar-view-folders",
-                            test_id: "sidebar-view-folders",
-                            class: "h-8 min-w-0 flex-1 data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm",
-                            title: "Folders",
-                            pressed: folders_selected,
-                            onclick: move |_| select_folders(SidebarView::Folders),
-                            "Folders"
-                        }
+                    SegmentedControl {
+                        sx: segment_sx,
+                        options: vec!["agents".to_owned(), "folders".to_owned()],
+                        option_label: |view: String| -> libero::components::OptionLabel {
+                            if view == "agents" { "Workspaces".into() } else { "Folders".into() }
+                        },
+                        value: segment_value,
+                        onchange: move |view: String| select_view(if view == "folders" { SidebarView::Folders } else { SidebarView::Agents }),
+                        "aria-label": "Sidebar view",
+                        "data-testid": "sidebar-selector",
                     }
                     if compact {
-                        IconButton {
-                            icon: IconType::Settings,
-                            label: "Settings",
+                        ActionIcon {
+                            aria_label: "Settings",
                             onclick: move |_| {
                                 navigate.call(Route::Settings { pane: Some("devices".to_owned()) }.to_path());
                             },
                             "data-testid": "brand-row-settings",
+                            Pictogram { icon: pictogram_icons_lucide::settings::outlined, width: "1rem", height: "1rem" }
                         }
                     }
-                }
                 SidebarSearch {
                     query: query(),
                     on_change: on_query_change,
@@ -152,17 +171,15 @@ pub fn SidebarRoot() -> Element {
                     shortcut_label: platform_shortcut_label(PlatformShortcut::SidebarSearch, "⌘F", platform).to_owned(),
                 }
             }
-            div { class: "relative grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]",
-                div {
-                    class: "flex min-h-0 flex-col [grid-area:1/1] data-[active=false]:invisible data-[active=false]:pointer-events-none",
+            Flex { direction: "column", sx: panel_stack_sx,
+                Flex { direction: "column", sx: panel_sx.clone(),
                     "data-active": selected(folders_selected),
                     "data-testid": "sidebar-folders",
                     inert: (!folders_active).then_some(true),
                     "aria-hidden": (!folders_selected).then_some("true"),
                     AllView { active: folders_active, query: debounced() }
                 }
-                div {
-                    class: "flex min-h-0 flex-col [grid-area:1/1] data-[active=false]:invisible data-[active=false]:pointer-events-none",
+                Flex { direction: "column", sx: panel_sx,
                     "data-active": selected(agents_selected),
                     "data-testid": "sidebar-agents-section",
                     inert: (!agents_active).then_some(true),
@@ -171,11 +188,9 @@ pub fn SidebarRoot() -> Element {
                 }
             }
             if compact && terminal_route {
-                div {
-                    class: "flex items-center justify-between gap-2 border-t border-border px-3 py-2",
+                Flex { direction: "row", sx: footer_sx,
                     "data-testid": "sidebar-text-size",
-                    span { class: "text-sm font-medium text-muted-foreground", "Text size" }
-                    TermFontStepper { test_id: "sidebar-term-font", size: ButtonSize::IconSm }
+                    TermFontStepper { test_id: "sidebar-term-font", size: "sm" }
                 }
             }
             SidebarNewTerminal {}

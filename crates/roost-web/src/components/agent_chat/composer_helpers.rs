@@ -15,13 +15,8 @@ pub(super) fn composer_input_id(conversation_id: &str) -> String {
     format!("agent-chat-input-{conversation_id}")
 }
 
-pub(super) fn fill_draft(
-    mut draft: Signal<String>,
-    mut selected_option: Signal<usize>,
-    text: &str,
-) {
+pub(super) fn fill_draft(mut draft: Signal<String>, text: &str) {
     draft.set(text.to_string());
-    selected_option.set(0);
 }
 
 pub(super) fn focus_field(field: Signal<Option<Rc<MountedData>>>) {

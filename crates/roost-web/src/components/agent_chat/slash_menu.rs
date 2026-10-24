@@ -1,27 +1,14 @@
-//! The slash-command menu, a panel raised above the agent composer. `slash_menu_state`
-//! decides what a draft can complete to, from the shared registry: command
-//! names while the draft is one word, then the subcommands or argument values
-//! of the single command it names. `SlashMenu` renders that as OMP's list does:
-//! a name column sized to the widest visible name, then usage and summary.
-//! The composer owns the draft and the keys; `accept_action` decides Enter.
+//! Slash-command completion derives its choices from the shared registry and
+//! the current conversation catalog.
+//! This module owns filtering and the Enter action; Libero Combobox owns
+//! highlighted rows, keyboard navigation and presentation in the composer.
 
-use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{
     AGENT_SLASH_COMMANDS, ConversationSummary, ModelsCatalog, SlashCommand,
 };
 
 use super::model_controls::supports_reasoning;
 use super::model_hub::hub_logic::model_argument_values;
-use crate::components::ui::{Command, CommandItem, CommandList, Surface};
-
-#[cfg(target_arch = "wasm32")]
-use web_sys::{ScrollIntoViewOptions, ScrollLogicalPosition};
-
-/// The name column's bounds in characters, OMP's slash-list layout.
-const NAME_COLUMN_MIN_CHARS: usize = 12;
-const NAME_COLUMN_MAX_CHARS: usize = 32;
-/// Space between the widest name and the summary column.
-const NAME_COLUMN_GAP_CHARS: usize = 2;
 
 /// One completion the menu offers.
 #[derive(Debug, Clone, PartialEq)]
@@ -33,7 +20,6 @@ pub(super) struct SlashOption {
     pub(super) needs_value: bool,
     /// What the name column shows: the command name, or the argument value.
     pub(super) label: String,
-    /// The command's usage, shown ahead of the summary on name rows only.
     pub(super) usage: &'static str,
     pub(super) summary: String,
 }
@@ -101,17 +87,6 @@ pub(super) fn accept_action(option: &SlashOption) -> SlashAccept {
     } else {
         SlashAccept::Submit(option.text.trim_end().to_string())
     }
-}
-
-/// The shared name-column width: the widest visible label plus a gap,
-/// clamped so one long model id cannot push the summaries off the row.
-pub(super) fn name_column_chars(options: &[SlashOption]) -> usize {
-    let widest = options
-        .iter()
-        .map(|option| option.label.chars().count())
-        .max()
-        .unwrap_or(0);
-    (widest + NAME_COLUMN_GAP_CHARS).clamp(NAME_COLUMN_MIN_CHARS, NAME_COLUMN_MAX_CHARS)
 }
 
 /// Argument values that come from the conversation rather than the registry.
@@ -250,130 +225,6 @@ fn argument_options(
             summary,
         })
         .collect()
-}
-
-/// The listbox id for a conversation's composer.
-pub(super) fn listbox_id(conversation_id: &str) -> String {
-    format!("agent-slash-list-{}", sanitize_id(conversation_id))
-}
-
-/// The id of one option row, used for `aria-activedescendant` and scrolling.
-pub(super) fn option_id(conversation_id: &str, index: usize) -> String {
-    format!("agent-slash-{}-{index}", sanitize_id(conversation_id))
-}
-
-fn sanitize_id(conversation_id: &str) -> String {
-    conversation_id
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() {
-                character
-            } else {
-                '-'
-            }
-        })
-        .collect()
-}
-
-#[component]
-pub fn SlashMenu(
-    conversation_id: String,
-    state: SlashMenuState,
-    selected: usize,
-    on_choose: EventHandler<usize>,
-) -> Element {
-    let listbox = listbox_id(&conversation_id);
-    let name_chars = name_column_chars(&state.options);
-    // With nothing left to complete, the named command's usage is all there is
-    // to say; while a list is open its rows already carry it.
-    let usage_line = state.argument_command.filter(|_| state.options.is_empty());
-    rsx! {
-        div {
-            class: "absolute inset-x-0 bottom-full z-10 mb-2",
-            "data-testid": "agent-chat-command-menu",
-            onmousedown: move |event: MouseEvent| event.prevent_default(),
-            // The composer's level, so the selected row's container color reads
-            // against it; the elevation is what lifts it off the transcript.
-            Surface {
-                class: Some("max-h-[min(21rem,40dvh)] overflow-y-auto overscroll-contain py-1".to_owned()),
-                level: 1,
-                elevation: 2,
-                border: true,
-                if let Some(command) = usage_line {
-                    p { class: "px-3 py-2 text-xs text-muted-foreground", "data-testid": "agent-chat-command-usage",
-                        span { class: "font-mono",
-                            "/{command.name}"
-                            if !command.args.is_empty() {
-                                " {command.args}"
-                            }
-                        }
-                        " {command.summary}"
-                    }
-                } else {
-                    // The composer owns focus and arrow keys (its textarea holds
-                    // `aria-activedescendant`), so the menu's root never handles them and
-                    // rows never take tab focus.
-                    Command {
-                        class: "h-auto",
-                        handles_keys: false,
-                        should_filter: false,
-                        highlighted: selected.to_string(),
-                        CommandList {
-                            id: listbox.clone(),
-                            role: "listbox",
-                            aria_label: "Commands",
-                            style: format!("--slash-name-chars: {name_chars}"),
-                            class: "max-h-none min-h-0 overflow-visible",
-                            for (idx, option) in state.options.iter().enumerate() {
-                                CommandItem {
-                                    key: "{idx}-{option.text}",
-                                    id: option_id(&conversation_id, idx),
-                                    value: idx.to_string(),
-                                    focusable: false,
-                                    show_check: false,
-                                    selected: idx == selected,
-                                    test_id: format!("agent-slash-option-{idx}"),
-                                    class: "gap-2 px-3",
-                                    on_select: Some(EventHandler::new(move |_| on_choose.call(idx))),
-                                    div { class: "flex min-w-0 flex-1 text-sm text-foreground",
-                                        div { class: "flex min-w-0 flex-col font-mono md:grid md:grid-cols-[calc(var(--slash-name-chars)_*_1ch)_minmax(0,1fr)] md:items-baseline",
-                                            span { class: "min-w-0 truncate", "{option.label}" }
-                                            span { class: "line-clamp-2 min-w-0 whitespace-normal font-normal text-muted-foreground",
-                                                if !option.usage.is_empty() {
-                                                    span { "{option.usage}" }
-                                                    " "
-                                                }
-                                                "{option.summary}"
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Keeps the keyboard-selected option in the menu's scroll area. Scrolls to the
-/// nearest edge so the composer and page stay put.
-pub(super) fn scroll_option_into_view(conversation_id: &str, index: usize) {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let Some(element) = web_sys::window()
-            .and_then(|window| window.document())
-            .and_then(|document| document.get_element_by_id(&option_id(conversation_id, index)))
-        else {
-            return;
-        };
-        let options = ScrollIntoViewOptions::new();
-        options.set_block(ScrollLogicalPosition::Nearest);
-        element.scroll_into_view_with_scroll_into_view_options(&options);
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    let _ = (conversation_id, index);
 }
 
 #[cfg(test)]

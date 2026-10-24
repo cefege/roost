@@ -16,12 +16,8 @@ use roost_client_core::client::rpc::calls::settings::audit::AuditLogRow;
 use roost_client_core::client::rpc::calls::settings::audit::{AuditLogPage, ListAuditRows};
 
 use super::format::{format_timestamp, short_identifier};
-use crate::components::ui::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader,
-    CardTitle, EmptyState, FieldError, IconType, Table, TableBody, TableCell, TableRow,
-    TableWrapper, TextField,
-};
 use crate::pump::{Pump, use_store};
+use libero::components::{Badge, Button, Flex, Paper, Table, Text, TextField, column};
 
 /// How many rows a page asks for.
 #[cfg(target_arch = "wasm32")]
@@ -47,6 +43,9 @@ pub fn AuditLogPane() -> Element {
     let mut view = use_signal(AuditView::default);
     let load_pump = pump.clone();
     use_effect(move || load_page(load_pump.clone(), None, view));
+    let semibold_text_sx = use_hook(|| libero::sx::sx().font_weight("600"));
+    let medium_text_sx = use_hook(|| libero::sx::sx().font_weight("500"));
+    let paper_sx = use_hook(|| libero::sx::sx().padding("md"));
 
     let state = view();
     let rows: Vec<AuditLogRow> = state
@@ -56,67 +55,54 @@ pub fn AuditLogPane() -> Element {
         .cloned()
         .collect();
     rsx! {
-        div {
-            class: "flex flex-col gap-5",
-            "data-testid": "audit-pane",
-            Card {
-                CardHeader {
-                    CardTitle { "Filter" }
-                }
-                CardContent { class: "flex flex-col gap-3",
+        Flex { direction: "column", gap: "md", "data-testid": "audit-pane",
+            Paper { sx: paper_sx.clone(),
+                Flex { direction: "column", gap: "sm",
+                    Text { size: "lg", sx: semibold_text_sx.clone(), "Filter" }
                     TextField {
-                        label: "Caller fingerprint".to_owned(),
-                        placeholder: "authorized key fingerprint".to_owned(),
-                        value: state.fingerprint.clone(),
-                        on_input: move |value| view.write().fingerprint = value,
+                        label: "Caller fingerprint", placeholder: "authorized key fingerprint",
+                        value: Some(state.fingerprint.clone()), oninput: move |value| view.write().fingerprint = value,
                     }
                     TextField {
-                        label: "Method".to_owned(),
-                        placeholder: "SessionsSpawn".to_owned(),
-                        value: state.method.clone(),
-                        on_input: move |value| view.write().method = value,
+                        label: "Method", placeholder: "SessionsSpawn",
+                        value: Some(state.method.clone()), oninput: move |value| view.write().method = value,
                     }
                     TextField {
-                        label: "Path contains".to_owned(),
-                        placeholder: "/roost.v1".to_owned(),
-                        value: state.path.clone(),
-                        on_input: move |value| view.write().path = value,
+                        label: "Path contains", placeholder: "/roost.v1",
+                        value: Some(state.path.clone()), oninput: move |value| view.write().path = value,
                     }
                 }
             }
-            Card {
-                CardHeader {
-                    CardTitle { "Audit log" }
-                    CardDescription {
-                        "Newest first. Rows arrive from the coordinator's own table; the live feed keeps this tab's rows fresh."
-                    }
-                }
-                CardContent { class: "flex flex-col gap-3",
+            Paper { sx: paper_sx,
+                Flex { direction: "column", gap: "sm",
+                    Text { size: "lg", sx: semibold_text_sx.clone(), "Audit log" }
+                    Text { size: "sm", color: "muted", "Newest first. Rows arrive from the coordinator's own table; the live feed keeps this tab's rows fresh." }
                     if let Some(message) = state.error.clone() {
-                        FieldError { {message} }
+                        Text { size: "sm", color: "error", role: "alert", "{message}" }
                     }
                     if !state.loaded {
-                        span { class: "text-sm text-muted-foreground", "Loading…" }
+                        Text { size: "sm", color: "muted", "Loading…" }
                     } else if rows.is_empty() {
-                        EmptyState {
-                            icon: IconType::History,
-                            title: "No audit rows",
-                            supporting: "Nothing has matched yet. Widen the filter, or drive some coordinator traffic.",
+                        Flex { direction: "column", align: "center", gap: "xs",
+                            Text { size: "md", sx: semibold_text_sx.clone(), "No audit rows" }
+                            Text { size: "sm", color: "muted", "Nothing has matched yet. Widen the filter, or drive some coordinator traffic." }
                         }
                     } else {
-                        TableWrapper { class: "max-h-none rounded-none border-0",
-                            Table {
-                                TableBody {
-                                    for row in rows {
-                                        AuditTableRow { row }
-                                    }
-                                }
-                            }
+                        Table {
+                            data: rows,
+                            row_attrs: |_: &AuditLogRow| vec![Attribute::new("data-testid", "audit-row", None, false)],
+                            columns: vec![
+                                column("Timestamp").value(|row: &AuditLogRow| format_timestamp(row.ts)).render(|row: &AuditLogRow| rsx! { Text { size: "xs", color: "muted", "{format_timestamp(row.ts)}" } }),
+                                column("Method").value(|row: &AuditLogRow| row.method.clone()).render({ let medium_text_sx = medium_text_sx.clone(); move |row: &AuditLogRow| rsx! { Text { size: "sm", sx: medium_text_sx.clone(), "{row.method}" } } }),
+                                column("Path").value(|row: &AuditLogRow| row.path.clone()).render(|row: &AuditLogRow| rsx! { Text { size: "sm", color: "muted", "{row.path}" } }),
+                                column("Status").value(|row: &AuditLogRow| row.status.to_string()).render(|row: &AuditLogRow| rsx! { Badge { variant: if row.status >= 400 { "tonal" } else { "outlined" }, "{row.status}" } }),
+                                column("Caller").value(|row: &AuditLogRow| row.caller_label.clone().unwrap_or_else(|| short_identifier(row.caller_fp.as_deref().unwrap_or("no caller"), 12))).render(|row: &AuditLogRow| rsx! { Text { size: "xs", color: "muted", "{row.caller_label.clone().unwrap_or_else(|| short_identifier(row.caller_fp.as_deref().unwrap_or(\"no caller\"), 12))}" } }),
+                            ],
                         }
                     }
                     if state.next_cursor.is_some() {
                         Button {
-                            variant: ButtonVariant::Ghost,
+                            variant: "standard",
                             "data-testid": "audit-load-more",
                             disabled: state.loading_more,
                             onclick: {
@@ -127,43 +113,6 @@ pub fn AuditLogPane() -> Element {
                         }
                     }
                 }
-            }
-        }
-    }
-}
-
-/// One row of the audit table; the pane's `TableBody` supplies the table around it.
-#[component]
-fn AuditTableRow(row: AuditLogRow) -> Element {
-    let tone_variant = if row.status < 300 {
-        BadgeVariant::Secondary
-    } else if row.status < 400 {
-        BadgeVariant::Muted
-    } else if row.status < 500 {
-        BadgeVariant::Accent
-    } else {
-        BadgeVariant::Destructive
-    };
-    rsx! {
-        TableRow { test_id: "audit-row",
-            TableCell { class: "min-w-[10ch] py-2 font-mono text-muted-foreground",
-                {format_timestamp(row.ts)}
-            }
-            TableCell { class: "max-w-0 w-full py-2",
-                span { class: "block truncate font-mono", title: row.path.clone(),
-                    {row.method.clone()}
-                }
-            }
-            TableCell { class: "py-2 font-mono text-muted-foreground",
-                {row.path.clone()}
-            }
-            TableCell { class: "py-2",
-                Badge { variant: tone_variant, {row.status.to_string()} }
-            }
-            TableCell { class: "py-2 text-xs font-medium text-muted-foreground",
-                {row.caller_label.clone().unwrap_or_else(|| {
-                    short_identifier(row.caller_fp.as_deref().unwrap_or("no caller"), 12)
-                })}
             }
         }
     }

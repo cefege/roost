@@ -1,20 +1,17 @@
-//! The live working row: a braille spinner, the elapsed time since the row
-//! appeared, and the running tool's intent (or "Working…"/"Writing…")
-//! shimmering, as OMP's loader draws it. Pinned in `agent_chat::surface`'s
-//! dock above the composer, so it stays visible for the whole run. Reduced
-//! motion freezes the spinner and the label and ticks the elapsed time once
-//! a second.
+//! The live working row: an activity indicator, elapsed time since the row
+//! appeared, and the running tool's intent (or "Working…"/"Writing…").
+//! Pinned above the composer so it stays visible throughout the run. Reduced
+//! motion disables the indicator animation and ticks elapsed time once a second.
 
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{INTENT_FIELD, TranscriptItem, intent_label};
 
 use crate::components::terminal::dom::{now_ms, sleep_ms};
-use crate::components::ui::Shimmer;
 #[cfg(target_arch = "wasm32")]
 use crate::motion::view_transition::prefers_reduced_motion;
+use libero::components::{Flex, Indicator, Text};
+use libero::sx::sx;
 
-const SPINNER_FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-const SPINNER_FRAME_MS: u64 = 80;
 const FRAME_TICK_MS: u64 = 33;
 const REDUCED_TICK_MS: u64 = 1_000;
 const IDLE_LABEL: &str = "Working…";
@@ -104,28 +101,15 @@ pub(crate) fn WorkingRow(label: String) -> Element {
             clock_ms.set(now_ms());
         }
     });
-
     let elapsed_ms = clock_ms().saturating_sub(started_ms);
-    let frame_index = if reduced {
-        0
-    } else {
-        (elapsed_ms / SPINNER_FRAME_MS) as usize % SPINNER_FRAMES.len()
-    };
-    let spinner = SPINNER_FRAMES.get(frame_index).copied().unwrap_or('⠋');
-    let shimmering = use_signal(|| true);
-
+    let row_sx = use_hook(|| sx().gap("sm").font_size("sm").color("muted"));
+    let duration_sx = use_hook(|| sx().with("font-variant-numeric", "tabular-nums"));
     rsx! {
-        div { class: "flex items-center gap-2 text-sm text-muted-foreground",
-            span { class: "font-mono", "aria-hidden": "true", "{spinner}" }
-            span { class: "tabular-nums", "{format_duration(elapsed_ms)}" }
-            span { "aria-hidden": "true", " · " }
-            span { role: "status",
-                if reduced {
-                    span { "{label}" }
-                } else {
-                    Shimmer { loading: shimmering, "{label}" }
-                }
-            }
+        Flex { direction: "row", align: "center", sx: row_sx,
+            Indicator { color: "primary", processing: !reduced }
+            Text { sx: duration_sx, "{format_duration(elapsed_ms)}" }
+            Text { aria_hidden: "true", " · " }
+            Text { role: "status", "{label}" }
         }
     }
 }

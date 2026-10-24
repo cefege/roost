@@ -1,23 +1,24 @@
 /* Ten-foot presentation. One root attribute (data-tv, written by
-   input_nav/modality_dom.rs) re-declares the scale every utility already reads:
-   Tailwind's `--text-*` sizes and `--spacing` unit (so every `text-sm`, `p-2`,
-   `h-9` grows together), and the layout tokens runtime styles read. A TV
-   always gets the desktop workbench (window_size::use_is_compact), whose
-   sidebar slides over the editor.
-   The token block is `html[data-tv="true"]` so it outranks theme-vars.css's
-   `@media (any-pointer: coarse) :root` block by specificity rather than by
-   stylesheet order. Per-component TV differences are `tv:` variants on the
-   markup (tailwind.css). */
+   input_nav/modality_dom.rs) re-declares Libero's type and spacing tokens with
+   the larger TV scale, plus the layout tokens runtime styles read. A TV always
+   gets the desktop workbench (window_size::use_is_compact), whose sidebar slides
+   over the editor. The token block is `html[data-tv="true"]` so it outranks
+   theme-vars.css's `@media (any-pointer: coarse) :root` block by specificity
+   rather than stylesheet order. */
 
 html[data-tv="true"] {
-  --text-xs: 1.125rem;
-  --text-sm: 1.375rem;
-  --text-base: 1.5rem;
-  --text-lg: 1.625rem;
-  --text-xl: 1.875rem;
-  --text-2xl: 2.125rem;
-  --text-3xl: 2.5rem;
-  --spacing: 0.3125rem;
+  --lsx-font-size-xs: 1.125rem;
+  --lsx-font-size-sm: 1.375rem;
+  --lsx-font-size-md: 1.5rem;
+  --lsx-font-size-lg: 1.625rem;
+  --lsx-font-size-xl: 1.875rem;
+  --lsx-font-size-xxl: 2.125rem;
+  --lsx-spacing-xs: 5px;
+  --lsx-spacing-sm: 10px;
+  --lsx-spacing-md: 15px;
+  --lsx-spacing-lg: 20px;
+  --lsx-spacing-xl: 25px;
+  --lsx-spacing-xxl: 30px;
   --term-chat-font-size: 1.5rem;
   --term-chat-line-height: 2.125rem;
   --term-nav-icon-size: 2.125rem;

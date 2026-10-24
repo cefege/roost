@@ -79,9 +79,11 @@ fn deck_root() -> Element {
     );
     ResizeDrag::provide();
     rsx! {
-        TerminalDeck { active_session_id: None, surface_visible: true }
-        StoreProbe {}
-        PumpProbe {}
+        libero::LiberoProvider {
+            TerminalDeck { active_session_id: None, surface_visible: true }
+            StoreProbe {}
+            PumpProbe {}
+        }
     }
 }
 

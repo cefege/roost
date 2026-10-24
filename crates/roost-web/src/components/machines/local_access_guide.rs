@@ -10,9 +10,8 @@
 
 use dioxus::prelude::*;
 
-use crate::components::ui::{
-    Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader, CardTitle,
-};
+use libero::components::{Box, Button, Code, Flex, Paper, Text, Title};
+use libero::sx::sx;
 
 /// The card's headline, which is also the answer this state gives.
 pub const LOCAL_ACCESS_HEADLINE: &str = "Connect another machine";
@@ -51,54 +50,62 @@ const CHECKING_LABEL: &str = "Checking the coordinator's enrollment address…";
 /// instead of an empty modal.
 #[component]
 pub fn MachineLocalAccessGuide(checking: bool, on_recheck: EventHandler<()>) -> Element {
+    let paper_sx = use_hook(|| sx().padding("md").gap("md"));
+    let steps_sx = use_hook(|| {
+        sx().margin("0")
+            .padding_left("md")
+            .display("grid")
+            .gap("md")
+            .with("list-style-type", "decimal")
+            .color("muted")
+            .selector("& li", sx().padding_left("xs"))
+    });
+    let inline_code_sx = use_hook(|| {
+        sx().with("overflow-wrap", "anywhere")
+            .font_family("monospace")
+    });
     rsx! {
-        Card { "data-testid": "machine-deploy-local-only",
-            CardHeader {
-                CardTitle { {LOCAL_ACCESS_HEADLINE} }
-                CardDescription { {SUPPORTING_LINE} }
+        Paper { sx: paper_sx.clone(), "data-testid": "machine-deploy-local-only",
+            Flex { direction: "column", gap: "sm",
+                Title { order: 3, size: "md", {LOCAL_ACCESS_HEADLINE} }
+                Text { size: "sm", color: "muted", {SUPPORTING_LINE} }
             }
-            CardContent {
-                div { class: "grid gap-4",
-                    if checking {
-                        p { class: "m-0 text-sm text-muted-foreground", "data-testid": "machine-deploy-pending",
-                            {CHECKING_LABEL}
-                        }
-                    } else {
-                        ol { class: "m-0 grid list-decimal gap-4 pl-5 text-sm text-muted-foreground",
-                            li { class: "pl-1",
-                                p { class: "m-0", {STEP_ONE} }
-                            }
-                            li { class: "pl-1",
-                                p { class: "m-0",
-                                    {STEP_TWO_LEAD}
-                                    code { class: "break-all font-mono text-xs text-foreground", {STEP_TWO_COMMAND} }
-                                    {" "}
-                                    {STEP_TWO_TAIL}
-                                }
-                            }
-                            li { class: "pl-1",
-                                div { class: "grid gap-4",
-                                    p { class: "m-0", {STEP_THREE_LEAD} }
-                                    code { class: "break-all font-mono text-xs text-foreground", {STEP_THREE_COMMAND} }
-                                    p { class: "m-0", {STEP_THREE_TAIL} }
-                                }
-                            }
-                            li { class: "pl-1",
-                                p { class: "m-0",
-                                    {STEP_FOUR_LEAD}
-                                    strong { {RECHECK_LABEL} }
-                                    {STEP_FOUR_TAIL}
-                                }
+            Flex { direction: "column", gap: "md",
+                if checking {
+                    Text { size: "sm", color: "muted", "data-testid": "machine-deploy-pending",
+                        {CHECKING_LABEL}
+                    }
+                } else {
+                    Box { component: "ol", sx: steps_sx,
+                        li { Text { size: "sm", color: "muted", {STEP_ONE} } }
+                        li {
+                            Text { size: "sm", color: "muted",
+                                {STEP_TWO_LEAD}
+                                Code { source: STEP_TWO_COMMAND, sx: inline_code_sx.clone() }
+                                {" "}
+                                {STEP_TWO_TAIL}
                             }
                         }
-                        div {
-                            Button {
-                                variant: ButtonVariant::Secondary,
-                                "data-testid": "machine-deploy-recheck",
-                                onclick: move |_| on_recheck.call(()),
-                                {RECHECK_LABEL}
+                        li {
+                            Flex { direction: "column", gap: "sm",
+                                Text { size: "sm", color: "muted", {STEP_THREE_LEAD} }
+                                Code { source: STEP_THREE_COMMAND, sx: inline_code_sx.clone() }
+                                Text { size: "sm", color: "muted", {STEP_THREE_TAIL} }
                             }
                         }
+                        li {
+                            Text { size: "sm", color: "muted",
+                                {STEP_FOUR_LEAD}
+                                strong { {RECHECK_LABEL} }
+                                {STEP_FOUR_TAIL}
+                            }
+                        }
+                    }
+                    Button {
+                        variant: "outlined",
+                        "data-testid": "machine-deploy-recheck",
+                        onclick: move |_| on_recheck.call(()),
+                        {RECHECK_LABEL}
                     }
                 }
             }

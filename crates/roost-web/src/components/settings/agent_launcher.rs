@@ -24,10 +24,11 @@ use roost_client_core::client::rpc::calls::settings::agent_config::{
 use roost_client_core::store::shell_intent::ShellIntent;
 
 use super::agents::{BUILTIN_AGENTS, CUSTOM_AGENT_ID, DEFAULT_AGENT, ResolvedAgent, resolve_agent};
-use crate::components::ui::{
-    Button, ButtonVariant, Chip, IconType, Select, SelectOption, Switch, TextField,
-};
 use crate::pump::{Pump, use_store};
+use libero::components::{
+    Button, Combobox, ComboboxOption, ComboboxOptionArgs, Switch, Text, TextField, use_combobox,
+};
+use libero::sx::sx;
 
 /// The selection the coordinator holds, plus what is in flight.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,47 +75,68 @@ pub fn AgentLauncherPane() -> Element {
     let auto_launch = draft().auto_launch;
     let saving = draft().saving;
     let resolved = draft().resolved();
-    let options: Vec<SelectOption> = BUILTIN_AGENTS
+    let options: Vec<(String, String)> = BUILTIN_AGENTS
         .iter()
-        .map(|agent| SelectOption::new(agent.id, agent.label))
-        .chain(std::iter::once(SelectOption::new(
-            CUSTOM_AGENT_ID,
-            "Custom command…",
+        .map(|agent| (agent.id.to_owned(), agent.label.to_owned()))
+        .chain(std::iter::once((
+            CUSTOM_AGENT_ID.to_owned(),
+            "Custom command…".to_owned(),
         )))
         .collect();
-    // One clone per control: three `move` closures over the same non-`Copy`
-    // binding would consume it on the first, and a handler that runs on click
-    // must not re-borrow the pump the render is still holding.
+    let agent_select = use_combobox();
+    let field_sx = use_hook(|| sx().width("100%"));
+    let pane_sx = use_hook(|| sx().flex_direction("column").gap("md").max_width("36rem"));
+    let edit_row_sx = use_hook(|| sx().align_items("end").gap("sm"));
     let choose_pump = pump.clone();
     let save_pump = pump.clone();
     let auto_launch_pump = pump.clone();
     rsx! {
-        div {
-            class: "max-w-xl",
-            "data-testid": "agent-launcher-pane",
-            p { class: "text-sm text-muted-foreground mb-4",
+        libero::components::Flex { sx: pane_sx, "data-testid": "agent-launcher-pane",
+            Text { size: "sm", color: "text-dimmed",
                 "Pick the agent Roost auto-launches in new terminals. Applies to every device."
             }
-            Select {
-                test_id: "agent-select",
-                label: "Default agent",
-                value: selected.clone(),
-                options,
-                disabled: saving,
-                on_change: move |value| choose(choose_pump.clone(), value, draft),
+            Combobox {
+                state: agent_select,
+                select_only: true,
+                "aria-label": "Default agent",
+                selected_index: options.iter().position(|(id, _)| *id == selected),
+                option_label: |option: (String, String)| option.1.clone(),
+                options: options.clone(),
+                option: {
+                    let selected = selected.clone();
+                    move |row: ComboboxOptionArgs<(String, String)>| {
+                        let choose_pump = choose_pump.clone();
+                        rsx! {
+                            ComboboxOption {
+                                selected: selected == row.value.0,
+                                onpick: move |_| {
+                                    choose(choose_pump.clone(), row.value.0.clone(), draft);
+                                    agent_select.close();
+                                },
+                                "{row.value.1}"
+                            }
+                        }
+                    }
+                },
+                Button {
+                    attributes: agent_select.a11y_attributes(),
+                    disabled: saving,
+                    onclick: move |_| agent_select.toggle(),
+                    onblur: move |_| agent_select.close(),
+                    "data-testid": "agent-select",
+                    "{options.iter().find(|(id, _)| *id == selected).map(|(_, label)| label.as_str()).unwrap_or_default()}"
+                }
             }
             if selected == CUSTOM_AGENT_ID {
-                div { class: "flex items-end gap-3 mt-4",
+                libero::components::Flex { sx: edit_row_sx.clone(),
                     TextField {
-                        test_id: "agent-custom-command",
+                        sx: field_sx.clone(),
                         label: "Custom command",
                         placeholder: "e.g. aider --model sonnet",
-                        class: "flex-1",
                         value: custom.clone(),
-                        on_input: move |value| draft.write().custom = value,
+                        oninput: move |value| draft.write().custom = value,
                     }
                     Button {
-                        variant: ButtonVariant::Default,
                         "data-testid": "agent-custom-save",
                         disabled: saving || custom.trim().is_empty(),
                         onclick: move |_| save_custom(save_pump.clone(), draft),
@@ -122,21 +144,13 @@ pub fn AgentLauncherPane() -> Element {
                     }
                 }
             }
-            div { class: "flex items-center gap-3 mt-5",
-                Chip { label: resolved.glyph.clone(), icon: Some(IconType::Puzzle) }
-                span { class: "font-semibold", {resolved.label.clone()} }
-                code { class: "font-mono",
-                    {format!("{}\u{23ce}", resolved.command)}
-                }
-            }
-            div { class: "flex items-center gap-3 mt-5",
-                Switch {
-                    test_id: "agent-auto-launch-toggle",
-                    aria_label: "Auto-launch agent in new terminal windows",
-                    checked: auto_launch,
-                    disabled: saving,
-                    on_checked_change: move |enabled| set_auto_launch(auto_launch_pump.clone(), enabled, draft),
-                }
+            Text { "{resolved.glyph} · {resolved.label}" }
+            Text { "{resolved.command}\u{23ce}" }
+            Switch {
+                label: "Auto-launch agent in new terminal windows",
+                checked: auto_launch,
+                disabled: saving,
+                onchange: move |enabled| set_auto_launch(auto_launch_pump.clone(), enabled, draft),
             }
         }
     }

@@ -1,20 +1,20 @@
-//! The chrome both sidebar row menus share: a controlled ui `ContextMenu` opened
-//! at the pointer, a click-away scrim beneath it, and focus returned to the row
-//! on close. The `role="menu"` surface, roving keys and item rows come from
-//! `ui`; the row supplies its items as children.
+//! Sidebar pointer menus preserve the row target and command callbacks.
+//! Libero places and dismisses the Paper through a fixed coordinate anchor.
+//! The captured opener, never the synthetic anchor, receives focus on close.
 
-use std::cell::RefCell;
+use crate::components::context_menu::focus_pointer_menu;
+use crate::components::context_menu::return_focus::{focused_element, restore_focus};
+use crate::components::layout::portal::Portal;
+use dioxus::prelude::*;
+use libero::{
+    components::{Box, Paper},
+    hooks::{PopoverOptions, use_element, use_popover},
+    sx::sx,
+    use_theme,
+};
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use dioxus::prelude::*;
-
-use crate::components::context_menu::MenuFocusEdge;
-use crate::components::ui::context_menu::{ContextMenu, ContextMenuContent};
-use crate::components::ui::dom::{FocusOpener, focused_element, restore_focus};
-use crate::components::ui::menu_overlay::{MenuContext, MenuPlacement, request_open};
-
-/// A row menu at viewport (`x`, `y`) holding `children` items. `on_close` runs
-/// on every dismissal: an item pick, Escape, an outside click or the scrim.
 #[component]
 pub fn ContextMenuFrame(
     x: f64,
@@ -24,56 +24,79 @@ pub fn ContextMenuFrame(
     on_close: EventHandler<()>,
     children: Element,
 ) -> Element {
-    // The row that opened this menu had focus, and a menu that takes it and
-    // never gives it back strands the operator on `body`: the arrow keys stop
-    // moving and Escape has nothing to hand focus to. Captured BEFORE the first
-    // edge is focused, because that focus move is what would otherwise become
-    // the remembered opener.
-    let opener: Rc<RefCell<Option<FocusOpener>>> =
-        use_hook(|| Rc::new(RefCell::new(focused_element())));
+    let theme = use_theme();
+    let anchor = use_element();
+    let opener = use_hook(|| Rc::new(focused_element()));
+    let focused = use_hook(|| Rc::new(Cell::new(false)));
+    let point = use_hook(|| Rc::new(RefCell::new(((x, y), 0_u64))));
+    let remeasure = {
+        let mut point = point.borrow_mut();
+        if point.0 != (x, y) {
+            point.0 = (x, y);
+            point.1 = point.1.wrapping_add(1);
+            focused.set(false);
+        }
+        point.1
+    };
+    let menu_sx = use_hook(|| sx().padding("xs").min_width("11rem").z_index("100"));
+    let anchor_sx = use_hook(|| {
+        sx().position("fixed")
+            .width("0")
+            .height("0")
+            .pointer_events("none")
+    });
+    let popover = use_popover(
+        anchor,
+        true,
+        PopoverOptions::new(theme.popover.gap, theme.popover.padding)
+            .remeasure(remeasure)
+            .dismiss(true),
+    );
+    popover.on_dismiss(move || {
+        popover.show(None);
+        on_close.call(());
+    });
+    let menu_id = test_id.clone();
+    use_effect(move || {
+        if popover.placed() && !focused.replace(true) {
+            focus_pointer_menu(&menu_id);
+        }
+    });
     use_drop(move || {
-        if let Some(opener) = opener.borrow().as_ref() {
+        if let Some(opener) = opener.as_ref() {
             restore_focus(opener);
         }
     });
-    let on_open_change = EventHandler::new(move |open: bool| {
-        if !open {
-            on_close.call(());
+    let keyboard_id = test_id.clone();
+    let menu_keydown = move |event: KeyboardEvent| {
+        #[cfg(target_arch = "wasm32")]
+        if let Some(native) = event.data().downcast::<web_sys::KeyboardEvent>()
+            && let Some(menu) = web_sys::window()
+                .and_then(|window| window.document())
+                .and_then(|document| document.get_element_by_id(&keyboard_id))
+        {
+            crate::components::context_menu::run_pointer_menu_key(native, &menu, move || {
+                on_close.call(())
+            });
         }
-    });
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = (event, &keyboard_id, on_close);
+    };
+    popover.show(Some(rsx! {
+        Paper { id: test_id.clone(), "data-testid": test_id,
+            role: "menu", aria_label: label, tabindex: "-1",
+            sx: menu_sx, style: popover.style(),
+            onmounted: (*popover.floating()).mount(),
+            onkeydown: menu_keydown, attributes: popover.floating_events(),
+            {children}
+        }
+    }));
     rsx! {
-        ContextMenu { open: true, on_open_change, test_id: Some(test_id), aria_label: Some(label.to_owned()),
-            OpenAtPointer { key: "{x},{y}", x, y }
-            div {
-                class: "fixed inset-0 z-[99]",
-                onclick: move |event: MouseEvent| {
-                    event.stop_propagation();
-                    on_close.call(());
-                },
-                oncontextmenu: move |event: MouseEvent| {
-                    event.prevent_default();
-                    on_close.call(());
-                },
+        Portal {
+            Box { aria_hidden: "true", tabindex: "-1", sx: anchor_sx,
+                style: "left:{x}px;top:{y}px;", onmounted: anchor.mount(),
+                attributes: popover.anchor_events(),
             }
-            ContextMenuContent { class: "z-[100] w-auto min-w-44", {children} }
         }
     }
-}
-
-/// Places the already-open menu at the pointer and focuses its first item. The
-/// placement is written before the panel mounts, so the first render is at the
-/// pointer and not at the origin.
-#[component]
-fn OpenAtPointer(x: f64, y: f64) -> Element {
-    let context = try_use_context::<MenuContext>();
-    use_hook(move || {
-        if let Some(context) = context {
-            request_open(
-                context,
-                Some(MenuPlacement::Point { x, y }),
-                Some(MenuFocusEdge::First),
-            );
-        }
-    });
-    rsx! {}
 }

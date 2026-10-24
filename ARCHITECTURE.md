@@ -363,8 +363,11 @@ Paths cited above are not repeated here.
   `docs/phase4-client-contract.md`.
 - **Web:** `crates/roost-web/src/main.rs` (scrubs URL-carried credentials and
   probes the serving origin before mounting); `app.rs`; `routes.rs`;
-  `components/terminal/pane_mount.rs`; `components/ui/` (rust-ui components)
-  over the Tailwind theme bridge in `tailwind.css`.
+  `components/terminal/pane_mount.rs`; direct Libero components and owned Sx.
+  `components/ui/` owns only Roost's semantic chat, attachment and composer
+  composites. One root `LiberoProvider` serves gates and portal outlets;
+  `theme/catalog.rs` maps persisted palette IDs to immutable light/dark pairs.
+  Renderer geometry, ANSI colors and TV/gamepad rules remain product-owned CSS.
 - **CLI:** `crates/roost-cli/src/lib.rs` (command tree); `quickstart/`;
   `status/`; `doctor/`; `push/`; `update/`. Contract:
   `docs/phase6-cli-contract.md`.

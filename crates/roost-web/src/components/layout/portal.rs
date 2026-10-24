@@ -11,6 +11,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use dioxus::prelude::*;
+use libero::{components::Box, sx::sx};
 
 /// The id of the one element every portal mounts into.
 pub const PORTAL_ROOT_ID: &str = "roost-portal-root";
@@ -20,8 +21,9 @@ pub const PORTAL_ROOT_ID: &str = "roost-portal-root";
 /// never hear a click; outside every transformed or scrolled surface.
 #[component]
 pub fn PortalRoot() -> Element {
+    let portal_sx = use_hook(|| sx().display("contents"));
     rsx! {
-        div { id: PORTAL_ROOT_ID, class: "contents" }
+        Box { sx: portal_sx, id: PORTAL_ROOT_ID }
     }
 }
 
@@ -41,10 +43,11 @@ pub fn Portal(children: Element) -> Element {
             element.remove();
         }
     });
+    let portal_sx = use_hook(|| sx().display("contents"));
     rsx! {
-        div { class: "contents",
-            div {
-                class: "contents",
+        Box { sx: portal_sx.clone(),
+            Box {
+                sx: portal_sx,
                 onmounted: move |event: MountedEvent| move_into_root(&event.data(), &moved),
                 {children}
             }

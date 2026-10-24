@@ -1,19 +1,70 @@
 //! The one card shown while a terminal pane is opening: a constant eyebrow, a
 //! single determinate meter, one friendly step line, and the technical detail
-//! collapsed until a step is slow or stuck. Rendered by `CellTerminal`; its
-//! entry/exit keyframes are Tailwind utilities (`animate-terminal-startup-*`).
+//! collapsed until a step is slow or stuck. Rendered by `CellTerminal`.
+//! Entry/exit motion uses the terminal startup keyframes.
 
-use crate::components::ui::{Card, Progress};
 use dioxus::prelude::*;
-use roost_web_terminal::startup_progress::{StartupChunks, terminal_startup_chunk_detail};
+use libero::components::{Box, Paper, ProgressBar, Text, Title};
+use libero::sx::sx;
 
 use super::dom::{now_ms, page_visible, sleep_ms};
 use super::pane_status::{TerminalStartupNotice, stage_attribute};
 use super::startup_overlay_state::StartupOverlayState;
+use roost_web_terminal::startup_progress::{StartupChunks, terminal_startup_chunk_detail};
 
 /// The card, or nothing once the journey completed.
 #[component]
 pub fn TerminalStartupOverlay(notice: Option<TerminalStartupNotice>) -> Element {
+    let paper_sx = use_hook(|| {
+        sx().width("min(100%, 38ch)")
+            .gap("sm")
+            .padding("lg")
+            .text_align("center")
+    });
+    let overlay_sx = use_hook(|| {
+        sx().position("absolute")
+            .with("inset", "0")
+            .z_index("5")
+            .display("flex")
+            .align_items("center")
+            .justify_content("center")
+            .padding("lg")
+            .pointer_events("none")
+            .selector(
+                "&[data-phase='loading']",
+                sx().with("animation", "terminal-startup-in 200ms ease-out both"),
+            )
+            .selector(
+                "&[data-phase='complete']",
+                sx().with("animation", "terminal-startup-out 150ms ease-in forwards"),
+            )
+            .media(
+                "(prefers-reduced-motion: reduce)",
+                sx().with("animation", "none"),
+            )
+    });
+    let screen_reader_sx = use_hook(|| {
+        sx().position("absolute")
+            .width("1px")
+            .height("1px")
+            .padding("0")
+            .margin("-1px")
+            .overflow("hidden")
+            .with("clip", "rect(0, 0, 0, 0)")
+            .white_space("nowrap")
+            .with("border", "0")
+    });
+    let details_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("column")
+            .gap("xs")
+            .border_top("1px solid")
+            .border_color("muted.4")
+            .padding_top("sm")
+            .font_size("sm")
+            .color("muted")
+            .selector("&[hidden]", sx().display("none"))
+    });
     let mut clock = use_signal(StartupOverlayState::default);
     use_effect(use_reactive((&notice,), move |(notice,)| {
         clock.write().set_notice(notice, now_ms());
@@ -45,67 +96,50 @@ pub fn TerminalStartupOverlay(notice: Option<TerminalStartupNotice>) -> Element 
     );
     let elapsed = state.elapsed_seconds();
     rsx! {
-        div {
-            class: if state.finishing() {
-                "absolute inset-0 z-[5] flex items-center justify-center p-6 pointer-events-none animate-terminal-startup-out motion-reduce:animate-none"
-            } else {
-                "absolute inset-0 z-[5] flex items-center justify-center p-6 pointer-events-none animate-terminal-startup-in motion-reduce:animate-none"
-            },
+        Box {
+            component: "div",
+            sx: overlay_sx,
             "data-testid": "terminal-loading-status",
             "data-stage": stage_attribute(held.stage),
             "data-session-id": held.session_id.clone(),
             "data-elapsed-seconds": "{elapsed}",
             "data-percent": "{percent}",
             "data-phase": if state.finishing() { "complete" } else { "loading" },
-            div {
-                class: "sr-only",
+            Box {
+                component: "div",
+                sx: screen_reader_sx,
                 role: "status",
                 "aria-live": "polite",
                 "aria-atomic": "true",
                 "{title}. {detail}"
             }
-            Card {
-                class: Some(
-                    "w-[min(100%,38ch)] gap-3 rounded-lg p-6 text-center shadow-md".to_owned(),
-                ),
-                div {
-                    class: "text-sm font-medium uppercase tracking-wide text-muted-foreground",
-                    "data-testid": "terminal-loading-title",
-                    "Opening terminal"
+            Paper {
+                sx: paper_sx,
+                Text { size: "sm", color: "text-dimmed", "data-testid": "terminal-loading-title", "Opening terminal" }
+                Title { component: "h2", size: "lg", "data-testid": "terminal-loading-percent", "{percent}%" }
+                ProgressBar {
+                    value: state.percent(),
+                    max: 100.0,
+                    aria_label: "Terminal startup progress",
+                    "data-testid": "terminal-loading-progress",
                 }
-                div {
-                    class: "text-2xl font-semibold tabular-nums",
-                    "data-testid": "terminal-loading-percent",
-                    "{percent}%"
-                }
-                Progress {
-                    value: Some(state.percent() / 100.0),
-                    label: "Terminal startup progress",
-                    class: "h-1",
-                    test_id: "terminal-loading-progress",
-                    fill_test_id: "terminal-loading-progress-fill",
-                }
-                div {
-                    class: "text-sm text-muted-foreground",
-                    "data-testid": "terminal-loading-detail",
-                    "{step_label}"
-                }
-                div {
-                    class: "flex flex-col gap-1 border-t border-border pt-3 text-sm text-muted-foreground [&[hidden]]:hidden",
+                Text { size: "sm", color: "text-dimmed", "data-testid": "terminal-loading-detail", "{step_label}" }
+                Box {
+                    component: "div",
+                    sx: details_sx,
                     "data-testid": "terminal-loading-details",
                     hidden: !state.slow(),
-                    div { class: "text-sm", "data-testid": "terminal-loading-technical", "{held.detail}" }
+                    div { "data-testid": "terminal-loading-technical", "{held.detail}" }
                     if let Some(part) = chunk_detail {
-                        div { class: "text-sm font-medium", "data-testid": "terminal-loading-progress-label", "{part}" }
+                        div { "data-testid": "terminal-loading-progress-label", "{part}" }
                     }
                     div {
-                        class: "text-sm font-medium",
                         "data-testid": "terminal-loading-elapsed",
                         "aria-hidden": "true",
                         "This step has taken {elapsed}s"
                     }
                     if let Some(reason) = held.stuck_reason.clone() {
-                        div { class: "text-sm", "data-testid": "terminal-loading-stuck-reason", "{reason}" }
+                        div { "data-testid": "terminal-loading-stuck-reason", "{reason}" }
                     }
                 }
             }

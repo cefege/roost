@@ -5,18 +5,18 @@
 //! `machine_actions`', the browser steps `platform::{location, file_save}`.
 
 use dioxus::prelude::*;
+use libero::{components::Button, sx::sx};
 use roost_client_core::ClientEvent;
 use roost_client_core::store::shell_intent::ShellIntent;
 
 use crate::components::hooks::use_copy_clipboard::copy_text_then;
-use crate::components::ui::context_menu::ContextMenuItem;
 use crate::machine_actions::{
     MachineAction, MachineLaunch, MachineMenuKind, NO_REACHABLE_ADDRESS_TOOLTIP, machine_actions,
     machine_launch, reachable_host,
 };
 use crate::platform::file_save::save_text_file;
 use crate::platform::location::hand_off_to_os;
-use crate::pump::{Pump, use_store};
+use crate::pump::Pump;
 
 /// One item per hand-off `worker_fp`'s platform offers in `menu`; nothing for
 /// a machine that offers none or is not in the roster. Each item's test id is
@@ -24,12 +24,18 @@ use crate::pump::{Pump, use_store};
 /// itself after an item runs.
 #[component]
 pub fn MachineActionItems(
+    pump: Pump,
     worker_fp: String,
     menu: MachineMenuKind,
     test_id_prefix: String,
     #[props(default)] test_id_suffix: String,
+    on_close: EventHandler<()>,
 ) -> Element {
-    let pump = use_store();
+    let item_sx = use_hook(|| {
+        sx().width("100%")
+            .justify_content("flex-start")
+            .text_align("start")
+    });
     let machine = {
         let core = pump.core();
         let core = core.borrow();
@@ -45,17 +51,23 @@ pub fn MachineActionItems(
     let title = disabled.then(|| NO_REACHABLE_ADDRESS_TOOLTIP.to_owned());
     rsx! {
         for action in machine_actions(os, menu).iter().copied() {
-            ContextMenuItem {
+            Button {
                 key: "{action.test_id()}",
-                test_id: format!("{test_id_prefix}-{}{test_id_suffix}", action.test_id()),
+                sx: item_sx.clone(),
+                variant: "standard",
+                size: "sm",
+                role: "menuitem",
+                tabindex: "-1",
+                "data-testid": format!("{test_id_prefix}-{}{test_id_suffix}", action.test_id()),
                 disabled,
                 title: title.clone(),
                 onclick: {
                     let pump = pump.clone();
                     let host = host.clone();
-                    move |_: MouseEvent| {
+                    move |_| {
                         if let Some(host) = &host {
                             perform_machine_action(&pump, action, host);
+                            on_close.call(());
                         }
                     }
                 },

@@ -244,11 +244,10 @@ stable tag exists; `ROOST_RELEASE_CHANNEL=prerelease` opts into pre-releases):
 
 ## Built with
 
-- **Web:** Dioxus 0.7 compiled to wasm (`roost-web`) with
-  [rust-ui](https://github.com/rust-ui/ui) components on Tailwind CSS v4, an
-  imperative `web-sys` DOM row renderer with no framework code
-  (`roost-web-terminal`), and the UI-free client state machine
-  (`roost-client-core`)
+- **Web:** Dioxus 0.8 compiled to wasm (`roost-web`) with
+  [Libero](https://github.com/tdymel/libero) UI components, an imperative
+  `web-sys` DOM row renderer with no framework code (`roost-web-terminal`),
+  and the UI-free client state machine (`roost-client-core`)
 - **Coordinator:** Rust, axum, Connect-RPC (`connectrpc`) + protobuf, sqlx on
   SQLite or Postgres, transactional event projection, EdDSA-JWT auth
 - **Workers:** Rust, `roost-keeper` PTY subprocesses, a vendored

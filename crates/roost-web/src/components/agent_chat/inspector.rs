@@ -5,6 +5,7 @@
 use std::rc::Rc;
 
 use dioxus::prelude::*;
+use libero::components::{Pictogram, SvgData};
 use roost_client_core::client::rpc::calls::agent_chat::{
     AbortAgentChat, ConfigureAgentChat, InspectAgentChat, SubmitAgentChat,
 };
@@ -15,18 +16,24 @@ use roost_protocol::wire::agent_chat::{
 use super::inspector_panels::{
     ConfigurationPanel, SessionPanel, StatePanel, TasksPanel, ToolsPanel,
 };
-use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Card, CardContent, FieldError, IconButton, IconType, Tabs,
-    TabsContent, TabsList, TabsTrigger,
-};
 use crate::pump::Pump;
+use libero::components::{ActionIcon, Button, Flex, Paper, Text, Title};
+use libero::sx::sx;
 
-pub(super) const INSPECTOR_TABS: [(&str, &str, IconType); 5] = [
-    ("session", "Session", IconType::FolderOpen),
-    ("state", "State", IconType::Braces),
-    ("tasks", "Tasks", IconType::Activity),
-    ("tools", "Tools", IconType::Wrench),
-    ("configuration", "Configuration", IconType::Settings),
+pub(super) const INSPECTOR_TABS: [(&str, &str, SvgData); 5] = [
+    (
+        "session",
+        "Session",
+        pictogram_icons_lucide::folder_open::outlined,
+    ),
+    ("state", "State", pictogram_icons_lucide::braces::outlined),
+    ("tasks", "Tasks", pictogram_icons_lucide::activity::outlined),
+    ("tools", "Tools", pictogram_icons_lucide::wrench::outlined),
+    (
+        "configuration",
+        "Configuration",
+        pictogram_icons_lucide::settings::outlined,
+    ),
 ];
 
 enum InspectorAction {
@@ -47,6 +54,36 @@ pub fn AgentInspector(
     on_tab_change: EventHandler<String>,
 ) -> Element {
     let _revision = pump.revision()();
+    let root_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("column")
+            .min_height("0")
+            .min_width("0")
+            .flex("1")
+    });
+    let header_sx = use_hook(|| {
+        sx().display("flex")
+            .align_items("flex-start")
+            .justify_content("space-between")
+            .gap("sm")
+            .padding("md")
+    });
+    let identity_sx = use_hook(|| sx().display("flex").flex_direction("column").min_width("0"));
+    let tab_list_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("row")
+            .gap("xs")
+            .overflow_x("auto")
+            .with("overscroll-behavior-y", "auto")
+    });
+    let tab_button_sx = use_hook(|| sx().flex_shrink("0"));
+    let panel_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("column")
+            .min_height("0")
+            .flex("1")
+            .selector("&[hidden]", sx().display("none"))
+    });
     let mut action_pending = use_signal(|| false);
     let mut action_error = use_signal(|| None::<String>);
     let mut refresh_counter = use_signal(|| 0_u64);
@@ -131,54 +168,130 @@ pub fn AgentInspector(
     });
     let selected = inspection.read().as_ref().cloned();
     rsx! {
-        section { class: "flex h-full min-h-0 min-w-0 flex-col bg-card text-card-foreground", "data-testid": "agent-inspector",
-            header { class: "flex shrink-0 items-start justify-between gap-3 border-b border-border px-4 py-3",
-                div { class: "min-w-0",
-                    p { class: "text-xs font-medium uppercase tracking-wide text-muted-foreground", "Native agent" }
-                    h2 { class: "truncate text-base font-semibold", "{conversation.title}" }
-                    p { class: "truncate text-xs text-muted-foreground", "{conversation.worker_label} · {conversation.cwd}" }
+        Paper { sx: root_sx, "data-testid": "agent-inspector",
+            Flex { sx: header_sx,
+                Flex { sx: identity_sx,
+                    Text { size: "xs", color: "muted", "Native agent" }
+                    Title { size: "md", "{conversation.title}" }
+                    Text { size: "xs", color: "muted", "{conversation.worker_label} · {conversation.cwd}" }
                 }
-                IconButton { icon: IconType::X, label: "Close inspector", title: "Close inspector", size: ButtonSize::IconSm, onclick: move |_| on_close.call(()) }
+                ActionIcon { aria_label: "Close inspector", title: "Close inspector", onclick: move |_| on_close.call(()),
+                    Pictogram { icon: pictogram_icons_lucide::x::outlined }
+                }
             }
             if let Some(message) = action_error() {
-                div { class: "shrink-0 px-4 py-2", FieldError { "{message}" } }
+                Text { size: "sm", color: "error", "{message}" }
             }
-            Tabs { class: "min-h-0 min-w-0 flex-1", value: selected_tab, on_value_change: move |value| on_tab_change.call(value),
-                TabsList { class: "w-full shrink-0 justify-start overflow-x-auto rounded-none", aria_label: "Agent inspection sections",
-                    for (key, label, _) in INSPECTOR_TABS {
-                        TabsTrigger { class: "flex-none", value: key.to_owned(), "{label}" }
-                    }
-                }
-                div { class: "min-h-0 min-w-0 flex-1 overflow-y-auto p-4",
-                    match selected {
-                        None => rsx! { p { class: "text-sm text-muted-foreground", "Loading native agent state…" } },
-                        Some(Err(message)) => rsx! {
-                            Card { CardContent { class: "flex flex-col gap-3",
-                                FieldError { "Inspection unavailable: {message}" }
-                                Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm,
-                                    onclick: move |_| refresh_counter += 1, "Retry" }
-                            } }
-                        },
-                        Some(Ok(data)) => rsx! {
-                            TabsContent { value: "session",
-                                SessionPanel { data: Rc::clone(&data), catalog: catalog.clone(), pending: action_pending(), pump: pump.clone(),
-                                    on_thinking: move |level| on_action.call(InspectorAction::Thinking(level)),
-                                    on_compact: move |_| on_action.call(InspectorAction::Compact) }
+            Flex { sx: tab_list_sx, role: "tablist", "aria-label": "Agent inspection sections",
+                for (key, label, _) in INSPECTOR_TABS {
+                    {
+                        let selected = selected_tab == key;
+                        let tab_id = inspector_tab_id(key);
+                        let tab_panel_id = inspector_panel_id(key);
+                        rsx! {
+                            Button {
+                                key: "{key}",
+                                sx: tab_button_sx.clone(),
+                                variant: if selected { "filled" } else { "standard" },
+                                role: "tab",
+                                id: "{tab_id}",
+                                "aria-controls": "{tab_panel_id}",
+                                "aria-selected": selected,
+                                tabindex: if selected { "0" } else { "-1" },
+                                onclick: move |_| on_tab_change.call(key.to_owned()),
+                                onkeydown: move |event: KeyboardEvent| {
+                                    let pressed_key = event.key();
+                                    let step = match &pressed_key {
+                                        Key::Named(NamedKey::ArrowRight) => 1,
+                                        Key::Named(NamedKey::ArrowLeft) => -1,
+                                        Key::Named(NamedKey::Home) => 0,
+                                        Key::Named(NamedKey::End) => INSPECTOR_TABS.len() as isize - 1,
+                                        _ => return,
+                                    };
+                                    event.prevent_default();
+                                    let Some(index) = INSPECTOR_TABS.iter().position(|(tab, _, _)| *tab == key) else {
+                                        return;
+                                    };
+                                    let next = match &pressed_key {
+                                        Key::Named(NamedKey::Home) => 0,
+                                        Key::Named(NamedKey::End) => INSPECTOR_TABS.len() - 1,
+                                        _ => (index as isize + step).rem_euclid(INSPECTOR_TABS.len() as isize) as usize,
+                                    };
+                                    let next_key = INSPECTOR_TABS[next].0;
+                                    on_tab_change.call(next_key.to_owned());
+                                    focus_inspector_tab(next_key);
+                                },
+                                "{label}"
                             }
-                            TabsContent { value: "state", StatePanel { data: Rc::clone(&data) } }
-                            TabsContent { value: "tasks", TasksPanel { data: Rc::clone(&data), pending: action_pending(),
-                                on_stop: move |_| on_action.call(InspectorAction::Interrupt { background: false }),
-                                on_stop_all: move |_| on_action.call(InspectorAction::Interrupt { background: true }) } }
-                            TabsContent { value: "tools", ToolsPanel { data: Rc::clone(&data), pending: action_pending(),
-                                on_read_only: move |checked| on_action.call(InspectorAction::ReadOnly(checked)) } }
-                            TabsContent { value: "configuration", ConfigurationPanel { data } }
-                        },
+                        }
                     }
                 }
+            }
+            match selected {
+                None => rsx! {
+                    Flex { sx: panel_sx.clone(), Text { size: "sm", color: "muted", "Loading native agent state…" } }
+                },
+                Some(Err(message)) => rsx! {
+                    Flex { sx: panel_sx.clone(),
+                        Text { size: "sm", color: "error", "Inspection unavailable: {message}" }
+                        Button { variant: "outlined", size: "sm", onclick: move |_| refresh_counter += 1, "Retry" }
+                    }
+                },
+                Some(Ok(data)) => rsx! {
+                    Flex { sx: panel_sx.clone(), id: "{inspector_panel_id(\"session\")}", role: "tabpanel",
+                        "aria-labelledby": "{inspector_tab_id(\"session\")}", hidden: selected_tab != "session",
+                        SessionPanel { data: Rc::clone(&data), catalog: catalog.clone(), pending: action_pending(), pump: pump.clone(),
+                            on_thinking: move |level| on_action.call(InspectorAction::Thinking(level)),
+                            on_compact: move |_| on_action.call(InspectorAction::Compact) }
+                    }
+                    Flex { sx: panel_sx.clone(), id: "{inspector_panel_id(\"state\")}", role: "tabpanel",
+                        "aria-labelledby": "{inspector_tab_id(\"state\")}", hidden: selected_tab != "state",
+                        StatePanel { data: Rc::clone(&data) }
+                    }
+                    Flex { sx: panel_sx.clone(), id: "{inspector_panel_id(\"tasks\")}", role: "tabpanel",
+                        "aria-labelledby": "{inspector_tab_id(\"tasks\")}", hidden: selected_tab != "tasks",
+                        TasksPanel { data: Rc::clone(&data), pending: action_pending(),
+                            on_stop: move |_| on_action.call(InspectorAction::Interrupt { background: false }),
+                            on_stop_all: move |_| on_action.call(InspectorAction::Interrupt { background: true }) }
+                    }
+                    Flex { sx: panel_sx.clone(), id: "{inspector_panel_id(\"tools\")}", role: "tabpanel",
+                        "aria-labelledby": "{inspector_tab_id(\"tools\")}", hidden: selected_tab != "tools",
+                        ToolsPanel { data: Rc::clone(&data), pending: action_pending(),
+                            on_read_only: move |checked| on_action.call(InspectorAction::ReadOnly(checked)) }
+                    }
+                    Flex { sx: panel_sx, id: "{inspector_panel_id(\"configuration\")}", role: "tabpanel",
+                        "aria-labelledby": "{inspector_tab_id(\"configuration\")}", hidden: selected_tab != "configuration",
+                        ConfigurationPanel { data }
+                    }
+                },
             }
         }
     }
 }
+
+fn inspector_tab_id(key: &str) -> String {
+    format!("agent-inspector-tab-{key}")
+}
+
+fn inspector_panel_id(key: &str) -> String {
+    format!("agent-inspector-panel-{key}")
+}
+
+#[cfg(target_arch = "wasm32")]
+fn focus_inspector_tab(key: &str) {
+    use wasm_bindgen::JsCast;
+
+    if let Some(element) = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.get_element_by_id(&inspector_tab_id(key)))
+        .and_then(|element| element.dyn_into::<web_sys::HtmlElement>().ok())
+    {
+        let _ = element.focus();
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn focus_inspector_tab(_key: &str) {}
 
 async fn perform_action(
     pump: &Pump,

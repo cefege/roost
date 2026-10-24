@@ -9,9 +9,12 @@
 //! and the document's own meta tag is the same fact read one hop later.
 
 use dioxus::prelude::*;
+use libero::{
+    components::{Alert, Box, Button, Flex, Pictogram, Text},
+    sx::sx,
+};
 
 use crate::components::terminal::dom::{page_visible, sleep_ms};
-use crate::components::ui::{Alert, Button, ButtonSize, ButtonVariant, Icon, IconType};
 
 /// The meta name both the running document and the served one carry.
 const BUILD_SHA_META: &str = "roost-build-sha";
@@ -27,6 +30,13 @@ const RECHECK_COOLDOWN_MS: u64 = 60_000;
 pub fn VersionBanner() -> Element {
     let mut served = use_signal(|| None::<String>);
     let mut dismissed_sha = use_signal(|| None::<String>);
+    let position_sx = use_hook(|| {
+        sx().position("fixed")
+            .with("left", "1rem")
+            .with("bottom", "1rem")
+            .z_index("49")
+    });
+    let alert_sx = use_hook(|| sx().max_width("min(42ch, calc(100vw - 2.5rem))"));
 
     use_future(move || async move {
         loop {
@@ -50,37 +60,25 @@ pub fn VersionBanner() -> Element {
         return rsx! {};
     }
     rsx! {
-        div {
-            "data-testid": "version-banner",
-            class: "fixed bottom-4 left-4 z-[49]",
+        Box { "data-testid": "version-banner", sx: position_sx,
             Alert {
-                role: "status",
-                class: "border-[length:var(--workbench-border-width)] border-primary text-foreground [&>svg]:text-primary max-w-[min(42ch,calc(100vw_-_2.5rem))]",
-                Icon { icon: IconType::ArrowUp, class: "size-4 shrink-0 text-primary" }
-                div {
-                    class: "flex flex-col gap-2",
-                    span { class: "text-sm font-medium", "Roost just updated" }
-                    span {
-                        class: "text-xs leading-4 text-muted-foreground",
-                        "A newer version is ready. Your sessions are safe — reload when convenient."
-                    }
-                    div {
-                        class: "mt-1 flex gap-2",
-                        Button {
-                            variant: ButtonVariant::Default,
-                            size: ButtonSize::Sm,
-                            "data-testid": "version-banner-reload",
-                            onclick: move |_| reload(),
-                            "Reload now"
+                role: "status", title: "Roost just updated", color: "primary", sx: alert_sx,
+                icon: Some(rsx! { Pictogram {
+                    icon: pictogram_icons_lucide::arrow_up::outlined, width: "16", height: "16",
+                } }),
+                actions: Some(rsx! {
+                    Flex { direction: "row", gap: "xs",
+                        Button { size: "sm", "data-testid": "version-banner-reload",
+                            onclick: move |_| reload(), "Reload now"
                         }
-                        Button {
-                            variant: ButtonVariant::Ghost,
-                            size: ButtonSize::Sm,
+                        Button { variant: "standard", size: "sm",
                             "data-testid": "version-banner-later",
-                            onclick: move |_| dismissed_sha.set(served_sha.clone()),
-                            "Later"
+                            onclick: move |_| dismissed_sha.set(served_sha.clone()), "Later"
                         }
                     }
+                }),
+                Text { size: "xs", color: "muted",
+                    "A newer version is ready. Your sessions are safe — reload when convenient."
                 }
             }
         }

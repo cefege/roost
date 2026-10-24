@@ -5,7 +5,11 @@
 //! `apps/web/src/components/deck/MobileDeckBar.tsx` (the grid sheet it opens
 //! is `workspace_tabs_sheet`).
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use dioxus::prelude::*;
+use libero::components::{Box, Pictogram, Text};
 use roost_client_core::ClientEvent;
 use roost_client_core::deck::deck_tab_badge;
 use roost_client_core::store::selectors::session_by_id;
@@ -14,12 +18,13 @@ use roost_client_core::store::terminal_transport::session_terminal_transport_kin
 
 use super::pane_tab::direct_transport_label;
 use super::workspace_tabs_sheet::WorkspaceTabsSheet;
+use crate::components::agents::agent_status_indicator::agent_dot_color;
 use crate::components::terminal::terminal_transport_indicator::TerminalTransportIndicator;
-use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, StatusDot,
-};
 use crate::pump::use_store;
 use crate::session_naming::session_title;
+use libero::components::{ActionIcon, Button, Indicator};
+use libero::sx::sx;
+use roost_client_core::client::agents::status_policy::AgentDotStatus;
 
 /// The bar's title for the painted terminal, and its tooltip.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,7 +32,7 @@ struct BarReading {
     title: String,
     native_title: String,
     active: bool,
-    agent_status: Option<&'static str>,
+    agent_status: Option<AgentDotStatus>,
 }
 
 /// One bar.
@@ -41,6 +46,11 @@ pub fn MobileDeckBar(
 ) -> Element {
     let pump = use_store();
     let mut sheet_open = use_signal(|| false);
+    let sheet_generation = use_hook(|| {
+        Rc::new(RefCell::new(
+            crate::components::overlay_generation::OverlayGeneration::default(),
+        ))
+    });
     let reading = {
         let core = pump.core();
         let core = core.borrow();
@@ -73,9 +83,9 @@ pub fn MobileDeckBar(
             title,
             active: active.is_some(),
             agent_status: agent.map(|conversation| match conversation.run_state {
-                roost_protocol::wire::agent_chat::AgentRunState::Running => "info",
-                roost_protocol::wire::agent_chat::AgentRunState::Failed => "warn",
-                roost_protocol::wire::agent_chat::AgentRunState::Idle => "idle",
+                roost_protocol::wire::agent_chat::AgentRunState::Running => AgentDotStatus::Info,
+                roost_protocol::wire::agent_chat::AgentRunState::Failed => AgentDotStatus::Warn,
+                roost_protocol::wire::agent_chat::AgentRunState::Idle => AgentDotStatus::Idle,
             }),
         }
     };
@@ -84,69 +94,101 @@ pub fn MobileDeckBar(
         tab_ids.iter().position(|id| *id == selected_tab),
     );
     let open_drawer = pump.clone();
-    let count_size = if badge.fraction {
-        ButtonSize::Xs
-    } else {
-        ButtonSize::IconXs
-    };
-    let count_class = if badge.fraction {
-        "h-7 w-auto min-w-7 px-1 text-xs font-semibold tabular-nums text-foreground"
-    } else {
-        "size-7 p-0 text-sm font-semibold text-foreground"
-    };
+    let count_size = if badge.fraction { "xs" } else { "sm" };
+    let bar_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("row")
+            .align_items("center")
+            .gap("sm")
+            .height("3rem")
+            .flex_shrink("0")
+            .padding_inline("sm")
+            .background("surface")
+            .with("border-bottom", "1px solid var(--border)")
+            .color("ink")
+            .touch_action("pan-y")
+    });
+    let title_box_sx = use_hook(|| {
+        sx().flex("1 1 0%")
+            .min_width("0")
+            .position("relative")
+            .overflow("hidden")
+            .height("3rem")
+    });
+    let title_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("row")
+            .align_items("center")
+            .gap("sm")
+            .width("100%")
+            .min_width("0")
+            .height("100%")
+            .font_size("md")
+            .font_weight("500")
+            .line_height("3rem")
+    });
+    let text_sx = use_hook(|| {
+        sx().min_width("0")
+            .overflow("hidden")
+            .with("overscroll-behavior-y", "auto")
+            .text_overflow("ellipsis")
+            .white_space("nowrap")
+    });
     rsx! {
-        div {
-            class: "flex items-center gap-2 h-12 shrink-0 px-2 bg-card border-b border-border text-foreground touch-pan-y",
+        Box {
+            component: "div",
+            sx: bar_sx,
             "data-testid": "mobile-deck-bar",
-            IconButton {
-                icon: IconType::Menu,
-                label: "Open sidebar",
+            ActionIcon {
+                icon: pictogram_icons_lucide::menu::outlined,
+                aria_label: "Open sidebar",
                 "data-testid": "mobile-deck-bar-menu",
-                class: "shrink-0",
                 onclick: move |_| open_drawer.dispatch(ClientEvent::Sidebar(SidebarIntent::OpenDrawer)),
             }
-            div { class: "flex-1 basis-0 min-w-0 relative overflow-hidden h-12",
-                span {
+            Box { component: "div", sx: title_box_sx,
+                Text {
+                    component: "span",
                     title: "{reading.native_title}",
-                    class: "flex items-center gap-2 w-full min-w-0 text-base font-medium leading-12",
+                    sx: title_sx,
                     if reading.agent_status.is_some() {
-                        Icon { icon: IconType::Bot, class: "size-4 shrink-0" }
+                        Pictogram { icon: pictogram_icons_lucide::bot::outlined, width: "1rem", height: "1rem" }
                     }
-                    span { class: "shrink min-w-0 truncate", "{reading.title}" }
-                    if let Some(status) = reading.agent_status.filter(|status| *status != "idle") {
-                        StatusDot { status: status.to_owned() }
+                    Text { component: "span", sx: text_sx, "{reading.title}" }
+                    if let Some(status) = reading.agent_status.filter(|status| *status != AgentDotStatus::Idle) {
+                        Indicator { color: agent_dot_color(status) }
                     }
                 }
             }
             if reading.active {
                 TerminalTransportIndicator { session_id: selected_tab.clone() }
             }
-            IconButton {
-                icon: IconType::Plus,
-                label: "New terminal — same folder & server",
+            ActionIcon {
+                icon: pictogram_icons_lucide::plus::outlined,
+                aria_label: "New terminal — same folder & server",
                 title: "New terminal in this folder",
                 "data-testid": "tab-new",
                 onclick: move |_| on_new_tab.call(()),
             }
             Button {
-                variant: ButtonVariant::Outline,
+                variant: "outlined",
                 size: count_size,
-                class: Some(count_class.to_owned()),
                 "data-testid": "mobile-tab-count",
                 "aria-label": "Open terminal grid — {badge.description}",
                 title: "{badge.description}",
                 onclick: move |_| sheet_open.set(true),
-                span { "{badge.text}" }
+                "{badge.text}"
             }
         }
         if sheet_open() {
             WorkspaceTabsSheet {
+                key: "{tab_ids:?}-{selected_tab}",
                 tab_ids: tab_ids.clone(),
                 selected_tab: selected_tab.clone(),
                 on_select: move |session_id| on_select.call(session_id),
                 on_close: move |session_id| on_close.call(session_id),
                 on_new_tab: move |()| on_new_tab.call(()),
                 on_close_sheet: move |()| sheet_open.set(false),
+                generation: sheet_generation.clone(),
             }
         }
     }

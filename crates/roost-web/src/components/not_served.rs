@@ -13,9 +13,9 @@
 //! behaviour this crate's `Route::Unknown` doc was written to prevent.
 
 use dioxus::prelude::*;
+use libero::components::{Anchor, Box, Code, Flex, Paper, Pictogram, Text};
+use libero::sx::sx;
 
-use crate::components::access_gate::{CHECKING_CLASS, GateCard};
-use crate::components::ui::{Icon, IconType};
 use crate::routes::Route;
 
 /// A path the grammar recognises whose surface this build does not carry.
@@ -24,35 +24,89 @@ use crate::routes::Route;
 /// what they followed, not a canonicalised version of it.
 #[component]
 pub fn NotServed(path: String) -> Element {
+    let tv = crate::components::layout::window_size::use_tv_layout();
+    let base_frame_sx = use_hook(|| {
+        sx().display("flex")
+            .min_height("100dvh")
+            .width("100%")
+            .align_items("center")
+            .justify_content("center")
+            .padding("lg")
+    });
+    let overscan_sx = use_hook(|| {
+        sx().padding_top("var(--tv-overscan-block)")
+            .padding_bottom("var(--tv-overscan-block)")
+            .padding_left("var(--tv-overscan-inline)")
+            .padding_right("var(--tv-overscan-inline)")
+    });
+    let frame_sx = if tv {
+        base_frame_sx.and(overscan_sx)
+    } else {
+        base_frame_sx
+    };
+    let card_sx = use_hook(|| {
+        sx().display("flex")
+            .align_items("center")
+            .gap("md")
+            .padding("md")
+    });
     rsx! {
-        section { class: CHECKING_CLASS, "data-testid": "route-not-served",
-            GateCard { role: "status",
-                Icon { icon: IconType::Construction, class: "size-4" }
-                div {
-                    span { "This build does not carry the surface for " }
-                    code { {path} }
+        Box { sx: frame_sx, component: "section", "data-testid": "route-not-served",
+            Paper { sx: card_sx, role: "status",
+                Pictogram { icon: pictogram_icons_lucide::construction::outlined, width: "1rem", height: "1rem" }
+                Flex { direction: "row", wrap: true, gap: "xs",
+                    Text { size: "sm", "This build does not carry the surface for" }
+                    Code { source: path }
                 }
             }
         }
     }
 }
 
-/// A path the grammar does not recognise.
+/// A path the route grammar does not recognise.
 #[component]
 pub fn NotFound(path: String, on_navigate: EventHandler<String>) -> Element {
     let home_path = Route::Home.to_path();
+    let tv = crate::components::layout::window_size::use_tv_layout();
+    let base_frame_sx = use_hook(|| {
+        sx().display("flex")
+            .min_height("100dvh")
+            .width("100%")
+            .align_items("center")
+            .justify_content("center")
+            .padding("lg")
+    });
+    let overscan_sx = use_hook(|| {
+        sx().padding_top("var(--tv-overscan-block)")
+            .padding_bottom("var(--tv-overscan-block)")
+            .padding_left("var(--tv-overscan-inline)")
+            .padding_right("var(--tv-overscan-inline)")
+    });
+    let frame_sx = if tv {
+        base_frame_sx.and(overscan_sx)
+    } else {
+        base_frame_sx
+    };
+    let card_sx = use_hook(|| {
+        sx().display("flex")
+            .align_items("center")
+            .gap("md")
+            .padding("md")
+    });
     rsx! {
-        section { class: CHECKING_CLASS, "data-testid": "route-not-found",
-            GateCard { role: "status",
-                Icon { icon: IconType::Link2Off, class: "size-4" }
-                div {
-                    span { "No route matches " }
-                    code { {path} }
-                    div {
-                        a { href: home_path.clone(), onclick: move |_| on_navigate.call(home_path.clone()),
-                            "data-testid": "route-not-found-home",
-                            "Go to sessions"
-                        }
+        Box { sx: frame_sx, component: "section", "data-testid": "route-not-found",
+            Paper { sx: card_sx, role: "status",
+                Pictogram { icon: pictogram_icons_lucide::link_2_off::outlined, width: "1rem", height: "1rem" }
+                Flex { direction: "column", gap: "md",
+                    Flex { direction: "row", wrap: true, gap: "xs",
+                        Text { size: "sm", "No route matches" }
+                        Code { source: path }
+                    }
+                    Anchor {
+                        to: home_path.clone(),
+                        onclick: move |_| on_navigate.call(home_path.clone()),
+                        "data-testid": "route-not-found-home",
+                        "Go to sessions"
                     }
                 }
             }
@@ -60,6 +114,10 @@ pub fn NotFound(path: String, on_navigate: EventHandler<String>) -> Element {
     }
 }
 
+/// A path the grammar recognises whose surface this build does not carry.
+///
+/// The path is shown verbatim. A reader who followed a bookmark needs to see
+/// what they followed, not a canonicalised version of it.
 #[cfg(test)]
 mod tests {
     use crate::app::{ServedSurface, Surface, surface_for};

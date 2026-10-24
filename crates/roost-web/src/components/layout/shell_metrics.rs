@@ -6,12 +6,11 @@
 //! Nothing here reads a clock, a DOM node or the store. The components call
 //! these with values they already hold, which is what lets the TV rule, a title
 //! fallback and a coordinator staleness window each be a test rather than a
-//! rendering accident. `AppShell` composes the results; the Tailwind classes in
-//! `app_shell.rs` draw them.
+//! rendering accident. `AppShell` composes the results and draws the shell
+//! grid with its Libero styles.
+use libero::components::SvgData;
 
 use roost_client_core::sync::redial::SYNC_STALE_TIMEOUT_MS;
-
-use crate::components::ui::IconType;
 
 /// Whether the shell is the compact (phone) one: a phone-sized window
 /// (`hooks::use_is_mobile`) that is not a television. A TV browser commonly
@@ -50,13 +49,13 @@ impl Destination {
     ];
 
     /// The Lucide icon the rail draws for this destination.
-    pub const fn icon(self) -> IconType {
+    pub const fn icon(self) -> SvgData {
         match self {
-            Self::Workspaces => IconType::Bot,
-            Self::Search => IconType::Search,
-            Self::Files => IconType::FolderOpen,
-            Self::Settings => IconType::Settings,
-            Self::Help => IconType::CircleHelp,
+            Self::Workspaces => pictogram_icons_lucide::bot::outlined,
+            Self::Search => pictogram_icons_lucide::search::outlined,
+            Self::Files => pictogram_icons_lucide::folder_open::outlined,
+            Self::Settings => pictogram_icons_lucide::settings::outlined,
+            Self::Help => pictogram_icons_lucide::circle_help::outlined,
         }
     }
 

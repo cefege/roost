@@ -8,7 +8,7 @@ use crate::ratchet::{RatchetOutcome, RatchetSpec, count_matching_lines, run_ratc
 use crate::source_tree;
 
 const BASELINE: &str = "xtask/design-raw-baseline.json";
-const RULE: &str = "design: no NEW raw color/px-font values — use the Tailwind colour roles and type scale, or a theme token (ratcheted)";
+const RULE: &str = "design: no NEW raw color/px-font values — use Libero Sx theme roles and scales, or a theme token (ratcheted)";
 const MEMORY: &str = "CLAUDE.md — design system";
 /// The files that DECLARE the tokens. Everything else references them.
 ///
@@ -22,14 +22,12 @@ const MEMORY: &str = "CLAUDE.md — design system";
 ///
 /// This list is the authority for what a definition file is. `agents.rs` is
 /// here because raw hex is the SOURCE of its palette, not a hardcoded copy of
-/// it. `tailwind.css` is rust-ui's Tailwind theme; the same name is its
-/// compiled, gitignored output under `assets/styles/`.
-const TOKEN_FILES: [&str; 3] = ["theme-vars.css", "agents.rs", "tailwind.css"];
+/// it.
+const TOKEN_FILES: [&str; 2] = ["theme-vars.css", "agents.rs"];
 
 /// Directories whose raw values are the declaration itself: the theme engine's
-/// palettes (rust-ui's base and accent themes, copied verbatim) and rust-ui's
-/// vendored stylesheets, which are copied rather than authored here.
-const TOKEN_DIRS: [&str; 2] = ["/theme/palettes/", "/roost-web/vendor/"];
+/// pinned base and accent palettes.
+const TOKEN_DIRS: [&str; 1] = ["/theme/palettes/"];
 
 fn describe(observed: usize, allowed: usize) -> String {
     format!(
@@ -102,7 +100,7 @@ fn has_hex_color(line: &str) -> bool {
 }
 
 fn has_px_font_size(line: &str) -> bool {
-    has_declared_px_font_size(line) || has_arbitrary_px_text_size(line)
+    has_declared_px_font_size(line) || has_bracketed_px_text_size(line)
 }
 
 fn has_declared_px_font_size(line: &str) -> bool {
@@ -115,9 +113,9 @@ fn has_declared_px_font_size(line: &str) -> bool {
     !digits.is_empty() && value[digits.len()..].starts_with("px")
 }
 
-/// Tailwind's arbitrary `text-[13px]` is the class spelling of a px font size,
-/// bypassing the type scale exactly as `font-size: 13px` would.
-fn has_arbitrary_px_text_size(line: &str) -> bool {
+/// A bracketed utility `text-[13px]` is a px font-size spelling that bypasses
+/// the type scale exactly as `font-size: 13px` would.
+fn has_bracketed_px_text_size(line: &str) -> bool {
     line.match_indices("text-[").any(|(at, opener)| {
         let value = &line[at + opener.len()..];
         let digits = value
@@ -184,7 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn a_tailwind_arbitrary_px_text_size_counts() {
+    fn a_bracketed_px_text_size_counts() {
         assert!(has_px_font_size(r#"class: "text-[13px] font-medium","#));
         assert!(has_px_font_size(r#"class: "text-[12.5px]","#));
         assert!(!has_px_font_size(r#"class: "text-sm text-[var(--x)]","#));
@@ -217,8 +215,6 @@ mod tests {
         for nested in [
             "crates/roost-web/assets/styles/theme-vars.css",
             "crates/roost-web/assets/theme-vars.css",
-            "crates/roost-web/tailwind.css",
-            "crates/roost-web/assets/styles/tailwind.css",
         ] {
             assert!(
                 !is_scanned(nested),

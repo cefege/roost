@@ -10,8 +10,9 @@ use roost_protocol::wire::agent_chat::{
 
 use super::advisory_card::AdvisoryCard;
 use super::agent_alert::AgentAlert;
+use super::ask_card::AskCard;
 use super::background_job_box::BackgroundJobBox;
-use super::interaction_cards::{AskCard, BtwCard};
+use super::btw_card::BtwCard;
 use super::message_actions::UserMessageActions;
 use super::notice_card::NoticeCard;
 use super::peer_message_card::PeerMessageCard;
@@ -19,11 +20,10 @@ use super::plan_card::PlanCard;
 use super::streaming_reveal::StreamingText;
 use super::thinking_block::ThinkingBlock;
 use super::tool_card::ToolCard;
-use crate::components::ui::{
-    Button, ButtonVariant, IconButton, IconType, Marker, Message, MessageAlign, MessageContent,
-    MessageFooter, MessageHeader, StatusDot,
-};
+use crate::components::ui::{Message, MessageAlign, MessageContent, MessageFooter, MessageHeader};
 use crate::pump::Pump;
+use libero::components::{ActionIcon, Button, Flex, Indicator, Pictogram, Text};
+use libero::sx::sx;
 
 enum Segment<'transcript> {
     User(&'transcript TranscriptItem),
@@ -58,34 +58,42 @@ pub fn AgentTranscriptView(
     let mut show_tools = use_signal(|| true);
     let mut show_thinking = use_signal(|| true);
     let mut expand_tools = use_signal(|| false);
+    let transcript_sx = use_hook(|| sx().display("flex").flex_direction("column").gap("xl"));
+    let controls_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_wrap("wrap")
+            .align_items("center")
+            .justify_content("flex-end")
+            .gap("sm")
+    });
     rsx! {
-        div { class: "flex flex-col gap-6",
+        Flex { direction: "column", sx: transcript_sx,
             if has_tools || has_thinking {
-                div { class: "flex flex-wrap items-center justify-end gap-2",
+                Flex { direction: "row", sx: controls_sx,
                     if has_thinking {
                         Button {
-                            variant: ButtonVariant::Link,
-                            aria_expanded: show_thinking().to_string(),
+                            variant: "standard",
+                            "aria-expanded": show_thinking().to_string(),
                             onclick: move |_| show_thinking.set(!show_thinking()),
-                            icon: Some(if show_thinking() { IconType::Eye } else { IconType::EyeOff }),
+                            icon: rsx! { Pictogram { icon: if show_thinking() { pictogram_icons_lucide::eye::outlined } else { pictogram_icons_lucide::eye_off::outlined }, width: "1rem", height: "1rem" } },
                             if show_thinking() { "Hide thinking" } else { "Show thinking" }
                         }
                     }
                     if has_tools {
                         Button {
-                            variant: ButtonVariant::Link,
-                            aria_expanded: show_tools().to_string(),
+                            variant: "standard",
+                            "aria-expanded": show_tools().to_string(),
                             onclick: move |_| show_tools.set(!show_tools()),
-                            icon: Some(if show_tools() { IconType::Eye } else { IconType::EyeOff }),
+                            icon: rsx! { Pictogram { icon: if show_tools() { pictogram_icons_lucide::eye::outlined } else { pictogram_icons_lucide::eye_off::outlined }, width: "1rem", height: "1rem" } },
                             if show_tools() { "Hide tool activity" } else { "Show tool activity" }
                         }
                         if show_tools() {
                             Button {
-                                variant: ButtonVariant::Link,
-                                aria_pressed: expand_tools().to_string(),
+                                variant: "standard",
+                                "aria-pressed": expand_tools().to_string(),
                                 "data-testid": "agent-chat-expand-tools",
                                 onclick: move |_| expand_tools.set(!expand_tools()),
-                                icon: Some(if expand_tools() { IconType::FoldVertical } else { IconType::UnfoldVertical }),
+                                icon: rsx! { Pictogram { icon: if expand_tools() { pictogram_icons_lucide::fold_vertical::outlined } else { pictogram_icons_lucide::unfold_vertical::outlined }, width: "1rem", height: "1rem" } },
                                 if expand_tools() { "Fold tool output" } else { "Expand tool output" }
                             }
                         }
@@ -102,7 +110,7 @@ pub fn AgentTranscriptView(
                     },
                     Segment::Steps(_) if !show_tools() => rsx! {},
                     Segment::Steps(steps) => rsx! {
-                        div { key: "{step_group_key(&steps)}", class: "flex flex-col gap-2",
+                        Flex { key: "{step_group_key(&steps)}", direction: "column", gap: "sm",
                             for step in steps {
                                 if let TranscriptItem::Tool { id, tool_name, args_json, output, is_error, running, queued, details_json, children, .. } = step {
                                     ToolCard {
@@ -162,10 +170,20 @@ fn UserMessage(
     draft: Signal<String>,
     pump: Pump,
 ) -> Element {
+    let user_message_sx = use_hook(|| {
+        sx().align_items("flex-end")
+            .selector("&[data-align='End']", sx().flex_direction("column"))
+    });
+    let user_header_sx = use_hook(|| sx().justify_content("flex-end"));
+    let user_content_sx = use_hook(|| {
+        sx().width("80%")
+            .white_space("pre-wrap")
+            .text_align("right")
+    });
     rsx! {
-        Message { align: MessageAlign::End, class: "items-end data-[align=End]:flex-col",
-            MessageHeader { class: "justify-end text-xs text-muted-foreground", "You" }
-            MessageContent { class: "max-w-4/5 whitespace-pre-wrap text-right", "{text}" }
+        Message { align: MessageAlign::End, sx: user_message_sx,
+            MessageHeader { sx: user_header_sx, "You" }
+            MessageContent { sx: user_content_sx, "{text}" }
             UserMessageActions { conversation_id, item_id: id, text, draft, pump }
         }
     }
@@ -192,15 +210,35 @@ fn AssistantMessage(
     let (copy_response, response_copied) =
         crate::components::hooks::use_copy_clipboard::use_copy_clipboard(None);
     let has_text = !copy_text.trim().is_empty();
+    let assistant_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("column")
+            .gap("md")
+            .selector(
+                "&:hover [data-name='MessageFooter'], &:focus-within [data-name='MessageFooter']",
+                sx().opacity("1"),
+            )
+            .media(
+                "(pointer: coarse)",
+                sx().selector("& [data-name='MessageFooter']", sx().opacity("1")),
+            )
+    });
+    let assistant_message_sx = use_hook(|| sx().flex_direction("column").gap("md"));
+    let assistant_content_sx = use_hook(|| sx().gap("sm"));
+    let copy_footer_sx = use_hook(|| {
+        sx().margin_top("0")
+            .gap("xs")
+            .padding("0")
+            .opacity("0")
+            .transition("opacity")
+    });
     rsx! {
-        div { class: "group/assistant flex flex-col gap-3", "data-streaming": streaming.then_some("true"),
-            Message { align: MessageAlign::Start, class: "flex-col gap-3",
-                MessageHeader { class: "text-xs text-muted-foreground", "Agent" }
-                MessageContent { class: "gap-3",
+        Flex { sx: assistant_sx, "data-streaming": streaming.then_some("true"),
+            Message { align: MessageAlign::Start, sx: assistant_message_sx,
+                MessageHeader { "Agent" }
+                MessageContent { sx: assistant_content_sx,
                     for (index, block) in blocks.iter().enumerate() {
                         match block {
-                            // Every text block goes through StreamingText under one key,
-                            // so a block that stops streaming keeps revealing its backlog.
                             TranscriptBlock::Text { text } if !text.is_empty() => rsx! {
                                 StreamingText { key: "text-{index}", text: text.clone(), live: streaming && index + 1 == blocks.len() }
                             },
@@ -212,9 +250,9 @@ fn AssistantMessage(
                         }
                     }
                     if streaming {
-                        Marker { role: "status",
-                            StatusDot { status: "running".to_string() }
-                            "Generating response"
+                        Flex { direction: "row", align: "center", gap: "xs", role: "status",
+                            Indicator { color: "info", processing: true }
+                            Text { "Generating response" }
                         }
                     }
                     if let Some(error) = error {
@@ -222,12 +260,12 @@ fn AssistantMessage(
                     }
                 }
                 if !streaming && has_text {
-                    MessageFooter { class: "-mt-2 gap-1 px-0 opacity-0 transition-opacity group-hover/assistant:opacity-100 group-focus-within/assistant:opacity-100 pointer-coarse:opacity-100",
-                        IconButton {
-                            icon: if response_copied() { IconType::Check } else { IconType::Copy },
-                            label: "Copy response",
+                    MessageFooter { sx: copy_footer_sx,
+                        ActionIcon {
+                            icon: if response_copied() { pictogram_icons_lucide::check::outlined } else { pictogram_icons_lucide::copy::outlined },
+                            aria_label: "Copy response",
                             title: if response_copied() { "Copied" } else { "Copy" },
-                            variant: ButtonVariant::Ghost,
+                            variant: "standard",
                             onclick: move |_| copy_response(&copy_text),
                         }
                     }

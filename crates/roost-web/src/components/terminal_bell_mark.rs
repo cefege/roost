@@ -4,13 +4,19 @@
 //! the session is visible. Rendered by `PaneTab` and `SessionRowFlat`.
 
 use dioxus::prelude::*;
+use libero::components::{Box, Pictogram};
+use libero::sx::sx;
 
-use crate::components::ui::{Icon, IconType};
 use crate::pump::use_store;
 
 /// The bell, or nothing when `session_id` has no unseen ring.
 #[component]
 pub fn TerminalBellMark(session_id: String) -> Element {
+    let mark_sx = use_hook(|| {
+        sx().display("inline-flex")
+            .flex_shrink("0")
+            .color("primary")
+    });
     let pump = use_store();
     let _ = pump.revision().read();
     let unseen = pump
@@ -23,13 +29,14 @@ pub fn TerminalBellMark(session_id: String) -> Element {
         return rsx! {};
     }
     rsx! {
-        span {
-            class: "inline-flex shrink-0 text-primary",
+        Box {
+            component: "span",
+            sx: mark_sx,
             "data-testid": "terminal-bell-{session_id}",
             role: "img",
             "aria-label": "Bell rang",
             title: "Bell rang",
-            Icon { icon: IconType::BellRing, class: "size-3" }
+            Pictogram { icon: pictogram_icons_lucide::bell_ring::outlined, width: "0.75rem", height: "0.75rem" }
         }
     }
 }

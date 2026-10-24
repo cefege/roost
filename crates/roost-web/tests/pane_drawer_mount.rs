@@ -30,11 +30,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use dioxus::core::{AttributeValue, ElementId, Mutation, Mutations};
+use dioxus::core::{ElementId, Mutations};
 use dioxus::prelude::*;
+use libero::LiberoProvider;
 use roost_client_core::store::sidebar::SidebarIntent;
 use roost_client_core::store::{
     ChannelId, Session, SessionId, SessionKind, SessionStatus, WorkerFp,
@@ -47,6 +47,8 @@ use roost_web::motion::resize_drag::ResizeDrag;
 use roost_web::platform::connect::CoordRpc;
 use roost_web::pump::Pump;
 use roost_web::router_state::provide_router;
+use roost_web::theme::catalog::theme_set_for_choice;
+use roost_web::theme::choice::ThemeChoice;
 
 const SESSION_ID: &str = "00000000-0000-4000-8000-00000000000a";
 
@@ -112,75 +114,22 @@ fn pane_root() -> Element {
         EventHandler::new(|_path: String| {}),
     );
     ResizeDrag::provide();
+    let themes = use_hook(|| theme_set_for_choice(&ThemeChoice::default()).clone());
     rsx! {
-        CellTerminal {
-            session: session(),
-            in_layout: Some(true),
-            focused: Some(true),
-            surface_visible: true,
-            surface_active: false,
-        }
-    }
-}
-
-/// The rendered tree as far as the mutation stream describes it: the test id
-/// each live element carries, and the elements the last pass took away.
-///
-/// This is the pane's own output, not a restatement of its source — the same
-/// `Mutations` a browser renderer applies, reduced to the questions these tests
-/// ask of it.
-#[derive(Default)]
-struct RenderedTree {
-    test_ids: BTreeMap<ElementId, String>,
-}
-
-impl RenderedTree {
-    /// Fold one pass's edits into what is on screen, answering with the
-    /// elements that left it.
-    fn apply(&mut self, mutations: Mutations) -> Vec<ElementId> {
-        let mut removed = Vec::new();
-        for edit in mutations.edits {
-            match edit {
-                Mutation::LoadTemplate { id, .. }
-                | Mutation::CreatePlaceholder { id }
-                | Mutation::CreateTextNode { id, .. }
-                | Mutation::AssignId { id, .. } => {
-                    self.test_ids.entry(id).or_default();
-                }
-                Mutation::SetAttribute {
-                    name: "data-testid",
-                    value: AttributeValue::Text(value),
-                    id,
-                    ..
-                } => {
-                    self.test_ids.insert(id, value);
-                }
-                Mutation::SetAttribute {
-                    name: "data-testid",
-                    value: AttributeValue::None,
-                    id,
-                    ..
-                } => {
-                    self.test_ids.insert(id, String::new());
-                }
-                Mutation::ReplaceWith { id, .. } | Mutation::Remove { id } => {
-                    self.test_ids.remove(&id);
-                    removed.push(id);
-                }
-                _ => {}
+        LiberoProvider { themes,
+            CellTerminal {
+                session: session(),
+                in_layout: Some(true),
+                focused: Some(true),
+                surface_visible: true,
+                surface_active: false,
             }
         }
-        removed
-    }
-
-    /// The element carrying `test_id` right now, if it is on screen.
-    fn element(&self, test_id: &str) -> Option<ElementId> {
-        self.test_ids
-            .iter()
-            .find(|(_, mounted)| mounted.as_str() == test_id)
-            .map(|(id, _)| *id)
     }
 }
+
+use crate::palette_support;
+use palette_support::RenderedTree;
 
 /// A mounted pane, the pump it reads, the tree it has painted, and what the
 /// last pass took off it.
@@ -213,7 +162,10 @@ impl Pane {
 
     /// The element carrying `test_id`, if the pane has it on screen.
     fn element(&self, test_id: &str) -> Option<ElementId> {
-        self.tree.element(test_id)
+        self.tree
+            .matching_attribute("data-testid", test_id)
+            .into_iter()
+            .next()
     }
 }
 

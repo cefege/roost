@@ -12,9 +12,12 @@ use roost_client_core::ClientEvent;
 use roost_client_core::store::sidebar::SidebarIntent;
 
 use super::shell_metrics::workbench_title;
-use crate::components::ui::{IconButton, IconType};
 use crate::pump::use_pump;
 use crate::router_state::use_location;
+use libero::{
+    components::{ActionIcon, Box, Pictogram, Text},
+    sx::sx,
+};
 
 /// The bar, shown on a compact viewport.
 #[component]
@@ -25,16 +28,34 @@ pub fn MobileTopBar(
 ) -> Element {
     let pump = use_pump();
     let title = workbench_title(&path, session_title.as_deref(), session_folder.as_deref());
+    let bar_sx = use_hook(|| {
+        sx().display("flex")
+            .height("var(--workbench-activity-width)")
+            .flex_shrink("0")
+            .align_items("center")
+            .gap("sm")
+            .border_bottom("1px solid var(--lsx-paper-border-color)")
+            .background("var(--workbench-titlebar)")
+            .padding_inline("sm")
+            .color("ink")
+    });
+    let title_sx = use_hook(|| {
+        sx().min_width("0")
+            .flex_grow("1")
+            .text_overflow("ellipsis")
+            .white_space("nowrap")
+            .overflow("hidden")
+            .with("overscroll-behavior-y", "auto")
+    });
     rsx! {
-        header { class: "flex h-[var(--workbench-activity-width)] shrink-0 items-center gap-2 border-b border-border bg-[var(--workbench-titlebar)] px-2 text-foreground", "data-testid": "mobile-topbar",
-            IconButton {
-                class: "shrink-0",
-                icon: IconType::Menu,
-                label: "Open sidebar",
+        Box { component: "header", sx: bar_sx, "data-testid": "mobile-topbar",
+            ActionIcon {
+                aria_label: "Open sidebar",
                 "data-testid": "mobile-topbar-menu",
                 onclick: move |_| pump.dispatch(ClientEvent::Sidebar(SidebarIntent::OpenDrawer)),
+                Pictogram { icon: pictogram_icons_lucide::menu::outlined, width: "1rem", height: "1rem" }
             }
-            span { class: "min-w-0 flex-1 truncate text-sm font-medium", {title} }
+            Text { component: "span", sx: title_sx, size: "sm", "{title}" }
         }
     }
 }

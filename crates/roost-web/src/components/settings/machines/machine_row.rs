@@ -8,27 +8,20 @@
 
 use dioxus::prelude::*;
 use roost_client_core::store::navigation::worker_online;
-// The round trips are browser-only: a native build has no coordinator to ask,
-// so the call types and the toast their refusals raise are gated with them.
-#[cfg(target_arch = "wasm32")]
-use roost_client_core::ClientEvent;
-#[cfg(target_arch = "wasm32")]
-use roost_client_core::client::rpc::calls::settings::machines::{DeleteMachine, RenameMachine};
-#[cfg(target_arch = "wasm32")]
-use roost_client_core::store::shell_intent::ShellIntent;
 use roost_protocol::fleet_update::{
     WorkerUpdateInputs, WorkerUpdateState, worker_update_label, worker_update_state,
 };
 use roost_protocol::wire::{HostMetrics, Worker};
 
 use crate::components::machines::machine_identity_mark::MachineIdentityMark;
-use crate::components::ui::{
-    Button, ButtonVariant, Chip, FieldError, IconType, ListRow, MetricTile, StatusDot, TextField,
-};
 use crate::display_format::{format_bytes, format_speed};
 use crate::pump::Pump;
+use libero::components::{Button, Flex, Paper, Pictogram, ProgressBar, Text, TextField};
 
 use super::super::format::{relative_time, short_identifier};
+#[path = "machine_row_actions.rs"]
+mod actions;
+use actions::{remove, rename};
 
 /// What this row's own controls are doing.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -70,39 +63,49 @@ pub fn MachineRowView(
     let fingerprint = worker.fp.to_string();
     let identity = worker.clone();
     let state = row();
-    let status = if online { "ok" } else { "offline" }.to_owned();
     let status_title = if online { "Online" } else { "Offline" }.to_owned();
+    let address = worker
+        .reachable_addr
+        .clone()
+        .unwrap_or_else(|| "Address unknown".to_owned());
     rsx! {
-        div { class: "flex flex-col", "data-testid": format!("machines-worker-row-{fingerprint}"),
-            ListRow {
-                leading: Some(rsx! { MachineIdentityMark { worker: Some(identity), context_title: None } }),
-                headline: rsx! { {worker.label.clone()} },
-                support: Some(rsx! { {support_line(&worker, online, now_ms)} }),
-                trailing: Some(rsx! {
-                    StatusDot {
-                        status: status,
-                        title: Some(status_title),
+        Flex { direction: "column", gap: "sm", "data-testid": format!("machines-worker-row-{fingerprint}"),
+            Flex { direction: "row", align: "center", justify: "space-between", gap: "md",
+                Flex { direction: "row", align: "center", gap: "sm",
+                    MachineIdentityMark { worker: Some(identity), context_title: None }
+                    Flex { direction: "column", gap: "xs",
+                        Text { size: "sm", "{worker.label}" }
+                        Text { size: "xs", color: "muted", "{support_line(&worker, online, now_ms)}" }
                     }
-                    Chip {
-                        label: worker_update_label(update_state).to_owned(),
-                        selected: Some(update_state == WorkerUpdateState::UpdateAvailable),
-                        test_id: Some(format!("machines-update-state-{fingerprint}")),
-                        title: Some(format!("Coordinator release {}", short_identifier(
-                            coord_sha.as_deref().unwrap_or("unknown"), 8
-                        ))),
+                }
+                Flex { direction: "row", align: "center", gap: "sm",
+                    Text {
+                        size: "xs",
+                        color: if online { "primary" } else { "error" },
+                        "aria-label": status_title.clone(),
+                        title: status_title,
+                        if online { "Online" } else { "Offline" }
+                    }
+                    Text {
+                        size: "xs",
+                        color: if update_state == WorkerUpdateState::UpdateAvailable { "primary" } else { "muted" },
+                        "data-testid": format!("machines-update-state-{fingerprint}"),
+                        title: format!("Coordinator release {}", short_identifier(coord_sha.as_deref().unwrap_or("unknown"), 8)),
+                        "{worker_update_label(update_state)}"
                     }
                     Button {
-                        variant: ButtonVariant::Destructive,
-                        icon: Some(IconType::Trash2),
+                        variant: "outlined",
+                        color: "error",
+                        icon: Some(rsx! { Pictogram { icon: pictogram_icons_lucide::trash_2::outlined } }),
                         "aria-label": format!("Remove {}", worker.label),
                         "data-testid": format!("machines-delete-quick-btn-{fingerprint}"),
                         disabled: state.busy,
                         onclick: move |_| row.write().confirming = true,
                     }
                     Button {
-                        variant: ButtonVariant::Ghost,
-                        icon: Some(if state.details { IconType::ChevronUp } else { IconType::ChevronDown }),
-                        "aria-expanded": state.details,
+                        variant: "standard",
+                        icon: Some(rsx! { Pictogram { icon: if state.details { pictogram_icons_lucide::chevron_up::outlined } else { pictogram_icons_lucide::chevron_down::outlined } } }),
+                        "aria-expanded": state.details.to_string(),
                         onclick: move |_| {
                             let mut row = row.write();
                             row.details = !row.details;
@@ -110,33 +113,33 @@ pub fn MachineRowView(
                         },
                         "Details"
                     }
-                }),
+                }
             }
             if state.details {
-                div { class: "flex flex-col gap-3 px-4 pb-3", id: format!("machines-worker-details-{fingerprint}"),
-                    div { class: "flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground",
-                        span { {liveness_line(&worker, online, now_ms)} }
-                        span { {worker.reachable_addr.clone().unwrap_or_else(|| "Address unknown".to_owned())} }
-                        span { {format!("Fingerprint {}", short_identifier(&fingerprint, 12))} }
+                Flex { direction: "column", gap: "sm", id: format!("machines-worker-details-{fingerprint}"),
+                    Flex { direction: "row", wrap: "wrap", gap: "sm",
+                        Text { size: "xs", color: "muted", "{liveness_line(&worker, online, now_ms)}" }
+                        Text { size: "xs", color: "muted", "{address}" }
+                        Text { size: "xs", color: "muted", "Fingerprint {short_identifier(&fingerprint, 12)}" }
                         if let Some(sha) = worker.git_sha.clone() {
-                            span { {format!("Worker version {}", short_identifier(&sha, 8))} }
+                            Text { size: "xs", color: "muted", "Worker version {short_identifier(&sha, 8)}" }
                         }
                     }
                     if state.renaming {
                         RenameForm { fingerprint: fingerprint.clone(), row, pump: pump.clone() }
                     }
                     if let Some(message) = state.error.clone() {
-                        FieldError { {message} }
+                        Text { color: "error", role: "alert", "{message}" }
                     }
                     if online {
                         if let Some(metrics) = worker.host_metrics.clone() {
                             MetricTiles { metrics }
                         }
                     }
-                    div { class: "flex flex-wrap items-center gap-2",
+                    Flex { direction: "row", align: "center", wrap: "wrap", gap: "sm",
                         Button {
-                            variant: ButtonVariant::Ghost,
-                            icon: Some(IconType::Pencil),
+                            variant: "standard",
+                            icon: Some(rsx! { Pictogram { icon: pictogram_icons_lucide::pencil::outlined } }),
                             "data-testid": format!("machines-rename-btn-{fingerprint}"),
                             onclick: move |_| {
                                 let mut row = row.write();
@@ -146,11 +149,12 @@ pub fn MachineRowView(
                             "Rename"
                         }
                         if state.confirming {
-                            span { class: "text-sm text-muted-foreground", "data-testid": format!("machines-delete-explanation-{fingerprint}"),
+                            Text { size: "sm", color: "muted", "data-testid": format!("machines-delete-explanation-{fingerprint}"),
                                 "Removes this credential; saved terminals and workspaces stay offline."
                             }
                             Button {
-                                variant: ButtonVariant::Destructive,
+                                variant: "outlined",
+                                color: "error",
                                 "data-testid": format!("machines-confirm-delete-btn-{fingerprint}"),
                                 disabled: state.busy,
                                 onclick: {
@@ -161,15 +165,16 @@ pub fn MachineRowView(
                                 "Confirm remove"
                             }
                             Button {
-                                variant: ButtonVariant::Ghost,
+                                variant: "standard",
                                 "data-testid": format!("machines-cancel-delete-btn-{fingerprint}"),
                                 onclick: move |_| row.write().confirming = false,
                                 "Cancel"
                             }
                         } else {
                             Button {
-                                variant: ButtonVariant::Destructive,
-                                icon: Some(IconType::Trash2),
+                                variant: "outlined",
+                                color: "error",
+                                icon: Some(rsx! { Pictogram { icon: pictogram_icons_lucide::trash_2::outlined } }),
                                 "data-testid": format!("machines-delete-btn-{fingerprint}"),
                                 disabled: state.busy,
                                 onclick: move |_| row.write().confirming = true,
@@ -195,51 +200,51 @@ fn RenameForm(fingerprint: String, mut row: Signal<MachineRow>, pump: Pump) -> E
         row.renaming = false;
         row.error = None;
     };
+    let rename_field_sx = use_hook(|| libero::sx::sx().flex("1"));
     rsx! {
         form {
-            class: "flex items-center gap-2",
             "data-testid": form_test_id,
             onsubmit: move |event| event.prevent_default(),
-            TextField {
-                test_id: "machines-rename-input".to_owned(),
-                label: "Label".to_owned(),
-                class: "flex-1".to_owned(),
-                value: state.label.clone(),
-                on_input: on_input,
-            }
-            Button {
-                variant: ButtonVariant::Default,
-                "data-testid": "machines-rename-save",
-                disabled: state.busy || state.label.trim().is_empty(),
-                onclick: on_save,
-                "Save"
-            }
-            Button {
-                variant: ButtonVariant::Ghost,
-                "data-testid": "machines-rename-cancel",
-                onclick: on_cancel,
-                "Cancel"
+            Flex { direction: "row", align: "center", gap: "sm",
+                TextField {
+                    label: "Label",
+                    sx: rename_field_sx,
+                    value: state.label.clone(),
+                    oninput: on_input,
+                    "data-testid": "machines-rename-input",
+                }
+                Button {
+                    variant: "standard",
+                    "data-testid": "machines-rename-save",
+                    disabled: state.busy || state.label.trim().is_empty(),
+                    onclick: on_save,
+                    "Save"
+                }
+                Button {
+                    variant: "standard",
+                    "data-testid": "machines-rename-cancel",
+                    onclick: on_cancel,
+                    "Cancel"
+                }
             }
         }
     }
 }
 
-/// The live CPU, memory, disk and network tiles.
+/// The live CPU, memory, disk and network measurements.
 #[component]
 fn MetricTiles(metrics: HostMetrics) -> Element {
     let memory_ratio = ratio(metrics.mem_used_bytes, metrics.mem_total_bytes);
     let disk_ratio = ratio(metrics.disk_used_bytes, metrics.disk_total_bytes);
     rsx! {
-        div { class: "grid grid-cols-2 gap-3",
-            MetricTile {
-                icon: Some(IconType::Cpu),
+        Flex { direction: "row", wrap: "wrap", gap: "sm",
+            MachineMetricTile {
                 label: "CPU",
                 value: format!("{:.0}%", metrics.cpu_pct),
                 support: None,
                 ratio: Some(metrics.cpu_pct / 100.0),
             }
-            MetricTile {
-                icon: Some(IconType::MemoryStick),
+            MachineMetricTile {
                 label: "Memory",
                 value: percent(memory_ratio),
                 support: Some(format!(
@@ -249,8 +254,7 @@ fn MetricTiles(metrics: HostMetrics) -> Element {
                 )),
                 ratio: memory_ratio,
             }
-            MetricTile {
-                icon: Some(IconType::HardDrive),
+            MachineMetricTile {
                 label: "Disk",
                 value: percent(disk_ratio),
                 support: Some(format!(
@@ -260,8 +264,7 @@ fn MetricTiles(metrics: HostMetrics) -> Element {
                 )),
                 ratio: disk_ratio,
             }
-            MetricTile {
-                icon: Some(IconType::Network),
+            MachineMetricTile {
                 label: "Network",
                 value: format_speed((metrics.net_rx_bps + metrics.net_tx_bps) as f64),
                 support: Some(format!(
@@ -270,6 +273,29 @@ fn MetricTiles(metrics: HostMetrics) -> Element {
                     format_speed(metrics.net_tx_bps as f64)
                 )),
                 ratio: None,
+            }
+        }
+    }
+}
+
+#[component]
+fn MachineMetricTile(
+    label: &'static str,
+    value: String,
+    support: Option<String>,
+    ratio: Option<f64>,
+) -> Element {
+    rsx! {
+        Paper {
+            Flex { direction: "column", gap: "xs",
+                Text { size: "xs", color: "muted", "{label}" }
+                Text { size: "sm", "{value}" }
+                if let Some(support) = support {
+                    Text { size: "xs", color: "muted", "{support}" }
+                }
+                if let Some(ratio) = ratio {
+                    ProgressBar { value: Some(ratio), max: 1.0, aria_label: format!("{label} usage") }
+                }
             }
         }
     }
@@ -303,72 +329,4 @@ fn liveness_line(worker: &Worker, online: bool, now_ms: i64) -> String {
     let last_seen = u64::try_from(worker.last_seen_ms).unwrap_or_default();
     let now = u64::try_from(now_ms).unwrap_or_default();
     format!("Last seen {}", relative_time(now, last_seen))
-}
-
-/// Rename one machine.
-fn rename(pump: Pump, fingerprint: String, mut row: Signal<MachineRow>) {
-    let label = row().label.trim().to_owned();
-    if label.is_empty() {
-        return;
-    }
-    row.write().busy = true;
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_futures::spawn_local(async move {
-        let request = RenameMachine {
-            fp: fingerprint,
-            label,
-        };
-        match pump.rpc().call(&request).await {
-            Ok(_) => {
-                let mut row = row.write();
-                row.busy = false;
-                row.renaming = false;
-                row.label.clear();
-            }
-            Err(error) => {
-                tracing::warn!(target: "settings", %error, "machine rename refused");
-                let mut row = row.write();
-                row.busy = false;
-                row.error = Some(format!("Rename failed: {error}"));
-            }
-        }
-    });
-    #[cfg(not(target_arch = "wasm32"))]
-    let _ = (pump, fingerprint, label, row);
-}
-
-/// Remove one machine from the fleet.
-fn remove(pump: Pump, fingerprint: String, mut row: Signal<MachineRow>) {
-    row.write().busy = true;
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_futures::spawn_local(async move {
-        let request = DeleteMachine { fp: fingerprint };
-        let outcome = pump.rpc().call(&request).await;
-        match outcome {
-            Ok(true) => {
-                let mut row = row.write();
-                row.busy = false;
-                row.confirming = false;
-            }
-            Ok(false) => {
-                let mut row = row.write();
-                row.busy = false;
-                row.confirming = false;
-                row.error = Some("Remove failed: the coordinator has no such machine".to_owned());
-            }
-            Err(error) => {
-                tracing::warn!(target: "settings", %error, "machine removal refused");
-                let mut row = row.write();
-                row.busy = false;
-                row.confirming = false;
-                row.error = Some(format!("Remove failed: {error}"));
-                drop(row);
-                pump.dispatch(ClientEvent::Shell(ShellIntent::ActionFailed {
-                    message: format!("Remove failed: {error}"),
-                }));
-            }
-        }
-    });
-    #[cfg(not(target_arch = "wasm32"))]
-    let _ = (pump, fingerprint, row);
 }

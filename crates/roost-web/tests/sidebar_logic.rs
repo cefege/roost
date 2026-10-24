@@ -5,23 +5,31 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use dioxus::core::Mutations;
+use dioxus::html::{
+    PlatformEventData, SerializedHtmlEventConverter, SerializedMouseData, set_event_converter,
+};
+use dioxus::prelude::*;
+use roost_client_core::store::SessionMap;
+use roost_web::components::notifications::notify_target::NotifyTarget;
+use roost_web::components::sidebar::folder_list::FolderList;
+use roost_web::platform::connect::CoordRpc;
+use roost_web::pump::Pump;
+use roost_web::router_state::provide_router;
+use std::{any::Any, cell::RefCell, rc::Rc};
+
+use crate::palette_support;
+
 use roost_client_core::ClientCore;
 use roost_protocol::wire::{
     ChannelId, HostIdentity, Session, SessionId, SessionKind, SessionStatus, Worker, WorkerFp,
     WorkerOs,
 };
-use roost_web::components::context_menu::MenuFocusEdge;
-use roost_web::components::deck::deck_dom::ClientBox;
 use roost_web::components::machines::machine_identity::{
     LinuxDistributionBrand, machine_identity_presentation,
 };
-use roost_web::components::menu_placement::{Vertical, place_menu};
 use roost_web::components::sidebar::row_swipe::{RowSwipe, SwipeRelease};
 use roost_web::components::sidebar::session_row::session_row_is_active;
-use roost_web::components::sidebar::sidebar_new_terminal::{
-    MACHINE_MENU_SIDE, MachineTriggerKeyAction, machine_trigger_key_action,
-};
-use roost_web::components::ui::IconType;
 use roost_web::session_naming::{folder_headline, program_subtitle, session_title};
 
 const FP: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -119,7 +127,7 @@ fn a_verified_macbook_shows_its_apple_chip() {
     )));
     assert_eq!(
         (mac.icon, mac.label.as_str()),
-        (IconType::Laptop, "MacBook")
+        (pictogram_icons_lucide::laptop::outlined, "MacBook")
     );
     assert_eq!(mac.apple_chip_badge.as_deref(), Some("M3 Pro"));
     assert_eq!(mac.title, "MacBook · Apple M3 Pro");
@@ -131,7 +139,7 @@ fn a_verified_macbook_shows_its_apple_chip() {
     )));
     assert_eq!(
         (desktop.icon, desktop.apple_chip_badge),
-        (IconType::Monitor, None)
+        (pictogram_icons_lucide::monitor::outlined, None)
     );
 }
 
@@ -181,7 +189,7 @@ fn a_worker_reported_windows_laptop_differs_from_a_desktop() {
     )));
     assert_eq!(
         (laptop.icon, laptop.label.as_str()),
-        (IconType::Laptop, "Windows laptop")
+        (pictogram_icons_lucide::laptop::outlined, "Windows laptop")
     );
     let desktop = machine_identity_presentation(Some(&worker(
         WorkerOs::Win32,
@@ -191,7 +199,7 @@ fn a_worker_reported_windows_laptop_differs_from_a_desktop() {
     )));
     assert_eq!(
         (desktop.icon, desktop.label.as_str()),
-        (IconType::Monitor, "Windows PC")
+        (pictogram_icons_lucide::monitor::outlined, "Windows PC")
     );
     assert_eq!(machine_identity_presentation(None).label, "Computer");
 }
@@ -254,85 +262,76 @@ fn a_swipe_closes_only_past_the_threshold_and_a_vertical_drag_never_claims() {
     assert_eq!(rightward.offset_x(), 0.0, "left only");
 }
 
-#[test]
-fn the_machine_menu_opens_upward_from_its_trigger() {
-    let viewport = ClientBox {
-        left: 0.0,
-        top: 0.0,
-        width: 1_200.0,
-        height: 1_000.0,
-    };
-    let trigger = ClientBox {
-        left: 200.0,
-        top: 900.0,
-        width: 80.0,
-        height: 32.0,
-    };
-    assert!(
-        MACHINE_MENU_SIDE.prefers_up(),
-        "the picker is configured to open upward"
+thread_local! {
+    static FOLDER_NAVIGATION: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+fn folder_navigation_root() -> Element {
+    use_context_provider(|| {
+        let mut core = ClientCore::in_memory("folder-navigation");
+        let row = session(None);
+        let mut sessions = SessionMap::new();
+        sessions.insert(row.id.clone(), row);
+        core.store_mut().sessions.apply_snapshot(sessions);
+        core.store_mut().workers.insert(
+            FP.to_owned(),
+            worker(WorkerOs::Linux, None, None, Some("Ubuntu 24.04")),
+        );
+        Pump::new(
+            Rc::new(RefCell::new(core)),
+            Signal::new(0_u64),
+            Rc::new(CoordRpc::new("http://127.0.0.1:4113", "")),
+        )
+    });
+    provide_router(
+        Signal::new(String::new()),
+        EventHandler::new(|path: String| {
+            FOLDER_NAVIGATION.with(|paths| paths.borrow_mut().push(path));
+        }),
     );
-    let placement = place_menu(trigger, viewport, viewport, MACHINE_MENU_SIDE.prefers_up());
-    assert_eq!(
-        placement.vertical,
-        Vertical::Bottom(104.0),
-        "the bottom edge sits the trigger gap above the trigger's top"
-    );
+    NotifyTarget::provide();
+    roost_web::components::sidebar::rel_time_tick::provide_rel_time_ticker();
+    let themes = use_hook(|| {
+        roost_web::theme::catalog::theme_set_for_choice(
+            &roost_web::theme::choice::ThemeChoice::default(),
+        )
+        .clone()
+    });
+    rsx! {
+        libero::LiberoProvider { themes,
+            FolderList { active: true, query: String::new() }
+        }
+    }
 }
 
 #[test]
-fn the_machine_menu_drops_below_when_no_room_is_above() {
-    let viewport = ClientBox {
-        left: 0.0,
-        top: 0.0,
-        width: 1_200.0,
-        height: 1_000.0,
-    };
-    let trigger = ClientBox {
-        left: 200.0,
-        top: 100.0,
-        width: 80.0,
-        height: 32.0,
-    };
-    let placement = place_menu(trigger, viewport, viewport, MACHINE_MENU_SIDE.prefers_up());
+fn a_populated_folder_opens_its_live_session() {
+    set_event_converter(Box::new(SerializedHtmlEventConverter));
+    FOLDER_NAVIGATION.with(|paths| paths.borrow_mut().clear());
+    let mut dom = VirtualDom::new(folder_navigation_root);
+    let mut tree = palette_support::RenderedTree::default();
+    let mut initial = Mutations::default();
+    dom.rebuild(&mut initial);
+    tree.apply(initial);
+    for _round in 0..8 {
+        tree.apply(dom.render_immediate_to_vec());
+        dom.process_events();
+    }
+    let open_folder = tree
+        .matching_attribute("aria-label", "Open project")
+        .into_iter()
+        .next()
+        .expect("the live project folder has an activation link");
+    let open_folder = tree
+        .listener_target(open_folder, "click")
+        .expect("the folder link has its activation listener");
+    let data: Rc<dyn Any> = Rc::new(PlatformEventData::new(Box::new(
+        SerializedMouseData::default(),
+    )));
+    let event: Event<dyn Any> = Event::new(data, true);
+    dom.in_runtime(|| dom.runtime().handle_event("click", event, open_folder));
     assert_eq!(
-        placement.vertical,
-        Vertical::Top(136.0),
-        "flips below the trigger's bottom edge"
-    );
-}
-
-#[test]
-fn home_and_end_that_beat_the_menu_focus_to_the_trigger_still_pick_their_edge() {
-    assert_eq!(
-        machine_trigger_key_action("ArrowDown", false),
-        MachineTriggerKeyAction::Open(MenuFocusEdge::First)
-    );
-    assert_eq!(
-        machine_trigger_key_action("ArrowUp", false),
-        MachineTriggerKeyAction::Open(MenuFocusEdge::Last)
-    );
-    assert_eq!(
-        machine_trigger_key_action("End", true),
-        MachineTriggerKeyAction::FocusEdge(MenuFocusEdge::Last),
-        "End pressed right after ArrowDown, before the first item took focus"
-    );
-    assert_eq!(
-        machine_trigger_key_action("Home", true),
-        MachineTriggerKeyAction::FocusEdge(MenuFocusEdge::First)
-    );
-    assert_eq!(
-        machine_trigger_key_action("End", false),
-        MachineTriggerKeyAction::Ignore,
-        "a closed menu leaves End to the page"
-    );
-    assert_eq!(
-        machine_trigger_key_action("Escape", true),
-        MachineTriggerKeyAction::Close
-    );
-    assert_eq!(
-        machine_trigger_key_action("Escape", false),
-        MachineTriggerKeyAction::Ignore,
-        "a closed menu leaves Escape to the document"
+        FOLDER_NAVIGATION.with(|paths| paths.borrow().clone()),
+        vec![format!("/s/{SESSION}")],
     );
 }

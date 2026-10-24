@@ -2,10 +2,12 @@
 //! styled output, the hidden-line hint and the expand control. Stateless; the
 //! caller owns the expansion switch and receives the requested state.
 
-use dioxus::prelude::*;
-
 use super::output_lines::{styled_lines, window};
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, Surface};
+use dioxus::prelude::*;
+use libero::{
+    components::{Box, Button, Paper, Text},
+    sx::sx,
+};
 
 /// The line printed where folded output hides lines. A tail preview names how
 /// much it shows of the whole, since the reader is looking at the latest lines.
@@ -40,30 +42,67 @@ pub fn OutputWindow(
     let hint = window_hint(window_lines.len(), hidden, lines.len(), from_head);
     let can_collapse = open && lines.len() > rows;
     let error = failed.then_some("true");
+    let terminal_surface = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("column")
+            .gap("xs")
+            .border_radius("md")
+            .padding_top("sm")
+            .padding_bottom("sm")
+            .background("var(--term-bg)")
+            .color("var(--term-fg)")
+    });
+    let hint_style = use_hook(|| sx().padding_left("md").padding_right("md"));
+    let output_sx = use_hook(|| {
+        sx().margin("0")
+            .overflow_x("auto")
+            .with("overscroll-behavior-y", "auto")
+            .font_family("monospace")
+            .font_size("xs")
+            .line_height("1.25rem")
+            .selector(
+                "& [data-tone='added']",
+                sx().background_color("color-mix(in srgb, var(--primary) 10%, transparent)"),
+            )
+            .selector(
+                "& [data-tone='removed']",
+                sx().background_color("color-mix(in srgb, var(--destructive) 10%, transparent)"),
+            )
+            .selector(
+                "& [data-tone='header']",
+                sx().background_color("var(--muted)")
+                    .color("var(--muted-foreground)"),
+            )
+    });
+    let output_line_sx = use_hook(|| {
+        sx().white_space("pre-wrap")
+            .with("overflow-wrap", "anywhere")
+            .padding_inline("md")
+    });
     rsx! {
-        Surface { class: "rounded-md bg-terminal py-2 text-terminal-foreground",
+        Paper { sx: terminal_surface,
             if hidden > 0 && !from_head {
-                p { class: "m-0 px-3 pb-1 text-xs text-muted-foreground", "{hint}" }
+                Text { sx: hint_style.clone(), size: "xs", color: "muted", "{hint}" }
             }
-            pre { class: "m-0 overflow-x-auto font-mono text-xs leading-5", "data-error": error,
+            Box { component: "pre", sx: output_sx, "data-error": error,
                 for line in window_lines.iter() {
-                    div { class: "whitespace-pre-wrap break-words px-3", "data-tone": line.tone.attribute(),
+                    Box { component: "div", sx: output_line_sx.clone(), "data-tone": line.tone.attribute(),
                         for run in line.runs.iter() {
-                            span { class: run.style.classes(), "{run.text}" }
+                            Box { component: "span", sx: run.style.sx(), "{run.text}" }
                         }
                     }
                 }
             }
             if hidden > 0 && from_head {
-                p { class: "m-0 px-3 pt-1 text-xs text-muted-foreground", "{hint}" }
+                Text { sx: hint_style, size: "xs", color: "muted", "{hint}" }
             }
         }
         if hidden > 0 {
-            Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "self-start",
+            Button { variant: "standard", color: "primary", size: "sm",
                 onclick: move |_| on_expand.call(true), "Show all" }
         }
         if can_collapse {
-            Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "self-start",
+            Button { variant: "standard", color: "primary", size: "sm",
                 onclick: move |_| on_expand.call(false), "Collapse" }
         }
     }

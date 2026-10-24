@@ -3,15 +3,17 @@
 //! rejects programmatic clicks outside the gesture that requested them.
 
 use dioxus::prelude::*;
+use libero::components::Pictogram;
 
 use super::dom;
 use super::upload_tray::{extension_label, format_file_size};
-use crate::components::ui::field::scoped_element_id;
+
 use crate::components::ui::{
     Attachment, AttachmentActions, AttachmentContent, AttachmentDescription, AttachmentMedia,
-    AttachmentMediaVariant, AttachmentSize, AttachmentTitle, ButtonSize, ButtonVariant, Icon,
-    IconButton, IconType, Surface, SurfaceRadius,
+    AttachmentMediaVariant, AttachmentSize, AttachmentTitle,
 };
+use libero::components::{ActionIcon, Box, Paper, Text};
+use libero::sx::sx;
 
 /// One chosen file: its name, length and the browser's handle to it. The
 /// bytes are read a chunk at a time while the upload runs, so a large video is
@@ -103,20 +105,34 @@ pub(super) async fn read_chosen(files: Vec<web_sys::File>) -> Vec<ChosenFile> {
 /// The staged attachments and their keyboard-accessible removal controls.
 #[component]
 pub fn AttachmentPreview(files: Vec<ChosenFile>, on_remove: EventHandler<usize>) -> Element {
-    let label_id = use_hook(|| scoped_element_id("attachment-preview-strip"));
+    let label_id = libero::hooks::use_id().read().clone();
+    let surface_sx = use_hook(|| sx().padding("xs"));
+    let screen_reader_sx = use_hook(|| {
+        sx().position("absolute")
+            .width("1px")
+            .height("1px")
+            .padding("0")
+            .margin("-1px")
+            .overflow("hidden")
+            .with("clip", "rect(0, 0, 0, 0)")
+            .white_space("nowrap")
+            .with("border", "0")
+    });
+    let rows_sx = use_hook(|| sx().display("flex").flex_direction("column").gap("xs"));
     if files.is_empty() {
         return rsx! {};
     }
     rsx! {
-        Surface {
-            elevation: 2,
-            radius: SurfaceRadius::Sm,
-            pad: 1,
-            test_id: "attachment-preview-strip",
+        Paper {
+            shadow: "sm",
+            radius: "sm",
+            bordered: true,
+            sx: surface_sx,
+            "data-testid": "attachment-preview-strip",
             role: "list",
             aria_labelledby: label_id.clone(),
-            span { id: label_id, class: "sr-only", "Attachments staged for sending" }
-            div { class: "flex flex-col gap-1",
+            Text { component: "span", id: label_id, sx: screen_reader_sx, "Attachments staged for sending" }
+            Box { component: "div", sx: rows_sx,
                 for (index, file) in files.into_iter().enumerate() {
                     StagedAttachmentRow { key: "{index}-{file.name}", file, index, on_remove }
                 }
@@ -130,10 +146,12 @@ fn StagedAttachmentRow(file: ChosenFile, index: usize, on_remove: EventHandler<u
     let name = file.name.clone();
     let size_label = format_file_size(file.size_bytes);
     let is_video = video_file(&file);
+    let attachment_sx = use_hook(|| sx().width("100%").min_width("0").border_radius("md"));
+    let media_sx = use_hook(|| sx().font_size("xs").color("muted"));
     rsx! {
         Attachment {
             size: AttachmentSize::Sm,
-            class: "w-full min-w-0 rounded-md",
+            sx: attachment_sx,
             "tabindex": "0",
             "role": "listitem",
             "data-testid": "staged-attachment",
@@ -147,9 +165,9 @@ fn StagedAttachmentRow(file: ChosenFile, index: usize, on_remove: EventHandler<u
                     }
                 }
             } else {
-                AttachmentMedia { variant: AttachmentMediaVariant::Icon, class: "text-xs text-muted-foreground",
+                AttachmentMedia { variant: AttachmentMediaVariant::Icon, sx: media_sx,
                     if is_video {
-                        Icon { icon: IconType::Film }
+                        Pictogram { icon: pictogram_icons_lucide::film::outlined }
                     } else {
                         "{extension_label(&file.name)}"
                     }
@@ -160,13 +178,12 @@ fn StagedAttachmentRow(file: ChosenFile, index: usize, on_remove: EventHandler<u
                 AttachmentDescription { "{size_label}" }
             }
             AttachmentActions {
-                IconButton {
-                    icon: IconType::X,
-                    label: "Remove {name}",
+                ActionIcon {
+                    icon: pictogram_icons_lucide::x::outlined,
+                    aria_label: "Remove {name}",
                     title: "Remove {name}",
-                    variant: ButtonVariant::Ghost,
-                    size: ButtonSize::IconSm,
-                    class: None,
+                    variant: "standard",
+                    size: "sm",
                     onclick: move |_| on_remove.call(index),
                 }
             }

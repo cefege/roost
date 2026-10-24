@@ -1,125 +1,122 @@
-//! The one place a generated verification code is shown. It is presentational:
-//! the code, the lifecycle state, and every dismissal route into one cancel
-//! callback that the approver turns into a `PairDeny`. There is no other close
-//! affordance: a close that did not withdraw the approval would leave a live
-//! six-digit code the coordinator still honours.
+//! The one place a generated verification code is shown. The approver's state
+//! owns the approval; this host mirrors each approval into one fenced Libero
+//! modal and routes every dismissal through the server-side cancellation path.
+
+use std::{cell::RefCell, rc::Rc};
 
 use dioxus::prelude::*;
+use libero::{
+    components::{Button, Dialog, Flex, Paper, Text},
+    hooks::{ModalScope, use_modal},
+    sx::sx,
+};
+
+use roost_client_core::client::auth::PairApproval;
 
 use super::approver::{CodeDialogState, PairApprover};
 use super::notices::{NoticeTone, PairingStatusNotice};
 use super::status::group_verification_code;
-use crate::components::ui::{
-    Button, ButtonVariant, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter,
-    DialogHeader, DialogTitle, Surface, SurfaceRadius,
-};
+use crate::components::overlay_generation::OverlayGeneration;
 
-/// The code, the state, and the two ways out of it.
+/// The code dialog's host, mounted above route and access-gate changes.
 #[component]
-pub fn PairVerificationCodeDialog(
-    verification_code: String,
-    requester_label: String,
-    state: CodeDialogState,
-    on_cancel: EventHandler<()>,
-    on_reload: EventHandler<()>,
-) -> Element {
-    let reload_required = state == CodeDialogState::ReloadRequired;
-    let cancelling = state == CodeDialogState::Cancelling;
-    let subject = if requester_label.trim().is_empty() {
-        "the requesting browser".to_string()
-    } else {
-        requester_label.clone()
-    };
-    rsx! {
-        Dialog {
-            open: true,
-            on_open_change: move |open: bool| {
-                if !open {
-                    on_cancel.call(());
-                }
-            },
-            DialogContent { test_id: "pair-verification-code-dialog", show_close_button: true,
-                DialogHeader {
-                    DialogTitle { "Finish pairing" }
-                    DialogDescription {
-                        span {
-                            "Enter this code on {subject}."
-                            if !reload_required {
-                                " This window closes automatically when pairing completes."
+pub fn ApprovalCodeDialog(approver: PairApprover) -> Element {
+    let state = approver.state().read().clone();
+    let approval = state.approval.clone();
+    let previous = use_hook(|| Rc::new(RefCell::new(None::<PairApproval>)));
+    let body_sx = use_hook(|| sx().gap("md"));
+
+    let generation = use_hook(|| Rc::new(RefCell::new(OverlayGeneration::default())));
+    let modal_approver = approver.clone();
+    let modal_generation = Rc::clone(&generation);
+    let modal_body_sx = body_sx.clone();
+    let dialog = use_modal(move |scope: ModalScope<(PairApproval, u64)>| {
+        let Some((approval, token)) = scope.try_args() else {
+            return rsx! {};
+        };
+        let state = modal_approver.state().read().clone();
+        let dismiss_approver = modal_approver.clone();
+        let button_generation = Rc::clone(&modal_generation);
+        let button_approver = modal_approver.clone();
+        let dismiss_generation = Rc::clone(&modal_generation);
+        rsx! {
+            Dialog {
+                title: "Finish pairing",
+                close_button: Some(true),
+                "data-testid": "pair-verification-code-dialog",
+                ondismiss: move |_| {
+                    if dismiss_generation.borrow().is_current(token)
+                        && state.dialog != CodeDialogState::Cancelling
+                    {
+                        dismiss_approver.cancel();
+                    }
+                    false
+                },
+                Flex { direction: "column", sx: modal_body_sx.clone(),
+                    Text { size: "sm", color: "muted",
+                        "Enter this code on "
+                        {if approval.requester_label.trim().is_empty() { "the requesting browser" } else { &approval.requester_label }}
+                        ". This window closes automatically when pairing completes."
+                    }
+                    Paper { bordered: true, role: "status", aria_live: "polite", aria_atomic: "true",
+                        Text { component: "code", size: "xl", "data-testid": "pair-verification-code",
+                            {group_verification_code(&approval.verification_code)}
+                        }
+                    }
+                    if state.dialog == CodeDialogState::ReloadRequired {
+                        PairingStatusNotice {
+                            tone: NoticeTone::Error,
+                            message: "This page can no longer follow the pairing. Reload it to continue.".to_owned(),
+                            test_id: None,
+                        }
+                    }
+                    Flex { direction: "row", gap: "sm", justify: "end",
+                        if state.dialog == CodeDialogState::ReloadRequired {
+                            Button {
+                                "data-testid": "pair-verification-code-reload",
+                                onclick: move |_| crate::platform::location::reload_document(),
+                                "Reload page"
                             }
                         }
-                    }
-                }
-                DialogBody {
-                    Surface {
-                        level: 2,
-                        radius: SurfaceRadius::Sm,
-                        pad: 4,
-                        border: true,
-                        test_id: Some("pair-verification-code".to_owned()),
-                        role: Some("status".to_owned()),
-                        aria_live: Some("polite".to_owned()),
-                        aria_atomic: Some("true".to_owned()),
-                        code { class: "block m-0 text-center text-3xl font-semibold text-foreground select-text",
-                            {group_verification_code(&verification_code)}
-                        }
-                    }
-                    if reload_required {
-                        div { class: "mt-3",
-                            PairingStatusNotice {
-                                tone: NoticeTone::Error,
-                                message: "This page can no longer follow the pairing. Reload it to continue."
-                                    .to_string(),
-                                test_id: None,
-                            }
-                        }
-                    }
-                }
-                DialogFooter {
-                    if reload_required {
                         Button {
-                            "data-testid": "pair-verification-code-reload",
-                            onclick: move |_| on_reload.call(()),
-                            "Reload page"
+                            variant: "outlined",
+                            "data-testid": "pair-verification-code-cancel",
+                            disabled: state.dialog == CodeDialogState::Cancelling,
+                            "aria-busy": (state.dialog == CodeDialogState::Cancelling).to_string(),
+                            onclick: move |_| {
+                                if button_generation.borrow().is_current(token) {
+                                    button_approver.cancel();
+                                }
+                            },
+                            if state.dialog == CodeDialogState::Cancelling { "Cancelling…" } else { "Cancel request" }
                         }
-                    }
-                    Button {
-                        variant: ButtonVariant::Outline,
-                        "data-testid": "pair-verification-code-cancel",
-                        disabled: cancelling,
-                        "aria-busy": cancelling.to_string(),
-                        onclick: move |_| on_cancel.call(()),
-                        if cancelling { "Cancelling…" } else { "Cancel request" }
                     }
                 }
             }
         }
-    }
-}
-
-/// The dialog's host, mounted for the life of the document wherever the reader
-/// walks.
-///
-/// v2 keys this on the approval record and renders it from the provider, beside
-/// its children rather than inside them (`PairApprovalProvider.tsx:348-367`),
-/// for one reason: an approver who reads a code aloud and then opens Settings
-/// must not have the code disappear because a route changed. The reload the
-/// `reload_required` state offers is the same code
-/// `PairApprovalProvider.tsx:360` offers, and it is issued through
-/// `platform::location::reload_document`, the crate's one document reload.
-#[component]
-pub fn ApprovalCodeDialog(approver: PairApprover) -> Element {
-    let state = approver.state().read().clone();
-    let Some(approval) = state.approval.clone() else {
-        return rsx! {};
-    };
-    rsx! {
-        PairVerificationCodeDialog {
-            verification_code: approval.verification_code.clone(),
-            requester_label: approval.requester_label.clone(),
-            state: state.dialog,
-            on_cancel: move |()| approver.cancel(),
-            on_reload: move |_| crate::platform::location::reload_document(),
+    });
+    let sync_dialog = dialog;
+    let sync_generation = Rc::clone(&generation);
+    let sync_previous = Rc::clone(&previous);
+    use_effect(use_reactive!(|(approval)| {
+        {
+            let mut previous = sync_previous.borrow_mut();
+            if *previous == approval {
+                return;
+            }
+            *previous = approval.clone();
         }
-    }
+        sync_generation.borrow_mut().invalidate();
+        sync_dialog.close();
+        if let Some(approval) = approval {
+            let token = sync_generation.borrow_mut().begin();
+            let completion_generation = Rc::clone(&sync_generation);
+            sync_dialog.open_with((approval, token)).onresult(move |_| {
+                completion_generation.borrow_mut().finish(token);
+            });
+        }
+    }));
+    let teardown_generation = Rc::clone(&generation);
+    use_drop(move || teardown_generation.borrow_mut().invalidate());
+    rsx! {}
 }

@@ -67,6 +67,8 @@ pub struct KeydownContext {
     pub target_is_text_field: bool,
     /// The target is editable (text field or contenteditable).
     pub target_editable: bool,
+    /// A popup trigger, menu, listbox or combobox owns navigation and activation.
+    pub target_in_roving_control: bool,
     /// A TV remote or pad drives the arrows.
     pub directional_input_active: bool,
     /// The sidebar cursor highlights a row.
@@ -171,6 +173,7 @@ pub fn keydown_action(key: &ShortcutKey, context: &KeydownContext) -> KeydownAct
         || context.help_open
         || context.controller_map_open
         || context.target_editable
+        || context.target_in_roving_control
         || context.terminal_owns_keyboard
         || key.meta
         || key.ctrl

@@ -14,14 +14,12 @@
 pub mod machine_row;
 
 use dioxus::prelude::*;
+
 use roost_protocol::wire::Worker;
 
 use crate::components::machines::deploy_dialog::MachineDeployDialog;
-use crate::components::ui::{
-    Button, ButtonVariant, Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle,
-    EmptyState, IconType, List,
-};
 use crate::pump::use_store;
+use libero::components::{Button, Flex, Paper, Pictogram, Text, Title};
 
 /// The pane.
 #[component]
@@ -43,19 +41,19 @@ pub fn MachinesPane() -> Element {
     };
     let count = workers.len();
     rsx! {
-        div {
-            class: "flex flex-col gap-5",
-            "data-testid": "settings-machines-pane",
-            Card {
-                CardHeader {
-                    CardTitle { "Machines" }
-                    CardDescription {
-                        {if count == 1 { "1 machine".to_owned() } else { format!("{count} machines") }}
-                    }
-                    CardAction {
+        Flex { direction: "column", gap: "md", "data-testid": "settings-machines-pane",
+            Paper {
+                Flex { direction: "column", gap: "sm",
+                    Flex { direction: "row", align: "center", justify: "space-between", gap: "sm",
+                        Flex { direction: "column", gap: "xs",
+                            Title { size: "md", "Machines" }
+                            Text { size: "sm", color: "muted",
+                                {if count == 1 { "1 machine".to_owned() } else { format!("{count} machines") }}
+                            }
+                        }
                         Button {
-                            variant: ButtonVariant::Default,
-                            icon: Some(IconType::Plus),
+                            variant: "standard",
+                            icon: Some(rsx! { Pictogram { icon: pictogram_icons_lucide::plus::outlined } }),
                             "data-testid": "machines-add-btn",
                             onclick: move |_| {
                                 enrolling.set(true);
@@ -64,16 +62,14 @@ pub fn MachinesPane() -> Element {
                             "Add machine"
                         }
                     }
-                }
-                CardContent {
                     if workers.is_empty() {
-                        EmptyState {
-                            icon: IconType::Monitor,
-                            title: "No machines yet",
-                            supporting: "Add a machine to start spawning sessions.",
+                        Flex { direction: "column", align: "center", gap: "xs",
+                            Pictogram { icon: pictogram_icons_lucide::monitor::outlined }
+                            Text { size: "sm", "No machines yet" }
+                            Text { size: "sm", color: "muted", "Add a machine to start spawning sessions." }
                         }
                     } else {
-                        List { contained: true,
+                        Flex { direction: "column", gap: "sm",
                             for worker in workers {
                                 machine_row::MachineRowView {
                                     worker,

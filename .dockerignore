@@ -9,6 +9,3 @@ target/
 .env.*
 **/.env
 **/.env.*
-# dx regenerates it from crates/roost-web/tailwind.css; a developer's stale copy
-# must not stand in for that build step.
-crates/roost-web/assets/styles/tailwind.css

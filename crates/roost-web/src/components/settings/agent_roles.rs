@@ -7,12 +7,13 @@ use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{AgentSettingsView, ModelsCatalog};
 
 use crate::components::agent_chat::model_picker::PickerOption;
-use crate::components::agent_chat::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
 use crate::components::settings::model_scope::{
-    KnownFolder, ModelScope, known_folders, scope_from_id, scope_id, scope_label,
+    KnownFolder, ModelScope, known_folders, scope_label,
 };
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, IconType, SwitchRow};
 use crate::pump::{Pump, use_store};
+use libero::components::{
+    Button, Flex, Menu, MenuEntry, MenuItem, Pictogram, Switch, Text, use_menu,
+};
 
 mod rows;
 #[cfg(target_arch = "wasm32")]
@@ -105,12 +106,33 @@ pub fn AgentRoles(
     error: Signal<String>,
 ) -> Element {
     let pump = use_store();
-    let mut scope = use_signal(|| ModelScope::Global);
+    let scope = use_signal(|| ModelScope::Global);
     let mut specialized = use_signal(|| false);
+    let menu = use_menu();
     let current = settings();
     let folders = known_folders_in_store(&pump, &current);
     let active = scope();
-    let scope_items = scope_menu_items(&folders, &active);
+    let scope_name = scope_label(&active, &folders);
+    let mut scope_items: Vec<MenuEntry> = Vec::with_capacity(folders.len() + 1);
+    let mut global_scope = scope;
+    scope_items.push(
+        MenuItem::new("All folders")
+            .radio(matches!(active, ModelScope::Global))
+            .onselect(move |_| global_scope.set(ModelScope::Global))
+            .into(),
+    );
+    scope_items.extend(folders.iter().map(|folder| {
+        let selected_scope = ModelScope::Folder {
+            worker_fp: folder.worker_fp.clone(),
+            cwd: folder.cwd.clone(),
+        };
+        let is_selected = selected_scope == active;
+        let mut scope = scope;
+        MenuItem::new(folder.label.clone())
+            .radio(is_selected)
+            .onselect(move |_| scope.set(selected_scope.clone()))
+            .into()
+    }));
     let context = RoleContext {
         current: &current,
         scope: &active,
@@ -120,57 +142,64 @@ pub fn AgentRoles(
         error,
     };
     rsx! {
-        div { class: "flex flex-wrap items-center gap-3", "data-testid": "agent-model-scope",
-            ToolbarMenu {
-                menu_key: "model-scope".to_owned(),
-                trigger: ToolbarTrigger::Picker { label: scope_label(&active, &folders) },
-                aria_label: "Models apply to".to_owned(),
-                items: scope_items,
-                on_choose: move |choice: String| scope.set(scope_from_id(&choice)),
-            }
-            p { class: "basis-full text-sm text-muted-foreground",
-                "A folder's chain replaces the all-folders chain for that role only. A role with no chain inherits."
-            }
-            if folders.is_empty() {
-                p { class: "basis-full text-sm text-muted-foreground",
-                    "Open a folder or start a conversation to customize its models."
+        Flex { direction: "column", gap: "sm",
+            Flex { direction: "row", wrap: "wrap", gap: "sm", "data-testid": "agent-model-scope",
+                Menu {
+                    state: menu,
+                    items: scope_items,
+                    Button {
+                        attributes: menu.a11y_attributes(),
+                        variant: "outlined",
+                        trailing_icon: Some(rsx! { Pictogram { icon: pictogram_icons_lucide::chevron_down::outlined, width: "16", height: "16" } }),
+                        onclick: move |_| menu.toggle(),
+                        "aria-label": "Models apply to",
+                        "{scope_name}"
+                    }
+                }
+                Text { size: "sm", color: "muted",
+                    "A folder's chain replaces the all-folders chain for that role only. A role with no chain inherits."
+                }
+                if folders.is_empty() {
+                    Text { size: "sm", color: "muted",
+                        "Open a folder or start a conversation to customize its models."
+                    }
                 }
             }
-        }
-        {role_row(RoleRow {
-            role: ROLES[0].0,
-            title: ROLES[0].1,
-            purpose: ROLES[0].2,
-            inherits: ROLES[0].3,
-        }, &context)}
-        Button {
-            variant: ButtonVariant::Ghost,
-            size: ButtonSize::Sm,
-            icon: Some(if specialized() { IconType::ChevronUp } else { IconType::ChevronDown }),
-            "aria-expanded": specialized().to_string(),
-            "aria-controls": "agent-work-role-models",
-            "data-testid": "agent-work-role-expand",
-            title: "Optional overrides for planning, delegated work, quick tasks, review and search.",
-            onclick: move |_| specialized.toggle(),
-            if specialized() { "Hide work-role overrides" } else { "Customize by task" }
-        }
-        if specialized() {
-            div { id: "agent-work-role-models", class: "flex flex-col gap-3",
-                for (role, title, purpose, inherits) in ROLES.into_iter().skip(1) {
-                    {role_row(RoleRow { role, title, purpose, inherits }, &context)}
+            {role_row(RoleRow {
+                role: ROLES[0].0,
+                title: ROLES[0].1,
+                purpose: ROLES[0].2,
+                inherits: ROLES[0].3,
+            }, &context)}
+            Button {
+                size: "sm",
+                variant: "standard",
+                icon: Some(rsx! { Pictogram { icon: if specialized() { pictogram_icons_lucide::chevron_up::outlined } else { pictogram_icons_lucide::chevron_down::outlined }, width: "16", height: "16" } }),
+                "aria-expanded": specialized().to_string(),
+                "aria-controls": "agent-work-role-models",
+                "data-testid": "agent-work-role-expand",
+                title: "Optional overrides for planning, delegated work, quick tasks, review and search.",
+                onclick: move |_| specialized.toggle(),
+                if specialized() { "Hide work-role overrides" } else { "Customize by task" }
+            }
+            if specialized() {
+                Flex { direction: "column", gap: "sm", id: "agent-work-role-models",
+                    for (role, title, purpose, inherits) in ROLES.into_iter().skip(1) {
+                        {role_row(RoleRow { role, title, purpose, inherits }, &context)}
+                    }
                 }
             }
-        }
-        SwitchRow {
-            test_id: Some("agent-advisor-default".to_owned()),
-            headline: "Advisor reviews every turn by default".to_owned(),
-            support: Some("Conversations use the advisor unless individually overridden.".to_owned()),
-            checked: current.advisor_enabled,
-            on_checked_change: move |enabled| {
-                let mut updated = current.clone();
-                updated.advisor_enabled = enabled;
-                save_settings(pump.clone(), updated, settings, error);
-            },
+            Switch {
+                checked: current.advisor_enabled,
+                onchange: move |enabled| {
+                    let mut updated = current.clone();
+                    updated.advisor_enabled = enabled;
+                    save_settings(pump.clone(), updated, settings, error);
+                },
+                label: "Advisor reviews every turn by default",
+                description: "Conversations use the advisor unless individually overridden.",
+                "data-testid": "agent-advisor-default",
+            }
         }
     }
 }
@@ -203,22 +232,6 @@ fn known_folders_in_store(pump: &Pump, settings: &AgentSettingsView) -> Vec<Know
         (row.worker_fp.as_str(), row.cwd.as_str(), label)
     });
     known_folders(conversations.chain(workspaces).chain(configured))
-}
-
-fn scope_menu_items(folders: &[KnownFolder], active: &ModelScope) -> Vec<ToolbarMenuItem> {
-    let mut items = vec![ToolbarMenuItem::choice(
-        scope_id(&ModelScope::Global),
-        "All folders",
-        matches!(active, ModelScope::Global),
-    )];
-    items.extend(folders.iter().map(|folder| {
-        let scope = ModelScope::Folder {
-            worker_fp: folder.worker_fp.clone(),
-            cwd: folder.cwd.clone(),
-        };
-        ToolbarMenuItem::choice(scope_id(&scope), folder.label.clone(), &scope == active)
-    }));
-    items
 }
 
 /// The models a role's chain may name. Web search draws from its engines; chat
@@ -265,10 +278,14 @@ pub fn load_settings(
 ) {
     loaded.set(false);
     #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_futures::spawn_local(async move {
+    dioxus::core::spawn_forever(async move {
         let mut settings = settings;
         let mut error = error;
-        match pump.rpc().call(&GetAgentSettings {}).await {
+        let result = pump.rpc().call(&GetAgentSettings {}).await;
+        if settings.try_peek().is_err() || error.try_peek().is_err() || loaded.try_peek().is_err() {
+            return;
+        }
+        match result {
             Ok(json) => match serde_json::from_str(&json) {
                 Ok(value) => {
                     settings.set(value);
@@ -291,18 +308,26 @@ pub fn save_settings(
     error: Signal<String>,
 ) {
     #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_futures::spawn_local(async move {
+    dioxus::core::spawn_forever(async move {
         let mut state = state;
         let mut error = error;
-        match serde_json::to_string(&updated) {
-            Ok(settings_json) => match pump.rpc().call(&SetAgentSettings { settings_json }).await {
-                Ok(()) => {
-                    state.set(updated);
-                    error.set(String::new());
-                }
-                Err(failure) => error.set(format!("Could not save agent settings: {failure}")),
-            },
-            Err(failure) => error.set(format!("Could not encode agent settings: {failure}")),
+        let result = match serde_json::to_string(&updated) {
+            Ok(settings_json) => pump
+                .rpc()
+                .call(&SetAgentSettings { settings_json })
+                .await
+                .map_err(|failure| format!("Could not save agent settings: {failure}")),
+            Err(failure) => Err(format!("Could not encode agent settings: {failure}")),
+        };
+        if state.try_peek().is_err() || error.try_peek().is_err() {
+            return;
+        }
+        match result {
+            Ok(()) => {
+                state.set(updated);
+                error.set(String::new());
+            }
+            Err(failure) => error.set(failure),
         }
     });
     #[cfg(not(target_arch = "wasm32"))]

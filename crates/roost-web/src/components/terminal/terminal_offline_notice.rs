@@ -4,9 +4,8 @@
 //! is click-through so only the card is interactive.
 
 use dioxus::prelude::*;
-
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, Card, CardDescription, CardTitle};
-
+use libero::components::{Box, Button, Paper, Text, Title};
+use libero::sx::sx;
 /// The notice.
 #[component]
 pub fn TerminalOfflineNotice(
@@ -14,37 +13,53 @@ pub fn TerminalOfflineNotice(
     on_open_sibling: EventHandler<()>,
     has_sibling: bool,
 ) -> Element {
+    let overlay_sx = use_hook(|| {
+        sx().position("absolute")
+            .with("inset", "0")
+            .z_index("5")
+            .display("flex")
+            .align_items("center")
+            .justify_content("center")
+            .padding("lg")
+            .pointer_events("none")
+    });
+    let paper_sx = use_hook(|| {
+        sx().pointer_events("auto")
+            .width("min(100%, 45ch)")
+            .gap("sm")
+            .padding("lg")
+            .text_align("center")
+    });
+    let actions_sx = use_hook(|| {
+        sx().margin_top("xs")
+            .display("flex")
+            .flex_wrap("wrap")
+            .justify_content("center")
+            .gap("sm")
+    });
     rsx! {
-        div {
+        Box {
+            component: "div",
+            sx: overlay_sx,
             "data-testid": "terminal-offline-notice",
-            class: "absolute inset-0 z-[5] flex items-center justify-center p-6 pointer-events-none",
             // A discrete state change, safe to announce; the grid itself never
             // gets a live region, or a streaming pane floods the reader.
-            Card {
-                class: Some(
-                    "pointer-events-auto w-[min(100%,45ch)] gap-3 rounded-lg p-6 text-center shadow-md"
-                        .to_owned(),
-                ),
+            Paper {
+                shadow: "md",
+                sx: paper_sx,
                 "aria-live": "polite",
-                CardTitle { class: "text-base font-medium", "This terminal isn't responding" }
-                CardDescription {
-                    "Its process may have stopped. The tab stays put so you keep your place."
-                }
-                div {
-                    class: "mt-1 flex flex-wrap justify-center gap-2",
+                Title { component: "h2", size: "sm", "This terminal isn't responding" }
+                Text { color: "text-dimmed", "Its process may have stopped. The tab stays put so you keep your place." }
+                Box { component: "div", sx: actions_sx,
                     Button {
-                        variant: ButtonVariant::Outline,
-                        size: ButtonSize::Sm,
-                        class: None,
+                        variant: "outlined",
+                        size: "sm",
                         "data-testid": "terminal-offline-retry",
                         onclick: move |_| on_retry.call(()),
                         "Retry"
                     }
                     if has_sibling {
                         Button {
-                            variant: ButtonVariant::Default,
-                            size: ButtonSize::Sm,
-                            class: None,
                             "data-testid": "terminal-offline-open-sibling",
                             onclick: move |_| on_open_sibling.call(()),
                             "Open another terminal here"

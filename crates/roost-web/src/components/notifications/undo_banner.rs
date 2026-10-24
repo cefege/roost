@@ -9,8 +9,11 @@ use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
 use roost_client_core::deck::DeckIntent;
 
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, Surface, SurfaceRadius};
 use crate::pump::use_store;
+use libero::{
+    components::{Box, Button, Flex, Paper, Text},
+    sx::sx,
+};
 
 /// One card per close that is still inside its window.
 #[component]
@@ -36,6 +39,38 @@ pub fn UndoCloseBanner() -> Element {
 #[component]
 fn UndoSnackbar(entry: roost_client_core::store::pending_close::PendingClose) -> Element {
     let pump = use_store();
+    let card_sx = use_hook(|| {
+        sx().position("relative")
+            .display("flex")
+            .align_items("center")
+            .gap("sm")
+            .overflow("hidden")
+            .padding("sm")
+    });
+    let label_sx = use_hook(|| sx().min_width("0").flex("1"));
+    let truncate_sx = use_hook(|| {
+        sx().overflow("hidden")
+            .with("overscroll-behavior-y", "auto")
+            .white_space("nowrap")
+            .with("text-overflow", "ellipsis")
+    });
+    let countdown_sx = use_hook(|| {
+        sx().position("absolute")
+            .with("left", "0")
+            .with("right", "0")
+            .with("bottom", "0")
+            .height("var(--workbench-border-width)")
+            .with("transform-origin", "left")
+            .background("primary")
+            .with(
+                "animation",
+                "roost-countdown-drain var(--roost-undo-window-ms, 5000ms) linear forwards",
+            )
+            .media(
+                "(prefers-reduced-motion: reduce)",
+                sx().with("animation", "none"),
+            )
+    });
     let session_id = entry.session_id.clone();
     let sub = [entry.labels.folder.as_str(), entry.labels.server.as_str()]
         .into_iter()
@@ -53,43 +88,25 @@ fn UndoSnackbar(entry: roost_client_core::store::pending_close::PendingClose) ->
         }));
     };
     rsx! {
-        div {
+        Paper {
+            shadow: "md", radius: "md", sx: card_sx,
             "data-testid": "undo-close-banner",
             "data-session-id": entry.session_id.clone(),
-            Surface {
-                level: 3,
-                elevation: 4,
-                radius: SurfaceRadius::Md,
-                class: "relative flex items-center gap-3 overflow-hidden py-3 pr-2 pl-4 text-foreground",
-                div {
-                    class: "flex min-w-0 flex-1 flex-col gap-1",
-                    span {
-                        "data-testid": "undo-snackbar-text",
-                        class: "truncate text-sm leading-5",
-                        span { class: "font-medium", "{entry.labels.terminal_name}" }
-                        " closed"
-                    }
-                    if !sub.is_empty() {
-                        span {
-                            "data-testid": "undo-snackbar-sub",
-                            class: "truncate text-xs leading-4 text-muted-foreground",
-                            "{sub}"
-                        }
-                    }
+            Flex { direction: "column", gap: "xs", sx: label_sx,
+                Text { size: "sm", "data-testid": "undo-snackbar-text", sx: truncate_sx.clone(),
+                    strong { "{entry.labels.terminal_name}" }
+                    " closed"
                 }
-                Button {
-                    variant: ButtonVariant::Ghost,
-                    size: ButtonSize::Sm,
-                    "data-testid": "undo-snackbar-action",
-                    onclick: undo,
-                    "Undo"
-                }
-                span {
-                    "aria-hidden": "true",
-                    class: "absolute inset-x-0 bottom-0 h-[var(--workbench-border-width)] origin-left bg-primary",
-                    style: "animation-name: roost-countdown-drain; animation-duration: var(--roost-undo-window-ms, 5000ms); animation-timing-function: linear; animation-fill-mode: forwards;",
+                if !sub.is_empty() {
+                    Text { size: "xs", color: "muted", sx: truncate_sx,
+                        "data-testid": "undo-snackbar-sub", "{sub}"
+                    }
                 }
             }
+            Button { variant: "standard", size: "sm",
+                "data-testid": "undo-snackbar-action", onclick: undo, "Undo"
+            }
+            Box { aria_hidden: "true", sx: countdown_sx }
         }
     }
 }

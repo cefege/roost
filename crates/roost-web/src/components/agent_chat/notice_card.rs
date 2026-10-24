@@ -3,12 +3,12 @@
 //! The transcript mounts each notice under its durable item identity.
 
 use dioxus::prelude::*;
-
-use super::markdown::markdown_to_safe_html;
-use crate::components::ui::{
-    Button, ButtonVariant, Card, CardContent, CardHeader, CardTitle, CardVariant, Collapsible,
-    CollapsibleContent, CollapsibleTrigger, Icon, IconType, Markdown,
+use libero::{
+    components::{Badge, Button, Collapse, Flex, Paper, Pictogram, Title},
+    sx::sx,
 };
+
+use crate::components::ui::Markdown;
 use crate::router_state::use_navigate;
 
 #[component]
@@ -18,9 +18,17 @@ pub fn NoticeCard(id: String, level: String, title: String, body: String) -> Ele
         .flatten();
     let navigate = use_navigate();
     let (severity, notice_icon, tone) = match level.as_str() {
-        "error" => ("Error", IconType::CircleAlert, "error"),
-        "warn" | "warning" => ("Warning", IconType::TriangleAlert, "warning"),
-        _ => ("Notice", IconType::Info, "info"),
+        "error" => (
+            "Error",
+            pictogram_icons_lucide::circle_alert::outlined,
+            "error",
+        ),
+        "warn" | "warning" => (
+            "Warning",
+            pictogram_icons_lucide::triangle_alert::outlined,
+            "warning",
+        ),
+        _ => ("Notice", pictogram_icons_lucide::info::outlined, "info"),
     };
     let display_body = if fork_target.is_some() {
         body.rsplit_once('[')
@@ -28,41 +36,43 @@ pub fn NoticeCard(id: String, level: String, title: String, body: String) -> Ele
     } else {
         body.as_str()
     };
-    let rendered = markdown_to_safe_html(display_body);
+    let body_text = display_body.to_owned();
     let long_body = display_body.lines().count() > 3 || display_body.chars().count() > 360;
     let mut details_open = use_signal(|| false);
+    let details_id = libero::hooks::use_id().read().clone();
+    let card = use_hook(|| sx().gap("sm").padding("sm").width("100%"));
+    let status_style = use_hook(|| sx().gap("xs").align_items("center"));
     rsx! {
-        Card {
-            key: "{id}",
-            variant: CardVariant::Outlined,
-            CardHeader {
-                CardTitle { "{title}" }
-            }
-            CardContent {
-                div { class: "flex items-center gap-2 text-sm font-medium data-[tone=error]:text-destructive", "data-tone": tone,
-                    Icon { icon: notice_icon, class: "size-4" }
-                    strong { "{severity}" }
+        Paper { key: "{id}", sx: card,
+            Flex { direction: "column", gap: "sm",
+                Title { size: "sm", "{title}" }
+                Flex { sx: status_style,
+                    Pictogram { icon: notice_icon }
+                    Badge {
+                        color: if tone == "error" { "error" } else if tone == "warning" { "warning" } else { "info" },
+                        variant: "tonal",
+                        "{severity}"
+                    }
                 }
                 if long_body {
-                    Collapsible {
-                        class: "text-sm",
-                        open: details_open(),
-                        on_open_change: move |next: bool| details_open.set(next),
-                        CollapsibleTrigger {
-                            variant: ButtonVariant::Ghost,
-                            class: "h-auto justify-start px-0 text-muted-foreground",
-                            "Details"
-                        }
-                        CollapsibleContent {
-                            Markdown { html: rendered }
-                        }
+                    Button {
+                        variant: "standard",
+                        color: "muted",
+                        aria_expanded: details_open(),
+                        aria_controls: details_id.clone(),
+                        onclick: move |_| details_open.toggle(),
+                        "Details"
+                    }
+                    Collapse { id: details_id, open: details_open(),
+                        Markdown { text: body_text.clone() }
                     }
                 } else if !display_body.is_empty() {
-                    Markdown { html: rendered }
+                    Markdown { text: body_text }
                 }
                 if let Some(conversation_id) = fork_target {
                     Button {
-                        variant: ButtonVariant::Link,
+                        variant: "standard",
+                        color: "primary",
                         onclick: move |_| navigate.call(crate::routes::agent_href(&conversation_id)),
                         "Open fork"
                     }

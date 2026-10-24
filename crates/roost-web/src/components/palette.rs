@@ -1,81 +1,60 @@
-//! The overlay host: the ⌘K overlay, and the Start-button controller map beside
-//! it. Ports `apps/web/src/components/palette/CommandPalette.tsx` and the
-//! mounting of `ControllerMap` from `App.tsx`; the body is `palette::body`.
-//!
-//! The host stays mounted and the body does not. That is the whole of v2's
-//! perf note: the catalog build and the filter only exist while the palette is
-//! open, so a WebSocket tick does nothing at all to a reader who is not looking
-//! at it, and reopening starts from an empty query with the field focused.
-//!
-//! A compact window gets the bottom sheet, a wider one a centred dialog. Mounted
-//! by `app::AuthorizedOverlays` beside the rename dialog and the notification
-//! dock.
+//! The persistent command-palette host and the Start-button controller map.
+//! Spotlight owns the modal, focus, dismissal and row navigation; Roost owns
+//! its shortcut dispatcher, catalog, search semantics and action outcomes.
 
 pub mod body;
 pub mod controller_map;
 pub mod copy_command_output;
 pub mod dom;
-pub mod list_keys;
 pub mod outcome;
-pub mod pieces;
 
 use dioxus::prelude::*;
+use libero::components::{SpotlightOptions, use_spotlight};
 
-use self::body::PaletteBody;
+use self::body::spotlight_actions;
 use self::controller_map::ControllerMap;
-use crate::components::layout::window_size::use_is_compact;
-use crate::components::ui::{
-    AutoFocusRequest, Dialog, DialogContent, DialogHeader, DialogTitle, Sheet, SheetContent,
-    SheetHeader, SheetSide, SheetTitle,
-};
 
 /// The command palette, and the controller map that shares its mount point.
 #[component]
 pub fn CommandPalette() -> Element {
     let overlays = crate::keyboard_shortcuts::use_shortcut_overlays();
     let pump = crate::pump::use_store();
-    let compact = use_is_compact();
-    // Read THROUGH the signal, not `peek()`ed: `peek` is an explicit promise
-    // not to subscribe, and this component's only job is to appear when that
-    // signal turns true. Peeking rendered the sheet once with the closed state
-    // and left it there, so both the chord and the pad's X button set the flag
-    // and no dialog ever appeared.
-    let open = overlays.palette.cloned();
-    let on_open_change = {
-        let mut palette = overlays.palette;
-        EventHandler::new(move |open: bool| palette.set(open))
+    let navigate = crate::router_state::use_navigate();
+    let path = crate::router_state::use_location();
+    let options = SpotlightOptions {
+        actions: Some(Callback::new({
+            let pump = pump.clone();
+            move |query: String| spotlight_actions(pump.clone(), overlays, navigate, path(), query)
+        })),
+        aria_label: Some("Command palette".to_owned()),
+        placeholder: Some("Jump to session, workspace, or action…".to_owned()),
+        shortcut: None,
+        ..Default::default()
     };
-    // The dialog's own auto-focus would land on the focus trap's first tabbable
-    // element, which is the close button; the body owns where focus goes.
-    let on_open_auto_focus =
-        EventHandler::new(|request: AutoFocusRequest| request.prevent_default());
-    rsx! {
-        if compact {
-            Sheet { open, on_open_change,
-                SheetContent {
-                    side: SheetSide::Bottom,
-                    class: "flex flex-col overflow-hidden p-0",
-                    test_id: "command-palette",
-                    on_open_auto_focus,
-                    SheetHeader { class: "sr-only", SheetTitle { "Command palette" } }
-                    if open {
-                        PaletteBody { pump, overlays }
-                    }
-                }
+    let spotlight = use_spotlight(options);
+    let mut previously_open = use_signal(|| false);
+    let mut product_open = overlays.palette;
+    use_effect(move || {
+        let requested_open = product_open();
+        let spotlight_open = spotlight.is_open();
+        if requested_open {
+            if spotlight_open {
+                previously_open.set(true);
+            } else if previously_open() {
+                product_open.set(false);
+                previously_open.set(false);
+            } else {
+                spotlight.open();
+                previously_open.set(true);
             }
         } else {
-            Dialog { open, on_open_change,
-                DialogContent {
-                    class: "flex sm:max-w-[var(--roost-dialog-wide-max-inline-size)] flex-col overflow-hidden p-0",
-                    test_id: "command-palette",
-                    on_open_auto_focus,
-                    DialogHeader { class: "sr-only", DialogTitle { "Command palette" } }
-                    if open {
-                        PaletteBody { pump, overlays }
-                    }
-                }
+            if spotlight_open {
+                spotlight.close();
             }
+            previously_open.set(false);
         }
+    });
+    rsx! {
         ControllerMap {}
     }
 }

@@ -26,6 +26,3 @@ STATE.md
 # deployable without committing scratch material.
 .cache/
 mockups/
-
-# Compiled by dx from crates/roost-web/tailwind.css; never hand-edited.
-crates/roost-web/assets/styles/tailwind.css

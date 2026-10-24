@@ -11,8 +11,11 @@ use super::notify_target::NotifyTarget;
 use super::store_write::write_store;
 use super::toast_card::ToastCard;
 use crate::components::layout::window_size::use_is_compact;
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, StatusDot, Surface, SurfaceRadius};
 use crate::pump::use_store;
+use libero::{
+    components::{Button, Flex, Indicator, Paper, Text},
+    sx::sx,
+};
 
 /// Cards a pointer layout shows before the rest fold into the overflow bar —
 /// the corner-stack convention: enough to read a burst, never a wall over the
@@ -45,6 +48,22 @@ pub fn ToastStack() -> Element {
     let compact = use_is_compact();
     let mut expanded = use_signal(|| false);
     let mut notify_target = use_context::<NotifyTarget>();
+    let stack_sx = use_hook(|| {
+        sx().selector(
+            "&[data-expanded='true']",
+            sx().max_height("calc(100dvh - var(--roost-notify-dock-lift) - 6rem)")
+                .overflow_y("auto")
+                .with("overscroll-behavior", "contain"),
+        )
+    });
+    let overflow_sx = use_hook(|| {
+        sx().display("flex")
+            .align_items("center")
+            .gap("xs")
+            .padding("xs")
+            .padding_left("sm")
+    });
+    let label_sx = use_hook(|| sx().min_width("0").flex("1"));
     let cards = {
         let core = pump.core();
         let core = core.borrow();
@@ -89,44 +108,27 @@ pub fn ToastStack() -> Element {
     };
 
     rsx! {
-        div {
-            class: "flex flex-col gap-2 data-[expanded=true]:[max-block-size:calc(100dvh_-_var(--roost-notify-dock-lift)_-_6rem)] data-[expanded=true]:overflow-y-auto data-[expanded=true]:overscroll-contain",
-            role: "region",
-            "aria-label": "Notifications",
+        Flex {
+            direction: "column", gap: "xs", sx: stack_sx,
+            role: "region", aria_label: "Notifications",
             "data-testid": "toast-stack",
             "data-expanded": if is_expanded { "true" } else { "false" },
             if overflowing {
-                Surface {
-                    level: 2,
-                    elevation: 2,
-                    radius: SurfaceRadius::Md,
-                    border: true,
-                    class: "flex items-center gap-2 py-1 pr-1 pl-3",
-                    test_id: Some("toast-overflow".to_owned()),
-                    if folded_error {
-                        StatusDot { status: "error".to_owned() }
-                    }
-                    span { class: "min-w-0 flex-1 text-xs font-medium leading-4 text-muted-foreground", "{label}" }
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        size: if compact { ButtonSize::Sm } else { ButtonSize::Xs },
-                        "data-testid": "toast-overflow-toggle",
-                        "aria-expanded": if is_expanded { "true" } else { "false" },
+                Paper { shadow: "sm", radius: "md", bordered: true, sx: overflow_sx,
+                    "data-testid": "toast-overflow",
+                    if folded_error { Indicator { color: "error", aria_hidden: "true" } }
+                    Text { size: "xs", color: "muted", sx: label_sx, "{label}" }
+                    Button { variant: "standard", size: if compact { "sm" } else { "xs" },
+                        "data-testid": "toast-overflow-toggle", aria_expanded: is_expanded,
                         onclick: move |_event: MouseEvent| expanded.toggle(),
                         if is_expanded { "Show less" } else { "Show all" }
                     }
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        size: if compact { ButtonSize::Sm } else { ButtonSize::Xs },
-                        "data-testid": "toast-clear-all",
-                        onclick: clear_all,
-                        "Clear all"
+                    Button { variant: "standard", size: if compact { "sm" } else { "xs" },
+                        "data-testid": "toast-clear-all", onclick: clear_all, "Clear all"
                     }
                 }
             }
-            for (id, order, _) in shown {
-                ToastCard { key: "{order}", toast_id: id }
-            }
+            for (id, order, _) in shown { ToastCard { key: "{order}", toast_id: id } }
         }
     }
 }

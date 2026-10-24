@@ -4,6 +4,8 @@
 //! `apps/web/src/components/deck/PaneDivider.tsx`.
 
 use dioxus::prelude::*;
+use libero::components::Box;
+use libero::sx::sx;
 use roost_client_core::store::layout::DividerRect;
 use roost_protocol::layout::document::LayoutDirection;
 use roost_protocol::layout::{LAYOUT_RATIO_MAX, LAYOUT_RATIO_MIN};
@@ -63,11 +65,28 @@ pub fn PaneDivider(
             }
         });
     }
+    let divider_sx = use_hook(|| {
+        sx().background("var(--workbench-pane-divider)")
+            .opacity("0.4")
+            .transition("opacity 150ms, background-color 150ms")
+            .hover(sx().opacity("1").background("var(--workbench-pane-focus)"))
+            .selector(
+                "&:active",
+                sx().opacity("1").background("var(--workbench-pane-focus)"),
+            )
+            .selector(
+                "&[data-dragging=true]",
+                sx().opacity("1")
+                    .background("var(--workbench-pane-focus)")
+                    .transition("none"),
+            )
+    });
     let style = divider_style(&divider).css();
     rsx! {
-        div {
+        Box {
+            component: "div",
             "data-testid": "pane-divider-{divider.split_id}",
-            class: "bg-[var(--workbench-pane-divider)] opacity-40 transition-[opacity,background-color] duration-150 hover:opacity-100 hover:bg-[var(--workbench-pane-focus)] active:opacity-100 active:bg-[var(--workbench-pane-focus)] data-[dragging=true]:opacity-100 data-[dragging=true]:bg-[var(--workbench-pane-focus)] data-[dragging=true]:transition-none",
+            sx: divider_sx,
             "data-dir": divider.direction.as_wire().to_owned(),
             "data-dragging": dragging().then_some("true"),
             style,

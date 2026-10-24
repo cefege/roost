@@ -6,6 +6,10 @@
 //! the compact bar cannot disagree about what this path is called.
 
 use dioxus::prelude::*;
+use libero::{
+    components::{Box, Text},
+    sx::sx,
+};
 
 use super::shell_metrics::workbench_title;
 use crate::components::brand_mark::{BrandMark, TITLE_BAR_MARK_SIZE};
@@ -25,24 +29,61 @@ pub fn TitleBar(
     let navigate = use_navigate();
     let home_path = Route::Home.to_path();
     let context = workbench_title(&path, session_title.as_deref(), session_folder.as_deref());
+    let titlebar_sx = use_hook(|| {
+        sx().display("flex")
+            .min_width("0")
+            .align_items("center")
+            .border_bottom("1px solid var(--lsx-paper-border-color)")
+            .background("var(--workbench-titlebar)")
+            .padding_inline("sm")
+            .with("grid-area", "titlebar")
+    });
+    let brand_sx = use_hook(|| {
+        sx().display("inline-flex")
+            .min_width("0")
+            .align_items("center")
+            .gap("sm")
+            .overflow("hidden")
+            .color("ink")
+            .text_decoration("none")
+            .selector(
+                "&:focus-visible",
+                sx().outline("2px solid var(--lsx-focus-ring-color)")
+                    .outline_offset("-2px"),
+            )
+    });
+    let context_sx = use_hook(|| {
+        sx().min_width("0")
+            .overflow("hidden")
+            .with("overscroll-behavior-y", "auto")
+            .text_overflow("ellipsis")
+            .white_space("nowrap")
+            .font_size("xs")
+            .color("muted")
+            .media("(max-width: 1100px)", sx().display("none"))
+    });
+    let product_sx = use_hook(|| {
+        sx().white_space("nowrap")
+            .font_size("sm")
+            .font_weight("500")
+    });
     rsx! {
-        header { class: "flex min-w-0 items-center border-b border-border bg-[var(--workbench-titlebar)] px-2 [grid-area:titlebar]",
-            div { class: "min-w-0",
-                a {
-                    class: "inline-flex min-w-0 items-center gap-2 overflow-hidden text-foreground no-underline focus-visible:outline focus-visible:outline-ring focus-visible:-outline-offset-px",
-                    href: home_path.clone(),
-                    "aria-label": "Roost home",
-                    onclick: move |event: MouseEvent| {
-                        if event.modifiers().is_empty() {
-                            event.prevent_default();
-                            navigate.call(home_path.clone());
-                        }
-                    },
-                    BrandMark { size: TITLE_BAR_MARK_SIZE }
-                    span { class: "whitespace-nowrap text-sm font-medium", {PRODUCT} }
-                    if context != PRODUCT {
-                        span { class: "min-w-0 truncate text-xs text-muted-foreground max-[1100px]:hidden", {context} }
+        Box { component: "header", sx: titlebar_sx,
+            Box {
+                component: "a",
+                sx: brand_sx,
+                href: home_path.clone(),
+                "aria-label": "Roost home",
+                onclick: move |event: MouseEvent| {
+                    if event.modifiers().is_empty() {
+                        event.prevent_default();
+                        navigate.call(home_path.clone());
                     }
+                },
+                BrandMark { size: TITLE_BAR_MARK_SIZE }
+                Text { component: "span", sx: product_sx, "{PRODUCT}" }
+                if context != PRODUCT {
+                    Text { component: "span", sx: context_sx, "{context}" }
                 }
             }
         }

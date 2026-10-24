@@ -1,12 +1,12 @@
 //! Retry and rewind controls attached to transcript messages.
-//! Rewind changes the transcript before any draft is restored to the composer.
-
+//! Rewind removes later transcript items before restoring its draft.
+//! The product open flag and per-opening fence own the confirmation lifecycle.
 use dioxus::prelude::*;
+use libero::components::{Button, Checkbox, Dialog, Flex, Pictogram, Text};
+use libero::hooks::{ModalScope, use_modal};
+use std::{cell::RefCell, rc::Rc};
 
-use crate::components::ui::{
-    Button, ButtonVariant, Checkbox, Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader,
-    DialogTitle, IconType, Label,
-};
+use crate::components::overlay_generation::OverlayGeneration;
 use crate::pump::Pump;
 
 #[cfg(target_arch = "wasm32")]
@@ -22,54 +22,130 @@ pub fn UserMessageActions(
     draft: Signal<String>,
     pump: Pump,
 ) -> Element {
-    let mut confirm = use_signal(|| false);
+    let mut confirm_open = use_signal(|| false);
     let mut restore_files = use_signal(|| true);
-    let retry_pump = pump.clone();
-    let retry_id = conversation_id.clone();
-    let retry_item = item_id.clone();
-    let retry_text = text.clone();
+    let mut rewind_busy = use_signal(|| false);
+    let mut rewind_error = use_signal(String::new);
+    let generation = use_hook(|| Rc::new(RefCell::new(OverlayGeneration::default())));
+    let rewind_generation = Rc::clone(&generation);
     let rewind_pump = pump.clone();
-    let rewind_id = conversation_id.clone();
-    let rewind_item = item_id.clone();
-    rsx! {
-        div { class: "flex items-center gap-1",
-            Button { variant: ButtonVariant::Ghost, icon: Some(IconType::RotateCcw), onclick: move |_| retry_message(retry_pump.clone(), retry_id.clone(), retry_item.clone(), retry_text.clone()), "Retry" }
-            Button { variant: ButtonVariant::Ghost, icon: Some(IconType::History), onclick: move |_| confirm.set(true), "Rewind to here" }
-        }
-        Dialog { open: confirm(), on_open_change: move |open: bool| confirm.set(open),
-            DialogContent {
-                DialogHeader {
-                    DialogTitle { "Rewind conversation?" }
+    let rewind_busy_view = rewind_busy;
+    let rewind_error_view = rewind_error;
+    let mut rewind_restore_view = restore_files;
+    let rewind_dialog = use_modal(move |scope: ModalScope<(u64, String, String)>| {
+        let Some((_token, _, _)) = scope.try_args() else {
+            return rsx! {};
+        };
+        let action_pump = rewind_pump.clone();
+        let action_generation = Rc::clone(&rewind_generation);
+        let mut action_busy = rewind_busy_view;
+        let mut action_error = rewind_error_view;
+        let action_restore = rewind_restore_view;
+        let action_draft = draft;
+        rsx! {
+            Dialog {
+                title: "Rewind conversation?",
+                close_button: false,
+                "aria-describedby": "agent-chat-rewind-description",
+                ondismiss: Callback::new(move |_| !*rewind_busy_view.peek()),
+                Text {
+                    id: "agent-chat-rewind-description",
+                    color: "muted",
+                    "Messages after this point will be removed from the conversation."
                 }
-                DialogBody {
-                    p { class: "text-sm text-muted-foreground", "Messages after this point will be removed from the conversation." }
-                    Label { class: "flex items-center gap-2 text-sm font-normal leading-normal",
-                        Checkbox {
-                            checked: restore_files(),
-                            aria_label: "Restore files changed after this message",
-                            on_checked_change: move |value: bool| restore_files.set(value),
-                        }
-                        "Restore files changed after this message"
-                    }
+                if !rewind_error_view().is_empty() {
+                    Text { color: "error", role: "alert", "{rewind_error_view()}" }
                 }
-                DialogFooter {
-                    Button { variant: ButtonVariant::Outline, onclick: move |_| confirm.set(false), "Cancel" }
+                Checkbox {
+                    label: "Restore files changed after this message",
+                    checked: rewind_restore_view(),
+                    disabled: Some(rewind_busy_view()),
+                    onchange: move |value| rewind_restore_view.set(value),
+                }
+                Flex { direction: "row", gap: "sm", justify: "end",
                     Button {
-                        variant: ButtonVariant::Destructive,
+                        variant: "outlined",
+                        disabled: Some(rewind_busy_view()),
+                        onclick: move |_| scope.close(),
+                        "Cancel"
+                    }
+                    Button {
+                        variant: "outlined",
+                        color: "error",
+                        loading: Some(rewind_busy_view()),
+                        disabled: Some(rewind_busy_view()),
                         onclick: move |_| {
-                            confirm.set(false);
-                            rewind_to(rewind_pump.clone(), rewind_id.clone(), rewind_item.clone(), restore_files(), draft);
+                            if *action_busy.peek() { return; }
+                            let Some((token, conversation_id, item_id)) = scope.try_args() else {
+                                return;
+                            };
+                            action_busy.set(true);
+                            action_error.set(String::new());
+                            rewind_to(
+                                action_pump.clone(),
+                                conversation_id,
+                                item_id,
+                                action_restore(),
+                                action_draft,
+                                scope,
+                                Rc::clone(&action_generation),
+                                token,
+                                action_busy,
+                                action_error,
+                            );
                         },
                         "Rewind"
                     }
                 }
             }
         }
+    });
+    let retry_pump = pump.clone();
+    let retry_id = conversation_id.clone();
+    let retry_item = item_id.clone();
+    let retry_text = text.clone();
+    let open_conversation_id = conversation_id;
+    let open_item_id = item_id;
+    let open_generation = Rc::clone(&generation);
+    let drop_generation = Rc::clone(&generation);
+    use_drop(move || drop_generation.borrow_mut().invalidate());
+    rsx! {
+        Flex { direction: "row", gap: "xs",
+            Button {
+                variant: "standard",
+                icon: rsx! { Pictogram { icon: pictogram_icons_lucide::rotate_ccw::outlined } },
+                onclick: move |_| retry_message(retry_pump.clone(), retry_id.clone(), retry_item.clone(), retry_text.clone()),
+                "Retry"
+            }
+            Button {
+                variant: "standard",
+                icon: rsx! { Pictogram { icon: pictogram_icons_lucide::history::outlined } },
+                onclick: move |_| {
+                    if *rewind_busy.peek() { return; }
+                    rewind_busy.set(false);
+                    rewind_error.set(String::new());
+                    restore_files.set(true);
+                    confirm_open.set(true);
+                    let token = open_generation.borrow_mut().begin();
+                    let completion_generation = Rc::clone(&open_generation);
+                    let mut product_busy = rewind_busy;
+                    let mut product_open = confirm_open;
+                    rewind_dialog.open_with((token, open_conversation_id.clone(), open_item_id.clone()))
+                        .onresult(move |_| {
+                            if completion_generation.borrow_mut().finish(token) {
+                                product_open.set(false);
+                                product_busy.set(false);
+                            }
+                        });
+                },
+                "Rewind to here"
+            }
+        }
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 fn retry_message(pump: Pump, conversation_id: String, item_id: String, text: String) {
-    #[cfg(target_arch = "wasm32")]
     wasm_bindgen_futures::spawn_local(async move {
         match pump
             .rpc()
@@ -85,21 +161,26 @@ fn retry_message(pump: Pump, conversation_id: String, item_id: String, text: Str
             Err(error) => tracing::warn!(target: "agent_chat", %error, "agent retry rewind failed"),
         }
     });
-    #[cfg(not(target_arch = "wasm32"))]
-    let _ = (pump, conversation_id, item_id, text);
 }
 
-#[allow(unused_mut)]
+#[cfg(not(target_arch = "wasm32"))]
+fn retry_message(_: Pump, _: String, _: String, _: String) {}
+
+#[cfg(target_arch = "wasm32")]
 fn rewind_to(
     pump: Pump,
     conversation_id: String,
     item_id: String,
     restore_files: bool,
     mut draft: Signal<String>,
+    scope: ModalScope<(u64, String, String)>,
+    generation: Rc<RefCell<OverlayGeneration>>,
+    token: u64,
+    mut busy: Signal<bool>,
+    mut error_message: Signal<String>,
 ) {
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_futures::spawn_local(async move {
-        match pump
+    dioxus::core::spawn_forever(async move {
+        let result = pump
             .rpc()
             .call(&RewindAgentChat {
                 conversation_id,
@@ -107,14 +188,48 @@ fn rewind_to(
                 restore_files,
                 request_id: new_request_id(),
             })
-            .await
-        {
-            Ok(text) => draft.set(text),
-            Err(error) => tracing::warn!(target: "agent_chat", %error, "agent rewind failed"),
+            .await;
+        if !generation.borrow().is_current(token) || scope.try_args().is_none() {
+            return;
+        }
+        match result {
+            Ok(text) => {
+                let Ok(mut current_draft) = draft.try_write() else {
+                    return;
+                };
+                *current_draft = text;
+                drop(current_draft);
+                scope.close();
+            }
+            Err(failure) => {
+                tracing::warn!(target: "agent_chat", error = %failure, "agent rewind failed");
+                if let Ok(mut visible_error) = error_message.try_write() {
+                    *visible_error = failure.to_string();
+                }
+                if let Ok(mut pending) = busy.try_write() {
+                    *pending = false;
+                }
+            }
         }
     });
-    #[cfg(not(target_arch = "wasm32"))]
-    let _ = (pump, conversation_id, item_id, restore_files, draft);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[allow(clippy::too_many_arguments)]
+fn rewind_to(
+    _: Pump,
+    _: String,
+    _: String,
+    _: bool,
+    _: Signal<String>,
+    _: ModalScope<(u64, String, String)>,
+    _: Rc<RefCell<OverlayGeneration>>,
+    _: u64,
+    mut busy: Signal<bool>,
+    mut error_message: Signal<String>,
+) {
+    busy.set(false);
+    error_message.set("Rewinding conversations requires the browser client.".to_owned());
 }
 
 #[cfg(target_arch = "wasm32")]

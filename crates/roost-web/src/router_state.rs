@@ -1,8 +1,8 @@
 //! In-app navigation: the path the shell renders, kept in step with the address
 //! bar in both directions, and the v2 `useNavigate`/`useLocation` pair every
-//! component below the gate reads from context. Owned by `GatedApp`; every rail,
-//! title, sidebar row, deck tab and error link navigates through it. Ports the
-//! router half of `apps/web/src/App.tsx`.
+//! component below the gate reads from context. Owned by `App` above Libero's
+//! outlet. Every rail, title, sidebar row, deck tab and error link navigates
+//! through it.
 //!
 //! WHY THIS EXISTS. `pushState` moves the address bar without reloading, and
 //! nothing re-renders on its own, so a link that only changed the URL left the
@@ -20,6 +20,12 @@
 use dioxus::prelude::*;
 
 use crate::platform::location::{current_location, navigate};
+
+/// Plain primary clicks belong to the in-app router; modifiers retain native
+/// new-tab, new-window and download behavior.
+pub fn is_in_app_navigation_click(primary_button: bool, modifiers: Modifiers) -> bool {
+    primary_button && modifiers.is_empty()
+}
 
 /// The path the shell renders, seeded from the address bar and kept in step
 /// with it.
@@ -124,13 +130,8 @@ impl Drop for PopstateListener {
 
 /// Listen for the reader's own Back and Forward, and repaint from them.
 ///
-/// The registration is a value the calling scope keeps, not a forgotten
-/// closure. A path signal is scope state and scope state dies with the scope,
-/// so a listener that outlived its signal was not merely wasted: the next Back
-/// press wrote into a signal with no scope left to repaint from. The access
-/// gate remounts — pair, unpair, authorized, unauthorized — so "a shell is
-/// mounted once for the life of the document" was a convention nothing
-/// enforced, and every remount left another one behind.
+/// The document root owns the registration and path signal together.
+/// Ending that scope removes the listener before the signal can expire.
 #[cfg(target_arch = "wasm32")]
 fn install_popstate_listener(mut path: Signal<String>) -> Option<PopstateListener> {
     use wasm_bindgen::JsCast as _;

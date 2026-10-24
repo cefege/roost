@@ -14,8 +14,8 @@ pub mod overlay;
 pub mod shortcuts;
 
 use dioxus::prelude::*;
-
-use crate::components::ui::{Table, TableBody, TableCell, TableRow};
+use libero::components::Box;
+use libero::sx::sx;
 
 #[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
@@ -35,24 +35,59 @@ pub fn HelpSurface() -> Element {
         .iter()
         .map(|entry| (entry.binding_label(platform), entry.label))
         .collect();
+    let table_sx = use_hook(|| sx().border_collapse("collapse"));
+    let row_sx = use_hook(|| sx().border_color("var(--border)"));
+    let binding_cell_sx = use_hook(|| {
+        sx().width("40%")
+            .padding_inline_start("0")
+            .padding_inline_end("md")
+            .padding_block("sm")
+            .font_family("monospace")
+            .color("var(--workbench-active)")
+    });
+    let label_cell_sx = use_hook(|| sx().padding_inline("0").padding_block("sm"));
+    let page_sx = use_hook(|| {
+        sx().box_sizing("border-box")
+            .display("flex")
+            .height("100%")
+            .min_height("0")
+            .width("100%")
+            .flex_direction("column")
+            .overflow("auto")
+            .background("surface")
+            .padding("lg")
+            .color("var(--foreground)")
+    });
+    let content_sx = use_hook(|| sx().margin_inline("auto").max_width("32rem"));
+    let title_sx = use_hook(|| {
+        sx().margin_top("0")
+            .margin_bottom("1.25rem")
+            .font_size("xl")
+    });
+    let hint_sx = use_hook(|| {
+        sx().margin_top("1.25rem")
+            .margin_bottom("0")
+            .font_size("xs")
+            .color("var(--muted-foreground)")
+    });
     rsx! {
-        div { class: "box-border flex h-full min-h-0 w-full flex-col overflow-auto bg-[var(--workbench-editor)] p-6 text-foreground",
-            div { class: "mx-auto max-w-lg",
-                h2 { class: "mt-0 mb-5 text-xl", "Help / Keybindings" }
-                Table { class: "border-collapse",
-                    TableBody {
+        Box { component: "div", sx: page_sx.clone(),
+            Box { component: "div", sx: content_sx.clone(),
+                Box { component: "h2", sx: title_sx.clone(), "Help / Keybindings" }
+                Box { component: "table", sx: table_sx.clone(),
+                    Box { component: "tbody",
                         for (binding, label) in rows {
-                            TableRow { class: "border-border",
-                                TableCell { class: "w-2/5 pl-0 pr-4 py-2 font-mono text-[var(--workbench-active)]", {binding} }
-                                TableCell { class: "px-0 py-2", {label} }
+                            Box { component: "tr", sx: row_sx.clone(),
+                                Box { component: "td", sx: binding_cell_sx.clone(), {binding} }
+                                Box { component: "td", sx: label_cell_sx.clone(), {label} }
                             }
                         }
                     }
                 }
-                p { class: "mt-5 mb-0 text-xs text-muted-foreground", "Press Esc to close." }
+                Box { component: "p", sx: hint_sx.clone(), "Press Esc to close." }
             }
+            HelpOverlayHost {}
         }
-        HelpOverlayHost {}
     }
 }
 

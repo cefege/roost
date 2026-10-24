@@ -464,21 +464,17 @@ land, and the same wheel scrolls from a neighbouring pixel.
 that container scroll chaining, and a wheel landing on the text is consumed by
 a container with no scroll range instead of reaching the list. Every box that
 only clips or only scrolls sideways opts chaining back in with
-`overscroll-behavior-y: auto`, and the utilities carry it themselves —
-`@utility truncate`, `@utility overflow-hidden` and `@utility overflow-x-auto`
-in `crates/roost-web/tailwind.css` — so a row label, a chat bubble, a
-collapsible, a code block or a diff passes a vertical wheel to the list or
-transcript around it. A clip built another way (raw CSS `overflow: hidden`)
-adds `overscroll-y-auto`. A clip that must still contain pairs with
-`overscroll-y-contain`, never the `overscroll-contain` shorthand, which sorts
-before these utilities and loses to them. The global `none` lives in `@layer base` in
-`crates/roost-web/index.html`, because an unlayered rule would beat every
-utility. It has no scroll range of its own, so chaining there can only reach
-the list, and the list's own `none` still stops the chain from reaching the
-document. Rows that cover their whole area with a hit target never showed the
-defect, which is why it surfaced only in the agents list.
+`overscroll-behavior-y: auto` in its component-owned Libero Sx, alongside
+`overflow("hidden")` or `overflow_x("auto")`. The Markdown code source, clipped
+row labels, horizontal diff views and tab strips carry that exception at their
+presentation owner. A real vertical list, transcript or terminal scroller keeps
+its containment policy; do not add the exception indiscriminately to every
+overflow declaration. The global `none` stays in `@layer base` in
+`crates/roost-web/index.html`, below Libero's component and user layers. The
+clipping box has no vertical range of its own, so chaining there reaches the
+surrounding list, whose own `none` still stops the document from moving.
 
-**Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed.
+**Guard** — none — wheel chaining requires exercising the actual styled browser surface.
 
 ### Scrollback mangles or drifts with no user action
 
@@ -3694,15 +3690,16 @@ menu "has to mount first". Every key that arrives before that frame reaches the 
 no use for it, and the frame then focuses the edge the OPENING key asked for — the reader's next key
 is lost. Waiting longer in the spec only hides it.
 
-**Right** — v2 `contextMenuPrimitives.tsx` focusMenuEdge: attempt in a microtask, retry by frame
-only when the menu was not yet in the document, and let the menu cancel a pending request on close
-and on its next request (`cancelPendingFocus`). In Rust that is `focus_menu_edge` returning a
-`MenuFocusRequest` (`crates/roost-web/src/components/context_menu{.rs,/dom.rs}`); the machine menu
-also attempts from its `onmounted`, and Home/End that still beat the focus to the trigger retarget
-the request (`machine_trigger_key_action` in `sidebar_new_terminal.rs`) instead of being dropped.
+**Right** — button menus use Libero `Menu`/`use_menu`; its trigger and menu
+own arrows, edges and focus. Roost's shell capture and spatial navigation
+exclude both popup triggers and roving controls (`ROVING_CONTROLS` in
+`input_nav/spatial_dom.rs`). Product pointer menus retain only immediate
+command-row navigation in `context_menu.rs`; Libero owns their placement and
+dismissal. Do not reintroduce a delayed generic menu-focus layer.
 
-**Guard** — `crates/roost-web/tests/sidebar_logic.rs`:
-`home_and_end_that_beat_the_menu_focus_to_the_trigger_still_pick_their_edge`.
+**Guard** — `keyboard_shortcuts::a_roving_control_keeps_navigation_and_activation_without_losing_global_chords`
+pins shell ownership. Rapid ArrowDown → End and nested Escape require the
+real-browser migration smoke; native dispatch does not prove focus timing.
 
 ---
 
@@ -4103,7 +4100,7 @@ stream.
 
 ### A status dot is blank, or an empty band sits under the deck: Dioxus merged a `style`
 
-**Symptom** — a `StatusDot` (sidebar rollups, the agent chat toolbar) renders as an empty
+**Symptom** — a status indicator (sidebar rollups, the agent chat toolbar) renders as an empty
 circle whose inline `style` has the geometry but no `background`; or, on desktop, the editor region
 keeps a `padding-bottom` reserve under the deck that only the compact layout asked for.
 
@@ -4113,13 +4110,13 @@ that the new one reports empty. So a property the new string omits survives (the
 early compact render), and a shorthand holding `var()` — whose longhands report empty — is erased by
 the re-applied empty longhands (`background: var(--token)`).
 
-**Right** — a dynamic inline style writes longhands only (`ui::status::status_dot_style`:
-`background-color`, `border-width`/`border-style`/`border-color`) and names every property it can
-ever set in every branch (`layout::shell_style::editor_style`: `padding-bottom: 0px` when it does not
-reserve).
+**Right** — use Libero Indicator's color and variant props for status
+presentation, not a dynamic inline color shorthand. Remaining dynamic geometry
+styles write longhands and name every property in every branch:
+`layout::shell_style::editor_style` writes `padding-bottom: 0px` when it does not
+reserve space.
 
-**Guard** — `crates/roost-web/tests/ui_status.rs` —
-`a_status_dot_never_puts_its_token_in_a_shorthand`; `layout::shell_style::editor_style_tests` —
+**Guard** — `layout::shell_style::editor_style_tests` —
 `every_editor_style_names_every_property_it_can_set`.
 
 ### Every agent turn fails: `tools: Tool names must be unique.`
@@ -4315,24 +4312,24 @@ An absent link, a link into another install and a regular file are left alone.
 `a_settled_release_moves_this_installs_link_off_the_retired_release` and
 `a_settled_release_leaves_an_absent_or_foreign_link_and_a_file_alone`.
 
-### Tailwind padding, margin or overscroll classes do nothing
+### Layered spacing or focus styles do nothing
 
-**Symptom** — a `p-4`, `px-3`, `m-2`, `gap`-adjacent spacing or `overscroll-y-auto` class is in the DOM
-and in the compiled `tailwind.css`, yet the computed value is `0` / `none`; every rust-ui component
-renders with its padding collapsed.
+**Symptom** — a component has the intended padding or focus rule, but its
+computed value is zero or absent after a page reset changes.
 
-**Wrong** — raise specificity (`!p-4`), add an inline `style`, or re-declare the padding in a feature
-stylesheet. Tailwind v4 emits every utility inside `@layer utilities`, and an UNLAYERED rule beats every
-layered one whatever its specificity, so `* { margin: 0; padding: 0; }` or
-`* { overscroll-behavior-y: none; }` written unlayered anywhere (the page shell's inline `<style>` had
-both) cancels the whole utility layer for those properties.
+**Wrong** — raise specificity, add an inline repair, or move the same rule to
+another feature stylesheet. An unlayered universal reset beats every layered
+Libero rule regardless of specificity.
 
-**Right** — the page shell's reset and global policies sit in `@layer base` (`crates/roost-web/index.html`),
-below `utilities`. Any hand-written stylesheet that must stay keeps to selectors no component styles with
-utilities (renderer-internal classes, `[data-tv]` modality overrides), because an unlayered rule there
-wins over a utility on the same element.
+**Right** — keep the page reset and document policies in `@layer base`
+(`crates/roost-web/index.html`), below `lsx-base`, `lsx-framework`,
+`lsx-user-static` and `lsx-user-custom`. Retained renderer and TV/gamepad CSS
+owns specialized geometry/modality selectors, not application control recipes.
+Check that referenced public `--lsx-*` variables actually exist.
 
-**Guard** — `crates/roost-web/tests/index_page.rs` — `every_inline_page_rule_sits_in_the_base_layer`.
+**Guard** — real-browser `/design` acceptance checks computed padding, colors
+and visible keyboard focus under the coordinator's CSP. A source-text assertion
+about layer spelling is not a CSS/layout oracle.
 
 ### A refused copy shows the previous copy's checkmark
 

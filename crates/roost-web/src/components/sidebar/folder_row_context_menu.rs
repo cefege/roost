@@ -3,6 +3,7 @@
 //! The rename commits in `RenameDialogHost`; `FolderRow` opens this menu.
 
 use dioxus::prelude::*;
+use libero::{components::Button, sx::sx};
 use roost_client_core::ClientEvent;
 use roost_client_core::store::shell_dialogs::{RenameDialogRequest, RenameTarget};
 use roost_client_core::store::shell_intent::ShellIntent;
@@ -12,7 +13,6 @@ use super::context_menu_frame::ContextMenuFrame;
 use super::machine_action_items::MachineActionItems;
 use crate::components::agent_chat::launch_agent;
 use crate::components::browse::listing;
-use crate::components::ui::context_menu::ContextMenuItem;
 use crate::machine_actions::MachineMenuKind;
 use crate::platform::BrowserWorkerPaths;
 use crate::pump::use_store;
@@ -40,11 +40,15 @@ pub struct FolderMenuTarget {
 pub fn FolderRowContextMenu(target: FolderMenuTarget, on_close: EventHandler<()>) -> Element {
     let pump = use_store();
     let navigate = use_navigate();
+    let item_sx = use_hook(|| {
+        sx().width("100%")
+            .justify_content("flex-start")
+            .text_align("start")
+    });
     let agent_worker_fp = target.worker_fp.clone();
     let agent_folder = target.folder_path.clone();
     let agent_pump = pump.clone();
     let agent_navigate = navigate;
-    // Activating an item runs its handler and then the ui closes the menu.
     let on_new_agent = move |_: MouseEvent| {
         launch_agent(
             agent_pump.clone(),
@@ -66,9 +70,10 @@ pub fn FolderRowContextMenu(target: FolderMenuTarget, on_close: EventHandler<()>
         );
     };
     let machine_fp = target.worker_fp.clone();
+    let rename_pump = pump.clone();
     let rename = move |_: MouseEvent| {
         let current_title = {
-            let core = pump.core();
+            let core = rename_pump.core();
             let core = core.borrow();
             workspace_for_folder(
                 core.store(),
@@ -79,7 +84,7 @@ pub fn FolderRowContextMenu(target: FolderMenuTarget, on_close: EventHandler<()>
             .map(|workspace| workspace.name.clone())
             .unwrap_or_else(|| target.display_name.clone())
         };
-        pump.dispatch(ClientEvent::Shell(ShellIntent::OpenRenameDialog(
+        rename_pump.dispatch(ClientEvent::Shell(ShellIntent::OpenRenameDialog(
             RenameDialogRequest {
                 current_title,
                 has_custom: false,
@@ -99,13 +104,30 @@ pub fn FolderRowContextMenu(target: FolderMenuTarget, on_close: EventHandler<()>
             test_id: "folder-context-menu",
             label: "Workspace actions",
             on_close,
-            ContextMenuItem { test_id: "folder-ctx-rename", onclick: rename, "Rename…" }
-            ContextMenuItem { test_id: "folder-ctx-new-agent", onclick: on_new_agent, "New agent here" }
-            ContextMenuItem { test_id: "folder-ctx-new-terminal", onclick: on_new_terminal, "New terminal here" }
+            Button {
+                sx: item_sx.clone(), variant: "standard", size: "sm", role: "menuitem", tabindex: "-1",
+                "data-testid": "folder-ctx-rename",
+                onclick: move |event| { rename(event); on_close.call(()); },
+                "Rename…"
+            }
+            Button {
+                sx: item_sx.clone(), variant: "standard", size: "sm", role: "menuitem", tabindex: "-1",
+                "data-testid": "folder-ctx-new-agent",
+                onclick: move |event| { on_new_agent(event); on_close.call(()); },
+                "New agent here"
+            }
+            Button {
+                sx: item_sx, variant: "standard", size: "sm", role: "menuitem", tabindex: "-1",
+                "data-testid": "folder-ctx-new-terminal",
+                onclick: move |event| { on_new_terminal(event); on_close.call(()); },
+                "New terminal here"
+            }
             MachineActionItems {
+                pump: pump.clone(),
                 worker_fp: machine_fp,
                 menu: MachineMenuKind::Folder,
                 test_id_prefix: "folder-ctx",
+                on_close,
             }
         }
     }

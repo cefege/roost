@@ -8,9 +8,9 @@
 //! not a session list. A collapsed region is `inert` and `aria-hidden`, not
 //! merely narrow — otherwise a keyboard reader tabs into a rail nobody can see.
 
-use dioxus::prelude::*;
-
 use super::sidebar_resizer::SidebarResizer;
+use dioxus::prelude::*;
+use libero::{components::Box, sx::sx};
 
 /// The DOM id of the region, which `AppShell` reads to decide whether focus
 /// must move to the rail before a collapse.
@@ -20,15 +20,42 @@ pub const SIDEBAR_REGION_ID: &str = "workbench-sidebar-region";
 #[component]
 pub fn SidebarRegion(collapsed: bool, children: Element) -> Element {
     let flag = if collapsed { "true" } else { "false" };
+    let region_sx = use_hook(|| {
+        sx().position("relative")
+            .min_height("0")
+            .min_width("0")
+            .overflow("hidden")
+            .border_right("1px solid var(--sidenav-border)")
+            .background("var(--workbench-sidebar)")
+            .with("grid-area", "sidebar")
+            .selector("&[data-collapsed=true]", sx().border_right("0"))
+    });
+    let sidebar_sx = use_hook(|| {
+        sx().display("grid")
+            .box_sizing("border-box")
+            .height("100%")
+            .min_height("0")
+            .min_width("0")
+            .width("var(--workbench-sidebar-expanded-width)")
+            .with("grid-template-columns", "minmax(0, 1fr)")
+            .with("grid-template-rows", "minmax(0, 1fr)")
+            .overflow("hidden")
+            .border_right("1px solid var(--workbench-sidebar-border)")
+            .background("var(--workbench-sidebar)")
+            .font_size("xs")
+            .color("muted")
+    });
     rsx! {
-        div {
+        Box {
+            sx: region_sx,
             id: SIDEBAR_REGION_ID,
-            class: "workbench-sidebar-region relative min-h-0 min-w-0 overflow-hidden border-r border-border bg-sidenav [grid-area:sidebar] data-[collapsed=true]:border-r-0",
+            class: "workbench-sidebar-region",
             "data-collapsed": flag,
             "aria-hidden": collapsed.then_some("true"),
             inert: collapsed.then_some(true),
-            aside {
-                class: "grid h-full min-h-0 min-w-0 box-border w-[var(--workbench-sidebar-expanded-width)] grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] overflow-hidden border-r border-sidenav-border bg-sidenav font-sans text-xs text-[var(--text-mid)]",
+            Box {
+                component: "aside",
+                sx: sidebar_sx,
                 "data-testid": "sidebar-desktop",
                 "data-collapsed": flag,
                 {children}

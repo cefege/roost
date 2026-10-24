@@ -9,8 +9,8 @@
 
 use dioxus::prelude::*;
 
-use crate::components::ui::{Button, ButtonVariant, EmptyState, IconType};
-
+use libero::components::{Box, Button, Flex, Pictogram, Text};
+use libero::sx::sx;
 /// The region's element id, so the page can put focus on it when it appears.
 pub const REGION_ID: &str = "browse-worker-unavailable";
 
@@ -20,9 +20,20 @@ pub const LABEL: &str = "Machine unavailable. This machine isn't available on th
 /// The machine-unavailable panel.
 #[component]
 pub fn MachineUnavailable(on_go_home: EventHandler<()>) -> Element {
+    let region_sx = use_hook(|| {
+        sx().display("flex")
+            .min_height("0")
+            .flex("1")
+            .align_items("center")
+            .justify_content("center")
+            .padding("1.5rem")
+            .outline("none")
+    });
+    let content_sx = use_hook(|| sx().text_align("center"));
+    let icon_sx = use_hook(|| sx().width("2rem").height("2rem").color("muted"));
     rsx! {
-        div {
-            class: "flex min-h-0 flex-1 items-center justify-center p-6 outline-none",
+        Box {
+            sx: region_sx,
             id: REGION_ID,
             "data-testid": REGION_ID,
             role: "status",
@@ -30,18 +41,16 @@ pub fn MachineUnavailable(on_go_home: EventHandler<()>) -> Element {
             "aria-label": LABEL,
             "aria-atomic": "true",
             tabindex: "-1",
-            EmptyState {
-                icon: IconType::FolderX,
-                title: "Machine unavailable",
-                supporting: "This machine isn't available on this coordinator.",
-                action: rsx! {
-                    Button {
-                        variant: ButtonVariant::Secondary,
-                        "data-testid": "browse-worker-unavailable-home",
-                        onclick: move |_| on_go_home.call(()),
-                        "Go home"
-                    }
-                },
+            Flex { direction: "column", align: "center", gap: "sm", sx: content_sx,
+                Box { component: "span", sx: icon_sx, Pictogram { icon: pictogram_icons_lucide::folder_x::outlined, width: "2rem", height: "2rem" } }
+                Text { size: "lg", "Machine unavailable" }
+                Text { size: "sm", color: "muted", "This machine isn't available on this coordinator." }
+                Button {
+                    variant: "outlined",
+                    "data-testid": "browse-worker-unavailable-home",
+                    onclick: move |_| on_go_home.call(()),
+                    "Go home"
+                }
             }
         }
     }

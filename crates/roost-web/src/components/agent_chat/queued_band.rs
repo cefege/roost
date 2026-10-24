@@ -3,11 +3,12 @@
 //! rows so a consumed-input refusal remains visible after Sync removes its row.
 
 use dioxus::prelude::*;
+use libero::components::{Box, Button, Flex, Pictogram, Text};
 use roost_client_core::client::rpc::calls::agent_chat::WithdrawAgentChat;
 use roost_protocol::wire::agent_chat::QueuedMessage;
 
-use crate::components::ui::{ButtonVariant, FieldError, IconButton, IconType};
 use crate::pump::Pump;
+use libero::sx::sx;
 
 #[component]
 pub(super) fn QueuedBand(
@@ -42,26 +43,50 @@ pub(super) fn QueuedBand(
             });
         });
     });
+    let band_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("column")
+            .gap("xs")
+            .max_height("10rem")
+            .flex_shrink("0")
+            .overflow_y("auto")
+            .with("overscroll-behavior-y", "contain")
+            .font_size("sm")
+    });
+    let list_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("column")
+            .gap("xs")
+            .margin("0")
+            .padding("0")
+            .with("list-style", "none")
+    });
     let count = messages.len();
     if count == 0 && error().is_none() {
         return rsx! {};
     }
+    let label_sx = use_hook(|| sx().font_size("xs").color("muted"));
     rsx! {
-        section { class: "flex max-h-40 shrink-0 flex-col gap-1 overflow-y-auto overscroll-y-contain text-sm",
+        Box { component: "section", sx: band_sx,
             "aria-label": "Queued messages", "data-testid": "agent-chat-queued",
             if count > 0 {
-                p { class: "text-xs text-muted-foreground", "Queued · {count}" }
-                ol { class: "m-0 flex list-none flex-col gap-1 p-0",
+                Text { component: "p", sx: label_sx, "Queued · {count}" }
+                Box { component: "ol", sx: list_sx,
                     for message in messages {
                         QueuedMessageRow { key: "{message.id}", message, disabled: pending().is_some(), on_withdraw: withdraw }
                     }
                 }
             }
             if let Some(message) = error() {
-                div { class: "flex items-start gap-2",
-                    FieldError { "{message}" }
-                    IconButton { icon: IconType::X, label: "Dismiss queue error", variant: ButtonVariant::Ghost,
-                        onclick: move |_| error.set(None) }
+                Flex { align: "center", gap: "sm",
+                    Text { color: "error", size: "sm", role: "alert", "{message}" }
+                    Button {
+                        variant: "standard",
+                        color: "muted",
+                        aria_label: "Dismiss queue error",
+                        icon: rsx! { Pictogram { icon: pictogram_icons_lucide::x::outlined } },
+                        onclick: move |_| error.set(None),
+                    }
                 }
             }
         }
@@ -85,13 +110,35 @@ fn QueuedMessageRow(
     } else {
         "Joins after the current tool round"
     };
+    let row_sx = use_hook(|| {
+        sx().display("flex")
+            .min_width("0")
+            .align_items("center")
+            .gap("sm")
+            .color("muted")
+    });
+    let mode_sx = use_hook(|| sx().flex_shrink("0").font_size("xs").font_weight("500"));
+    let message_sx = use_hook(|| {
+        sx().min_width("0")
+            .flex("1")
+            .overflow("hidden")
+            .with("overscroll-behavior-y", "auto")
+            .text_overflow("ellipsis")
+            .white_space("nowrap")
+    });
     rsx! {
-        li { class: "flex min-w-0 items-center gap-2 text-muted-foreground",
-            span { class: "shrink-0 text-xs font-medium", title: mode_hint, "{mode_label}" }
-            span { class: "min-w-0 flex-1 truncate", title: message.text.clone(), "{message.text}" }
-            IconButton { icon: IconType::X, label: format!("Withdraw queued submission {}", message.id),
-                title: "Withdraw queued input", variant: ButtonVariant::Ghost, disabled,
-                onclick: move |_| on_withdraw.call((message.id.clone(), request_id.clone())) }
+        Box { component: "li", sx: row_sx,
+            Text { component: "span", sx: mode_sx, title: mode_hint, "{mode_label}" }
+            Text { component: "span", sx: message_sx, title: message.text.clone(), "{message.text}" }
+            Button {
+                variant: "standard",
+                color: "muted",
+                disabled,
+                title: "Withdraw queued input",
+                aria_label: format!("Withdraw queued submission {}", message.id),
+                icon: rsx! { Pictogram { icon: pictogram_icons_lucide::x::outlined } },
+                onclick: move |_| on_withdraw.call((message.id.clone(), request_id.clone())),
+            }
         }
     }
 }

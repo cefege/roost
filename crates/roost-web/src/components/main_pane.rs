@@ -8,6 +8,7 @@
 mod safety_net;
 
 use dioxus::prelude::*;
+use libero::{components::Box, sx::sx};
 use roost_client_core::ClientEvent;
 use roost_client_core::store::sidebar::SidebarIntent;
 use roost_client_core::sync::SyncDomain;
@@ -101,13 +102,30 @@ pub fn MainPane(route: Route) -> Element {
 
     let overlay_active = overlay != MainPaneOverlay::None;
     let dim_pump = pump.clone();
+    let pane_sx = use_hook(|| {
+        sx().flex("1")
+            .display("flex")
+            .flex_direction("column")
+            .overflow("hidden")
+            .position("relative")
+    });
+    let drawer_dim_sx = use_hook(|| {
+        sx().position("absolute")
+            .top("0")
+            .right("0")
+            .bottom("0")
+            .left("0")
+            .z_index("48")
+            .cursor("pointer")
+            .background("transparent")
+    });
     rsx! {
-        div { style: "flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative;",
+        Box { sx: pane_sx,
             if compact && reading.sidebar_open {
-                div {
+                Box {
+                    sx: drawer_dim_sx,
                     "data-testid": "main-pane-sidebar-dim",
                     "aria-hidden": "true",
-                    class: "absolute inset-0 z-[48] cursor-pointer bg-transparent",
                     onclick: move |_| dim_pump.dispatch(ClientEvent::Sidebar(SidebarIntent::CloseDrawer)),
                 }
             }
@@ -120,7 +138,7 @@ pub fn MainPane(route: Route) -> Element {
                 },
                 MainPaneOverlay::None => rsx! {},
             }
-            div {
+            Box {
                 "data-testid": "main-pane-deck-host",
                 style: deck_host_style(overlay_active),
                 "aria-hidden": overlay_active.then_some("true"),

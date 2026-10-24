@@ -1,8 +1,7 @@
 //! The Settings destinations, their plain-language descriptions and rail order.
 //! The Settings shell and `/design` specimen share this definition.
 //! Route ids stay stable when labels change; retired panes have no aliases.
-
-use crate::components::ui::IconType;
+use libero::components::SvgData;
 
 /// One settings pane: its route id, rail label, icon and page title.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -12,7 +11,7 @@ pub struct SettingsPaneSpec {
     /// The rail label.
     pub label: &'static str,
     /// The rail icon.
-    pub icon: IconType,
+    pub icon: SvgData,
     /// The pane's title bar text.
     pub title: &'static str,
     /// Explains the pane in search results and under its page title.
@@ -33,7 +32,7 @@ pub struct SettingsRailGroup {
 const fn pane(
     id: &'static str,
     label: &'static str,
-    icon: IconType,
+    icon: SvgData,
     title: &'static str,
     description: &'static str,
     search_terms: &'static str,
@@ -56,7 +55,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "machines",
                 "Machines",
-                IconType::Laptop,
+                pictogram_icons_lucide::laptop::outlined,
                 "Machines",
                 "Connected computers, folders and worker availability.",
                 "workers computers",
@@ -64,7 +63,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "connection",
                 "Connection",
-                IconType::Network,
+                pictogram_icons_lucide::network::outlined,
                 "Connection",
                 "Coordinator address, connection health and reconnect options.",
                 "server offline reconnect",
@@ -72,7 +71,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "devices",
                 "Paired devices",
-                IconType::Smartphone,
+                pictogram_icons_lucide::smartphone::outlined,
                 "Paired devices",
                 "Browsers and phones that can access Roost. Review or revoke access.",
                 "pairing browsers phones access",
@@ -85,7 +84,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "launcher",
                 "Agent launcher",
-                IconType::Rocket,
+                pictogram_icons_lucide::rocket::outlined,
                 "Agent launcher",
                 "The agent command used when opening a terminal session.",
                 "omp command launch",
@@ -93,7 +92,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "models",
                 "Models & accounts",
-                IconType::Bot,
+                pictogram_icons_lucide::bot::outlined,
                 "Models & accounts",
                 "Models for chat and tasks, folder defaults, advisor reviews and provider accounts.",
                 "advisor adviser planning delegated quick side tasks decisions fallback chains session thinking effort btw compact web search",
@@ -101,7 +100,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "mcp",
                 "Tool integrations",
-                IconType::Puzzle,
+                pictogram_icons_lucide::puzzle::outlined,
                 "Tool integrations",
                 "MCP relays that connect agents to external tools and services.",
                 "external tools relay",
@@ -114,7 +113,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "terminal",
                 "Terminal",
-                IconType::Terminal,
+                pictogram_icons_lucide::terminal::outlined,
                 "Terminal",
                 "Font, cursor, rendering and terminal interaction.",
                 "scrollback keyboard rendering",
@@ -122,7 +121,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "voice",
                 "Voice",
-                IconType::Mic,
+                pictogram_icons_lucide::mic::outlined,
                 "Voice dictation",
                 "Speech recognition, language and microphone input.",
                 "dictation audio",
@@ -130,7 +129,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "theme",
                 "Appearance",
-                IconType::Palette,
+                pictogram_icons_lucide::palette::outlined,
                 "Appearance",
                 "Theme, color scheme and how the workbench looks.",
                 "dark light colors",
@@ -138,7 +137,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "notifications",
                 "Notifications",
-                IconType::Bell,
+                pictogram_icons_lucide::bell::outlined,
                 "Notifications",
                 "Alerts when agents need attention or finish their work.",
                 "sound alerts",
@@ -151,7 +150,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "attachments",
                 "Files",
-                IconType::FolderOpen,
+                pictogram_icons_lucide::folder_open::outlined,
                 "Files",
                 "Uploaded files and session attachments.",
                 "uploads downloads",
@@ -159,7 +158,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "audit",
                 "Audit log",
-                IconType::History,
+                pictogram_icons_lucide::history::outlined,
                 "Audit log",
                 "Recorded access and administrative activity.",
                 "security activity",
@@ -167,7 +166,7 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
             pane(
                 "metrics",
                 "Diagnostics",
-                IconType::Activity,
+                pictogram_icons_lucide::activity::outlined,
                 "Diagnostics",
                 "Service metrics and resource usage.",
                 "health performance",

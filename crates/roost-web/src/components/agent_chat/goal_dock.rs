@@ -3,9 +3,8 @@
 //! chip only reveals management. Status and budget are projections of GoalState.
 
 use dioxus::prelude::*;
+use libero::components::{Button, Flex, Text};
 use roost_protocol::wire::agent_chat::GoalState;
-
-use crate::components::ui::{Chip, IconType};
 
 #[component]
 pub(super) fn GoalDock(
@@ -37,16 +36,20 @@ pub(super) fn GoalDock(
     );
     let waiting = state.waiting_reason.clone();
     rsx! {
-        Chip {
-            label,
-            icon: Some(IconType::Flag),
-            selected: Some(true),
-            title: Some(title),
-            test_id: Some("agent-chat-goal".to_string()),
-            onclick: Some(EventHandler::new(move |_| { view_request.set(String::new()); on_open.call(()); })),
+        Button {
+            selected: true,
+            variant: "tonal",
+            color: "primary",
+            title: title.clone(),
+            "data-testid": "agent-chat-goal",
+            icon: rsx! { libero::components::Pictogram { icon: pictogram_icons_lucide::flag::outlined } },
+            onclick: move |_| { view_request.set(String::new()); on_open.call(()); },
+            "{label}"
         }
         if let Some(reason) = waiting {
-            span { class: "text-sm text-muted-foreground", "data-testid": "agent-chat-goal-waiting", role: "status", "{reason}" }
+            Flex { direction: "row", align: "center",
+                Text { size: "sm", color: "muted", role: "status", "data-testid": "agent-chat-goal-waiting", "{reason}" }
+            }
         }
     }
 }

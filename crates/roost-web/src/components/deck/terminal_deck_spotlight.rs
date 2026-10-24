@@ -5,6 +5,8 @@
 //! `apps/web/src/components/deck/TerminalDeckSpotlight.tsx`.
 
 use dioxus::prelude::*;
+use libero::components::Box;
+use libero::sx::sx;
 use roost_client_core::store::layout::PaneRect;
 
 use super::inline_style::px;
@@ -15,9 +17,26 @@ pub fn TerminalDeckSpotlight(rect: Option<PaneRect>, on_dismiss: EventHandler<()
     let Some(rect) = rect else {
         return rsx! {};
     };
+    let backdrop_sx = use_hook(|| {
+        sx().position("absolute")
+            .inset("0")
+            .with("z-index", "7")
+            .background("ink")
+            .opacity("0.55")
+            .with(
+                "animation",
+                "pane-spotlight-fade 120ms cubic-bezier(0.3, 0, 1, 1)",
+            )
+            .media("(prefers-reduced-motion: reduce)", sx().animation("none"))
+    });
+    let frame_sx = use_hook(|| {
+        sx().border_radius("xl")
+            .box_shadow(libero::theme::SizeCss::SHADOW.value(libero::theme::Size::Xl))
+    });
     rsx! {
-        div {
-            class: "absolute inset-0 z-[7] bg-[color-mix(in_srgb,black_55%,transparent)] animate-pane-spotlight-fade motion-reduce:animate-none",
+        Box {
+            component: "div",
+            sx: backdrop_sx,
             "data-testid": "pane-spotlight-backdrop",
             "aria-hidden": "true",
             onpointerdown: move |event: PointerEvent| {
@@ -29,8 +48,9 @@ pub fn TerminalDeckSpotlight(rect: Option<PaneRect>, on_dismiss: EventHandler<()
                 on_dismiss.call(());
             },
         }
-        div {
-            class: "rounded-xl shadow-[0_0_0_1px_var(--border-strong),_0_8px_12px_6px_color-mix(in_srgb,black_15%,transparent),_0_4px_4px_0_color-mix(in_srgb,black_30%,transparent)]",
+        Box {
+            component: "div",
+            sx: frame_sx,
             style: "position: absolute; left: {px(rect.x)}; top: {px(rect.y)}; width: {px(rect.w)}; height: {px(rect.h)}; z-index: 8; pointer-events: none;",
             "aria-hidden": "true",
         }

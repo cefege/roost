@@ -10,8 +10,8 @@
 #[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
 
-use crate::components::ui::IconType;
 use dioxus::prelude::*;
+use libero::components::SvgData;
 
 use crate::pump::Pump;
 use crate::voice::engine::Engine;
@@ -178,12 +178,12 @@ pub fn web_sys_window_secure() -> bool {
 }
 
 /// The icon for one state.
-pub fn mic_icon(state: VoiceState) -> IconType {
+pub fn mic_icon(state: VoiceState) -> SvgData {
     match state {
-        VoiceState::Idle => IconType::Mic,
-        VoiceState::Starting => IconType::LoaderCircle,
-        VoiceState::Listening => IconType::Square,
-        VoiceState::Finalizing => IconType::CornerDownLeft,
+        VoiceState::Idle => pictogram_icons_lucide::mic::outlined,
+        VoiceState::Starting => pictogram_icons_lucide::loader_circle::outlined,
+        VoiceState::Listening => pictogram_icons_lucide::square::outlined,
+        VoiceState::Finalizing => pictogram_icons_lucide::corner_down_left::outlined,
     }
 }
 

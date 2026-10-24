@@ -7,12 +7,14 @@ use crate::components::agents::agent_status_indicator::AgentStatusIndicator;
 use crate::pump::use_store;
 use crate::session_naming::session_title;
 use dioxus::prelude::*;
+use libero::components::{Box, Pictogram, Text};
 use roost_client_core::TerminalTransport;
 use roost_client_core::store::terminal_transport::session_terminal_transport_kind;
 
-use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, StatusDot,
-};
+use crate::components::agents::agent_status_indicator::agent_dot_color;
+use libero::components::{ActionIcon, Button, Indicator};
+use libero::sx::sx;
+use roost_client_core::client::agents::status_policy::AgentDotStatus;
 
 /// v2 `sessionTerminalTransportLabel`: the tooltip for a DIRECT carrier, and
 /// nothing for the coordinator or an unconfirmed one.
@@ -58,9 +60,11 @@ pub fn PaneTab(
                 .to_owned(),
                 None,
                 conversation.map(|conversation| match conversation.run_state {
-                    roost_protocol::wire::agent_chat::AgentRunState::Running => "info",
-                    roost_protocol::wire::agent_chat::AgentRunState::Failed => "warn",
-                    roost_protocol::wire::agent_chat::AgentRunState::Idle => "idle",
+                    roost_protocol::wire::agent_chat::AgentRunState::Running => {
+                        AgentDotStatus::Info
+                    }
+                    roost_protocol::wire::agent_chat::AgentRunState::Failed => AgentDotStatus::Warn,
+                    roost_protocol::wire::agent_chat::AgentRunState::Idle => AgentDotStatus::Idle,
                 }),
             )
         } else {
@@ -91,15 +95,132 @@ pub fn PaneTab(
         Some(carrier) => format!("{title} — {carrier}"),
         None => title.clone(),
     });
-    // A resting tab REMOVES its style attribute rather than writing an empty
-    // one: dioxus-web's `style` setter re-applies every inline property the new
-    // value does not name, so `style=""` after a drag kept the dragged tab's
-    // `translateX`, clipping it out of the rail and parking the overflow
-    // chevron on a strip whose tabs all fit.
-    let style = (!style.is_empty()).then_some(style);
+    let tab_sx = use_hook(|| {
+        sx().position("relative")
+            .display("inline-flex")
+            .flex_direction("row")
+            .align_items("center")
+            .gap("xs")
+            .padding_inline("xs")
+            .box_sizing("border-box")
+            .height("100%")
+            .flex("0 1 auto")
+            .width("var(--workbench-tab-width-max)")
+            .min_width("var(--workbench-tab-width-min)")
+            .max_width("var(--workbench-tab-width-max)")
+            .overflow("hidden")
+            .cursor("pointer")
+            .touch_action("pan-y")
+            .border("0")
+            .with("border-top", "1px solid transparent")
+            .with("border-right", "1px solid var(--workbench-tab-border)")
+            .background("var(--workbench-tab-strip)")
+            .color("var(--workbench-tab-inactive-foreground)")
+            .font_size("sm")
+            .transition("background-color 150ms, color 150ms")
+            .selector(
+                "&:not([data-active=true]):hover",
+                sx().background("var(--workbench-tab-hover)")
+                    .color("var(--workbench-tab-hover-foreground)"),
+            )
+            .selector(
+                "&[data-active=true]",
+                sx().background("var(--workbench-editor)")
+                    .color("var(--workbench-tab-active-foreground)")
+                    .with("border-top-color", "var(--workbench-focus-ring)"),
+            )
+            .selector(
+                ":where([data-focused=false]) &[data-active=true]",
+                sx().color("var(--workbench-tab-unfocused-active-foreground)")
+                    .with("border-top-color", "transparent"),
+            )
+            .selector(
+                "&[data-dragging=true]",
+                sx().z_index("4")
+                    .background("surface")
+                    .box_shadow(libero::theme::SizeCss::SHADOW.value(libero::theme::Size::Md))
+                    .cursor("grabbing"),
+            )
+            .selector(
+                "&[data-closing=true]",
+                sx().min_width("0")
+                    .max_width("0")
+                    .padding_inline("0")
+                    .z_index("0")
+                    .opacity("0")
+                    .pointer_events("none")
+                    .overflow("hidden")
+                    .transition("max-width 220ms, min-width 220ms, padding 220ms, opacity 220ms"),
+            )
+    });
+    let select_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("row")
+            .flex("1")
+            .min_width("0")
+            .height("100%")
+            .align_items("center")
+            .gap("xs")
+            .padding("0")
+            .border_radius("0")
+            .font_weight("normal")
+            .color("inherit")
+            .text_align("left")
+            .cursor("pointer")
+            .hover(sx().background("transparent").color("inherit"))
+    });
+    let title_sx = use_hook(|| {
+        sx().flex("1")
+            .min_width("0")
+            .overflow("hidden")
+            .with("overscroll-behavior-y", "auto")
+            .text_overflow("ellipsis")
+            .white_space("nowrap")
+            .selector(":where([data-packed=true]) &", sx().display("none"))
+    });
+    let close_sx = use_hook(|| {
+        sx().flex_shrink("0")
+            .width("1.5rem")
+            .height("1.5rem")
+            .color("muted")
+            .opacity("0")
+            .pointer_events("none")
+            .transition("opacity 150ms")
+            .hover(sx().color("ink"))
+            .selector("&:focus-visible", sx().opacity("1").pointer_events("auto"))
+            .selector(
+                ":where([data-deck-tab]:hover) &",
+                sx().opacity("1").pointer_events("auto"),
+            )
+            .selector(
+                ":where([data-deck-tab]:focus-within) &",
+                sx().opacity("1").pointer_events("auto"),
+            )
+            .selector(
+                ":where([data-deck-tab][data-active=true]) &",
+                sx().opacity("1").pointer_events("auto"),
+            )
+            .selector(
+                ":where([data-packed=true]) [data-active=false] &",
+                sx().display("none"),
+            )
+            .selector(
+                ":where([data-packed=true]) [data-active=true] &",
+                sx().display("inline-flex"),
+            )
+            .selector(
+                ":where([data-tv=true]) &",
+                sx().opacity("1").pointer_events("auto"),
+            )
+            .selector(
+                ":where([data-pad=true]) &",
+                sx().opacity("1").pointer_events("auto"),
+            )
+    });
     rsx! {
-        div {
-            class: "group/tab relative inline-flex items-center gap-1 px-1 box-border h-full self-stretch flex-[0_1_auto] w-[var(--workbench-tab-width-max)] min-w-[var(--workbench-tab-width-min)] max-w-[var(--workbench-tab-width-max)] overflow-hidden cursor-pointer touch-pan-y border-0 border-t border-r border-solid border-t-transparent border-r-[var(--workbench-tab-border)] bg-[var(--workbench-tab-strip)] text-[var(--workbench-tab-inactive-foreground)] text-sm transition-colors duration-150 not-data-[active=true]:hover:bg-[var(--workbench-tab-hover)] not-data-[active=true]:hover:text-[var(--workbench-tab-hover-foreground)] data-[active=true]:bg-[var(--workbench-editor)] data-[active=true]:text-[var(--workbench-tab-active-foreground)] data-[active=true]:border-t-[var(--workbench-focus-ring)] group-data-[focused=false]/strip:data-[active=true]:text-[var(--workbench-tab-unfocused-active-foreground)] group-data-[focused=false]/strip:data-[active=true]:border-t-transparent data-[dragging=true]:z-[4] data-[dragging=true]:bg-card data-[dragging=true]:shadow-md data-[dragging=true]:cursor-grabbing data-[closing=true]:!min-w-0 data-[closing=true]:!max-w-0 data-[closing=true]:!px-0 data-[closing=true]:z-0 data-[closing=true]:opacity-0 data-[closing=true]:pointer-events-none data-[closing=true]:overflow-hidden data-[closing=true]:transition-[max-width,min-width,padding,opacity] data-[closing=true]:duration-[220ms] @container/pane-tab",
+        Box {
+            component: "div",
+            sx: tab_sx,
             "data-testid": "tab-{session_id}",
             "data-deck-tab": "true",
             "data-active": if active { "true" } else { "false" },
@@ -118,24 +239,25 @@ pub fn PaneTab(
             // The row paints its own hover and selection fill, so the label must not
             // add the Ghost accent band over it.
             Button {
-                variant: ButtonVariant::Ghost,
-                class: "flex flex-1 min-w-0 h-full items-center gap-1 p-0 rounded-none font-normal text-inherit text-start cursor-pointer hover:bg-transparent hover:text-inherit dark:hover:bg-transparent group-data-[packed=true]/strip:justify-center",
+                variant: "standard",
+                sx: select_sx,
                 "aria-label": title.clone(),
                 "data-tab-select": "true",
                 "aria-current": active.then_some("page"),
                 title: native_tooltip,
                 onpointerdown: move |event| on_pointer_down.call(event),
                 onclick: move |_| on_select.call(()),
-                Icon {
-                    icon: if agent_status.is_some() { IconType::Bot } else { IconType::Terminal },
-                    class: "size-4 shrink-0 text-muted-foreground group-data-[packed=true]/strip:group-data-[active=true]/tab:hidden",
+                Pictogram {
+                    icon: if agent_status.is_some() { pictogram_icons_lucide::bot::outlined } else { pictogram_icons_lucide::terminal::outlined },
+                    width: "1rem",
+                    height: "1rem",
                 }
                 if direct.is_some() {
-                    Icon { icon: IconType::Zap, class: "size-4 shrink-0 text-warning @max-[120px]/pane-tab:hidden" }
+                    Pictogram { icon: pictogram_icons_lucide::zap::outlined, width: "1rem", height: "1rem" }
                 }
-                span { class: "flex-1 min-w-0 truncate group-data-[packed=true]/strip:hidden", "{title}" }
+                Text { component: "span", sx: title_sx, "{title}" }
                 if let Some(status) = agent_status {
-                    StatusDot { status: status.to_owned() }
+                    Indicator { color: agent_dot_color(status) }
                 } else {
                     AgentStatusIndicator {
                         session_id: session_id.clone(),
@@ -146,11 +268,11 @@ pub fn PaneTab(
                     crate::components::terminal_signal_marks::TerminalProgressMark { session_id: session_id.clone() }
                 }
             }
-            IconButton {
-                icon: IconType::X,
-                label: if agent_status.is_some() { "Close agent" } else { "Close terminal" },
-                size: ButtonSize::IconSm,
-                class: "shrink-0 size-6 text-muted-foreground opacity-0 pointer-events-none transition-opacity duration-150 hover:text-foreground group-hover/tab:opacity-100 group-hover/tab:pointer-events-auto group-focus-within/tab:opacity-100 group-data-[active=true]/tab:opacity-100 group-data-[active=true]/tab:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto tv:opacity-100 tv:pointer-events-auto pad:opacity-100 pad:pointer-events-auto group-data-[packed=true]/strip:hidden group-data-[packed=true]/strip:group-data-[active=true]/tab:inline-flex",
+            ActionIcon {
+                sx: close_sx,
+                icon: pictogram_icons_lucide::x::outlined,
+                aria_label: if agent_status.is_some() { "Close agent" } else { "Close terminal" },
+                size: "sm",
                 "data-testid": "tab-close-{session_id}",
                 onclick: move |event| on_close.call(event),
             }

@@ -8,7 +8,7 @@
 /// Whether the reader asked for reduced motion (`prefers-reduced-motion`).
 #[cfg(target_arch = "wasm32")]
 pub fn prefers_reduced_motion() -> bool {
-    crate::components::hooks::use_media_query::media_query_match("(prefers-reduced-motion: reduce)")
+    crate::platform::media_query::media_query_match("(prefers-reduced-motion: reduce)")
         == Some(true)
 }
 

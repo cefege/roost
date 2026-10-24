@@ -11,8 +11,11 @@ use roost_client_core::sync::redial::sync_link_answering;
 use roost_client_core::{ClientEvent, TransportControl};
 
 use crate::components::terminal::dom::{page_visible, sleep_ms};
-use crate::components::ui::{Alert, Button, ButtonSize, ButtonVariant, StatusDot};
 use crate::pump::{Pump, use_store};
+use libero::{
+    components::{Alert, Box, Button, Flex, Indicator, Text},
+    sx::sx,
+};
 
 /// How often a visible tab re-reads its own liveness. The core redials on its
 /// own schedule; this only decides whether the banner is still true.
@@ -65,25 +68,10 @@ impl BannerReason {
         )
     }
 
-    /// The status the banner's dot and rule carry: a warning while a direct
-    /// terminal survives the outage, an error otherwise.
-    const fn status(self) -> &'static str {
+    const fn color(self) -> &'static str {
         match self {
-            Self::CoordUnreachableDirectLive => "warn",
+            Self::CoordUnreachableDirectLive => "warning",
             _ => "error",
-        }
-    }
-
-    /// The banner row's classes. The bottom rule carries the same status role
-    /// as [`Self::status`]; each arm is a full literal so Tailwind scans it.
-    const fn surface_class(self) -> &'static str {
-        match self {
-            Self::CoordUnreachableDirectLive => {
-                "flex items-center justify-center gap-3 rounded-none border-0 border-b border-warning px-4 py-2 text-xs leading-4 text-foreground"
-            }
-            _ => {
-                "flex items-center justify-center gap-3 rounded-none border-0 border-b border-destructive px-4 py-2 text-xs leading-4 text-foreground"
-            }
         }
     }
 }
@@ -129,6 +117,18 @@ pub fn banner_verdict(inputs: BannerInputs) -> Option<BannerReason> {
 pub fn ConnectionBanner() -> Element {
     let pump = use_store();
     let mut reason = use_signal(|| None::<BannerReason>);
+    let position_sx = use_hook(|| {
+        sx().position("fixed")
+            .with("left", "0")
+            .with("right", "0")
+            .with("top", "0")
+            .z_index("50")
+    });
+    let banner_sx = use_hook(|| {
+        sx().padding("xs")
+            .border_radius("0")
+            .with("border-bottom", "1px solid currentColor")
+    });
 
     // A hidden tab is not evaluated: nobody can see the banner, and its last
     // verdict is replaced on the first tick after it is shown again.
@@ -153,24 +153,23 @@ pub fn ConnectionBanner() -> Element {
         return rsx! {};
     };
     rsx! {
-        div {
+        Box {
             "data-testid": "connection-banner",
             "data-banner-reason": verdict.as_str(),
-            class: "fixed inset-x-0 top-0 z-50",
-            Alert {
-                class: verdict.surface_class(),
-                StatusDot { status: verdict.status().to_owned() }
-                span { "{verdict.message()}" }
-                if verdict.offers_reconnect() {
-                    Button {
-                        variant: ButtonVariant::Secondary,
-                        size: ButtonSize::Sm,
-                        "data-testid": "connection-banner-reconnect",
-                        onclick: move |_| {
-                            pump.dispatch(ClientEvent::SyncTransportControl(TransportControl::Reconnect));
-                            reason.set(None);
-                        },
-                        "Reconnect"
+            sx: position_sx,
+            Alert { color: verdict.color(), radius: "0", sx: banner_sx,
+                Flex { direction: "row", align: "center", justify: "center", gap: "sm",
+                    Indicator { color: verdict.color(), aria_hidden: "true" }
+                    Text { size: "xs", "{verdict.message()}" }
+                    if verdict.offers_reconnect() {
+                        Button { variant: "outlined", size: "sm",
+                            "data-testid": "connection-banner-reconnect",
+                            onclick: move |_| {
+                                pump.dispatch(ClientEvent::SyncTransportControl(TransportControl::Reconnect));
+                                reason.set(None);
+                            },
+                            "Reconnect"
+                        }
                     }
                 }
             }

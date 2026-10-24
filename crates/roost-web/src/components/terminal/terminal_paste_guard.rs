@@ -1,15 +1,14 @@
-//! The multiline paste confirmation: mounted by `CellTerminal` only while a
-//! paste is pending, because a closed dialog inside the pane would fold its
-//! prose into the terminal's text and read as painted output. Ports the
-//! paste-guard `Dialog` of `apps/web/src/components/terminal/CellTerminal.tsx`.
+//! The multiline paste confirmation, shown by `CellTerminal` only while a paste
+//! is pending. Libero owns modal focus, dismissal and result delivery.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use crate::components::overlay_generation::OverlayGeneration;
 use dioxus::prelude::*;
+use libero::components::{Button, Dialog, Text};
+use libero::hooks::{ModalScope, use_modal};
 use roost_protocol::terminal_input::count_line_breaks;
-
-use crate::components::ui::{
-    Button, ButtonVariant, Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader,
-    DialogTitle,
-};
 
 /// The confirmation for `text`.
 #[component]
@@ -18,40 +17,51 @@ pub fn TerminalPasteGuard(
     on_cancel: EventHandler<()>,
     on_send: EventHandler<String>,
 ) -> Element {
-    let lines = count_line_breaks(&text) + 1;
-    rsx! {
-        Dialog {
-            open: true,
-            on_open_change: move |open: bool| {
-                if !open {
-                    on_cancel.call(());
+    let generations = use_hook(|| Rc::new(RefCell::new(OverlayGeneration::default())));
+    let modal = use_modal(|scope: ModalScope<String, bool>| {
+        let Some(text) = scope.try_args() else {
+            return rsx! {};
+        };
+        let lines = count_line_breaks(&text) + 1;
+        rsx! {
+            Dialog { title: "Paste multiple lines?", role: "alertdialog",
+                Text {
+                    color: "text-dimmed",
+                    "This shell has bracketed paste off, so all {lines} lines run as they arrive — you will not get a chance to edit them first."
                 }
-            },
-            DialogContent {
-                DialogHeader {
-                    DialogTitle { "Paste multiple lines?" }
+                Button {
+                    variant: "outlined",
+                    "data-testid": "paste-guard-cancel",
+                    onclick: move |_| scope.close(),
+                    "Cancel"
                 }
-                DialogBody {
-                    p {
-                        class: "m-0 text-sm text-muted-foreground",
-                        "This shell has bracketed paste off, so all {lines} lines run as they arrive — you will not get a chance to edit them first."
-                    }
-                }
-                DialogFooter {
-                    Button {
-                        variant: ButtonVariant::Outline,
-                        "data-testid": "paste-guard-cancel",
-                        onclick: move |_| on_cancel.call(()),
-                        "Cancel"
-                    }
-                    Button {
-                        variant: ButtonVariant::Default,
-                        "data-testid": "paste-guard-send",
-                        onclick: move |_| on_send.call(text.clone()),
-                        "Paste {lines} lines"
-                    }
+                Button {
+                    "data-testid": "paste-guard-send",
+                    onclick: move |_| scope.resolve(true),
+                    "Paste {lines} lines"
                 }
             }
         }
-    }
+    });
+    use_effect(use_reactive((&text,), {
+        let generations = generations.clone();
+        move |(text,)| {
+            let generation = generations.borrow_mut().begin();
+            let current = generations.clone();
+            modal.open_with(text.clone()).onresult(move |result| {
+                if !current.borrow_mut().finish(generation) {
+                    return;
+                }
+                match result {
+                    Some(true) => on_send.call(text.clone()),
+                    _ => on_cancel.call(()),
+                }
+            });
+        }
+    }));
+    use_drop({
+        let generations = generations.clone();
+        move || generations.borrow_mut().invalidate()
+    });
+    rsx! {}
 }

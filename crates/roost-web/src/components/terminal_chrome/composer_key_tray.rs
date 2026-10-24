@@ -6,7 +6,7 @@
 use dioxus::prelude::*;
 
 use crate::components::terminal::terminal_nav_pad::{key_toggle_icon, key_toggle_label};
-use crate::components::ui::{ButtonSize, ButtonVariant, IconButton};
+use libero::components::ActionIcon;
 
 /// The terminal keys a pane hands its composer, and whether they show.
 #[derive(Clone, PartialEq)]
@@ -33,19 +33,24 @@ impl std::fmt::Debug for KeyTray {
 pub fn ComposerKeyTray(tray: KeyTray) -> Element {
     let open = tray.open;
     let on_toggle = tray.on_toggle;
+    let control_sx = use_hook(|| {
+        libero::sx::sx()
+            .width("var(--term-chat-control)")
+            .height("var(--term-chat-control)")
+            .border_radius("9999rem")
+    });
     rsx! {
         if open {
             {tray.keys.clone()}
         }
-        IconButton {
+        ActionIcon {
             icon: key_toggle_icon(open),
-            label: key_toggle_label(open),
-            variant: ButtonVariant::Ghost,
-            size: ButtonSize::IconLg,
-            class: Some("!size-(--term-chat-control) !rounded-full tv:data-[open=true]:bg-accent tv:data-[open=true]:text-accent-foreground".to_owned()),
+            aria_label: key_toggle_label(open),
+            variant: "standard",
+            size: "lg",
+            sx: control_sx,
             "data-testid": "chat-keys",
             "data-open": if open { "true" } else { "false" },
-            // A press must not pull focus off whatever the D-pad is on.
             onmousedown: |event: MouseEvent| event.prevent_default(),
             onclick: move |_| on_toggle.call(()),
         }

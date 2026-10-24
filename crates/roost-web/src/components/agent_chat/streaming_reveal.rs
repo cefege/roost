@@ -7,8 +7,8 @@
 use dioxus::prelude::*;
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::markdown::markdown_to_safe_html;
 use crate::components::ui::Markdown;
+use libero::sx::sx;
 
 /// One display frame at OMP's 30 fps reveal clock.
 const FRAME_MS: u64 = 33;
@@ -58,14 +58,27 @@ pub(super) fn StreamingText(text: String, live: bool) -> Element {
             crate::components::terminal::dom::sleep_ms(FRAME_MS).await;
         }
     });
+    let streaming_sx = use_hook(|| {
+        sx().selector(
+            "&[data-streaming=true] > :last-child::after",
+            sx().display("inline-block")
+                .height("1rem")
+                .width("0.5rem")
+                .margin_left("xs")
+                .border_radius("xs")
+                .with("vertical-align", "text-bottom")
+                .background("currentColor")
+                .with("content", "''"),
+        )
+    });
     let revealed = shown().min(total);
     let typing = live || revealed < total;
     let visible = grapheme_prefix(&text, revealed);
     rsx! {
         Markdown {
-            class: "[&[data-streaming]>:last-child]:after:inline-block [&[data-streaming]>:last-child]:after:h-4 [&[data-streaming]>:last-child]:after:w-2 [&[data-streaming]>:last-child]:after:ml-1 [&[data-streaming]>:last-child]:after:rounded-xs [&[data-streaming]>:last-child]:after:align-text-bottom [&[data-streaming]>:last-child]:after:bg-current [&[data-streaming]>:last-child]:after:content-['']",
+            sx: streaming_sx,
             "data-streaming": typing.then_some("true"),
-            html: markdown_to_safe_html(visible),
+            text: visible.to_owned(),
         }
     }
 }

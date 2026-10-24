@@ -11,6 +11,11 @@ mod page;
 mod parts;
 mod regions;
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use crate::components::overlay_generation::OverlayGeneration;
+
 use dioxus::prelude::*;
 use roost_client_core::store::browse_paths::BROWSE_HOME;
 use roost_client_core::store::browse_state::intent::{BrowseIntent, apply_browse_intent};
@@ -24,11 +29,12 @@ use crate::components::browse::view::{PickerReading, read_picker};
 use crate::components::browse::{BrowseLaunchMode, browse_launch_mode};
 use crate::components::browse::{BrowseStatus, newest_session_cwd};
 use crate::components::layout::window_size::use_is_compact;
-use crate::components::ui::{Dialog, DialogContent, DialogTitle};
 use crate::pump::{Pump, use_store};
 use crate::router_state::use_navigate;
+use libero::components::Dialog;
+use libero::hooks::{ModalScope, use_modal};
+use libero::sx::sx;
 
-/// The new-folder dialog's own fields. Not store state: they are a form, and a
 /// half-typed name has no business outliving the machine it was typed for.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NewFolderForm {
@@ -147,23 +153,52 @@ pub fn BrowsePicker(worker_fp: String) -> Element {
             navigate,
         }
     };
+    let close = EventHandler::new(move |()| navigate.call("/".to_owned()));
+    let dialog_sx = use_hook(|| {
+        sx().height("min(85vh, 48rem)")
+            .width("min(64rem, calc(100% - 2rem))")
+            .max_width("none")
+            .display("flex")
+            .flex_direction("column")
+            .gap("0")
+            .overflow("hidden")
+            .padding("0")
+    });
+    let generation = use_hook(|| Rc::new(RefCell::new(OverlayGeneration::default())));
+    let modal = use_modal({
+        let modal_content = content.clone();
+        move |_: ModalScope<()>| {
+            rsx! {
+                Dialog {
+                    aria_label: "Browse folders",
+                    close_button: false,
+                    ondismiss: move |_| {
+                        close.call(());
+                        true
+                    },
+                    sx: dialog_sx.clone(),
+                    "data-testid": "browse-picker-dialog",
+                    {modal_content.clone()}
+                }
+            }
+        }
+    });
+    use_effect(use_reactive((&compact,), move |(compact,)| {
+        generation.borrow_mut().invalidate();
+        if compact {
+            modal.close();
+        } else {
+            let token = generation.borrow_mut().begin();
+            let generation = Rc::clone(&generation);
+            modal.open().onresult(move |_| {
+                generation.borrow_mut().finish(token);
+            });
+        }
+    }));
     if compact {
         return content;
     }
-    let close = EventHandler::new(move |()| navigate.call("/".to_owned()));
-    rsx! {
-        Dialog {
-            open: true,
-            on_open_change: move |still_open: bool| if !still_open { close.call(()) },
-            DialogContent {
-                class: Some("flex h-[min(85vh,48rem)] w-[min(64rem,calc(100%-2rem))] max-w-none flex-col gap-0 overflow-hidden p-0".to_owned()),
-                show_close_button: Some(false),
-                on_open_auto_focus: Some(EventHandler::new(control_set::keep_sheet_focus)),
-                DialogTitle { class: Some("sr-only".to_owned()), "Browse folders" }
-                {content}
-            }
-        }
-    }
+    rsx! {}
 }
 
 /// One read of everything the picker paints, in a single borrow of the core.

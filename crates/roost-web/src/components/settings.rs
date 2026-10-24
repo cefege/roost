@@ -31,17 +31,13 @@ pub mod voice_languages;
 
 mod pane;
 
-use dioxus::prelude::*;
-
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::settings_navigation::{SETTINGS_GROUPS, SettingsPaneSpec, settings_pane};
-use crate::components::ui::{
-    Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyMediaVariant, EmptyTitle, Icon,
-    IconButton, IconType, List, ListRow, SidenavGroupLabel, TextField,
-};
 use crate::router_state::use_navigate;
 use crate::routes::Route;
-
+use dioxus::prelude::*;
+use libero::components::{Button, Flex, NavLink, Paper, Pictogram, Text, TextField, Title};
+use libero::sx::sx;
 /// The pane the desktop editor shows when the URL names none — and the pane it
 /// shows when the URL names one this build does not have.
 ///
@@ -94,59 +90,86 @@ fn SettingsEditor(active: Option<SettingsPaneSpec>) -> Element {
     let navigate = use_navigate();
     let mut query = use_signal(String::new);
     let groups = search_groups(&query());
+    let editor_sx = use_hook(|| {
+        sx().flex("1")
+            .min_width("0")
+            .min_height("0")
+            .overflow("hidden")
+    });
+    let rail_sx = use_hook(|| {
+        sx().flex_shrink("0")
+            .min_height("0")
+            .overflow_y("auto")
+            .with("overscroll-behavior-y", "contain")
+    });
+    let pane_sx = use_hook(|| {
+        sx().flex("1")
+            .min_width("0")
+            .min_height("0")
+            .overflow_y("auto")
+            .with("overscroll-behavior-y", "contain")
+    });
     let Some(active) = active else {
         return rsx! {};
     };
+    let active_id = active.id.to_owned();
     rsx! {
-        div { class: "flex h-full min-h-0 w-full bg-background",
-            aside {
-                class: "flex w-72 shrink-0 flex-col gap-4 overflow-y-auto border-r border-border bg-sidenav p-4",
-                "aria-label": "Settings sections",
-                h1 { class: "px-2 text-lg font-semibold text-foreground", "Settings" }
-                TextField {
-                    value: query(),
-                    on_input: move |value| query.set(value),
-                    input_type: "search",
-                    placeholder: "Search settings…",
-                    aria_label: "Search settings",
-                    test_id: "settings-search",
-                }
-                for (label, panes) in &groups {
-                    section { class: "flex flex-col gap-1",
-                        SidenavGroupLabel { class: "px-3 uppercase tracking-wide", "{label}" }
-                        for pane in panes {
-                            ListRow {
-                                class: "rounded-md",
-                                href: Route::Settings { pane: Some(pane.id.to_string()) }.to_path(),
-                                on_navigate: navigate,
-                                selected: pane.id == active.id,
-                                aria_current: (pane.id == active.id).then(|| "page".to_string()),
-                                test_id: Some(format!("rail-{}", pane.id)),
-                                leading_icon: pane.icon,
-                                headline: rsx! { span { title: pane.description, {pane.label} } },
+        Flex { direction: "row", align: "stretch", wrap: false, sx: editor_sx, "data-testid": "settings-editor",
+            Paper { bordered: true, sx: rail_sx,
+                Flex { direction: "column", gap: "sm",
+                    Title { size: "lg", "Settings" }
+                    TextField {
+                        value: query(),
+                        r#type: "search",
+                        placeholder: "Search settings…",
+                        label: "Search settings",
+                        "data-testid": "settings-search",
+                        oninput: move |value| query.set(value),
+                    }
+                    for (label, panes) in &groups {
+                        Flex { direction: "column", gap: "xs",
+                            Text { size: "xs", color: "muted", "{label}" }
+                            for pane in panes {
+                                {
+                                    let href = Route::Settings { pane: Some(pane.id.to_string()) }.to_path();
+                                    rsx! {
+                                        NavLink {
+                                            to: href.clone(),
+                                            onclick: move |event: MouseEvent| {
+                                                event.prevent_default();
+                                                navigate.call(href.clone());
+                                            },
+                                            active: pane.id == active_id,
+                                            description: pane.description,
+                                            leading: Some(rsx! { Pictogram { icon: pane.icon, width: "18", height: "18" } }),
+                                            "data-testid": format!("rail-{}", pane.id),
+                                            "{pane.label}"
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
-                }
-                if groups.is_empty() {
-                    p { class: "px-3 text-sm text-muted-foreground", role: "status", "No matching settings" }
+                    if groups.is_empty() {
+                        Text { size: "sm", color: "muted", role: "status", "No matching settings" }
+                    }
                 }
             }
-            main { class: "flex min-w-0 flex-1 flex-col",
-                header { class: "flex h-14 shrink-0 items-center gap-2 border-b border-border px-4",
-                    IconButton {
-                        icon: IconType::ArrowLeft,
-                        label: "Back to app",
+            Flex { direction: "column", gap: "md", sx: pane_sx,
+                Flex { direction: "row", align: "center", gap: "sm",
+                    Button {
+                        variant: "standard",
+                        icon: Some(rsx! { Pictogram { icon: pictogram_icons_lucide::arrow_left::outlined, width: "18", height: "18" } }),
+                        "aria-label": "Back to app",
                         "data-testid": "settings-back",
                         onclick: move |_| navigate.call(Route::Home.to_path()),
+                        "Back"
                     }
-                    h1 { class: "truncate text-base font-semibold text-foreground", {active.title} }
+                    Title { size: "lg", {active.title} }
                 }
-                div { class: "min-h-0 flex-1 overflow-y-auto",
-                    div { class: "mx-auto flex w-full max-w-3xl flex-col gap-6 p-6",
-                        p { class: "text-sm text-muted-foreground", {active.description} }
-                        pane::SettingsPane { id: active.id }
-                    }
+                Text { size: "sm", color: "muted", {active.description} }
+                Paper { bordered: true,
+                    pane::SettingsPane { id: active.id }
                 }
             }
         }
@@ -160,41 +183,45 @@ fn MobileSettingsList() -> Element {
     let mut query = use_signal(String::new);
     let groups = search_groups(&query());
     rsx! {
-        div { class: "flex h-full min-h-0 flex-col bg-background",
-            header { class: "flex h-14 shrink-0 items-center gap-2 border-b border-border px-4",
-                IconButton {
-                    icon: IconType::ArrowLeft,
-                    label: "Back to app",
+        Flex { direction: "column", gap: "sm",
+            Flex { direction: "row", align: "center", gap: "sm",
+                Button {
+                    variant: "standard",
+                    icon: Some(rsx! { Pictogram { icon: pictogram_icons_lucide::arrow_left::outlined, width: "18", height: "18" } }),
+                    "aria-label": "Back to app",
                     "data-testid": "settings-back",
                     onclick: move |_| navigate.call(Route::Home.to_path()),
+                    "Back"
                 }
-                h1 { class: "truncate text-base font-semibold text-foreground", "Settings" }
+                Title { size: "lg", "Settings" }
             }
-            div { class: "px-4 py-2",
-                TextField {
-                    value: query(),
-                    on_input: move |value| query.set(value),
-                    input_type: "search",
-                    placeholder: "Search settings…",
-                    aria_label: "Search settings",
-                    test_id: "settings-search",
-                }
+            TextField {
+                value: query(),
+                r#type: "search",
+                placeholder: "Search settings…",
+                label: "Search settings",
+                "data-testid": "settings-search",
+                oninput: move |value| query.set(value),
             }
-            List { class: "gap-4 overflow-y-auto p-2",
+            Flex { direction: "column", gap: "md",
                 for (label, panes) in &groups {
-                    div { class: "flex flex-col",
-                        h2 { class: "px-4 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground", "{label}" }
+                    Flex { direction: "column", gap: "xs",
+                        Text { size: "xs", color: "muted", "{label}" }
                         for pane in panes {
                             {
                                 let href = Route::Settings { pane: Some(pane.id.to_string()) }.to_path();
                                 rsx! {
-                                    ListRow {
-                                        test_id: Some(format!("settings-list-{}", pane.id)),
-                                        onclick: move |_| navigate.call(href.clone()),
-                                        leading_icon: pane.icon,
-                                        headline: rsx! { {pane.label} },
-                                        support: rsx! { {pane.description} },
-                                        trailing: rsx! { Icon { icon: IconType::ChevronRight, class: "size-4" } },
+                                    NavLink {
+                                        to: href.clone(),
+                                        onclick: move |event: MouseEvent| {
+                                            event.prevent_default();
+                                            navigate.call(href.clone());
+                                        },
+                                        leading: Some(rsx! { Pictogram { icon: pane.icon, width: "18", height: "18" } }),
+                                        trailing: Some(rsx! { Pictogram { icon: pictogram_icons_lucide::chevron_right::outlined, width: "16", height: "16" } }),
+                                        description: pane.description,
+                                        "data-testid": format!("settings-list-{}", pane.id),
+                                        "{pane.label}"
                                     }
                                 }
                             }
@@ -202,13 +229,10 @@ fn MobileSettingsList() -> Element {
                     }
                 }
                 if groups.is_empty() {
-                    Empty {
-                        EmptyHeader {
-                            EmptyMedia { variant: EmptyMediaVariant::Icon,
-                                Icon { icon: IconType::Search }
-                            }
-                            EmptyTitle { "No matching settings" }
-                            EmptyDescription { "Try a section name, model, account or connection." }
+                    Paper { bordered: true,
+                        Flex { direction: "column", gap: "xs",
+                            Text { size: "md", "No matching settings" }
+                            Text { size: "sm", color: "muted", "Try a section name, model, account or connection." }
                         }
                     }
                 }
@@ -225,21 +249,21 @@ fn MobileSettingsDetail(spec: Option<SettingsPaneSpec>) -> Element {
         return rsx! {};
     };
     rsx! {
-        div { class: "flex h-full min-h-0 flex-col bg-background",
-            header { class: "flex h-14 shrink-0 items-center gap-2 border-b border-border px-4",
-                IconButton {
-                    icon: IconType::ArrowLeft,
-                    label: "Back to settings",
+        Flex { direction: "column", gap: "md",
+            Flex { direction: "row", align: "center", gap: "sm",
+                Button {
+                    variant: "standard",
+                    icon: Some(rsx! { Pictogram { icon: pictogram_icons_lucide::arrow_left::outlined, width: "18", height: "18" } }),
+                    "aria-label": "Back to settings",
                     "data-testid": "settings-detail-back",
                     onclick: move |_| navigate.call(Route::Settings { pane: None }.to_path()),
+                    "Back"
                 }
-                h1 { class: "truncate text-base font-semibold text-foreground", {spec.title} }
+                Title { size: "lg", {spec.title} }
             }
-            div { class: "min-h-0 flex-1 overflow-y-auto",
-                div { class: "mx-auto flex w-full max-w-3xl flex-col gap-6 p-6",
-                    p { class: "text-sm text-muted-foreground", {spec.description} }
-                    pane::SettingsPane { id: spec.id }
-                }
+            Text { size: "sm", color: "muted", {spec.description} }
+            Paper { bordered: true,
+                pane::SettingsPane { id: spec.id }
             }
         }
     }

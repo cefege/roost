@@ -8,6 +8,8 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use dioxus::prelude::*;
+use libero::components::Box;
+use libero::components::Pictogram;
 
 use super::dom::{now_ms, sleep_ms};
 use super::pane_handle::PaneHandle;
@@ -16,7 +18,7 @@ use crate::components::terminal_chrome::attachment_picker::ChosenFile;
 use crate::components::terminal_chrome::file_drop_dom::{
     PaneDropTarget, install_pane_drop_listeners,
 };
-use crate::components::ui::{Card, Icon, IconType};
+use libero::components::{Paper, Text};
 
 /// How long a file drag may go without a `dragover` before its overlay is
 /// taken down. A drag over the page repeats `dragover` at most every 550 ms
@@ -85,20 +87,43 @@ pub fn use_terminal_file_drop(
 /// the drop itself still lands on the pane beneath it.
 #[component]
 pub fn TerminalDropOverlay(active: bool) -> Element {
+    let card_sx = use_hook(|| {
+        libero::sx::sx()
+            .flex_direction("row")
+            .align_items("center")
+            .gap("md")
+            .padding("lg")
+    });
+    let overlay_sx = use_hook(|| {
+        libero::sx::sx()
+            .position("absolute")
+            .with("inset", "0")
+            .z_index("6")
+            .display("flex")
+            .align_items("center")
+            .justify_content("center")
+            .padding("lg")
+            .pointer_events("none")
+            .with("outline", "2px dashed var(--lsx-primary-6)")
+            .with("outline-offset", "-2px")
+            .color("primary")
+            .with(
+                "background-color",
+                "color-mix(in srgb, var(--lsx-surface) 60%, transparent)",
+            )
+    });
     if !active {
         return rsx! {};
     }
     rsx! {
-        div {
-            class: "absolute inset-0 z-[6] flex items-center justify-center p-6 pointer-events-none bg-background/60 outline-2 outline-dashed outline-primary -outline-offset-2",
+        Box {
+            component: "div",
+            sx: overlay_sx,
             "data-testid": "terminal-drop-overlay",
             "aria-hidden": "true",
-            Card {
-                class: Some(
-                    "flex-row items-center gap-3 rounded-lg border-border p-6 shadow-md".to_owned(),
-                ),
-                Icon { icon: IconType::Upload, class: "size-6 text-primary" }
-                span { class: "text-base font-medium", "Drop to upload to this terminal" }
+            Paper { sx: card_sx,
+                Pictogram { icon: pictogram_icons_lucide::upload::outlined, width: "1.5rem", height: "1.5rem" }
+                Text { size: "md", "Drop to upload to this terminal" }
             }
         }
     }

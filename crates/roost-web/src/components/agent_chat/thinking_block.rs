@@ -3,20 +3,19 @@
 //! so stream revisions cannot reopen or close a block unexpectedly.
 
 use dioxus::prelude::*;
+use libero::components::{Box, Button, Collapse, Flex, Indicator, Pictogram, Text};
+use libero::sx::sx;
 
-use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Collapsible, CollapsibleContent, CollapsibleTrigger, Icon,
-    IconType, Markdown, Shimmer,
-};
+use crate::components::hooks::use_copy_clipboard::use_copy_clipboard;
+use crate::components::ui::Markdown;
 
 #[component]
 pub(super) fn ThinkingBlock(text: String, live: bool, globally_visible: bool) -> Element {
     let mut expanded = use_signal(|| false);
     let mut manually_changed = use_signal(|| false);
+    let disclosure_id = libero::hooks::use_id().read().clone();
     let started_ms = use_hook(now_ms);
     let mut observed_seconds = use_signal(|| 0_u64);
-    let mut shimmering = use_signal(|| live);
-    use_effect(use_reactive((&live,), move |(live,)| shimmering.set(live)));
     let mut clock = use_future(use_reactive((&live,), move |(live,)| async move {
         if live {
             loop {
@@ -45,9 +44,18 @@ pub(super) fn ThinkingBlock(text: String, live: bool, globally_visible: bool) ->
     };
     let omitted_live_lines = live && text.lines().count() > 8;
     let observed = observed_seconds();
+    let (copy_thought, thought_copied) = use_copy_clipboard(None);
     let copy_text = text.clone();
-    let (copy_thought, thought_copied) =
-        crate::components::hooks::use_copy_clipboard::use_copy_clipboard(None);
+    let disclosure_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("column")
+            .gap("sm")
+            .with("border-left", "1px solid var(--border)")
+            .padding_left("md")
+            .color("muted")
+    });
+    let omission_sx = use_hook(|| sx().font_size("xs").color("muted"));
+    let markdown_sx = use_hook(|| sx().color("muted"));
     let label = if live {
         format!(
             "Thinking… · {observed}s{}",
@@ -60,38 +68,40 @@ pub(super) fn ThinkingBlock(text: String, live: bool, globally_visible: bool) ->
     };
     rsx! {
         if globally_visible || live {
-            section { class: "flex flex-col gap-1 text-sm", "data-live": live.then_some("true"),
-                Collapsible {
-                    class: "flex flex-col gap-1",
-                    open: expanded() && globally_visible,
-                    on_open_change: move |next: bool| {
+            section { "data-live": live.then_some("true"),
+                Button {
+                    variant: "standard",
+                    color: "muted",
+                    size: "sm",
+                    disabled: !globally_visible,
+                    aria_expanded: expanded() && globally_visible,
+                    aria_controls: disclosure_id.clone(),
+                    icon: rsx! { Pictogram { icon: pictogram_icons_lucide::brain::outlined } },
+                    onclick: move |_| {
                         manually_changed.set(true);
-                        expanded.set(next);
+                        expanded.toggle();
                     },
-                    CollapsibleTrigger {
-                        variant: ButtonVariant::Ghost,
-                        size: ButtonSize::Sm,
-                        class: "justify-start text-muted-foreground",
-                        disabled: !globally_visible,
-                        Icon { icon: IconType::Brain, class: "size-4" }
-                        if live {
-                            Shimmer { loading: shimmering, "{label}" }
-                        } else {
-                            span { "{label}" }
+                    if live {
+                        Flex { direction: "row", align: "center", gap: "xs",
+                            Indicator { color: "primary", processing: true }
+                            "{label}"
                         }
-                        Icon {
-                            icon: if expanded() && globally_visible { IconType::ChevronUp } else { IconType::ChevronDown },
-                            class: "size-4",
-                        }
+                    } else {
+                        "{label}"
                     }
-                    CollapsibleContent { class: "flex flex-col gap-2 border-l border-border pl-3 text-muted-foreground",
+                    Pictogram {
+                        icon: if expanded() && globally_visible { pictogram_icons_lucide::chevron_up::outlined } else { pictogram_icons_lucide::chevron_down::outlined },
+                    }
+                }
+                Collapse { id: disclosure_id, open: expanded() && globally_visible,
+                    Box { component: "div", sx: disclosure_sx,
                         if omitted_live_lines {
-                            p { class: "text-xs text-muted-foreground", "Earlier lines are omitted from the live preview." }
+                            Text { component: "p", sx: omission_sx, "Earlier lines are omitted from the live preview." }
                         }
-                        Markdown { class: "text-muted-foreground", html: super::markdown::markdown_to_safe_html(&tail) }
+                        Markdown { sx: markdown_sx, text: tail }
                         Button {
-                            variant: ButtonVariant::Link,
-                            class: "self-start",
+                            variant: "standard",
+                            color: "primary",
                             onclick: move |_: MouseEvent| copy_thought(&copy_text),
                             if thought_copied() { "Copied" } else { "Copy thought" }
                         }

@@ -1,8 +1,7 @@
 //! What one tool call shows, as pure functions: its verb and target, the
 //! slice of output visible while folded (OMP's per-tool preview windows), and
 //! the executor facts. The component is `tool_card`.
-
-use crate::components::ui::IconType;
+use libero::components::SvgData;
 
 /// Which end of the output a folded preview keeps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,18 +31,46 @@ pub(super) fn preview_window(tool_name: &str) -> (usize, PreviewEdge) {
 pub(super) const ERROR_ROWS: usize = 8;
 
 /// The Lucide icon and verb for a call in its current state.
-pub(super) fn presentation(tool_name: &str, active: bool) -> (IconType, String) {
+pub(super) fn presentation(tool_name: &str, active: bool) -> (SvgData, String) {
     let (icon, running_verb, finished_verb) = match tool_name {
-        "bash" => (IconType::Terminal, "Running", "Ran"),
-        "read" => (IconType::FileText, "Reading", "Read"),
-        "edit" => (IconType::Pencil, "Editing", "Edited"),
-        "write" => (IconType::FilePen, "Writing", "Wrote"),
-        "grep" | "find" | "glob" | "lsp" => (IconType::Search, "Searching", "Searched"),
-        "task" => (IconType::ListTree, "Starting", "Started"),
-        "propose_plan" => (IconType::ClipboardList, "Drafting", "Drafted"),
-        "wait" => (IconType::Clock, "Waiting", "Waited"),
-        "job" => (IconType::Briefcase, "Job", "Job"),
-        _ => (IconType::Hammer, tool_name, tool_name),
+        "bash" => (pictogram_icons_lucide::terminal::outlined, "Running", "Ran"),
+        "read" => (
+            pictogram_icons_lucide::file_text::outlined,
+            "Reading",
+            "Read",
+        ),
+        "edit" => (
+            pictogram_icons_lucide::pencil::outlined,
+            "Editing",
+            "Edited",
+        ),
+        "write" => (
+            pictogram_icons_lucide::file_pen::outlined,
+            "Writing",
+            "Wrote",
+        ),
+        "grep" | "find" | "glob" | "lsp" => (
+            pictogram_icons_lucide::search::outlined,
+            "Searching",
+            "Searched",
+        ),
+        "task" => (
+            pictogram_icons_lucide::list_tree::outlined,
+            "Starting",
+            "Started",
+        ),
+        "propose_plan" => (
+            pictogram_icons_lucide::clipboard_list::outlined,
+            "Drafting",
+            "Drafted",
+        ),
+        "wait" => (pictogram_icons_lucide::clock::outlined, "Waiting", "Waited"),
+        "job" => (pictogram_icons_lucide::briefcase::outlined, "Job", "Job"),
+        _ => (
+            pictogram_icons_lucide::hammer::outlined,
+            tool_name,
+            tool_name,
+        ),
     };
     (
         icon,
@@ -196,7 +223,7 @@ pub(super) fn state_label(state: &str) -> &'static str {
     }
 }
 
-/// The `StatusDot` status a call's state paints with.
+/// The `Indicator` color a call's state maps to.
 pub(super) fn status_name(state: &str) -> &'static str {
     match state {
         "waiting" => "idle",

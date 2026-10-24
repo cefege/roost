@@ -1,214 +1,136 @@
-//! The `/design` gallery's "Content primitives" section: cards, lists (stacked,
-//! contained and dense grid), binding chips, skeletons, progress bars, metric
-//! tiles, the empty state, surfaces, status dots and the terminal stream
-//! indicator. `gallery.rs` mounts it; every specimen is a shipped `ui`
-//! primitive, and the caption and spacing classes are Tailwind literals.
+//! Libero content, feedback and data-display specimens used by Roost.
 
+use crate::components::ui::Markdown;
 use dioxus::prelude::*;
-
-use super::catalog::{
-    CARD_GRID_CLASS, DENSE_GRID_ROWS, STATUS_DOTS, STREAM_INDICATOR_STATES, TILE_GRID_CLASS,
-};
-use crate::components::terminal::stream_indicator::StreamIndicator;
-use crate::components::ui::{
-    BindingChip, Button, ButtonVariant, Card, CardAction, CardContent, CardDescription, CardHeader,
-    CardTitle, CardVariant, Chip, EmptyState, Icon, IconButton, IconType, List, ListLayout,
-    ListRow, MetricTile, Progress, SectionTitle, Skeleton, StatusDot, Surface, SurfaceRadius,
-    UsageRing,
+use libero::{
+    components::{
+        Accordion, AccordionOpen, Alert, Avatar, Badge, Blockquote, Button, Chip, CircularProgress,
+        Code, Collapse, Divider, Flex, Indicator, Kbd, List, ListItem, Loader, Options, Paper,
+        ProgressBar, ScrollArea, Skeleton, Table, Tabs, Text, Title, column,
+    },
+    sx::sx,
 };
 
-/// Body copy in the small body ramp.
-const BODY_SMALL_CLASS: &str = "text-sm text-muted-foreground";
+#[derive(Clone, Copy, PartialEq, Options)]
+enum DetailSection {
+    Sessions,
+    Loading,
+}
 
-/// A surface specimen's caption.
-const SPECIMEN_LABEL_CLASS: &str = "text-sm text-muted-foreground";
+#[derive(Clone, Copy, PartialEq, Options)]
+enum SettingsTab {
+    General,
+    Appearance,
+}
 
-/// A low-emphasis monospace caption under a specimen.
-const SPECIMEN_CAPTION_CLASS: &str = "font-mono text-xs text-muted-foreground";
+#[derive(Clone, PartialEq)]
+struct SessionRow {
+    name: String,
+    worker: String,
+    state: String,
+}
 
-/// A wrapping row of specimens with a gap below.
-const SPECIMEN_ROW_CLASS: &str = "mb-5 flex flex-wrap gap-5";
-
-/// A specimen stacked over its caption.
-const SPECIMEN_COLUMN_CLASS: &str = "flex flex-col items-center gap-2";
-
-/// The section body.
 #[component]
 pub fn ContentPrimitives() -> Element {
+    let mut percent = use_signal(|| 62_u32);
+    let mut detail = use_signal(|| AccordionOpen::One(Some(DetailSection::Sessions)));
+    let mut tab = use_signal(|| SettingsTab::General);
+    let paper_sx = use_hook(|| sx().padding("md").width("100%"));
+    let row_sx = use_hook(|| sx().gap("sm").align_items("center"));
+    let rows = vec![
+        SessionRow {
+            name: "shell".into(),
+            worker: "ovh1".into(),
+            state: "Attached".into(),
+        },
+        SessionRow {
+            name: "build".into(),
+            worker: "m5".into(),
+            state: "Idle".into(),
+        },
+    ];
     rsx! {
-        SectionTitle { "Cards" }
-        div { class: CARD_GRID_CLASS,
-            Card {
-                CardHeader {
-                    CardTitle { "Default card" }
-                    CardDescription { "default variant" }
-                }
-                CardContent {
-                    span { class: BODY_SMALL_CLASS, "Body content." }
-                }
-            }
-            Card { variant: CardVariant::Elevated,
-                CardHeader {
-                    CardTitle { "Elevated card" }
-                    CardDescription { "variant=elevated" }
-                    CardAction {
-                        IconButton { icon: IconType::EllipsisVertical, label: "More" }
-                    }
-                }
-                CardContent {
-                    span { class: BODY_SMALL_CLASS, "Body content." }
+        Title { component: "h2", size: "lg", "Surfaces and typography" }
+        Flex { direction: "row", wrap: "wrap", gap: "md",
+            Paper { sx: paper_sx.clone(),
+                Title { order: 3, size: "md", "Workspace overview" }
+                Text { "One row per session, with concise supporting detail." }
+                Flex { direction: "row", sx: row_sx,
+                    Badge { color: "success", "Connected" }
+                    Avatar { name: "Roost" }
+                    Kbd { "⌘ K" }
+                    Chip { color: "primary", variant: "tonal", "Roost component" }
                 }
             }
-            Card { variant: CardVariant::Outlined,
-                CardHeader {
-                    CardTitle { "Outlined card" }
-                    CardDescription { "variant=outlined" }
-                }
-                CardContent {
-                    span { class: BODY_SMALL_CLASS, "Body content." }
-                }
+            Paper { sx: paper_sx,
+                Title { order: 3, size: "md", "Code and guidance" }
+                Text { "Configuration follows the same shared typography." }
+                Code { source: "roost status" }
+                Markdown { text: "```rust\nlet ready = coordinator.is_available();\n```".to_owned() }
+                Blockquote { "A healthy fleet keeps local PTYs alive through coordinator restarts." }
             }
         }
-
-        SectionTitle { "List" }
-        List { contained: true,
-            ListRow {
-                leading_icon: IconType::Terminal,
-                headline: rsx! { "Static row" },
-                support: rsx! { "non-interactive" },
-                trailing: rsx! { StatusDot { status: "idle" } },
+        Divider { "Feedback and loading" }
+        Flex { direction: "row", wrap: "wrap", gap: "md",
+            Alert { color: "success", title: "Saved", "Settings are up to date." }
+            Alert { color: "warning", title: "Worker disconnected", "Existing sessions remain visible." }
+            Flex { direction: "row", align: "center", gap: "xs",
+                Indicator { color: "success", label: 1 }
+                Text { "Online" }
             }
-            ListRow {
-                leading_icon: IconType::Folder,
-                headline: rsx! { "Clickable row" },
-                support: rsx! { "onClick set" },
-                onclick: move |_| {},
-                trailing: rsx! { Icon { icon: IconType::ChevronRight, class: "size-4" } },
-            }
-            ListRow {
-                leading_icon: IconType::CircleCheck,
-                headline: rsx! { "Selected row" },
-                support: rsx! { "selected=true" },
-                selected: true,
-                onclick: move |_| {},
-                trailing: rsx! { StatusDot { status: "ok" } },
+            Flex { direction: "row", align: "center", gap: "xs",
+                Indicator { color: "warning", label: 1, processing: true }
+                Text { "Reconnecting" }
             }
         }
-        div { class: "h-5" }
-
-        SectionTitle { "List (layout=grid + dense rows)" }
-        List { layout: ListLayout::Grid,
-            for row in DENSE_GRID_ROWS {
-                ListRow {
-                    dense: true,
-                    leading_icon: IconType::Folder,
-                    headline: rsx! { {row.name} },
-                    support: rsx! { {row.support} },
-                    selected: row.selected,
-                    onclick: move |_| {},
-                    trailing: rsx! { Chip { label: "2", icon: IconType::Terminal, title: "2 terminals", small: true } },
-                }
-            }
+        Flex { direction: "row", gap: "sm", align: "center",
+            Text { "Adjust progress" }
+            Button { size: "sm", onclick: move |_| percent.set(percent().saturating_sub(10)), "Decrease" }
+            Button { size: "sm", onclick: move |_| percent.set((percent() + 10).min(100)), "Advance" }
+            Text { "{percent}%" }
         }
-
-        SectionTitle { "Binding chips (keyboard + controller caps)" }
-        div { class: "mb-5 flex flex-wrap gap-2",
-            BindingChip { "⌘K" }
-            BindingChip { "Shift+?" }
-            BindingChip { "D-pad" }
-            BindingChip { "LB/RB" }
+        ProgressBar { aria_label: "Specimen progress", value: f64::from(percent()), max: 100.0 }
+        Flex { direction: "row", gap: "sm", align: "center",
+            CircularProgress { value: Some(f64::from(percent())), max: 100.0,
+                aria_label: "Context window used", aria_valuetext: "{percent}% used"
+            }
+            Loader { size: "sm", aria_label: "Loading session" }
         }
-        div { class: "h-5" }
-
-        SectionTitle { "Progress bar and small chip (transfer cards)" }
-        div { class: "mb-5 flex flex-col gap-3",
-            Progress { value: Some(0.62), label: "Determinate specimen" }
-            Progress { value: None, label: "Indeterminate specimen" }
-            div { class: "flex items-center gap-3",
-                UsageRing { fraction: Some(0.3), title: Some("Calm, under three quarters".to_owned()) }
-                UsageRing { fraction: Some(0.8), title: Some("Closing in on the limit".to_owned()) }
-                UsageRing { fraction: Some(0.95), title: Some("All but full".to_owned()) }
-                UsageRing { fraction: None, title: Some("No known limit".to_owned()) }
-            }
-            div { class: "flex gap-2",
-                Chip { label: "Local", small: true }
-                Chip { label: "Direct", small: true }
-                Chip { label: "Via coordinator", small: true }
-            }
+        Skeleton { width: "18rem", height: "1rem" }
+        Accordion {
+            open: detail(),
+            onchange: move |next| detail.set(next),
+            panel: |section: DetailSection| match section {
+                DetailSection::Sessions => rsx! { Text { "List and table views preserve compact fleet information." } },
+                DetailSection::Loading => rsx! { Text { "Skeletons occupy the same surface while data is pending." } },
+            },
         }
-
-        SectionTitle { "Skeleton (loading placeholder)" }
-        List { contained: true,
-            ListRow {
-                leading_icon: IconType::Folder,
-                headline: rsx! { Skeleton { class: "h-4 w-full" } },
-                support: rsx! { Skeleton { class: "h-4", width: "30%" } },
-            }
-            ListRow { leading_icon: IconType::Folder, headline: rsx! { Skeleton { class: "h-4", width: "40%" } } }
+        Tabs {
+            aria_label: "Design settings example",
+            value: tab(),
+            onchange: move |next| tab.set(next),
+            panel: |active: SettingsTab| match active {
+                SettingsTab::General => rsx! { Text { "General settings keep their compact labels and controls." } },
+                SettingsTab::Appearance => rsx! { Text { "Appearance settings follow the active Libero theme." } },
+            },
         }
-        div { class: "mt-4 mb-5 flex flex-col gap-3",
-            Skeleton { class: "h-4 w-full" }
-            Skeleton { class: "h-4", width: "40%" }
-        }
-
-        SectionTitle { "Metric tiles" }
-        div { class: TILE_GRID_CLASS,
-            MetricTile { label: "CPU", icon: IconType::Cpu, value: "42%", support: "8 cores", ratio: 0.42 }
-            MetricTile { label: "Memory", icon: IconType::Cpu, value: "11.3 GB", support: "of 16 GB", ratio: 0.71 }
-            MetricTile { label: "Disk", icon: IconType::HardDrive, value: "220 GB", support: "of 512 GB", ratio: 0.43 }
-        }
-
-        SectionTitle { "Empty state" }
-        div { class: "mb-5",
-            EmptyState {
-                icon: IconType::Inbox,
-                title: "Nothing here yet",
-                supporting: "Empty-state primitive with an icon, title, supporting text, and an action.",
-                action: rsx! { Button { variant: ButtonVariant::Secondary, icon: IconType::Plus, "Create" } },
-            }
-        }
-
-        SectionTitle { "Surface (level / elevation / radius / pad)" }
-        div { class: TILE_GRID_CLASS,
-            Surface { level: 2, elevation: 0, radius: SurfaceRadius::Sm, pad: 4, border: true,
-                span { class: SPECIMEN_LABEL_CLASS, "level=2 elev=0 sm pad=4 border" }
-            }
-            Surface { level: 3, elevation: 2, radius: SurfaceRadius::Lg, pad: 5,
-                span { class: SPECIMEN_LABEL_CLASS, "level=3 elev=2 lg pad=5" }
-            }
-            Surface { level: 0, elevation: 4, radius: SurfaceRadius::Xl, pad: 6, border: true,
-                span { class: SPECIMEN_LABEL_CLASS, "level=0 elev=4 xl pad=6 border" }
-            }
-            Surface { level: 2, elevation: 0, radius: SurfaceRadius::None, pad: 4, border: true,
-                span { class: SPECIMEN_LABEL_CLASS, "level=2 elev=0 radius=none pad=4 border" }
-            }
-        }
-
-        SectionTitle { "Status dots (solid + hollow)" }
-        div { class: SPECIMEN_ROW_CLASS,
-            for status in STATUS_DOTS {
-                div { class: SPECIMEN_COLUMN_CLASS,
-                    div { class: "flex gap-2",
-                        StatusDot { status, size: 12, title: status }
-                        StatusDot { status, size: 12, hollow: true, title: "{status} hollow" }
-                    }
-                    span { class: SPECIMEN_CAPTION_CLASS, {status} }
+        Collapse { open: percent() > 60, Text { "A conditional detail panel uses the shared Collapse primitive." } }
+        Divider { "Data and scrolling" }
+        ScrollArea { height: "12rem",
+            List {
+                for machine in ["ovh1", "m5", "m1-new", "desktop-pc"] {
+                    ListItem { "{machine} · connected" }
                 }
             }
         }
-
-        // The gallery renders the pane's own indicator component, so the three
-        // states here are the pane's real dots, not a copy.
-        SectionTitle { "Terminal stream indicator" }
-        div { class: SPECIMEN_ROW_CLASS,
-            for state in STREAM_INDICATOR_STATES {
-                div { class: SPECIMEN_COLUMN_CLASS,
-                    div { class: "relative size-7",
-                        StreamIndicator { state, title: state }
-                    }
-                    span { class: SPECIMEN_CAPTION_CLASS, {state} }
-                }
-            }
+        Table {
+            caption: "Recent sessions",
+            data: rows,
+            columns: vec![
+                column("Session").value(|row: &SessionRow| row.name.clone()).row_header(),
+                column("Worker").value(|row: &SessionRow| row.worker.clone()),
+                column("State").value(|row: &SessionRow| row.state.clone()),
+            ],
         }
     }
 }

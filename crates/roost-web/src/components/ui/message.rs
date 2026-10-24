@@ -1,11 +1,67 @@
-//! `Message` family: one conversation turn as an avatar beside a content
-//! column, mirrored for `MessageAlign::End`. Ported from rust-ui's `message.rs`;
-//! the agent transcript composes these and supplies the surfaces through
-//! `Bubble`. Alignment flows from `data-align` on the root, so children take
-//! no alignment props.
+//! Conversation turns arrange an avatar, transcript content and action slots.
+//! Callers select the product alignment; Libero Flex owns row and column layout.
+//! Used by transcript turns, with alignment kept separate from framework controls.
 
 use dioxus::prelude::*;
-use tw_merge::tw_merge;
+use libero::components::{Flex, Text};
+
+#[component]
+pub fn MessageContent(#[props(default)] sx: libero::sx::Sx, children: Element) -> Element {
+    let layout = use_hook(|| libero::sx::sx().gap("sm").width("100%"));
+    let layout = layout.and(sx);
+    rsx! { Flex { direction: "column", sx: layout, "data-name": "MessageContent", {children} } }
+}
+
+#[component]
+pub fn MessageHeader(#[props(default)] sx: libero::sx::Sx, children: Element) -> Element {
+    let layout = use_hook(|| libero::sx::sx().gap("xs").align_items("center"));
+    let layout = layout.and(sx);
+    rsx! {
+        Flex {
+            direction: "row",
+            wrap: false,
+            sx: layout,
+            "data-name": "MessageHeader",
+            Text { size: "xs", color: "muted", {children} }
+        }
+    }
+}
+
+#[component]
+pub fn MessageFooter(#[props(default)] sx: libero::sx::Sx, children: Element) -> Element {
+    let layout = use_hook(|| libero::sx::sx().gap("xs").align_items("center"));
+    let layout = layout.and(sx);
+    rsx! { Flex { direction: "row", wrap: false, sx: layout, "data-name": "MessageFooter", {children} } }
+}
+
+#[component]
+pub fn Message(
+    #[props(default = MessageAlign::default())] align: MessageAlign,
+    #[props(default)] sx: libero::sx::Sx,
+    children: Element,
+) -> Element {
+    let layout = use_hook(|| {
+        libero::sx::sx()
+            .gap("sm")
+            .width("100%")
+            .align_items("start")
+            .selector(
+                "&[data-align='End']",
+                libero::sx::sx().flex_direction("row-reverse"),
+            )
+    });
+    let layout = layout.and(sx);
+    rsx! {
+        Flex {
+            direction: "row",
+            wrap: false,
+            sx: layout,
+            "data-name": "Message",
+            "data-align": align.as_str(),
+            {children}
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum MessageAlign {
@@ -20,69 +76,5 @@ impl MessageAlign {
             Self::Start => "Start",
             Self::End => "End",
         }
-    }
-}
-
-#[component]
-pub fn MessageGroup(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!(
-        "flex min-w-0 flex-col gap-2",
-        class.as_deref().unwrap_or("")
-    );
-    rsx! { div { "data-name": "MessageGroup", class: "{merged}", {children} } }
-}
-
-#[component]
-pub fn MessageContent(
-    #[props(into, optional)] class: Option<String>,
-    children: Element,
-) -> Element {
-    let merged = tw_merge!(
-        "flex w-full min-w-0 flex-col gap-2.5 wrap-break-word group-data-[align=End]/message:*:data-name:self-end",
-        class.as_deref().unwrap_or("")
-    );
-    rsx! { div { "data-name": "MessageContent", class: "{merged}", {children} } }
-}
-
-#[component]
-pub fn MessageHeader(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!(
-        "flex max-w-full min-w-0 items-center px-3 text-xs font-medium text-muted-foreground group-has-data-[variant=Ghost]/message:px-0",
-        class.as_deref().unwrap_or("")
-    );
-    rsx! { div { "data-name": "MessageHeader", class: "{merged}", {children} } }
-}
-
-#[component]
-pub fn MessageFooter(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!(
-        "flex max-w-full min-w-0 items-center px-3 text-xs font-medium text-muted-foreground group-has-data-[variant=Ghost]/message:px-0 group-data-[align=End]/message:justify-end",
-        class.as_deref().unwrap_or("")
-    );
-    rsx! { div { "data-name": "MessageFooter", class: "{merged}", {children} } }
-}
-
-#[component]
-pub fn MessageAvatar(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!(
-        "flex w-fit min-w-8 shrink-0 items-center justify-center self-end overflow-hidden rounded-full bg-muted group-has-data-[name=MessageFooter]/message:-translate-y-8",
-        class.as_deref().unwrap_or("")
-    );
-    rsx! { div { "data-name": "MessageAvatar", class: "{merged}", {children} } }
-}
-
-#[component]
-pub fn Message(
-    #[props(default = MessageAlign::default())] align: MessageAlign,
-    #[props(into, optional)] class: Option<String>,
-    children: Element,
-) -> Element {
-    let merged = tw_merge!(
-        "group/message relative flex w-full min-w-0 gap-2 text-sm data-[align=End]:flex-row-reverse",
-        class.as_deref().unwrap_or("")
-    );
-
-    rsx! {
-        div { "data-name": "Message", "data-align": align.as_str(), class: "{merged}", {children} }
     }
 }

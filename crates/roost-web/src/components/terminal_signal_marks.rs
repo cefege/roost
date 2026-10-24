@@ -6,8 +6,11 @@
 use dioxus::prelude::*;
 use roost_protocol::terminal_signals::{TerminalProgress, TerminalUserVar};
 
-use crate::components::ui::{Chip, Progress, ProgressTone};
 use crate::pump::use_store;
+use libero::{
+    components::{Chip, Flex, ProgressBar},
+    sx::sx,
+};
 
 /// Badges shown inline; the rest are listed in the last badge's tooltip.
 pub const USER_VAR_BADGES_SHOWN: usize = 3;
@@ -46,13 +49,11 @@ pub fn progress_presentation(
     }
 }
 
-/// The bar's tone for a presentation state: a failed or paused transfer takes
-/// the destructive or warning colour so it reads without its label.
-pub fn progress_tone(state: &str) -> ProgressTone {
+fn progress_color(state: &str) -> &'static str {
     match state {
-        "error" => ProgressTone::Destructive,
-        "paused" => ProgressTone::Warning,
-        _ => ProgressTone::Default,
+        "error" => "error",
+        "paused" => "warning",
+        _ => "primary",
     }
 }
 
@@ -77,6 +78,8 @@ pub fn user_var_badges(vars: &[TerminalUserVar]) -> (Vec<String>, Option<String>
 #[component]
 pub fn TerminalProgressMark(session_id: String) -> Element {
     let pump = use_store();
+    let mark_sx = use_hook(|| sx().min_width("1.75rem").flex("0 1 6rem"));
+    let bar_sx = use_hook(|| sx().width("100%"));
     let _ = pump.revision().read();
     let progress = pump
         .core()
@@ -88,12 +91,12 @@ pub fn TerminalProgressMark(session_id: String) -> Element {
         return rsx! {};
     };
     rsx! {
-        span {
-            class: "inline-flex min-w-7 flex-[0_1_6rem] items-center",
+        Flex {
+            direction: "row", align: "center", wrap: false, sx: mark_sx,
             "data-state": state,
             "data-testid": "terminal-progress-{session_id}",
             title: label.clone(),
-            Progress { value, label: label.clone(), class: "w-full", tone: progress_tone(state) }
+            ProgressBar { value, max: 1.0, aria_label: label, sx: bar_sx, color: progress_color(state) }
         }
     }
 }
@@ -102,6 +105,7 @@ pub fn TerminalProgressMark(session_id: String) -> Element {
 #[component]
 pub fn TerminalUserVarBadges(session_id: String) -> Element {
     let pump = use_store();
+    let badges_sx = use_hook(|| sx().min_width("0").overflow("hidden"));
     let _ = pump.revision().read();
     let vars = pump
         .core()
@@ -116,13 +120,11 @@ pub fn TerminalUserVarBadges(session_id: String) -> Element {
     let (shown, all) = user_var_badges(&vars);
     let last = shown.len().saturating_sub(1);
     rsx! {
-        span { class: "inline-flex min-w-0 gap-1 overflow-hidden", "data-testid": "terminal-user-vars-{session_id}",
+        Flex { direction: "row", gap: "xs", wrap: false, sx: badges_sx, "data-testid": "terminal-user-vars-{session_id}",
             for (index, badge) in shown.into_iter().enumerate() {
-                Chip {
-                    key: "{index}",
-                    small: true,
-                    title: Some(if index == last { all.clone().unwrap_or_else(|| badge.clone()) } else { badge.clone() }),
-                    label: badge,
+                Chip { key: "{index}", size: "xs",
+                    title: if index == last { all.clone().unwrap_or_else(|| badge.clone()) } else { badge.clone() },
+                    "{badge}"
                 }
             }
         }

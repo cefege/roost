@@ -37,10 +37,13 @@ use std::rc::Rc;
 
 use dioxus::core::NoOpMutations;
 use dioxus::prelude::*;
+use libero::LiberoProvider;
 use roost_client_core::ClientCore;
 use roost_web::components::mobile_voice_input::MobileVoiceInput;
 use roost_web::platform::connect::CoordRpc;
 use roost_web::pump::Pump;
+use roost_web::theme::catalog::theme_set_for_choice;
+use roost_web::theme::choice::ThemeChoice;
 use roost_web::voice::ownership::with_slot;
 use roost_web::voice::shell_controls;
 use roost_web::voice::state::{LiveTranscript, VoiceState};
@@ -71,15 +74,18 @@ fn mic_root() -> Element {
     let told = EventHandler::new(|state: VoiceState| {
         TOLD_ACTIVE.with(|seen| seen.borrow_mut().push(state.is_dictating()));
     });
+    let themes = use_hook(|| theme_set_for_choice(&ThemeChoice::default()).clone());
     rsx! {
-        if mounted() {
-            MobileVoiceInput {
-                owner_id: SESSION_ID.to_owned(),
-                active: true,
-                on_state_change: told,
-                on_transcript: EventHandler::new(|_words: String| {}),
-                on_live_transcript: EventHandler::new(|_update: Option<LiveTranscript>| {}),
-                on_discard: EventHandler::new(|_thrown_away: ()| {}),
+        LiberoProvider { themes,
+            if mounted() {
+                MobileVoiceInput {
+                    owner_id: SESSION_ID.to_owned(),
+                    active: true,
+                    on_state_change: told,
+                    on_transcript: EventHandler::new(|_words: String| {}),
+                    on_live_transcript: EventHandler::new(|_update: Option<LiveTranscript>| {}),
+                    on_discard: EventHandler::new(|_thrown_away: ()| {}),
+                }
             }
         }
     }

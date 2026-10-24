@@ -101,7 +101,7 @@ pub(super) struct RoleContext {
 pub(super) fn handle_key(context: &RoleContext, event: &KeyboardEvent) {
     let picker_open = context.picking.peek().is_some();
     let naming = *context.naming.peek();
-    if event.key() == Key::Escape {
+    if event.key() == Key::Named(NamedKey::Escape) {
         if picker_open {
             event.prevent_default();
             event.stop_propagation();
@@ -121,13 +121,13 @@ pub(super) fn handle_key(context: &RoleContext, event: &KeyboardEvent) {
     let alt = modifiers.contains(Modifiers::ALT);
     let meta = modifiers.contains(Modifiers::META);
     let action = match event.key() {
-        Key::ArrowDown if !ctrl && !alt => Some(RoleAction::Step(1)),
-        Key::ArrowUp if !ctrl && !alt => Some(RoleAction::Step(-1)),
-        Key::ArrowLeft if ctrl => Some(RoleAction::Preset(-1)),
-        Key::ArrowRight if ctrl => Some(RoleAction::Preset(1)),
-        Key::ArrowLeft if alt => Some(RoleAction::Tab(-1)),
-        Key::ArrowRight if alt => Some(RoleAction::Tab(1)),
-        Key::Enter => Some(RoleAction::Activate(*context.cursor.peek())),
+        Key::Named(NamedKey::ArrowDown) if !ctrl && !alt => Some(RoleAction::Step(1)),
+        Key::Named(NamedKey::ArrowUp) if !ctrl && !alt => Some(RoleAction::Step(-1)),
+        Key::Named(NamedKey::ArrowLeft) if ctrl => Some(RoleAction::Preset(-1)),
+        Key::Named(NamedKey::ArrowRight) if ctrl => Some(RoleAction::Preset(1)),
+        Key::Named(NamedKey::ArrowLeft) if alt => Some(RoleAction::Tab(-1)),
+        Key::Named(NamedKey::ArrowRight) if alt => Some(RoleAction::Tab(1)),
+        Key::Named(NamedKey::Enter) => Some(RoleAction::Activate(*context.cursor.peek())),
         Key::Character(text) if !ctrl && !alt && !meta => match text.as_str() {
             "f" => Some(RoleAction::Fallback),
             "x" => Some(RoleAction::Clear),

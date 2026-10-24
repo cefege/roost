@@ -30,10 +30,6 @@ pub enum RoleSource {
     Unset,
 }
 
-/// The fingerprint is hex; splitting only the first marker preserves the cwd,
-/// including any control characters allowed by the worker's filesystem.
-const SCOPE_SEPARATOR: char = '\u{1f}';
-
 /// Distinct workspace, conversation and configured folders, sorted by label.
 pub fn known_folders<'a>(
     identities: impl IntoIterator<Item = (&'a str, &'a str, &'a str)>,
@@ -53,27 +49,6 @@ pub fn known_folders<'a>(
         .collect();
     folders.sort_by(|left, right| left.label.cmp(&right.label));
     folders
-}
-
-/// The picker's id for a scope; it round-trips through `scope_from_id`.
-pub fn scope_id(scope: &ModelScope) -> String {
-    match scope {
-        ModelScope::Global => "global".to_owned(),
-        ModelScope::Folder { worker_fp, cwd } => {
-            format!("{worker_fp}{SCOPE_SEPARATOR}{cwd}")
-        }
-    }
-}
-
-/// Reads a picker id back. An unknown id falls back to the global scope.
-pub fn scope_from_id(id: &str) -> ModelScope {
-    match id.split_once(SCOPE_SEPARATOR) {
-        Some((worker_fp, cwd)) => ModelScope::Folder {
-            worker_fp: worker_fp.to_owned(),
-            cwd: cwd.to_owned(),
-        },
-        None => ModelScope::Global,
-    }
 }
 
 /// The picker's visible text for a scope.
@@ -336,15 +311,5 @@ mod tests {
         let cleared = with_role_value(&saved, &ModelScope::Global, "default", None);
         assert_eq!(role_value(&cleared, &ModelScope::Global, "default"), None);
         assert_eq!(cleared.default_model, None);
-    }
-
-    #[test]
-    fn scope_id_round_trips() {
-        let scope = folder("fp1", "/work/a b\u{1f}/c");
-        assert_eq!(scope_from_id(&scope_id(&scope)), scope);
-        assert_eq!(
-            scope_from_id(&scope_id(&ModelScope::Global)),
-            ModelScope::Global
-        );
     }
 }

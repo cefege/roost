@@ -5,6 +5,10 @@
 //! Called by `browse::picker::page`. Ports the handler half of
 //! `apps/web/src/components/browse/WorkerBrowsePage.tsx`.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use crate::components::overlay_generation::OverlayGeneration;
 use dioxus::prelude::*;
 use roost_client_core::store::browse_state::intent::BrowseIntent;
 
@@ -33,6 +37,7 @@ pub fn build_controls(
     crumb_menu_open: Signal<bool>,
     navigate: EventHandler<String>,
     launch_mode: BrowseLaunchMode,
+    generation: Rc<RefCell<OverlayGeneration>>,
 ) -> PickerControls {
     let view = &reading.view;
     let on_close = EventHandler::new(move |()| navigate.call("/".to_owned()));
@@ -212,7 +217,11 @@ pub fn build_controls(
     });
     let on_close_new_folder = EventHandler::new({
         let mut form = new_folder;
-        move |()| form.set(crate::components::browse::picker::NewFolderForm::default())
+        let generation = Rc::clone(&generation);
+        move |()| {
+            generation.borrow_mut().invalidate();
+            form.set(crate::components::browse::picker::NewFolderForm::default());
+        }
     });
     let on_create_folder = EventHandler::new({
         let pump = pump.clone();
@@ -222,6 +231,7 @@ pub fn build_controls(
         let siblings = reading.sibling_names.clone();
         let form = new_folder;
         let mut ticket = ticket;
+        let generation = Rc::clone(&generation);
         move |()| {
             commit_new_folder(
                 &pump,
@@ -231,6 +241,7 @@ pub fn build_controls(
                 &siblings,
                 form,
                 &mut ticket,
+                generation.clone(),
             );
         }
     });

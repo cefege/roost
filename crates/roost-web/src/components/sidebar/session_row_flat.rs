@@ -4,11 +4,13 @@
 //! `apps/web/src/components/sidebar/SessionRowFlat.tsx`; `SessionRow` renders it.
 
 use dioxus::prelude::*;
+use libero::components::{Flex, Text};
 
 use super::row_chips::ServerChip;
 use super::viewers_chip::ViewersChip;
 use crate::components::agents::agent_status_indicator::AgentStatusIndicator;
 use crate::components::browse::folder_glyph::FolderGlyph;
+use libero::sx::sx;
 
 /// What the flat body shows, resolved by `SessionRow`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,57 +49,103 @@ pub fn SessionRowFlat(facts: SessionRowFacts) -> Element {
         server_label,
         server_online,
     } = facts;
+    let body_sx = use_hook(|| {
+        sx().display("flex")
+            .min_width("0")
+            .flex("1")
+            .flex_direction("column")
+            .gap("xs")
+    });
+    let line_sx = use_hook(|| {
+        sx().display("flex")
+            .min_width("0")
+            .align_items("baseline")
+            .gap("sm")
+    });
+    let headline_sx = use_hook(|| {
+        sx().min_width("0")
+            .flex("1")
+            .font_size("sm")
+            .color("ink")
+            .text_overflow("ellipsis")
+            .white_space("nowrap")
+            .overflow("hidden")
+            .with("overscroll-behavior-y", "auto")
+    });
+    let secondary_sx = use_hook(|| sx().flex_shrink("0").font_size("xs").color("muted"));
+    let path_sx = use_hook(|| {
+        sx().display("flex")
+            .min_width("0")
+            .align_items("center")
+            .gap("xs")
+            .font_family("monospace")
+    });
+    let details_sx = use_hook(|| {
+        sx().display("flex")
+            .min_width("0")
+            .align_items("center")
+            .gap("sm")
+            .font_size("xs")
+            .color("muted")
+    });
+    let status_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_wrap("wrap")
+            .align_items("center")
+            .gap("sm")
+    });
+    let mono_sx = use_hook(|| {
+        sx().min_width("0")
+            .font_family("monospace")
+            .font_size("xs")
+            .color("muted")
+    });
     let server_title = if server_online {
         format!("server: {server_label} — online")
     } else {
         format!("server: {server_label} — offline / not running")
     };
     rsx! {
-        span { class: "flex min-w-0 flex-1 flex-col gap-0.5",
-            span { class: "flex min-w-0 items-baseline gap-2",
-                span {
-                    class: "min-w-0 flex-1 truncate text-sm text-foreground group-data-[selected=focused]:text-accent-foreground",
+        Flex { direction: "column", sx: body_sx,
+            Flex { direction: "row", sx: line_sx,
+                Text { sx: headline_sx, "data-row-text": "true",
                     "data-testid": "session-headline-{session_id}",
                     {headline}
                 }
-                span {
-                    class: "shrink-0 text-xs tabular-nums text-muted-foreground group-data-[selected=focused]:text-accent-foreground",
+                Text { sx: secondary_sx.clone(), "data-row-text": "true",
                     "data-testid": "session-reltime-{session_id}",
                     title: if open { "Opened" } else { "Closed" },
                     {rel_time}
                 }
             }
             if let Some(subtitle) = subtitle {
-                span {
-                    class: "min-w-0 truncate font-mono text-xs text-muted-foreground group-data-[selected=focused]:text-accent-foreground",
+                Text { sx: mono_sx.clone(), "data-row-text": "true",
                     "data-testid": "session-subtitle-{session_id}",
                     title: subtitle.clone(),
                     {subtitle.clone()}
                 }
             }
-            span { class: "flex min-w-0 items-center gap-2 text-xs text-muted-foreground group-data-[selected=focused]:text-accent-foreground [&>*+*]:before:me-1 [&>*+*]:before:content-['·']",
+            Flex { direction: "row", sx: details_sx, "data-row-text": "true",
                 ServerChip {
                     online: server_online,
                     label: server_label,
                     title: server_title,
                     test_id: format!("session-server-{session_id}"),
                 }
-                span {
-                    class: "flex min-w-0 items-center gap-1 font-mono",
+                Flex { direction: "row", sx: path_sx,
                     "data-testid": "session-path-{session_id}",
                     title: cwd,
-                    FolderGlyph { size: 11, class: "shrink-0" }
-                    span { class: "min-w-0 truncate", {short_cwd} }
+                    FolderGlyph { size: 11 }
+                    Text { sx: mono_sx.clone(), "{short_cwd}" }
                 }
             }
-            span { class: "flex flex-wrap items-center gap-1.5",
+            Flex { direction: "row", sx: status_sx,
                 AgentStatusIndicator { session_id: session_id.clone() }
                 crate::components::terminal_bell_mark::TerminalBellMark { session_id: session_id.clone() }
                 crate::components::terminal_signal_marks::TerminalProgressMark { session_id: session_id.clone() }
                 crate::components::terminal_signal_marks::TerminalUserVarBadges { session_id: session_id.clone() }
                 if !server_online {
-                    span {
-                        class: "text-xs text-muted-foreground",
+                    Text { sx: secondary_sx.clone(),
                         "data-stage": "offline",
                         "data-testid": "session-offline-{session_id}",
                         "offline"

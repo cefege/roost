@@ -4,6 +4,10 @@
 //! text, never trusted markup. Called by the semantic transcript renderer.
 
 use dioxus::prelude::*;
+use libero::{
+    components::{Box, Button, Collapse, Flex, Indicator, Paper, Pictogram, Text},
+    sx::sx,
+};
 
 use super::agent_alert::{AgentAlert, AlertTone};
 use super::bash_box::BashBody;
@@ -17,10 +21,6 @@ use super::tool_view::{
     preview_window, state_label, status_name, tool_state,
 };
 use super::write_view::WriteBody;
-use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Card, CardSize, CardVariant, Collapsible,
-    CollapsibleContent, CollapsibleTrigger, Icon, IconType, Spinner, StatusDot,
-};
 
 #[component]
 pub fn ToolCard(
@@ -40,6 +40,8 @@ pub fn ToolCard(
     let mut disclosure_open = use_signal(|| false);
     let mut agents_open = use_signal(|| false);
     let mut details_open = use_signal(|| false);
+    let disclosure_id = libero::hooks::use_id().read().clone();
+    let details_id = libero::hooks::use_id().read().clone();
     let details = serde_json::from_str::<serde_json::Value>(&details_json).ok();
     let flag = |name: &str| {
         details
@@ -98,7 +100,7 @@ pub fn ToolCard(
     } else if tool_name == "write" && !failed && !content.is_empty() {
         rsx! { WriteBody { content: content.clone(), open, on_expand: on_body_expand } }
     } else if failed && output.is_empty() {
-        rsx! { p { class: "m-0 text-xs text-muted-foreground", "Tool execution failed." } }
+        rsx! { Text { component: "p", size: "xs", color: "muted", "Tool execution failed." } }
     } else if output.is_empty() {
         rsx! {}
     } else {
@@ -129,97 +131,169 @@ pub fn ToolCard(
         crate::components::hooks::use_copy_clipboard::use_copy_clipboard(None);
     let (copy_output_to_clipboard, output_copied) =
         crate::components::hooks::use_copy_clipboard::use_copy_clipboard(None);
+    let card_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("column")
+            .padding("sm")
+            .gap("sm")
+            .min_width("0")
+    });
+    let diff_stats_sx = use_hook(|| {
+        sx().flex_shrink("0")
+            .font_family("monospace")
+            .font_size("xs")
+            .color("muted")
+    });
+    let added_sx = use_hook(|| sx().color("success"));
+    let removed_sx = use_hook(|| sx().color("error"));
+    let meta_label_sx = use_hook(|| sx().font_size("xs").font_weight("500").color("muted"));
+    let args_sx = use_hook(|| {
+        sx().margin("0")
+            .max_height("12rem")
+            .overflow("auto")
+            .with("overscroll-behavior-y", "auto")
+            .white_space("pre-wrap")
+            .with("overflow-wrap", "anywhere")
+            .font_family("monospace")
+            .font_size("xs")
+    });
+    let intent_sx = use_hook(|| {
+        sx().margin("0")
+            .with("overflow-wrap", "anywhere")
+            .font_size("xs")
+            .font_style("italic")
+            .color("muted")
+    });
+    let notes_sx = use_hook(|| {
+        sx().margin("0")
+            .white_space("pre-wrap")
+            .with("overflow-wrap", "anywhere")
+            .padding_block("xs")
+            .font_family("monospace")
+            .font_size("xs")
+            .color("muted")
+    });
+    let facts_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_wrap("wrap")
+            .gap("sm")
+            .margin("0")
+            .padding("0")
+            .with("list-style", "none")
+            .font_size("xs")
+            .color("muted")
+    });
+    let details_sx = use_hook(|| {
+        sx().margin("0")
+            .white_space("pre-wrap")
+            .with("overflow-wrap", "anywhere")
+            .font_family("monospace")
+            .font_size("xs")
+    });
+    let copy_actions_sx = use_hook(|| sx().display("flex").flex_wrap("wrap").gap("sm"));
     rsx! {
-        Card {
-            variant: CardVariant::Outlined,
-            size: CardSize::Sm,
-            class: Some("min-w-0 gap-1 rounded-md p-2 data-[state=error]:border-destructive/40".to_owned()),
+        Paper {
+            sx: card_sx,
             "data-state": state,
             "data-tool": tool_name.clone(),
-            Collapsible {
-                open: expanded || disclosure_open(),
-                on_open_change: move |next| disclosure_open.set(next),
-                CollapsibleTrigger {
-                    variant: ButtonVariant::Ghost,
-                    size: ButtonSize::Sm,
-                    class: "h-auto w-full min-w-0 justify-start gap-2 px-1 py-1 text-left text-sm",
-                span { class: "inline-flex flex-none items-center gap-1", Icon { icon, class: "size-4" } }
-                span { class: "flex-none font-medium text-foreground", "{verb}" }
-                if !target.is_empty() {
-                    code { class: target_class(&tool_name), title: target.clone(), "{target}" }
-                }
-                if diff_stats.added > 0 || diff_stats.removed > 0 {
-                    span { class: "flex-none font-mono text-xs text-muted-foreground",
-                        "["
-                        span { class: "text-success", "+{diff_stats.added}" }
-                        "/"
-                        span { class: "text-destructive", "−{diff_stats.removed}" }
-                        "]"
+            Button {
+                variant: "standard",
+                color: "muted",
+                size: "sm",
+                aria_expanded: disclosure_visible,
+                aria_controls: disclosure_id.clone(),
+                onclick: move |_| disclosure_open.toggle(),
+                Flex { direction: "row", align: "center", gap: "sm",
+                    Pictogram { icon }
+                    Text { size: "sm", "{verb}" }
+                    if !target.is_empty() {
+                        code { title: target.clone(), "{target}" }
+                    }
+                    if diff_stats.added > 0 || diff_stats.removed > 0 {
+                        Box { component: "span", sx: diff_stats_sx,
+                            "["
+                            Box { component: "span", sx: added_sx, "+{diff_stats.added}" }
+                            "/"
+                            Box { component: "span", sx: removed_sx, "−{diff_stats.removed}" }
+                            "]"
+                        }
+                    }
+                    Flex { direction: "row", align: "center", gap: "xs",
+                        if state == "running" {
+                            Indicator { color: "info", processing: true, "aria-label": "Running" }
+                        } else {
+                            Indicator {
+                                color: match status_name(state) {
+                                    "ok" => "success",
+                                    "running" => "info",
+                                    "error" => "error",
+                                    _ => "warning",
+                                },
+                                "aria-label": state_text,
+                            }
+                        }
+                        Text { size: "xs", "{state_text}" }
+                    }
+                    Pictogram {
+                        icon: if disclosure_visible { pictogram_icons_lucide::chevron_up::outlined } else { pictogram_icons_lucide::chevron_down::outlined },
                     }
                 }
-                span { class: state_text_class(state),
-                    if state == "running" {
-                        span { class: "inline-flex", role: "status", "aria-label": "Running", Spinner { class: "size-3" } }
-                    } else {
-                        StatusDot { status: status_name(state).to_string(), title: Some(state_text.to_string()) }
-                        span { "{state_text}" }
-                    }
-                }
-                    Icon { icon: if expanded || disclosure_open() { IconType::ChevronUp } else { IconType::ChevronDown }, class: "size-4 text-muted-foreground" }
-                }
-                CollapsibleContent { class: "flex min-w-0 flex-col gap-2 pt-2",
-                    if disclosure_visible {
+            }
+            Collapse { id: disclosure_id, open: disclosure_visible,
+                Flex { direction: "column", gap: "sm",
                     if !args_json.is_empty() && args_json != "{}" {
-                        span { class: "text-xs font-medium text-muted-foreground", "Input" }
-                        pre { class: "m-0 max-h-48 overflow-auto overscroll-y-auto whitespace-pre-wrap break-words font-mono text-xs", "{args_json}" }
+                        Text { component: "span", sx: meta_label_sx.clone(), "Input" }
+                        Box { component: "pre", sx: args_sx, "{args_json}" }
                     }
-            if let Some(text) = intent {
-                p { class: "m-0 break-words text-xs italic text-muted-foreground", "{text}" }
-            }
-            span { class: "text-xs font-medium text-muted-foreground", if running { "Live output" } else { "Result" } }
-            {body}
-            if tool_name == "edit" && !diff_text.is_empty() && !notes.is_empty() {
-                pre { class: "m-0 whitespace-pre-wrap break-words py-1 font-mono text-xs text-muted-foreground", "{notes}" }
-            }
-            if timed_out {
-                AgentAlert { tone: AlertTone::Warning, p { "Execution timed out." } }
-            }
-            if outcome_unknown {
-                AgentAlert { tone: AlertTone::Warning,
-                    p { "Final outcome unknown. Inspect current state before repeating the call." }
-                }
-            }
-            if !child_ids.is_empty() {
-                TaskRows { child_ids: child_ids.clone(), open: agents_expanded, on_expand: on_agents_expand }
-            }
-            if has_details {
-                Collapsible {
-                    open: details_open(),
-                    on_open_change: move |next: bool| details_open.set(next),
-                    CollapsibleTrigger {
-                        variant: ButtonVariant::Ghost,
-                        size: ButtonSize::Sm,
-                        class: "h-auto justify-start px-0 py-1 text-xs font-normal text-muted-foreground",
-                        "Details"
+                    if let Some(text) = intent {
+                        Text { component: "p", sx: intent_sx, "{text}" }
                     }
-                    CollapsibleContent { class: "flex flex-col gap-2 pb-2",
-                        if !facts.is_empty() {
-                            ul { class: "m-0 flex list-none flex-wrap gap-x-4 gap-y-2 p-0 text-xs text-muted-foreground", for fact in facts { li { "{fact}" } } }
+                    Text { component: "span", sx: meta_label_sx.clone(), if running { "Live output" } else { "Result" } }
+                    {body}
+                    if tool_name == "edit" && !diff_text.is_empty() && !notes.is_empty() {
+                        Box { component: "pre", sx: notes_sx, "{notes}" }
+                    }
+                    if timed_out {
+                        AgentAlert { tone: AlertTone::Warning, p { "Execution timed out." } }
+                    }
+                    if outcome_unknown {
+                        AgentAlert { tone: AlertTone::Warning,
+                            p { "Final outcome unknown. Inspect current state before repeating the call." }
                         }
-                        if !details_json.is_empty() && details_json != "{}" {
-                            pre { class: "m-0 whitespace-pre-wrap break-words font-mono text-xs", "{details_json}" }
+                    }
+                    if !child_ids.is_empty() {
+                        TaskRows { child_ids: child_ids.clone(), open: agents_expanded, on_expand: on_agents_expand }
+                    }
+                    if has_details {
+                        Button {
+                            variant: "standard",
+                            color: "muted",
+                            size: "sm",
+                            aria_expanded: details_open(),
+                            aria_controls: details_id.clone(),
+                            onclick: move |_| details_open.toggle(),
+                            "Details"
                         }
-                        div { class: "flex flex-wrap gap-2",
-                            if copy_command {
-                                Button { variant: ButtonVariant::Link, onclick: move |_| copy_command_to_clipboard(&command_text), if command_copied() { "Copied" } else { "Copy command" } }
+                        Collapse { id: details_id, open: details_open(),
+                            Flex { direction: "column", gap: "sm",
+                                if !facts.is_empty() {
+                                    Box { component: "ul", sx: facts_sx,
+                                        for fact in facts { Box { component: "li", "{fact}" } }
+                                    }
+                                }
+                                if !details_json.is_empty() && details_json != "{}" {
+                                    Box { component: "pre", sx: details_sx, "{details_json}" }
+                                }
+                                Flex { direction: "row", sx: copy_actions_sx,
+                                    if copy_command {
+                                        Button { variant: "standard", color: "primary", onclick: move |_| copy_command_to_clipboard(&command_text), if command_copied() { "Copied" } else { "Copy command" } }
+                                    }
+                                    if !output.is_empty() {
+                                        Button { variant: "standard", color: "primary", onclick: move |_| copy_output_to_clipboard(&output_text), if output_copied() { "Copied" } else { "Copy output" } }
+                                    }
+                                }
                             }
-                            if !output.is_empty() {
-                                Button { variant: ButtonVariant::Link, onclick: move |_| copy_output_to_clipboard(&output_text), if output_copied() { "Copied" } else { "Copy output" } }
-                            }
                         }
-                    }
-                }
-            }
                     }
                 }
             }
@@ -238,21 +312,4 @@ fn string_field(json: &str, key: &str) -> String {
                 .map(str::to_owned)
         })
         .unwrap_or_default()
-}
-
-/// The target's ink: a search pattern takes the accent, a path the full foreground.
-fn target_class(tool_name: &str) -> &'static str {
-    match tool_name {
-        "grep" | "glob" | "find" => "min-w-0 flex-1 truncate font-mono text-xs text-primary",
-        _ => "min-w-0 flex-1 truncate font-mono text-xs text-foreground",
-    }
-}
-
-/// The state word's ink: errors and timeouts draw in their status colour.
-fn state_text_class(state: &str) -> &'static str {
-    match state {
-        "error" => "ml-auto inline-flex flex-none items-center gap-1 text-xs text-destructive",
-        "timeout" => "ml-auto inline-flex flex-none items-center gap-1 text-xs text-warning",
-        _ => "ml-auto inline-flex flex-none items-center gap-1 text-xs text-muted-foreground",
-    }
 }

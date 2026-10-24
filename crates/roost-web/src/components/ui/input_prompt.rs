@@ -1,73 +1,84 @@
-//! `InputPrompt` family: the message composer, an `InputGroup` holding an
-//! auto-growing textarea, a footer row of tools, and an icon send button.
-//! Ported from rust-ui's `input_prompt.rs`; the agent composer mounts these and
-//! owns its draft signal, slash menu and send logic. Enter without Shift is
-//! routed to `on_submit` here, so the composer's own key handling runs in
-//! `on_keydown` (observes every key) and the Enter decision lives in `on_submit`.
+//! Agent and terminal composers share this product input surface.
+//! Libero Textarea, Flex, Paper and ActionIcon provide its controls and structure.
+//! Draft, IME, Enter and send behavior remain owned by each caller.
 
 use dioxus::prelude::*;
-use tw_merge::tw_merge;
-
-use crate::components::ui::button::{Button, ButtonSize, ButtonVariant};
-use crate::components::ui::input_group::{InputGroup, InputGroupAddon, InputGroupAddonAlign};
+use libero::{
+    components::{ActionIcon, Flex, Paper, Parts, Textarea, TextareaPart},
+    sx::{Sx, sx as style},
+};
 
 #[component]
-pub fn InputPromptTools(
-    #[props(into, optional)] class: Option<String>,
-    children: Element,
-) -> Element {
-    let merged = tw_merge!("flex items-center gap-1", class.as_deref().unwrap_or(""));
-    rsx! { div { "data-name": "InputPromptTools", class: "{merged}", {children} } }
+pub fn InputPromptTools(#[props(default)] sx: Sx, children: Element) -> Element {
+    let layout = use_memo(use_reactive!(|sx| style()
+        .gap("xs")
+        .align_items("center")
+        .and(sx)));
+    rsx! { Flex { direction: "row", wrap: false, sx: layout(), "data-name": "InputPromptTools", {children} } }
 }
 
-/// Outer wrapper: an `InputGroup` with overflow clipping.
+/// Composer surface around its field and controls.
 #[component]
-pub fn InputPrompt(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
-    let merged = tw_merge!("overflow-hidden", class.as_deref().unwrap_or(""));
-    rsx! { InputGroup { class: merged, {children} } }
+pub fn InputPrompt(#[props(default)] sx: Sx, children: Element) -> Element {
+    let layout = use_memo(use_reactive!(|sx| style()
+        .display("flex")
+        .flex_direction("column")
+        .min_width("0")
+        .padding("xs")
+        .width("100%")
+        .and(sx)));
+    rsx! { Paper { sx: layout(), "data-name": "InputPrompt", {children} } }
 }
 
 /// Auto-growing textarea bound to `value`. Enter without Shift prevents the
 /// newline and calls `on_submit`; Shift+Enter and IME composition pass through.
-/// `on_input` runs after `value` is updated; `attributes` (role, aria-*, rows,
-/// data-testid) are forwarded to the textarea.
+/// `on_input` runs after `value` is updated; `attributes` are forwarded to the field.
 #[component]
 pub fn InputPromptTextarea(
     value: Signal<String>,
     #[props(into, optional)] placeholder: Option<String>,
-    #[props(into, optional)] class: Option<String>,
+    #[props(default)] sx: Sx,
+    #[props(default)] control_sx: Sx,
+    #[props(default = 1)] rows: u32,
     #[props(into, optional)] aria_label: Option<String>,
     #[props(optional)] disabled: bool,
     #[props(optional)] on_submit: Option<EventHandler<()>>,
     #[props(optional)] on_keydown: Option<EventHandler<KeyboardEvent>>,
     #[props(optional)] on_input: Option<EventHandler<String>>,
     #[props(optional)] on_mounted: Option<EventHandler<MountedEvent>>,
-    /// When false, a bare Enter keeps its default (a newline) and `on_submit` never
-    /// fires from the keyboard. The composer sets it false because its own keydown
-    /// owns Enter: a live recording keeps Enter as a newline.
-    #[props(default = true)]
-    submit_on_enter: bool,
+    #[props(default = true)] submit_on_enter: bool,
     #[props(extends = GlobalAttributes, extends = textarea)] attributes: Vec<Attribute>,
 ) -> Element {
     let placeholder = placeholder.unwrap_or_else(|| "Write a message...".to_string());
-    let merged = tw_merge!(
-        "flex-1 resize-none rounded-none border-0 bg-transparent py-3 px-3 \
-         field-sizing-content min-h-13 max-h-48 text-sm shadow-none \
-         outline-none focus-visible:ring-0 dark:bg-transparent placeholder:text-muted-foreground \
-         disabled:cursor-not-allowed disabled:opacity-50",
-        class.as_deref().unwrap_or("")
-    );
-
+    let field_sx = use_memo(use_reactive!(|sx| style()
+        .width("100%")
+        .min_width("0")
+        .and(sx)));
+    let control_sx = use_memo(use_reactive!(|control_sx| style()
+        .padding("0")
+        .min_height("0")
+        .resize("none")
+        .with("field-sizing", "content")
+        .font_size("inherit")
+        .line_height("inherit")
+        .and(control_sx)));
+    let frame_sx = use_hook(|| {
+        style()
+            .min_height("0")
+            .background("transparent")
+            .border_width("0")
+    });
     rsx! {
-        textarea {
-            "data-slot": "input-group-control",
-            class: "{merged}",
-            placeholder: "{placeholder}",
-            "aria-label": aria_label.as_deref(),
+        Textarea {
+            sx: field_sx(),
+            parts: Parts::new().part(TextareaPart::Frame, frame_sx)
+                .part(TextareaPart::Control, control_sx()),
+            rows,
+            placeholder,
+            aria_label,
             disabled,
-            value: "{value()}",
-            oninput: move |event: FormEvent| {
-                let next = event.value();
+            value: value(),
+            oninput: move |next: String| {
                 value.set(next.clone());
                 if let Some(handler) = on_input {
                     handler.call(next);
@@ -83,7 +94,7 @@ pub fn InputPromptTextarea(
                     handler.call(event.clone());
                 }
                 if submit_on_enter
-                    && event.key() == Key::Enter
+                    && event.key() == Key::Named(NamedKey::Enter)
                     && !event.modifiers().shift()
                     && !event.is_composing()
                 {
@@ -93,52 +104,52 @@ pub fn InputPromptTextarea(
                     }
                 }
             },
-            ..attributes,
+            attributes,
         }
     }
 }
 
-/// Block-end footer row: tools on the left, submit on the right.
+/// Footer row: tools on the left, submit on the right.
 #[component]
-pub fn InputPromptFooter(
-    #[props(into, optional)] class: Option<String>,
-    children: Element,
-) -> Element {
-    let merged = tw_merge!(
-        "border-t px-2 py-2 justify-between gap-1",
-        class.as_deref().unwrap_or("")
-    );
+pub fn InputPromptFooter(#[props(default)] sx: Sx, children: Element) -> Element {
+    let layout = use_memo(use_reactive!(|sx| style()
+        .gap("xs")
+        .align_items("center")
+        .justify_content("space-between")
+        .padding("xs")
+        .border_style("solid")
+        .border_width("0")
+        .border_top_width("1px")
+        .border_color("neutral.3")
+        .and(sx)));
     rsx! {
-        InputGroupAddon { align: InputGroupAddonAlign::BlockEnd, class: merged,
+        Flex {
+            direction: "row",
+            wrap: false,
+            sx: layout(),
+            "data-name": "InputPromptFooter",
             {children}
         }
     }
 }
 
-/// Icon send button. `disabled` blocks it while the draft is empty; `onclick`
-/// is the send action, since a `type="button"` control has no form to submit.
-/// `variant` lets the stop control sit beside it as a secondary button.
+/// Icon send button. The composer owns whether its action is currently available.
 #[component]
 pub fn InputPromptSubmit(
     #[props(optional)] disabled: bool,
-    #[props(default = ButtonVariant::Default)] variant: ButtonVariant,
-    #[props(into, optional)] class: Option<String>,
+    #[props(default)] sx: Sx,
     #[props(into, optional)] aria_label: Option<String>,
     #[props(into, optional)] title: Option<String>,
     #[props(into, optional)] test_id: Option<String>,
     #[props(optional)] onclick: Option<EventHandler<MouseEvent>>,
     children: Element,
 ) -> Element {
-    let merged = tw_merge!("size-8 rounded-full", class.as_deref().unwrap_or(""));
-
     rsx! {
-        Button {
-            variant,
-            size: ButtonSize::Icon,
-            class: merged,
+        ActionIcon {
+            sx,
             disabled,
-            aria_label,
-            title: title.as_deref(),
+            aria_label: aria_label.unwrap_or_else(|| "Send message".to_owned()),
+            title,
             "data-testid": test_id.as_deref(),
             onclick: move |event: MouseEvent| {
                 if let Some(handler) = onclick {

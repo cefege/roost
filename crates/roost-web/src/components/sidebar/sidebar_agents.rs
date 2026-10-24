@@ -3,6 +3,8 @@
 //! secondary section; conversation and terminal rows link to their own routes.
 
 use dioxus::prelude::*;
+use libero::components::{Box, Button, Flex, List, Pictogram, Text, Title};
+use libero::sx::sx;
 use roost_client_core::store::navigation::query::normalize_navigation_search_query;
 use roost_client_core::store::selectors::live_session_ids_for_folder;
 use roost_client_core::store::sidebar::documents::store_navigation_documents;
@@ -11,9 +13,6 @@ use roost_client_core::store::sidebar::folder_groups::build_folder_groups;
 use super::agent_conversation_row::AgentConversationRow;
 use super::session_row::SessionRow;
 use crate::components::notifications::notify_target::{ring_attribute, use_notify_target};
-use crate::components::ui::empty::EmptyState;
-use crate::components::ui::list::List;
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, IconType};
 use crate::platform::BrowserWorkerPaths;
 use crate::pump::use_store;
 use crate::router_state::use_location;
@@ -30,6 +29,29 @@ pub fn SidebarAgents(query: String) -> Element {
     let mut terminal_folders = use_signal(BTreeSet::<String>::new);
     let mut collapsed_machines = use_signal(BTreeSet::<String>::new);
     let mut collapsed_folders = use_signal(BTreeSet::<String>::new);
+    let empty_sx = use_hook(|| {
+        sx().align_items("center")
+            .text_align("center")
+            .padding("lg")
+    });
+    let toggle_sx = use_hook(|| sx().width("100%").justify_content("flex-start").gap("sm"));
+    let list_sx = use_hook(|| sx().padding_inline("sm"));
+    let panel_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("column")
+            .flex("1")
+            .min_height("0")
+            .overflow_y("auto")
+            .padding_block("xs")
+    });
+    let group_sx = use_hook(|| sx().display("flex").flex_direction("column").gap("xs"));
+    let folder_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("column")
+            .gap("xs")
+            .padding_left("sm")
+    });
+    let session_sx = use_hook(|| sx().border_radius("md"));
     let (groups, conversations, visible_ids, active_agent_id) = {
         let core = pump.core();
         let core = core.borrow();
@@ -171,27 +193,29 @@ pub fn SidebarAgents(query: String) -> Element {
         }
     }
     rsx! {
-        section {
-            class: "flex min-h-0 flex-1 flex-col overflow-y-auto py-1",
+        Box {
+            component: "section",
+            sx: panel_sx,
             "data-testid": "sidebar-agents",
             "aria-label": "Agents",
             if machine_groups.is_empty() {
-                EmptyState {
-                    icon: if filtered { IconType::SearchX } else { IconType::Bot },
-                    title: if filtered { "No matching agents" } else { "No agents or terminals" },
-                    supporting: if filtered { "Try a different filter." } else { "Start an agent in a workspace or expand Terminals." },
+                Flex { sx: empty_sx, direction: "column", gap: "md",
+                    Pictogram {
+                        icon: if filtered { pictogram_icons_lucide::search_x::outlined } else { pictogram_icons_lucide::bot::outlined },
+                        width: "1.5rem", height: "1.5rem",
+                    }
+                    Title { size: "md", if filtered { "No matching agents" } else { "No agents or terminals" } }
+                    Text { size: "sm", color: "muted", if filtered { "Try a different filter." } else { "Start an agent in a workspace or expand Terminals." } }
                 }
             }
             for (worker_fp, machine_label, folders) in machine_groups {
-                section {
-                    key: "{worker_fp}",
-                    class: "flex flex-col gap-1",
+                Box {
+                    component: "section",
+                    sx: group_sx.clone(),
                     "data-testid": "sidebar-agent-machine-{worker_fp}",
                     "aria-label": "{machine_label}",
                     Button {
-                        variant: ButtonVariant::Ghost, size: ButtonSize::Sm,
-                        class: "h-auto w-full min-w-0 justify-start gap-2 rounded-none px-4 py-2",
-                        icon: Some(if collapsed_machines.read().contains(&worker_fp) { IconType::ChevronRight } else { IconType::ChevronDown }),
+                        variant: "standard", size: "sm", sx: toggle_sx.clone(),
                         "aria-expanded": !collapsed_machines.read().contains(&worker_fp),
                         onclick: {
                             let key = worker_fp.clone();
@@ -200,20 +224,20 @@ pub fn SidebarAgents(query: String) -> Element {
                                 if !collapsed.insert(key.clone()) { collapsed.remove(&key); }
                             }
                         },
-                        span { class: "min-w-0 truncate", "{machine_label}" }
+                        Pictogram {
+                            icon: if collapsed_machines.read().contains(&worker_fp) { pictogram_icons_lucide::chevron_right::outlined } else { pictogram_icons_lucide::chevron_down::outlined },
+                            width: "1rem", height: "1rem",
+                        }
+                        Text { size: "sm", "{machine_label}" }
                     }
                     if filtered || !collapsed_machines.read().contains(&worker_fp) {
                     for group in folders {
-                        div {
-                            key: "{group.key}",
-                            class: "flex flex-col gap-1 ps-2",
+                        Flex { direction: "column", sx: folder_sx.clone(),
                             "data-testid": "sidebar-agent-group-{group.key}",
                             "data-folder-key": group.key.clone(),
                             "aria-label": "{group.name} on {group.server}",
                             Button {
-                                variant: ButtonVariant::Ghost, size: ButtonSize::Sm,
-                                class: "h-auto w-full min-w-0 justify-start gap-2 rounded-none px-4 py-1 text-muted-foreground",
-                                icon: Some(if collapsed_folders.read().contains(&group.key) { IconType::ChevronRight } else { IconType::ChevronDown }),
+                                variant: "standard", size: "sm", sx: toggle_sx.clone(),
                                 title: group.spawn_cwd.clone(),
                                 "aria-expanded": !collapsed_folders.read().contains(&group.key),
                                 onclick: {
@@ -223,11 +247,15 @@ pub fn SidebarAgents(query: String) -> Element {
                                         if !collapsed.insert(key.clone()) { collapsed.remove(&key); }
                                     }
                                 },
-                                span { class: "min-w-0 truncate", {group.name.clone()} }
-                                if !group.online { span { class: "text-xs", "Offline" } }
+                                Pictogram {
+                                    icon: if collapsed_folders.read().contains(&group.key) { pictogram_icons_lucide::chevron_right::outlined } else { pictogram_icons_lucide::chevron_down::outlined },
+                                    width: "1rem", height: "1rem",
+                                }
+                                Text { size: "sm", "{group.name.clone()}" }
+                                if !group.online { Text { size: "xs", color: "muted", "Offline" } }
                             }
                             if filtered || !collapsed_folders.read().contains(&group.key) {
-                            List { class: "px-2",
+                            List { sx: list_sx.clone(),
                                 for conversation in conversations_by_parent(None).into_iter().filter(|conversation| {
                                     group.agent_conversation_ids.contains(&conversation.id)
                                 }) {
@@ -245,10 +273,9 @@ pub fn SidebarAgents(query: String) -> Element {
                                     let folder_key = group.key.clone();
                                     rsx! {
                                         Button {
-                                            variant: ButtonVariant::Ghost,
-                                            size: ButtonSize::Sm,
-                                            class: "h-8 w-full justify-start gap-2 px-3 text-muted-foreground",
-                                            icon: Some(IconType::Terminal),
+                                            variant: "standard",
+                                            size: "sm",
+                                            sx: toggle_sx.clone(),
                                             "data-testid": "sidebar-terminals-toggle-{folder_key}",
                                             "aria-expanded": "{expanded}",
                                             onclick: move |_| {
@@ -257,16 +284,17 @@ pub fn SidebarAgents(query: String) -> Element {
                                                     folders.remove(&folder_key);
                                                 }
                                             },
+                                            Pictogram { icon: pictogram_icons_lucide::terminal::outlined, width: "1rem", height: "1rem" }
                                             "Terminals"
-                                            span { class: "ms-auto text-xs", "{group.session_ids.len()}" }
+                                            Text { size: "xs", "{group.session_ids.len()}" }
                                         }
                                     }
                                 }
                                 if filtered || terminal_folders.read().contains(&group.key) {
                                     for session_id in group.session_ids.iter().cloned() {
-                                        div {
-                                            key: "{session_id}",
-                                            class: "block rounded-md",
+                                        Box {
+                                            component: "div",
+                                            sx: session_sx.clone(),
                                             "data-notify-target": notify_target.as_ref().and_then(|target| ring_attribute(target, &session_id)),
                                             "data-notify-ring": "child",
                                             SessionRow { session_id: session_id.clone(), cursor: false }
@@ -299,8 +327,10 @@ fn ConversationBranch(
         .cloned()
         .collect();
     let selected = active_id.as_deref() == Some(conversation.id.as_str());
+    let root_branch_sx = use_hook(|| sx().min_width("0").gap("0"));
+    let nested_branch_sx = use_hook(|| sx().min_width("0").gap("0").padding_left("sm"));
     rsx! {
-        div { class: if depth == 0 { "min-w-0" } else { "min-w-0 ps-3" },
+        Flex { direction: "column", sx: if depth == 0 { root_branch_sx } else { nested_branch_sx },
             AgentConversationRow {
                 conversation_id: conversation.id.clone(),
                 selected,

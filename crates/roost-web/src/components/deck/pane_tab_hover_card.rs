@@ -6,6 +6,7 @@
 //! the preview well renders empty exactly as v2 does when no preview exists.
 
 use dioxus::prelude::*;
+use libero::components::Pictogram;
 use roost_client_core::store::selectors::session_by_id;
 use roost_client_core::store::terminal_transport::session_terminal_transport_kind;
 
@@ -13,10 +14,11 @@ use super::deck_dom::{ClientBox, DeckContainer};
 use super::inline_style::px;
 use super::pane_tab::direct_transport_label;
 use crate::components::agents::agent_status_indicator::AgentStatusIndicator;
-use crate::components::ui::{Icon, IconType, Surface, SurfaceRadius};
 use crate::platform::worker_paths::short_worker_path;
 use crate::pump::use_store;
 use crate::session_naming::{program_subtitle, session_title};
+use libero::components::{Box, Paper, Text};
+use libero::sx::sx;
 
 /// What the card shows, read in one borrow.
 #[derive(Debug, Clone, PartialEq)]
@@ -31,6 +33,81 @@ struct HoverCardReading {
 #[component]
 pub fn PaneTabHoverCard(session_id: String, anchor: ClientBox) -> Element {
     let pump = use_store();
+    let card_sx = use_hook(|| {
+        sx().position("fixed")
+            .with("z-index", "70")
+            .pointer_events("none")
+            .display("flex")
+            .flex_direction("column")
+            .width("var(--workbench-tab-hovercard-width)")
+            .font_size("sm")
+            .gap("sm")
+            .padding("md")
+            .transition("opacity 150ms")
+            .media("(prefers-reduced-motion: reduce)", sx().transition("none"))
+    });
+    let heading_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("row")
+            .align_items("center")
+            .gap("sm")
+            .min_width("0")
+    });
+    let title_sx = use_hook(|| {
+        sx().flex("1")
+            .min_width("0")
+            .overflow("hidden")
+            .with("overscroll-behavior-y", "auto")
+            .text_overflow("ellipsis")
+            .white_space("nowrap")
+            .font_weight("500")
+    });
+    let subtitle_sx = use_hook(|| {
+        sx().overflow("hidden")
+            .with("overscroll-behavior-y", "auto")
+            .text_overflow("ellipsis")
+            .white_space("nowrap")
+            .color("muted")
+    });
+    let direct_sx = use_hook(|| {
+        sx().display("inline-flex")
+            .flex_direction("row")
+            .align_items("center")
+            .gap("xs")
+            .align_self("flex-start")
+            .color("warning")
+    });
+    let cwd_sx = use_hook(|| {
+        sx().overflow("hidden")
+            .with("overscroll-behavior-y", "auto")
+            .text_overflow("ellipsis")
+            .white_space("nowrap")
+            .font_size("xs")
+            .font_family("monospace")
+            .color("muted")
+    });
+    let preview_sx = use_hook(|| {
+        sx().margin_top("xs")
+            .height("6rem")
+            .overflow("hidden")
+            .border_radius("md")
+            .background("var(--terminal-grid-bg)")
+    });
+    let preview_content_sx = use_hook(|| {
+        sx().display("block")
+            .width("100%")
+            .height("100%")
+            .overflow("hidden")
+            .with("overscroll-behavior-y", "auto")
+            .border_radius("inherit")
+            .padding_inline("xs")
+            .padding_block("xs")
+            .font_family("monospace")
+            .white_space("pre")
+            .box_sizing("border-box")
+            .color("var(--terminal-grid-fg)")
+            .selector("& span", sx().animation("none"))
+    });
     let container = try_use_context::<DeckContainer>();
     let reading = {
         let core = pump.core();
@@ -70,31 +147,29 @@ pub fn PaneTabHoverCard(session_id: String, anchor: ClientBox) -> Element {
     );
     let top = format!("calc({} + 8px)", px(anchor.bottom() - origin.top));
     rsx! {
-        Surface {
-            level: 3,
-            elevation: 3,
-            radius: SurfaceRadius::Md,
-            class: "fixed z-[70] pointer-events-none flex flex-col gap-1.5 w-[var(--workbench-tab-hovercard-width)] p-3 text-sm starting:opacity-0 transition-opacity duration-150 motion-reduce:transition-none",
-            test_id: "tab-hovercard",
+        Paper {
+            shadow: "md",
+            sx: card_sx,
+            "data-testid": "tab-hovercard",
             style: format!("left: {left}; top: {top};"),
-            div { class: "flex items-center gap-2 min-w-0",
-                Icon { icon: IconType::Terminal, class: "size-4 shrink-0 text-muted-foreground" }
-                span { class: "flex-1 min-w-0 truncate font-medium", "{reading.title}" }
+            Box { component: "div", sx: heading_sx,
+                Pictogram { icon: pictogram_icons_lucide::terminal::outlined, width: "1rem", height: "1rem" }
+                Text { component: "span", sx: title_sx, "{reading.title}" }
                 AgentStatusIndicator { session_id: session_id.clone() }
             }
             if let Some(subtitle) = reading.subtitle {
-                div { class: "truncate text-muted-foreground", "{subtitle}" }
+                Box { component: "div", sx: subtitle_sx, "{subtitle}" }
             }
             if let Some(direct) = reading.direct {
-                div { class: "inline-flex items-center gap-1 self-start text-warning", title: direct,
-                    Icon { icon: IconType::Zap, class: "size-4 shrink-0" }
+                Box { component: "div", sx: direct_sx, title: direct,
+                    Pictogram { icon: pictogram_icons_lucide::zap::outlined, width: "1rem", height: "1rem" }
                     "{direct}"
                 }
             }
-            div { class: "truncate text-xs font-mono text-muted-foreground", "{reading.cwd}" }
+            Box { component: "div", sx: cwd_sx, "{reading.cwd}" }
             // The colour scheme writes its palette inline on <html>; bg-terminal reads the theme's fixed terminal colour and would ignore it.
-            div { class: "mt-1 h-24 overflow-hidden rounded-md bg-[var(--terminal-grid-bg)]", "data-preview": "false",
-                div { class: "block size-full overflow-hidden rounded-[inherit] px-1.5 py-1 font-mono text-preview whitespace-pre box-border text-[var(--terminal-grid-fg)] [&_span]:animate-none!", }
+            Box { component: "div", sx: preview_sx, "data-preview": "false",
+                Box { component: "div", sx: preview_content_sx, }
             }
         }
     }

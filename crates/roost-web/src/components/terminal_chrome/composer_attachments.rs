@@ -6,7 +6,8 @@ use dioxus::prelude::*;
 
 use super::attachment_picker::{AttachmentPreview, ChosenFile};
 use super::dom;
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, IconType};
+use libero::components::{Box, Button};
+use libero::sx::sx;
 
 /// Show staged files and actions above the composer's field.
 #[component]
@@ -14,6 +15,8 @@ pub fn StagedAttachments(
     staged_files: Signal<Vec<ChosenFile>>,
     on_send_uploads: EventHandler<Vec<ChosenFile>>,
 ) -> Element {
+    let container_sx = use_hook(|| sx().display("contents").pointer_events("auto"));
+    let actions_sx = use_hook(|| sx().display("flex").justify_content("end").gap("sm"));
     let staged = staged_files();
     if staged.is_empty() {
         return rsx! {};
@@ -28,28 +31,23 @@ pub fn StagedAttachments(
             }
         });
     };
-    // The composer dock is `pointer-events: none` so the terminal behind its
-    // empty area stays clickable; everything it shows must opt back in, or the
-    // staged rows' remove buttons and Cancel/Send never receive a click.
     rsx! {
-        div { class: "contents pointer-events-auto",
+        Box { component: "div", sx: container_sx,
             AttachmentPreview {
                 files: staged.clone(),
                 on_remove: remove,
             }
-            div { class: "flex justify-end gap-2",
+            Box { component: "div", sx: actions_sx,
                 Button {
-                    variant: ButtonVariant::Outline,
-                    size: ButtonSize::Sm,
-                    class: None,
+                    variant: "outlined",
+                    size: "sm",
                     onclick: move |_| clear_staged_files(staged_files),
                     "Cancel"
                 }
                 Button {
-                    variant: ButtonVariant::Default,
-                    size: ButtonSize::Sm,
-                    class: None,
-                    icon: Some(IconType::Send),
+                    variant: "filled",
+                    size: "sm",
+                    icon: rsx! { libero::components::Pictogram { icon: pictogram_icons_lucide::send::outlined, width: "1rem", height: "1rem" } },
                     onclick: move |_| send_staged_files(staged_files, on_send_uploads),
                     if staged.len() == 1 { "Send 1 file" } else { "Send {staged.len()} files" }
                 }

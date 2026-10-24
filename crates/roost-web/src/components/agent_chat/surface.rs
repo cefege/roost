@@ -7,28 +7,22 @@ use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{AgentRunState, ModelsCatalog, ProviderEntry, Transcript};
 
 use super::composer::AgentComposer;
+use super::context_usage::{current_context_window, header_usage};
 use super::draft::use_conversation_draft;
-use super::header::{AgentChatHeader, current_context_window, header_usage};
-use super::interaction_cards::TodoCard;
+use super::header::AgentChatHeader;
 use super::loop_controls::LoopControls;
 use super::model_controls::{ModelSetup, ModelSetupCard};
 use super::model_hub::ModelHub;
 use super::queued_band::QueuedBand;
-use super::surface_dom::copy_code_block;
 #[cfg(target_arch = "wasm32")]
 use super::surface_dom::{distance_from_bottom, scroll_to_bottom};
 use super::surface_state::{assistant_is_streaming, latest_todo, loop_status};
+use super::todo_card::TodoCard;
 use super::working_row::{WorkingRow, working_label};
 use super::workspace::AgentWorkspace;
-use crate::components::ui::{
-    ButtonSize, ButtonVariant, EmptyState, IconButton, IconType, Skeleton,
-};
 use crate::pump::use_store;
-
-const ROOT_CLASS: &str =
-    "relative flex h-full w-full min-h-0 min-w-0 flex-col bg-background text-foreground";
-const TRANSCRIPT_CLASS: &str = "min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 py-5";
-const COLUMN_CLASS: &str = "mx-auto w-full max-w-3xl";
+use libero::components::{ActionIcon, Box, Flex, Pictogram, Skeleton, Text};
+use libero::sx::sx;
 
 #[cfg(target_arch = "wasm32")]
 use super::surface_fetch::{fetch_events_or_snapshot, fetch_snapshot};
@@ -46,6 +40,48 @@ const STICK_THRESHOLD_PX: i32 = 80;
 
 #[component]
 pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
+    let root_sx = use_hook(|| {
+        sx().position("relative")
+            .display("flex")
+            .flex_direction("column")
+            .height("100%")
+            .width("100%")
+            .min_height("0")
+            .min_width("0")
+            .background("surface")
+            .color("ink")
+    });
+    let transcript_sx = use_hook(|| {
+        sx().min_height("0")
+            .flex("1")
+            .overflow_y("auto")
+            .with("overscroll-behavior-y", "contain")
+            .padding_inline("lg")
+            .padding_block("xl")
+    });
+    let column_sx = use_hook(|| sx().margin_inline("auto").width("100%").max_width("48rem"));
+    let rail_sx = use_hook(|| {
+        sx().position("relative")
+            .margin_inline("auto")
+            .display("flex")
+            .width("100%")
+            .max_width("48rem")
+            .flex_shrink("0")
+            .flex_direction("column")
+            .gap("md")
+            .padding_inline("lg")
+            .padding_top("sm")
+            .padding_bottom("md")
+    });
+    let jump_sx = use_hook(|| {
+        sx().position("absolute")
+            .bottom("100%")
+            .left("50%")
+            .z_index("10")
+            .margin_bottom("sm")
+            .with("transform", "translateX(-50%)")
+            .box_shadow("md")
+    });
     let pump = use_store();
     let _revision = pump.revision()();
     #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
@@ -158,7 +194,12 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
         }
     });
     if not_found() {
-        return rsx! { EmptyState { icon: IconType::Bot, title: "This conversation no longer exists" } };
+        return rsx! {
+            Flex { direction: "column", sx: root_sx, role: "status",
+                Pictogram { icon: pictogram_icons_lucide::bot::outlined, aria_label: "Assistant" }
+                Text { "This conversation no longer exists" }
+            }
+        };
     }
     let Some(conversation) = conversation else {
         return rsx! { LoadingTranscript {} };
@@ -176,7 +217,9 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
         AgentChatHeader { conversation: conversation.clone(), online, usage, pump: pump.clone() }
     };
     let Some(transcript) = transcript else {
-        return rsx! { div { class: ROOT_CLASS, {header} LoadingTranscript {} } };
+        return rsx! {
+            Flex { direction: "column", sx: root_sx, {header} LoadingTranscript {} }
+        };
     };
     let running = transcript.run_state == AgentRunState::Running;
     let setup = ModelSetup::from_catalog(catalog.read().as_ref(), catalog_failed());
@@ -214,13 +257,14 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
             pump: pump.clone(),
             active,
             header,
-            div {
-                class: TRANSCRIPT_CLASS,
+            Box {
+                component: "div",
+                sx: transcript_sx,
                 role: "log",
                 "aria-live": "polite",
                 "aria-relevant": "additions text",
                 "aria-label": "Conversation transcript",
-                onmounted: move |event| scroll_node.set(Some(event.data())),
+                onmounted: move |event: MountedEvent| scroll_node.set(Some(event.data())),
                 onscroll: move |_| {
                     #[cfg(target_arch = "wasm32")]
                     if let Some(node) = scroll_node() {
@@ -230,28 +274,25 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
                         }
                     }
                 },
-                onclick: move |event: MouseEvent| copy_code_block(&event),
-                div { class: COLUMN_CLASS,
+                Flex { direction: "column", sx: column_sx,
                     if transcript.items.is_empty() && !running {
                         super::welcome::AgentWelcome { conversation_id: conversation_id.clone(), draft, connected: host_connected }
                     }
                     super::transcript::AgentTranscriptView { transcript: transcript.clone(), conversation_id: conversation_id.clone(), pump: pump.clone(), draft }
                 }
             }
-            div { class: "relative mx-auto flex w-full max-w-3xl shrink-0 flex-col gap-3 px-4 pt-2 pb-4",
+            Flex { direction: "column", sx: rail_sx,
                 if running {
                     WorkingRow {
                         label: if assistant_is_streaming(&transcript) { "Writing…".to_string() } else { working_label(&transcript.items) },
                     }
                 }
                 if !pinned_to_bottom() {
-                    IconButton {
-                        icon: IconType::ArrowDown,
-                        label: "Jump to the latest message",
+                    ActionIcon {
+                        icon: pictogram_icons_lucide::arrow_down::outlined,
+                        aria_label: "Jump to the latest message",
                         title: "Jump to latest",
-                        variant: ButtonVariant::Secondary,
-                        size: ButtonSize::IconSm,
-                        class: "absolute bottom-full left-1/2 z-10 mb-2 -translate-x-1/2 shadow-md",
+                        sx: jump_sx,
                         onclick: move |_| {
                             pinned_to_bottom.set(true);
                             #[cfg(target_arch = "wasm32")]
@@ -272,13 +313,29 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
 
 #[component]
 fn LoadingTranscript() -> Element {
+    let transcript_sx = use_hook(|| {
+        sx().min_height("0")
+            .flex("1")
+            .overflow_y("auto")
+            .with("overscroll-behavior-y", "contain")
+            .padding_inline("lg")
+            .padding_block("xl")
+    });
+    let column_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("column")
+            .gap("md")
+            .margin_inline("auto")
+            .width("100%")
+            .max_width("48rem")
+    });
     rsx! {
-        div { class: TRANSCRIPT_CLASS, "aria-busy": "true",
-            div { class: "mx-auto flex w-full max-w-3xl flex-col gap-3",
-                Skeleton { class: "ml-auto h-8 w-2/5" }
-                Skeleton { class: "h-4 w-full" }
-                Skeleton { class: "h-4 w-full" }
-                Skeleton { class: "h-4 w-3/5" }
+        Box { component: "div", sx: transcript_sx, "aria-busy": "true",
+            Flex { direction: "column", sx: column_sx,
+                Skeleton { width: "40%", height: "2rem" }
+                Skeleton { width: "100%", height: "1rem" }
+                Skeleton { width: "100%", height: "1rem" }
+                Skeleton { width: "60%", height: "1rem" }
             }
         }
     }

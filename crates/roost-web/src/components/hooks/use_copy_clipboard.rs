@@ -1,9 +1,7 @@
-//! rust-ui's `use_copy_clipboard`, and the one clipboard write in the client:
-//! a component's Copy button takes the hook and its `copied` flag; a reader
-//! with no component to hold one (a terminal selection, a delegated code
-//! block, a menu item) calls [`copy_text_then`]. Unlike the registry source,
-//! `copied` rises only once the browser has accepted the write, and its timer
-//! never clears a newer copy's flag or writes a dropped signal.
+//! Roost's clipboard acceptance and stale-completion policy.
+//! Copy controls use the hook's result flag; event owners without a component
+//! call copy_text_then. Only the latest accepted write raises confirmation.
+//! Expired timers and completions never write a dropped or newer signal.
 
 use dioxus::prelude::*;
 

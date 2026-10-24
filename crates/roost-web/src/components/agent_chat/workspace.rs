@@ -1,4 +1,4 @@
-//! The agent workspace's inspector/chat split and compact inspector sheet.
+//! The agent workspace's inspector/chat split and compact inspector drawer.
 //! Mounted by `surface`; observes its own pane rather than the window so split
 //! panes never squeeze the chat behind a desktop-width inspector. State and
 //! actions remain in the native client store and the controlled inspector.
@@ -12,13 +12,14 @@ use roost_protocol::wire::agent_chat::{ConversationSummary, ModelsCatalog, Trans
 
 use super::inspector::{AgentInspector, INSPECTOR_TABS};
 use crate::components::deck::deck_dom::{SizeWatch, client_size};
-use crate::components::layout::portal::Portal;
-use crate::components::ui::{
-    ButtonSize, ButtonVariant, IconButton, IconType, Sheet, SheetContent, SheetDescription,
-    SheetHeader, SheetTitle,
-};
+use crate::components::overlay_generation::OverlayGeneration;
 use crate::platform::LocalStorageKeyValueStore;
 use crate::pump::Pump;
+use libero::hooks::{DrawerOptions, ModalScope, use_drawer};
+use libero::{
+    components::{ActionIcon, Box, Flex},
+    sx::sx,
+};
 
 const INSPECTOR_PREFERENCE: &str = "roost.agent.inspector.expanded";
 const INSPECTOR_TAB_PREFERENCE: &str = "roost.agent.inspector.tab";
@@ -34,6 +35,54 @@ pub(super) fn AgentWorkspace(
     header: Element,
     children: Element,
 ) -> Element {
+    let root_sx = use_hook(|| {
+        sx().display("flex")
+            .height("100%")
+            .min_height("0")
+            .min_width("0")
+            .flex("1")
+            .overflow("hidden")
+            .background("surface")
+            .color("ink")
+    });
+    let inspector_sx = use_hook(|| {
+        sx().display("flex")
+            .height("100%")
+            .width("20rem")
+            .flex_shrink("0")
+            .flex_direction("column")
+            .overflow("hidden")
+            .with("border-right", "1px solid var(--border)")
+            .background("var(--lsx-paper-background)")
+    });
+    let rail_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_shrink("0")
+            .flex_direction("column")
+            .align_items("center")
+            .gap("xs")
+            .with("border-right", "1px solid var(--border)")
+            .background("var(--lsx-paper-background)")
+            .padding_inline("xs")
+            .padding_block("md")
+    });
+    let chat_sx = use_hook(|| {
+        sx().display("flex")
+            .min_height("0")
+            .min_width("0")
+            .flex("1")
+            .flex_direction("column")
+    });
+    let header_sx = use_hook(|| {
+        sx().display("flex")
+            .min_width("0")
+            .align_items("center")
+            .gap("sm")
+            .with("border-bottom", "1px solid var(--border)")
+            .padding_inline("lg")
+            .padding_block("md")
+    });
+    let header_content_sx = use_hook(|| sx().min_width("0").flex("1"));
     let storage = use_hook(|| Rc::new(LocalStorageKeyValueStore::new()));
     let mut expanded = use_signal(|| storage.get(INSPECTOR_PREFERENCE).as_deref() != Some("false"));
     let mut selected_tab = use_signal(|| {
@@ -78,12 +127,82 @@ pub(super) fn AgentWorkspace(
             overlay.set(false);
         }
     });
+    let fence = use_hook(|| Rc::new(RefCell::new(OverlayGeneration::default())));
+    let previous_open = use_hook(|| Rc::new(RefCell::new(None::<bool>)));
+    let previous_conversation_id = use_hook(|| Rc::new(RefCell::new(conversation.id.clone())));
+    let drawer_conversation = conversation.clone();
+    let drawer_transcript = transcript.clone();
+    let drawer_catalog = catalog.clone();
+    let drawer_pump = pump.clone();
+    let drawer_selected_tab = selected_tab;
+    let drawer_on_tab_change = on_tab_change;
+    let drawer_close = close;
+    let drawer = use_drawer(
+        DrawerOptions {
+            anchor: "end".into(),
+            size: "md".into(),
+            title: Some("Agent inspector".into()),
+            close_button: false,
+            ..Default::default()
+        },
+        move |_scope: ModalScope<()>| {
+            let conversation = drawer_conversation.clone();
+            let transcript = drawer_transcript.clone();
+            let catalog = drawer_catalog.clone();
+            let pump = drawer_pump.clone();
+            let on_close = drawer_close;
+            let on_tab_change = drawer_on_tab_change;
+            rsx! {
+                AgentInspector {
+                    conversation, transcript, catalog, pump,
+                    on_close, selected_tab: drawer_selected_tab(), on_tab_change,
+                }
+            }
+        },
+    );
+    let sync_drawer = drawer;
+    let sync_fence = Rc::clone(&fence);
+    let sync_previous = Rc::clone(&previous_open);
+    let sync_previous_conversation = Rc::clone(&previous_conversation_id);
+    use_effect(use_reactive(
+        (&overlay, &conversation.id),
+        move |(overlay, conversation_id)| {
+            let is_open = overlay();
+            let was_open = *sync_previous.borrow();
+            let identity_changed = *sync_previous_conversation.borrow() != conversation_id;
+            *sync_previous_conversation.borrow_mut() = conversation_id;
+            let reopen = is_open && was_open == Some(true) && identity_changed;
+            if was_open == Some(is_open) && !reopen {
+                return;
+            }
+            *sync_previous.borrow_mut() = Some(is_open);
+            if is_open {
+                if reopen {
+                    sync_fence.borrow_mut().invalidate();
+                    sync_drawer.close();
+                }
+                let generation = sync_fence.borrow_mut().begin();
+                let completion_fence = Rc::clone(&sync_fence);
+                let mut overlay = overlay;
+                sync_drawer.open().onresult(move |_| {
+                    if completion_fence.borrow_mut().finish(generation) {
+                        overlay.set(false);
+                    }
+                });
+            } else {
+                sync_fence.borrow_mut().invalidate();
+                sync_drawer.close();
+            }
+        },
+    ));
+    use_drop(move || fence.borrow_mut().invalidate());
     rsx! {
-        section {
-            class: "flex h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-background text-foreground",
-            "data-testid": "agent-workspace",
+        Box {
+            component: "section",
+            sx: root_sx,
             "data-inspector-inline": inline(),
-            onmounted: move |event| {
+            "data-testid": "agent-workspace",
+            onmounted: move |event: MountedEvent| {
                 let mounted = event.data();
                 let measure_node = Rc::clone(&mounted);
                 let mut measure = move || {
@@ -102,8 +221,9 @@ pub(super) fn AgentWorkspace(
                 *observer.borrow_mut() = watch;
             },
             if inline() && expanded() {
-                aside {
-                    class: "flex h-full w-80 shrink-0 flex-col overflow-hidden border-r border-border bg-card",
+                Box {
+                    component: "aside",
+                    sx: inspector_sx,
                     "aria-label": "Agent inspector",
                     AgentInspector {
                         conversation: conversation.clone(), transcript: transcript.clone(),
@@ -112,50 +232,43 @@ pub(super) fn AgentWorkspace(
                     }
                 }
             } else if inline() {
-                aside { class: "flex shrink-0 flex-col items-center gap-1 border-r border-border bg-card px-1 py-3", "aria-label": "Inspector navigation",
-                    IconButton {
-                        icon: IconType::PanelLeft, label: "Expand agent inspector", title: "Expand inspector",
-                        variant: ButtonVariant::Ghost, size: ButtonSize::IconSm,
+                Box { component: "aside", sx: rail_sx, "aria-label": "Inspector navigation",
+                    ActionIcon {
+                        icon: pictogram_icons_lucide::panel_left::outlined,
+                        aria_label: "Expand agent inspector",
+                        title: "Expand inspector",
+                        variant: "standard",
+                        size: "sm",
                         onclick: show,
                     }
                     for (key, label, icon) in INSPECTOR_TABS {
-                        IconButton { icon, label: format!("Open {label} inspector"), title: label,
-                            variant: ButtonVariant::Ghost, size: ButtonSize::IconSm,
-                            onclick: move |_| { selected_tab.set(key.to_owned()); expanded.set(true); } }
+                        ActionIcon {
+                            icon,
+                            aria_label: format!("Open {label} inspector"),
+                            title: label,
+                            variant: "standard",
+                            size: "sm",
+                            onclick: move |_| { selected_tab.set(key.to_owned()); expanded.set(true); }
+                        }
                     }
                 }
             }
-            div { class: "flex min-h-0 min-w-0 flex-1 flex-col",
-                div { class: "flex min-w-0 items-center gap-2 border-b border-border px-4 py-3",
-                    div { class: "min-w-0 flex-1", {header} }
+            Flex { direction: "column", sx: chat_sx,
+                Flex { direction: "row", sx: header_sx,
+                    Box { component: "div", sx: header_content_sx, {header} }
                     if !inline() {
-                        IconButton {
-                            icon: IconType::PanelLeft, label: "Open agent inspector", title: "Inspector",
-                            variant: ButtonVariant::Ghost, size: ButtonSize::IconSm,
+                        ActionIcon {
+                            icon: pictogram_icons_lucide::panel_left::outlined,
+                            aria_label: "Open agent inspector",
+                            title: "Inspector",
+                            variant: "standard",
+                            size: "sm",
                             "data-testid": "agent-inspector-toggle",
                             onclick: show,
                         }
                     }
                 }
                 {children}
-            }
-            // The deck's pane stacking context must not trap the mobile modal.
-            if active && !inline() {
-                Portal {
-                    Sheet {
-                        open: overlay(),
-                        on_open_change: move |next| overlay.set(next),
-                        SheetContent {
-                            class: "flex h-full w-full max-w-md flex-col overflow-hidden p-0",
-                            test_id: "agent-inspector-sheet", show_close_button: false,
-                            SheetHeader { class: "sr-only",
-                                SheetTitle { "Agent inspector" }
-                                SheetDescription { "Session, runtime state, tasks, tools and configuration." }
-                            }
-                            AgentInspector { conversation, transcript, catalog, pump, on_close: close, selected_tab: selected_tab(), on_tab_change }
-                        }
-                    }
-                }
             }
         }
     }

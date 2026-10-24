@@ -1,19 +1,17 @@
 //! The folder picker's header band: close, the folder and its machine, the
 //! filter, files, and New folder actions, and the machine switcher when several
 //! machines are online. Called by `browse::picker`; ports
-//! `apps/web/src/components/browse/BrowseToolbar.tsx`. The switcher is the `ui`
-//! dropdown menu, which places it and handles its dismissal.
+//! `apps/web/src/components/browse/BrowseToolbar.tsx`. Libero owns switcher
+//! focus and dismissal; the page owns its open state.
 
 use dioxus::prelude::*;
+
 use roost_protocol::wire::Worker;
 
-use crate::components::ui::dropdown_menu::{
-    DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+use libero::components::{
+    ActionIcon, Box, Button, Flex, Menu, MenuItem, Paper, Pictogram, Text, use_menu,
 };
-use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, StatusDot, Surface,
-    SurfaceRadius,
-};
+use libero::sx::sx;
 
 /// The header band.
 #[allow(clippy::too_many_arguments)]
@@ -45,118 +43,172 @@ pub fn BrowseToolbar(
     on_toggle_server_menu: EventHandler<()>,
     on_close_server_menu: EventHandler<()>,
 ) -> Element {
+    let band_sx = use_hook(|| {
+        sx().display("flex")
+            .min_width("0")
+            .align_items("center")
+            .gap("sm")
+            .padding_inline("sm")
+            .padding_block("xs")
+    });
+    let info_sx = use_hook(|| {
+        sx().display("flex")
+            .min_width("0")
+            .flex("1")
+            .flex_direction("column")
+    });
+    let folder_sx = use_hook(|| {
+        sx().overflow("hidden")
+            .with("overscroll-behavior-y", "auto")
+            .text_overflow("ellipsis")
+            .white_space("nowrap")
+            .font_size("sm")
+            .font_weight("500")
+    });
+    let machine_sx = use_hook(|| {
+        sx().display("flex")
+            .min_width("0")
+            .align_items("center")
+            .gap("xs")
+            .overflow("hidden")
+            .with("overscroll-behavior-y", "auto")
+            .text_overflow("ellipsis")
+            .white_space("nowrap")
+            .font_size("xs")
+            .color("muted")
+    });
+    let online_dot_sx = use_hook(|| {
+        sx().width("0.5rem")
+            .height("0.5rem")
+            .border_radius("9999rem")
+            .background("success")
+    });
+    let offline_dot_sx = use_hook(|| {
+        sx().width("0.5rem")
+            .height("0.5rem")
+            .border_radius("9999rem")
+            .background("muted")
+    });
+    let switcher_sx = use_hook(|| {
+        sx().height("2rem")
+            .max_width("10rem")
+            .overflow("hidden")
+            .with("overscroll-behavior-y", "auto")
+            .text_overflow("ellipsis")
+            .white_space("nowrap")
+            .padding_inline("sm")
+    });
+    let switch_icon_sx = use_hook(|| sx().width("0.75rem").height("0.75rem"));
+    let active_sx = use_hook(|| sx().selector("&[data-active=true]", sx().background("primary.1")));
+    let status_dot_sx = use_hook(|| {
+        sx().width("0.5rem")
+            .height("0.5rem")
+            .border_radius("9999rem")
+            .background("success")
+    });
     let selected_fp = server_fp.clone();
-    // The ui root reports the open state it wants; the page's toggle and close
-    // callbacks stay the only owners of that state.
-    let on_server_open_change = EventHandler::new(move |open: bool| {
+    let menu = use_menu();
+    use_effect(use_reactive((&server_menu_open,), move |(open,)| {
         if open {
-            on_toggle_server_menu.call(());
+            menu.open();
         } else {
-            on_close_server_menu.call(());
+            menu.close();
+        }
+    }));
+    let mut last_menu_open = use_signal(|| menu.is_open());
+    use_effect(move || {
+        let is_open = menu.is_open();
+        if is_open != *last_menu_open.peek() {
+            last_menu_open.set(is_open);
+            if is_open && !server_menu_open {
+                on_toggle_server_menu.call(());
+            } else if !is_open && server_menu_open {
+                on_close_server_menu.call(());
+            }
         }
     });
-    rsx! {
-        DropdownMenu {
-            open: server_menu_open,
-            on_open_change: on_server_open_change,
-            test_id: "browse-server-menu",
-            Surface {
-                class: Some("flex min-w-0 items-center gap-2 px-2 py-1".to_owned()),
-                level: 2,
-                radius: SurfaceRadius::None,
-                IconButton {
-                    size: ButtonSize::IconSm,
-                    "data-testid": "browse-close",
-                    icon: IconType::X,
-                    label: "Close",
-                    title: "Close",
-                    onclick: move |_| on_close.call(()),
-                }
-                div { class: "flex min-w-0 flex-1 flex-col",
-                    span {
-                        class: "truncate text-sm font-medium",
-                        "data-testid": "browse-folder-name",
-                        {folder_name}
-                    }
-                    span {
-                        class: "flex min-w-0 items-center gap-1 truncate text-xs text-muted-foreground",
-                        "data-testid": "browse-machine",
-                        StatusDot { status: if server_online { "ok".to_owned() } else { "idle".to_owned() } }
-                        {server_label.clone()}
-                    }
-                }
-                if online_workers.len() > 1 {
-                    DropdownMenuTrigger {
-                        class: "h-8 max-w-40 truncate px-2",
-                        ghost: true,
-                        test_id: "browse-server",
-                        span { class: "sr-only", {server_label.clone()} }
-                        Icon { icon: IconType::ChevronsUpDown, class: "size-3" }
-                    }
-                }
-                IconButton {
-                    class: Some("data-[active=true]:bg-accent".to_owned()),
-                    size: ButtonSize::IconSm,
-                    "data-testid": "browse-filter-toggle",
-                    icon: IconType::Search,
-                    label: "Filter this folder",
-                    title: "Filter this folder",
-                    "data-active": filter_open.then_some("true"),
-                    "aria-pressed": filter_open.to_string(),
-                    onclick: move |_| on_toggle_filter.call(()),
-                }
-                IconButton {
-                    class: Some("data-[active=true]:bg-accent".to_owned()),
-                    size: ButtonSize::IconSm,
-                    "data-testid": "browse-show-files",
-                    icon: IconType::FileText,
-                    label: "Show files in this folder",
-                    title: "Show files in this folder",
-                    "data-active": show_files.then_some("true"),
-                    "aria-pressed": show_files.to_string(),
-                    onclick: move |_| on_toggle_show_files.call(()),
-                }
-                Button {
-                    variant: ButtonVariant::Secondary,
-                    size: ButtonSize::Sm,
-                    icon: Some(IconType::FolderPlus),
-                    "data-testid": "browse-new",
-                    title: "New folder",
-                    disabled: !ready,
-                    onclick: move |_| on_new_folder.call(()),
-                    "New folder"
-                }
-            }
-            DropdownMenuContent {
-                class: "w-auto min-w-48 max-h-[60vh] flex flex-col gap-0.5 overflow-y-auto",
-                for worker in online_workers.iter() {
-                    ServerOption {
-                        worker: worker.clone(),
-                        selected: worker.fp.as_str() == selected_fp,
-                        on_select: on_select_server,
-                    }
-                }
-            }
-        }
+    let mut menu_items = Vec::with_capacity(online_workers.len());
+    for worker in &online_workers {
+        let worker_fp = worker.fp.as_str().to_owned();
+        let label = worker.label.clone();
+        let selected = worker_fp == selected_fp;
+        let item = MenuItem::new(label.clone())
+            .leading(rsx! { Box { component: "span", sx: status_dot_sx.clone() } });
+        let item = if selected {
+            item.trailing(rsx! { Pictogram { icon: pictogram_icons_lucide::check::outlined, width: "0.75rem", height: "0.75rem" } })
+        } else {
+            item
+        };
+        menu_items.push(
+            item.onselect(move |_| {
+                on_select_server.call(worker_fp.clone());
+            })
+            .into(),
+        );
     }
-}
-
-/// One machine in the switcher: its reachability dot, its label, and a check
-/// when it is the one being browsed.
-#[component]
-fn ServerOption(worker: Worker, selected: bool, on_select: EventHandler<String>) -> Element {
-    let worker_fp = worker.fp.as_str().to_owned();
-    let label = worker.label.clone();
     rsx! {
-        DropdownMenuItem {
-            class: "flex w-full items-center gap-2",
-            test_id: "browse-server-option",
-            title: label.clone(),
-            onclick: move |_| on_select.call(worker_fp.clone()),
-            StatusDot { status: "ok".to_owned() }
-            span { class: "min-w-0 flex-1 truncate text-left", {label} }
-            if selected {
-                Icon { icon: IconType::Check, class: "size-3" }
+
+        Paper { shadow: "none", radius: "0", sx: band_sx,
+            ActionIcon {
+                size: "sm",
+                "data-testid": "browse-close",
+                icon: pictogram_icons_lucide::x::outlined,
+                aria_label: "Close",
+                onclick: move |_| on_close.call(()),
+            }
+            Flex { direction: "column", sx: info_sx,
+                Text { sx: folder_sx, "data-testid": "browse-folder-name", {folder_name} }
+                Flex { direction: "row", sx: machine_sx, "data-testid": "browse-machine",
+                    Box { component: "span", sx: if server_online { online_dot_sx.clone() } else { offline_dot_sx.clone() } }
+                    {server_label.clone()}
+                }
+            }
+            if online_workers.len() > 1 {
+                Menu { state: menu, items: menu_items,
+                    Button {
+                        variant: "standard",
+                        size: "sm",
+                        sx: switcher_sx,
+                        attributes: menu.a11y_attributes(),
+                        "data-testid": "browse-server",
+                        "{server_label}"
+                        Box { component: "span", sx: switch_icon_sx.clone(), Pictogram { icon: pictogram_icons_lucide::chevrons_up_down::outlined, width: "0.75rem", height: "0.75rem" } }
+                    }
+                }
+            }
+            ActionIcon {
+                variant: "standard",
+                sx: active_sx.clone(),
+                size: "sm",
+                "data-testid": "browse-filter-toggle",
+                icon: pictogram_icons_lucide::search::outlined,
+                aria_label: "Filter this folder",
+                title: "Filter this folder",
+                "data-active": filter_open.then_some("true"),
+                "aria-pressed": filter_open.to_string(),
+                onclick: move |_| on_toggle_filter.call(()),
+            }
+            ActionIcon {
+                variant: "standard",
+                sx: active_sx.clone(),
+                size: "sm",
+                "data-testid": "browse-show-files",
+                icon: pictogram_icons_lucide::file_text::outlined,
+                aria_label: "Show files in this folder",
+                title: "Show files in this folder",
+                "data-active": show_files.then_some("true"),
+                "aria-pressed": show_files.to_string(),
+                onclick: move |_| on_toggle_show_files.call(()),
+            }
+            Button {
+                variant: "tonal",
+                size: "sm",
+                icon: rsx! { Pictogram { icon: pictogram_icons_lucide::folder_plus::outlined, width: "1rem", height: "1rem" } },
+                "data-testid": "browse-new",
+                title: "New folder",
+                disabled: !ready,
+                onclick: move |_| on_new_folder.call(()),
+                "New folder"
             }
         }
     }

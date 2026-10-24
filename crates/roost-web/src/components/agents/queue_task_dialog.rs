@@ -9,11 +9,16 @@
 //! answer to "is it open".
 
 use dioxus::prelude::*;
+use libero::{
+    components::Dialog,
+    hooks::{ModalScope, use_modal},
+};
 use roost_client_core::ClientEvent;
 use roost_client_core::store::shell_intent::ShellIntent;
+use std::{cell::RefCell, rc::Rc};
 
 use super::task_editor::TaskEditor;
-use crate::components::ui::{Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle};
+use crate::components::overlay_generation::OverlayGeneration;
 use crate::pump::use_store;
 
 /// The dialog's headline.
@@ -24,53 +29,74 @@ pub const QUEUE_TASK_HEADLINE: &str = "Queue a task";
 #[component]
 pub fn QueueTaskDialogHost() -> Element {
     let pump = use_store();
-    let dialog = pump
+    let stored = pump
         .core()
         .borrow()
         .store()
         .shell_dialogs
         .queue_task
         .clone();
-    if !dialog.open {
-        return rsx! {};
-    }
-    let close = {
-        let pump = pump.clone();
-        EventHandler::new(move |()| {
-            pump.dispatch(ClientEvent::Shell(ShellIntent::CloseQueueTaskDialog));
-        })
-    };
-    // Queued and cancelled are the same answer for this dialog: the task is not
-    // on the queue and the editor is empty again, which is what unmounting it
-    // means. A second path that only toasted would leave the form mounted over a
-    // queue the reader can no longer see.
-    let enqueued = close;
-    let cancelled = close;
-    rsx! {
-        Dialog {
-            open: true,
-            on_open_change: move |open: bool| {
-                if !open {
-                    close.call(());
+    let request = stored.open.then(|| {
+        (
+            stored.prefill_body.clone(),
+            stored.prefill_cwd.clone(),
+            stored.prefill_worker_fp.clone(),
+        )
+    });
+    let generation = use_hook(|| Rc::new(RefCell::new(OverlayGeneration::default())));
+    let previous = use_hook(|| Rc::new(RefCell::new(None)));
+    #[allow(clippy::type_complexity)]
+    let modal = use_modal({
+        let generation = Rc::clone(&generation);
+        move |scope: ModalScope<((Option<String>, Option<String>, Option<String>), u64)>| {
+            let Some(((default_body, default_cwd, default_worker_fp), token)) = scope.try_args()
+            else {
+                return rsx! {};
+            };
+            let generation = Rc::clone(&generation);
+            let close_task = EventHandler::new(move |()| {
+                if generation.borrow().is_current(token) {
+                    scope.close();
                 }
-            },
-            DialogContent { show_close_button: Some(false),
-                // The editor's own band carries Cancel and Queue, so a close button
-                // above them would be a third way out of a form with two answers.
-                DialogHeader {
-                    DialogTitle { "{QUEUE_TASK_HEADLINE}" }
-                }
-                DialogBody {
+            });
+            rsx! {
+                Dialog { title: QUEUE_TASK_HEADLINE, close_button: Some(false),
                     TaskEditor {
-                        default_body: dialog.prefill_body,
-                        default_cwd: dialog.prefill_cwd,
-                        default_worker_fp: dialog.prefill_worker_fp,
-                        on_enqueued: Some(enqueued),
-                        on_cancel: Some(cancelled),
+                        default_body,
+                        default_cwd,
+                        default_worker_fp,
+                        on_enqueued: Some(close_task),
+                        on_cancel: Some(close_task),
                         show_cancel: true,
                     }
                 }
             }
         }
-    }
+    });
+    let sync_modal = modal;
+    let sync_pump = pump.clone();
+    let sync_generation = Rc::clone(&generation);
+    let sync_previous = Rc::clone(&previous);
+    use_effect(use_reactive!(|(request)| {
+        {
+            let mut previous = sync_previous.borrow_mut();
+            if *previous == request {
+                return;
+            }
+            *previous = request.clone();
+        }
+        sync_generation.borrow_mut().invalidate();
+        sync_modal.close();
+        if let Some(request) = request {
+            let token = sync_generation.borrow_mut().begin();
+            let completion_generation = Rc::clone(&sync_generation);
+            let completion_pump = sync_pump.clone();
+            sync_modal.open_with((request, token)).onresult(move |_| {
+                if completion_generation.borrow_mut().finish(token) {
+                    completion_pump.dispatch(ClientEvent::Shell(ShellIntent::CloseQueueTaskDialog));
+                }
+            });
+        }
+    }));
+    rsx! {}
 }

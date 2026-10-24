@@ -8,7 +8,6 @@ use dioxus::prelude::*;
 
 use crate::components::browse::BrowseLaunchMode;
 use crate::components::browse::dom;
-use crate::components::ui::focus_scope::AutoFocusRequest;
 
 /// Every handler the four bands and the two dialogs report back through.
 #[derive(Clone, PartialEq)]
@@ -82,9 +81,4 @@ pub fn focus_region(unavailable: bool) {
     } else {
         dom::RESULTS_ID
     });
-}
-
-/// Keep the sheet from taking focus on open.
-pub fn keep_sheet_focus(request: AutoFocusRequest) {
-    request.prevent_default();
 }

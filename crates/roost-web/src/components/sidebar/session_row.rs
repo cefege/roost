@@ -5,6 +5,9 @@
 //! undoable close every close path converges on.
 
 use dioxus::prelude::*;
+
+use libero::components::Box;
+use libero::sx::sx;
 use roost_client_core::ClientEvent;
 use roost_client_core::deck::{DeckFolder, DeckIntent};
 use roost_client_core::store::navigation::worker_online;
@@ -20,15 +23,14 @@ use super::row_swipe::{RowSwipe, SwipeRelease};
 use super::session_row_context_menu::SessionRowContextMenu;
 use super::session_row_flat::{SessionRowFacts, SessionRowFlat};
 use crate::components::notifications::notify_target::{ring_attribute, use_notify_target};
-use crate::components::ui::list::is_in_app_navigation_click;
-use crate::components::ui::{ButtonSize, Icon, IconButton, IconType};
 use crate::platform::BrowserWorkerPaths;
 use crate::platform::worker_paths::short_worker_path;
 use crate::pump::{Pump, use_store};
 use crate::route_session::active_session_for_path;
-use crate::router_state::{use_location, use_navigate};
+use crate::router_state::{is_in_app_navigation_click, use_location, use_navigate};
 use crate::session_actions::close_labels_for;
 use crate::session_naming::{folder_headline, program_subtitle, rel_time_since, session_title};
+use libero::components::{ActionIcon, Pictogram, Text};
 
 /// Whether `path` shows this session: `/s/<id>` exactly or beneath it, or the
 /// legacy `/…/t/<channel>` form with this channel. Exact, never a substring:
@@ -60,6 +62,62 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
     let now_ms = use_rel_time_now();
     let mut swipe = use_signal(RowSwipe::default);
     let mut menu_at = use_signal(|| None::<(f64, f64)>);
+    // The row follows the finger without easing while tracking, and eases back
+    // to rest once the touch releases.
+    let row_sx = use_hook(|| {
+        sx().display("flex")
+            .position("relative")
+            .min_width("0")
+            .align_items("flex-start")
+            .gap("md")
+            .background("surface")
+            .padding_inline("md")
+            .padding_block("sm")
+            .transition("transform 200ms ease-out")
+            .selector("&[data-swiping='1']", sx().transition("none"))
+            .selector("&:hover", sx().background("primary.1"))
+            .selector("&[data-cursor=on]", sx().background("primary.1"))
+            .selector("&[data-selected=focused]", sx().background("primary.2"))
+            .selector(
+                "&[data-selected=focused] [data-row-text]",
+                sx().color("ink"),
+            )
+    });
+    let swipe_sx = use_hook(|| {
+        sx().position("absolute")
+            .inset_block("0")
+            .right("0")
+            .display("flex")
+            .align_items("center")
+            .justify_content("center")
+            .overflow("hidden")
+            .background("error")
+            .color("surface")
+    });
+    let overlay_sx = use_hook(|| {
+        sx().position("absolute")
+            .inset("0")
+            .with("z-index", "10")
+            .selector(
+                "&:focus-visible",
+                sx().outline("2px solid var(--workbench-focus-ring)")
+                    .outline_offset("2px"),
+            )
+    });
+    let content_sx = use_hook(|| sx().display("contents").pointer_events("none"));
+    let root_sx = use_hook(|| sx().position("relative").overflow("hidden"));
+    let prompt_sx = use_hook(|| {
+        sx().flex_shrink("0")
+            .font_family("monospace")
+            .font_size("xs")
+            .color("muted")
+    });
+    let action_sx = use_hook(|| {
+        sx().position("relative")
+            .with("z-index", "20")
+            .flex_shrink("0")
+            .pointer_events("auto")
+    });
     let core = pump.core();
     let facts = {
         let core = core.borrow();
@@ -107,13 +165,6 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
     let href = format!("/s/{session_id}");
     let offset = swipe.read().offset_x();
     let tracking = swipe.read().tracking();
-    // The row follows the finger without easing while tracking, and eases back
-    // to rest once the touch releases.
-    let row_motion_class = if tracking {
-        "transition-none"
-    } else {
-        "transition-transform duration-200 ease-out"
-    };
     let close = {
         let pump = pump.clone();
         let session_id = session_id.clone();
@@ -135,15 +186,14 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
         }
     };
     rsx! {
-        div { class: "relative overflow-hidden", "data-swipe-row": "true",
-            div {
-                class: "absolute inset-y-0 right-0 flex items-center justify-center overflow-hidden bg-destructive text-destructive-foreground",
+        Box { component: "div", sx: root_sx, "data-swipe-row": "true",
+            Box { component: "div", sx: swipe_sx,
                 "aria-hidden": "true",
                 style: "width: {(-offset).max(0.0)}px;",
-                Icon { icon: IconType::Trash2, class: "size-4" }
+                Pictogram { icon: pictogram_icons_lucide::trash_2::outlined, width: "1rem", height: "1rem" }
             }
-            div {
-                class: "group relative flex min-w-0 items-start gap-3 bg-sidenav px-3 py-2 hover:bg-accent/50 data-[cursor=on]:bg-accent/50 data-[selected=focused]:bg-accent {row_motion_class}",
+            Box { component: "div",
+                sx: row_sx,
                 "data-testid": "sidebar-session-row",
                 "data-session-id": session_id.clone(),
                 "data-worker-fp": facts.worker_fp.clone(),
@@ -185,9 +235,9 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
                         });
                     }
                 },
-                a {
-                    href: href.clone(),
-                    class: "absolute inset-0 z-10",
+                Box { component: "a",
+                    sx: overlay_sx,
+                    "href": href.clone(),
                     "aria-label": "Open {facts.title}",
                     onclick: move |event: MouseEvent| {
                         if swipe.write().take_swiped() {
@@ -203,15 +253,14 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
                         navigate.call(href.clone());
                     },
                 }
-                span { class: "pointer-events-none contents",
-                    span { class: "shrink-0 font-mono text-xs text-muted-foreground", "aria-hidden": "true", "$" }
+                Box { component: "span", sx: content_sx,
+                    Text { sx: prompt_sx, "aria-hidden": "true", "$" }
                     SessionRowFlat { facts: facts.flat.clone() }
                 }
-                IconButton {
-                    icon: IconType::X,
-                    label: "Close pane",
-                    size: ButtonSize::IconSm,
-                    class: "relative z-20 shrink-0 pointer-events-auto",
+                ActionIcon {
+                    sx: action_sx,
+                    aria_label: "Close pane",
+                    size: "sm",
                     "data-testid": "session-close-{session_id}",
                     title: "Close pane",
                     onclick: move |event: MouseEvent| {
@@ -219,6 +268,7 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
                         event.prevent_default();
                         close();
                     },
+                    Pictogram { icon: pictogram_icons_lucide::x::outlined, width: "1rem", height: "1rem" }
                 }
             }
             // A sibling of the row, not a child: the row's swipe `transform`

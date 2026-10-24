@@ -7,39 +7,54 @@
 //! and a row that depended on a WebSocket tick would repaint for no reason.
 
 use dioxus::prelude::*;
+use libero::components::{Box, Button, Dialog, List, ListItem, ListSubheader, TextField};
+use libero::hooks::{ModalScope, use_modal};
+use libero::sx::sx;
 
 use super::shortcuts::{ShortcutEntry, filtered_shortcuts, grouped_shortcuts, reader_platform};
 use crate::components::app_error_boundary::diagnostic;
 use crate::components::hooks::use_copy_clipboard::use_copy_clipboard;
 use crate::components::palette::dom::focus_by_test_id_next_frame;
-use crate::components::ui::{
-    BindingChip, Button, ButtonVariant, Dialog, DialogContent, DialogHeader, DialogTitle, Input,
-    List, ListRow, SectionTitle,
-};
 
 /// The Shift+? modal, rendered by the route surface that owns it.
 #[component]
 pub fn HelpOverlayHost() -> Element {
     let overlays = crate::keyboard_shortcuts::use_shortcut_overlays();
-    // Read THROUGH the flag rather than `peek`ing it: this host exists only to
-    // appear when the shortcut sets the flag, and `peek` is a promise not to
-    // subscribe, so the host rendered once closed and never came back.
-    let open = overlays.help.cloned();
-    let on_open_change = {
-        let mut help = overlays.help;
-        EventHandler::new(move |is_open: bool| help.set(is_open))
-    };
-    rsx! {
-        Dialog { open, on_open_change,
-            DialogContent {
-                class: "flex sm:max-w-[var(--roost-dialog-wide-max-inline-size)] flex-col gap-0 overflow-hidden p-0",
-                DialogHeader { class: "px-5 pt-5 text-start", DialogTitle { "Keyboard shortcuts" } }
-                if open {
-                    HelpOverlayBody {}
-                }
+    let help = overlays.help;
+    let open = help.cloned();
+    let dialog_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("column")
+            .gap("0")
+            .overflow("hidden")
+            .padding("0")
+            .media(
+                "(min-width: 640px)",
+                sx().max_width("var(--roost-dialog-wide-max-inline-size)"),
+            )
+    });
+    let modal = use_modal(move |_: ModalScope<()>| {
+        let mut help = help;
+        rsx! {
+            Dialog {
+                title: "Keyboard shortcuts",
+                sx: dialog_sx.clone(),
+                ondismiss: move |_| {
+                    help.set(false);
+                    true
+                },
+                HelpOverlayBody {}
             }
         }
-    }
+    });
+    use_effect(use_reactive((&open,), move |(is_open,)| {
+        if is_open && !modal.is_open() {
+            modal.open();
+        } else if !is_open && modal.is_open() {
+            modal.close();
+        }
+    }));
+    rsx! {}
 }
 
 /// The filterable catalogue. Mounted only while the overlay is open, so the
@@ -51,31 +66,61 @@ fn HelpOverlayBody() -> Element {
     let platform = reader_platform();
     let groups = grouped_shortcuts(&filtered_shortcuts(&filter(), platform));
     let (copy_to_clipboard, copied) = use_copy_clipboard(None);
+    let filter_sx = use_hook(|| sx().width("100%"));
+    let overlay_root_sx = use_hook(|| {
+        sx().display("flex")
+            .min_height("0")
+            .flex("1")
+            .flex_direction("column")
+    });
+    let action_bar_sx = use_hook(|| {
+        sx().display("flex")
+            .justify_content("flex-end")
+            .padding_inline("1.25rem")
+            .padding_top("1.25rem")
+    });
+    let filter_frame_sx = use_hook(|| {
+        sx().padding_inline("1.25rem")
+            .padding_top("0.75rem")
+            .padding_bottom("0.5rem")
+    });
+    let shortcut_list_sx = use_hook(|| {
+        sx().min_height("0")
+            .flex("1")
+            .overflow_y("auto")
+            .padding_inline("1.25rem")
+            .padding_top("0.5rem")
+            .padding_bottom("1rem")
+    });
+    let empty_filter_sx = use_hook(|| {
+        sx().margin_top("0.5rem")
+            .font_size("sm")
+            .color("var(--muted-foreground)")
+    });
     rsx! {
-        div { class: "flex min-h-0 flex-1 flex-col", "data-testid": "help-overlay",
-            div { class: "flex flex-none justify-end px-5 pt-2",
+        Box { component: "div", sx: overlay_root_sx.clone(), "data-testid": "help-overlay",
+            Box { component: "div", sx: action_bar_sx.clone(),
                 Button {
-                    variant: ButtonVariant::Secondary,
-                    // The error boundary's payload, so one JSON shape leaves the
-                    // app wherever it is copied from; here it carries no error.
+                    variant: "outlined",
                     onclick: move |_| copy_to_clipboard(&diagnostic("")),
                     "data-testid": "help-overlay-copy-diagnostic",
                     if copied() { "Copied" } else { "Copy diagnostic" }
                 }
             }
-            div { class: "flex-none px-5 pt-3 pb-2",
-                Input {
-                    class: "w-full",
+            Box { component: "div", sx: filter_frame_sx.clone(),
+                TextField {
+                    sx: filter_sx.clone(),
                     value: filter(),
-                    oninput: move |event: FormEvent| filter.set(event.value()),
+                    oninput: move |value: String| filter.set(value),
                     placeholder: "Filter shortcuts…",
                     aria_label: "Filter shortcuts",
-                    test_id: "help-overlay-filter",
+                    id: "help-overlay-filter",
+                    "data-testid": "help-overlay-filter",
                 }
             }
-            div { class: "min-h-0 flex-1 overflow-y-auto px-5 pt-2 pb-4",
+            Box { component: "div", sx: shortcut_list_sx.clone(),
                 if groups.is_empty() {
-                    p { class: "mt-2 text-sm text-muted-foreground", "No matches." }
+                    Box { component: "p", sx: empty_filter_sx.clone(), "No matches." }
                 }
                 for (category, entries) in groups {
                     ShortcutGroup { category, entries, platform }
@@ -92,10 +137,11 @@ fn ShortcutGroup(
     entries: Vec<ShortcutEntry>,
     platform: crate::platform::browser_platform::BrowserPlatform,
 ) -> Element {
+    let group_sx = use_hook(|| sx().margin_bottom("1rem"));
     rsx! {
-        section { class: "mb-4",
-            SectionTitle { {category} }
-            List {
+        Box { component: "section", sx: group_sx.clone(),
+            List { "aria-label": category,
+                ListSubheader { {category} }
                 for entry in entries {
                     ShortcutRow { entry, platform }
                 }
@@ -110,15 +156,33 @@ fn ShortcutRow(
     entry: ShortcutEntry,
     platform: crate::platform::browser_platform::BrowserPlatform,
 ) -> Element {
+    let keycap_sx = use_hook(|| {
+        sx().border_radius("sm")
+            .border_width("1px")
+            .border_color("var(--border)")
+            .background_color("var(--muted)")
+            .padding_inline("sm")
+            .padding_block("xs")
+            .font_family("monospace")
+            .font_size("xs")
+    });
+    let row_sx = use_hook(|| {
+        sx().display("flex")
+            .width("100%")
+            .align_items("center")
+            .justify_content("space-between")
+            .gap("md")
+    });
+    let label_sx = use_hook(|| sx().color("var(--foreground)"));
     let action_id = entry.action_id();
     let binding = entry.binding_label(platform);
     rsx! {
-        // The `data-action-id` a caller addresses a row by is not a native list
-        // row attribute, so it rides on the wrapper that owns the row's identity.
-        div { "data-testid": "help-overlay-action", "data-action-id": action_id,
-            ListRow {
-                headline: rsx! { span { class: "text-foreground", {entry.label} } },
-                trailing: rsx! { BindingChip { {binding} } },
+        ListItem { "data-testid": "help-overlay-action", "data-action-id": action_id,
+            Box { component: "div", sx: row_sx.clone(),
+                Box { component: "span", sx: label_sx.clone(), {entry.label} }
+                Box { component: "kbd", sx: keycap_sx.clone(),
+                    {binding}
+                }
             }
         }
     }

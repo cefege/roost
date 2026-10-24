@@ -11,16 +11,13 @@ use super::edits::{active_preset_name, preset_names, split_entry};
 use super::rows::{
     LeaderValue, RoleTab, RoleTone, RolesRow, build_rows, leader_value, role_inherits, role_tag,
 };
-use crate::components::agent_chat::agent_alert::ERROR_TEXT_CLASS;
 use crate::components::agent_chat::model_controls::thinking_label;
 use crate::components::agent_chat::model_picker::ModelPicker;
 use crate::components::file_viewer::dom::focus_by_id;
 use crate::components::settings::agent_roles::role_options;
-use crate::components::ui::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Chip, IconType, List, ListRow,
-    Separator, Tabs, TabsList, TabsTrigger, TextField,
-};
 use crate::pump::Pump;
+use libero::components::{Button, Chip, Divider, Flex, Pictogram, Text, TextField};
+use libero::sx::sx;
 
 /// The footer's key legend: the keys this view runs.
 const KEY_LEGEND: &str = "↑↓ rows · ⏎ pick · f fallback · x clear · t thinking · [ ] reorder · s save preset · p/P preset · alt+←/→ tab";
@@ -86,39 +83,64 @@ pub fn HubRolesView(
     let open_context = context.clone();
     let save_typed = typed.clone();
     let save_disabled = typed.is_empty();
+    let root_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("column")
+            .flex("1")
+            .min_height("0")
+            .gap("sm")
+    });
+    let group_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("row")
+            .flex_wrap("wrap")
+            .align_items("center")
+            .gap("sm")
+    });
+    let list_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("column")
+            .flex("1")
+            .min_height("0")
+            .overflow_y("auto")
+    });
+    let list_frame_sx = use_hook(|| sx().min_height("0").flex("1"));
+    let fixed_sx = use_hook(|| sx().flex_shrink("0"));
+    let footer_sx = use_hook(|| {
+        sx().flex_shrink("0")
+            .border_top("1px solid")
+            .border_color("muted.4")
+            .padding_top("sm")
+    });
 
     rsx! {
-        div {
+        Flex {
+            sx: root_sx,
             id: ROOT_ID,
-            class: "flex min-h-0 flex-1 flex-col gap-2 outline-none",
             tabindex: "0",
             role: "region",
             "aria-label": "Model roles",
             onkeydown: move |event: KeyboardEvent| handle_key(&key_context, &event),
-            p { class: "text-sm text-muted-foreground", "Model roles — f adds a fallback, x clears a role" }
+            Text { size: "sm", color: "muted", "Model roles — f adds a fallback, x clears a role" }
             if !error_text.is_empty() {
-                p { class: ERROR_TEXT_CLASS, "{error_text}" }
+                Text { size: "sm", color: "error", role: "alert", "{error_text}" }
             }
-            Tabs {
-                class: "flex-row gap-1",
-                value: tab().label(),
-                handles_keys: false,
-                on_value_change: move |label: String| {
-                    let picked = RoleTab::ALL.into_iter().find(|choice| choice.label() == label);
-                    if let Some(choice) = picked {
-                        let mut tab_signal = tab;
-                        tab_signal.set(choice);
-                        let mut cursor_signal = cursor;
-                        cursor_signal.set(0);
-                    }
-                },
-                TabsList { aria_label: "Role filter",
-                    for choice in RoleTab::ALL {
-                        TabsTrigger { key: "{choice.label()}", value: choice.label(), "{choice.label()}" }
+            Flex { direction: "row", wrap: true, sx: group_sx.clone(), role: "group", "aria-label": "Role filter",
+                for choice in RoleTab::ALL {
+                    Chip {
+                        key: "{choice.label()}",
+                        checked: tab() == choice,
+                        onclick: move |_| {
+                            let mut tab_signal = tab;
+                            tab_signal.set(choice);
+                            let mut cursor_signal = cursor;
+                            cursor_signal.set(0);
+                        },
+                        "{choice.label()}"
                     }
                 }
             }
-            div { class: "flex flex-wrap items-center gap-2", role: "group", "aria-label": "Presets",
+            Flex { direction: "row", wrap: true, sx: group_sx.clone(), role: "group", "aria-label": "Presets",
                 for name in names {
                     PresetChip {
                         key: "{name}",
@@ -132,31 +154,29 @@ pub fn HubRolesView(
                 }
                 if !naming() {
                     Chip {
-                        label: "Save as…".to_owned(),
-                        icon: Some(IconType::Plus),
-                        test_id: Some("agent-hub-roles-preset-save".to_owned()),
-                        title: Some("Save these roles as a preset".to_owned()),
-                        onclick: Some(EventHandler::new(move |_| {
-                            open_context.run(RoleAction::OpenNaming);
-                        })),
+                        icon: Some(rsx! { Pictogram { icon: pictogram_icons_lucide::plus::outlined } }),
+                        "data-testid": "agent-hub-roles-preset-save",
+                        title: "Save these roles as a preset",
+                        onclick: move |_| open_context.run(RoleAction::OpenNaming),
+                        "Save as…"
                     }
                 }
             }
             if naming() {
-                div { class: "flex flex-wrap items-end gap-2",
+                Flex { direction: "row", wrap: true, align: "end", sx: group_sx.clone(),
                     TextField {
                         value: preset_name(),
-                        on_input: move |text: String| {
+                        oninput: move |text: String| {
                             let mut field = preset_name;
                             field.set(text);
                         },
                         placeholder: "Preset name".to_owned(),
-                        aria_label: "Preset name".to_owned(),
-                        autocomplete: "off".to_owned(),
-                        max_length: Some(64),
-                        test_id: NAME_FIELD_ID.to_owned(),
+                        aria_label: "Preset name",
+                        autocomplete: "off",
+                        maxlength: 64,
+                        "data-testid": NAME_FIELD_ID,
                         onkeydown: move |event: KeyboardEvent| {
-                            if event.key() == Key::Enter && !event.is_composing() {
+                            if event.key() == Key::Named(NamedKey::Enter) && !event.is_composing() {
                                 event.prevent_default();
                                 if !save_disabled {
                                     field_context.save_preset(&save_typed);
@@ -165,23 +185,23 @@ pub fn HubRolesView(
                         },
                     }
                     Button {
-                        variant: ButtonVariant::Default,
-                        size: ButtonSize::Sm,
+                        variant: "filled",
+                        size: "sm",
                         disabled: save_disabled,
                         "data-testid": "agent-hub-roles-preset-save-confirm",
                         onclick: move |_| save_context.save_preset(&typed),
                         "Save"
                     }
                     Button {
-                        variant: ButtonVariant::Ghost,
-                        size: ButtonSize::Sm,
+                        variant: "standard",
+                        size: "sm",
                         onclick: move |_| cancel_context.cancel_naming(),
                         "Cancel"
                     }
                 }
             }
-            List { contained: true, class: "min-h-0 flex-1",
-                div { class: "flex min-h-0 flex-1 flex-col overflow-y-auto", role: "listbox", "aria-label": "Roles", tabindex: "0", "aria-activedescendant": format!("agent-hub-roles-option-{cursor_row}"),
+            Flex { sx: list_frame_sx,
+                Flex { sx: list_sx, role: "listbox", "aria-label": "Roles", tabindex: "0", "aria-activedescendant": format!("agent-hub-roles-option-{cursor_row}"),
                     for (position, row) in rows.iter().cloned().enumerate() {
                         RoleRowLine {
                             key: "{position}",
@@ -199,7 +219,7 @@ pub fn HubRolesView(
                 }
             }
             if let Some(target) = picker_target {
-                div { class: "shrink-0",
+                Flex { sx: fixed_sx,
                     ModelPicker {
                         options: role_options(&catalog, target.role()),
                         selected: picker_selected,
@@ -214,7 +234,7 @@ pub fn HubRolesView(
                     }
                 }
             }
-            p { class: "shrink-0 border-t border-border pt-2 text-xs text-muted-foreground", "{KEY_LEGEND}" }
+            Text { sx: footer_sx, size: "xs", color: "muted", "{KEY_LEGEND}" }
         }
     }
 }
@@ -226,12 +246,14 @@ fn PresetChip(is_active: bool, name: String, on_apply: EventHandler<String>) -> 
     let test_id = format!("agent-hub-roles-preset-{name}");
     rsx! {
         Chip {
-            label,
-            icon: if is_active { Some(IconType::Check) } else { None },
-            selected: Some(is_active),
-            test_id: Some(test_id),
-            title: Some(format!("Use {name} for every role, in all folders")),
-            onclick: Some(EventHandler::new(move |_| on_apply.call(name.clone()))),
+            checked: is_active,
+            icon: is_active.then(|| rsx! {
+                Pictogram { icon: pictogram_icons_lucide::check::outlined }
+            }),
+            "data-testid": test_id,
+            title: "Use {name} for every role, in all folders",
+            onclick: move |_| on_apply.call(name.clone()),
+            "{label}"
         }
     }
 }
@@ -249,40 +271,55 @@ fn RoleRowLine(
 ) -> Element {
     let option_id = format!("agent-hub-roles-option-{position}");
     let aria_selected = if selected { "true" } else { "false" };
+    let row_sx = use_hook(|| {
+        sx().width("100%")
+            .justify_content("flex-start")
+            .text_align("left")
+            .padding("sm")
+    });
+    let value_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("row")
+            .flex_wrap("wrap")
+            .align_items("center")
+            .gap("sm")
+    });
     match row {
-        RolesRow::Separator => rsx! {
-            Separator { class: "my-1", decorative: true }
-        },
+        RolesRow::Separator => rsx! { Divider {} },
         RolesRow::NewFallback => rsx! {
-            ListRow {
+            Button {
+                sx: row_sx.clone(),
+                variant: if selected { "tonal" } else { "standard" },
                 id: "{option_id}",
                 role: "option",
-                aria_selected: aria_selected.to_string(),
-                selected,
-                dense: true,
-                class: "px-2 text-muted-foreground",
-                headline: rsx! { "+ New fallback…" },
+                aria_selected,
+                "data-testid": "{option_id}",
                 onclick: move |_| on_activate.call(()),
+                "+ New fallback…"
             }
         },
         RolesRow::Role { role } => {
             let (tag, tone) = role_tag(role);
             let value = leader_row_value(&catalog, &settings, role);
+            let color = match tone {
+                RoleTone::Ok => "success",
+                RoleTone::Warn => "warning",
+                RoleTone::Accent => "primary",
+                RoleTone::Muted | RoleTone::Dim => "text-dimmed",
+            };
             rsx! {
-                ListRow {
+                Button {
+                    sx: row_sx.clone(),
+                    variant: if selected { "tonal" } else { "standard" },
                     id: "{option_id}",
                     role: "option",
-                    aria_selected: aria_selected.to_string(),
-                    selected,
-                    dense: true,
-                    class: "px-2",
-                    leading: rsx! {
-                        Badge { variant: tone_variant(tone), class: Some("font-mono".to_owned()), "{tag}" }
-                    },
-                    headline: rsx! {
-                        div { class: "flex flex-wrap items-center gap-2", {value} }
-                    },
+                    aria_selected,
+                    "data-testid": "{option_id}",
                     onclick: move |_| on_activate.call(()),
+                    Flex { direction: "row", wrap: true, sx: value_sx,
+                        Text { size: "xs", color, "{tag}" }
+                        {value}
+                    }
                 }
             }
         }
@@ -293,24 +330,22 @@ fn RoleRowLine(
             let (provider, model) = split_provider(base);
             let level_label = level.map(thinking_label);
             rsx! {
-                ListRow {
+                Button {
+                    sx: row_sx.clone(),
+                    variant: if selected { "tonal" } else { "standard" },
                     id: "{option_id}",
                     role: "option",
-                    aria_selected: aria_selected.to_string(),
-                    selected,
-                    dense: true,
-                    class: "px-2 pl-6",
-                    headline: rsx! {
-                        div { class: "flex flex-wrap items-center gap-2",
-                            span { class: "font-mono text-xs text-muted-foreground", "{index}." }
-                            span { class: "text-muted-foreground", "{provider}" }
-                            span { class: "font-medium", "{model}" }
-                            if let Some(label) = level_label {
-                                span { class: "text-xs text-muted-foreground", "{label}" }
-                            }
-                        }
-                    },
+                    aria_selected,
+                    "data-testid": "{option_id}",
                     onclick: move |_| on_activate.call(()),
+                    Flex { direction: "row", wrap: true, sx: value_sx,
+                        Text { size: "xs", color: "text-dimmed", "{index}." }
+                        Text { size: "sm", color: "text-dimmed", "{provider}" }
+                        Text { size: "sm", "{model}" }
+                        if let Some(label) = level_label {
+                            Text { size: "xs", color: "text-dimmed", "{label}" }
+                        }
+                    }
                 }
             }
         }
@@ -326,21 +361,17 @@ fn leader_row_value(catalog: &ModelsCatalog, settings: &AgentSettingsView, role:
             let (provider, model) = split_provider(base);
             let level_label = level.map(thinking_label);
             rsx! {
-                span { class: "text-muted-foreground", "{provider}" }
-                span { class: "font-medium", "{model}" }
+                Text { size: "sm", color: "muted", "{provider}" }
+                Text { size: "sm", "{model}" }
                 if let Some(label) = level_label {
-                    span { class: "text-xs text-muted-foreground", "{label}" }
+                    Text { size: "xs", color: "muted", "{label}" }
                 }
             }
         }
-        LeaderValue::Auto => rsx! {
-            span { class: "text-muted-foreground italic", "auto" }
-        },
+        LeaderValue::Auto => rsx! { Text { size: "sm", color: "muted", "auto" } },
         LeaderValue::Unset => {
             let inherits = role_inherits(role);
-            rsx! {
-                span { class: "text-muted-foreground italic", "inherits {inherits}" }
-            }
+            rsx! { Text { size: "sm", color: "muted", "inherits {inherits}" } }
         }
     }
 }
@@ -348,16 +379,4 @@ fn leader_row_value(catalog: &ModelsCatalog, settings: &AgentSettingsView, role:
 /// `provider/id` split at the first slash; a bare id has no provider.
 fn split_provider(selector: &str) -> (&str, &str) {
     selector.split_once('/').unwrap_or(("", selector))
-}
-
-/// Badge variant for each role tone; the variants draw from the theme roles so the
-/// tags follow the active scheme.
-fn tone_variant(tone: RoleTone) -> BadgeVariant {
-    match tone {
-        RoleTone::Ok => BadgeVariant::Success,
-        RoleTone::Warn => BadgeVariant::Warning,
-        RoleTone::Accent => BadgeVariant::Info,
-        RoleTone::Muted => BadgeVariant::Muted,
-        RoleTone::Dim => BadgeVariant::Outline,
-    }
 }

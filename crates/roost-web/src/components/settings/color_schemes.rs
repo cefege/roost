@@ -8,12 +8,12 @@ use dioxus::web::WebEventExt as _;
 use roost_client_core::KeyValueStore as _;
 use wasm_bindgen::JsCast as _;
 
-use crate::components::ui::{
-    Button, ButtonVariant, Card, CardContent, CardHeader, CardTitle, FieldError, Input, InputType,
-    Select, SelectOption, TextField,
-};
 use crate::platform::LocalStorageKeyValueStore;
 use crate::terminal_schemes::{TerminalPalette, TerminalScheme, built_in_schemes, parse_scheme};
+use libero::components::{
+    Button, Combobox, ComboboxOption, ComboboxOptionArgs, Flex, Paper, Text, Textarea, use_combobox,
+};
+use libero::sx::sx;
 
 const SELECTED_SCHEME_KEY: &str = "roost.terminalColorScheme";
 const IMPORTED_SCHEMES_KEY: &str = "roost.importedTerminalColorSchemes";
@@ -30,6 +30,22 @@ pub fn TerminalColorSchemes() -> Element {
     let mut imported = use_signal(load_imported_schemes);
     let mut draft = use_signal(String::new);
     let mut error = use_signal(|| None::<String>);
+    let scheme_select = use_combobox();
+    let semibold_text_sx = use_hook(|| libero::sx::sx().font_weight("600"));
+    let paper_sx = use_hook(|| sx().padding("md"));
+    let scheme_options: Vec<(String, String)> =
+        std::iter::once((MATCH_APP_THEME.to_owned(), "Match app theme".to_owned()))
+            .chain(
+                built_in_schemes()
+                    .iter()
+                    .map(|scheme| (scheme.id.clone(), scheme.name.clone())),
+            )
+            .chain(
+                imported()
+                    .iter()
+                    .map(|scheme| (scheme.id.clone(), scheme.name.clone())),
+            )
+            .collect();
 
     use_effect(move || {
         let choice = selected();
@@ -39,17 +55,6 @@ pub fn TerminalColorSchemes() -> Element {
         apply_palette(palette.as_ref());
     });
 
-    let mut options = vec![SelectOption::new(MATCH_APP_THEME, "Match app theme")];
-    options.extend(
-        built_in_schemes()
-            .iter()
-            .map(|scheme| SelectOption::new(scheme.id.clone(), scheme.name.clone())),
-    );
-    options.extend(
-        imported()
-            .iter()
-            .map(|scheme| SelectOption::new(scheme.id.clone(), scheme.name.clone())),
-    );
     let imported_swatches: Vec<_> = imported()
         .into_iter()
         .map(|scheme| {
@@ -73,45 +78,66 @@ pub fn TerminalColorSchemes() -> Element {
         .collect();
 
     rsx! {
-        Card {
-            CardHeader {
-                CardTitle { "Color scheme" }
-            }
-            CardContent { class: "flex flex-col gap-3",
-                Select {
-                    test_id: "terminal-color-scheme-select",
-                    label: "Color scheme",
-                    value: selected(),
-                    options,
-                    on_change: move |value| selected.set(value),
+        Paper { sx: paper_sx,
+            Flex { direction: "column", gap: "sm",
+                Text { size: "lg", sx: semibold_text_sx.clone(), "Color scheme" }
+                Flex { direction: "column", gap: "xs",
+                    Text { size: "sm", "Color scheme" }
+                    Combobox {
+                        state: scheme_select,
+                        select_only: true,
+                        aria_label: "Color scheme",
+                        selected_index: scheme_options.iter().position(|(id, _)| *id == selected()),
+                        option_label: |option: (String, String)| option.1.clone(),
+                        options: scheme_options.clone(),
+                        option: {
+                            let current = selected();
+                            move |row: ComboboxOptionArgs<(String, String)>| {
+                                let choice = row.value.0.clone();
+                                let selected_id = current.clone();
+                                rsx! {
+                                    ComboboxOption {
+                                        selected: selected_id == row.value.0,
+                                        onpick: move |_| {
+                                            selected.set(choice.clone());
+                                            scheme_select.close();
+                                        },
+                                        "{row.value.1}"
+                                    }
+                                }
+                            }
+                        },
+                        Button {
+                            attributes: scheme_select.a11y_attributes(),
+                            onclick: move |_| scheme_select.toggle(),
+                            onblur: move |_| scheme_select.close(),
+                            "data-testid": "terminal-color-scheme-select",
+                            "{scheme_options.iter().find(|(id, _)| *id == selected()).map(|(_, label)| label.as_str()).unwrap_or_default()}"
+                        }
+                    }
                 }
-                p { class: "text-sm text-muted-foreground",
+                Text { size: "sm", color: "muted",
                     "Changes only the terminal palette; app chrome keeps its Light, Dark, or System theme. Applies to every open terminal on this device."
                 }
                 for scheme in built_in_schemes().iter() {
                     SchemeSwatch { scheme: scheme.clone(), selected: selected() == scheme.id, on_delete: None }
                 }
                 for (scheme, on_delete) in imported_swatches {
-                    SchemeSwatch {
-                        scheme: scheme.clone(),
-                        selected: selected() == scheme.id,
-                        on_delete: Some(on_delete),
-                    }
+                    SchemeSwatch { scheme: scheme.clone(), selected: selected() == scheme.id, on_delete: Some(on_delete) }
                 }
-                TextField {
-                    label: Some("Paste a terminal theme".to_owned()),
-                    input_type: Some("textarea".to_owned()),
-                    test_id: Some("terminal-scheme-import".to_owned()),
-                    value: draft(),
-                    rows: Some(8),
-                    placeholder: Some("Windows Terminal JSON, iTerm2 .itermcolors XML, kitty or Ghostty key/value".to_owned()),
-                    on_input: move |value| { draft.set(value); error.set(None); },
+                Textarea {
+                    label: "Paste a terminal theme",
+                    "data-testid": "terminal-scheme-import",
+                    rows: 8,
+                    placeholder: "Windows Terminal JSON, iTerm2 .itermcolors XML, kitty or Ghostty key/value",
+                    value: Some(draft()),
+                    oninput: move |value| { draft.set(value); error.set(None); },
                 }
-                Input {
+                input {
                     accept: ".json,.itermcolors,.conf,.txt",
-                    r#type: InputType::File,
-                    aria_label: "Import terminal color scheme file",
-                    test_id: "terminal-scheme-file",
+                    r#type: "file",
+                    "aria-label": "Import terminal color scheme file",
+                    "data-testid": "terminal-scheme-file",
                     onchange: move |event: FormEvent| {
                         let Some(web_event) = event.try_as_web_event() else { return; };
                         let Some(file) = web_event.target()
@@ -129,10 +155,10 @@ pub fn TerminalColorSchemes() -> Element {
                     },
                 }
                 if let Some(message) = error() {
-                    FieldError { {message} }
+                    Text { size: "sm", color: "error", role: "alert", "{message}" }
                 }
                 Button {
-                    variant: ButtonVariant::Default,
+                    variant: "filled",
                     "data-testid": "terminal-scheme-import-button",
                     onclick: move |_| {
                         match parse_scheme(&draft()) {
@@ -177,24 +203,38 @@ fn SchemeSwatch(
     let scheme_id = scheme.id;
     let scheme_name = scheme.name;
     let delete_test_id = format!("terminal-scheme-delete-{scheme_id}");
-    let preview_label = format!("{scheme_name} palette preview");
+    let preview_label = format!(
+        "{scheme_name} palette preview{}",
+        if selected { ", selected" } else { "" }
+    );
+    let preview_sx = use_hook(|| {
+        sx().display("flex")
+            .width("100%")
+            .height("1rem")
+            .flex("1")
+            .overflow("hidden")
+            .border_radius("xs")
+    });
+    let ansi_segment_sx = use_hook(|| sx().flex("1 1 0%"));
+    let accent_segment_sx = use_hook(|| sx().flex("2 1 0%"));
     rsx! {
-        div { class: "flex items-center gap-2", "data-testid": "terminal-scheme-swatch", "data-selected": selected,
-            div {
+        Flex { direction: "row", align: "center", gap: "sm",
+            Flex {
+                direction: "row",
+                sx: preview_sx,
                 role: "img",
                 "aria-label": preview_label,
-                class: "flex h-4 flex-1 overflow-hidden rounded-xs",
                 style: format!("background: {}; color: {};", palette.background.css(), palette.foreground.css()),
                 for color in palette.ansi.iter() {
-                    span { class: "flex-1", style: format!("background: {};", color.css()), " " }
+                    Flex { sx: ansi_segment_sx.clone(), style: format!("background: {};", color.css()), " " }
                 }
-                span { class: "flex-[2]", style: format!("background: {};", palette.cursor.css()), " " }
-                span { class: "flex-[2]", style: format!("background: {};", palette.selection_background.css()), " " }
+                Flex { sx: accent_segment_sx.clone(), style: format!("background: {};", palette.cursor.css()), " " }
+                Flex { sx: accent_segment_sx, style: format!("background: {};", palette.selection_background.css()), " " }
             }
-            span { class: "text-sm", "{scheme_name}" }
+            Text { size: "sm", "{scheme_name}" }
             if let Some(on_delete) = on_delete {
                 Button {
-                    variant: ButtonVariant::Ghost,
+                    variant: "standard",
                     "data-testid": delete_test_id,
                     onclick: move |_| on_delete.call(scheme_id.clone()),
                     "Delete"

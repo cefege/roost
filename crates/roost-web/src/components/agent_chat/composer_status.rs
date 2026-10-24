@@ -5,9 +5,8 @@
 use dioxus::prelude::*;
 
 use super::agent_alert::AgentAlert;
-use crate::components::ui::{
-    Button, ButtonVariant, Collapsible, CollapsibleContent, CollapsibleTrigger,
-};
+use libero::components::{Button, Collapse, Flex, Text};
+use libero::sx::sx;
 
 #[component]
 pub(super) fn ComposerErrorBanner(
@@ -29,6 +28,34 @@ pub(super) fn ComposerErrorBanner(
             dismissed.set(false);
         }
     }));
+    let banner_sx = use_hook(|| sx().display("flex").flex_direction("column").gap("sm"));
+    let heading_row_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_wrap("wrap")
+            .align_items("center")
+            .gap("sm")
+    });
+    let heading_sx = use_hook(|| {
+        sx().min_width("0")
+            .flex("1")
+            .overflow("hidden")
+            .with("overscroll-behavior-y", "auto")
+            .with("overflow-wrap", "anywhere")
+    });
+    let details_sx = use_hook(|| {
+        sx().margin("0")
+            .max_height("12rem")
+            .overflow("auto")
+            .white_space("pre-wrap")
+            .with("overflow-wrap", "anywhere")
+            .padding("sm")
+    });
+    let action_row_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_wrap("wrap")
+            .align_items("center")
+            .gap("sm")
+    });
     let Some(error_text) = error else {
         return rsx! {};
     };
@@ -39,37 +66,37 @@ pub(super) fn ComposerErrorBanner(
     let has_details = error_text.len() > 80 || error_text.lines().count() > 1;
     rsx! {
         AgentAlert { test_id: "agent-chat-pinned-error",
-            Collapsible {
-                open: details_open() && has_details,
-                on_open_change: move |next: bool| details_open.set(next),
-                div { class: "flex flex-wrap items-center gap-2",
-                    strong { class: "min-w-0 flex-1 break-words font-semibold", "{headline}" }
+            Flex { sx: banner_sx, direction: "column", gap: "sm",
+                Flex { sx: heading_row_sx, direction: "row", align: "center", gap: "sm",
+                    Text { sx: heading_sx, size: "sm", "{headline}" }
                     if has_details {
-                        CollapsibleTrigger {
-                            test_id: "agent-chat-error-details",
-                            controls_id: "agent-chat-pinned-error-details",
+                        Button {
+                            variant: "text",
+                            "data-testid": "agent-chat-error-details",
+                            "aria-expanded": details_open(),
+                            "aria-controls": "agent-chat-pinned-error-details",
+                            onclick: move |_| details_open.toggle(),
                             if details_open() { "Less" } else { "Details" }
                         }
                     }
                     Button {
-                        variant: ButtonVariant::Ghost,
+                        variant: "text",
                         "data-testid": "agent-chat-error-dismiss",
                         onclick: move |_| dismissed.set(true),
                         "Dismiss"
                     }
                 }
-                CollapsibleContent {
-                    pre {
-                        id: "agent-chat-pinned-error-details",
-                        class: "m-0 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-2 font-mono text-xs text-foreground",
-                        "{error_text}"
-                    }
+                Collapse {
+                    id: "agent-chat-pinned-error-details",
+                    open: details_open() && has_details,
+                    Text { component: "pre", sx: details_sx, size: "xs", color: "ink", "{error_text}" }
                 }
             }
-            div { class: "flex flex-wrap items-center gap-2",
+            Flex { sx: action_row_sx, direction: "row", align: "center", gap: "sm",
                 if running {
                     Button {
-                        variant: ButtonVariant::Destructive,
+                        variant: "filled",
+                        color: "error",
                         "data-testid": "agent-chat-error-stop",
                         title: "Interrupt foreground work. Background jobs continue.",
                         onclick: move |_| on_stop.call(()),
@@ -77,7 +104,7 @@ pub(super) fn ComposerErrorBanner(
                     }
                 }
                 Button {
-                    variant: ButtonVariant::Outline,
+                    variant: "outlined",
                     "data-testid": "agent-chat-error-switch-model",
                     onclick: move |_| on_switch_model.call(()),
                     "Switch model"

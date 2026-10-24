@@ -21,11 +21,11 @@
     <link rel="preload" as="fetch" type="application/wasm" crossorigin href="/{wasm_path}" />
     <meta name="theme-color" content="#0d0d0d" />
     <title>{app_title}</title>
-    <!-- In Tailwind's `base` layer: an unlayered rule beats every layered
-         utility, so an unlayered `* { padding: 0 }` here would cancel every
-         `p-*`/`m-*` class and `* { overscroll-behavior-y: none }` every
-         `overscroll-y-auto`. -->
+    <!-- The explicit order lets Libero's layered reset coexist with Roost's
+         product geometry. The unlayered universal rules below would otherwise
+         cancel component-owned padding or overscroll policy. -->
     <style>
+      @layer base, lsx-base, lsx-framework, lsx-user-static, lsx-user-custom;
       @layer base {
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html, body, #main {

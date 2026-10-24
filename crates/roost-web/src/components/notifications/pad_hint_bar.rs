@@ -9,9 +9,12 @@
 
 use dioxus::prelude::*;
 
-use crate::components::ui::{BindingChip, Surface, SurfaceRadius};
 use crate::input_nav::modality::NavModality;
 use crate::input_nav::pad_hints::{PadHintContext, pad_hints};
+use libero::{
+    components::{Flex, Kbd, Paper, Text},
+    sx::sx,
+};
 
 /// The legend, or nothing off a controller.
 ///
@@ -21,6 +24,19 @@ use crate::input_nav::pad_hints::{PadHintContext, pad_hints};
 /// no surface to be specific to.
 #[component]
 pub fn PadHintBar() -> Element {
+    let legend_sx = use_hook(|| {
+        sx().pointer_events("none")
+            .width("auto")
+            .max_width("100%")
+            .display("flex")
+            .flex_wrap("wrap")
+            .align_items("center")
+            .justify_content("center")
+            .gap("sm")
+            .padding("xs")
+            .with("align-self", "center")
+    });
+    let label_sx = use_hook(|| sx().white_space("nowrap"));
     let Some(modality) = try_use_context::<Signal<NavModality>>() else {
         return rsx! {};
     };
@@ -29,18 +45,13 @@ pub fn PadHintBar() -> Element {
     }
     let hints = pad_hints(PadHintContext::Default);
     rsx! {
-        Surface {
-            level: 2,
-            elevation: 3,
-            radius: SurfaceRadius::Md,
-            test_id: Some("pad-hint-bar".to_owned()),
-            aria_hidden: Some("true".to_owned()),
-            class: "pad-hint pointer-events-none flex w-auto max-w-full flex-wrap items-center justify-center gap-3 self-center",
+        Paper {
+            shadow: "md", radius: "md", sx: legend_sx,
+            class: "pad-hint", "data-testid": "pad-hint-bar", aria_hidden: "true",
             for hint in hints {
-                span {
-                    class: "inline-flex items-center gap-1",
-                    BindingChip { "{hint.cap}" }
-                    span { class: "text-xs whitespace-nowrap text-[var(--text-mid)]", "{hint.label}" }
+                Flex { direction: "row", align: "center", gap: "xs", wrap: false,
+                    Kbd { "{hint.cap}" }
+                    Text { size: "xs", color: "muted", sx: label_sx.clone(), "{hint.label}" }
                 }
             }
         }

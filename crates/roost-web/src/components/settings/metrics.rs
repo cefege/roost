@@ -8,14 +8,11 @@
 use dioxus::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::client::rpc::calls::settings::metrics::GetMetrics;
-use roost_client_core::client::rpc::calls::settings::metrics::MetricsSnapshot;
+use roost_client_core::client::rpc::calls::settings::metrics::{MetricsSnapshot, RouteCounters};
 
 use crate::components::terminal::dom::{page_visible, sleep_ms};
-use crate::components::ui::{
-    Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyState, FieldError, Icon,
-    IconType, MetricTile, Table, TableBody, TableCell, TableRow, TableWrapper,
-};
 use crate::pump::{Pump, use_store};
+use libero::components::{Flex, Paper, Pictogram, SvgData, Table, Text, column};
 
 /// How often the counters are re-read, in milliseconds.
 const POLL_INTERVAL_MS: u64 = 5_000;
@@ -50,106 +47,71 @@ pub fn MetricsPane() -> Element {
         }
     });
 
+    let semibold_text_sx = use_hook(|| libero::sx::sx().font_weight("600"));
+    let medium_text_sx = use_hook(|| libero::sx::sx().font_weight("500"));
     let state = view();
+    let paper_sx = use_hook(|| libero::sx::sx().padding("md"));
     rsx! {
-        div {
-            class: "flex flex-col gap-5",
-            "data-testid": "metrics-pane",
-            Card {
-                CardHeader {
-                    CardTitle { "Coordinator metrics" }
-                    CardDescription {
-                        "Live telemetry counters. Refreshes every 5s. Counts reset on coord restart."
-                    }
-                }
-                CardContent { class: "flex flex-col gap-3",
+        Flex { direction: "column", gap: "md", "data-testid": "metrics-pane",
+            Paper { sx: paper_sx.clone(),
+                Flex { direction: "column", gap: "sm",
+                    Text { size: "lg", sx: semibold_text_sx.clone(), "Coordinator metrics" }
+                    Text { size: "sm", color: "muted", "Live telemetry counters. Refreshes every 5s. Counts reset on coord restart." }
                     if let Some(message) = state.error.clone() {
-                        FieldError {
-                            test_id: "metrics-error",
-                            class: "flex items-center gap-2",
-                            Icon { icon: IconType::CircleAlert, class: "size-4 shrink-0" }
-                            span { {message} }
+                        Flex { direction: "row", align: "center", gap: "xs", "data-testid": "metrics-error",
+                            Pictogram { icon: pictogram_icons_lucide::circle_alert::outlined }
+                            Text { size: "sm", color: "error", role: "alert", "{message}" }
                         }
                     }
                     match state.snapshot.clone() {
                         Some(snapshot) => rsx! {
-                            div { class: "grid grid-cols-2 gap-3 md:grid-cols-4", "data-testid": "metrics-summary",
-                                MetricTile { icon: Some(IconType::Clock), label: "Uptime", value: format_uptime(snapshot.uptime_ms), support: None, ratio: None }
-                                MetricTile { icon: Some(IconType::RefreshCw), label: "Requests", value: group(snapshot.total_requests), support: None, ratio: None }
+                            Flex { direction: "row", wrap: "wrap", gap: "sm", "data-testid": "metrics-summary",
+                                MetricTile { icon: pictogram_icons_lucide::clock::outlined, label: "Uptime", value: format_uptime(snapshot.uptime_ms), support: None }
+                                MetricTile { icon: pictogram_icons_lucide::refresh_cw::outlined, label: "Requests", value: group(snapshot.total_requests), support: None }
                                 MetricTile {
-                                    icon: Some(IconType::TriangleAlert),
+                                    icon: pictogram_icons_lucide::triangle_alert::outlined,
                                     label: "Errors",
                                     value: group(snapshot.total_errors),
                                     support: Some(if snapshot.total_errors > 0 { "4xx + 5xx responses" } else { "All clear" }.to_owned()),
-                                    ratio: None,
                                 }
-                                MetricTile { icon: Some(IconType::TrendingDown), label: "Error rate", value: error_rate(&snapshot), support: None, ratio: None }
+                                MetricTile { icon: pictogram_icons_lucide::trending_down::outlined, label: "Error rate", value: error_rate(&snapshot), support: None }
                             }
                         },
-                        None if state.loading => rsx! {
-                            span { class: "text-sm text-muted-foreground", "Loading…" }
-                        },
+                        None if state.loading => rsx! { Text { size: "sm", color: "muted", "Loading…" } },
                         None => rsx! {},
                     }
                 }
             }
-            Card {
-                CardHeader {
-                    CardTitle { "Per-route activity" }
-                }
-                CardContent { class: "flex flex-col",
-                if state.snapshot.as_ref().is_some_and(|snapshot| snapshot.routes.is_empty()) {
-                    EmptyState {
-                        icon: IconType::Activity,
-                        title: "No requests recorded yet",
-                        supporting: "Counters reset on coord restart. Drive some traffic and metrics will appear here within 5 s.",
-                    }
-                } else {
-                    TableWrapper { class: "max-h-none rounded-none border-0",
+            Paper { sx: paper_sx,
+                Flex { direction: "column", gap: "sm",
+                    Text { size: "lg", sx: semibold_text_sx.clone(), "Per-route activity" }
+                    if state.snapshot.as_ref().is_some_and(|snapshot| snapshot.routes.is_empty()) {
+                        Flex { direction: "column", align: "center", gap: "xs",
+                            Pictogram { icon: pictogram_icons_lucide::activity::outlined }
+                            Text { size: "md", sx: semibold_text_sx.clone(), "No requests recorded yet" }
+                            Text { size: "sm", color: "muted", "Counters reset on coord restart. Drive some traffic and metrics will appear here within 5 s." }
+                        }
+                    } else {
                         Table {
-                            TableBody {
-                                for route in state
-                                    .snapshot
-                                    .clone()
-                                    .unwrap_or_default()
-                                    .routes
-                                    .iter()
-                                    .map(|route| {
-                                        (
-                                            route.path.clone(),
-                                            group(route.requests),
-                                            group(route.errors),
-                                            route_error_percent(route.requests, route.errors),
-                                        )
-                                    })
-                                    .collect::<Vec<_>>()
-                                {
-                                    RouteRow { path: route.0, requests: route.1, errors: route.2, error_percent: route.3 }
-                                }
-                            }
+                            data: state.snapshot.clone().unwrap_or_default().routes,
+                            row_attrs: |_: &_| vec![Attribute::new("data-testid", "metrics-row", None, false)],
+                            columns: vec![
+                                column("Route")
+                                    .value(|route: &RouteCounters| route.path.clone())
+                                    .render({
+                                        let medium_text_sx = medium_text_sx.clone();
+                                        move |route| {
+                                            rsx! { Text { size: "sm", sx: medium_text_sx.clone(), "{route.path}" } }
+                                        }
+                                    }),
+                                column("Requests").value(|route: &RouteCounters| group(route.requests)).render(|route| rsx! { Text { size: "sm", color: "muted", "{group(route.requests)}" } }),
+                                column("Errors").value(|route: &RouteCounters| group(route.errors)).render(|route| rsx! { Text { size: "sm", color: "muted", "{group(route.errors)}" } }),
+                                column("Error rate").value(|route: &RouteCounters| route_error_percent(route.requests, route.errors)).render(|route| rsx! { Text { size: "sm", color: "muted", "{route_error_percent(route.requests, route.errors)}" } }),
+                            ],
                         }
                     }
                 }
-                }
             }
-        }
-    }
-}
-
-/// One route's counters. Positional rather than keyed so a five-second poll
-/// updates the text it changed instead of rebuilding every row.
-#[component]
-fn RouteRow(path: String, requests: String, errors: String, error_percent: String) -> Element {
-    rsx! {
-        TableRow { test_id: "metrics-row",
-            TableCell { class: "max-w-0 w-full py-2",
-                span { class: "block truncate font-mono", title: path.clone(),
-                    {path.clone()}
-                }
-            }
-            TableCell { class: "py-2 font-mono whitespace-nowrap text-muted-foreground", {requests.clone()} }
-            TableCell { class: "py-2 font-mono whitespace-nowrap text-muted-foreground", {errors.clone()} }
-            TableCell { class: "py-2 font-mono whitespace-nowrap text-muted-foreground", {error_percent.clone()} }
         }
     }
 }
@@ -223,6 +185,31 @@ fn route_error_percent(requests: u64, errors: u64) -> String {
         return "—".to_owned();
     }
     format!("{:.1}%", errors as f64 / requests as f64 * 100.0)
+}
+
+#[component]
+fn MetricTile(
+    icon: SvgData,
+    label: &'static str,
+    value: String,
+    support: Option<String>,
+) -> Element {
+    let semibold_text_sx = use_hook(|| libero::sx::sx().font_weight("600"));
+    let paper_sx = use_hook(|| libero::sx::sx().padding("sm"));
+    rsx! {
+        Paper { sx: paper_sx,
+            Flex { direction: "column", gap: "xs",
+                Flex { direction: "row", align: "center", gap: "xs",
+                    Pictogram { icon }
+                    Text { size: "xs", color: "muted", "{label}" }
+                }
+                Text { size: "lg", sx: semibold_text_sx.clone(), "{value}" }
+                if let Some(support) = support {
+                    Text { size: "xs", color: "muted", "{support}" }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

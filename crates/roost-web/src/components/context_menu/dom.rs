@@ -1,222 +1,71 @@
-//! The browser half of the floating-menu primitives: focusing a menu edge after
-//! it mounts, running a menu key, and the document listeners behind
-//! outside-click/Escape dismissal. wasm32 only; the decisions are
-//! `super::menu_key_action` and `super::MenuFocusRequest`.
+//! Browser navigation for product pointer command menus.
+//! Focus starts only after Libero places the popover; no deferred focus retries.
+//! Escape and outside presses belong exclusively to Libero's dismissal owner.
 
-use std::cell::RefCell;
-use std::rc::Rc;
-
-use dioxus::prelude::EventHandler;
+use super::{PointerMenuKeyAction, pointer_menu_key_action};
 use wasm_bindgen::JsCast as _;
 use wasm_bindgen::closure::Closure;
-use web_sys::{Element, HtmlElement, KeyboardEvent};
+use web_sys::{Element, HtmlElement, KeyboardEvent, NodeList};
 
-use super::{MenuFocusEdge, MenuFocusRequest, MenuKeyAction, menu_key_action};
+const ENABLED_ITEMS: &str = "[role=\"menuitem\"]:not(:disabled):not([aria-disabled=\"true\"])";
 
-const ENABLED_ITEMS: &str = "[role=\"menuitem\"]:not(:disabled)";
-const FOCUS_ATTEMPTS: u32 = 4;
-
-fn enabled_items(menu: &Element) -> Vec<HtmlElement> {
-    let Ok(nodes) = menu.query_selector_all(ENABLED_ITEMS) else {
-        return Vec::new();
-    };
-    (0..nodes.length())
-        .filter_map(|index| nodes.item(index)?.dyn_into::<HtmlElement>().ok())
-        .collect()
-}
-
-fn active_index(items: &[HtmlElement]) -> Option<usize> {
-    let active = web_sys::window()?.document()?.active_element()?;
-    items.iter().position(|item| {
-        let item: &Element = item.as_ref();
-        item == &active
-    })
-}
-
-/// The self-replacing attempt: a closure the cell keeps so each retry can
-/// hand the browser its own successor.
-type StepCell = Rc<RefCell<Option<Closure<dyn FnMut()>>>>;
-
-/// Focus the menu `menu_id`'s first or last enabled item once it has mounted.
-///
-/// The first attempt is a microtask, as in v2: the opening key's render runs
-/// in an earlier microtask of the same task, so the item is focused before
-/// the next key arrives and that key reaches the menu, not the trigger. A
-/// portal that misses it is retried by frame.
-pub fn focus_menu_edge(menu_id: &str, edge: MenuFocusEdge) -> MenuFocusRequest {
-    let request = MenuFocusRequest::new(menu_id, edge);
-    let Some(window) = web_sys::window() else {
-        return request;
-    };
-    let pending = request.clone();
-    let mut attempts = 0_u32;
-    let step: StepCell = Rc::new(RefCell::new(None));
-    let next = Rc::clone(&step);
-    *step.borrow_mut() = Some(Closure::new(move || {
-        attempt_menu_focus(&pending);
-        attempts += 1;
-        if !pending.is_pending() || attempts >= FOCUS_ATTEMPTS {
-            pending.cancel();
-            next.borrow_mut().take();
-            return;
-        }
-        if let (Some(window), Some(callback)) = (web_sys::window(), next.borrow().as_ref()) {
-            let _ = window.request_animation_frame(callback.as_ref().unchecked_ref());
-        }
-    }));
-    if let Some(callback) = step.borrow().as_ref() {
-        window.queue_microtask(callback.as_ref().unchecked_ref());
-    }
-    request
-}
-
-/// Attempt `request` now: focus its edge item when the request is pending and
-/// the menu is in the document, settling the request once focus is there. A
-/// menu's `onmounted` calls this so focus lands in the render that inserted it.
-pub fn attempt_menu_focus(request: &MenuFocusRequest) {
-    if !request.is_pending() {
-        return;
-    }
-    let Some(menu) = web_sys::window()
+pub fn focus_pointer_menu(menu_id: &str) {
+    let Some(item) = web_sys::window()
         .and_then(|window| window.document())
-        .and_then(|document| document.get_element_by_id(request.menu_id()))
+        .and_then(|document| document.get_element_by_id(menu_id))
         .filter(|menu| menu.is_connected())
+        .and_then(|menu| menu.query_selector(ENABLED_ITEMS).ok().flatten())
+        .and_then(|item| item.dyn_into::<HtmlElement>().ok())
     else {
         return;
     };
-    let items = enabled_items(&menu);
-    let index = match request.edge() {
-        MenuFocusEdge::First => 0,
-        MenuFocusEdge::Last => items.len().saturating_sub(1),
-    };
-    let Some(target) = items.get(index) else {
-        return;
-    };
-    let _ = target.focus();
-    if active_index(&items) == Some(index) {
-        request.cancel();
-    }
+    let _ = item.focus();
 }
 
-/// Apply one key to the menu `menu`: roving focus, activation, Escape and Tab.
-pub fn run_menu_key(
+pub fn run_pointer_menu_key(
     event: &KeyboardEvent,
     menu: &Element,
-    on_escape: impl FnOnce(),
     on_tab: impl FnOnce() + 'static,
 ) {
-    let items = enabled_items(menu);
-    match menu_key_action(&event.key(), active_index(&items), items.len()) {
-        MenuKeyAction::Escape => {
-            event.prevent_default();
-            event.stop_propagation();
-            on_escape();
-        }
-        MenuKeyAction::Tab => {
-            // Native sequential focus leaves the programmatic item first.
+    let Ok(items) = menu.query_selector_all(ENABLED_ITEMS) else {
+        return;
+    };
+    let active = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.active_element());
+    let current = active.and_then(|active| {
+        (0..items.length()).position(|index| {
+            items
+                .item(index)
+                .and_then(|node| node.dyn_into::<Element>().ok())
+                .as_ref()
+                == Some(&active)
+        })
+    });
+    match pointer_menu_key_action(&event.key(), current, items.length() as usize) {
+        PointerMenuKeyAction::Tab => {
             let deferred = Closure::once(move |_: wasm_bindgen::JsValue| on_tab());
             let _ = js_sys::Promise::resolve(&wasm_bindgen::JsValue::UNDEFINED).then(&deferred);
             deferred.forget();
         }
-        MenuKeyAction::Focus(index) => {
+        PointerMenuKeyAction::Focus(index) => {
             event.prevent_default();
             event.stop_propagation();
-            if let Some(item) = items.get(index) {
+            if let Some(item) = menu_item(&items, index) {
                 let _ = item.focus();
             }
         }
-        MenuKeyAction::Activate(index) => {
+        PointerMenuKeyAction::Activate(index) => {
             event.prevent_default();
             event.stop_propagation();
-            if let Some(item) = items.get(index) {
+            if let Some(item) = menu_item(&items, index) {
                 item.click();
             }
         }
-        MenuKeyAction::Ignore => {}
+        PointerMenuKeyAction::Ignore => {}
     }
 }
 
-/// The document listeners one open menu holds.
-pub struct DismissListeners {
-    click: Closure<dyn FnMut(web_sys::MouseEvent)>,
-    keydown: Closure<dyn FnMut(KeyboardEvent)>,
-}
-
-impl DismissListeners {
-    /// Listen on the document until `remove`.
-    pub fn install(
-        on_close: EventHandler<()>,
-        on_escape: Option<EventHandler<()>>,
-        within_ids: Vec<String>,
-    ) -> Self {
-        // The click's path is fixed when it is dispatched. A handler inside the
-        // menu may re-render it before this document listener runs, detaching
-        // the target, so `contains` on the live tree would call an inside click
-        // outside and close the menu the click just changed.
-        let within_ids = Rc::new(within_ids);
-        let click_ids = Rc::clone(&within_ids);
-        let click =
-            Closure::<dyn FnMut(web_sys::MouseEvent)>::new(move |event: web_sys::MouseEvent| {
-                let inside = event.composed_path().iter().any(|node| {
-                    node.dyn_ref::<web_sys::Element>()
-                        .is_some_and(|element| click_ids.iter().any(|id| element.id() == *id))
-                });
-                if !inside {
-                    on_close.call(());
-                }
-            });
-        let keydown = Closure::<dyn FnMut(KeyboardEvent)>::new(move |event: KeyboardEvent| {
-            if event.key() == "Escape"
-                && !event.default_prevented()
-                && escape_belongs_to(&event, &within_ids)
-            {
-                event.prevent_default();
-                event.stop_immediate_propagation();
-                on_escape.unwrap_or(on_close).call(());
-            }
-        });
-        if let Some(document) = web_sys::window().and_then(|window| window.document()) {
-            let _ =
-                document.add_event_listener_with_callback("click", click.as_ref().unchecked_ref());
-            let _ = document.add_event_listener_with_callback_and_bool(
-                "keydown",
-                keydown.as_ref().unchecked_ref(),
-                true,
-            );
-        }
-        Self { click, keydown }
-    }
-
-    /// Stop listening.
-    pub fn remove(&self) {
-        if let Some(document) = web_sys::window().and_then(|window| window.document()) {
-            let _ = document
-                .remove_event_listener_with_callback("click", self.click.as_ref().unchecked_ref());
-            let _ = document.remove_event_listener_with_callback_and_bool(
-                "keydown",
-                self.keydown.as_ref().unchecked_ref(),
-                true,
-            );
-        }
-    }
-}
-
-/// A nested dialog, menu or listbox owns Escape before its enclosing popover.
-fn escape_belongs_to(event: &KeyboardEvent, within_ids: &[String]) -> bool {
-    for node in event.composed_path().iter() {
-        let Some(element) = node.dyn_ref::<Element>() else {
-            continue;
-        };
-        let id = element.id();
-        if within_ids.contains(&id) {
-            return true;
-        }
-        if matches!(
-            element.get_attribute("role").as_deref(),
-            Some("dialog" | "listbox" | "menu")
-        ) {
-            return false;
-        }
-    }
-    true
+fn menu_item(items: &NodeList, index: usize) -> Option<HtmlElement> {
+    items.item(index as u32)?.dyn_into::<HtmlElement>().ok()
 }

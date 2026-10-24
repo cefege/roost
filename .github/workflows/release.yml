@@ -233,7 +233,7 @@ jobs:
       - name: wasm target and dx
         run: |
           rustup target add wasm32-unknown-unknown
-          cargo install dioxus-cli --version 0.7.10 --locked
+          cargo install dioxus-cli --version 0.8.0-alpha.3 --locked
       # dx never prunes old hashed files from public/, hence the rm. `--profile
       # release` is rejected by cargo under dx, so the wasm builds under
       # `wasm-release`.
@@ -242,9 +242,14 @@ jobs:
           rm -rf target/dx/roost-web/release/web/public
           dx build --release --profile wasm-release -p roost-web --platform web
           test -f target/dx/roost-web/release/web/public/index.html
-          # dx compiles crates/roost-web/tailwind.css with its own Tailwind
-          # download; a build that skipped it ships a page with no utilities.
-          grep -q '\.bg-primary' target/dx/roost-web/release/web/public/styles/tailwind.css
+          test -s target/dx/roost-web/release/web/public/styles/theme-vars.css
+          test -s target/dx/roost-web/release/web/public/styles/product-motion.css
+          test -s target/dx/roost-web/release/web/public/styles/terminal-grid.css
+          test -s target/dx/roost-web/release/web/public/styles/tv.css
+          test -s target/dx/roost-web/release/web/public/styles/gamepad.css
+          test -s target/dx/roost-web/release/web/public/components/notifications/NotificationDock.css
+          find target/dx/roost-web/release/web/public -name '*.wasm' -type f -size +0c -print -quit | grep -q .
+          ! grep -q '/styles/tailwind\.css' target/dx/roost-web/release/web/public/index.html
       - name: the bundle must carry no test backdoor
         run: |
           set -euo pipefail

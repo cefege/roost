@@ -6,13 +6,16 @@
 //! read this without the menu's scrim over it.
 //! Ports `apps/web/src/components/terminal/TerminalCaptureConsentDialog.tsx`.
 
-use dioxus::prelude::*;
-use roost_protocol::terminal_capture::TERMINAL_CAPTURE_LIMITS;
+use std::cell::RefCell;
+use std::rc::Rc;
 
-use crate::components::ui::{
-    Button, ButtonVariant, Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader,
-    DialogTitle, StatusDot,
-};
+use crate::components::overlay_generation::OverlayGeneration;
+use dioxus::prelude::*;
+use libero::components::Box;
+use libero::components::{Button, Dialog, Indicator, Text};
+use libero::hooks::{ModalScope, use_modal};
+use libero::sx::sx;
+use roost_protocol::terminal_capture::TERMINAL_CAPTURE_LIMITS;
 
 /// Which of the two capture actions is awaiting consent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,64 +67,70 @@ pub fn TerminalCaptureConsentDialog(
     on_confirm: EventHandler<CaptureConsentKind>,
     on_cancel: EventHandler<()>,
 ) -> Element {
-    let Some(kind) = kind else {
-        return rsx! {};
-    };
-    let retention_hours = TERMINAL_CAPTURE_LIMITS.retention_ms / 3_600_000;
-    let lease_minutes = TERMINAL_CAPTURE_LIMITS.lease_ms / 60_000;
-    rsx! {
-        Dialog {
-            open: true,
-            on_open_change: move |open: bool| {
-                if !open {
-                    on_cancel.call(());
+    let generations = use_hook(|| Rc::new(RefCell::new(OverlayGeneration::default())));
+    let modal = use_modal(|scope: ModalScope<CaptureConsentKind, bool>| {
+        let Some(kind) = scope.try_args() else {
+            return rsx! {};
+        };
+        let retention_hours = TERMINAL_CAPTURE_LIMITS.retention_ms / 3_600_000;
+        let lease_minutes = TERMINAL_CAPTURE_LIMITS.lease_ms / 60_000;
+        rsx! {
+            Dialog { title: kind.headline(), role: "alertdialog",
+                Text { color: "text-dimmed",
+                    "Terminal text and raw PTY output are recorded. They may contain secrets — passwords, tokens, file contents — and are readable by anyone who can sign in as you."
                 }
-            },
-            DialogContent { test_id: "ctx-debug-consent",
-                DialogHeader {
-                    DialogTitle { "{kind.headline()}" }
+                Text { color: "text-dimmed",
+                    "The bundle is written on the machine that owns this terminal, downloaded only through your authenticated session, and deleted after at most {retention_hours} hours."
                 }
-                DialogBody {
-                    p { class: "m-0 text-sm text-muted-foreground",
-                        "Terminal text and raw PTY output are recorded. They may contain secrets — \
-                         passwords, tokens, file contents — and are readable by anyone who can sign \
-                         in as you."
-                    }
-                    p { class: "m-0 text-sm text-muted-foreground",
-                        "The bundle is written on the machine that owns this terminal, downloaded only \
-                         through your authenticated session, and deleted after at most \
-                         {retention_hours} hours."
-                    }
-                    p { class: "m-0 text-sm text-muted-foreground",
-                        "Confirming grants a {lease_minutes}-minute debugging lease for this terminal \
-                         only. No other session is recorded, and an expired lease must be started \
-                         again."
-                    }
-                    p {
-                        class: "m-0 text-sm text-muted-foreground",
-                        "data-testid": "ctx-debug-consent-prehistory",
-                        "{kind.prehistory()}"
-                    }
+                Text { color: "text-dimmed",
+                    "Confirming grants a {lease_minutes}-minute debugging lease for this terminal only. No other session is recorded, and an expired lease must be started again."
                 }
-                DialogFooter {
-                    Button {
-                        variant: ButtonVariant::Outline,
-                        class: None,
-                        "data-testid": "ctx-debug-consent-cancel",
-                        onclick: move |_| on_cancel.call(()),
-                        "Cancel"
-                    }
-                    Button {
-                        variant: ButtonVariant::Default,
-                        class: None,
-                        "data-testid": "ctx-debug-consent-confirm",
-                        onclick: move |_| on_confirm.call(kind),
-                        "{kind.confirm_label()}"
-                    }
+                Text {
+                    color: "text-dimmed",
+                    "data-testid": "ctx-debug-consent-prehistory",
+                    "{kind.prehistory()}"
+                }
+                Button {
+                    variant: "outlined",
+                    "data-testid": "ctx-debug-consent-cancel",
+                    onclick: move |_| scope.close(),
+                    "Cancel"
+                }
+                Button {
+                    "data-testid": "ctx-debug-consent-confirm",
+                    onclick: move |_| scope.resolve(true),
+                    "{kind.confirm_label()}"
                 }
             }
         }
-    }
+    });
+    use_effect(use_reactive((&kind,), {
+        let generations = generations.clone();
+        move |(kind,)| {
+            if let Some(kind) = kind {
+                let generation = generations.borrow_mut().begin();
+                let current = generations.clone();
+                modal.open_with(kind).onresult(move |result| {
+                    if !current.borrow_mut().finish(generation) {
+                        return;
+                    }
+                    if result == Some(true) {
+                        on_confirm.call(kind);
+                    } else {
+                        on_cancel.call(());
+                    }
+                });
+            } else {
+                generations.borrow_mut().invalidate();
+                modal.close();
+            }
+        }
+    }));
+    use_drop({
+        let generations = generations.clone();
+        move || generations.borrow_mut().invalidate()
+    });
+    rsx! {}
 }
 
 /// The non-interactive lease row the menu shows above the capture actions.
@@ -131,16 +140,26 @@ pub fn TerminalCaptureConsentDialog(
 /// a message that could quote the terminal text a capture was validating.
 #[component]
 pub fn CaptureStateRow(phase: CapturePhase, detail: Option<String>) -> Element {
+    let row_sx = use_hook(|| {
+        sx().display("flex")
+            .align_items("center")
+            .gap("sm")
+            .padding_inline("lg")
+            .padding_block("sm")
+            .font_size("sm")
+            .color("muted")
+    });
     let Some(label) = phase.label(detail.as_deref()) else {
         return rsx! {};
     };
     rsx! {
-        div {
+        Box {
+            component: "div",
+            sx: row_sx,
             "data-testid": "ctx-capture-state-row",
             role: "presentation",
-            class: "flex items-center gap-2 px-4 py-2 text-sm text-muted-foreground",
             "data-phase": phase.as_str(),
-            StatusDot { status: phase.dot_status().to_owned(), title: Some(label.clone()) }
+            Indicator { color: phase.dot_status(), title: "{label}" }
             span { "{label}" }
         }
     }
@@ -174,14 +193,13 @@ impl CapturePhase {
         }
     }
 
-    /// The `StatusDot` spelling: degraded and in-doubt are warnings, never the
-    /// error dot an outright failure gets.
+    /// A Libero semantic palette for the phase dot.
     pub const fn dot_status(self) -> &'static str {
         match self {
-            Self::Idle => "idle",
+            Self::Idle => "muted",
             Self::Arming => "info",
-            Self::Recording => "running",
-            Self::Expired => "warn",
+            Self::Recording => "success",
+            Self::Expired => "warning",
             Self::Error => "error",
         }
     }

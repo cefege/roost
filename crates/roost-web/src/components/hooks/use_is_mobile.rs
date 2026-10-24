@@ -1,11 +1,10 @@
-//! rust-ui's `use_is_mobile`: whether the window is phone-sized. Roost keeps
-//! its own boundary instead of the registry's 768px width: the SHORT side
-//! under 600px, so a phone held in landscape stays mobile and a tablet in
-//! portrait does not. Read by `layout::window_size::use_is_compact`.
+//! Roost's compact boundary: the short side stays under 600 CSS pixels.
+//! Landscape phones stay compact while portrait tablets do not.
+//! Libero owns media observation; layout::window_size combines this with TV policy.
 
 use dioxus::prelude::*;
 
-use super::use_media_query::use_media_query;
+use libero::hooks::use_media_query;
 
 /// Either side under 600 CSS px. `.98` rather than `599px` keeps a fractional
 /// viewport just under the boundary mobile, and the level-3 syntax (not

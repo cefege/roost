@@ -11,6 +11,10 @@
 //! `app_shell_dom`.
 
 use dioxus::prelude::*;
+use libero::{
+    components::{Box, Flex},
+    sx::sx,
+};
 use roost_client_core::ClientEvent;
 use roost_client_core::Store;
 use roost_client_core::store::Session;
@@ -142,14 +146,51 @@ pub fn AppShell(children: Element) -> Element {
             compact,
             !compact && !settings_view,
         );
+        super::app_shell_dom::use_sidebar_search_listener(pump.clone(), compact, !settings_view);
         super::keyboard_offset::use_keyboard_offset();
     }
     let toggle_pump = pump.clone();
     let on_toggle_sidebar = move |()| toggle_desktop_sidebar(&toggle_pump, compact);
-
+    let shell_sx = use_hook(|| {
+        let desktop = sx()
+            .display("grid")
+            .with("grid-template-columns", "var(--workbench-activity-width) calc(var(--workbench-sidebar-width) + var(--workbench-sidebar-resizer-active-width)) minmax(0, 1fr)")
+            .with("grid-template-rows", "var(--workbench-titlebar-height) minmax(0, 1fr) var(--workbench-statusbar-height)")
+            .with("grid-template-areas", "'titlebar titlebar titlebar' 'activity sidebar editor' 'statusbar statusbar statusbar'");
+        sx().position("relative")
+            .overflow("hidden")
+            .background("var(--workbench-editor)")
+            .color("ink")
+            .selector("[data-compact=false]", desktop)
+            .selector(
+                "[data-compact=true]",
+                sx().display("flex").flex_direction("column"),
+            )
+    });
+    let editor_sx = use_hook(|| {
+        let keyboard_shift = sx().transition("transform 250ms cubic-bezier(0.2,0,0,1)");
+        sx().position("relative")
+            .display("flex")
+            .min_height("0")
+            .min_width("0")
+            .flex("1")
+            .flex_direction("column")
+            .overflow("hidden")
+            .background("var(--workbench-editor)")
+            .with("grid-area", "editor")
+            .selector("[data-keyboard-shift=true]", keyboard_shift)
+    });
+    let editor_content_sx = use_hook(|| {
+        sx().display("flex")
+            .min_height("0")
+            .min_width("0")
+            .flex("1")
+            .overflow("hidden")
+    });
     rsx! {
-        div {
-            class: "workbench-shell relative overflow-hidden bg-[var(--workbench-editor)] font-sans text-foreground data-[compact=false]:grid data-[compact=false]:[grid-template-columns:var(--workbench-activity-width)_calc(var(--workbench-sidebar-width)_+_var(--workbench-sidebar-resizer-active-width))_minmax(0,1fr)] data-[compact=false]:[grid-template-rows:var(--workbench-titlebar-height)_minmax(0,1fr)_var(--workbench-statusbar-height)] data-[compact=false]:[grid-template-areas:'titlebar_titlebar_titlebar'_'activity_sidebar_editor'_'statusbar_statusbar_statusbar'] data-[compact=true]:flex data-[compact=true]:flex-col",
+        Box {
+            class: "workbench-shell",
+            sx: shell_sx,
             "data-compact": if compact { "true" } else { "false" },
             style: shell_style(reading.keyboard_resize, composer.active, reading.sidebar_width, sidebar_collapsed),
             if !compact {
@@ -157,14 +198,15 @@ pub fn AppShell(children: Element) -> Element {
                 ActivityBar { on_toggle_sidebar }
                 SidebarRegion { collapsed: sidebar_collapsed, SidebarRoot {} }
             }
-            main {
-                class: "relative flex min-h-0 min-w-0 flex-auto flex-col overflow-hidden bg-[var(--workbench-editor)] [grid-area:editor] data-[keyboard-shift=true]:transition-transform data-[keyboard-shift=true]:duration-250 data-[keyboard-shift=true]:ease-[cubic-bezier(0.2,0,0,1)]",
+            Box {
+                component: "main",
+                sx: editor_sx,
                 "data-keyboard-shift": keyboard_shift(terminal_route, reading.keyboard_resize).then_some("true"),
                 style: editor_style(terminal_route, reserves_terminal_composer(&path, reading.keyboard_resize), compact, reading.keyboard_resize, composer),
                 if shows_mobile_top_bar(compact, &path, terminal_route) {
                     MobileTopBar { path: path.clone(), session_title: title, session_folder: folder }
                 }
-                div { class: "flex min-h-0 min-w-0 flex-auto overflow-hidden", {children} }
+                Flex { direction: "row", align: "stretch", wrap: false, sx: editor_content_sx, {children} }
             }
             if !compact {
                 StatusBar {}

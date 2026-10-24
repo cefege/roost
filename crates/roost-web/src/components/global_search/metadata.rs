@@ -11,6 +11,7 @@
 //! Ports `apps/web/src/components/search/GlobalSearchPage.tsx:195-307`.
 
 use dioxus::prelude::*;
+use libero::components::Pictogram;
 use roost_client_core::client::agents::status_policy::{
     AgentStatusLevel, agent_status_presentation,
 };
@@ -22,12 +23,11 @@ use roost_client_core::store::sidebar::documents::store_navigation_documents;
 
 use crate::components::global_search::query::{SearchRouteQuery, SearchScope};
 use crate::components::settings::format::relative_time;
-use crate::components::ui::{
-    CommandItem, CommandList, EmptyState, Icon, IconType, StatusDot, Surface, SurfaceElement,
-};
 use crate::platform::worker_paths::BrowserWorkerPaths;
 use crate::pump::use_store;
 use crate::router_state::use_navigate;
+use libero::components::{Badge, Box, Button};
+use libero::sx::sx;
 
 /// The metadata list for the current route query.
 #[component]
@@ -54,42 +54,71 @@ pub fn MetadataResults(route_query: SearchRouteQuery) -> Element {
         (rows, now_ms)
     };
     let summary = metadata_summary(route_query.scope, rows.len(), &route_query.text);
+    let panel_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("column")
+            .gap("sm")
+            .border_radius("xl")
+            .border_width("1px")
+            .border_color("var(--border)")
+            .background_color("var(--card)")
+            .padding("md")
+            .color("var(--card-foreground)")
+    });
+    let empty_icon_sx = use_hook(|| {
+        sx().width("1rem")
+            .height("1rem")
+            .color("var(--muted-foreground)")
+    });
+    let title_sx = use_hook(|| sx().margin("0").font_size("lg").font_weight("600"));
+    let summary_sx = use_hook(|| sx().font_size("sm").font_weight("500"));
+    let empty_sx = use_hook(|| {
+        sx().display("flex")
+            .align_items("center")
+            .gap("sm")
+            .padding_block("md")
+    });
+    let empty_title_sx = use_hook(|| sx().font_size("sm").font_weight("500"));
+    let empty_supporting_sx = use_hook(|| sx().font_size("sm").color("var(--muted-foreground)"));
+    let results_sx = use_hook(|| sx().display("flex").flex_direction("column").gap("sm"));
 
     rsx! {
-        Surface { element: SurfaceElement::Section, border: true, pad: Some(4),
-            class: Some("flex flex-col gap-2 rounded-xl text-card-foreground".to_owned()),
-            aria_labelledby: Some("global-search-metadata-title".to_owned()),
-            h2 { id: "global-search-metadata-title", class: "m-0 text-lg font-semibold",
+        Box { component: "section", sx: panel_sx.clone(),
+            "aria-labelledby": "global-search-metadata-title",
+            Box { component: "h2", id: "global-search-metadata-title", sx: title_sx.clone(),
                 match route_query.scope {
                     SearchScope::Attention => "Agent attention",
                     SearchScope::All => "Session metadata",
                 }
             }
-            div { class: "text-sm font-medium", role: "status", "aria-live": "polite", "aria-atomic": "true",
+            Box { component: "div", sx: summary_sx.clone(), role: "status", "aria-live": "polite", "aria-atomic": "true",
                 {summary}
             }
             if rows.is_empty() {
-                EmptyState {
-                    icon: match route_query.scope {
-                        SearchScope::Attention => IconType::BellOff,
-                        SearchScope::All => IconType::SearchX,
-                    },
-                    title: empty_title(route_query.scope, &route_query.text),
-                    supporting: Some(empty_supporting(route_query.scope, &route_query.text).to_owned()),
+                Box { component: "div", sx: empty_sx.clone(),
+                    Box { component: "span", sx: empty_icon_sx.clone(),
+                        Pictogram {
+                            icon: match route_query.scope {
+                                SearchScope::Attention => pictogram_icons_lucide::bell_off::outlined,
+                                SearchScope::All => pictogram_icons_lucide::search_x::outlined,
+                            },
+                            width: "1rem",
+                            height: "1rem",
+                        }
+                    }
+                    Box { component: "span", sx: empty_title_sx.clone(), {empty_title(route_query.scope, &route_query.text)} }
+                    Box { component: "span", sx: empty_supporting_sx.clone(), {empty_supporting(route_query.scope, &route_query.text)} }
                 }
             } else {
-                div { "data-testid": "global-search-results",
-                    class: "flex flex-col gap-2",
-                    CommandList { class: "flex flex-col gap-2 max-h-none min-h-0 overflow-visible",
-                        for document in rows.iter() {
-                            MetadataRow {
-                                document: document.clone(),
-                                now_ms,
-                                on_open: {
-                                    let href = document.href.clone();
-                                    move |_| navigate.call(href.clone())
-                                },
-                            }
+                Box { component: "div", sx: results_sx.clone(), "data-testid": "global-search-results",
+                    for document in rows.iter() {
+                        MetadataRow {
+                            document: document.clone(),
+                            now_ms,
+                            on_open: {
+                                let href = document.href.clone();
+                                move |_| navigate.call(href.clone())
+                            },
                         }
                     }
                 }
@@ -131,37 +160,88 @@ fn MetadataRow(
     } else {
         "Unavailable".to_owned()
     };
+    let status_label = if document.available {
+        "Available"
+    } else {
+        "Machine unavailable"
+    };
+    let row_button_sx = use_hook(|| {
+        sx().display("flex")
+            .width("100%")
+            .height("auto")
+            .align_items("flex-start")
+            .justify_content("flex-start")
+            .gap("md")
+            .border_radius("md")
+            .padding_block("sm")
+            .padding_inline("md")
+            .text_align("left")
+    });
+    let row_icon_sx = use_hook(|| {
+        sx().width("1rem")
+            .height("1rem")
+            .flex_shrink("0")
+            .margin_top("xs")
+            .color("var(--muted-foreground)")
+    });
+    let row_body_sx = use_hook(|| {
+        sx().display("flex")
+            .min_width("0")
+            .flex("1")
+            .flex_direction("column")
+            .gap("xs")
+    });
+    let row_title_text_sx = use_hook(|| {
+        sx().font_size("sm")
+            .font_weight("500")
+            .color("var(--foreground)")
+    });
+    let row_details_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_direction("column")
+            .gap("xs")
+            .font_size("xs")
+            .color("var(--muted-foreground)")
+    });
+    let status_sx = use_hook(|| {
+        sx().display("flex")
+            .flex_shrink("0")
+            .align_items("center")
+            .gap("sm")
+            .white_space("nowrap")
+            .font_size("xs")
+            .color("var(--muted-foreground)")
+    });
     rsx! {
-        CommandItem {
-            value: session_id.clone(),
-            class: "flex items-start gap-3 rounded-md px-3 py-2.5",
-            test_id: format!("global-search-result-{session_id}"),
-            show_check: false,
-            on_select: move |()| on_open.call(()),
-            Icon { icon: IconType::Terminal, class: "mt-0.5 size-4 shrink-0 text-muted-foreground" }
-            span { class: "flex min-w-0 flex-1 flex-col gap-1",
-                span { class: "text-sm font-medium text-foreground", "data-testid": format!("global-search-title-{session_id}"),
+        Button {
+            variant: "standard",
+            sx: row_button_sx.clone(),
+            "data-testid": format!("global-search-result-{session_id}"),
+            onclick: move |_| on_open.call(()),
+            icon: rsx! { Box { component: "span", sx: row_icon_sx.clone(), Pictogram { icon: pictogram_icons_lucide::terminal::outlined, width: "1rem", height: "1rem" } } },
+            Box { component: "span", sx: row_body_sx.clone(),
+                Box { component: "span", sx: row_title_text_sx.clone(), "data-testid": format!("global-search-title-{session_id}"),
                     {document.display_title.clone()}
                 }
-                span { class: "flex flex-col gap-1 text-xs text-muted-foreground",
-                    span { {document.cwd.clone()} }
+                Box { component: "span", sx: row_details_sx.clone(),
+                    Box { component: "span", {document.cwd.clone()} }
                     if !metadata.is_empty() {
-                        span { {metadata} }
+                        Box { component: "span", {metadata} }
                     }
                     if let Some(message) = document.agent_message.clone() {
-                        span { {message} }
+                        Box { component: "span", {message} }
                     }
                 }
             }
-            span { class: "flex shrink-0 items-center gap-2 whitespace-nowrap text-xs text-muted-foreground",
+            Box { component: "span", sx: status_sx.clone(),
                 if let Some(label) = attention_label(document.agent_attention) {
-                    span { "data-testid": format!("global-search-attention-{session_id}"),
-                        {label}
-                    }
+                    span { "data-testid": format!("global-search-attention-{session_id}"), {label} }
                 }
-                StatusDot {
-                    status: (if document.available { "ok" } else { "offline" }).to_owned(),
-                    title: (if document.available { "Available" } else { "Machine unavailable" }).to_owned(),
+                Badge {
+                    variant: "outlined",
+                    color: if document.available { "success" } else { "error" },
+                    title: status_label,
+                    {status_label}
                 }
                 span { "data-testid": format!("global-search-availability-{session_id}"),
                     {availability}

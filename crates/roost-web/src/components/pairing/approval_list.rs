@@ -10,8 +10,8 @@ use dioxus::prelude::*;
 use roost_client_core::store::PairRequest;
 
 use crate::components::terminal::dom::now_ms;
-use crate::components::ui::{EmptyState, IconType, SectionTitle};
 use crate::pump::use_store;
+use libero::components::{Flex, Pictogram, Text, Title};
 
 use super::approval_card::PairRequestCard;
 use super::approver::{ApprovalPhase, PairApprover};
@@ -39,9 +39,6 @@ pub fn ApprovalList(approver: PairApprover) -> Element {
             .cloned()
             .collect::<Vec<_>>()
     };
-    // The row id is read beside the card that consumes the request: an `rsx!`
-    // row's attributes are built before its child, so a card that took the
-    // request would leave nothing to name the row with.
     let rows: Vec<(String, PairRequest)> = pending
         .into_iter()
         .map(|request| (request.ephemeral_id.clone(), request))
@@ -50,32 +47,22 @@ pub fn ApprovalList(approver: PairApprover) -> Element {
     let notice = state.notice.clone();
     rsx! {
         if let Some((tone, message)) = notice {
-            PairingStatusNotice {
-                tone,
-                message,
-                test_id: Some("pair-approval-outcome".to_owned()),
-            }
+            PairingStatusNotice { tone, message, test_id: Some("pair-approval-outcome".to_owned()) }
         }
         if rows.is_empty() {
-            div { "data-testid": "onboarding-no-pending",
-                EmptyState {
-                    icon: IconType::MonitorSmartphone,
-                    title: "No browsers are waiting for approval",
-                    supporting: Some(
-                        "When you open Roost in a new browser and request access, it'll show up here to approve."
-                            .to_owned(),
-                    ),
-                    action: None,
+            Flex { direction: "column", gap: "sm", "data-testid": "onboarding-no-pending",
+                Pictogram { icon: pictogram_icons_lucide::monitor_smartphone::outlined, width: "32", height: "32" }
+                Title { size: "md", "No browsers are waiting for approval" }
+                Text { size: "sm", color: "muted",
+                    "When you open Roost in a new browser and request access, it'll show up here to approve."
                 }
             }
         } else {
-            div { class: "flex min-w-0 flex-col gap-3", "data-testid": "pair-approval-list",
-                SectionTitle { "Pending pair requests" }
+            Flex { direction: "column", gap: "md", "data-testid": "pair-approval-list",
+                Title { size: "md", "Pending pair requests" }
                 for (row_id, request) in rows {
-                    div {
-                        "data-testid": "pair-approval-row",
-                        "data-ephemeral-id": row_id,
-                        PairRequestCard { request, busy, approver: approver.clone() },
+                    div { "data-testid": "pair-approval-row", "data-ephemeral-id": row_id,
+                        PairRequestCard { request, busy, approver: approver.clone() }
                     }
                 }
             }

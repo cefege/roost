@@ -18,24 +18,16 @@ use super::mobile_voice_dom::{
 };
 use super::mobile_voice_send::{FinalizeSendDoor, use_finalize_send_door};
 use super::mobile_voice_shell::use_voice_shell_controls;
-use crate::components::ui::{Alert, AlertVariant, ButtonSize, ButtonVariant, IconButton, IconType};
 use crate::pump::use_store;
 use crate::voice::engine::Engine;
 use crate::voice::keyterms::ContextReader;
 use crate::voice::ownership::{VoiceSlot, with_slot};
 use crate::voice::state::{LiveTranscript, VoiceEvent, VoiceMachine, VoiceState};
+use libero::components::{ActionIcon, Alert, Box, Flex};
+use libero::sx::sx;
 
-/// The mic FAB. Recording morphs it to a rounded square and switches its tone to
-/// the destructive variant, so the state is readable without relying on colour
-/// alone (the icon also changes). The class carries shape and motion only.
-const VOICE_MIC_CLASS: &str = "size-14 rounded-full shadow-md transition-all data-[recording=true]:rounded-xl data-[starting=true]:opacity-70 data-[starting=true]:[&>svg]:animate-spin data-[finalizing=true]:opacity-60 data-[finalizing=true]:[&>svg]:animate-pulse";
-/// The discard FAB: a smaller circle beside the mic, in the Secondary tone.
-const VOICE_DISCARD_CLASS: &str = "size-10 rounded-full shadow-md";
-/// The mic error caption: a destructive bubble above the composer, or in the dock
-/// when the dock is size-constrained.
-const VOICE_CAPTION_CLASS: &str = "pointer-events-none absolute bottom-full left-0 right-0 mb-2 max-w-none w-auto whitespace-pre-wrap rounded-xl border-0 bg-destructive px-4 py-3 text-base text-destructive-foreground shadow-lg animate-voice-caption-enter motion-reduce:animate-none group-data-[compact=true]/box:right-[calc(3.5rem_+_0.5rem)] group-data-[size-constrained]/dock:static group-data-[size-constrained]/dock:left-auto group-data-[size-constrained]/dock:right-auto group-data-[size-constrained]/dock:bottom-auto group-data-[size-constrained]/dock:col-span-full group-data-[size-constrained]/dock:row-auto group-data-[size-constrained]/dock:w-80 group-data-[size-constrained]/dock:max-w-none";
-
-/// The composer this mic belongs to.
+/// The recording controls, laid out against the terminal composer's measured
+/// container so the dock retains its established compact and narrow-pane geometry.
 #[component]
 pub fn MobileVoiceInput(
     /// The session whose composer owns the mic.
@@ -65,6 +57,140 @@ pub fn MobileVoiceInput(
     #[props(default)]
     read_context: Option<ContextReader>,
 ) -> Element {
+    let root_sx = use_hook(|| sx().display("contents"));
+    let controls_sx = use_hook(|| {
+        sx().display("flex")
+            .align_items("center")
+            .gap("xs")
+            .grid_column("2")
+            .grid_row("2")
+            .selector(
+                "[data-compact='false'] &",
+                sx().grid_column("3").grid_row("1"),
+            )
+            .container("term-chat-pane")
+            .container_query(
+                "term-chat-pane",
+                "(max-width: 220px)",
+                sx().selector(
+                    "[data-compact='false'] &",
+                    sx().grid_column("2").grid_row("2").justify_self("center"),
+                ),
+            )
+            .container_query(
+                "term-chat-pane",
+                "(max-width: 104px)",
+                sx().selector(
+                    "[data-compact='false'] &",
+                    sx().grid_column("1").grid_row("3"),
+                ),
+            )
+    });
+    let compact_button_sx = use_hook(|| {
+        sx().width("2rem")
+            .height("2rem")
+            .border_radius("9999rem")
+            .transition("all 150ms")
+            .selector("&[data-recording='true']", sx().border_radius("lg"))
+            .selector("&[data-starting='true']", sx().opacity("0.7"))
+            .selector(
+                "&[data-starting='true'] > svg",
+                sx().with("animation", "roost-voice-starting-spin 1s linear infinite"),
+            )
+            .selector("&[data-finalizing='true']", sx().opacity("0.6"))
+            .selector(
+                "&[data-finalizing='true'] > svg",
+                sx().with(
+                    "animation",
+                    "roost-voice-finalizing-pulse 2s cubic-bezier(.4,0,.6,1) infinite",
+                ),
+            )
+            .media(
+                "(prefers-reduced-motion: reduce)",
+                sx().transition("none")
+                    .selector("& > svg", sx().with("animation", "none")),
+            )
+    });
+    let mic_button_sx = use_hook(|| {
+        sx().width("3.5rem")
+            .height("3.5rem")
+            .border_radius("9999rem")
+            .box_shadow(libero::theme::SizeCss::SHADOW.value(libero::theme::Size::Md))
+            .transition("all 150ms")
+            .selector("&[data-recording='true']", sx().border_radius("xl"))
+            .selector("&[data-starting='true']", sx().opacity("0.7"))
+            .selector(
+                "&[data-starting='true'] > svg",
+                sx().with("animation", "roost-voice-starting-spin 1s linear infinite"),
+            )
+            .selector("&[data-finalizing='true']", sx().opacity("0.6"))
+            .selector(
+                "&[data-finalizing='true'] > svg",
+                sx().with(
+                    "animation",
+                    "roost-voice-finalizing-pulse 2s cubic-bezier(.4,0,.6,1) infinite",
+                ),
+            )
+            .media(
+                "(prefers-reduced-motion: reduce)",
+                sx().transition("none")
+                    .selector("& > svg", sx().with("animation", "none")),
+            )
+    });
+    let compact_discard_sx =
+        use_hook(|| sx().width("2rem").height("2rem").border_radius("9999rem"));
+    let discard_sx = use_hook(|| {
+        sx().width("2.5rem")
+            .height("2.5rem")
+            .border_radius("9999rem")
+            .box_shadow(libero::theme::SizeCss::SHADOW.value(libero::theme::Size::Md))
+    });
+    let compact_caption_sx = use_hook(|| {
+        sx().with("order", "9999")
+            .with("flex-basis", "100%")
+            .min_width("0")
+            .padding_inline("sm")
+            .padding_block("xs")
+            .font_size("xs")
+    });
+    let caption_sx = use_hook(|| {
+        sx().position("absolute")
+            .with("bottom", "100%")
+            .left("0")
+            .right("0")
+            .margin_bottom("sm")
+            .width("auto")
+            .max_width("none")
+            .white_space("pre-wrap")
+            .border("0")
+            .border_radius("xl")
+            .padding_inline("md")
+            .padding_block("sm")
+            .font_size("md")
+            .box_shadow(libero::theme::SizeCss::SHADOW.value(libero::theme::Size::Lg))
+            .pointer_events("none")
+            .with(
+                "animation",
+                "voice-caption-enter 220ms cubic-bezier(0.2,0,0,1)",
+            )
+            .selector("[data-compact='true'] &", sx().right("4rem"))
+            .selector(
+                "[data-size-constrained] &",
+                sx().position("static")
+                    .with("left", "auto")
+                    .with("right", "auto")
+                    .with("bottom", "auto")
+                    .with("grid-column", "1 / -1")
+                    .with("grid-row", "auto")
+                    .width("20rem")
+                    .max_width("none"),
+            )
+            .media(
+                "(prefers-reduced-motion: reduce)",
+                sx().with("animation", "none"),
+            )
+    });
+
     let pump = use_store();
     let machine = use_signal(VoiceMachine::default);
     let error = use_signal(|| Option::<String>::None);
@@ -149,28 +275,31 @@ pub fn MobileVoiceInput(
     };
 
     rsx! {
-        div {
-            class: "contents",
+        Box {
+            component: "div",
+            sx: root_sx,
             "data-testid": "mobile-voice-input",
             "data-state": state.data_state(),
             "data-owner-active": if owns { "true" } else { "false" },
             "data-engine": (context.engine)().data_engine(),
             if let Some(caption) = caption {
                 Alert {
-                    variant: AlertVariant::Destructive,
-                    test_id: "voice-caption",
-                    class: if compact { "order-last basis-full min-w-0 px-2 py-1 text-xs" } else { VOICE_CAPTION_CLASS },
-                    span { class: "text-destructive-foreground", "Mic error: {caption}" }
+                    color: "error",
+                    sx: if compact { compact_caption_sx } else { caption_sx },
+                    title: "Mic error",
+                    "data-testid": "voice-caption",
+                    "Mic error: {caption}"
                 }
             }
-            div { class: "[grid-column:2] group-data-[compact=true]/box:row-start-2 group-data-[compact=false]/box:[grid-column:3] group-data-[compact=false]/box:row-start-1 @max-[220px]/term-chat-pane:group-data-[compact=false]/box:[grid-column:2] @max-[220px]/term-chat-pane:group-data-[compact=false]/box:row-start-2 @max-[220px]/term-chat-pane:group-data-[compact=false]/box:justify-self-center @max-[104px]/term-chat-pane:group-data-[compact=false]/box:[grid-column:1] @max-[104px]/term-chat-pane:group-data-[compact=false]/box:row-start-3 flex items-center gap-2",
+            Flex { direction: "row", sx: controls_sx,
                 if state.is_dictating() && owns {
-                    IconButton {
-                        icon: IconType::X,
-                        label: "Discard recording",
-                        variant: ButtonVariant::Secondary,
-                        size: if compact { ButtonSize::Icon } else { ButtonSize::IconLg },
-                        class: Some(if compact { "size-8 rounded-full" } else { VOICE_DISCARD_CLASS }.to_owned()),
+                    ActionIcon {
+                        icon: pictogram_icons_lucide::x::outlined,
+                        aria_label: "Discard recording",
+                        variant: "standard",
+                        color: "secondary",
+                        size: if compact { "sm" } else { "lg" },
+                        sx: if compact { compact_discard_sx } else { discard_sx },
                         "data-testid": "voice-discard",
                         "type": "button",
                         onmousedown: keep_keyboard,
@@ -180,14 +309,13 @@ pub fn MobileVoiceInput(
                         },
                     }
                 }
-                IconButton {
+                ActionIcon {
                     icon: mic_icon(state),
-                    label: mic_label(state),
-                    variant: if state == VoiceState::Listening { ButtonVariant::Destructive } else if compact { ButtonVariant::Ghost } else { ButtonVariant::Default },
-                    size: if compact { ButtonSize::Icon } else { ButtonSize::IconLg },
-                    class: Some(if compact {
-                        "size-8 rounded-full transition-all data-[recording=true]:rounded-lg data-[starting=true]:opacity-70 data-[starting=true]:[&>svg]:animate-spin data-[finalizing=true]:opacity-60 data-[finalizing=true]:[&>svg]:animate-pulse"
-                    } else { VOICE_MIC_CLASS }.to_owned()),
+                    aria_label: mic_label(state),
+                    variant: if state == VoiceState::Listening { "filled" } else { "standard" },
+                    color: if state == VoiceState::Listening { "error" } else if compact { "text" } else { "primary" },
+                    size: if compact { "sm" } else { "lg" },
+                    sx: if compact { compact_button_sx } else { mic_button_sx },
                     "data-testid": "voice-mic",
                     "type": "button",
                     "data-recording": bool_attr(state == VoiceState::Listening),

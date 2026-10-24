@@ -8,10 +8,13 @@
 //! `shell_metrics::Destination`; this component draws the list.
 
 use dioxus::prelude::*;
+use libero::{
+    components::{Box, Flex, Pictogram},
+    sx::sx,
+};
 
 use super::shell_metrics::{Destination, active_destination};
 use crate::components::term_font_stepper::TermFontStepper;
-use crate::components::ui::{ButtonSize, Icon};
 use crate::router_state::{use_location, use_navigate};
 
 /// The DOM id of the Workspaces item, where focus goes before a collapse.
@@ -48,20 +51,29 @@ pub fn ActivityBar(on_toggle_sidebar: EventHandler<()>) -> Element {
         Destination::Files,
     ];
     let bottom = [Destination::Settings, Destination::Help];
+    let rail_sx = use_hook(|| {
+        sx().display("flex")
+            .min_height("0")
+            .flex_direction("column")
+            .border_right("1px solid var(--lsx-paper-border-color)")
+            .background("var(--workbench-activity)")
+            .with("grid-area", "activity")
+    });
+    let group_sx = use_hook(|| sx().display("flex").flex_direction("column"));
+    let bottom_sx = use_hook(|| group_sx.clone().margin_top("auto"));
     rsx! {
-        nav { class: "flex min-h-0 flex-col border-r border-border bg-[var(--workbench-activity)] [grid-area:activity]", "aria-label": "Workbench navigation",
-            div { class: "flex flex-col",
+        Box { component: "nav", sx: rail_sx, "aria-label": "Workbench navigation",
+            Flex { direction: "column", sx: group_sx,
                 for destination in top {
                     ActivityItem { destination, active, on_toggle_sidebar }
                 }
             }
-            div { class: "mt-auto flex flex-col",
+            Flex { direction: "column", sx: bottom_sx,
                 if terminal_route {
                     TermFontStepper {
                         test_id: "rail-term-font",
-                        size: ButtonSize::IconSm,
+                        size: "sm",
                         vertical: true,
-                        class: "self-center border-b border-border py-1",
                     }
                 }
                 for destination in bottom {
@@ -83,10 +95,37 @@ fn ActivityItem(
     let href = destination.href();
     let is_active = active == Some(destination);
     let target = href.clone();
+    let item_sx = use_hook(|| {
+        let selected = sx().background("primary.1").color("ink").selector(
+            "&::before",
+            sx().position("absolute")
+                .top("sm")
+                .bottom("sm")
+                .left("0")
+                .width("var(--workbench-border-width)")
+                .background("primary")
+                .with("content", "\"\""),
+        );
+        sx().position("relative")
+            .display("flex")
+            .height("var(--workbench-activity-width)")
+            .align_items("center")
+            .justify_content("center")
+            .color("muted")
+            .text_decoration("none")
+            .hover(sx().background("neutral.2").color("ink"))
+            .selector(
+                "&:focus-visible",
+                sx().outline("var(--lsx-focus-ring-width) solid var(--lsx-focus-ring-color)")
+                    .outline_offset("-2px"),
+            )
+            .selector("&[data-active=true]", selected)
+    });
     rsx! {
-        a {
+        Box {
+            component: "a",
+            sx: item_sx,
             id: (destination == Destination::Workspaces).then_some(WORKSPACES_ITEM_ID),
-            class: "relative flex h-[var(--workbench-activity-width)] items-center justify-center text-muted-foreground no-underline hover:bg-accent/50 hover:text-foreground focus-visible:outline focus-visible:outline-ring focus-visible:-outline-offset-px data-[active=true]:bg-accent data-[active=true]:text-accent-foreground data-[active=true]:before:absolute data-[active=true]:before:inset-y-2 data-[active=true]:before:left-0 data-[active=true]:before:w-px data-[active=true]:before:bg-sidenav-primary",
             "data-active": if is_active { "true" } else { "false" },
             "data-testid": destination.test_id(),
             href,
@@ -107,8 +146,7 @@ fn ActivityItem(
                     navigate.call(target.clone());
                 }
             },
-            Icon { icon: destination.icon(), class: "size-4 shrink-0" }
-            span { class: "hidden", {destination.label()} }
+            Pictogram { icon: destination.icon(), width: "1rem", height: "1rem" }
         }
     }
 }
