@@ -244,7 +244,7 @@ stable tag exists; `ROOST_RELEASE_CHANNEL=prerelease` opts into pre-releases):
 
 ## Built with
 
-- **Web:** Dioxus 0.7 compiled to wasm (`roost-web`) with
+- **Web:** Dioxus 0.8 alpha.3 compiled to wasm (`roost-web`) with
   [rust-ui](https://github.com/rust-ui/ui) components on Tailwind CSS v4, an
   imperative `web-sys` DOM row renderer with no framework code
   (`roost-web-terminal`), and the UI-free client state machine

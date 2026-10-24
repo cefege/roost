@@ -39,17 +39,23 @@ pub enum TabStep {
 /// along the other axis do nothing, so page scrolling still works there.
 pub fn tab_step_for_key(key: &Key, vertical: bool) -> Option<TabStep> {
     let (back, forward) = if vertical {
-        (Key::ArrowUp, Key::ArrowDown)
+        (
+            Key::Named(NamedKey::ArrowUp),
+            Key::Named(NamedKey::ArrowDown),
+        )
     } else {
-        (Key::ArrowLeft, Key::ArrowRight)
+        (
+            Key::Named(NamedKey::ArrowLeft),
+            Key::Named(NamedKey::ArrowRight),
+        )
     };
     if *key == back {
         Some(TabStep::Previous)
     } else if *key == forward {
         Some(TabStep::Next)
-    } else if *key == Key::Home {
+    } else if *key == Key::Named(NamedKey::Home) {
         Some(TabStep::First)
-    } else if *key == Key::End {
+    } else if *key == Key::Named(NamedKey::End) {
         Some(TabStep::Last)
     } else {
         None

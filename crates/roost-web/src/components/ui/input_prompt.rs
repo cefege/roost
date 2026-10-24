@@ -83,7 +83,7 @@ pub fn InputPromptTextarea(
                     handler.call(event.clone());
                 }
                 if submit_on_enter
-                    && event.key() == Key::Enter
+                    && event.key() == Key::Named(NamedKey::Enter)
                     && !event.modifiers().shift()
                     && !event.is_composing()
                 {

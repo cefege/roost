@@ -36,7 +36,7 @@ pub fn SidebarSearch(
                     value: query,
                     oninput: move |event: FormEvent| on_change.call(event.value()),
                     onkeydown: move |event: KeyboardEvent| {
-                        if event.key() == Key::Escape && has_query {
+                        if event.key() == Key::Named(NamedKey::Escape) && has_query {
                             event.prevent_default();
                             event.stop_propagation();
                             on_change.call(String::new());

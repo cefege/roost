@@ -119,10 +119,12 @@ pub fn ClipboardSheet() -> Element {
             };
             let modifier = event.modifiers().meta() || event.modifiers().ctrl();
             match event.key() {
-                Key::ArrowDown => selected.set((current + 1).min(count.saturating_sub(1))),
-                Key::ArrowUp => selected.set(current.saturating_sub(1)),
-                Key::Enter => paste(row.text),
-                Key::Delete | Key::Backspace => delete(row.id),
+                Key::Named(NamedKey::ArrowDown) => {
+                    selected.set((current + 1).min(count.saturating_sub(1)))
+                }
+                Key::Named(NamedKey::ArrowUp) => selected.set(current.saturating_sub(1)),
+                Key::Named(NamedKey::Enter) => paste(row.text),
+                Key::Named(NamedKey::Delete) | Key::Named(NamedKey::Backspace) => delete(row.id),
                 Key::Character(key) if modifier && key.eq_ignore_ascii_case("c") => copy(row.text),
                 _ => return,
             }

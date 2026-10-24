@@ -1,27 +1,39 @@
 //! Tab keyboard movement: arrow keys follow the orientation, Home and End jump to
 //! the ends, and the index wraps past either edge.
 
-use dioxus::prelude::Key;
+use dioxus::prelude::{Key, NamedKey};
 use roost_web::components::ui::tabs::{TabStep, next_tab_index, tab_step_for_key};
 
 #[test]
 fn arrow_keys_follow_the_tab_orientation() {
     assert_eq!(
-        tab_step_for_key(&Key::ArrowRight, false),
+        tab_step_for_key(&Key::Named(NamedKey::ArrowRight), false),
         Some(TabStep::Next)
     );
     assert_eq!(
-        tab_step_for_key(&Key::ArrowLeft, false),
+        tab_step_for_key(&Key::Named(NamedKey::ArrowLeft), false),
         Some(TabStep::Previous)
     );
-    assert_eq!(tab_step_for_key(&Key::ArrowDown, true), Some(TabStep::Next));
     assert_eq!(
-        tab_step_for_key(&Key::ArrowUp, true),
+        tab_step_for_key(&Key::Named(NamedKey::ArrowDown), true),
+        Some(TabStep::Next)
+    );
+    assert_eq!(
+        tab_step_for_key(&Key::Named(NamedKey::ArrowUp), true),
         Some(TabStep::Previous)
     );
-    assert_eq!(tab_step_for_key(&Key::ArrowDown, false), None);
-    assert_eq!(tab_step_for_key(&Key::Home, true), Some(TabStep::First));
-    assert_eq!(tab_step_for_key(&Key::End, false), Some(TabStep::Last));
+    assert_eq!(
+        tab_step_for_key(&Key::Named(NamedKey::ArrowDown), false),
+        None
+    );
+    assert_eq!(
+        tab_step_for_key(&Key::Named(NamedKey::Home), true),
+        Some(TabStep::First)
+    );
+    assert_eq!(
+        tab_step_for_key(&Key::Named(NamedKey::End), false),
+        Some(TabStep::Last)
+    );
 }
 
 #[test]

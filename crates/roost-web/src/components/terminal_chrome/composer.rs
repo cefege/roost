@@ -240,7 +240,7 @@ pub fn TerminalComposer(
         // stopped one takes it as Send, as the button does.
         // A staged attachment send takes priority over the draft submit
         // (`press_send` checks it).
-        if event.key() == Key::Enter
+        if event.key() == Key::Named(NamedKey::Enter)
             && !event.modifiers().contains(Modifiers::SHIFT)
             && dictation_for_keys.send_gate().offers_send()
             && enter_submits(&event)
@@ -251,7 +251,7 @@ pub fn TerminalComposer(
             return;
         }
         // Escape cancels staged files; otherwise focus returns to the terminal.
-        if event.key() == Key::Escape {
+        if event.key() == Key::Named(NamedKey::Escape) {
             event.prevent_default();
             if !staged_files().is_empty() {
                 clear_staged_files(staged_files);

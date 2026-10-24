@@ -145,7 +145,7 @@ pub use field::{Field, FieldDescription, FieldError, FieldLabel};
 pub use focus_scope::AutoFocusRequest;
 pub use hover_card::{HoverCard, HoverCardContent, HoverCardSide, HoverCardTrigger};
 pub use icon::Icon;
-pub use icons::IconType;
+pub use icons::common::IconType;
 pub use input::{Input, InputType};
 pub use input_prompt::{
     InputPrompt, InputPromptFooter, InputPromptSubmit, InputPromptTextarea, InputPromptTools,

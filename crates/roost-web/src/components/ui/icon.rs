@@ -8,8 +8,8 @@
 //! control around the glyph.
 
 use dioxus::prelude::*;
-use icons::IconType;
-use icons::common::icon_registry_getter::get_icon_elements;
+use icons::common::IconType;
+use icons::common::{StaticSvgElement, icon_registry_getter::get_icon_elements};
 use tw_merge::tw_merge;
 
 /// A decorative Lucide glyph, `size-4` unless `class` sizes it.
@@ -30,8 +30,69 @@ pub fn Icon(icon: IconType, #[props(into, optional)] class: Option<String>) -> E
             "data-icon": "{icon}",
             class,
             for element in elements.iter() {
-                {element.to_dioxus_element()}
+                {svg_element(element)}
             }
         }
+    }
+}
+
+fn svg_element(element: &StaticSvgElement) -> Element {
+    match element {
+        StaticSvgElement::Path { d } => rsx! { path { d: *d } },
+        StaticSvgElement::Circle { cx, cy, r } => rsx! {
+            circle { cx: *cx, cy: *cy, r: *r }
+        },
+        StaticSvgElement::Rect {
+            x,
+            y,
+            width,
+            height,
+            rx: Some(rx),
+            ry: Some(ry),
+        } => rsx! {
+            rect { x: *x, y: *y, width: *width, height: *height, rx: *rx, ry: *ry }
+        },
+        StaticSvgElement::Rect {
+            x,
+            y,
+            width,
+            height,
+            rx: Some(rx),
+            ry: None,
+        } => rsx! {
+            rect { x: *x, y: *y, width: *width, height: *height, rx: *rx }
+        },
+        StaticSvgElement::Rect {
+            x,
+            y,
+            width,
+            height,
+            rx: None,
+            ry: Some(ry),
+        } => rsx! {
+            rect { x: *x, y: *y, width: *width, height: *height, ry: *ry }
+        },
+        StaticSvgElement::Rect {
+            x,
+            y,
+            width,
+            height,
+            rx: None,
+            ry: None,
+        } => rsx! {
+            rect { x: *x, y: *y, width: *width, height: *height }
+        },
+        StaticSvgElement::Ellipse { cx, cy, rx, ry } => rsx! {
+            ellipse { cx: *cx, cy: *cy, rx: *rx, ry: *ry }
+        },
+        StaticSvgElement::Line { x1, y1, x2, y2 } => rsx! {
+            line { x1: *x1, y1: *y1, x2: *x2, y2: *y2 }
+        },
+        StaticSvgElement::Polyline { points } => rsx! {
+            polyline { points: *points }
+        },
+        StaticSvgElement::Polygon { points } => rsx! {
+            polygon { points: *points }
+        },
     }
 }

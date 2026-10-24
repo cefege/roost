@@ -13,7 +13,7 @@ use std::rc::Rc;
 
 use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
-use icons::IconType;
+use icons::common::IconType;
 use tw_merge::tw_merge;
 
 use super::Icon;

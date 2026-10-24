@@ -86,7 +86,7 @@ pub fn RenameDialogHost() -> Element {
                         class: "w-full".to_owned(),
                         autofocus: true,
                         onkeydown: move |event: KeyboardEvent| {
-                            if event.key() == Key::Enter {
+                            if event.key() == Key::Named(NamedKey::Enter) {
                                 event.prevent_default();
                                 on_enter(name.peek().clone());
                             }

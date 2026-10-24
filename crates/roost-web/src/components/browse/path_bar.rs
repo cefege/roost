@@ -102,7 +102,7 @@ pub fn BrowsePathBar(
                         aria_label: Some("Filter this folder".to_owned()),
                         test_id: Some("browse-filter".to_owned()),
                         onkeydown: move |event: KeyboardEvent| {
-                            if event.key() == Key::Escape {
+                            if event.key() == Key::Named(NamedKey::Escape) {
                                 event.prevent_default();
                                 on_close_filter.call(());
                             }

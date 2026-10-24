@@ -271,8 +271,8 @@ fork" link).
 
 New UI MUST be cohesive by construction, not by memory. The UI layer is
 **rust-ui** (rust-ui.com, `github.com/rust-ui/ui`): a shadcn-style registry
-for Dioxus 0.7 + Tailwind v4 whose components are copied into the web crate's
-`ui` component directory and adapted to these rules. Recipe source:
+for Dioxus 0.7 + Tailwind v4. Roost adapts those components under the web crate's
+`ui` directory to its Dioxus 0.8 alpha.3 SDK and these rules. Recipe source:
 `rust-ui/ui@7120636e68556ddd023a4ec8e083663c7b745318`,
 `app_crates/registry/src/ui/`. Three rules enforce cohesion:
 

@@ -1,4 +1,4 @@
-# Dioxus 0.7 build configuration for the Roost web client.
+# Dioxus 0.8 alpha.3 build configuration for the Roost web client.
 # Read by `dx build`/`dx serve`; `dx` is not required to compile the crate.
 
 [application]
@@ -39,7 +39,7 @@ style = [
   "/components/notifications/NotificationDock.css",
 ]
 
-# dx 0.7 requires the dev table; `dx serve` injects nothing beyond the list above.
+# dx requires the dev table; `dx serve` injects nothing beyond the list above.
 [web.resource.dev]
 
 [web.wasm_opt]

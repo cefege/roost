@@ -1,77 +1,114 @@
-//! A rendered tree, read off the mutation stream a browser renderer applies.
-//!
-//! The overlay hosts mount and UNMOUNT, so a test that only ever watches one
-//! pass sees half the answer: a node the renderer has already dropped still
-//! looks alive in a list that was never told. What this folds answers is the
-//! question a browser asks — "is that element on the page right now?" — and it
-//! is deliberately the same question, read the same way, that `pane_drawer_mount`
-//! asks of the mobile drawer.
-//!
-//! The one rule it has to get right is subtree removal, and the stream does not
-//! say which elements a removed node took with it. Two facts do. A node's
-//! descendants are always created after it. And a `ReplaceWith` in the same pass
-//! that also CREATED the new content is replacing what was under the node before
-//! this pass began — not what the pass has just put there. So a removal drops
-//! the node, plus everything born between it and the start of this pass: exactly
-//! its former subtree, and nothing the pass just built. That is the only
-//! assumption this file makes, and it is written down here because it is one.
-//!
-//! Shared fixture, so the unwrap allowance is declared at this root and not only
-//! at the test binaries that reach it (`CLAUDE.md` "the test exemption reaches a
-//! test binary and not a fixture").
+//! Native DOM fixture for Dioxus's stack mutation protocol.
+//! Lifecycle tests query connected nodes, excluding cached template prototypes.
+//! Shared by overlay and pane fixtures; no browser platform is installed.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use dioxus::core::{AttributeValue, ElementId, Mutation, Mutations};
 
-/// What is on the page: the test id each live element carries, and the elements
-/// the last pass took off it.
-#[derive(Default)]
+#[derive(Clone, Default)]
+struct Node {
+    parent: Option<usize>,
+    children: Vec<usize>,
+    attributes: BTreeMap<String, String>,
+    element_id: Option<ElementId>,
+    listeners: BTreeSet<String>,
+}
+
 pub struct RenderedTree {
-    test_ids: BTreeMap<ElementId, String>,
-    /// Creation order, which is how a removal finds its own subtree.
-    born: BTreeMap<ElementId, usize>,
-    born_next: usize,
+    nodes: Vec<Node>,
+    elements: BTreeMap<ElementId, usize>,
+    stack: Vec<usize>,
+}
+
+impl Default for RenderedTree {
+    fn default() -> Self {
+        Self {
+            nodes: vec![Node::default()],
+            elements: BTreeMap::from([(ElementId::ROOT, 0)]),
+            stack: Vec::new(),
+        }
+    }
 }
 
 impl RenderedTree {
-    /// Fold one pass's edits into what is on screen, answering with the
-    /// elements that left it.
     pub fn apply(&mut self, mutations: Mutations) -> Vec<ElementId> {
-        let pass_start = self.born_next;
         let mut removed = Vec::new();
-        for edit in mutations.edits {
-            match edit {
-                Mutation::LoadTemplate { id, .. }
-                | Mutation::CreatePlaceholder { id }
-                | Mutation::CreateTextNode { id, .. }
-                | Mutation::AssignId { id, .. } => {
-                    self.note_birth(id);
-                    self.test_ids.entry(id).or_default();
+        for mutation in mutations.edits {
+            match mutation {
+                Mutation::PushId { id } => self.stack.push(self.elements[&id]),
+                Mutation::SetId { id } => {
+                    let node = self.top();
+                    self.nodes[node].element_id = Some(id);
+                    self.elements.insert(id, node);
                 }
-                Mutation::SetAttribute {
-                    name: "data-testid",
-                    value: AttributeValue::Text(value),
-                    id,
-                    ..
-                } => {
-                    self.note_birth(id);
-                    self.test_ids.insert(id, value);
+                Mutation::Child { index } => {
+                    let node = self.nodes[self.top()].children[index];
+                    *self.stack.last_mut().unwrap() = node;
                 }
-                Mutation::SetAttribute {
-                    name: "data-testid",
-                    value: AttributeValue::None,
-                    id,
-                    ..
-                } => {
-                    self.note_birth(id);
-                    self.test_ids.insert(id, String::new());
+                Mutation::Pop => {
+                    self.stack.pop().unwrap();
                 }
-                Mutation::ReplaceWith { id, .. } | Mutation::Remove { id } => {
-                    removed.push(id);
-                    self.forget_subtree(id, pass_start);
+                Mutation::CreateElement { .. } | Mutation::CreateText { .. } => {
+                    let node = self.nodes.len();
+                    self.nodes.push(Node::default());
+                    self.stack.push(node);
+                }
+                Mutation::Clone => {
+                    let original = self.stack.pop().unwrap();
+                    let cloned = self.clone_subtree(original);
+                    self.stack.push(cloned);
+                }
+                Mutation::AppendChildren { m } => {
+                    let children = self.take_children(m);
+                    let parent = self.top();
+                    for child in children {
+                        self.detach(child);
+                        self.nodes[child].parent = Some(parent);
+                        self.nodes[parent].children.push(child);
+                    }
+                }
+                Mutation::ReplaceWith { m } => {
+                    let children = self.take_children(m);
+                    let target = self.stack.pop().unwrap();
+                    self.insert_siblings(target, children, false);
+                    self.detach(target);
+                    self.forget_subtree(target, &mut removed);
+                }
+                Mutation::InsertAfter { m } => {
+                    let children = self.take_children(m);
+                    self.insert_siblings(self.top(), children, true);
+                }
+                Mutation::InsertBefore { m } => {
+                    let children = self.take_children(m);
+                    self.insert_siblings(self.top(), children, false);
+                }
+                Mutation::SetAttribute { name, value, .. } => {
+                    let node = self.top();
+                    match value {
+                        AttributeValue::Text(value) => {
+                            self.nodes[node].attributes.insert(name.to_owned(), value);
+                        }
+                        AttributeValue::None => {
+                            self.nodes[node].attributes.remove(&name);
+                        }
+                        _ => {}
+                    }
+                }
+                Mutation::NewEventListener { name } => {
+                    let node = self.top();
+                    self.nodes[node].listeners.insert(name);
+                }
+                Mutation::RemoveEventListener { name } => {
+                    let node = self.top();
+                    self.nodes[node].listeners.remove(&name);
+                }
+                Mutation::Remove => {
+                    let target = self.stack.pop().unwrap();
+                    self.detach(target);
+                    self.forget_subtree(target, &mut removed);
                 }
                 _ => {}
             }
@@ -79,44 +116,107 @@ impl RenderedTree {
         removed
     }
 
-    /// Every live element carrying `test_id`.
-    pub fn carrying(&self, test_id: &str) -> Vec<ElementId> {
-        self.test_ids
+    pub fn matching_attribute(&self, name: &str, value: &str) -> Vec<ElementId> {
+        self.elements
             .iter()
-            .filter(|(_, mounted)| mounted.as_str() == test_id)
-            .map(|(id, _)| *id)
+            .filter_map(|(id, node)| {
+                (self.nodes[*node]
+                    .attributes
+                    .get(name)
+                    .is_some_and(|actual| actual == value)
+                    && self.connected(*node))
+                .then_some(*id)
+            })
             .collect()
     }
 
-    /// How many elements carry `test_id` right now.
+    pub fn carrying(&self, test_id: &str) -> Vec<ElementId> {
+        self.matching_attribute("data-testid", test_id)
+    }
+
     pub fn count(&self, test_id: &str) -> usize {
         self.carrying(test_id).len()
     }
 
-    /// Record that `id` exists, keeping the order it first appeared in.
-    fn note_birth(&mut self, id: ElementId) {
-        if self.born.contains_key(&id) {
-            return;
+    /// Browser delegation starts at the nearest DOM ancestor with this listener,
+    /// not at an attribute-only element id that has no event binding.
+    pub fn listener_target(&self, target: ElementId, name: &str) -> Option<ElementId> {
+        let mut node = *self.elements.get(&target)?;
+        loop {
+            let current = &self.nodes[node];
+            if current.listeners.contains(name) {
+                return current.element_id;
+            }
+            node = current.parent?;
         }
-        self.born.insert(id, self.born_next);
-        self.born_next += 1;
     }
 
-    /// Drop `id` and everything born between it and `pass_start`.
-    fn forget_subtree(&mut self, id: ElementId, pass_start: usize) {
-        let Some(at) = self.born.remove(&id) else {
-            return;
-        };
-        self.test_ids.remove(&id);
-        let former: Vec<ElementId> = self
-            .born
+    fn top(&self) -> usize {
+        *self.stack.last().expect("mutation requires a stack node")
+    }
+
+    fn take_children(&mut self, count: usize) -> Vec<usize> {
+        self.stack.split_off(self.stack.len() - count)
+    }
+
+    fn connected(&self, mut node: usize) -> bool {
+        while node != 0 {
+            let Some(parent) = self.nodes[node].parent else {
+                return false;
+            };
+            node = parent;
+        }
+        true
+    }
+
+    fn clone_subtree(&mut self, original: usize) -> usize {
+        let node = self.nodes.len();
+        self.nodes.push(Node {
+            attributes: self.nodes[original].attributes.clone(),
+            ..Node::default()
+        });
+        for child in self.nodes[original].children.clone() {
+            let cloned = self.clone_subtree(child);
+            self.nodes[cloned].parent = Some(node);
+            self.nodes[node].children.push(cloned);
+        }
+        node
+    }
+
+    fn detach(&mut self, node: usize) {
+        if let Some(parent) = self.nodes[node].parent.take() {
+            self.nodes[parent].children.retain(|child| *child != node);
+        }
+    }
+
+    fn insert_siblings(&mut self, target: usize, children: Vec<usize>, after: bool) {
+        let parent = self.nodes[target]
+            .parent
+            .expect("sibling target is attached");
+        for child in &children {
+            self.detach(*child);
+        }
+        let index = self.nodes[parent]
+            .children
             .iter()
-            .filter(|(_, born)| **born > at && **born < pass_start)
-            .map(|(id, _)| *id)
-            .collect();
-        for gone in former {
-            self.born.remove(&gone);
-            self.test_ids.remove(&gone);
+            .position(|child| *child == target)
+            .unwrap()
+            + usize::from(after);
+        for child in &children {
+            self.nodes[*child].parent = Some(parent);
+        }
+        self.nodes[parent].children.splice(index..index, children);
+    }
+
+    fn forget_subtree(&mut self, node: usize, removed: &mut Vec<ElementId>) {
+        if let Some(id) = self.nodes[node].element_id.take()
+            && self.elements.get(&id) == Some(&node)
+        {
+            self.elements.remove(&id);
+            removed.push(id);
+        }
+        for child in self.nodes[node].children.clone() {
+            self.forget_subtree(child, removed);
         }
     }
 }

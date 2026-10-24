@@ -104,7 +104,7 @@ fn NewFolderBody(
                 description: rsx! { {description} },
                 error: error_element,
                 onkeydown: move |event: KeyboardEvent| {
-                    if event.key() == Key::Enter {
+                    if event.key() == Key::Named(NamedKey::Enter) {
                         event.prevent_default();
                         on_create.call(());
                     }

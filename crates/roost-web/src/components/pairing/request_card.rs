@@ -139,7 +139,7 @@ fn VerificationEntry(requester: PairingRequester, state: RequesterState) -> Elem
                 "aria-label": "Verification code",
                 class: "relative flex w-fit gap-2",
                 onkeydown: move |event: KeyboardEvent| {
-                    if event.key() == Key::Enter {
+                    if event.key() == Key::Named(NamedKey::Enter) {
                         event.prevent_default();
                         confirm_requester.confirm();
                     }

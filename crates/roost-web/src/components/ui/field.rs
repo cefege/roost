@@ -43,7 +43,7 @@ pub fn error_id(control_id: &str) -> String {
 /// The scope id is unique for as long as the component is mounted, which is
 /// exactly how long the `for`/`aria-*` references built from it are read.
 pub fn scoped_element_id(prefix: &str) -> String {
-    format!("{prefix}-{}", current_scope_id().0)
+    format!("{prefix}-{:?}", current_scope_id()).replace([' ', ',', '"', '(', ')'], "_")
 }
 
 #[component]

@@ -10,7 +10,7 @@
 use std::rc::Rc;
 
 use dioxus::prelude::*;
-use icons::IconType;
+use icons::common::IconType;
 
 use super::Icon;
 use super::dom::{key_event_time_ms, viewport_height};

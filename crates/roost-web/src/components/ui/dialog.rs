@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use dioxus::prelude::*;
-use icons::IconType;
+use icons::common::IconType;
 use tw_merge::tw_merge;
 
 use super::dom::{

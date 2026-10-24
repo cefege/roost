@@ -4,6 +4,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+#[allow(dead_code)]
 mod palette_support;
 
 use std::any::Any;
@@ -118,12 +119,12 @@ fn unhydrated_settings_block_keyboard_role_assignment() {
         .carrying("agent-model-hub")
         .first()
         .expect("the loading dialog is mounted");
-    hub.press(target, Key::ArrowLeft);
+    hub.press(target, Key::Named(NamedKey::ArrowLeft));
     for _ in 0..8 {
-        hub.press(target, Key::ArrowDown);
+        hub.press(target, Key::Named(NamedKey::ArrowDown));
     }
-    hub.press(target, Key::ArrowRight);
-    hub.press(target, Key::Enter);
+    hub.press(target, Key::Named(NamedKey::ArrowRight));
+    hub.press(target, Key::Named(NamedKey::Enter));
     assert_eq!(hub.tree.count("agent-model-hub-strip"), 0);
     assert_eq!(hub.tree.count("agent-model-hub-view-roles"), 0);
 }

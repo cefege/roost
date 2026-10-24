@@ -20,6 +20,7 @@
 pub mod agent_projection;
 pub mod agent_prompt;
 pub mod agents;
+pub mod bootstrap;
 pub mod cli_device;
 pub mod client;
 pub mod credentials;
@@ -131,6 +132,7 @@ async fn dispatch(
         "ui-state" => ui::state(&link()?, &parsed, output).await,
         "login" => device_login::login(&ProcessEnv::new(), &parsed, output).await,
         "logout" => device_login::logout(&ProcessEnv::new(), output).await,
+        "bootstrap-mint" => bootstrap::mint(&link()?, &parsed, output).await,
         "devices" => device::list(&link()?, &parsed, output).await,
         "device-revoke" => device::revoke(&link()?, &parsed, output).await,
         "device-revoke-local" => {

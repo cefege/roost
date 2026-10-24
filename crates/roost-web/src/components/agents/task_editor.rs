@@ -158,7 +158,7 @@ pub fn TaskEditor(
             class: "flex flex-col gap-3 min-w-80 max-w-full",
             "data-testid": EDITOR_TEST_ID,
             onkeydown: move |event: KeyboardEvent| {
-                if event.key() == Key::Enter && (event.modifiers().meta() || event.modifiers().ctrl())
+                if event.key() == Key::Named(NamedKey::Enter) && (event.modifiers().meta() || event.modifiers().ctrl())
                 {
                     event.prevent_default();
                     submit_on_enter.call(());

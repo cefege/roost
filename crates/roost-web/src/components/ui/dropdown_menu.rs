@@ -108,10 +108,10 @@ pub fn DropdownMenuTrigger(
                 }
                 let open = context.root.peek().open;
                 match event.key() {
-                    Key::ArrowDown | Key::ArrowUp => {
+                    Key::Named(NamedKey::ArrowDown) | Key::Named(NamedKey::ArrowUp) => {
                         event.prevent_default();
                         event.stop_propagation();
-                        let edge = if event.key() == Key::ArrowDown {
+                        let edge = if event.key() == Key::Named(NamedKey::ArrowDown) {
                             MenuFocusEdge::First
                         } else {
                             MenuFocusEdge::Last
@@ -122,7 +122,7 @@ pub fn DropdownMenuTrigger(
                             Some(edge),
                         );
                     }
-                    Key::Escape if open => {
+                    Key::Named(NamedKey::Escape) if open => {
                         event.prevent_default();
                         request_close(context, true);
                     }

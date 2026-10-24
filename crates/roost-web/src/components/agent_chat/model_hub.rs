@@ -313,7 +313,7 @@ pub fn ModelHub(
                                             // The field owns printable keys and Backspace, so the hub's key ladder
                                             // does not also apply them to the query.
                                             onkeydown: move |event: KeyboardEvent| {
-                                                if matches!(event.key(), Key::Character(_) | Key::Backspace) {
+                                                if matches!(event.key(), Key::Character(_) | Key::Named(NamedKey::Backspace)) {
                                                     event.stop_propagation();
                                                 }
                                             },

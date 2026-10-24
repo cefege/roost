@@ -219,7 +219,7 @@ fn painted_paths(href: &str) -> Vec<String> {
 fn collect_text(mutations: &Mutations, painted: &mut Vec<String>) {
     for edit in &mutations.edits {
         match edit {
-            Mutation::CreateTextNode { value, .. } => painted.push(value.clone()),
+            Mutation::CreateText { value } => painted.push(value.clone()),
             Mutation::SetText { value, .. } => painted.push(value.clone()),
             _ => {}
         }

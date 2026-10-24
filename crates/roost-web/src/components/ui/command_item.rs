@@ -3,7 +3,7 @@
 //! owns keyboard state, it only reflects the highlighted value the root tracks.
 
 use dioxus::prelude::*;
-use icons::IconType;
+use icons::common::IconType;
 use tw_merge::tw_merge;
 
 use super::Icon;

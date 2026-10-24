@@ -18,6 +18,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+#[allow(dead_code)]
 mod palette_support;
 
 use std::cell::RefCell;

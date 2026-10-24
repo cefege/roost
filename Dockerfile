@@ -19,7 +19,7 @@ WORKDIR /src
 # copying it first lets this layer cache across source edits.
 COPY rust-toolchain.toml ./
 RUN rustup show active-toolchain \
- && cargo install dioxus-cli --version 0.7.10 --locked
+ && cargo install dioxus-cli --version 0.8.0-alpha.3 --locked
 COPY . .
 ENV ROOST_BUILD_VERSION=$ROOST_BUILD_VERSION ROOST_BUILD_SHA=$ROOST_BUILD_SHA
 # One RUN, so the cache-mounted target directory never has to be an image

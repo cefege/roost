@@ -104,7 +104,7 @@ pub(super) fn RolePresets(
                     max_length: 64,
                     test_id: "agent-roles-preset-name".to_owned(),
                     onkeydown: move |event: KeyboardEvent| {
-                        if event.key() == Key::Enter && !event.is_composing() {
+                        if event.key() == Key::Named(NamedKey::Enter) && !event.is_composing() {
                             event.prevent_default();
                             save_on_enter();
                         }

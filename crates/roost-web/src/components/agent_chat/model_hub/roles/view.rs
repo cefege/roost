@@ -156,7 +156,7 @@ pub fn HubRolesView(
                         max_length: Some(64),
                         test_id: NAME_FIELD_ID.to_owned(),
                         onkeydown: move |event: KeyboardEvent| {
-                            if event.key() == Key::Enter && !event.is_composing() {
+                            if event.key() == Key::Named(NamedKey::Enter) && !event.is_composing() {
                                 event.prevent_default();
                                 if !save_disabled {
                                     field_context.save_preset(&save_typed);

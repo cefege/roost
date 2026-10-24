@@ -3,7 +3,7 @@
 //! `toast_queue.rs`. Depends on `icon` for glyphs and `tw_merge` for class merging.
 
 use dioxus::prelude::*;
-use icons::IconType;
+use icons::common::IconType;
 use tw_merge::tw_merge;
 
 use super::icon::Icon;
