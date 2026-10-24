@@ -23,16 +23,12 @@ use axum::extract::{Request, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use roost_host::http_security::build_csp;
 use roost_protocol::wire::headers::X_ROOST_AUTH_LAYER;
 
 /// The two origins the transcription client is allowed to reach, in the order
 /// the CSP lists them (`security.ts:29-31`).
 const TRANSCRIPTION_ORIGINS: [&str; 2] = ["https://api.deepgram.com", "wss://api.deepgram.com"];
-
-/// The tail every CSP ends with: this coordinator serves no frame anyone may
-/// embed, and a page it served is not a page an attacker may frame to clickjack
-/// an operator's approval dialog.
-const CSP_TAIL: &str = "frame-ancestors 'none'";
 
 /// The response header names this module writes, as the shared contract spells
 /// them, so a rename on one side cannot silently drop the other's guarantee.
@@ -132,46 +128,6 @@ fn websocket_twin(origin: &str) -> String {
         return format!("ws://{twin}");
     }
     origin.to_owned()
-}
-
-/// The `Content-Security-Policy` this coordinator answers with.
-///
-/// `connect_origins` is listed exactly as given. A declared door's WebSocket
-/// twin belongs to the caller that declared it, and both callers of the shared
-/// builder already derive one (`security.ts:46`, `local-ui-server.ts:360`);
-/// deriving it here too would be a second answer to one value, and because the
-/// sources are deduped it would be invisible -- a caller that forgot would look
-/// the same as a caller that did not.
-#[must_use]
-fn build_csp(relaxed: bool, connect_origins: &[String]) -> String {
-    let mut connections: Vec<&str> = vec!["'self'"];
-    for origin in connect_origins {
-        if !connections.contains(&origin.as_str()) {
-            connections.push(origin);
-        }
-    }
-    // A relaxed policy admits plaintext endpoints, which is what a local-first
-    // coordinator serving `http://127.0.0.1:<port>` needs. It is opt-in
-    // because it also admits every other plaintext endpoint, and the operator
-    // asked for one specific door rather than the class.
-    if relaxed {
-        connections.push("http:");
-        connections.push("ws:");
-    }
-    format!(
-        "default-src 'self'; \
-         script-src 'self' 'wasm-unsafe-eval' blob:; \
-         worker-src 'self' blob:; \
-         style-src 'self' 'unsafe-inline'; \
-         img-src 'self' data: blob:; \
-         font-src 'self' data:; \
-         base-uri 'self'; \
-         form-action 'none'; \
-         object-src 'none'; \
-         connect-src {}; \
-         {CSP_TAIL}",
-        connections.join(" ")
-    )
 }
 
 /// Stamp the CORS headers for one request's origin.

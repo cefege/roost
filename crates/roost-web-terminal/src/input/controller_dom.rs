@@ -50,11 +50,14 @@ impl std::fmt::Debug for TerminalInputController {
 }
 
 impl TerminalInputController {
-    /// Create the pane's textarea inside `root` and start listening on it.
+    /// Create the pane's textarea beside its mounted display and start listening.
     pub fn new(root: &Element, options: TerminalInputOptions) -> Result<Self, DomSetupError> {
         let refused = |tag: &str| DomSetupError::RefusedTag {
             tag: tag.to_string(),
         };
+        let input_host = root
+            .parent_node()
+            .ok_or_else(|| refused("terminal input host"))?;
         let doc = root.owner_document().ok_or_else(|| refused("document"))?;
         let textarea: HtmlTextAreaElement = doc
             .create_element("textarea")
@@ -97,8 +100,12 @@ impl TerminalInputController {
         controller.listen("input", on_input);
         controller.listen("focus", |shared, _| on_focus_change(shared, true));
         controller.listen("blur", |shared, _| on_focus_change(shared, false));
+        // Layout containment puts even fixed descendants in the display's
+        // focus-reveal space. Native focus must not scroll terminal history.
         let textarea_node: &Node = controller.shared.textarea.as_ref();
-        let _ = root.append_child(textarea_node);
+        input_host
+            .insert_before(textarea_node, root.next_sibling().as_ref())
+            .map_err(|_| refused("textarea"))?;
         tracing::debug!(target: "input", "terminal input controller attached");
         Ok(controller)
     }

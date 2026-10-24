@@ -147,8 +147,9 @@ impl PadDom for BrowserPadDom {
         if !dom_read::matches(input, ".terminal-input") {
             return false;
         }
-        let terminal_box =
-            dom_read::closest(input, ".wterm").and_then(|element| dom_read::html(&element));
+        let terminal_box = dom_read::closest(input, "[data-testid='cell-terminal-pane']")
+            .and_then(|pane| pane.query_selector(".wterm").ok().flatten())
+            .and_then(|element| dom_read::html(&element));
         let _ = input.blur();
         if let Some(terminal_box) = terminal_box {
             let _ = terminal_box.focus();

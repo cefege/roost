@@ -224,4 +224,16 @@ mod tests {
         assert!(!html.contains("<img"), "{html}");
         assert!(!html.contains("onerror=alert(1)>"), "{html}");
     }
+
+    #[test]
+    fn an_inline_svg_keeps_its_source_and_plain_text_caption() {
+        let source = "data:image/svg+xml;utf8,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%228%22%20height=%226%22%3E%3C/svg%3E";
+        let html = markdown_to_safe_html(&format!(
+            "![A **small** `diagram`]({source} \"Diagram title\")"
+        ));
+        assert!(html.contains(&format!("src=\"{source}\"")), "{html}");
+        assert!(html.contains("alt=\"A small diagram\""), "{html}");
+        assert!(html.contains("title=\"Diagram title\""), "{html}");
+        assert!(!html.contains("<svg"), "{html}");
+    }
 }

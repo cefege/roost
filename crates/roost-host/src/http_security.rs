@@ -28,7 +28,7 @@ pub fn build_csp(relaxed: bool, connect_origins: &[String]) -> String {
          script-src 'self' 'wasm-unsafe-eval' blob:; \
          worker-src 'self' blob:; \
          style-src 'self' 'unsafe-inline'; \
-         img-src 'self' data: blob:; \
+         img-src 'self' https: data: blob:; \
          font-src 'self' data:; \
          base-uri 'self'; \
          form-action 'none'; \
@@ -101,5 +101,26 @@ mod tests {
         assert!(!named(false).contains(&"strict-transport-security"));
         assert!(named(true).contains(&"strict-transport-security"));
         assert!(named(false).contains(&"x-frame-options"));
+    }
+
+    #[test]
+    fn https_images_do_not_open_scripts_or_general_connections() {
+        for relaxed in [false, true] {
+            let policy = build_csp(relaxed, &[]);
+            let sources = |name: &str| -> Vec<&str> {
+                policy
+                    .split(';')
+                    .find_map(|directive| {
+                        let mut words = directive.split_whitespace();
+                        (words.next() == Some(name)).then(|| words.collect())
+                    })
+                    .unwrap_or_default()
+            };
+            assert!(sources("img-src").contains(&"https:"));
+            assert!(!sources("img-src").contains(&"http:"));
+            assert!(!sources("script-src").contains(&"https:"));
+            assert!(!sources("connect-src").contains(&"https:"));
+            assert!(!sources("default-src").contains(&"https:"));
+        }
     }
 }

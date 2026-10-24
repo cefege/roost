@@ -999,6 +999,13 @@ all MainPane screens plus an always-mounted deck host (visibility flip) so `/fil
 deck down. This was the 6th attempt at this class: the prior five "passed" because nothing asserted what the
 reader SEES at first paint, so the smoke now samples the READER'S POSITION during reveal.
 
+Browser-owned focus can also jump straight to the history head. `.wterm`'s
+`contain: layout paint` makes even a fixed-position descendant part of its
+scrolling coordinate space. The pane input controller therefore inserts its
+hidden textarea immediately after the display, under the same pane, not inside
+the display. Application `preventScroll` calls cannot protect native Tab focus.
+Controller navigation resolves the display through that shared pane owner.
+
 **Guard** — none — a Rust test is owed.
 `crates/roost-web-terminal/tests/render_geometry.rs` —
 `a_reveal_after_a_parked_view_lands_on_the_live_bottom_not_the_old_one` and
@@ -1011,6 +1018,12 @@ over stale DOM; a brand-new cold mount's first frame). The real sequence —
 fresh FULL arriving over the wire asynchronously against whatever
 `reader`/geometry state that gap left behind — is untested, tied to real
 `web_sys` DOM, and is the remaining suspect.
+Native-focus browser smoke is also required: with deep history at the live bottom,
+Tab into `.terminal-input` and assert the position stays at the bottom; wheel up
+and repeat to assert the reader stays put. Background the real document while the
+PTY writes, then return and assert the live tail is visible. Route unmounts must
+remove the sibling textarea with its pane. Native fake-DOM tests do not model the
+browser's focus-reveal scrolling, so they are not evidence for this case.
 
 ### Reveal waits on history before the live bottom is readable
 
@@ -2481,6 +2494,29 @@ detection on Postgres; HTTP and WebSocket byte-transparency through a follower).
 ---
 
 ## Browser platform reality
+
+### Agent chat images are broken despite a valid HTTPS image URL
+
+**Symptom** — "images can't be displayed in agent chat" / a broken-image icon
+with `naturalWidth === 0`, while the same URL returns an image. Chromium reports
+`Network.loadingFailed.blockedReason = csp`.
+
+**Wrong** — add a download proxy, widen `default-src`, `script-src` or
+`connect-src`, or maintain a separate coordinator CSP that diverges from the
+worker's local door.
+
+**Right** — permit `https:` in **`img-src` only**, in
+`roost-host::http_security::build_csp`; the coordinator and worker both use that
+builder. Keep the no-referrer policy and existing script/connect restrictions.
+The shared Markdown recipe caps images at their container width and preserves
+aspect ratio. A URL returning an HTTP error or an SVG containing invalid XML is
+a content failure, not evidence that image rendering should rewrite its source.
+
+**Guard** — `roost-host::http_security::tests::https_images_do_not_open_scripts_or_general_connections`;
+`roost-web`'s `an_inline_svg_keeps_its_source_and_plain_text_caption` preserves
+valid inline SVG without interpreting it as page markup. Browser smoke replays
+the actual chat Markdown through the real coordinator and checks image decode
+and container bounds at desktop and phone sizes.
 
 ### lib.dom types are the spec surface, not the engine's
 
