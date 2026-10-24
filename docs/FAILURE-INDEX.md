@@ -1679,6 +1679,27 @@ the PTY.
 
 **Guard** — `crates/roost-worker/tests/terminal_input_write.rs` — `live_authority_is_rechecked_after_the_lane_is_granted`.
 
+### A refused writer strands input after its turn was granted but not polled
+
+**Symptom** — input behind a refused agent prompt waits forever; Windows CI times out
+in `terminal_input_order::a_burst_of_refusals_neither_strands_nor_reorders_the_lane`.
+
+**Wrong** — infer ownership from whether a ticket entered, or from whether the lane
+was idle when it was admitted. A queued ticket can receive the turn and be refused
+before its grant future is polled. Marking that ticket cancelled without handing
+on its assigned turn strands every successor. Raising timeouts cannot release it.
+
+**Right** — the queue owns the current holder's identity before notifying it.
+`AdmissionOrder::release` serializes cancellation with hand-off under the same
+mutex: a queued cancellation is skipped, while cancellation of the assigned holder
+advances the queue even if its future never ran. `AdmissionTicket` has no snapshot
+`holds` or `entered` flags.
+
+**Guard** — `crates/roost-worker/tests/terminal_input_order.rs` —
+`a_queued_writer_refused_after_handoff_releases_its_unpolled_grant` deterministically
+fails before the fix; the burst test retains ordering and mutual-exclusion coverage.
+
+
 ### The pane reads Coordinator and every keystroke is refused as "terminal input route changed"
 
 **Symptom** — after a WebRTC route fell back to Sync, a Sync reconnect (laptop wake, network change,

@@ -167,6 +167,34 @@ async fn a_writer_queued_behind_a_refused_one_still_enters() {
     );
 }
 
+#[tokio::test]
+async fn a_queued_writer_refused_after_handoff_releases_its_unpolled_grant() {
+    let lanes = ControlLanes::new();
+    let channel = ChannelId::try_from(5i64).expect("a positive id is a channel id");
+    let Admission::Granted(first) = lanes.admit(channel, AdmissionKind::TerminalInput) else {
+        panic!("an idle lane grants")
+    };
+    first.granted().await;
+    let Admission::Granted(refused) = lanes.admit(channel, AdmissionKind::TerminalInput) else {
+        panic!("a held lane queues the next writer")
+    };
+    let Admission::Granted(next) = lanes.admit(channel, AdmissionKind::TerminalInput) else {
+        panic!("a held lane queues the last writer")
+    };
+
+    first.release();
+    // The queued writer now owns the turn, but its grant future was never polled.
+    refused.release();
+
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_secs(5), next.granted())
+            .await
+            .is_ok(),
+        "a refused writer must hand on a turn granted before it entered"
+    );
+    next.release();
+}
+
 /// A burst where writers are refused mid-lane, which is what a burst of agent
 /// prompts against a busy channel looks like. Every write that did not refuse
 /// must still enter, in admit order, and the lane must not overlap two of them.

@@ -164,14 +164,14 @@ impl ControlLanes {
         // THE ORDER IS TAKEN HERE, WHERE IT IS STILL KNOWN. `admit` runs in
         // receive order on the task reading the socket, so this is the only
         // moment the order of the writes is observable at all.
-        let (turn, cancelled, holds) = lock(&lane.order).enqueue();
+        let (turn, cancelled) = lock(&lane.order).enqueue();
         tracing::debug!(
             channel_id = ?channel_id,
             kind = kind.as_str(),
             "a keeper write asked for the write-ordering lane"
         );
         Admission::Granted(AdmissionTicket::new(
-            channel_id, kind, lane, turn, cancelled, holds,
+            channel_id, kind, lane, turn, cancelled,
         ))
     }
 
@@ -293,23 +293,13 @@ impl Default for Lane {
     }
 }
 
-/// One channel's write-ordering queue, in the order the writes were ADMITTED.
-///
-/// THIS EXISTS BECAUSE A SEMAPHORE CANNOT EXPRESS RECEIVE ORDER. The permit is
-/// FIFO in the order the awaiting tasks are POLLED, and on a multi-threaded
-/// runtime that is the scheduler's order, not the order the frames arrived in.
-/// Fast typing therefore handed the lane to groups of two to four adjacent
-/// keystrokes BACKWARDS, and every byte of each group reached the PTY in the
-/// wrong order — a transposition, which is not a loss, so it is invisible to
-/// any check that only counts what arrived.
-///
-/// So the order is kept HERE, where `admit` is, and the permit is handed to the
-/// head of this queue rather than dropped for whoever is polled next.
+/// Receive-order ownership: a semaphore orders polls rather than admissions.
+/// The queue retains the holder's identity before notifying it, including a
+/// grant whose future has not been polled.
 #[derive(Debug, Default)]
 pub(super) struct AdmissionOrder {
-    /// Whether a writer holds the lane. An IDLE grant is a hold from the moment
-    /// it is issued, so a writer that never entered still has to hand it on.
-    held: bool,
+    /// The cancellation flag identifies the ticket owning the turn.
+    holder: Option<Arc<AtomicBool>>,
     /// Admitted but not yet entered, oldest first.
     waiters: VecDeque<Waiter>,
 }
@@ -325,25 +315,31 @@ struct Waiter {
 }
 
 impl AdmissionOrder {
-    /// Take this writer's place, its notification, the flag its ticket uses to
-    /// cancel that place, and whether the lane was idle.
-    ///
-    /// An IDLE lane grants at once, so the uncontended case costs one channel
-    /// send and never a wake-up — and that grant is a HOLD, which a ticket
-    /// released before it entered still has to hand on.
-    fn enqueue(&mut self) -> (tokio::sync::oneshot::Receiver<()>, Arc<AtomicBool>, bool) {
+    /// Take a queue place and its cancellation identity; an idle lane grants now.
+    fn enqueue(&mut self) -> (tokio::sync::oneshot::Receiver<()>, Arc<AtomicBool>) {
         let (sender, receiver) = tokio::sync::oneshot::channel();
         let cancelled = Arc::new(AtomicBool::new(false));
-        if !self.held {
-            self.held = true;
+        if self.holder.is_none() {
+            self.holder = Some(Arc::clone(&cancelled));
             let _granted_at_once = sender.send(());
-            return (receiver, cancelled, true);
+        } else {
+            self.waiters.push_back(Waiter {
+                sender,
+                cancelled: Arc::clone(&cancelled),
+            });
         }
-        self.waiters.push_back(Waiter {
-            sender,
-            cancelled: Arc::clone(&cancelled),
-        });
-        (receiver, cancelled, false)
+        (receiver, cancelled)
+    }
+
+    pub(super) fn release(&mut self, cancelled: &Arc<AtomicBool>) {
+        cancelled.store(true, Ordering::Release);
+        if self
+            .holder
+            .as_ref()
+            .is_some_and(|holder| Arc::ptr_eq(holder, cancelled))
+        {
+            self.hand_off();
+        }
     }
 
     /// Mark the lane idle and wake the next writer IN QUEUE ORDER.
@@ -351,16 +347,16 @@ impl AdmissionOrder {
     /// A waiter whose ticket was released before it entered is SKIPPED rather
     /// than granted: it will never write, and a grant it never releases is a
     /// lane nobody behind it can pass.
-    pub(super) fn hand_off(&mut self) {
-        self.held = false;
+    fn hand_off(&mut self) {
+        self.holder = None;
         while let Some(waiter) = self.waiters.pop_front() {
             if waiter.cancelled.load(Ordering::Acquire) {
                 continue;
             }
-            self.held = true;
+            self.holder = Some(waiter.cancelled);
             // A closed channel is a dropped ticket: same answer, same reason.
             if waiter.sender.send(()).is_err() {
-                self.held = false;
+                self.holder = None;
                 continue;
             }
             return;

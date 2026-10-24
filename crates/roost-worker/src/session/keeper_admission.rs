@@ -115,12 +115,6 @@ pub struct AdmissionTicket {
     /// without putting a `tokio::sync::Mutex` in front of every keeper write.
     turn: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
     cancelled: Arc<AtomicBool>,
-    /// The lane was IDLE when this ticket was issued, so it has held the lane
-    /// from that moment. A ticket that never entered still has to hand that
-    /// hold on: there is no queue place to give up, and a hold nobody hands on
-    /// strands every later write on the channel.
-    holds: bool,
-    entered: AtomicBool,
     released: AtomicBool,
 }
 
@@ -131,7 +125,6 @@ impl AdmissionTicket {
         lane: Arc<Lane>,
         turn: tokio::sync::oneshot::Receiver<()>,
         cancelled: Arc<AtomicBool>,
-        holds: bool,
     ) -> Self {
         Self {
             channel_id,
@@ -139,8 +132,6 @@ impl AdmissionTicket {
             lane,
             turn: Mutex::new(Some(turn)),
             cancelled,
-            holds,
-            entered: AtomicBool::new(false),
             released: AtomicBool::new(false),
         }
     }
@@ -177,7 +168,6 @@ impl AdmissionTicket {
             );
             return;
         }
-        self.entered.store(true, Ordering::Release);
         self.lane
             .running
             .store(self.kind.report_index(), Ordering::Relaxed);
@@ -198,18 +188,7 @@ impl AdmissionTicket {
             return;
         }
         self.lane.running.store(0, Ordering::Relaxed);
-        // A writer that never entered gives up its PLACE: handing the lane to a
-        // waiter that will never write is how every writer behind it stalls
-        // forever. A writer that never entered but HELD the lane — the idle
-        // grant — has to hand the hold on as well, or the lane is never given
-        // back at all and every later write waits for a hand-off that cannot
-        // come. That is the agent prompt whose process proof is refreshed
-        // before its grant arrives and answers that the prompt is not ours.
-        if self.entered.swap(false, Ordering::AcqRel) || self.holds {
-            lock(&self.lane.order).hand_off();
-        } else {
-            self.cancelled.store(true, Ordering::Release);
-        }
+        lock(&self.lane.order).release(&self.cancelled);
         self.lane.waiting.fetch_sub(1, Ordering::AcqRel);
         tracing::debug!(
             channel_id = ?self.channel_id,
