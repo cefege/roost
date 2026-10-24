@@ -8,14 +8,9 @@ use dioxus::prelude::*;
 use wasm_bindgen::JsCast as _;
 use wasm_bindgen::closure::Closure;
 
-use roost_client_core::ClientEvent;
-use roost_client_core::store::sidebar::SidebarIntent;
-
 use super::activity_bar::WORKSPACES_ITEM_ID;
-use super::app_shell::toggle_desktop_sidebar;
 use super::shell_style::main_left_offset;
 use super::sidebar_region::SIDEBAR_REGION_ID;
-use crate::components::sidebar::dom::listen_for_search_shortcut;
 use crate::motion::resize_drag::use_resize_drag;
 use crate::platform::browser_platform::{
     PlatformShortcut, browser_platform, matches_platform_shortcut, shortcut_key,
@@ -75,7 +70,7 @@ pub(super) fn use_shell_listeners(pump: Pump, compact: bool, sidebar_enabled: bo
                     return;
                 }
                 event.prevent_default();
-                toggle_desktop_sidebar(&pump, compact);
+                super::app_shell::toggle_desktop_sidebar(&pump, compact);
             },
         );
         let pageshow = Closure::<dyn FnMut()>::new(move || drag.reset());
@@ -98,27 +93,6 @@ pub(super) fn use_shell_listeners(pump: Pump, compact: bool, sidebar_enabled: bo
                 listeners.pageshow.as_ref().unchecked_ref(),
             );
         }
-    });
-}
-
-/// The search chord belongs to the shell, rather than the drawer it opens.
-///
-/// Compact sidebars unmount while closed. Keeping this listener at the shell
-/// boundary lets the chord reopen the drawer before focusing its search field.
-pub(super) fn use_sidebar_search_listener(pump: Pump, compact: bool, enabled: bool) {
-    let mut listener_state = use_signal(|| (compact, enabled));
-    if *listener_state.peek() != (compact, enabled) {
-        listener_state.set((compact, enabled));
-    }
-    use_hook(move || {
-        std::rc::Rc::new(listen_for_search_shortcut(move || {
-            let (compact, enabled) = *listener_state.peek();
-            if enabled {
-                pump.dispatch(ClientEvent::Sidebar(SidebarIntent::RevealForSearch {
-                    compact,
-                }));
-            }
-        }))
     });
 }
 

@@ -1,16 +1,44 @@
-//! Persistence migration and palette selection contracts.
-//! Exercises validated legacy choices and Libero's static light/dark pairs.
-//! Browser scheme and pane lifetime checks exercise the rendered provider separately.
-
+//! The theme engine's behaviour, natively: what a stored choice loads as, what
+//! it resolves to under each mode, what applying it persists and writes, and
+//! when an OS flip re-applies. Exercises `roost_web::theme` and
+//! `roost_web::theme::choice` over an in-memory store and a recording document.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use libero::theme::{COLOR_SCHEME_STORAGE_KEY, HexColor};
+use std::cell::{Cell, RefCell};
+
 use roost_client_core::{KeyValueStore, MemoryKeyValueStore};
-use roost_web::theme::catalog::theme_set_for_choice;
 use roost_web::theme::choice::{
-    ACCENT_STORAGE_KEY, BASE_STORAGE_KEY, MODE_STORAGE_KEY, ThemeChoice, ThemeMode, load_theme,
-    persist_theme, prime_libero_scheme,
+    ACCENT_STORAGE_KEY, BASE_STORAGE_KEY, MODE_STORAGE_KEY, ThemeApplication, ThemeChoice,
+    ThemeMode, load_theme, managed_properties, persist_theme, resolve_appearance,
+    theme_application,
 };
+use roost_web::theme::tokens::ThemeAppearance;
+use roost_web::theme::{ThemeDocument, apply_theme_with, reapply_for_system_flip};
+
+/// A document that reports a fixed OS preference and records every write.
+struct RecordingDocument {
+    system: Cell<Option<ThemeAppearance>>,
+    writes: RefCell<Vec<ThemeApplication>>,
+}
+
+impl RecordingDocument {
+    fn new(system: Option<ThemeAppearance>) -> Self {
+        Self {
+            system: Cell::new(system),
+            writes: RefCell::new(Vec::new()),
+        }
+    }
+}
+
+impl ThemeDocument for RecordingDocument {
+    fn system_appearance(&self) -> Option<ThemeAppearance> {
+        self.system.get()
+    }
+
+    fn write(&self, application: &ThemeApplication) {
+        self.writes.borrow_mut().push(application.clone());
+    }
+}
 
 fn choice(base: &str, accent: &str, mode: ThemeMode) -> ThemeChoice {
     ThemeChoice {
@@ -21,162 +49,108 @@ fn choice(base: &str, accent: &str, mode: ThemeMode) -> ThemeChoice {
 }
 
 #[test]
-fn missing_legacy_mode_primes_dark_without_adopting_libero_system_default() {
+fn an_empty_store_loads_the_default_neutral_dark_choice() {
     let store = MemoryKeyValueStore::default();
-    store.set(COLOR_SCHEME_STORAGE_KEY, "system");
-    let loaded = prime_libero_scheme(&store);
-    assert_eq!(loaded, choice("neutral", "default", ThemeMode::Dark));
-    assert_eq!(store.get(COLOR_SCHEME_STORAGE_KEY).as_deref(), Some("dark"));
+    let loaded = load_theme(&store);
+    assert_eq!(loaded, ThemeChoice::default());
+    assert_eq!(loaded.base, "neutral");
+    assert_eq!(loaded.accent, "default");
+    assert_eq!(loaded.mode, ThemeMode::Dark);
 }
 
 #[test]
-fn invalid_legacy_mode_primes_dark_and_invalid_palette_ids_are_not_reset_to_stock_libero() {
+fn an_unknown_stored_base_falls_back_to_neutral() {
     let store = MemoryKeyValueStore::default();
-    store.set(MODE_STORAGE_KEY, "sepia");
     store.set(BASE_STORAGE_KEY, "solarized-next");
-    store.set(ACCENT_STORAGE_KEY, "retired-accent");
-    assert_eq!(
-        prime_libero_scheme(&store),
-        choice("neutral", "default", ThemeMode::Dark)
-    );
-    assert_eq!(store.get(COLOR_SCHEME_STORAGE_KEY).as_deref(), Some("dark"));
+    assert_eq!(load_theme(&store).base, "neutral");
 }
 
 #[test]
-fn every_valid_legacy_mode_primes_the_same_libero_setting() {
-    for mode in [ThemeMode::Light, ThemeMode::Dark, ThemeMode::System] {
-        let store = MemoryKeyValueStore::default();
-        persist_theme(&store, &choice("stone", "rose", mode));
-        store.set(COLOR_SCHEME_STORAGE_KEY, "outdated");
-        assert_eq!(prime_libero_scheme(&store), choice("stone", "rose", mode));
-        assert_eq!(
-            store.get(COLOR_SCHEME_STORAGE_KEY).as_deref(),
-            Some(mode.as_stored())
-        );
-    }
-}
-
-#[test]
-fn a_saved_choice_round_trips_all_three_roost_keys() {
+fn the_legacy_single_key_is_ignored() {
     let store = MemoryKeyValueStore::default();
-    persist_theme(&store, &choice("zinc", "blue", ThemeMode::Light));
+    store.set("roost.theme", "graphite");
+    assert_eq!(load_theme(&store), ThemeChoice::default());
+}
+
+#[test]
+fn a_saved_choice_round_trips_through_the_store() {
+    let store = MemoryKeyValueStore::default();
+    let saved = choice("zinc", "blue", ThemeMode::Light);
+    persist_theme(&store, &saved);
     assert_eq!(store.get(BASE_STORAGE_KEY).as_deref(), Some("zinc"));
     assert_eq!(store.get(ACCENT_STORAGE_KEY).as_deref(), Some("blue"));
     assert_eq!(store.get(MODE_STORAGE_KEY).as_deref(), Some("light"));
-    assert_eq!(load_theme(&store), choice("zinc", "blue", ThemeMode::Light));
+    assert_eq!(load_theme(&store), saved);
 }
 
 #[test]
-fn a_refused_store_still_returns_in_memory_dark_defaults() {
-    struct RefusedStore;
-    impl KeyValueStore for RefusedStore {
-        fn get(&self, _key: &str) -> Option<String> {
-            None
-        }
-        fn set(&self, _key: &str, _value: &str) {}
-        fn remove(&self, _key: &str) {}
-    }
+fn an_explicit_mode_ignores_the_os_preference() {
     assert_eq!(
-        prime_libero_scheme(&RefusedStore),
-        choice("neutral", "default", ThemeMode::Dark)
+        resolve_appearance(ThemeMode::Dark, Some(ThemeAppearance::Light)),
+        ThemeAppearance::Dark
+    );
+    assert_eq!(
+        resolve_appearance(ThemeMode::Light, Some(ThemeAppearance::Dark)),
+        ThemeAppearance::Light
     );
 }
 
 #[test]
-fn neutral_and_accented_palettes_keep_surface_ink_and_accent_identity_in_both_schemes() {
-    let neutral = theme_set_for_choice(&choice("neutral", "default", ThemeMode::Dark));
-    assert_eq!(neutral.light_theme().surface, HexColor::new(0xFFFFFF));
-    assert_eq!(neutral.light_theme().ink, HexColor::new(0x0A0A0A));
+fn system_mode_follows_the_os_preference() {
     assert_eq!(
-        neutral.dark_theme().unwrap().surface,
-        HexColor::new(0x0A0A0A)
-    );
-    let blue = theme_set_for_choice(&choice("neutral", "blue", ThemeMode::Dark));
-    assert_eq!(blue.light_theme().surface, neutral.light_theme().surface);
-    assert_eq!(
-        blue.dark_theme().unwrap().ink,
-        neutral.dark_theme().unwrap().ink
-    );
-    assert_ne!(blue.light_theme().primary, neutral.light_theme().primary);
-    assert_ne!(
-        blue.dark_theme().unwrap().primary,
-        neutral.dark_theme().unwrap().primary
+        resolve_appearance(ThemeMode::System, Some(ThemeAppearance::Light)),
+        ThemeAppearance::Light
     );
 }
 
 #[test]
-fn invalid_palette_lookup_uses_roost_defaults_not_libero_stock() {
-    let fallback = theme_set_for_choice(&choice("unknown", "unknown", ThemeMode::Light));
-    let default = theme_set_for_choice(&choice("neutral", "default", ThemeMode::Light));
-    assert!(std::ptr::eq(fallback, default));
+fn applying_a_choice_persists_it_and_writes_one_application() {
+    let store = MemoryKeyValueStore::default();
+    let document = RecordingDocument::new(Some(ThemeAppearance::Dark));
+    let applied = apply_theme_with(&store, &document, &choice("stone", "rose", ThemeMode::Dark));
+
+    assert_eq!(applied.base_id, "stone");
+    assert_eq!(applied.accent_id, "rose");
+    assert_eq!(applied.appearance, ThemeAppearance::Dark);
+    assert_eq!(
+        document.writes.borrow().as_slice(),
+        std::slice::from_ref(&applied)
+    );
+    assert_eq!(load_theme(&store).base, "stone");
 }
 
-mod provider_lifetime {
-    use std::cell::{Cell, RefCell};
-
-    use dioxus::prelude::*;
-    use libero::theme::HexColor;
-    use libero::{LiberoProvider, ThemeSetHandle, use_theme, use_theme_set};
-    use roost_web::theme::{AppearanceBootstrap, ThemePreferences};
-
-    use super::{ThemeMode, choice, theme_set_for_choice};
-
-    thread_local! {
-        static THEMES: RefCell<Option<ThemeSetHandle>> = const { RefCell::new(None) };
-        static MOUNTS: Cell<usize> = const { Cell::new(0) };
-        static PRIMARY: Cell<Option<HexColor>> = const { Cell::new(None) };
+#[test]
+fn every_written_property_is_one_the_engine_manages() {
+    let application = theme_application(
+        &choice("mauve", "violet", ThemeMode::Light),
+        Some(ThemeAppearance::Light),
+    );
+    let managed = managed_properties();
+    assert!(!application.properties.is_empty());
+    for (key, _) in &application.properties {
+        assert!(managed.contains(key), "{key} is written but not managed");
     }
+}
 
-    fn retained_pane() -> Element {
-        use_hook(|| MOUNTS.set(MOUNTS.get() + 1));
-        PRIMARY.set(Some(use_theme().primary));
-        rsx! { "Retained pane" }
-    }
+#[test]
+fn managed_properties_are_sorted_and_unique() {
+    let managed = managed_properties();
+    let mut sorted = managed.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(managed, sorted);
+}
 
-    fn palette_controller() -> Element {
-        let themes = use_theme_set();
-        use_hook(move || THEMES.with(|slot| slot.replace(Some(themes))));
-        rsx! {}
-    }
+#[test]
+fn an_os_flip_reapplies_only_under_system_mode() {
+    let store = MemoryKeyValueStore::default();
+    let document = RecordingDocument::new(Some(ThemeAppearance::Light));
 
-    fn root() -> Element {
-        let preferences = use_context_provider(ThemePreferences::load);
-        let themes = use_hook(|| theme_set_for_choice(&preferences.choice.peek()).clone());
-        rsx! {
-            LiberoProvider { themes,
-                AppearanceBootstrap {
-                    palette_controller {}
-                    retained_pane {}
-                }
-            }
-        }
-    }
+    persist_theme(&store, &choice("neutral", "default", ThemeMode::Dark));
+    assert!(reapply_for_system_flip(&store, &document).is_none());
 
-    fn settle(dom: &mut VirtualDom) {
-        for _ in 0..8 {
-            dom.render_immediate(&mut dioxus::core::NoOpMutations);
-            dom.process_events();
-        }
-    }
-
-    #[test]
-    fn switching_base_and_accent_restyles_a_mounted_pane_without_remounting_it() {
-        let mut dom = VirtualDom::new(root);
-        dom.rebuild_in_place();
-        settle(&mut dom);
-        assert_eq!(MOUNTS.get(), 1);
-        let initial = PRIMARY.get();
-        let themes = THEMES.with(|slot| slot.borrow().clone()).unwrap();
-        for selected in [
-            choice("stone", "rose", ThemeMode::Dark),
-            choice("mauve", "blue", ThemeMode::Dark),
-        ] {
-            let pair = theme_set_for_choice(&selected);
-            dom.in_runtime(|| themes.set(pair.clone()));
-            settle(&mut dom);
-            assert_eq!(PRIMARY.get(), Some(pair.dark_theme().unwrap().primary));
-            assert_ne!(PRIMARY.get(), initial);
-            assert_eq!(MOUNTS.get(), 1);
-        }
-    }
+    persist_theme(&store, &choice("neutral", "default", ThemeMode::System));
+    let reapplied = reapply_for_system_flip(&store, &document).expect("system re-applies");
+    assert_eq!(reapplied.appearance, ThemeAppearance::Light);
+    assert_eq!(document.writes.borrow().len(), 1);
 }

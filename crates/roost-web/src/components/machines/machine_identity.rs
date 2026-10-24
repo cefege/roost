@@ -2,8 +2,8 @@
 //! Apple chip badge and Linux distribution brand, from the worker's advertised
 //! platform and host identity only — never from its mutable label. Ports
 //! `apps/web/src/lib/machineIdentity.ts`; `MachineIdentityMark` renders it.
-use libero::components::SvgData;
 
+use crate::components::ui::IconType;
 use roost_protocol::wire::{HostIdentity, Worker, WorkerOs};
 
 /// A distribution with a local mark.
@@ -38,7 +38,7 @@ impl LinuxDistributionBrand {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MachineIdentityPresentation {
     /// The Lucide glyph for a generic mark.
-    pub icon: SvgData,
+    pub icon: IconType,
     /// The machine kind, e.g. `MacBook` or `Ubuntu Linux`.
     pub label: String,
     /// The accessible name and hover text.
@@ -73,7 +73,7 @@ const LINUX_DISTRIBUTIONS: [(&str, LinuxDistributionBrand, &str); 5] = [
 /// The presentation for a worker record; an unknown worker is a generic computer.
 pub fn machine_identity_presentation(worker: Option<&Worker>) -> MachineIdentityPresentation {
     let Some(worker) = worker else {
-        return generic(pictogram_icons_lucide::computer::outlined, "Computer");
+        return generic(IconType::Computer, "Computer");
     };
     let identity = worker.host_identity.as_ref();
     let field =
@@ -86,9 +86,9 @@ pub fn machine_identity_presentation(worker: Option<&Worker>) -> MachineIdentity
             let label = if is_macbook { "MacBook" } else { "Mac" };
             MachineIdentityPresentation {
                 icon: if is_macbook {
-                    pictogram_icons_lucide::laptop::outlined
+                    IconType::Laptop
                 } else {
-                    pictogram_icons_lucide::monitor::outlined
+                    IconType::Monitor
                 },
                 label: label.to_owned(),
                 title: match &apple_chip_badge {
@@ -104,7 +104,7 @@ pub fn machine_identity_presentation(worker: Option<&Worker>) -> MachineIdentity
                 field(|id| id.linux_distribution.as_ref()).and_then(linux_distribution_for);
             let label = distribution.map_or("Linux", |(_, label)| label);
             MachineIdentityPresentation {
-                icon: pictogram_icons_lucide::server::outlined,
+                icon: IconType::Server,
                 label: label.to_owned(),
                 title: format!("{label} machine"),
                 apple_chip_badge: None,
@@ -113,15 +113,15 @@ pub fn machine_identity_presentation(worker: Option<&Worker>) -> MachineIdentity
         }
         WorkerOs::Win32 => {
             if field(|id| id.hardware_model.as_ref()).is_some_and(is_windows_laptop_model) {
-                generic(pictogram_icons_lucide::laptop::outlined, "Windows laptop")
+                generic(IconType::Laptop, "Windows laptop")
             } else {
-                generic(pictogram_icons_lucide::monitor::outlined, "Windows PC")
+                generic(IconType::Monitor, "Windows PC")
             }
         }
     }
 }
 
-fn generic(icon: SvgData, label: &str) -> MachineIdentityPresentation {
+fn generic(icon: IconType, label: &str) -> MachineIdentityPresentation {
     MachineIdentityPresentation {
         icon,
         label: label.to_owned(),

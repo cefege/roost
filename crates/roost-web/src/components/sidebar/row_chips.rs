@@ -3,10 +3,14 @@
 //! port. `folder_row.rs` and `session_row_flat.rs` render them.
 
 use dioxus::prelude::*;
-use libero::components::{Box, Flex, Pictogram, Text};
-use libero::sx::sx;
 use roost_client_core::store::sidebar::folder_groups::PrBadge;
 use roost_protocol::wire::PullRequestChecks;
+
+use crate::components::ui::{Icon, IconType};
+
+/// The link chips lift above the row's full-width primary link (`z-10`), so
+/// their own clicks land on them and not on the row.
+const CHIP_LINK_CLASS: &str = "relative z-20 pointer-events-auto";
 
 /// The machine chip.
 #[component]
@@ -16,27 +20,14 @@ pub fn ServerChip(
     title: Option<String>,
     test_id: Option<String>,
 ) -> Element {
-    let chip_sx = use_hook(|| {
-        sx().display("inline-flex")
-            .min_width("0")
-            .align_items("center")
-            .gap("xs")
-            .selector("[data-online=false]", sx().color("error"))
-    });
-    let text_sx = use_hook(|| {
-        sx().min_width("0")
-            .text_overflow("ellipsis")
-            .white_space("nowrap")
-            .overflow("hidden")
-            .with("overscroll-behavior-y", "auto")
-    });
     rsx! {
-        Box { component: "span", sx: chip_sx,
+        span {
+            class: "inline-flex min-w-0 items-center gap-1 data-[online=false]:text-destructive",
             "data-testid": test_id,
             "data-online": if online { "true" } else { "false" },
             title,
-            Pictogram { icon: pictogram_icons_lucide::server::outlined, width: "0.75rem", height: "0.75rem" }
-            Box { component: "span", sx: text_sx, "{label}" }
+            Icon { icon: IconType::Server, class: "size-3 shrink-0" }
+            span { class: "min-w-0 truncate", {label} }
         }
     }
 }
@@ -44,24 +35,10 @@ pub fn ServerChip(
 /// The branch chip.
 #[component]
 pub fn BranchChip(branch: String) -> Element {
-    let chip_sx = use_hook(|| {
-        sx().display("inline-flex")
-            .min_width("0")
-            .align_items("center")
-            .gap("xs")
-            .font_family("monospace")
-    });
-    let text_sx = use_hook(|| {
-        sx().min_width("0")
-            .text_overflow("ellipsis")
-            .white_space("nowrap")
-            .overflow("hidden")
-            .with("overscroll-behavior-y", "auto")
-    });
     rsx! {
-        Flex { direction: "row", sx: chip_sx, title: "On branch {branch}",
-            Pictogram { icon: pictogram_icons_lucide::git_branch::outlined, width: "0.6875rem", height: "0.6875rem" }
-            Text { sx: text_sx, "{branch.clone()}" }
+        span { class: "inline-flex min-w-0 items-center gap-1 font-mono", title: "On branch {branch}",
+            Icon { icon: IconType::GitBranch, class: "size-2.75 shrink-0" }
+            span { class: "min-w-0 truncate", {branch.clone()} }
         }
     }
 }
@@ -73,32 +50,10 @@ pub fn PrBadgeChip(folder_key: String, pr: PrBadge, glyph: String) -> Element {
     let number = pr.number;
     let state = pr.state.as_str();
     let checks = pr.checks.as_str();
-    let glyph_color = match pr.checks {
-        PullRequestChecks::Passing => "success",
-        PullRequestChecks::Failing => "warning",
-        PullRequestChecks::Pending => "muted",
-        PullRequestChecks::None => "muted",
-    };
-    let link_sx = use_hook(|| {
-        sx().position("relative")
-            .pointer_events("auto")
-            .with("z-index", "20")
-            .display("inline-flex")
-            .flex_shrink("0")
-            .align_items("center")
-            .gap("xs")
-            .font_family("monospace")
-            .font_size("xs")
-            .color("muted")
-            .selector("&:hover", sx().color("ink"))
-            .selector(
-                "&:focus-visible",
-                sx().outline("2px solid var(--workbench-focus-ring)")
-                    .outline_offset("2px"),
-            )
-    });
+    let glyph_tone = pr_check_tone_class(pr.checks);
     rsx! {
-        Box { component: "a", sx: link_sx,
+        a {
+            class: "{CHIP_LINK_CLASS} inline-flex shrink-0 items-center gap-1 font-mono text-xs text-muted-foreground hover:text-foreground",
             "data-testid": "pr-badge-{folder_key}",
             "data-pr-state": state,
             "data-pr-checks": checks,
@@ -112,12 +67,24 @@ pub fn PrBadgeChip(folder_key: String, pr: PrBadge, glyph: String) -> Element {
                     event.prevent_default();
                 }
             },
-            Pictogram { icon: pictogram_icons_lucide::git_pull_request::outlined, width: "0.6875rem", height: "0.6875rem" }
+            Icon { icon: IconType::GitPullRequest, class: "size-2.75 shrink-0" }
             span { "#{number}" }
             if !glyph.is_empty() {
-                Text { color: glyph_color, "{glyph.clone()}" }
+                span { class: glyph_tone, {glyph.clone()} }
             }
         }
+    }
+}
+
+/// The colour role a checks rollup's glyph paints in. The client core names
+/// these as CSS variables that the stylesheet never defines, so the role is
+/// chosen here from the same state instead of reading that string.
+fn pr_check_tone_class(checks: PullRequestChecks) -> &'static str {
+    match checks {
+        PullRequestChecks::Passing => "text-success",
+        PullRequestChecks::Failing => "text-warning",
+        PullRequestChecks::Pending => "text-muted-foreground",
+        PullRequestChecks::None => "",
     }
 }
 
@@ -132,26 +99,9 @@ pub fn PortChip(folder_key: String, port: i64, reach_addr: Option<String>) -> El
         None => format!("Listening on :{port}"),
     };
     let linked = href.is_some();
-    let link_sx = use_hook(|| {
-        sx().position("relative")
-            .pointer_events("auto")
-            .with("z-index", "20")
-            .display("inline-flex")
-            .flex_shrink("0")
-            .align_items("center")
-            .gap("xs")
-            .font_family("monospace")
-            .font_size("xs")
-            .color("muted")
-            .selector("&:hover", sx().color("ink"))
-            .selector(
-                "&:focus-visible",
-                sx().outline("2px solid var(--workbench-focus-ring)")
-                    .outline_offset("2px"),
-            )
-    });
     rsx! {
-        Box { component: "a", sx: link_sx,
+        a {
+            class: "{CHIP_LINK_CLASS} inline-flex shrink-0 items-center font-mono text-xs text-muted-foreground hover:text-foreground",
             "data-testid": "port-chip-{folder_key}-{port}",
             href,
             target: "_blank",

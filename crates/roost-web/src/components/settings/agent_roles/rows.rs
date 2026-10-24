@@ -11,8 +11,11 @@ use crate::components::settings::model_chain_editor::ModelChainEditor;
 use crate::components::settings::model_scope::{
     ModelScope, RoleSource, role_source, role_value, with_role_value,
 };
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Card, CardAction, CardContent, CardDescription, CardHeader,
+    CardTitle, CardVariant, Chip,
+};
 use crate::pump::Pump;
-use libero::components::{Button, Flex, Paper, Text, Title};
 
 pub(super) struct RoleRow {
     pub(super) role: &'static str,
@@ -74,30 +77,37 @@ pub(super) fn role_row(row: RoleRow, context: &RoleContext<'_>) -> Element {
     let reset_pump = context.pump.clone();
     let show_reset = is_folder && source == RoleSource::Folder;
     rsx! {
-        Paper { key: "{role}", bordered: true,
+        Card {
+            key: "{role}",
+            variant: CardVariant::Outlined,
+            class: Some("gap-3".to_owned()),
             "data-testid": format!("agent-role-{role}"),
-            Flex { direction: "column", gap: "sm",
-                Flex { direction: "column", gap: "xs",
-                    Flex { direction: "row", align: "center", justify: "space-between", gap: "sm",
-                        Title { size: "md", {title} }
-                        Flex { direction: "row", align: "center", gap: "sm",
-                            Text { size: "sm", color: "muted", title: source_title, "data-testid": format!("agent-role-{role}-source"), {source_text} }
-                            if show_reset {
-                                Button {
-                                    variant: "standard",
-                                    size: "sm",
-                                    "data-testid": "agent-role-{role}-use-all-folders",
-                                    onclick: move |_| {
-                                        let updated = with_role_value(&reset_current, &reset_scope, role, None);
-                                        save_settings(reset_pump.clone(), updated, settings, error);
-                                    },
-                                    "Use all-folders chain"
-                                }
+            CardHeader {
+                CardTitle { {title} }
+                CardDescription { {purpose} }
+                CardAction {
+                    div { class: "flex flex-wrap items-center gap-2",
+                        Chip {
+                            label: source_text,
+                            title: Some(source_title),
+                            test_id: Some(format!("agent-role-{role}-source")),
+                        }
+                        if show_reset {
+                            Button {
+                                variant: ButtonVariant::Ghost,
+                                size: ButtonSize::Sm,
+                                "data-testid": "agent-role-{role}-use-all-folders",
+                                onclick: move |_| {
+                                    let updated = with_role_value(&reset_current, &reset_scope, role, None);
+                                    save_settings(reset_pump.clone(), updated, settings, error);
+                                },
+                                "Use all-folders chain"
                             }
                         }
                     }
-                    Text { size: "sm", color: "muted", {purpose} }
                 }
+            }
+            CardContent {
                 ModelChainEditor {
                     role_title: title.to_owned(),
                     chain,

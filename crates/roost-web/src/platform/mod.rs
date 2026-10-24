@@ -35,7 +35,6 @@ pub mod fragment_credential;
 pub mod location;
 #[cfg(target_arch = "wasm32")]
 pub mod loopback;
-pub mod media_query;
 pub mod network;
 pub mod peer;
 pub mod rpc;

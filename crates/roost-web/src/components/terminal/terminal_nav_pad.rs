@@ -7,8 +7,6 @@
 //! `apps/web/src/components/terminal/TerminalNavButtons.tsx`.
 
 use dioxus::prelude::*;
-use libero::components::{ActionIcon, SvgData};
-use libero::sx::sx;
 use roost_client_core::ClientEvent;
 use roost_client_core::store::shell_intent::ShellIntent;
 use roost_client_core::store::terminal_nav_pad::terminal_nav_pad_open;
@@ -17,8 +15,8 @@ use super::pane_handle::PaneHandle;
 use super::pane_state::PaneUi;
 use super::terminal_nav_keys::TerminalKeyGrid;
 use crate::components::layout::portal::Portal;
+use crate::components::ui::{ButtonSize, ButtonVariant, IconButton, IconType};
 use crate::pump::Pump;
-use libero::components::Box;
 
 #[component]
 pub fn TerminalNavPad(
@@ -35,17 +33,6 @@ pub fn TerminalNavPad(
     let toggle = move |_event: MouseEvent| {
         toggle_pump.dispatch(ClientEvent::Shell(ShellIntent::ToggleNavPad));
     };
-    let toggle_sx = use_hook(|| {
-        sx().position("fixed")
-            .z_index("40")
-            .with("right", "calc(env(safe-area-inset-right, 0px) + 1rem)")
-            .with("bottom", "calc(env(safe-area-inset-bottom, 0px) + 9.5rem)")
-            .selector(
-                "html[data-tv='true'] &",
-                sx().with("right", "calc(var(--tv-overscan-inline) + 1rem)")
-                    .with("bottom", "calc(var(--tv-overscan-block) + 9.5rem)"),
-            )
-    });
 
     rsx! {
         Portal {
@@ -59,19 +46,18 @@ pub fn TerminalNavPad(
                     placement: "sheet",
                 }
             }
-            Box { component: "div", sx: toggle_sx,
-                ActionIcon {
-                    icon: key_toggle_icon(open),
-                    aria_label: key_toggle_label(open),
-                    variant: if open { "filled" } else { "outlined" },
-                    color: if open { "secondary" } else { "primary" },
-                    size: "lg",
-                    selected: open,
-                    "data-testid": "terminal-nav-toggle",
-                    "data-open": if open { "true" } else { "false" },
-                    onmousedown: |event: MouseEvent| event.prevent_default(),
-                    onclick: toggle,
-                }
+            IconButton {
+                icon: key_toggle_icon(open),
+                label: key_toggle_label(open),
+                variant: if open { ButtonVariant::Secondary } else { ButtonVariant::Outline },
+                size: ButtonSize::IconLg,
+            class: Some("!size-[calc(var(--control-touch-target)_+_0.75rem)] fixed z-40 touch-manipulation right-[calc(env(safe-area-inset-right,0px)_+_1rem)] bottom-[calc(env(safe-area-inset-bottom,0px)_+_9.5rem)] rounded-lg shadow-lg transition-[background-color,box-shadow,transform] duration-200 after:pointer-events-none after:absolute after:inset-0 after:bg-current after:opacity-0 after:content-[''] hover:after:opacity-[0.08] focus-visible:after:opacity-[0.12] active:after:opacity-[0.12] active:scale-[0.96] tv:right-[calc(var(--tv-overscan-inline)_+_1rem)] tv:bottom-[calc(var(--tv-overscan-block)_+_9.5rem)]".to_owned()),
+                "data-testid": "terminal-nav-toggle",
+                "data-open": if open { "true" } else { "false" },
+                // Every press here is one tap into a pane the reader must not be
+                // pulled out of.
+                onmousedown: |event: MouseEvent| event.prevent_default(),
+                onclick: toggle,
             }
         }
     }
@@ -79,11 +65,11 @@ pub fn TerminalNavPad(
 
 /// The toggle's glyph: a chevron while the keys are up, the keyboard while
 /// they are not, so the control states what one press will do.
-pub fn key_toggle_icon(open: bool) -> SvgData {
+pub fn key_toggle_icon(open: bool) -> IconType {
     if open {
-        pictogram_icons_lucide::chevron_down::outlined
+        IconType::ChevronDown
     } else {
-        pictogram_icons_lucide::keyboard::outlined
+        IconType::Keyboard
     }
 }
 

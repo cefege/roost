@@ -3,14 +3,11 @@
 //! `transcript`; the job never becomes a child of a tool box.
 
 use dioxus::prelude::*;
-use libero::{
-    components::{Flex, Indicator, Paper, Pictogram, Text},
-    sx::sx,
-};
 use roost_protocol::wire::agent_chat::JobState;
 
 use super::output_window::OutputWindow;
 use super::tool_view::{state_label, status_name, tool_state};
+use crate::components::ui::{Card, CardSize, CardVariant, Icon, IconType, StatusDot};
 
 /// Output rows a finished job shows before folding; the tail is what a reader
 /// of a settled job wants, as with bash.
@@ -28,51 +25,41 @@ pub fn BackgroundJobBox(
     let mut output_open = use_signal(|| false);
     let state_name = tool_state(false, false, false, false, is_error, Some(state.as_str()));
     let label = state_label(state_name);
-    let card = use_hook(|| sx().gap("xs").padding("sm").min_width("0"));
-    let header = use_hook(|| sx().gap("sm").align_items("center").color("muted"));
-    let command_style = use_hook(|| {
-        sx().padding_left("md")
-            .padding_top("sm")
-            .font_family("monospace")
-    });
-    let state_style = use_hook(|| sx().gap("xs").align_items("center"));
     rsx! {
-        Paper { sx: card, "data-state": state_name, "data-tool": "bash",
-            Flex { direction: "column", gap: "sm",
-                Flex { sx: header,
-                    Pictogram { icon: pictogram_icons_lucide::terminal::outlined }
-                    Text { size: "sm", "Background job" }
-                    Text { size: "xs", color: "primary", "{job_id}" }
-                    Flex { sx: state_style,
-                        Indicator {
-                            color: match status_name(state_name) {
-                                "ok" => "success",
-                                "running" => "info",
-                                "error" => "error",
-                                _ => "warning",
-                            },
-                            "aria-label": label,
-                        }
-                        Text { size: "xs", "{label}" }
-                    }
+        Card {
+            variant: CardVariant::Outlined,
+            size: CardSize::Sm,
+            class: Some("min-w-0 gap-1 rounded-md p-2 data-[state=error]:border-destructive/40".to_owned()),
+            "data-state": state_name,
+            "data-tool": "bash",
+            div { class: "flex min-w-0 items-center gap-2 text-sm text-muted-foreground",
+                span { class: "inline-flex flex-none items-center gap-1", Icon { icon: IconType::Terminal, class: "size-4" } }
+                span { class: "flex-none font-medium text-foreground", "Background job" }
+                span { class: "min-w-0 flex-1 truncate font-mono text-xs text-foreground", "{job_id}" }
+                span { class: "ml-auto inline-flex flex-none items-center gap-1 text-xs text-muted-foreground",
+                    StatusDot { status: status_name(state_name).to_string(), title: Some(label.to_string()) }
+                    span { "{label}" }
                 }
-                Flex { direction: "column", sx: command_style,
-                    Text { size: "xs", color: "primary", "$ {command}" }
+            }
+            div { class: "flex min-w-0 flex-col px-3 pt-2 font-mono text-xs text-foreground",
+                span { class: "whitespace-pre-wrap break-words",
+                    span { class: "text-primary", "$ " }
+                    "{command}"
                 }
-                if !output.is_empty() {
-                    OutputWindow {
-                        output: output.clone(),
-                        diff: false,
-                        rows: BACKGROUND_JOB_ROWS,
-                        from_head: false,
-                        open: output_open(),
-                        failed: is_error,
-                        on_expand: move |value: bool| output_open.set(value),
-                    }
+            }
+            if !output.is_empty() {
+                OutputWindow {
+                    output: output.clone(),
+                    diff: false,
+                    rows: BACKGROUND_JOB_ROWS,
+                    from_head: false,
+                    open: output_open(),
+                    failed: is_error,
+                    on_expand: move |value: bool| output_open.set(value),
                 }
-                if let Some(code) = exit_code.filter(|code| *code != 0) {
-                    Text { size: "xs", color: "muted", "Exit: {code}" }
-                }
+            }
+            if let Some(code) = exit_code.filter(|code| *code != 0) {
+                p { class: "m-0 px-3 pt-1 text-xs text-muted-foreground", "Exit: {code}" }
             }
         }
     }

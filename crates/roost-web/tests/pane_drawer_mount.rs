@@ -29,12 +29,15 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+#[allow(dead_code)]
+mod palette_support;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use dioxus::core::{ElementId, Mutations};
 use dioxus::prelude::*;
-use libero::LiberoProvider;
+use palette_support::RenderedTree;
 use roost_client_core::store::sidebar::SidebarIntent;
 use roost_client_core::store::{
     ChannelId, Session, SessionId, SessionKind, SessionStatus, WorkerFp,
@@ -47,8 +50,6 @@ use roost_web::motion::resize_drag::ResizeDrag;
 use roost_web::platform::connect::CoordRpc;
 use roost_web::pump::Pump;
 use roost_web::router_state::provide_router;
-use roost_web::theme::catalog::theme_set_for_choice;
-use roost_web::theme::choice::ThemeChoice;
 
 const SESSION_ID: &str = "00000000-0000-4000-8000-00000000000a";
 
@@ -114,22 +115,16 @@ fn pane_root() -> Element {
         EventHandler::new(|_path: String| {}),
     );
     ResizeDrag::provide();
-    let themes = use_hook(|| theme_set_for_choice(&ThemeChoice::default()).clone());
     rsx! {
-        LiberoProvider { themes,
-            CellTerminal {
-                session: session(),
-                in_layout: Some(true),
-                focused: Some(true),
-                surface_visible: true,
-                surface_active: false,
-            }
+        CellTerminal {
+            session: session(),
+            in_layout: Some(true),
+            focused: Some(true),
+            surface_visible: true,
+            surface_active: false,
         }
     }
 }
-
-use crate::palette_support;
-use palette_support::RenderedTree;
 
 /// A mounted pane, the pump it reads, the tree it has painted, and what the
 /// last pass took off it.
@@ -162,10 +157,7 @@ impl Pane {
 
     /// The element carrying `test_id`, if the pane has it on screen.
     fn element(&self, test_id: &str) -> Option<ElementId> {
-        self.tree
-            .matching_attribute("data-testid", test_id)
-            .into_iter()
-            .next()
+        self.tree.carrying(test_id).into_iter().next()
     }
 }
 

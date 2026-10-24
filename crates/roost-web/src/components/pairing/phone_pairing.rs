@@ -14,11 +14,10 @@ use crate::components::hooks::use_copy_clipboard::use_copy_clipboard;
 #[cfg(target_arch = "wasm32")]
 use crate::components::machines::enrollment_origin::{EnrollmentDecision, enrollment_decision};
 use crate::components::terminal::dom::{now_ms, sleep_ms};
-use libero::{
-    components::{Box, Button, Flex, Paper, Pictogram, Text, Title},
-    sx::sx,
+use crate::components::ui::{
+    Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader, CardTitle, FieldError,
+    IconType,
 };
-
 use crate::pump::{Pump, use_store};
 
 /// The label the coordinator records against a grant this card mints, shown in
@@ -69,21 +68,20 @@ pub fn PhonePairingCard() -> Element {
     });
     let current = state();
     let mint = move |_| mint_phone_grant(pump.clone(), state);
-    let card_sx = use_hook(|| sx().padding("md").width("100%"));
     rsx! {
-        Paper { sx: card_sx, bordered: true, "data-testid": "phone-pairing-card",
-            Flex { direction: "column", gap: "md",
-                Flex { direction: "column", gap: "xs",
-                    Title { size: "md", "Pair a phone" }
-                    Text { size: "sm", color: "muted",
-                        "Scan this code with the phone's camera. Roost opens and pairs it — no typing."
-                    }
+        Card { "data-testid": "phone-pairing-card",
+            CardHeader {
+                CardTitle { "Pair a phone" }
+                CardDescription {
+                    "Scan this code with the phone's camera. Roost opens and pairs it — no typing."
                 }
+            }
+            CardContent {
                 match current {
                     PhonePairing::Idle => rsx! {
                         Button {
-                            variant: "filled",
-                            icon: rsx! { Pictogram { icon: pictogram_icons_lucide::qr_code::outlined, width: "16", height: "16" } },
+                            variant: ButtonVariant::Default,
+                            icon: Some(IconType::QrCode),
                             "data-testid": "phone-pairing-show",
                             onclick: mint,
                             "Show pairing code"
@@ -91,8 +89,8 @@ pub fn PhonePairingCard() -> Element {
                     },
                     PhonePairing::Minting => rsx! {
                         Button {
-                            variant: "filled",
-                            icon: rsx! { Pictogram { icon: pictogram_icons_lucide::qr_code::outlined, width: "16", height: "16" } },
+                            variant: ButtonVariant::Default,
+                            icon: Some(IconType::QrCode),
                             disabled: true,
                             "Generating…"
                         }
@@ -101,12 +99,16 @@ pub fn PhonePairingCard() -> Element {
                         ScannableCode { pairing, clock_ms: clock(), on_regenerate: mint }
                     },
                     PhonePairing::Unreachable(message) => rsx! {
-                        Text { size: "sm", color: "muted", "data-testid": "phone-pairing-unreachable", "{message}" }
-                        Button { variant: "tonal", onclick: mint, "Check again" }
+                        p {
+                            class: "m-0 text-sm text-muted-foreground",
+                            "data-testid": "phone-pairing-unreachable",
+                            {message}
+                        }
+                        Button { variant: ButtonVariant::Secondary, onclick: mint, "Check again" }
                     },
                     PhonePairing::Failed(message) => rsx! {
-                        Text { size: "sm", color: "error", role: "alert", "{message}" }
-                        Button { variant: "tonal", onclick: mint, "Try again" }
+                        FieldError { {message} }
+                        Button { variant: ButtonVariant::Secondary, onclick: mint, "Try again" }
                     },
                 }
             }
@@ -124,47 +126,42 @@ fn ScannableCode(
     on_regenerate: EventHandler<MouseEvent>,
 ) -> Element {
     let (copy_link, copied) = use_copy_clipboard(None);
+    // "New code" replaces a one-time link, so the confirmation belongs to the
+    // link it copied, not to whichever link the card shows now.
     let mut copied_link = use_signal(|| None::<String>);
     let remaining = expiry_phrase(clock_ms, pairing.expires_at_ms);
     let link = pairing.link.clone();
     let link_copied = copied() && copied_link.read().as_deref() == Some(link.as_str());
-    let qr_sx = use_hook(|| {
-        sx().flex_shrink("0")
-            .border_radius("sm")
-            .with("line-height", "0")
-            .background("var(--qr-field)")
-            .color("var(--qr-module)")
-    });
     rsx! {
-        Flex { direction: "row", wrap: true, gap: "md",
+        div { class: "flex flex-wrap items-center gap-5",
             if let Some(remaining) = remaining.clone() {
-                Box {
-                    sx: qr_sx,
+                div {
                     role: "img",
-                    aria_label: "QR code that pairs a phone with this Roost",
+                    "aria-label": "QR code that pairs a phone with this Roost",
                     "data-testid": "phone-pairing-qr",
+                    class: "shrink-0 rounded-sm leading-none [background-color:var(--qr-field)] [color:var(--qr-module)]",
                     title: remaining,
                     dangerous_inner_html: pairing.qr_svg.clone(),
                 }
             }
-            Flex { direction: "column", gap: "sm",
-                Text { size: "sm", "data-testid": "phone-pairing-expiry",
+            div { class: "flex min-w-0 flex-col gap-3",
+                p { class: "m-0 text-sm text-foreground", "data-testid": "phone-pairing-expiry",
                     {remaining.unwrap_or_else(|| "This code has expired.".to_owned())}
                 }
-                Text { size: "xs", color: "muted",
+                p { class: "m-0 text-xs text-muted-foreground",
                     "It works once: whoever opens it first pairs, so show it only to the phone you mean."
                 }
-                Flex { direction: "row", wrap: true, gap: "sm",
+                div { class: "flex flex-wrap gap-2",
                     Button {
-                        variant: "filled",
-                        icon: rsx! { Pictogram { icon: pictogram_icons_lucide::refresh_cw::outlined, width: "16", height: "16" } },
+                        variant: ButtonVariant::Secondary,
+                        icon: Some(IconType::RefreshCw),
                         "data-testid": "phone-pairing-regenerate",
                         onclick: move |event| on_regenerate.call(event),
                         "New code"
                     }
                     Button {
-                        variant: "text",
-                        icon: rsx! { Pictogram { icon: if link_copied { pictogram_icons_lucide::check::outlined } else { pictogram_icons_lucide::copy::outlined }, width: "16", height: "16" } },
+                        variant: ButtonVariant::Ghost,
+                        icon: Some(if link_copied { IconType::Check } else { IconType::Copy }),
                         onclick: move |_| {
                             copied_link.set(Some(link.clone()));
                             copy_link(&link);

@@ -73,7 +73,7 @@ pub fn press_path_contains(id: &str, event: &web_sys::KeyboardEvent) -> bool {
 pub fn grid_columns() -> usize {
     #[cfg(target_arch = "wasm32")]
     {
-        let selector = "[data-layout=\"grid\"]";
+        let selector = crate::components::ui::list::GRID_LAYOUT_SELECTOR;
         let template = web_sys::window()
             .and_then(|window| window.document())
             .and_then(|document| document.query_selector(selector).ok())

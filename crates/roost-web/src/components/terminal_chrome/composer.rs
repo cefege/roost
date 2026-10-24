@@ -8,13 +8,6 @@
 //! piece with no browser owner in this build is the native Selection guard around
 //! the terminal's own text.
 
-#[path = "composer_key_policy.rs"]
-mod composer_key_policy;
-#[path = "composer_status.rs"]
-mod composer_status;
-#[path = "composer_style.rs"]
-mod composer_style;
-
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -32,17 +25,36 @@ use super::composer_key_tray::{ComposerKeyTray, KeyTray};
 use super::composer_placement::ComposerPlacement;
 use super::dom;
 use super::pane_geometry_dom::PaneDockHandle;
+use crate::components::deck::deck_dom;
 use crate::voice::keyterms::ContextReader;
 use crate::voice::send_gate::SendGate;
 
-use self::composer_key_policy::enter_submits;
-use self::composer_status::SubmissionStatus;
 use crate::components::layout::portal::Portal;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::terminal::pane_handle::PaneHandle;
-use crate::components::ui::InputPromptTextarea;
-use libero::components::{ActionIcon, Box, Paper, Text};
-use libero::sx::sx;
+use crate::components::ui::{
+    ButtonSize, ButtonVariant, IconButton, IconType, InputPromptTextarea, Surface,
+};
+
+/// What a submission is doing, for the status line under the field.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SubmissionStatus {
+    /// The sentence the status line shows, or `None` when it shows nothing.
+    pub message: Option<String>,
+    /// Whether a refusal put the draft back, so the user can fix it and resend.
+    pub restore_draft: bool,
+}
+
+/// Whether this Enter press is a submission rather than a newline.
+///
+/// A composition session owns its own Return — an IME candidate window closed by
+/// a keydown would commit the wrong candidate — and a touch device's Return is
+/// the soft keyboard's newline key, so submitting there would eat a line the
+/// operator meant to break. Both refusals are silent: the newline is what the
+/// key was for. Ports `TerminalComposeButton.tsx:359-370`.
+fn enter_submits(event: &KeyboardEvent) -> bool {
+    !event.is_composing() && !deck_dom::is_touch_device()
+}
 
 /// The composer for one session.
 #[component]
@@ -74,10 +86,6 @@ pub fn TerminalComposer(
     key_tray: Option<KeyTray>,
 ) -> Element {
     let compact = use_is_compact();
-    let styles = composer_style::use_composer_style();
-    let paper_sx = use_hook(|| sx().border_radius("9999rem").padding("xs"));
-    let field_root_sx = use_hook(|| sx().min_width("0"));
-    let status_sx = use_hook(|| sx().padding_inline("sm").font_size("xs").color("error"));
     let mut draft = use_signal(|| get_composer_draft(&session_id));
     let mut status = use_signal(SubmissionStatus::default);
     let mut field = use_signal(|| Option::<Rc<MountedData>>::None);
@@ -262,9 +270,8 @@ pub fn TerminalComposer(
     }
 
     let dock = rsx! {
-        Box {
-            component: "div",
-            sx: styles.dock,
+        div {
+            class: "group/dock pointer-events-none fixed z-56 flex flex-col items-stretch gap-2 min-w-0 font-sans @container/term-chat-pane left-[calc(var(--roost-main-left,0px)_+_env(safe-area-inset-left,0px)_+_0.5rem)] right-[calc(env(safe-area-inset-right,0px)_+_0.5rem)] bottom-(--term-chat-dock-offset) data-[placement=viewport]:tv:left-[calc(var(--roost-main-left,0px)_+_var(--tv-overscan-inline)_+_0.5rem)] data-[placement=viewport]:tv:right-[calc(var(--tv-overscan-inline)_+_0.5rem)] data-[placement=viewport]:tv:bottom-[calc(var(--term-chat-dock-offset)_+_var(--tv-overscan-block))] data-[placement=pane]:relative data-[placement=pane]:left-auto data-[placement=pane]:right-auto data-[placement=pane]:bottom-auto data-[placement=pane]:mx-2 data-[placement=pane]:mb-2 data-[placement=pane]:h-[var(--term-chat-pane-rest,auto)] data-[placement=pane]:max-h-[calc(100%_-_0.5rem)] data-[placement=pane]:flex-none data-[placement=pane]:justify-end data-[placement=pane]:self-stretch data-[placement=pane]:data-[size-constrained]:justify-start data-[placement=pane]:data-[size-constrained]:overflow-auto *:shrink-0",
             "data-testid": "mobile-chat-input",
             "data-open": "true",
             "data-placement": placement.as_str(),
@@ -287,37 +294,38 @@ pub fn TerminalComposer(
                 staged_files,
                 on_send_uploads,
             }
-            Paper {
-                shadow: "lg",
-                sx: paper_sx.and(styles.box_style),
+            Surface {
+                level: 2,
+                elevation: 4,
+                pad: 1,
+                test_id: "chat-box",
+                class: "group/box pointer-events-auto relative grid grid-cols-[minmax(0,1fr)_auto_auto] items-end gap-1 rounded-[1.75rem] animate-voice-dock-enter motion-reduce:animate-none data-[compact=true]:grid-rows-[auto_var(--term-chat-control)] data-[compact=false]:grid-cols-[auto_minmax(0,1fr)_auto_auto] data-[compact=false]:grid-rows-[auto] tv:data-[keys=true]:data-[compact=false]:grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] @max-[220px]/term-chat-pane:data-[compact=false]:grid-cols-3 @max-[220px]/term-chat-pane:data-[compact=false]:grid-rows-[auto_auto] @max-[148px]/term-chat-pane:data-[compact=false]:grid-cols-2 @max-[148px]/term-chat-pane:data-[compact=false]:grid-rows-[auto_auto_auto] @max-[104px]/term-chat-pane:data-[compact=false]:grid-cols-[minmax(0,1fr)] @max-[104px]/term-chat-pane:data-[compact=false]:grid-rows-[auto_auto_auto_auto] @max-[52px]/term-chat-pane:px-0",
                 "data-composer-part": "box",
                 "data-compact": if compact { "true" } else { "false" },
                 "data-keys": key_tray.is_some().then_some("true"),
-                ActionIcon {
-                    icon: pictogram_icons_lucide::paperclip::outlined,
-                    aria_label: "Attach files",
+                IconButton {
+                    icon: IconType::Paperclip,
+                    label: "Attach files",
                     title: "Attach files",
-                    variant: "standard",
-                    size: "lg",
-                    sx: styles.attach,
+                    variant: ButtonVariant::Ghost,
+                    size: ButtonSize::IconLg,
+                    class: Some("!size-(--term-chat-control) !rounded-full col-start-1 row-start-2 group-data-[compact=false]/box:row-start-1 @max-[220px]/term-chat-pane:group-data-[compact=false]/box:row-start-2 @max-[220px]/term-chat-pane:group-data-[compact=false]/box:justify-self-center".to_owned()),
                     "data-testid": "chat-attach",
                     "aria-disabled": disabled.then_some("true"),
                     onmousedown: keep_keyboard,
                     onclick: open_picker,
                 }
-                Box {
-                    component: "div",
-                    sx: styles.field,
+                div {
+                    class: "relative grid min-w-0 col-span-full row-start-1 group-data-[compact=false]/box:[grid-column:2] @max-[220px]/term-chat-pane:group-data-[compact=false]/box:[grid-column:1/-1]",
                     "data-testid": "chat-field",
                     InputPromptTextarea {
                         value: draft,
-                        sx: field_root_sx,
-                        control_sx: styles.control,
+                        class: "relative z-1 box-border min-h-[var(--term-chat-control)] w-full min-w-0 resize-none border-none bg-transparent px-3 py-[var(--term-chat-field-pad-block)] font-sans text-[length:max(1rem,var(--term-chat-font-size))] leading-(--term-chat-line-height) text-foreground outline-none field-sizing-fixed overflow-y-auto max-h-[min(calc(var(--term-chat-line-height)_*_var(--term-chat-field-max-lines)_+_2_*_var(--term-chat-field-pad-block)),calc(var(--term-chat-pane-height,calc(100dvh_-_max(var(--kb-offset,0px),0px)))_*_var(--term-chat-field-room-share)))] placeholder:whitespace-nowrap placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary focus-visible:rounded-lg data-[ghosted=true]:text-transparent data-[ghosted=true]:caret-foreground data-[ghosted=true]:[scrollbar-width:none] data-[ghosted=true]:[&::-webkit-scrollbar]:hidden disabled:cursor-auto disabled:opacity-100",
                         "data-testid": "chat-input",
                         "data-composer-part": "input",
                         "data-ghosted": ghost.has_ghost().then_some("true"),
                         aria_label: "Terminal input",
-                        rows: 1,
+                        rows: "1",
                         placeholder: dictation.placeholder(),
                         disabled: disabled,
                         submit_on_enter: false,
@@ -346,18 +354,17 @@ pub fn TerminalComposer(
                     }
                 }
                 if dictation_for_send.send_gate().offers_send() {
-                    ActionIcon {
-                        icon: pictogram_icons_lucide::send::outlined,
-                        aria_label: "Send to terminal",
-                        variant: "filled",
-                        color: "primary",
-                        size: "lg",
-                        sx: styles.send,
-                        "data-testid": "chat-send",
-                        "aria-disabled": disabled.then_some("true"),
-                        onmousedown: keep_keyboard,
-                        onclick: submit,
-                    }
+                IconButton {
+                    icon: IconType::Send,
+                    label: "Send to terminal",
+                    variant: ButtonVariant::Default,
+                    size: ButtonSize::IconLg,
+                    class: Some("!size-(--term-chat-control) !rounded-full col-start-3 row-start-2 justify-self-center group-data-[compact=false]/box:[grid-column:4] group-data-[compact=false]/box:row-start-1 @max-[220px]/term-chat-pane:group-data-[compact=false]/box:[grid-column:3] @max-[220px]/term-chat-pane:group-data-[compact=false]/box:row-start-2 @max-[148px]/term-chat-pane:group-data-[compact=false]/box:[grid-column:1/-1] @max-[148px]/term-chat-pane:group-data-[compact=false]/box:row-start-3 @max-[104px]/term-chat-pane:group-data-[compact=false]/box:[grid-column:1] @max-[104px]/term-chat-pane:group-data-[compact=false]/box:row-start-4".to_owned()),
+                    "data-testid": "chat-send",
+                    "aria-disabled": disabled.then_some("true"),
+                    onmousedown: keep_keyboard,
+                    onclick: submit,
+                }
                 }
             }
             AttachmentInput {
@@ -365,10 +372,7 @@ pub fn TerminalComposer(
                 onmounted: move |event: MountedEvent| file_input.set(Some(event.data())),
             }
             if let Some(message) = status_message {
-                Text {
-                    sx: status_sx,
-                    size: "xs",
-                    color: "error",
+                div {
                     role: "status",
                     "{message}"
                 }

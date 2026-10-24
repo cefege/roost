@@ -1,49 +1,41 @@
-//! Interface preferences: persisted appearance plus TV and controller policy.
-//! ThemePane reads the root-owned choice; Libero owns schemes and option navigation.
-//! Modality persistence remains in input_nav and never remounts the workbench.
+//! Settings → Interface → Theme: the base, accent and mode pickers, plus the two
+//! device modality switches that sit above them.
+//!
+//! The pickers read their options from `crate::theme::catalog` (rust-ui's base
+//! and accent palettes) and persist through `crate::theme::apply_theme`, which
+//! writes the resolved palette onto the document root. The modality switches
+//! depend on `input_nav::modality` for the TV and controller choices.
+
+use std::rc::Rc;
 
 use dioxus::prelude::*;
-use libero::components::{
-    Button, Combobox, ComboboxOption, ComboboxOptionArgs, Flex, Text, use_combobox,
-};
-use libero::sx::sx;
-use libero::{ColorSchemeHandle, ThemeSetHandle, use_color_scheme, use_theme_set};
+use roost_client_core::ClientEvent;
+use roost_client_core::KeyValueStore;
 use roost_client_core::store::shell_intent::ShellIntent;
-use roost_client_core::{ClientEvent, KeyValueStore};
 
+use crate::components::ui::{Select, SelectOption};
 use crate::input_nav::modality::{ModeChoice, NavModality};
 #[cfg(target_arch = "wasm32")]
 use crate::input_nav::{set_pad_mode_choice, set_tv_mode_choice};
+use crate::platform::storage::LocalStorageKeyValueStore;
 use crate::pump::{Pump, use_store};
-use crate::theme::ThemePreferences;
-use crate::theme::catalog::{accent_themes, base_themes, theme_set_for_choice};
-use crate::theme::choice::{ThemeChoice, ThemeMode, persist_theme};
+use crate::theme::apply_theme;
+use crate::theme::catalog::{accent_themes, base_themes};
+use crate::theme::choice::{ThemeChoice, ThemeMode, load_theme};
 
-fn change_theme(
-    mut preferences: ThemePreferences,
-    pump: &Pump,
-    themes: &ThemeSetHandle,
-    scheme: &ColorSchemeHandle,
-    change: impl FnOnce(&mut ThemeChoice),
-) {
-    let previous = preferences.choice.peek().clone();
-    let mut choice = previous.clone();
+/// Persist a changed theme choice and apply it. `change` edits the stored
+/// choice; the result is written through the engine, which persists it too.
+fn change_theme(storage: &dyn KeyValueStore, pump: &Pump, change: impl FnOnce(&mut ThemeChoice)) {
+    let mut choice = load_theme(storage);
     change(&mut choice);
-    if choice.base != previous.base || choice.accent != previous.accent {
-        themes.set(theme_set_for_choice(&choice).clone());
-    }
-    if choice.mode != previous.mode {
-        scheme.set(choice.mode.libero_setting());
-    }
-    persist_theme(preferences.storage.as_ref(), &choice);
-    tracing::info!(target: "theme", base = choice.base, accent = choice.accent,
-        mode = choice.mode.as_stored(), "appearance preference changed");
-    preferences.choice.set(choice);
+    apply_theme(&choice);
     pump.dispatch(ClientEvent::Shell(ShellIntent::ActionSucceeded {
         message: "Theme saved".to_owned(),
     }));
 }
 
+/// Persist the TV choice and re-apply the root attribute the stylesheets key
+/// off. The host build has no document, so it persists and nothing else.
 #[cfg(target_arch = "wasm32")]
 fn persist_tv_choice(
     modality: Signal<NavModality>,
@@ -62,6 +54,7 @@ fn persist_tv_choice(
     modality.with_mut(|modality| modality.set_tv_choice(storage, choice));
 }
 
+/// The controller half of [`persist_tv_choice`].
 #[cfg(target_arch = "wasm32")]
 fn persist_pad_choice(
     modality: Signal<NavModality>,
@@ -80,167 +73,131 @@ fn persist_pad_choice(
     modality.with_mut(|modality| modality.set_pad_choice(storage, choice));
 }
 
+/// The pane.
 #[component]
 pub fn ThemePane() -> Element {
-    let preferences = use_context::<ThemePreferences>();
+    let storage = use_hook(|| Rc::new(LocalStorageKeyValueStore::new()));
     let pump = use_store();
     let modality = use_context::<Signal<NavModality>>();
-    let stored = (preferences.choice)();
-    let themes = use_theme_set();
-    let scheme = use_color_scheme();
-    let states = [
-        use_combobox(),
-        use_combobox(),
-        use_combobox(),
-        use_combobox(),
-        use_combobox(),
-    ];
-    let layout = use_hook(|| {
-        sx().flex_direction("column")
-            .gap("md")
-            .max_width("36rem")
-            .min_width("0")
-    });
-    let row_layout = use_hook(|| sx().flex_direction("column").gap("xs"));
+    let stored = load_theme(storage.as_ref());
+    let tv_choice = modality.peek().tv_choice();
+    let pad_choice = modality.peek().pad_choice();
 
-    let tv_change = use_callback({
-        let pump = pump.clone();
-        let storage = preferences.storage.clone();
+    let on_tv_change = {
+        let tv_pump = pump.clone();
+        let tv_modality = modality;
+        let tv_storage = storage.clone();
         move |value: String| {
-            if let Some(choice) = ModeChoice::parse_stored(&value) {
-                persist_tv_choice(modality, storage.as_ref(), choice);
-                pump.dispatch(ClientEvent::Shell(ShellIntent::ActionSucceeded {
-                    message: "TV mode saved".to_owned(),
-                }));
-            }
+            let Some(choice) = ModeChoice::parse_stored(&value) else {
+                return;
+            };
+            persist_tv_choice(tv_modality, tv_storage.as_ref(), choice);
+            tv_pump.dispatch(ClientEvent::Shell(ShellIntent::ActionSucceeded {
+                message: "TV mode saved".to_owned(),
+            }));
         }
-    });
-    let pad_change = use_callback({
-        let pump = pump.clone();
-        let storage = preferences.storage.clone();
+    };
+    let on_pad_change = {
+        let pad_pump = pump.clone();
+        let pad_modality = modality;
+        let pad_storage = storage.clone();
         move |value: String| {
-            if let Some(choice) = ModeChoice::parse_stored(&value) {
-                persist_pad_choice(modality, storage.as_ref(), choice);
-                pump.dispatch(ClientEvent::Shell(ShellIntent::ActionSucceeded {
-                    message: "Controller mode saved".to_owned(),
-                }));
-            }
+            let Some(choice) = ModeChoice::parse_stored(&value) else {
+                return;
+            };
+            persist_pad_choice(pad_modality, pad_storage.as_ref(), choice);
+            pad_pump.dispatch(ClientEvent::Shell(ShellIntent::ActionSucceeded {
+                message: "Controller mode saved".to_owned(),
+            }));
         }
-    });
-    let base_change = use_callback({
-        let preferences = preferences.clone();
-        let pump = pump.clone();
-        let themes = themes.clone();
-        let scheme = scheme.clone();
+    };
+    let on_base_change = {
+        let base_pump = pump.clone();
+        let base_storage = storage.clone();
         move |value: String| {
-            change_theme(preferences.clone(), &pump, &themes, &scheme, |choice| {
+            change_theme(base_storage.as_ref(), &base_pump, |choice| {
                 choice.base = value
-            })
+            });
         }
-    });
-    let accent_change = use_callback({
-        let preferences = preferences.clone();
-        let pump = pump.clone();
-        let themes = themes.clone();
-        let scheme = scheme.clone();
+    };
+    let on_accent_change = {
+        let accent_pump = pump.clone();
+        let accent_storage = storage.clone();
         move |value: String| {
-            change_theme(preferences.clone(), &pump, &themes, &scheme, |choice| {
-                choice.accent = value
-            })
+            change_theme(accent_storage.as_ref(), &accent_pump, |choice| {
+                choice.accent = value;
+            });
         }
-    });
-    let mode_change = use_callback({
-        let preferences = preferences.clone();
+    };
+    let on_mode_change = {
+        let mode_pump = pump.clone();
+        let mode_storage = storage.clone();
         move |value: String| {
-            if let Some(mode) = ThemeMode::from_stored(&value) {
-                change_theme(preferences.clone(), &pump, &themes, &scheme, |choice| {
-                    choice.mode = mode
-                });
-            }
+            let Some(mode) = ThemeMode::from_stored(&value) else {
+                return;
+            };
+            change_theme(mode_storage.as_ref(), &mode_pump, |choice| {
+                choice.mode = mode
+            });
         }
-    });
-    let rows = [
-        (
-            "tv-mode-select",
-            "TV mode",
-            modality.read().tv_choice().as_str().to_owned(),
-            vec![
-                ("auto", "Auto (detect TV browser)"),
-                ("on", "On"),
-                ("off", "Off"),
-            ],
-            tv_change,
-        ),
-        (
-            "pad-mode-select",
-            "Game controller",
-            modality.read().pad_choice().as_str().to_owned(),
-            vec![
-                ("auto", "Auto (when a controller is used)"),
-                ("on", "On"),
-                ("off", "Off"),
-            ],
-            pad_change,
-        ),
-        (
-            "theme-base-select",
-            "Base",
-            stored.base,
-            base_themes()
-                .iter()
-                .map(|theme| (theme.id, theme.label))
-                .collect(),
-            base_change,
-        ),
-        (
-            "theme-accent-select",
-            "Accent",
-            stored.accent,
-            accent_themes()
-                .map(|theme| (theme.id, theme.label))
-                .collect(),
-            accent_change,
-        ),
-        (
-            "theme-mode-select",
-            "Mode",
-            stored.mode.as_stored().to_owned(),
-            ThemeMode::ALL
-                .into_iter()
-                .map(|mode| (mode.as_stored(), mode.label()))
-                .collect(),
-            mode_change,
-        ),
-    ];
+    };
     rsx! {
-        Flex { sx: layout, "data-testid": "theme-pane",
-            Text { size: "sm", color: "text-dimmed", "Pick a base, an accent and a mode. Applies to this browser profile." }
-            for ((test_id, label, selected, options, on_change), state) in rows.into_iter().zip(states) {
-                Flex { key: "{test_id}", sx: row_layout.clone(),
-                    Text { size: "sm", "{label}" }
-                    Combobox {
-                        state, select_only: true, "aria-label": label,
-                        selected_index: options.iter().position(|(id, _)| *id == selected),
-                        option_label: move |row: (&'static str, &'static str)| row.1.to_owned(),
-                        options: options.clone(),
-                        option: {
-                            let selected = selected.clone();
-                            move |row: ComboboxOptionArgs<(&'static str, &'static str)>| rsx! {
-                                ComboboxOption {
-                                    selected: selected == row.value.0,
-                                    onpick: move |_| { on_change.call(row.value.0.to_owned()); state.close(); },
-                                    "{row.value.1}"
-                                }
-                            }
-                        },
-                        Button {
-                            variant: "outlined", attributes: state.a11y_attributes(),
-                            "data-testid": test_id, "aria-label": label,
-                            onclick: move |_| state.toggle(), onblur: move |_| state.close(),
-                            "{options.iter().find(|(id, _)| *id == selected).map(|(_, label)| *label).unwrap_or_default()}"
-                        }
-                    }
-                }
+        div {
+            class: "flex max-w-xl flex-col gap-5",
+            "data-testid": "theme-pane",
+            Select {
+                test_id: "tv-mode-select",
+                label: "TV mode",
+                value: tv_choice.as_str().to_owned(),
+                options: vec![
+                    SelectOption::new("auto", "Auto (detect TV browser)"),
+                    SelectOption::new("on", "On"),
+                    SelectOption::new("off", "Off"),
+                ],
+                on_change: on_tv_change,
+            }
+            Select {
+                test_id: "pad-mode-select",
+                label: "Game controller",
+                value: pad_choice.as_str().to_owned(),
+                options: vec![
+                    SelectOption::new("auto", "Auto (when a controller is used)"),
+                    SelectOption::new("on", "On"),
+                    SelectOption::new("off", "Off"),
+                ],
+                on_change: on_pad_change,
+            }
+            p { class: "text-sm text-muted-foreground",
+                "Pick a base, an accent and a mode. Applies to this browser profile."
+            }
+            Select {
+                test_id: "theme-base-select",
+                label: "Base",
+                value: stored.base.clone(),
+                options: base_themes()
+                    .iter()
+                    .map(|theme| SelectOption::new(theme.id, theme.label))
+                    .collect::<Vec<_>>(),
+                on_change: on_base_change,
+            }
+            Select {
+                test_id: "theme-accent-select",
+                label: "Accent",
+                value: stored.accent.clone(),
+                options: accent_themes()
+                    .map(|theme| SelectOption::new(theme.id, theme.label))
+                    .collect::<Vec<_>>(),
+                on_change: on_accent_change,
+            }
+            Select {
+                test_id: "theme-mode-select",
+                label: "Mode",
+                value: stored.mode.as_stored().to_owned(),
+                options: ThemeMode::ALL
+                    .into_iter()
+                    .map(|mode| SelectOption::new(mode.as_stored(), mode.label()))
+                    .collect::<Vec<_>>(),
+                on_change: on_mode_change,
             }
         }
     }

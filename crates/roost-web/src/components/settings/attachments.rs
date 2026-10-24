@@ -22,12 +22,12 @@ use roost_client_core::client::rpc::calls::settings::attachments::{
 
 use super::format::{expiry_label, format_age, is_expiring};
 use crate::components::hooks::use_copy_clipboard::use_copy_clipboard;
+use crate::components::ui::{
+    Badge, BadgeVariant, Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader,
+    CardTitle, EmptyState, FieldError, Icon, IconType, List, ListRow, Select, SelectOption,
+};
 use crate::display_format::format_bytes;
 use crate::pump::{Pump, use_store};
-use libero::components::{
-    Badge, Button, Combobox, ComboboxOption, ComboboxOptionArgs, Flex, Paper, Pictogram, SvgData,
-    Text, use_combobox,
-};
 
 /// The file list, and whatever the last read was told.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -48,7 +48,7 @@ pub fn AttachmentsPane() -> Element {
         core.clock().now_ms()
     };
     let mut selected = use_signal(String::new);
-    let sessions: Vec<(String, String)> = {
+    let sessions: Vec<SelectOption> = {
         let core = core.borrow();
         core.store()
             .sessions
@@ -58,8 +58,8 @@ pub fn AttachmentsPane() -> Element {
                 let id = session.1.id.to_string();
                 let short: String = id.chars().take(8).collect();
                 let cwd = session.1.cwd.clone();
-                (
-                    id,
+                SelectOption::new(
+                    id.clone(),
                     format!(
                         "{} — {} ({short})",
                         session.1.kind.as_str(),
@@ -70,91 +70,69 @@ pub fn AttachmentsPane() -> Element {
             .collect()
     };
     if selected().is_empty()
-        && let Some((first, _)) = sessions.first()
+        && let Some(first) = sessions.first()
     {
-        selected.set(first.clone());
+        selected.set(first.value.clone());
     }
-    let session_select = use_combobox();
 
     let mut view = use_signal(AttachmentsView::default);
-    let semibold_text_sx = use_hook(|| libero::sx::sx().font_weight("600"));
-    let paper_sx = use_hook(|| libero::sx::sx().padding("md"));
     let load_pump = pump.clone();
     let session = selected();
     use_effect(move || reload(load_pump.clone(), session.clone(), view));
 
     let state = view();
     rsx! {
-        Flex { direction: "column", gap: "md", "data-testid": "attachments-pane",
-            Paper { sx: paper_sx.clone(),
-                Flex { direction: "column", gap: "sm",
-                    Text { size: "lg", sx: semibold_text_sx.clone(), "Attachments" }
-                    Text { size: "sm", color: "muted",
+        div {
+            class: "flex flex-col gap-5",
+            "data-testid": "attachments-pane",
+            Card {
+                CardHeader {
+                    CardTitle { "Attachments" }
+                    CardDescription {
                         "Files dropped into a terminal land in .roost/media inside the session's folder (git-ignored). They're deleted after 7 days."
                     }
-                    Flex { direction: "column", gap: "xs",
-                        Text { size: "sm", "Session" }
-                        Combobox {
-                            state: session_select,
-                            select_only: true,
-                            aria_label: "Session",
-                            selected_index: sessions.iter().position(|(id, _)| *id == selected()),
-                            option_label: |option: (String, String)| option.1.clone(),
-                            options: sessions.clone(),
-                            option: {
-                                let current = selected();
-                                move |row: ComboboxOptionArgs<(String, String)>| {
-                                    let session_id = row.value.0.clone();
-                                    let selected_id = current.clone();
-                                    rsx! {
-                                        ComboboxOption {
-                                            selected: selected_id == row.value.0,
-                                            onpick: move |_| {
-                                                selected.set(session_id.clone());
-                                                let mut view = view.write();
-                                                view.entries.clear();
-                                                view.loaded = false;
-                                                view.error = None;
-                                                session_select.close();
-                                            },
-                                            "{row.value.1}"
-                                        }
-                                    }
-                                }
+                }
+                CardContent {
+                    div { class: "flex items-end gap-3",
+                        Select {
+                            label: "Session".to_owned(),
+                            value: selected(),
+                            options: sessions,
+                            on_change: move |value| {
+                                selected.set(value);
+                                let mut view = view.write();
+                                view.entries.clear();
+                                view.loaded = false;
+                                view.error = None;
                             },
-                            Button {
-                                attributes: session_select.a11y_attributes(),
-                                onclick: move |_| session_select.toggle(),
-                                onblur: move |_| session_select.close(),
-
-                                "{sessions.iter().find(|(id, _)| *id == selected()).map(|(_, label)| label.as_str()).unwrap_or_default()}"
-                            }
                         }
                     }
                     if let Some(message) = state.status.clone() {
-                        Flex { direction: "row", align: "center", gap: "xs",
-                            Pictogram { icon: pictogram_icons_lucide::info::outlined }
-                            Text { size: "sm", color: "muted", "{message}" }
+                        div { class: "inline-flex items-center gap-2 text-sm text-muted-foreground",
+                            Icon { icon: IconType::Info, class: "size-4".to_owned() }
+                            {message}
                         }
                     }
                     if let Some(message) = state.error.clone() {
-                        Text { size: "sm", color: "error", role: "alert", "{message}" }
+                        FieldError { {message} }
                     }
                 }
             }
-            Paper { sx: paper_sx,
-                Flex { direction: "column", gap: "sm",
-                    Text { size: "lg", sx: semibold_text_sx.clone(), "Files" }
+            Card {
+                CardHeader {
+                    CardTitle { "Files" }
+                }
+                CardContent {
                     if !state.loaded {
-                        Text { size: "sm", color: "muted", "Loading…" }
+                        span { class: "text-sm text-muted-foreground", "Loading…" }
                     } else if state.entries.is_empty() {
-                        Flex { direction: "column", align: "center", gap: "xs",
-                            Pictogram { icon: pictogram_icons_lucide::folder_open::outlined }
-                            Text { size: "md", sx: semibold_text_sx.clone(), "No attachments yet" }
-                            Text { size: "sm", color: "muted", "Drop a file into the terminal to attach it. The path lands here and you can re-inject it anytime." }
+                        EmptyState {
+                            icon: IconType::FolderOpen,
+                            title: "No attachments yet",
+                            supporting: "Drop a file into the terminal to attach it. The path lands here and you can re-inject it anytime.",
                         }
                     } else {
-                        Flex { direction: "column", gap: "xs",
+                        List { contained: true,
                             for entry in state.entries.iter() {
                                 AttachmentRow {
                                     entry: entry.clone(),
@@ -184,7 +162,6 @@ fn AttachmentRow(
     let filename = entry.filename.clone();
     let abs_path = entry.abs_path.clone();
     let expiry = expiry_label(now_ms, entry.mtime_ms);
-    let filename_sx = use_hook(|| libero::sx::sx().font_weight("500").font_family("monospace"));
     // Each row's three actions are built once: an `rsx!` attribute body is a
     // block, and a block that clones per attribute moves the same capture once
     // per attribute it appears in.
@@ -206,56 +183,63 @@ fn AttachmentRow(
         move |_event: MouseEvent| remove(pump.clone(), session.clone(), filename.clone(), view)
     };
     rsx! {
-        Flex { direction: "row", align: "center", justify: "space-between", gap: "sm",
-            "data-testid": format!("attachments-row-{filename}"),
-            Flex { direction: "row", align: "center", gap: "sm",
-                Pictogram { icon: icon_for_file(&filename) }
-                Flex { direction: "column", gap: "xs",
-                    Text { size: "sm", sx: filename_sx, "{filename}" }
-                    Flex { direction: "row", align: "center", gap: "xs",
-                        Text { size: "xs", color: "muted", "{format_bytes(entry.size_bytes as f64)}" }
-                        Text { size: "xs", color: "muted", "{format_age(now_ms, entry.mtime_ms)}" }
-                        Badge { variant: if is_expiring(now_ms, entry.mtime_ms) { "tonal" } else { "outlined" }, "{expiry}" }
+        ListRow {
+            leading_icon: Some(icon_for_file(&filename)),
+            headline: rsx! { span { class: "font-mono", {filename.clone()} } },
+            support: Some(rsx! {
+                span { class: "inline-flex items-center gap-3",
+                    span { {format_bytes(entry.size_bytes as f64)} }
+                    span { {format_age(now_ms, entry.mtime_ms)} }
+                    Badge {
+                        variant: if is_expiring(now_ms, entry.mtime_ms) { BadgeVariant::Destructive } else { BadgeVariant::Secondary },
+                        {expiry}
                     }
                 }
-            }
-            Flex { direction: "row", align: "center", gap: "xs",
-                Button { variant: "standard", icon: Some(rsx! { Pictogram { icon: pictogram_icons_lucide::clipboard_paste::outlined } }),
-                    "data-testid": format!("attachments-inject-{filename}"), onclick: on_inject, "Inject"
+            }),
+            trailing: Some(rsx! {
+                Button {
+                    variant: ButtonVariant::Ghost,
+                    icon: Some(IconType::ClipboardPaste),
+                    "data-testid": format!("attachments-inject-{filename}"),
+                    onclick: on_inject,
+                    "Inject"
                 }
-                Button { variant: "standard", icon: Some(rsx! { Pictogram { icon: if path_copied() { pictogram_icons_lucide::check::outlined } else { pictogram_icons_lucide::copy::outlined } } }),
-                    "data-testid": format!("attachments-copy-{filename}"), onclick: on_copy,
+                Button {
+                    variant: ButtonVariant::Ghost,
+                    icon: Some(if path_copied() { IconType::Check } else { IconType::Copy }),
+                    "data-testid": format!("attachments-copy-{filename}"),
+                    onclick: on_copy,
                     if path_copied() { "Copied" } else { "Copy" }
                 }
-                Button { variant: "outlined", color: "error", icon: Some(rsx! { Pictogram { icon: pictogram_icons_lucide::trash_2::outlined } }),
-                    "data-testid": format!("attachments-delete-{filename}"), onclick: on_delete, "Delete"
+                Button {
+                    variant: ButtonVariant::Destructive,
+                    icon: Some(IconType::Trash2),
+                    "data-testid": format!("attachments-delete-{filename}"),
+                    onclick: on_delete,
+                    "Delete"
                 }
-            }
+            }),
         }
     }
 }
 
 /// The glyph a file's extension earns.
-fn icon_for_file(filename: &str) -> SvgData {
+fn icon_for_file(filename: &str) -> IconType {
     let extension = filename
         .rsplit_once('.')
         .map(|(_, tail)| tail.to_ascii_lowercase())
         .unwrap_or_default();
     match extension.as_str() {
-        "png" | "jpg" | "jpeg" | "gif" | "webp" | "avif" | "svg" | "heic" => {
-            pictogram_icons_lucide::file_image::outlined
-        }
-        "mp4" | "mov" | "mkv" | "webm" => pictogram_icons_lucide::file_video::outlined,
-        "mp3" | "wav" | "ogg" | "flac" | "m4a" => pictogram_icons_lucide::file_audio::outlined,
-        "pdf" => pictogram_icons_lucide::file_text::outlined,
-        "zip" | "tar" | "gz" | "tgz" | "rar" | "7z" => {
-            pictogram_icons_lucide::file_archive::outlined
-        }
-        "md" | "txt" | "log" => pictogram_icons_lucide::file_text::outlined,
-        "json" | "yaml" | "yml" | "toml" | "csv" => pictogram_icons_lucide::file_json::outlined,
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "avif" | "svg" | "heic" => IconType::FileImage,
+        "mp4" | "mov" | "mkv" | "webm" => IconType::FileVideo,
+        "mp3" | "wav" | "ogg" | "flac" | "m4a" => IconType::FileAudio,
+        "pdf" => IconType::FileText,
+        "zip" | "tar" | "gz" | "tgz" | "rar" | "7z" => IconType::FileArchive,
+        "md" | "txt" | "log" => IconType::FileText,
+        "json" | "yaml" | "yml" | "toml" | "csv" => IconType::FileJson,
         "ts" | "tsx" | "js" | "jsx" | "rs" | "py" | "go" | "c" | "cpp" | "h" | "html" | "css"
-        | "swift" | "rb" => pictogram_icons_lucide::code::outlined,
-        _ => pictogram_icons_lucide::file::outlined,
+        | "swift" | "rb" => IconType::Code,
+        _ => IconType::File,
     }
 }
 

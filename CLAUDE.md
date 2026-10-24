@@ -269,69 +269,58 @@ fork" link).
 
 ## Design system (web) — cohesion by construction
 
-The browser uses **Libero directly**, pinned with Dioxus in `Cargo.toml` and
-`Cargo.lock`. Only `roost-web` imports Libero; client-core and the imperative
-terminal renderer stay UI-free. `components/ui` contains genuine Roost
-compositions (attachments, messages, Markdown and input prompts), not aliases
-or copies of upstream primitives.
+New UI MUST be cohesive by construction, not by memory. The UI layer is
+**rust-ui** (rust-ui.com, `github.com/rust-ui/ui`): a shadcn-style registry
+for Dioxus 0.8 alpha.3 + Tailwind v4 whose components are copied into the web crate's
+`ui` component directory and adapted to these rules. Three rules,
+mechanically enforced so drift can't return:
 
-1. **Components and owned styles.** Compose from Libero `Box`, `Flex`, `Paper`,
-   `Text`, `Title` and its controls. Use `sx`/props for application layout, type,
-   colour, spacing and radii; never introduce a utility-class compatibility
-   layer or another generic component facade. Build constant `Sx` values once
-   in component-owned `use_hook` values; cache prop-dependent composition.
-   No authored `StaticSx`, mutable global style cache, or selector/CSS strings
-   built from user text. Semantic native markup remains appropriate for parsed
-   content and renderer-owned geometry.
-2. **Theme roles, not copied values.** Use Libero's palette and size scales.
-   No new hex, `rgb()` or px font-size in application components. Token
-   declarations, brand data and terminal/modality geometry retain their own
-   explicit values. `cargo xtask lint` runs the design raw-value ratchet against
-   `xtask/design-raw-baseline.json`; shrinking a file's baseline requires
-   `cargo xtask lint --update-design-baseline`. Preserve compact workbench
-   density and terminal font preferences independently of application type.
-3. **One appearance owner.** One `LiberoProvider` encloses pairing, authorized
-   routes and overlays. Roost preserves its base/accent/mode identifiers and
-   primes `lsx-color-scheme` before mounting; Libero owns scheme following and
-   document theme updates. Immutable theme pairs live in `theme/catalog.rs`.
-   `theme-vars.css` bridges required renderer/modality roles onto the selected
-   theme; it must not become a second application theme writer.
-4. **One interaction owner.** Button menus use Libero Menu, dynamic selects use
-   Combobox, disposable settings sections may use Tabs. Live terminal panes
-   retain Roost's parking, reveal and registry lifetimes, never conditional
-   Tabs panels. Dialogs use `use_modal` plus Dialog; drawers use `use_drawer`.
-   Product open state remains authoritative, each opening is generation-fenced,
-   current success closes a pending action, and closed modal DOM is removed.
-   Parent key handlers respect `default_action_enabled`; global navigation
-   leaves roving controls their keys. Re-measure anchored popovers when their
-   loaded content or local layout changes.
-5. **Portal and task boundaries are explicit.** App provides shared router,
-   modality, notification and pane contexts above Libero's outlet. Portaled
-   content receives remaining call-site values/handlers as props. Async SDK
-   resolution runs in Dioxus's runtime. A mutation that must outlive its opener
-   uses `dioxus::core::spawn_forever` with opening/liveness guards, not a
-   `wasm_bindgen_futures` task that resolves an SDK modal without a runtime.
-   Synthetic context-menu anchors never replace the real return-focus target.
-6. **Shared product policy stays shared.** Clipboard writes and Copied feedback
-   use `components/hooks/use_copy_clipboard`, including stale-completion
-   fencing. Libero observes media queries; Roost's compact switch remains the
-   short side below 600px with the TV override. Notification scheduling remains
-   store-owned. Icons use `Pictogram` with Lucide `SvgData`; action names belong
-   on ActionIcon, decorative glyphs stay unnamed.
-7. **One visual reference.** `/design` renders the shipped controls, Roost
-   compositions and actual theme roles. Verify real state changes, keyboard
-   ownership, focus return, viewport bounds and reduced motion, not markup
-   snapshots alone.
+1. **No raw values.** No hex / `rgb()` / px font-size in components —
+   including Tailwind arbitrary values (`text-[13px]`, `bg-[#fff]`). Colour
+   through the Tailwind roles (`bg-background`, `bg-card`, `bg-primary`,
+   `text-muted-foreground`, `border-border`, `bg-accent`, `bg-destructive`, …),
+   which `crates/roost-web/tailwind.css` (rust-ui's own theme file, verbatim)
+   maps onto rust-ui's theme variables. The theme engine (`src/theme/`) writes
+   rust-ui's base × accent palettes (`src/theme/palettes/`, verbatim) and the
+   `dark` class; default dark Neutral. Roost's older tokens (`--surface-*`,
+   `--text-*`, …) alias onto rust-ui's in `theme-vars.css`. Type through the
+   `text-xs…` scale. Token files (`theme-vars.css`, `tailwind.css`,
+   `agents.rs`, `src/theme/palettes/`, vendored rust-ui CSS under
+   `crates/roost-web/vendor/`) DECLARE values and are exempt. Components copy
+   rust-ui's class recipes byte for byte; the few raw values rust-ui itself
+   ships are baselined. Enforced by `cargo xtask lint`'s design ratchet against
+   `xtask/design-raw-baseline.json`: a NEW raw value fails the build. After
+   migrating a file down, re-snapshot with
+   `cargo xtask lint --update-design-baseline`.
+2. **Components first.** Compose from `ui` (`Button`, `IconButton`, `Card`,
+   `Surface`, `StatusDot`, `Badge`, `Dialog`, `Sheet`, `Drawer`, `Popover`,
+   `DropdownMenu`, `ContextMenu`, `Command`, `Select`, `Tabs`, `Item`,
+   `Sidenav`, `Message`, `InputPrompt`, `Icon`, …) — don't hand-roll a
+   `<div style>`, a `<button>`, a menu, or a new stylesheet rule a utility can
+   express. A missing component is ported from the rust-ui registry into `ui`,
+   never forked into a surface. Ported components keep rust-ui's names and
+   class recipes but never its inline `script {}`/`eval` behaviour (the CSP
+   blocks both; behaviour is Rust), never a `static` id counter, and are
+   controlled (`open` + `on_open_change`) and unmounted when closed. Icons are
+   Lucide through `ui::Icon { icon: IconType::… }`. Tailwind reads classes
+   out of the `.rs` sources, so a class is always a complete literal — never
+   assembled with `format!`. rust-ui's hooks sit beside `ui` in
+   `components/hooks/`: every clipboard write goes through `use_copy_clipboard`
+   (a button's "Copied" state is its `copied` flag), every `matchMedia` read
+   through `use_media_query`, and the phone switch is `use_is_mobile` (Roost's
+   short side under 600px, behind `window_size::use_is_compact`).
+3. **One visual reference.** The `/design` route renders every colour role
+   and `ui` component. New surfaces match it.
 
-Renderer grid CSS, TV/gamepad rules, measured composer transforms and required
-product animations remain specialized. Forms submit through Rust handlers;
-CSP permits styles, not inline scripts or JavaScript eval. Component styling is
-Libero Sx; product CSS remains only for renderer and modality geometry.
+`dx build`/`dx serve` compile `tailwind.css` into
+`assets/styles/tailwind.css` (generated, gitignored). Its utilities sit in
+cascade layers, so any unlayered hand-written rule beats them regardless of
+order.
 
-Process: run the **design-reviewer** process
+Process: run the **`design-reviewer`** subagent
 (`.claude/agents/design-reviewer.md`) on every `crates/roost-web/` UI diff
-before commit. It checks primitive bypass, theme roles, interaction ownership
-and retained terminal lifetimes beyond the regex ratchet.
+before commit — it catches the primitive-bypass and wrong-role drift the regex
+linter can't.
 
 ---
 

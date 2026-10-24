@@ -10,19 +10,19 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 use dioxus::web::WebEventExt as _;
-use libero::components::use_combobox;
 
 use super::deck_dom::{self, ClientBox, SizeWatch, Timeout};
 use super::pane_strip_double_press::DoublePress;
 use super::pane_strip_gesture::{StripDragOutlets, StripGesture};
 use super::pane_tab::PaneTab;
 use super::pane_tab_hover_card::PaneTabHoverCard;
-use super::pane_tab_list::PaneTabList;
+use super::pane_tab_list::{PaneTabList, TAB_LIST_MENU_ID};
 use super::pane_tab_new_menu::PaneTabNewMenu;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::terminal::terminal_transport_indicator::TerminalTransportIndicator;
-use libero::components::Box;
-use libero::sx::sx;
+use crate::components::ui::{
+    DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, Icon, IconType,
+};
 /// How long a pointer rests on a tab before its hover card opens, ms.
 const HOVER_DWELL_MS: u32 = 450;
 /// How long a closing tab animates out before the close lands, ms.
@@ -48,7 +48,7 @@ pub fn PaneStrip(
     let compact = use_is_compact();
     let gesture = StripGesture::use_strip_gesture();
     let closing = use_signal(BTreeSet::<String>::new);
-    let list_state = use_combobox();
+    let mut list_open = use_signal(|| false);
     let mut hover = use_signal(|| None::<(String, ClientBox)>);
     let overflowing = use_signal(|| false);
     let mut filler_press = use_signal(DoublePress::default);
@@ -110,55 +110,15 @@ pub fn PaneStrip(
     };
     let hovered = hover.read().clone();
 
-    let root_sx = use_hook(|| {
-        sx().position("relative")
-            .isolation("isolate")
-            .display("flex")
-            .flex_direction("row")
-            .min_width("0")
-            .height("var(--workbench-tab-strip-height)")
-            .min_height("var(--workbench-tab-strip-height)")
-            .align_items("center")
-            .overflow("hidden")
-            .background("var(--workbench-tab-strip)")
-            .padding_inline_end("var(--workbench-editor-actions-reserve)")
-    });
-    let rail_sx = use_hook(|| {
-        sx().display("flex")
-            .flex_direction("row")
-            .min_width("0")
-            .height("100%")
-            .flex("0 1 auto")
-            .align_items("center")
-            .overflow_x("auto")
-            .with("overscroll-behavior-y", "auto")
-            .overflow_y("hidden")
-            .with("scrollbar-width", "none")
-            .selector("&::-webkit-scrollbar", sx().display("none"))
-            .selector(
-                "[data-dragging=true]",
-                sx().cursor("grabbing").user_select("none"),
-            )
-    });
-    let actions_sx = use_hook(|| {
-        sx().display("flex")
-            .flex_direction("row")
-            .align_items("center")
-            .gap("xs")
-            .flex_shrink("0")
-    });
-    let filler_sx = use_hook(|| sx().flex("1 1 0%").min_width("0").align_self("stretch"));
     rsx! {
-        Box {
-            component: "div",
-            sx: root_sx,
+        div {
+            class: "relative isolate flex min-w-0 h-[var(--workbench-tab-strip-height)] min-h-[var(--workbench-tab-strip-height)] items-center overflow-hidden bg-[var(--workbench-tab-strip)] pe-[var(--workbench-editor-actions-reserve)]",
             "data-testid": "pane-strip-{pane_id}",
             "data-pane-strip": "{pane_id}",
             "data-focused": if focused { "true" } else { "false" },
             "data-dragging": if drag.is_some() { "true" } else { "false" },
-            Box {
-                component: "div",
-                sx: rail_sx,
+            div {
+                class: "group/strip flex min-w-0 h-full flex-[0_1_auto] items-center overflow-x-auto overflow-y-hidden scrollbar-none data-[dragging=true]:cursor-grabbing data-[dragging=true]:select-none",
                 "data-tab-bar": "true",
                 "data-focused": if focused { "true" } else { "false" },
                 "data-dragging": if drag.is_some() { "true" } else { "false" },
@@ -201,7 +161,7 @@ pub fn PaneStrip(
                             let hover_timer = Rc::clone(&hover_timer);
                             let session_id = session_id.clone();
                             move |anchor: ClientBox| {
-                                if !hover_card_available || gesture.drag.peek().is_some() || list_state.is_open() {
+                                if !hover_card_available || gesture.drag.peek().is_some() || *list_open.peek() {
                                     return;
                                 }
                                 let session_id = session_id.clone();
@@ -234,9 +194,8 @@ pub fn PaneStrip(
                     }
                 },
             }
-            Box {
-                component: "div",
-                sx: filler_sx,
+            div {
+                class: "flex-1 min-w-0 self-stretch",
                 "data-testid": "tab-filler",
                 title: "Double-click to open a new terminal in this folder",
                 onpointerdown: move |event: PointerEvent| {
@@ -256,21 +215,43 @@ pub fn PaneStrip(
             if !matches!(roost_client_core::deck::tab::DeckTab::parse(&selected_tab), Some(roost_client_core::deck::tab::DeckTab::Agent(_))) {
                 TerminalTransportIndicator { session_id: selected_tab.clone() }
             }
-            Box { component: "div", sx: actions_sx, role: "toolbar", "aria-label": "Terminal actions",
+            div { class: "flex items-center gap-1 shrink-0", role: "toolbar", "aria-label": "Terminal actions",
                 if overflowing() {
-                    PaneTabList {
-                        tab_ids: tab_ids.clone(),
-                        selected_tab: selected_tab.clone(),
-                        state: list_state,
-                        on_select: move |session_id| on_select.call(session_id),
-                        on_reveal_selected: move |()| {
-                            if let Some(rail) = gesture.rail.peek().as_ref()
-                                && gesture.drag.peek().is_none()
-                            {
-                                deck_dom::reveal_active_tab(rail);
+                    DropdownMenu {
+                        open: list_open(),
+                        on_open_change: {
+                            let clear_hover = clear_hover.clone();
+                            move |open: bool| {
+                                if open {
+                                    clear_hover();
+                                }
+                                list_open.set(open);
                             }
                         },
-                        on_open: move |()| clear_hover(),
+                        test_id: "tab-list-popup",
+                        trigger_id: "tab-overflow-{pane_id}",
+                        menu_id: TAB_LIST_MENU_ID,
+                        DropdownMenuTrigger {
+                            class: "shrink-0 size-[var(--workbench-tab-action-size)] p-0 rounded-none border-0 bg-[var(--workbench-tab-strip)] text-muted-foreground hover:text-foreground",
+                            test_id: "tab-overflow",
+                            aria_label: "All terminals in this pane",
+                            Icon { icon: IconType::ChevronDown, class: "size-4" }
+                        }
+                        DropdownMenuContent { class: "w-auto min-w-[var(--workbench-tab-menu-min-width)] max-w-96 max-h-96 overflow-y-auto",
+                            PaneTabList {
+                                tab_ids: tab_ids.clone(),
+                                selected_tab: selected_tab.clone(),
+                                on_select: move |session_id| on_select.call(session_id),
+                                on_reveal_selected: move |()| {
+                                    if let Some(rail) = gesture.rail.peek().as_ref()
+                                        && gesture.drag.peek().is_none()
+                                    {
+                                        deck_dom::reveal_active_tab(rail);
+                                    }
+                                },
+                                on_close: move |()| list_open.set(false),
+                            }
+                        }
                     }
                 }
             }

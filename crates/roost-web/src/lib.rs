@@ -136,9 +136,10 @@ pub fn App() -> Element {
     // The pump is built once, in the root scope that owns the revision signal,
     // and started in the same hook: the core it drives is the provided one.
     let revision = use_signal(|| 0_u64);
-    let preferences = use_context_provider(theme::ThemePreferences::load);
-    let themes =
-        use_hook(|| theme::catalog::theme_set_for_choice(&preferences.choice.peek()).clone());
+    // The persisted palette lands before the first component paints (v2
+    // `main.tsx` applies it before `render`).
+    use_hook(theme::apply_stored_theme);
+    theme::use_follow_system_appearance();
     let queue = try_consume_context::<diag_upload::DiagUploadQueue>();
     let pump = use_hook(|| pump::start_pump(Rc::new(RefCell::new(build_core())), revision, queue));
     use_context_provider(|| pump.core());
@@ -146,13 +147,8 @@ pub fn App() -> Element {
     use_context_provider(components::terminal::pane_registry::PaneRegistry::default);
     motion::resize_drag::ResizeDrag::provide();
     keyboard_shortcuts::ShortcutOverlays::provide();
-    app::provide_root_contexts();
     rsx! {
-        libero::LiberoProvider { themes,
-            theme::AppearanceBootstrap {
-                components::app_error_boundary::AppErrorBoundary { app::GatedApp {} }
-            }
-        }
+        components::app_error_boundary::AppErrorBoundary { app::GatedApp {} }
     }
 }
 

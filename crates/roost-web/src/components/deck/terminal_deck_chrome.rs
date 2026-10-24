@@ -2,13 +2,11 @@
 //! strip, the divider handles, the drop-zone highlight and the arrange menu; on
 //! a compact host the phone bar, twice while a swipe slides the neighbour's in,
 //! or the route's plain top bar when there is no session to put a bar over.
-//! Called inline by `terminal_deck`; drop and arrange overlays own their Sx.
-//! Every gesture runs a `DeckOperations` command. Ports the chrome half of
+//! Called inline by `terminal_deck` (plain render functions, no hooks); every
+//! gesture runs a `DeckOperations` command. Ports the chrome half of
 //! `apps/web/src/components/deck/TerminalDeck.tsx`.
 
 use dioxus::prelude::*;
-use libero::components::Box;
-use libero::sx::sx;
 use roost_client_core::store::layout::PaneView;
 
 use super::arrange_menu::ArrangeMenu;
@@ -43,82 +41,39 @@ pub fn desktop_chrome(
         .collect();
     let arrange_ops = operations.clone();
     rsx! {
-            for pane in groups {
-                {pane_group(pane, operations.clone(), strip_height)}
+        for pane in groups {
+            {pane_group(pane, operations.clone(), strip_height)}
+        }
+        for divider in frame.view.dividers.iter().cloned() {
+            PaneDivider {
+                key: "{divider.split_id}",
+                divider,
+                on_drag: {
+                    let operations = operations.clone();
+                    move |(split_id, ratio): (String, f64)| operations.divider_drag(split_id, ratio)
+                },
+                on_commit: {
+                    let operations = operations.clone();
+                    move |(split_id, ratio): (String, f64)| operations.divider_commit(split_id, ratio)
+                },
             }
-            for divider in frame.view.dividers.iter().cloned() {
-                PaneDivider {
-                    key: "{divider.split_id}",
-                    divider,
-                    on_drag: {
-                        let operations = operations.clone();
-                        move |(split_id, ratio): (String, f64)| operations.divider_drag(split_id, ratio)
-                    },
-                    on_commit: {
-                        let operations = operations.clone();
-                        move |(split_id, ratio): (String, f64)| operations.divider_commit(split_id, ratio)
-                    },
-                }
+        }
+        if let Some(overlay) = drop_overlay {
+            div {
+                class: "rounded-md border-2 border-solid border-[var(--workbench-pane-focus)] bg-[color-mix(in_srgb,var(--workbench-pane-drop)_22%,transparent)] transition-[left,top,width,height] duration-150 motion-reduce:transition-none data-[zone=reorder]:border-dashed data-[zone=reorder]:bg-[color-mix(in_srgb,var(--workbench-pane-drop)_10%,transparent)]",
+                "data-zone": zone_name(overlay.zone),
+                style: "position: absolute; left: {px(overlay.rect.x)}; top: {px(overlay.rect.y)}; width: {px(overlay.rect.w)}; height: {px(overlay.rect.h)}; z-index: 5; pointer-events: none;",
             }
-            if let Some(overlay) = drop_overlay {
-                DropZoneOverlay { overlay }
-            }
-            if live_count > 0 {
-                ArrangeMenuLayer {
-                    strip_height,
+        }
+        if live_count > 0 {
+            div {
+                class: "absolute top-0 right-0 flex items-center px-2 z-[4]",
+                style: "height: {px(strip_height)};",
+                ArrangeMenu {
                     can_arrange: live_count >= 2,
                     on_arrange: move |kind| arrange_ops.arrange(kind),
                 }
-        }
-    }
-}
-
-#[component]
-fn DropZoneOverlay(overlay: DropOverlay) -> Element {
-    let overlay_sx = use_hook(|| {
-        sx().border_radius("md")
-            .with("border", "2px solid var(--workbench-pane-focus)")
-            .background("primary")
-            .opacity("0.22")
-            .transition("left 150ms, top 150ms, width 150ms, height 150ms")
-            .media("(prefers-reduced-motion: reduce)", sx().transition("none"))
-            .selector(
-                "&[data-zone=reorder]",
-                sx().with("border-style", "dashed").opacity("0.1"),
-            )
-    });
-    rsx! {
-        Box {
-            component: "div",
-            sx: overlay_sx,
-            "data-zone": zone_name(overlay.zone),
-            style: "position: absolute; left: {px(overlay.rect.x)}; top: {px(overlay.rect.y)}; width: {px(overlay.rect.w)}; height: {px(overlay.rect.h)}; z-index: 5; pointer-events: none;",
-        }
-    }
-}
-
-#[component]
-fn ArrangeMenuLayer(
-    strip_height: f64,
-    can_arrange: bool,
-    on_arrange: EventHandler<roost_client_core::store::layout::ArrangeKind>,
-) -> Element {
-    let layer_sx = use_hook(|| {
-        sx().position("absolute")
-            .top("0")
-            .right("0")
-            .display("flex")
-            .flex_direction("row")
-            .align_items("center")
-            .padding_inline("sm")
-            .with("z-index", "4")
-    });
-    rsx! {
-        Box {
-            component: "div",
-            sx: layer_sx,
-            style: "height: {px(strip_height)};",
-            ArrangeMenu { can_arrange, on_arrange }
+            }
         }
     }
 }

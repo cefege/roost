@@ -9,9 +9,8 @@
 //! Tab from anywhere the reader's focus lands in the body.
 
 use dioxus::prelude::*;
-use libero::components::{Box, Button, Pictogram, ScrollArea};
-use libero::sx::sx;
 
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, Icon, IconType, ScrollArea};
 use crate::syntax_lite::Token;
 
 use super::state::token_color;
@@ -29,21 +28,6 @@ pub fn FileBody(
     copied_line: Option<usize>,
     on_copy: EventHandler<usize>,
 ) -> Element {
-    let scroll_sx = use_hook(|| {
-        sx().flex("1")
-            .min_height("0")
-            .background("var(--surface-terminal)")
-            .border_radius("sm")
-            .font_family("monospace")
-            .font_size("sm")
-    });
-    let body_sx = use_hook(|| sx().position("relative").padding("sm"));
-    let marker_sx = use_hook(|| {
-        sx().position("absolute")
-            .left("0")
-            .width("0.1875rem")
-            .background("warning")
-    });
     let mut rows: Vec<Element> = Vec::with_capacity(lines.len());
     for (index, line) in lines.iter().enumerate() {
         let line_number = index + 1;
@@ -62,13 +46,13 @@ pub fn FileBody(
     let marker_top_px =
         u32::try_from(target_line.saturating_sub(1)).unwrap_or_default() * ROW_HEIGHT_PX;
     rsx! {
-        ScrollArea { sx: scroll_sx,
-            Box {
-                sx: body_sx,
+        ScrollArea { class: "flex-auto min-h-0 bg-terminal rounded-sm font-mono text-sm",
+            div {
                 "data-testid": "file-viewer-sheet-body",
-                Box {
-                    sx: marker_sx,
+                class: "relative p-2",
+                div {
                     "data-testid": "file-viewer-sheet-target-marker",
+                    class: "absolute left-0 w-0.75 bg-warning",
                     style: "top: {marker_top_px}px; height: {ROW_HEIGHT_PX}px;"
                 }
                 {rows.into_iter()}
@@ -88,59 +72,34 @@ fn FileBodyLine(
     on_copy: EventHandler<usize>,
 ) -> Element {
     let label = format!("Copy link to line {number}");
-    let number_sx = use_hook(|| {
-        sx().min_width("2.25rem")
-            .text_align("right")
-            .color("muted")
-            .user_select("none")
-            .flex_shrink("0")
-    });
-    let highlighted_sx = use_hook(|| sx().white_space("pre"));
-    let plain_sx = use_hook(|| sx().white_space("pre").color("var(--syntax-plain)"));
-    let label_sx = use_hook(|| sx().color("muted"));
-    let row_sx = use_hook(|| sx().display("flex").gap("md").position("relative"));
-    let copy_sx = use_hook(|| {
-        sx().margin_left("auto")
-            .flex_shrink("0")
-            .min_height("0")
-            .padding_inline("xs")
-            .font_size("xs")
-            .opacity("0")
-            .selector("[data-copy-row]:hover &", sx().opacity("1"))
-            .focus_visible(sx().opacity("1"))
-            .media("(hover: none)", sx().opacity("1"))
-    });
-    let icon_sx = use_hook(|| sx().width("0.75rem").height("0.75rem").color("success"));
     rsx! {
-        Box {
-            sx: row_sx,
-            "data-copy-row": "",
+        div {
             "data-line": "{number}",
             "data-testid": "file-viewer-sheet-line-{number}",
+            class: "group flex gap-3 relative",
             style: row_style(is_target),
-            Box {
-                component: "span",
-                sx: number_sx,
+            span {
                 "data-testid": "file-viewer-sheet-line-num-{number}",
                 "data-target": is_target.then_some("true"),
+                class: "min-w-9 text-right text-muted-foreground select-none shrink-0",
                 "{number}"
             }
             match tokens {
-                Some(tokens) => highlighted_line(&tokens, &highlighted_sx),
-                None => plain_line(&text, &plain_sx),
+                Some(tokens) => highlighted_line(&tokens),
+                None => plain_line(&text),
             }
             Button {
-                variant: "standard",
-                size: "xs",
-                sx: copy_sx,
+                variant: ButtonVariant::Ghost,
+                size: ButtonSize::Xs,
+                class: "ml-auto shrink-0 min-h-0 any-pointer-coarse:min-h-0 px-1 text-xs opacity-0 group-hover:opacity-100 focus-visible:opacity-100 tv:opacity-100 pad:opacity-100",
                 "data-testid": "file-viewer-sheet-copy-link-{number}",
                 title: label.clone(),
                 "aria-label": label,
                 onclick: move |_| on_copy.call(number),
                 if copied {
-                    Box { component: "span", sx: icon_sx, Pictogram { icon: pictogram_icons_lucide::check::outlined, width: "0.75rem", height: "0.75rem" } }
+                    Icon { icon: IconType::Check, class: "size-3 text-success" }
                 } else {
-                    Box { component: "span", sx: label_sx, "#" }
+                    span { class: "text-muted-foreground", "#" }
                 }
             }
         }
@@ -159,11 +118,11 @@ fn row_style(is_target: bool) -> String {
     format!("line-height: {ROW_HEIGHT_PX}px; {highlight}")
 }
 
-fn highlighted_line(tokens: &[Token], highlighted_sx: &libero::sx::Sx) -> Element {
+/// The line's text, one span per token so each run is painted in its own colour.
+fn highlighted_line(tokens: &[Token]) -> Element {
     rsx! {
-        Box {
-            component: "span",
-            sx: highlighted_sx.clone(),
+        span {
+            class: "whitespace-pre",
             for token in tokens {
                 span { style: "color: {token_color(token.kind)};", {token.text.clone()} }
             }
@@ -172,8 +131,8 @@ fn highlighted_line(tokens: &[Token], highlighted_sx: &libero::sx::Sx) -> Elemen
 }
 
 /// The line's text, unhighlighted.
-fn plain_line(line: &str, plain_sx: &libero::sx::Sx) -> Element {
+fn plain_line(line: &str) -> Element {
     rsx! {
-        Box { component: "span", sx: plain_sx.clone(), {line} }
+        span { class: "whitespace-pre text-(--syntax-plain)", {line} }
     }
 }

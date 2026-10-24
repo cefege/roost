@@ -1,5 +1,5 @@
 /* The ring is painted only from this sheet, keyed on the attribute every
-   notify target sets. One rule means one value; a component-local copy
+   notify target sets. One rule means one value; a Tailwind copy on a surface
    would drift from it. It is an INSET box-shadow, not an outline:
    `.df-row:focus-within` already owns `outline` at equal specificity, so the
    ring stacks with a focus ring instead of replacing it, and inset affects no

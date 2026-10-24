@@ -6,14 +6,14 @@
 use dioxus::prelude::*;
 use roost_client_core::client::auth::PairPollStatus;
 
-use crate::pump::use_store;
-use libero::{
-    components::{Box, Button, Flex, Indicator, Paper, Text, Title},
-    sx::sx,
+use crate::components::ui::field::scoped_element_id;
+use crate::components::ui::{
+    Button, ButtonVariant, Card, CardContent, CardHeader, CardTitle, CardVariant, FieldError,
+    FieldLabel, StatusDot,
 };
+use crate::pump::use_store;
 
 use super::requester::{PairingRequester, RequesterState};
-
 use super::status::{
     poll_indicator, poll_message, request_restart_label, request_start_label, shows_request_actions,
 };
@@ -27,12 +27,13 @@ pub fn RequestAccessCard(requester: PairingRequester) -> Element {
     let _pump = use_store();
     let state = requester.state().read().clone();
     let idle = state.status == PairPollStatus::Idle;
-    let card_sx = use_hook(|| sx().padding("md").width("100%"));
     rsx! {
-        Paper { sx: card_sx, bordered: true, "data-testid": "onboarding-pair-step",
-            Flex { direction: "column", gap: "md",
-                Title { size: "md", "Request access" }
-                Flex { direction: "column", gap: "sm",
+        Card { variant: CardVariant::Outlined, "data-testid": "onboarding-pair-step",
+            CardHeader {
+                CardTitle { "Request access" }
+            }
+            CardContent {
+                div { class: "flex min-w-0 flex-col gap-3",
                     if idle {
                         IdlePrompt { requester: requester.clone(), state: state.clone() }
                     } else {
@@ -55,15 +56,16 @@ pub fn RequestAccessCard(requester: PairingRequester) -> Element {
 #[component]
 fn IdlePrompt(requester: PairingRequester, state: RequesterState) -> Element {
     rsx! {
-        Text { size: "sm", color: "muted",
+        p { class: "m-0 text-sm text-muted-foreground",
             "A browser that is already paired approves the request, then shows a 6-digit code for you to enter here."
         }
-        Button {
-            variant: "filled",
-            "data-testid": "onboarding-pair-start-btn",
-            disabled: state.busy,
-            onclick: move |_| requester.start(),
-            "{request_start_label(state.busy, state.failed)}"
+        div {
+            Button {
+                "data-testid": "onboarding-pair-start-btn",
+                disabled: state.busy,
+                onclick: move |_| requester.start(),
+                "{request_start_label(state.busy, state.failed)}"
+            }
         }
     }
 }
@@ -75,26 +77,32 @@ fn RequestStatus(state: RequesterState) -> Element {
     if state.request_failure.is_some() {
         return rsx! {};
     }
-    let color = match poll_indicator(&state.status, state.failure.as_deref(), state.failed) {
-        "ok" => "success",
-        "warn" => "warning",
-        color => color,
-    };
+    let indicator = poll_indicator(&state.status, state.failure.as_deref(), state.failed);
     let Some(message) = poll_message(&state.status, state.failure.as_deref(), state.failed) else {
         return rsx! {};
     };
     rsx! {
-        Flex { direction: "row", align: "center", gap: "sm",
-            role: "status", aria_live: "polite", aria_atomic: "true",
+        div {
+            class: "flex items-center gap-2",
             "data-testid": "onboarding-pair-poll-status",
-            Indicator { color, aria_hidden: "true" }
-            Text { size: "sm", "{message}" }
+            role: "status",
+            "aria-live": "polite",
+            "aria-atomic": "true",
+            StatusDot { status: indicator.to_string() }
+            span { class: "text-sm", {message} }
         }
     }
 }
 
 /// Digits in a verification code. The coordinator's code is always this long.
 const VERIFICATION_CODE_DIGITS: usize = 6;
+
+/// A cell the caret is not in: filled, or still empty.
+const OTP_CELL_IDLE: &str = "flex h-12 w-10 items-center justify-center rounded-md border border-input bg-background text-lg font-semibold text-foreground shadow-xs";
+
+/// The cell the next digit lands in. The native caret is hidden under the
+/// cells, so the ring is what shows where typing goes.
+const OTP_CELL_ACTIVE: &str = "flex h-12 w-10 items-center justify-center rounded-md border border-ring bg-background text-lg font-semibold text-foreground shadow-xs ring-3 ring-ring/50";
 
 /// The digits a verification entry keeps, capped at the code length. Letters and
 /// separators a reader types or pastes never reach the coordinator, and the
@@ -117,58 +125,19 @@ fn VerificationEntry(requester: PairingRequester, state: RequesterState) -> Elem
     let typed = verification_digits(&state.verification_code);
     let digits: Vec<char> = typed.chars().collect();
     let active_index = digits.len().min(VERIFICATION_CODE_DIGITS - 1);
-    let error_id = libero::hooks::use_id().read().clone();
+    let error_id = use_hook(|| scoped_element_id("onboarding-verification-error"));
     let failure = state.failure.clone();
     let invalid = if failure.is_some() { "true" } else { "false" };
     let described_by = failure.is_some().then(|| error_id.clone());
     let input_requester = requester.clone();
     let confirm_requester = requester;
-    let cells_sx = use_hook(|| {
-        sx().display("flex")
-            .width("fit-content")
-            .gap("sm")
-            .position("relative")
-    });
-    let cell_sx = use_hook(|| {
-        sx().display("flex")
-            .height("3rem")
-            .width("2.5rem")
-            .align_items("center")
-            .justify_content("center")
-            .border_radius("md")
-            .border_style("solid")
-            .border_width("1px")
-            .border_color("neutral.4")
-            .background("surface")
-            .color("ink")
-            .font_size("lg")
-            .font_weight("600")
-            .box_shadow(libero::theme::SizeCss::SHADOW.value(libero::theme::Size::Sm))
-    });
-    let active_cell_sx = use_hook(|| {
-        cell_sx.clone().border_color("var(--ring)").with(
-            "box-shadow",
-            "0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent)",
-        )
-    });
-    let hidden_input_sx = use_hook(|| {
-        sx().position("absolute")
-            .top("0")
-            .right("0")
-            .bottom("0")
-            .left("0")
-            .width("100%")
-            .height("100%")
-            .cursor("text")
-            .opacity("0")
-    });
     rsx! {
-        Flex { direction: "column", gap: "xs",
-            Text { component: "strong", size: "sm", "Verification code" }
-            Box {
-                sx: cells_sx,
+        div { class: "flex flex-col gap-2",
+            FieldLabel { "Verification code" }
+            div {
                 role: "group",
-                aria_label: "Verification code",
+                "aria-label": "Verification code",
+                class: "relative flex w-fit gap-2",
                 onkeydown: move |event: KeyboardEvent| {
                     if event.key() == Key::Named(NamedKey::Enter) {
                         event.prevent_default();
@@ -176,30 +145,28 @@ fn VerificationEntry(requester: PairingRequester, state: RequesterState) -> Elem
                     }
                 },
                 for index in 0..VERIFICATION_CODE_DIGITS {
-                    Box {
-                        component: "span",
-                        sx: if index == active_index { active_cell_sx.clone() } else { cell_sx.clone() },
+                    span {
+                        class: if index == active_index { OTP_CELL_ACTIVE } else { OTP_CELL_IDLE },
                         {digits.get(index).map(char::to_string).unwrap_or_default()}
                     }
                 }
-                Box {
-                    component: "input",
-                    sx: hidden_input_sx,
-                    aria_label: "Verification code",
+                input {
+                    class: "absolute inset-0 size-full cursor-text opacity-0",
+                    "aria-label": "Verification code",
                     "data-testid": "onboarding-pair-verification-input",
                     "aria-invalid": invalid,
                     "aria-describedby": described_by,
                     value: "{typed}",
-                    "maxlength": "{VERIFICATION_CODE_DIGITS}",
-                    "autocomplete": "one-time-code",
-                    "inputmode": "numeric",
+                    maxlength: "{VERIFICATION_CODE_DIGITS}",
+                    autocomplete: "one-time-code",
+                    inputmode: "numeric",
                     oninput: move |event: FormEvent| {
                         input_requester.update_verification_code(verification_digits(&event.value()));
                     },
                 }
             }
             if let Some(message) = failure {
-                Text { id: error_id, size: "sm", color: "error", role: "alert", "{message}" }
+                FieldError { id: error_id, {message} }
             }
         }
     }
@@ -229,10 +196,9 @@ fn RequestActions(requester: PairingRequester, state: RequesterState) -> Element
         move |_event: MouseEvent| requester.start()
     };
     rsx! {
-        Flex { direction: "row", wrap: true, gap: "sm",
+        div { class: "flex flex-wrap gap-2",
             if state.status == PairPollStatus::VerificationRequired {
                 Button {
-                    variant: "filled",
                     "data-testid": "onboarding-pair-confirm",
                     disabled: state.busy || state.verification_code.trim().is_empty(),
                     onclick: on_confirm,
@@ -240,7 +206,7 @@ fn RequestActions(requester: PairingRequester, state: RequesterState) -> Element
                 }
             }
             Button {
-                variant: "tonal",
+                variant: ButtonVariant::Secondary,
                 disabled: state.busy,
                 onclick: on_start,
                 "{request_restart_label(&state.status)}"

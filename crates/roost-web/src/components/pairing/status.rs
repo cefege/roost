@@ -13,7 +13,7 @@
 
 use roost_client_core::client::auth::PairPollStatus;
 
-/// The status code used to choose the Libero indicator color.
+/// The `StatusDot` status name for a stage.
 ///
 /// A failure sentence outranks the stage: a confirmation refused inside
 /// `verification_required` is an error even though the stage is not, and v2

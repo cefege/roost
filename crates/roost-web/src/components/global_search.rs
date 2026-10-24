@@ -20,11 +20,10 @@ pub mod metadata;
 pub mod query;
 
 use dioxus::prelude::*;
-use libero::components::{Box, Button, Pictogram, TextField};
-use libero::sx::sx;
 
 use crate::components::global_search::query::{SearchRouteQuery, SearchScope};
 use crate::components::terminal::dom::{now_ms, sleep_ms};
+use crate::components::ui::{Command, CommandInput, CommandItem, Icon, IconType};
 use crate::pump::use_store;
 use crate::router_state::{use_location, use_navigate};
 
@@ -40,54 +39,6 @@ pub fn GlobalSearchOverlay() -> Element {
     let pump = use_store();
     let path = use_location();
     let navigate = use_navigate();
-    let page_sx = use_hook(|| {
-        sx().display("flex")
-            .flex("1")
-            .flex_direction("column")
-            .overflow("hidden")
-    });
-    let text_field_sx = use_hook(|| {
-        sx().border_radius("md")
-            .border_width("1px")
-            .border_color("var(--border)")
-            .background_color("var(--background)")
-            .padding_inline("md")
-    });
-    let scope_button_sx = use_hook(|| {
-        sx().border_radius("9999px")
-            .border_width("1px")
-            .border_color("var(--border)")
-            .padding_inline("md")
-            .padding_block("xs")
-    });
-    let scope_icon_sx = use_hook(|| sx().width("1rem").height("1rem"));
-    let search_header_sx = use_hook(|| {
-        sx().display("flex")
-            .flex_direction("column")
-            .gap("sm")
-            .padding("md")
-    });
-    let search_title_sx = use_hook(|| sx().margin("0").font_size("xxl").font_weight("600"));
-    let search_intro_sx = use_hook(|| {
-        sx().margin("0")
-            .font_size("sm")
-            .color("var(--muted-foreground)")
-    });
-    let search_controls_sx = use_hook(|| {
-        sx().display("flex")
-            .flex_direction("column")
-            .gap("sm")
-            .color("var(--foreground)")
-    });
-    let search_scope_group_sx = use_hook(|| sx().display("flex").flex_wrap("wrap").gap("sm"));
-    let search_results_sx = use_hook(|| {
-        sx().display("flex")
-            .flex("1")
-            .flex_direction("column")
-            .gap("md")
-            .overflow("auto")
-            .padding("md")
-    });
     let route_query = SearchRouteQuery::parse(&path());
 
     // The route IS the query, so a new address is a new search and an abandoned
@@ -130,79 +81,83 @@ pub fn GlobalSearchOverlay() -> Element {
     let update = EventHandler::new(move |next: SearchRouteQuery| navigate.call(next.to_path()));
 
     rsx! {
-        Box { component: "section", sx: page_sx.clone(),
+        Command { should_filter: false, class: "flex flex-1 flex-col overflow-hidden",
+        section {
+            class: "flex flex-1 flex-col overflow-hidden",
             "data-testid": "global-search-page",
             "aria-labelledby": "global-search-title",
-            Box { component: "div", sx: search_header_sx.clone(),
-                Box { component: "h1", id: "global-search-title", sx: search_title_sx.clone(),
+            div { class: "flex flex-col gap-3 p-4",
+                h1 { id: "global-search-title", class: "m-0 text-2xl font-semibold",
                     "Search sessions"
                 }
-                Box { component: "p", sx: search_intro_sx.clone(),
+                p { class: "m-0 text-sm text-muted-foreground",
                     "Find sessions by metadata and search retained terminal content across every machine."
                 }
-                Box { component: "div", sx: search_controls_sx.clone(),
-                    TextField {
+                div { class: "flex flex-col gap-3 text-foreground",
+                    CommandInput {
                         value: route_query.text.clone(),
                         aria_label: route_query.search_label().to_owned(),
                         placeholder: match route_query.scope {
                             SearchScope::All => "Title, path, or terminal text…",
                             SearchScope::Attention => "Title, path, agent status…",
                         },
-                        id: "global-search-input",
-                        "data-testid": "global-search-input",
-                        attributes: vec![Attribute::new("autofocus", true, None, false)],
-                        sx: text_field_sx.clone(),
-                        oninput: {
+                        test_id: "global-search-input",
+                        autofocus: true,
+                        class: "rounded-md border border-border bg-background px-3",
+                        on_search_change: {
                             let query = route_query.clone();
                             move |text: String| update.call(query.with_text(&text))
                         },
                     }
-                    Box { component: "div", role: "group", "aria-label": "Search scope",
-                        sx: search_scope_group_sx.clone(),
-                        Button {
+                    div { role: "group", "aria-label": "Search scope", class: "flex flex-wrap gap-2",
+                        CommandItem {
+                            value: "all-sessions",
                             selected: route_query.scope == SearchScope::All,
-                            "data-testid": "global-search-scope-all",
-                            sx: scope_button_sx.clone(),
-                            onclick: {
+                            test_id: "global-search-scope-all",
+                            class: "rounded-full border border-border px-3 py-1.5",
+                            on_select: {
                                 let query = route_query.clone();
-                                move |_| update.call(SearchRouteQuery { scope: SearchScope::All, ..query.clone() })
+                                move |()| update.call(SearchRouteQuery { scope: SearchScope::All, ..query.clone() })
                             },
-                            icon: rsx! { Box { component: "span", sx: scope_icon_sx.clone(), Pictogram { icon: pictogram_icons_lucide::terminal::outlined, width: "1rem", height: "1rem" } } },
+                            Icon { icon: IconType::Terminal, class: "size-4" }
                             "All sessions"
                         }
-                        Button {
+                        CommandItem {
+                            value: "needs-attention",
                             selected: route_query.scope == SearchScope::Attention,
-                            "data-testid": "global-search-scope-attention",
-                            sx: scope_button_sx.clone(),
-                            onclick: {
+                            test_id: "global-search-scope-attention",
+                            class: "rounded-full border border-border px-3 py-1.5",
+                            on_select: {
                                 let query = route_query.clone();
-                                move |_| update.call(SearchRouteQuery { scope: SearchScope::Attention, ..query.clone() })
+                                move |()| update.call(SearchRouteQuery { scope: SearchScope::Attention, ..query.clone() })
                             },
-                            icon: rsx! { Box { component: "span", sx: scope_icon_sx.clone(), Pictogram { icon: pictogram_icons_lucide::bell::outlined, width: "1rem", height: "1rem" } } },
+                            Icon { icon: IconType::Bell, class: "size-4" }
                             "Needs attention"
                         }
                         if route_query.scope == SearchScope::All {
-                            Button {
+                            CommandItem {
+                                value: "match-case",
                                 selected: route_query.case_sensitive,
-                                "data-testid": "global-search-case-sensitive",
-                                sx: scope_button_sx.clone(),
-                                onclick: {
+                                test_id: "global-search-case-sensitive",
+                                class: "rounded-full border border-border px-3 py-1.5",
+                                on_select: {
                                     let query = route_query.clone();
-                                    move |_| update.call(SearchRouteQuery { case_sensitive: !query.case_sensitive, ..query.clone() })
+                                    move |()| update.call(SearchRouteQuery { case_sensitive: !query.case_sensitive, ..query.clone() })
                                 },
-                                icon: rsx! { Box { component: "span", sx: scope_icon_sx.clone(), Pictogram { icon: pictogram_icons_lucide::case_sensitive::outlined, width: "1rem", height: "1rem" } } },
+                                Icon { icon: IconType::CaseSensitive, class: "size-4" }
                                 "Match terminal case"
                             }
                         }
                     }
                 }
             }
-            Box { component: "div", sx: search_results_sx.clone(),
+            div { class: "flex flex-1 flex-col gap-4 overflow-auto p-4",
                 if route_query.scope == SearchScope::All {
                     content::ContentResults { route_query: route_query.clone() }
                 }
                 metadata::MetadataResults { route_query: route_query.clone() }
             }
+        }
         }
     }
 }

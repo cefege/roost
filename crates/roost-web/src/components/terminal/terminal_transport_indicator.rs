@@ -3,11 +3,11 @@
 //! `terminal_transport` selector is the only source of baseline-qualified
 //! carrier state. Ports `apps/web/src/components/terminal/TerminalTransportIndicator.tsx`.
 
-use crate::pump::use_store;
 use dioxus::prelude::*;
-use libero::components::{Box, Text};
-use libero::sx::sx;
 use roost_client_core::store::terminal_transport::session_terminal_transport_presentation;
+
+use crate::components::ui::Chip;
+use crate::pump::use_store;
 
 /// The chip.
 #[component]
@@ -18,33 +18,18 @@ pub fn TerminalTransportIndicator(session_id: String) -> Element {
         let core = core.borrow();
         session_terminal_transport_presentation(core.store(), &session_id)
     };
-    let indicator_sx = use_hook(|| {
-        sx().display("inline-flex")
-            .min_width("0")
-            .flex("0 1 auto")
-            .align_items("center")
-            .overflow("hidden")
-            .with("overscroll-behavior-y", "auto")
-            .white_space("nowrap")
-            .selector(
-                "& > *",
-                sx().min_height("0")
-                    .padding_inline("sm")
-                    .padding_block("xs")
-                    .font_size("xs")
-                    .color("muted"),
-            )
-    });
     rsx! {
-        Box {
-            component: "div",
-            sx: indicator_sx,
+        div {
+            class: "inline-flex min-w-0 flex-[0_1_auto] items-center overflow-hidden whitespace-nowrap [&>*]:min-h-0 [&>*]:px-2 [&>*]:py-1 [&>*]:text-xs [&>*]:text-muted-foreground",
             "data-testid": "terminal-transport-indicator",
             "data-session-id": "{session_id}",
             "data-terminal-transport": presentation.kind_attribute(),
             role: "group",
             "aria-label": "Terminal transport",
-            Text { size: "xs", color: "text-dimmed", title: "{presentation.description}", "{presentation.label}" }
+            Chip {
+                label: presentation.label.to_owned(),
+                title: Some(presentation.description.to_owned()),
+            }
         }
     }
 }

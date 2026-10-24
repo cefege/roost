@@ -3,11 +3,13 @@
 //! selected row. Pure rendering over `BrowseRow`s; the frame in `model_hub.rs`
 //! owns the selection and handles the keys.
 
+use dioxus::prelude::*;
+
 use super::hub_browse::{BrowseRow, MODEL_KIND_TABS};
 use super::hub_logic::{HubSection, HubView};
-use dioxus::prelude::*;
-use libero::components::{Button, Chip, Flex, List, Pictogram, SvgData, Text};
-use libero::sx::sx;
+use crate::components::ui::{
+    Command, CommandItem, CommandList, Icon, IconType, Tabs, TabsList, TabsTrigger,
+};
 
 /// The sidebar: Roles, Recent, All models, then each provider. Locked
 /// providers are muted and mark the sign-in they need.
@@ -20,56 +22,53 @@ pub fn HubSidebar(
     roles_total: usize,
     on_select: EventHandler<HubView>,
 ) -> Element {
-    let list_sx = use_hook(|| sx().display("flex").flex_direction("column").gap("xs"));
-    let row_sx = use_hook(|| sx().width("100%").justify_content("flex-start").gap("sm"));
-    let icon_sx = use_hook(|| sx().flex_shrink("0").color("muted"));
-    let label_sx = use_hook(|| {
-        sx().min_width("0")
-            .flex("1")
-            .with("overflow", "hidden")
-            .with("text-overflow", "ellipsis")
-            .with("white-space", "nowrap")
-    });
-    let count_sx = use_hook(|| {
-        sx().flex_shrink("0")
-            .color("muted")
-            .with("font-variant-numeric", "tabular-nums")
-    });
     rsx! {
-        Flex {
-            sx: list_sx,
-            role: "listbox",
-            aria_label: "Model views",
-            tabindex: "0",
-            aria_activedescendant: format!("agent-model-hub-view-{}", current.id()),
-            for section in sections.iter() {
-                {
-                    let view = section.view.clone();
-                    let selected = section.view == current;
-                    let locked = section.locked;
-                    let icon = view_icon(&section.view, locked);
-                    let count = if matches!(section.view, HubView::Roles) {
-                        format!("{roles_assigned}/{roles_total}")
-                    } else {
-                        section.count.map(|count| count.to_string()).unwrap_or_default()
-                    };
-                    let option_id = format!("agent-model-hub-view-{}", section.view.id());
-                    rsx! {
-                        Button {
-                            key: "{section.view.id()}",
-                            sx: row_sx.clone(),
-                            variant: if selected && focused { "tonal" } else { "standard" },
-                            id: option_id.clone(),
-                            role: "option",
-                            aria_selected: if selected { "true" } else { "false" },
-                            "data-testid": option_id,
-                            onclick: move |_| on_select.call(view.clone()),
-                            Flex { direction: "row", align: "center", sx: icon_sx.clone(),
-                                Pictogram { icon, width: "1rem", height: "1rem" }
-                            }
-                            Text { sx: label_sx.clone(), size: "sm", color: if locked { "muted" } else { "ink" }, "{section.label}" }
-                            if !count.is_empty() {
-                                Text { sx: count_sx.clone(), size: "xs", "{count}" }
+        Command {
+            class: "h-auto",
+            handles_keys: false,
+            should_filter: false,
+            highlighted: format!("agent-model-hub-view-{}", current.id()),
+            CommandList {
+                class: "flex flex-col gap-1 max-h-none min-h-0 overflow-visible",
+                role: "listbox",
+                aria_label: "Model views",
+                tabindex: "0",
+                aria_active_descendant: format!("agent-model-hub-view-{}", current.id()),
+                for section in sections.iter() {
+                    {
+                        let view = section.view.clone();
+                        let selected = section.view == current;
+                        let locked = section.locked;
+                        let icon = view_icon(&section.view, locked);
+                        let count = if matches!(section.view, HubView::Roles) {
+                            format!("{roles_assigned}/{roles_total}")
+                        } else {
+                            section.count.map(|count| count.to_string()).unwrap_or_default()
+                        };
+                        let row_class = if locked { "text-muted-foreground" } else { "" };
+                        let option_id = format!("agent-model-hub-view-{}", section.view.id());
+                        rsx! {
+                            CommandItem {
+                                key: "{section.view.id()}",
+                                id: option_id.clone(),
+                                test_id: option_id.clone(),
+                                value: option_id,
+                                focusable: false,
+                                show_check: false,
+                                selected: selected && focused,
+                                class: row_class,
+                                on_select: Some(EventHandler::new(move |_| on_select.call(view.clone()))),
+                                div { class: "flex shrink-0 items-center justify-center gap-2 text-muted-foreground",
+                                    Icon { icon, class: "size-4" }
+                                }
+                                div { class: "flex min-w-0 flex-1 flex-col",
+                                    div { class: "truncate text-sm font-medium text-foreground", "{section.label}" }
+                                }
+                                if !count.is_empty() {
+                                    div { class: "flex shrink-0 items-center gap-2",
+                                        span { class: "text-xs tabular-nums text-muted-foreground", "{count}" }
+                                    }
+                                }
                             }
                         }
                     }
@@ -82,13 +81,13 @@ pub fn HubSidebar(
 /// The icon for a view: sparkles for roles, a clock for recent, layers for all
 /// models, a filled circle for a signed-in provider, a dashed one for a provider
 /// still to sign in to.
-fn view_icon(view: &HubView, locked: bool) -> SvgData {
+fn view_icon(view: &HubView, locked: bool) -> IconType {
     match view {
-        HubView::Roles => pictogram_icons_lucide::sparkles::outlined,
-        HubView::Recent => pictogram_icons_lucide::clock::outlined,
-        HubView::All => pictogram_icons_lucide::layers::outlined,
-        HubView::Provider(_) if locked => pictogram_icons_lucide::circle_dashed::outlined,
-        HubView::Provider(_) => pictogram_icons_lucide::circle::outlined,
+        HubView::Roles => IconType::Sparkles,
+        HubView::Recent => IconType::Clock,
+        HubView::All => IconType::Layers,
+        HubView::Provider(_) if locked => IconType::CircleDashed,
+        HubView::Provider(_) => IconType::Circle,
     }
 }
 
@@ -96,24 +95,29 @@ fn view_icon(view: &HubView, locked: bool) -> SvgData {
 /// the one the list filters to.
 #[component]
 pub fn KindTabs(kinds: Vec<String>, active: String, on_select: EventHandler<String>) -> Element {
-    let tabs_sx = use_hook(|| sx().gap("xs").flex_wrap("wrap"));
     rsx! {
-        Flex { direction: "row", sx: tabs_sx, role: "group", "aria-label": "Model kind",
-            for kind in MODEL_KIND_TABS.iter().filter(|kind| kinds.iter().any(|known| known == *kind)) {
-                Chip {
-                    key: "{kind}",
-                    checked: active == *kind,
-                    "data-testid": "agent-model-hub-kind-{kind}",
-                    onclick: move |_| on_select.call((*kind).to_owned()),
-                    "{kind}"
+        Tabs {
+            class: "flex-row items-center gap-1",
+            value: active,
+            handles_keys: false,
+            on_value_change: move |kind: String| on_select.call(kind),
+            TabsList { aria_label: "Model kind",
+                for kind in MODEL_KIND_TABS.iter().filter(|kind| kinds.iter().any(|known| known == *kind)) {
+                    TabsTrigger {
+                        key: "{kind}",
+                        value: (*kind).to_owned(),
+                        test_id: format!("agent-model-hub-kind-{kind}"),
+                        "{kind}"
+                    }
                 }
             }
         }
     }
 }
 
-/// The test id on the model-rows listbox.
-const MODEL_ROWS_TEST_ID: &str = "agent-model-hub-models-list";
+/// The test id on the model-rows listbox. Formatted rather than literal so the
+/// attribute is a dynamic mutation the mount harness can observe.
+const MODEL_ROWS_TEST_ID: &str = "agent-model-hub-rows";
 
 /// The model rows: a cursor on the selected row, `provider/` dimmed, the name,
 /// a ✓ on the chat's current model, and the metric cells right-aligned. The
@@ -127,98 +131,79 @@ pub fn ModelRows(
     on_select: EventHandler<usize>,
     on_activate: EventHandler<usize>,
 ) -> Element {
-    let marker_sx = use_hook(|| {
-        sx().width("1rem")
-            .height("1rem")
-            .flex_shrink("0")
-            .display("flex")
-            .align_items("center")
-            .justify_content("center")
-            .color("primary")
-    });
-    let label_sx = use_hook(|| {
-        sx().display("flex")
-            .min_width("0")
-            .flex("1")
-            .with("overflow", "hidden")
-            .with("text-overflow", "ellipsis")
-            .with("white-space", "nowrap")
-    });
-    let metrics_sx = use_hook(|| {
-        sx().display("flex")
-            .flex_wrap("wrap")
-            .flex_shrink("0")
-            .gap("sm")
-            .color("muted")
-            .with("font-variant-numeric", "tabular-nums")
-    });
-    let metric_sx = use_hook(|| sx().text_align("right").white_space("nowrap"));
-    let empty_sx = use_hook(|| sx().padding_inline("sm").padding_block("md"));
-    let rows_sx = use_hook(|| sx().min_width("0").max_height("16rem").overflow_y("auto"));
-    let row_sx = use_hook(|| {
-        sx().width("100%")
-            .min_width("0")
-            .justify_content("flex-start")
-            .gap("sm")
-    });
     let has_intel = rows.iter().any(|row| !row.intelligence.is_empty());
     let has_speed = rows.iter().any(|row| !row.speed.is_empty());
     let has_context = rows.iter().any(|row| !row.context.is_empty());
     let has_cost = rows.iter().any(|row| !row.cost.is_empty());
-    let active_id = rows
-        .get(selected)
-        .map(|row| format!("agent-model-hub-row-{}", row.selector));
+    let active_option = rows.get(selected).map(|row| row_option_id(&row.selector));
     rsx! {
-        List {
-            id: MODEL_ROWS_TEST_ID,
-            "data-testid": MODEL_ROWS_TEST_ID,
-            sx: rows_sx,
-            role: "listbox",
-            aria_label: "Models",
-            tabindex: "0",
-            aria_activedescendant: active_id,
-            for (index, row) in rows.iter().cloned().enumerate() {
-                {
-                    let is_selected = index == selected;
-                    let is_current = current.as_deref() == Some(row.selector.as_str());
-                    let option_id = format!("agent-model-hub-row-{}", row.selector);
-                    rsx! {
-                        Button {
-                            key: "{row.selector}",
-                            sx: row_sx.clone(),
-                            variant: if is_selected { "tonal" } else { "standard" },
-                            id: option_id.clone(),
-                            role: "option",
-                            aria_selected: if is_selected { "true" } else { "false" },
-                            tabindex: "-1",
-                            onclick: move |_| {
-                                if is_selected { on_activate.call(index) } else { on_select.call(index) }
-                            },
-                            Flex { direction: "row", align: "center", gap: "sm",
-                                Flex { direction: "row", align: "center", justify: "center", sx: marker_sx.clone(), aria_hidden: "true",
-                                    if is_selected {
-                                        Pictogram { icon: pictogram_icons_lucide::chevron_right::outlined, width: "1rem", height: "1rem" }
+        Command {
+            class: "min-h-0 flex-1 h-auto",
+            handles_keys: false,
+            should_filter: false,
+            highlighted: active_option.clone(),
+            CommandList {
+                class: "@container/rows flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain max-h-none",
+                id: "agent-model-hub-rows",
+                test_id: MODEL_ROWS_TEST_ID,
+                role: "listbox",
+                aria_label: "Models",
+                tabindex: "0",
+                aria_active_descendant: active_option,
+                for (index, row) in rows.iter().enumerate() {
+                    {
+                        let is_selected = index == selected;
+                        let is_current = current.as_deref() == Some(row.selector.as_str());
+                        let row_id = row_option_id(&row.selector);
+                        rsx! {
+                            CommandItem {
+                                key: "{row.selector}",
+                                id: row_id.clone(),
+                                test_id: format!("agent-model-hub-row-{}", row.selector),
+                                value: row_id,
+                                focusable: false,
+                                show_check: false,
+                                selected: is_selected,
+                                class: "min-h-10 gap-4 px-4 py-1 whitespace-nowrap",
+                                on_select: Some(EventHandler::new(move |_| {
+                                    if is_selected { on_activate.call(index) } else { on_select.call(index) }
+                                })),
+                                div { class: "flex shrink-0 items-center justify-center gap-2 text-muted-foreground",
+                                    span { class: "inline-flex size-4 items-center justify-center text-primary", "aria-hidden": "true",
+                                        if is_selected {
+                                            Icon { icon: IconType::ChevronRight, class: "size-4" }
+                                        }
                                     }
                                 }
-                                Flex { direction: "column", sx: label_sx.clone(),
-                                    Text { size: "sm",
-                                        Text { size: "sm", color: "muted", "{row.provider}/" }
-                                        "{row.model_id}"
-                                        if !row.name.is_empty() && row.name != row.model_id {
-                                            Text { size: "sm", color: "muted", " {row.name}" }
-                                        }
-                                        if is_current {
-                                            Text { size: "sm", color: "success", role: "img", aria_label: "Current model",
-                                                Pictogram { icon: pictogram_icons_lucide::check::outlined, width: "1rem", height: "1rem" }
+                                div { class: "flex min-w-0 flex-1 flex-col",
+                                    div { class: "truncate text-sm font-medium text-foreground",
+                                        span { class: "truncate",
+                                            span { class: "text-muted-foreground", "{row.provider}/" }
+                                            span { "{row.model_id}" }
+                                            if !row.name.is_empty() && row.name != row.model_id {
+                                                span { class: "text-muted-foreground", " {row.name}" }
+                                            }
+                                            if is_current {
+                                                span { class: "ml-1 inline-flex text-success", role: "img", "aria-label": "Current model", Icon { icon: IconType::Check, class: "size-4" } }
                                             }
                                         }
                                     }
                                 }
-                                Flex { direction: "row", wrap: true, sx: metrics_sx.clone(),
-                                    if has_intel { Text { sx: metric_sx.clone(), size: "xs", "{row.intelligence}" } }
-                                    if has_speed { Text { sx: metric_sx.clone(), size: "xs", "{row.speed}" } }
-                                    if has_context { Text { sx: metric_sx.clone(), size: "xs", "{row.context}" } }
-                                    if has_cost { Text { sx: metric_sx.clone(), size: "xs", "{row.cost}" } }
+                                div { class: "flex shrink-0 items-center gap-2",
+                                    span { class: "flex gap-3 tabular-nums text-muted-foreground",
+                                        if has_intel {
+                                            span { class: "min-w-[4ch] text-right", "{row.intelligence}" }
+                                        }
+                                        if has_speed {
+                                            span { class: "hidden min-w-[7ch] text-right @[38rem]/rows:inline", "{row.speed}" }
+                                        }
+                                        if has_context {
+                                            span { class: "hidden min-w-[7ch] text-right @[24rem]/rows:inline", "{row.context}" }
+                                        }
+                                        if has_cost {
+                                            span { class: "hidden min-w-[10ch] text-right @[30rem]/rows:inline", "{row.cost}" }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -227,19 +212,19 @@ pub fn ModelRows(
             }
         }
         if rows.is_empty() {
-            Text { sx: empty_sx, size: "sm", color: "muted", "No models match." }
+            p { class: "px-2 py-3 text-sm text-muted-foreground", "No models match." }
         }
     }
+}
+
+/// The DOM id of a model row, which the listbox's `aria-activedescendant` names.
+fn row_option_id(selector: &str) -> String {
+    format!("agent-model-hub-row-{}", selector.replace('/', "-"))
 }
 
 /// The selected row's detail: its facts on one line, and the roles it leads.
 #[component]
 pub fn ModelDetail(row: Option<BrowseRow>) -> Element {
-    let detail_sx = use_hook(|| {
-        sx().display("flex")
-            .flex_wrap("wrap")
-            .align_items("baseline")
-    });
     let Some(row) = row else {
         return rsx! {};
     };
@@ -267,15 +252,17 @@ pub fn ModelDetail(row: Option<BrowseRow>) -> Element {
     };
     let roles = row.roles.join(" · ");
     rsx! {
-        Flex { direction: "row", wrap: true, sx: detail_sx, "data-testid": "agent-model-hub-detail",
-            Text { size: "sm", "{row.name}" }
-            Text { size: "sm", color: "muted",
-                " · {price}"
-                for fact in facts.iter() { " · {fact}" }
+        div { class: "flex flex-wrap items-baseline text-sm text-muted-foreground", "data-testid": "agent-model-hub-detail",
+            span { class: "font-semibold text-foreground", "{row.name}" }
+            span { class: "whitespace-pre", " · " }
+            span { "{price}" }
+            for fact in facts.iter() {
+                span { class: "whitespace-pre", " · " }
+                span { "{fact}" }
             }
         }
         if !roles.is_empty() {
-            Text { size: "xs", color: "primary", "● {roles}" }
+            div { class: "text-xs text-primary", "● {roles}" }
         }
     }
 }

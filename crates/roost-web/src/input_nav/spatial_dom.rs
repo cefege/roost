@@ -21,8 +21,8 @@ const FOCUSABLE_SELECTOR: &str = concat!(
     "textarea:not([disabled]),[tabindex]:not([tabindex=\"-1\"])"
 );
 
-// Popup triggers and their roving surfaces own arrows before shell navigation.
-pub(crate) const ROVING_CONTROLS: &str = "[role=\"menu\"],[role=\"listbox\"],[role=\"combobox\"],[aria-haspopup=\"menu\"],[aria-haspopup=\"listbox\"]";
+// Roving-focus surfaces own their own arrow handling (context menus, listboxes).
+const ROVING_ROLES: &str = "[role=\"menu\"],[role=\"listbox\"],[role=\"combobox\"]";
 
 /// Removes the keydown listener when dropped (App unmount).
 pub struct SpatialNavigationGuard {
@@ -113,7 +113,7 @@ fn arrow_owner(active: &Element) -> FocusedArrowOwner {
     let content_editable = dom_read::html(active).is_some_and(|html| html.is_content_editable());
     FocusedArrowOwner {
         editable: tag == "INPUT" || tag == "TEXTAREA" || content_editable,
-        in_roving_role: dom_read::closest(active, ROVING_CONTROLS).is_some(),
+        in_roving_role: dom_read::closest(active, ROVING_ROLES).is_some(),
         terminal_scroll_box: dom_read::matches(active, ".wterm")
             .then(|| dom_read::scroll_geometry(active)),
     }

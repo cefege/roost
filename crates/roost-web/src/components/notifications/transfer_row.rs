@@ -5,14 +5,11 @@
 //! chip and upload outcome wording use the current transport and ledger rules.
 
 use dioxus::prelude::*;
-use libero::{
-    components::{ActionIcon, Box, Chip, Flex, Pictogram, ProgressBar, SvgData, Text},
-    sx::sx,
-};
 use roost_client_core::store::transfers::{Transfer, TransferDirection, TransferState};
 
 use super::store_write::write_store;
 use super::transfer_outcome::{TransferOutcome, transfer_outcome};
+use crate::components::ui::{ButtonSize, Chip, IconButton, IconType, ListRow, Progress};
 use crate::display_format::{format_bytes, format_eta, format_speed};
 use crate::pump::use_store;
 
@@ -20,22 +17,6 @@ use crate::pump::use_store;
 #[component]
 pub fn TransferRow(transfer: Transfer) -> Element {
     let pump = use_store();
-    let row_sx = use_hook(|| sx().padding("xs"));
-    let content_sx = use_hook(|| sx().min_width("0").flex("1"));
-    let name_sx = use_hook(|| {
-        sx().min_width("0")
-            .flex("1")
-            .overflow("hidden")
-            .with("overscroll-behavior-y", "auto")
-            .white_space("nowrap")
-            .with("text-overflow", "ellipsis")
-    });
-    let preview_sx = use_hook(|| {
-        sx().width("2rem")
-            .height("2rem")
-            .border_radius("xs")
-            .with("object-fit", "cover")
-    });
     let id = transfer.id.clone();
     let name = transfer.name.clone();
     let preview = transfer.preview_url.clone();
@@ -64,63 +45,86 @@ pub fn TransferRow(transfer: Transfer) -> Element {
         });
     };
 
+    let leading = preview.map(|source| {
+        rsx! {
+            img {
+                "data-testid": "transfer-preview",
+                src: source,
+                alt: "",
+                class: "h-full w-full rounded object-cover",
+            }
+        }
+    });
+    let leading_icon = leading.is_none().then_some(glyph);
+    let headline = rsx! {
+        span {
+            class: "flex min-w-0 items-center gap-2",
+            span {
+                title: name.clone(),
+                class: "min-w-0 flex-auto truncate",
+                "{name}"
+            }
+            if let Some(route) = route {
+                Chip {
+                    label: route.to_owned(),
+                    small: true,
+                    title: format!("{route_verb} {}", route.to_lowercase()),
+                    test_id: "transfer-route".to_owned(),
+                }
+            }
+        }
+    };
+    let support = rsx! {
+        span {
+            class: "flex flex-col gap-1 pt-1",
+            if !settled {
+                Progress { value: progress_value, label: format!("{name} progress") }
+            }
+            span {
+                class: meta_color,
+                "data-outcome": outcome_name,
+                "{meta}"
+            }
+        }
+    };
+    let trailing = rsx! {
+        IconButton {
+            icon: IconType::X,
+            label: format!("Dismiss {name}"),
+            size: ButtonSize::IconXs,
+            "data-testid": "transfer-dismiss",
+            onclick: dismiss,
+        }
+    };
+
     rsx! {
-        Flex { direction: "row", align: "start", gap: "xs", wrap: false, sx: row_sx,
-            "data-testid": "transfer-row",
-            if let Some(source) = preview {
-                Box { component: "img",
-                    attributes: vec![Attribute::new("src", source, None, false), Attribute::new("alt", "", None, false)],
-                    "data-testid": "transfer-preview", sx: preview_sx,
-                }
-            } else {
-                Pictogram { icon: glyph, width: "16", height: "16" }
-            }
-            Flex { direction: "column", gap: "xs", sx: content_sx,
-                Flex { direction: "row", align: "center", gap: "xs", wrap: false,
-                    Text { size: "sm", title: name.clone(), sx: name_sx, "{name}" }
-                    if let Some(route) = route {
-                        Chip { size: "xs", title: format!("{route_verb} {}", route.to_lowercase()),
-                            "data-testid": "transfer-route", "{route}"
-                        }
-                    }
-                }
-                if !settled {
-                    ProgressBar { value: progress_value, max: 1.0,
-                        aria_label: format!("{name} progress"),
-                    }
-                }
-                Text { size: "xs", color: meta_color, "data-outcome": outcome_name, "{meta}" }
-            }
-            ActionIcon { icon: pictogram_icons_lucide::x::outlined, size: "xs", variant: "standard",
-                aria_label: format!("Dismiss {name}"), "data-testid": "transfer-dismiss",
-                onclick: dismiss,
-            }
+        ListRow {
+            test_id: Some("transfer-row".to_owned()),
+            leading_icon,
+            leading,
+            headline,
+            support: Some(support),
+            trailing: Some(trailing),
         }
     }
 }
 
 /// The glyph a row without an image preview shows, read from the file name so
 /// a video never paints a broken image.
-fn transfer_glyph(direction: TransferDirection, name: &str) -> SvgData {
+fn transfer_glyph(direction: TransferDirection, name: &str) -> IconType {
     let extension = name
         .rsplit_once('.')
         .map(|(_, extension)| extension.to_ascii_lowercase())
         .unwrap_or_default();
     match extension.as_str() {
-        "png" | "jpg" | "jpeg" | "gif" | "webp" | "heic" | "svg" | "bmp" => {
-            pictogram_icons_lucide::image::outlined
-        }
-        "mp4" | "mov" | "webm" | "mkv" | "avi" | "m4v" => pictogram_icons_lucide::film::outlined,
-        "mp3" | "wav" | "m4a" | "ogg" | "flac" | "opus" => {
-            pictogram_icons_lucide::file_audio::outlined
-        }
-        "pdf" => pictogram_icons_lucide::file_text::outlined,
-        "zip" | "tar" | "gz" | "tgz" | "xz" | "zst" | "7z" | "rar" => {
-            pictogram_icons_lucide::file_archive::outlined
-        }
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "heic" | "svg" | "bmp" => IconType::Image,
+        "mp4" | "mov" | "webm" | "mkv" | "avi" | "m4v" => IconType::Film,
+        "mp3" | "wav" | "m4a" | "ogg" | "flac" | "opus" => IconType::FileAudio,
+        "pdf" => IconType::FileText,
+        "zip" | "tar" | "gz" | "tgz" | "xz" | "zst" | "7z" | "rar" => IconType::FileArchive,
         _ => match direction {
-            TransferDirection::Up => pictogram_icons_lucide::upload::outlined,
-            TransferDirection::Down => pictogram_icons_lucide::download::outlined,
+            TransferDirection::Up => IconType::Upload,
+            TransferDirection::Down => IconType::Download,
         },
     }
 }
@@ -226,13 +230,16 @@ fn progress_line(transfer: &Transfer) -> String {
     }
 }
 
-/// An unresolved write is neither a success nor a clean failure.
+/// The settled line's text colour class and the ambiguous row's warning class.
+/// A write whose fate is unknown is neither a success nor a clean failure.
 fn meta_color(transfer: &Transfer, outcome: Option<TransferOutcome>) -> &'static str {
     match outcome {
-        Some(TransferOutcome::Rejected) => "error",
-        Some(TransferOutcome::Ambiguous) => "warning",
-        Some(TransferOutcome::Accepted) | Some(TransferOutcome::Deduplicated) => "info",
-        None if transfer.state == TransferState::Stalled => "warning",
-        None => "muted",
+        Some(TransferOutcome::Rejected) => "text-xs leading-4 text-destructive",
+        Some(TransferOutcome::Ambiguous) => "text-xs leading-4 text-warning",
+        Some(TransferOutcome::Accepted) | Some(TransferOutcome::Deduplicated) => {
+            "text-xs leading-4 text-info"
+        }
+        None if transfer.state == TransferState::Stalled => "text-xs leading-4 text-warning",
+        None => "text-xs leading-4 text-muted-foreground",
     }
 }

@@ -1,43 +1,64 @@
-//! Builds Libero Spotlight actions from Roost's single command catalog.
-//! Called by the persistent palette host; query filtering and action outcomes
-//! remain owned by the existing store catalog and outcome module.
+//! The palette's body: the catalog, the filter, the result rows and the list
+//! keys. Ports `apps/web/src/components/palette/CommandPaletteBody.tsx`; the
+//! rows and the legend it renders live in `palette::pieces`.
+//!
+//! The body exists only while the palette is open, which is what makes "clear
+//! the query and focus the field on open" a mount-time fact instead of a reset
+//! that can be forgotten: there is no closed state to reset from, and a WebSocket
+//! tick cannot rebuild the list out from under a reader who is arrowing through
+//! it, because the cursor is reset by the QUERY and by nothing else.
+
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use dioxus::prelude::*;
-use libero::components::SpotlightAction;
 use roost_client_core::store::navigation::query::navigation_search_terms;
 use roost_client_core::store::navigation::worker_online;
 use roost_client_core::store::palette::{
-    CommandPaletteContext, PaletteTarget, build_default_items, matches_query,
+    CommandPaletteContext, PaletteItem, PaletteTarget, build_default_items, matches_query,
 };
 use roost_client_core::store::paths::folder_key_of;
 use roost_client_core::store::sidebar::documents::store_navigation_documents;
 use roost_client_core::store::{SessionStatus, Store};
 
+use super::dom;
+use super::list_keys;
 use super::outcome;
+use super::pieces::{PaletteFooter, PaletteRow};
+use crate::components::help::shortcuts::reader_platform;
+use crate::components::ui::field::scoped_element_id;
+use crate::components::ui::{Command, CommandEmpty, CommandHeader, CommandInput, CommandList};
 use crate::keyboard_shortcuts::ShortcutOverlays;
+use crate::platform::browser_platform::{PlatformShortcut, platform_shortcut_label};
 use crate::platform::worker_paths::BrowserWorkerPaths;
 use crate::pump::Pump;
 use crate::route_session::active_session_for_path;
 
-/// Projects the existing catalog into Spotlight without delegating its search
-/// semantics or retaining a second catalog.
-pub(super) fn spotlight_actions(
-    pump: Pump,
-    mut overlays: ShortcutOverlays,
-    navigate: EventHandler<String>,
-    path: String,
-    query: String,
-) -> Vec<SpotlightAction> {
-    let core = pump.core();
-    let core = core.borrow();
-    let store = core.store();
-    let now_ms = i64::try_from(core.clock().now_ms()).unwrap_or(i64::MAX);
-    let context = palette_context(store, &path, now_ms);
-    let documents = store_navigation_documents(store, &BrowserWorkerPaths, now_ms);
-    let workspaces: Vec<_> = store.workspaces.values().cloned().collect();
-    let items = build_default_items(&context, &documents, &workspaces);
-    let terms = navigation_search_terms(&query);
-    items
+/// The test ids the field and the rows are addressed by.
+const INPUT_TEST_ID: &str = "command-palette-input";
+const ITEM_TEST_ID: &str = "command-palette-item";
+
+/// The search, the results, and the legend. Mounted only while open.
+#[component]
+pub fn PaletteBody(pump: Pump, overlays: ShortcutOverlays) -> Element {
+    let mut query = use_signal(String::new);
+    let mut active_index = use_signal(|| 0_usize);
+    let navigate = crate::router_state::use_navigate();
+    let path = crate::router_state::use_location();
+    let list_id = use_hook(|| scoped_element_id("command-palette-list"));
+
+    let items = {
+        let core = pump.core();
+        let core = core.borrow();
+        let store = core.store();
+        let now_ms = i64::try_from(core.clock().now_ms()).unwrap_or(i64::MAX);
+        let context = palette_context(store, &path(), now_ms);
+        let documents = store_navigation_documents(store, &BrowserWorkerPaths, now_ms);
+        let workspaces: Vec<_> = store.workspaces.values().cloned().collect();
+        build_default_items(&context, &documents, &workspaces)
+    };
+    let terms = navigation_search_terms(&query());
+    let filtered: Vec<PaletteItem> = items
         .into_iter()
         .filter(|item| {
             let haystack = format!(
@@ -48,21 +69,96 @@ pub(super) fn spotlight_actions(
             );
             matches_query(&haystack, &terms)
         })
-        .map(|item| {
-            let mut action = SpotlightAction::new(item.label.clone());
-            if let Some(hint) = &item.hint {
-                action = action.description(hint.clone());
+        .collect();
+    let has_results = !filtered.is_empty();
+
+    // The list keys answer from the rows as this render produced them; a
+    // listener that rebuilt the catalog would do the store's work on every
+    // arrow press.
+    let rows: Rc<RefCell<Vec<PaletteItem>>> = use_hook(|| Rc::new(RefCell::new(Vec::new())));
+    *rows.borrow_mut() = filtered.clone();
+    let on_select = select_handler(pump.clone(), overlays, navigate, query);
+
+    // Installed once: a listener per render would leave every earlier one
+    // registered after its guard dropped. The guard drops with the body.
+    use_hook(|| {
+        Rc::new(list_keys::install(
+            Rc::clone(&rows),
+            on_select,
+            active_index,
+        ))
+    });
+    use_effect({
+        let mut query = query;
+        move || {
+            if *overlays.palette.peek() {
+                query.set(String::new());
+                active_index.set(0);
+                dom::focus_by_test_id_next_frame(INPUT_TEST_ID);
             }
-            if let Some(search) = &item.search {
-                action = action.keywords(search.split_whitespace().map(str::to_owned));
+        }
+    });
+    use_effect({
+        let query = query;
+        move || {
+            let _ = query();
+            active_index.set(0);
+        }
+    });
+    use_effect({
+        let active_index = active_index;
+        move || dom::scroll_row_into_view(ITEM_TEST_ID, active_index())
+    });
+
+    let chord = platform_shortcut_label(PlatformShortcut::CommandPalette, "⌘K", reader_platform())
+        .to_owned();
+    let highlighted = active_index();
+    rsx! {
+        Command { should_filter: false, class: "flex min-h-0 flex-1 flex-col",
+            CommandHeader { class: "flex flex-none flex-row items-center gap-3 border-b border-border py-3 pr-14 pl-4 text-start",
+                span { class: "text-sm text-muted-foreground", {chord} }
+                CommandInput {
+                    class: "min-w-0 flex-1 h-auto border-0 bg-transparent px-0 py-0 text-sm text-foreground shadow-none focus-visible:border-transparent focus-visible:ring-0",
+                    value: query(),
+                    on_search_change: move |value: String| query.set(value),
+                    placeholder: "Jump to session, workspace, or action…",
+                    aria_label: "Jump to session, workspace, or action",
+                    aria_controls: list_id.clone(),
+                    test_id: INPUT_TEST_ID,
+                }
             }
-            let pump = pump.clone();
-            action.onclick(move |_| {
-                overlays.palette.set(false);
-                outcome::perform(&pump, &navigate, &item, overlays);
-            })
-        })
-        .collect()
+            CommandList { id: list_id, class: "min-h-0 flex-1 max-h-none",
+                if !has_results {
+                    CommandEmpty { class: "px-4 py-5 text-center text-sm text-muted-foreground", "No matches" }
+                }
+                for (index, item) in filtered.into_iter().enumerate() {
+                    PaletteRow {
+                        item,
+                        index,
+                        active: highlighted == index,
+                        on_select,
+                    }
+                }
+            }
+            PaletteFooter { has_results }
+        }
+    }
+}
+
+/// Close, clear, then act: the palette must be gone before a navigation, or the
+/// dialog the reader is being taken away from stays mounted over the new route.
+fn select_handler(
+    pump: Pump,
+    overlays: ShortcutOverlays,
+    navigate: EventHandler<String>,
+    mut query: Signal<String>,
+) -> EventHandler<PaletteItem> {
+    EventHandler::new(move |item: PaletteItem| {
+        let mut palette = overlays.palette;
+        palette.set(false);
+        query.set(String::new());
+        outcome::perform(&pump, &navigate, &item, overlays);
+    })
 }
 
 /// The catalog's context, compiled from the route the reader is on.

@@ -10,8 +10,7 @@ use super::hub_catalog::wrap_index;
 use super::model_hub_actions::{StripCommit, apply_strip_chip};
 use super::strip_chips::{StripChip, StripKey};
 use crate::components::settings::model_scope::ModelScope;
-use libero::components::{Button, Flex, Paper};
-use libero::sx::sx;
+use crate::components::ui::{Card, CardSize, Chip};
 
 /// The footer legend while the strip is open.
 pub(super) const STRIP_FOOTER: &str = "←/→ pick · ⏎ apply · ⎋ back to models";
@@ -68,37 +67,35 @@ pub(super) fn ModelRoleStrip(
     on_scope: EventHandler<ModelScope>,
 ) -> Element {
     let on_folder = scope == folder;
-    let layout = use_hook(|| sx().gap("sm").padding("sm"));
-    let choices = use_hook(|| sx().gap("xs").flex_wrap("wrap"));
     rsx! {
-        Paper { sx: layout,
+        Card {
+            size: CardSize::Sm,
+            class: "gap-2 rounded-md p-2 shadow-none",
             role: "group",
             "aria-label": "Assign this model to a role",
             "data-testid": "{STRIP_TEST_ID}",
-            Flex { direction: "row", wrap: true, sx: choices, role: "group", "aria-label": "Role scope",
-                Button {
-                    variant: if !on_folder { "filled" } else { "outlined" },
-                    "aria-pressed": if !on_folder { "true" } else { "false" },
-                    "data-testid": "agent-model-hub-strip-scope-global",
+            div { class: "flex flex-wrap items-center gap-2", role: "group", "aria-label": "Role scope",
+                Chip {
+                    label: "All folders".to_owned(),
+                    selected: Some(!on_folder),
+                    test_id: "agent-model-hub-strip-scope-global".to_owned(),
                     onclick: move |_| on_scope.call(ModelScope::Global),
-                    "All folders"
                 }
-                Button {
-                    variant: if on_folder { "filled" } else { "outlined" },
-                    "aria-pressed": if on_folder { "true" } else { "false" },
-                    "data-testid": "agent-model-hub-strip-scope-folder",
+                Chip {
+                    label: "This folder".to_owned(),
+                    selected: Some(on_folder),
+                    test_id: "agent-model-hub-strip-scope-folder".to_owned(),
                     onclick: move |_| on_scope.call(folder.clone()),
-                    "This folder"
                 }
-                for (index, chip) in chips.iter().enumerate() {
-                    Button {
-                        key: "{index}",
-                        variant: if chip.assigned { "filled" } else { "outlined" },
-                        "aria-pressed": if chip.assigned { "true" } else { "false" },
-                        "data-testid": "agent-model-hub-strip-chip-{index}",
-                        onclick: move |_| on_activate.call(index),
-                        "{chip.label}"
-                    }
+            }
+            for (index, chip) in chips.iter().enumerate() {
+                Chip {
+                    key: "{index}",
+                    label: chip.label.clone(),
+                    selected: Some(chip.assigned),
+                    test_id: format!("agent-model-hub-strip-chip-{index}"),
+                    class: if index == cursor { "ring-2 ring-ring ring-offset-2 ring-offset-background" } else { "" },
+                    onclick: move |_| on_activate.call(index),
                 }
             }
         }

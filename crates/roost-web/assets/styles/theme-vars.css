@@ -1,66 +1,21 @@
 /*
- * Renderer, workbench geometry and modality tokens.
- * Visual aliases derive from Libero's public theme roles.
- * ANSI, syntax, brand and pairing colors remain Roost-owned.
+ * theme-vars.css — the Roost-named aliases onto rust-ui's theme roles, and the
+ * layout tokens.
+ *
+ * The theme engine (`src/theme/`) writes the active base palette, accent
+ * palette and mode's custom properties inline on <html> (rust-ui's `background`,
+ * `primary`, `sidenav`, … roles), plus Roost's terminal, ANSI, syntax and chat
+ * roles. `tailwind.css` maps the rust-ui roles to Tailwind colours. THIS FILE
+ * declares:
+ *   1. The aliases older Roost selectors read (`--surface-*`, `--text-*`,
+ *      `--accent`, `--status-*`, `--wb-*`) onto those rust-ui roles.
+ *   2. The terminal palette bridge, and the workbench chrome names.
+ *   3. Layout tokens that runtime styles and arbitrary Tailwind values read.
  */
 
 :root {
   --roost-main-left: 0px;
-  --term-preview-font-size: 0.4375rem;
-  --term-preview-line-height: 1.2;
-  --background: var(--lsx-surface);
-  --foreground: var(--lsx-ink);
-  --card: var(--lsx-paper-background);
-  --card-foreground: var(--lsx-ink);
-  --popover: var(--lsx-paper-background);
-  --popover-foreground: var(--lsx-ink);
-  --primary: var(--lsx-primary-fill-6);
-  --primary-foreground: var(--lsx-primary-contrast-6);
-  --secondary: var(--lsx-secondary-2);
-  --secondary-foreground: var(--lsx-ink);
-  --muted: var(--lsx-muted-2);
-  --muted-foreground: var(--lsx-text-dimmed);
-  --accent-foreground: var(--lsx-ink);
-  --border: var(--lsx-paper-border-color);
-  --input: var(--lsx-neutral-4);
-  --ring: var(--lsx-ink);
-  --success: var(--lsx-success-text-6);
-  --warning: var(--lsx-warning-text-6);
-  --destructive: var(--lsx-error-text-6);
-  --info: var(--lsx-info-text-6);
-  --sidenav: var(--lsx-paper-background);
-  --sidenav-foreground: var(--lsx-ink);
-  --sidenav-primary: var(--lsx-primary-fill-6);
-  --sidenav-primary-foreground: var(--lsx-primary-contrast-6);
-  --sidenav-accent: var(--lsx-muted-2);
-  --sidenav-accent-foreground: var(--lsx-ink);
-  --sidenav-border: var(--lsx-paper-border-color);
-  --sidenav-ring: var(--lsx-ink);
-  --radius: var(--lsx-radius-md);
-  --term-bg: #ffffff;
-  --term-fg: #1f1f1f;
-  --syntax-plain: #383a42;
-  --syntax-keyword: #a626a4;
-  --syntax-string: #50a14f;
-  --syntax-number: #c18401;
-  --syntax-comment: #a0a1a7;
-  --ansi-black: #383a42;
-  --ansi-red: #e45649;
-  --ansi-green: #50a14f;
-  --ansi-yellow: #c18401;
-  --ansi-blue: #4078f2;
-  --ansi-magenta: #a626a4;
-  --ansi-cyan: #0184bc;
-  --ansi-white: #a0a1a7;
-  --ansi-bright-black: #696c77;
-  --ansi-bright-red: #e45649;
-  --ansi-bright-green: #50a14f;
-  --ansi-bright-yellow: #986801;
-  --ansi-bright-blue: #4078f2;
-  --ansi-bright-magenta: #a626a4;
-  --ansi-bright-cyan: #0184bc;
-  --ansi-bright-white: #ffffff;
-  --chat-accent: #c4268f;
+  /* ── 1. ALIASES onto rust-ui theme roles ── */
   --bg-base: var(--background);
   --surface-0: var(--background);
   --surface-1: var(--card);
@@ -225,64 +180,12 @@
   --tv-overscan-inline: 48px;
   --tv-overscan-block: 27px;
 }
-:root[data-lsx-theme="dark"] {
-  --term-bg: #0a0f11;
-  --term-fg: #e3e3e1;
-  --syntax-plain: #e3e3e1;
-  --syntax-keyword: #7fd1ec;
-  --syntax-string: #81c995;
-  --syntax-number: #fdd663;
-  --syntax-comment: #8c969b;
-  --ansi-black: #242d33;
-  --ansi-red: #f28b82;
-  --ansi-green: #81c995;
-  --ansi-yellow: #fdd663;
-  --ansi-blue: #7fd1ec;
-  --ansi-magenta: #c58af9;
-  --ansi-cyan: #78d9ec;
-  --ansi-white: #e3e3e1;
-  --ansi-bright-black: #5a646a;
-  --ansi-bright-red: #f6aea9;
-  --ansi-bright-green: #a8dab5;
-  --ansi-bright-yellow: #fde293;
-  --ansi-bright-blue: #bde9ff;
-  --ansi-bright-magenta: #d7aefb;
-  --ansi-bright-cyan: #a1e4f2;
-  --ansi-bright-white: #ffffff;
-  --chat-accent: #ed4abf;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-lsx-theme]) {
-    --term-bg: #0a0f11;
-    --term-fg: #e3e3e1;
-    --syntax-plain: #e3e3e1;
-    --syntax-keyword: #7fd1ec;
-    --syntax-string: #81c995;
-    --syntax-number: #fdd663;
-    --syntax-comment: #8c969b;
-    --ansi-black: #242d33;
-    --ansi-red: #f28b82;
-    --ansi-green: #81c995;
-    --ansi-yellow: #fdd663;
-    --ansi-blue: #7fd1ec;
-    --ansi-magenta: #c58af9;
-    --ansi-cyan: #78d9ec;
-    --ansi-white: #e3e3e1;
-    --ansi-bright-black: #5a646a;
-    --ansi-bright-red: #f6aea9;
-    --ansi-bright-green: #a8dab5;
-    --ansi-bright-yellow: #fde293;
-    --ansi-bright-blue: #bde9ff;
-    --ansi-bright-magenta: #d7aefb;
-    --ansi-bright-cyan: #a1e4f2;
-    --ansi-bright-white: #ffffff;
-    --chat-accent: #ed4abf;
-  }
-}
 [data-keyboard-shift="true"] {
   --sheet-kb-bottom: 0px;
 }
-/* The shell and composer own safe areas; body padding would apply them twice. */
+/* rust-ui's base pads <body> by the safe-area insets; Roost's shell, drawer,
+   sheets and composer apply those insets themselves, so body padding would
+   apply each twice and shrink the 100svh shell. */
 body {
   padding-top: 0;
   padding-bottom: 0;

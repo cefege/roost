@@ -10,10 +10,12 @@ use roost_protocol::wire::agent_chat::{ConversationSummary, ModelsCatalog};
 use super::composer_commands::model_picker_trigger_id;
 use super::role_switcher::RoleSwitcher;
 use super::toolbar_menu::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Card, CardContent, CardHeader, CardTitle, CardVariant,
+    IconType,
+};
 use crate::pump::Pump;
 use crate::router_state::use_navigate;
-use libero::components::{Button, Flex, Paper, Pictogram, Text, Title};
-use libero::sx::sx;
 
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::client::rpc::calls::agent_chat::ConfigureAgentChat;
@@ -56,61 +58,33 @@ pub fn AgentModelControls(
 ) -> Element {
     let navigate = use_navigate();
     let open_settings = move || navigate.call(crate::routes::settings_pane_href("models"));
-    let trigger_row_sx = use_hook(|| {
-        sx().display("flex")
-            .flex_wrap("wrap")
-            .align_items("center")
-            .gap("xs")
-    });
-    let trigger_button_sx = use_hook(|| {
-        sx().min_width("0")
-            .max_width("100%")
-            .justify_content("start")
-    });
-    let trigger_label_sx = use_hook(|| {
-        sx().min_width("0")
-            .overflow("hidden")
-            .with("overscroll-behavior-y", "auto")
-            .text_overflow("ellipsis")
-            .white_space("nowrap")
-    });
     let setup = ModelSetup::from_catalog(catalog.as_ref(), catalog_failed);
     let trigger_id = model_picker_trigger_id(&conversation.id);
     // Nothing to pick from: a button that says why, never an empty menu. The
     // id is the picker's, so `/model` lands here too.
     let placeholder = match (conversation.model.is_some(), catalog.is_some(), setup) {
         (true, _, _) | (false, true, ModelSetup::Ready) => None,
-        (false, _, ModelSetup::NoProvider) => Some((
-            "Connect a model",
-            pictogram_icons_lucide::link::outlined,
-            false,
-        )),
-        (false, _, ModelSetup::CatalogFailed) => Some((
-            "Models unavailable",
-            pictogram_icons_lucide::circle_alert::outlined,
-            false,
-        )),
-        (false, false, ModelSetup::Ready) => Some((
-            "Loading models…",
-            pictogram_icons_lucide::hourglass::outlined,
-            true,
-        )),
+        (false, _, ModelSetup::NoProvider) => Some(("Connect a model", IconType::Link, false)),
+        (false, _, ModelSetup::CatalogFailed) => {
+            Some(("Models unavailable", IconType::CircleAlert, false))
+        }
+        (false, false, ModelSetup::Ready) => Some(("Loading models…", IconType::Hourglass, true)),
     };
     if let Some((label, icon, waiting)) = placeholder {
         return rsx! {
-            Flex { sx: trigger_row_sx, direction: "row", align: "center", gap: "xs",
+            div { class: "flex flex-wrap items-center gap-1",
                 Button {
-                    variant: "standard",
-                    size: "sm",
-                    sx: trigger_button_sx,
+                    variant: ButtonVariant::Ghost,
+                    size: ButtonSize::Sm,
+                class: "min-w-0 max-w-full justify-start",
                     id: "{trigger_id}",
-                    icon: Some(rsx! { Pictogram { icon, width: "1rem", height: "1rem" } }),
+                icon: Some(icon),
                     disabled: waiting,
                     "aria-busy": waiting.then_some("true"),
                     "data-testid": "agent-chat-model-setup",
                     title: "Open Settings → Agents → Models",
                     onclick: move |_| open_settings(),
-                    Text { sx: trigger_label_sx, "{label}" }
+                    span { class: "truncate", "{label}" }
                 }
             }
         };
@@ -140,7 +114,7 @@ pub fn AgentModelControls(
     let thinking_pump = pump.clone();
     let thinking_id = conversation.id.clone();
     rsx! {
-        Flex { sx: trigger_row_sx, direction: "row", align: "center", gap: "xs",
+        div { class: "flex flex-wrap items-center gap-1",
             RoleSwitcher {
                 trigger_id: trigger_id.clone(),
                 trigger_label: model_label.clone(),
@@ -171,10 +145,6 @@ pub fn AgentModelControls(
 pub fn ModelSetupCard(setup: ModelSetup, on_retry: EventHandler<()>) -> Element {
     let navigate = use_navigate();
     let open_settings = move |_| navigate.call(crate::routes::settings_pane_href("models"));
-    let card_sx = use_hook(|| sx().padding("md"));
-    let card_content_sx = use_hook(|| sx().display("flex").flex_direction("column").gap("sm"));
-    let card_actions_sx = use_hook(|| sx().display("flex").flex_wrap("wrap").gap("sm"));
-    let body_sx = use_hook(|| sx().margin("0"));
     let (title, body) = match setup {
         ModelSetup::Ready => return rsx! {},
         ModelSetup::NoProvider => (
@@ -187,26 +157,31 @@ pub fn ModelSetupCard(setup: ModelSetup, on_retry: EventHandler<()>) -> Element 
         ),
     };
     rsx! {
-        Paper {
-            sx: card_sx,
+        Card {
+            variant: CardVariant::Outlined,
+            class: Some("gap-3".to_string()),
             "data-testid": "agent-chat-model-setup-card",
-            Flex { sx: card_content_sx, direction: "column", gap: "sm",
-                Title { component: "h3", "{title}" }
-                Text { sx: body_sx, size: "sm", color: "muted", "{body}" }
-                Flex { sx: card_actions_sx, direction: "row", align: "center",
-                if setup == ModelSetup::CatalogFailed {
+            CardHeader {
+                CardTitle { "{title}" }
+            }
+            CardContent {
+                p { class: "text-sm text-muted-foreground", "{body}" }
+                div { class: "flex flex-wrap gap-2",
+                    if setup == ModelSetup::CatalogFailed {
+                        Button {
+                            variant: ButtonVariant::Outline,
+                            icon: Some(IconType::RefreshCw),
+                            onclick: move |_| on_retry.call(()),
+                            "Try again"
+                        }
+                    }
                     Button {
-                        variant: "outlined",
-                        onclick: move |_| on_retry.call(()),
-                        "Try again"
+                        icon: Some(IconType::Link),
+                        onclick: open_settings,
+                        "data-testid": "agent-chat-model-setup-open",
+                        if setup == ModelSetup::NoProvider { "Connect a model" } else { "Open model settings" }
                     }
                 }
-                Button {
-                    onclick: open_settings,
-                    "data-testid": "agent-chat-model-setup-open",
-                    if setup == ModelSetup::NoProvider { "Connect a model" } else { "Open model settings" }
-                }
-            }
             }
         }
     }

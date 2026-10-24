@@ -1,8 +1,7 @@
-//! The sidebar's browser adapters: the shell-owned Cmd-F listener, focusing
+//! The sidebar's browser adapters: the document-level Cmd-F listener, focusing
 //! the filter input on the next frame, the debounce timer, and the
-//! `terminalOwnsKeyboard` DOM read v2's `SidebarRoot.tsx` made. The listener
-//! lives at the shell boundary so it can reopen a compact drawer; the chord
-//! decision is `platform::browser_platform`'s.
+//! `terminalOwnsKeyboard` DOM read v2's `SidebarRoot.tsx` made. Called only by
+//! `sidebar_root`; the chord decision is `platform::browser_platform`'s.
 
 use std::cell::RefCell;
 use std::rc::Rc;

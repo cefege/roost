@@ -1,13 +1,18 @@
-//! The `/design` gallery uses pinned Libero components directly, alongside
-//! Roost's compact workbench and settings-navigation roles.
+//! The `/design` gallery: every colour role, the type, spacing, radius and
+//! elevation scales, and every `components/ui` primitive on one page, the visual
+//! reference new surfaces are matched against. `app.rs` routes `/design` to
+//! [`DesignGallery`]. The specimens are static markup over the shipped `ui`
+//! primitives and Tailwind theme roles; none of them reads the store.
 
-mod combobox_specimen;
+pub mod catalog;
+pub mod color_roles;
 pub mod content_primitives;
 pub mod control_states;
-mod dialog_specimen;
 pub mod gallery;
+pub mod loader_specimen;
 pub mod overlay_states;
-pub mod popover_specimen;
-mod theme_roles;
+pub mod settings_navigation_specimen;
+pub mod token_sections;
+pub mod workbench_shell_specimen;
 
 pub use gallery::DesignGallery;

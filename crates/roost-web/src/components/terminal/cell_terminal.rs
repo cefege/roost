@@ -5,16 +5,10 @@
 //! `PaneHandle`. Ports `apps/web/src/components/terminal/CellTerminal.tsx`,
 //! `cell-terminal-types.ts` and `cell-terminal-runtime.ts`.
 
-#[path = "cell_terminal_view.rs"]
-mod store_view;
-#[path = "cell_terminal_style.rs"]
-mod styles;
-
 use std::cell::Cell;
 use std::rc::Rc;
 
 use dioxus::prelude::*;
-use libero::components::Box;
 use roost_client_core::ClientEvent;
 use roost_client_core::store::Session;
 use roost_client_core::store::selectors::{newest_open_session_in_folder, session_folder_key};
@@ -53,7 +47,21 @@ use crate::router_state::use_navigate;
 use crate::routes::session_href;
 use crate::session_naming::session_title;
 
-use self::store_view::PaneStoreView;
+/// What the pane reads off the store, memoised so an unrelated revision does
+/// not re-render it.
+///
+/// The drawer is a field for the same reason the title is. A read taken OUTSIDE
+/// the memo is a snapshot of whatever the last render happened to see, and a
+/// pane that does not re-render for the drawer cannot take back the fixed
+/// surfaces the drawer just covered.
+#[derive(Debug, Clone, PartialEq)]
+struct PaneStoreView {
+    pending: bool,
+    title: String,
+    offline_sibling: Option<String>,
+    drawer_open: bool,
+    nav_pad_open: bool,
+}
 
 /// The pane. Props are v2's `CellTerminalProps`, snake-cased.
 #[component]
@@ -171,7 +179,6 @@ pub fn CellTerminal(
     let dock = use_hook(PaneDockHandle::new);
     let mut growth_px = use_signal(|| 0_u32);
     let compact = use_is_compact();
-    let pane_sx = styles::use_pane_style();
     let drawer_open = view.drawer_open;
     let show_viewport_composer = mounts_viewport_composer(
         in_layout == Some(true),
@@ -254,11 +261,12 @@ pub fn CellTerminal(
     let find_handle = handle.clone();
 
     rsx! {
-        Box {
-            component: "div",
-            sx: pane_sx,
+        div {
             "data-testid": "cell-terminal-pane",
             "data-session-id": "{session_id}",
+            "data-terminal-transport": (ui.transport)(),
+            class: "data-[bell=ring]:after:pointer-events-none data-[bell=ring]:after:absolute data-[bell=ring]:after:inset-0 data-[bell=ring]:after:bg-primary data-[bell=ring]:after:opacity-0 data-[bell=ring]:after:content-[''] data-[bell=ring]:after:animate-terminal-bell-flash motion-reduce:data-[bell=ring]:after:animate-none motion-reduce:data-[bell=ring]:after:bg-transparent motion-reduce:data-[bell=ring]:after:opacity-100 motion-reduce:data-[bell=ring]:after:shadow-[inset_0_0_0_0.25rem_var(--accent)]",
+            style: "position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; overflow: hidden;",
             if let Some((state, title)) = indicator {
                 StreamIndicator { state, title }
             }

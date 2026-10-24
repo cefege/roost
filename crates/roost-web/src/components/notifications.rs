@@ -25,7 +25,6 @@ pub mod undo_banner;
 pub mod version_banner;
 
 use dioxus::prelude::*;
-use libero::{components::Flex, sx::sx};
 
 /// The one overlay column that owns where every transient notification sits, so
 /// no two can claim the same corner, and the two banners that flank it.
@@ -39,41 +38,6 @@ pub fn NotificationDock() -> Element {
     // the shell whose rows are meant to ring are SIBLINGS, so a target
     // provided here could never reach them.
     let compact = crate::components::layout::window_size::use_is_compact();
-    let television = crate::components::layout::window_size::use_tv_layout();
-    let (ordinary_sx, television_sx) = use_hook(|| {
-        let ordinary = sx()
-            .position("fixed")
-            .z_index("1100")
-            .align_items("flex-end")
-            .pointer_events("none")
-            .with(
-                "left",
-                "calc(var(--roost-main-left) + env(safe-area-inset-left, 0px) + 0.75rem)",
-            )
-            .with("right", "calc(env(safe-area-inset-right, 0px) + 0.75rem)")
-            .with("bottom", "var(--roost-notify-dock-lift)")
-            .selector(
-                "& > :not(.pad-hint)",
-                sx().pointer_events("auto")
-                    .width("min(var(--roost-toast-inline-size), 100%)"),
-            )
-            .selector(
-                "&[data-compact='true'] > :not(.pad-hint)",
-                sx().width("100%"),
-            );
-        let television = ordinary
-            .clone()
-            .with(
-                "left",
-                "calc(var(--roost-main-left) + var(--tv-overscan-inline) + 0.75rem)",
-            )
-            .with("right", "calc(var(--tv-overscan-inline) + 0.75rem)")
-            .with(
-                "bottom",
-                "calc(var(--roost-notify-dock-lift) + var(--tv-overscan-block))",
-            );
-        (ordinary, television)
-    });
     // The column is ALWAYS mounted, empty or not. A card's bottom edge is where
     // the dock's own bottom edge is, and an unmounted dock has no edge to
     // measure — so a caller that has to prove the dock rides above the
@@ -84,8 +48,8 @@ pub fn NotificationDock() -> Element {
     );
     rsx! {
         connection_banner::ConnectionBanner {}
-        Flex {
-            direction: "column", gap: "xs", sx: if television { television_sx } else { ordinary_sx },
+        div {
+            class: "fixed z-[1100] flex flex-col items-end gap-2 pointer-events-none left-[calc(var(--roost-main-left)_+_env(safe-area-inset-left,0px)_+_0.75rem)] right-[calc(env(safe-area-inset-right,0px)_+_0.75rem)] bottom-[calc(var(--roost-notify-dock-lift))] tv:!left-[calc(var(--roost-main-left)_+_var(--tv-overscan-inline)_+_0.75rem)] tv:!right-[calc(var(--tv-overscan-inline)_+_0.75rem)] tv:!bottom-[calc(var(--roost-notify-dock-lift)_+_var(--tv-overscan-block))] [&>:not(.pad-hint)]:pointer-events-auto [&>:not(.pad-hint)]:w-[min(var(--roost-toast-inline-size),100%)] data-[compact=true]:[&>:not(.pad-hint)]:w-full",
             "data-testid": "notification-dock",
             "data-compact": if compact { "true" } else { "false" },
             style: "--roost-notify-dock-lift: {lift};",

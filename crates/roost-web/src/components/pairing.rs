@@ -21,13 +21,8 @@ pub use phone_pairing::PhonePairingCard;
 pub use requester::{PairingRequester, use_pairing_requester};
 
 use dioxus::prelude::*;
-use libero::{
-    components::{Box, Flex, Text},
-    sx::sx,
-};
 use roost_client_core::store::BrowserAccessState;
 
-use crate::components::layout::window_size::{use_is_compact, use_tv_layout};
 use crate::pump::use_store;
 
 /// The pairing surface, mounted ONCE for the life of the document.
@@ -67,68 +62,18 @@ pub fn PairSurface() -> Element {
     };
     let authorized = access == BrowserAccessState::Authorized;
     let draws_page = draws_pairing_page(access, &path());
-    let compact = use_is_compact();
-    let tv = use_tv_layout();
-    let page_sx = use_hook(|| {
-        sx().display("flex")
-            .box_sizing("border-box")
-            .height("100dvh")
-            .width("100%")
-            .min_width("0")
-            .flex_direction("column")
-            .overflow_x("hidden")
-            .overflow_y("auto")
-            .padding_top("xl")
-            .padding_bottom("xl")
-            .padding_left("md")
-            .padding_right("md")
-    });
-    let content_sx = use_hook(|| {
-        sx().display("flex")
-            .width("100%")
-            .min_width("0")
-            .max_width("var(--roost-dialog-max-inline-size)")
-            .flex_direction("column")
-            .gap("lg")
-            .margin_left("auto")
-            .margin_right("auto")
-    });
-    let page_sx = use_memo(use_reactive((&compact, &tv), move |(compact, tv)| {
-        let page_sx = if !compact {
-            page_sx
-                .clone()
-                .and(sx().padding_left("lg").padding_right("lg"))
-        } else {
-            page_sx.clone()
-        };
-        if tv {
-            page_sx.and(
-                sx().padding_top("var(--tv-overscan-block)")
-                    .padding_bottom("var(--tv-overscan-block)")
-                    .padding_left("var(--tv-overscan-inline)")
-                    .padding_right("var(--tv-overscan-inline)"),
-            )
-        } else {
-            page_sx
-        }
-    }));
-    let content_sx = use_memo(use_reactive((&tv,), move |(tv,)| {
-        if tv {
-            content_sx
-                .clone()
-                .and(sx().max_width("var(--roost-dialog-wide-max-inline-size)"))
-        } else {
-            content_sx.clone()
-        }
-    }));
     // The dialog is a sibling of the panel, and both draw from one approval:
     // the panel gets a clone so the dialog still owns the handle v2's provider
     // held above the access gate.
     let dialog_approver = approver.clone();
     rsx! {
         if draws_page {
-            Box { sx: page_sx(), "data-testid": "onboarding", "data-embedded": "false",
-                Flex { direction: "column", sx: content_sx(),
+            div {
+                class: "box-border flex h-dvh w-full min-w-0 flex-col overflow-x-hidden overflow-y-auto px-4 py-5 min-[600px]:px-6 min-[600px]:py-7 tv:!p-[var(--tv-overscan-block)_var(--tv-overscan-inline)]",
+                "data-testid": "onboarding",
+                "data-embedded": "false",
+                div {
+                    class: "mx-auto flex w-full min-w-0 max-w-[var(--roost-dialog-max-inline-size)] flex-col gap-5 tv:!max-w-[var(--roost-dialog-wide-max-inline-size)]",
                     if authorized {
                         ApproverPanel { approver: approver.clone(), has_workers }
                     } else {
@@ -198,7 +143,7 @@ fn ApproverPanel(approver: approver::PairApprover, has_workers: bool) -> Element
     rsx! {
         PairingPageHeader { title: "Browser pairing".to_owned(), body: None }
         if !has_workers {
-            Text { size: "sm", color: "muted",
+            p { class: "m-0 text-sm text-muted-foreground",
                 "This browser is authorized, but no machines have registered as workers yet."
             }
         }

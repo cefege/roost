@@ -2,22 +2,17 @@
 //! reach, as one ordered list in v2's DOM order, because DOM order is the tab
 //! order for anyone walking it with a keyboard and where the controller's
 //! first-key focus starts. Drawn by the floating sheet (`terminal_nav_pad`)
-//! and by the TV input tray inside the composer bar. Owned Sx styles place the
-//! cells by `data-placement`. Ports `TerminalNavButtons.tsx`'s grid.
-
-#[path = "terminal_nav_key_style.rs"]
-mod key_style;
+//! and by the TV input tray inside the composer bar. The classes place the
+//! cells per `data-placement`. Ports `TerminalNavButtons.tsx`'s grid.
 
 use dioxus::prelude::*;
-use libero::components::Pictogram;
-use libero::components::SvgData;
 use roost_client_core::ClientEvent;
 use roost_client_core::store::shell_intent::ShellIntent;
 
 use super::pane_handle::PaneHandle;
 use super::pane_state::PaneUi;
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, Icon, IconType, Surface};
 use crate::pump::Pump;
-use libero::components::{Box, Button, Paper, Text};
 
 /// The key grid. `placement` is `sheet` for the floating sheet and `tray` for
 /// the TV input tray.
@@ -33,7 +28,6 @@ pub fn TerminalKeyGrid(
     let revision = pump.revision();
     let _ = revision.read();
     let mouse_forward = pump.core().borrow().store().prefs.mouse_forward;
-    let styles = key_style::use_nav_key_styles();
     let cells = grid_cells(
         &handle,
         &pump,
@@ -44,18 +38,19 @@ pub fn TerminalKeyGrid(
         mouse_forward,
     );
     rsx! {
-        Paper {
-            shadow: "lg",
-            sx: styles.paper.clone(),
-            "data-testid": "terminal-nav-buttons",
-            "data-placement": placement,
-            "data-keypad": "true",
-            Box {
-                component: "div",
-                sx: styles.grid.clone(),
+            Surface {
+                level: 2,
+                elevation: 4,
+                pad: 1,
+                class: "group/nav fixed z-40 box-border max-h-[max(0rem,calc(100dvh_-_env(safe-area-inset-top,0px)_-_env(safe-area-inset-bottom,0px)_-_13.75rem_-_1rem))] right-[calc(env(safe-area-inset-right,0px)_+_1rem)] bottom-[calc(env(safe-area-inset-bottom,0px)_+_13.75rem)] overflow-y-auto pointer-events-auto font-sans animate-voice-dock-enter motion-reduce:animate-none data-[placement=tray]:absolute data-[placement=tray]:inset-x-0 data-[placement=tray]:bottom-full data-[placement=tray]:h-(--term-tray-height) data-[placement=tray]:max-h-none data-[placement=tray]:overflow-visible",
+                test_id: "terminal-nav-buttons",
+                "data-placement": placement,
+                "data-keypad": "true",
+            div {
+                class: "grid grid-cols-[repeat(4,var(--term-chat-control))] gap-1 [grid-template-areas:'esc_tab_ctrl_alt'_'home_up_end_pgup'_'left_down_right_pgdn'_'back_space_space_ent'_'mouse_mouse_mouse_mouse'] group-data-[placement=tray]/nav:grid-cols-[repeat(9,minmax(0,1fr))] group-data-[placement=tray]/nav:[grid-template-areas:'esc_tab_ctrl_alt_mouse_home_up_end_pgup'_'back_space_space_ent_ent_left_down_right_pgdn']",
                 "data-keypad-grid": "true",
                 for cell in cells {
-                    {key_cell(cell, &styles)}
+                    {key_cell(cell)}
                 }
             }
         }
@@ -102,7 +97,7 @@ fn keep_focus(event: MouseEvent) {
 /// One grid cell. A plain function, not a component: the grid is built per
 /// render from one ordered list, so a cell has no lifecycle of its own to
 /// preserve and needs no comparable prop.
-fn key_cell(cell: NavCell, styles: &key_style::NavKeyStyles) -> Element {
+fn key_cell(cell: NavCell) -> Element {
     let NavCell {
         area,
         test_id,
@@ -115,33 +110,28 @@ fn key_cell(cell: NavCell, styles: &key_style::NavKeyStyles) -> Element {
     let label = face_label(face);
     rsx! {
         Button {
-            variant: "tonal",
-            color: "secondary",
-            size: "md",
-            sx: styles.key.clone(),
+            variant: ButtonVariant::Secondary,
+            size: ButtonSize::Icon,
+            class: Some("relative !size-(--term-chat-control) !rounded-md shadow-sm transition-[box-shadow,transform] duration-150 active:scale-[0.94] after:pointer-events-none after:absolute after:inset-0 after:bg-current after:opacity-0 after:content-[''] hover:after:opacity-[0.08] active:after:opacity-[0.12] focus-visible:after:opacity-[0.12] data-[area=esc]:[grid-area:esc] data-[area=tab]:[grid-area:tab] data-[area=ctrl]:[grid-area:ctrl] data-[area=alt]:[grid-area:alt] data-[area=back]:[grid-area:back] data-[area=home]:[grid-area:home] data-[area=up]:[grid-area:up] data-[area=end]:[grid-area:end] data-[area=pgup]:[grid-area:pgup] data-[area=left]:[grid-area:left] data-[area=down]:[grid-area:down] data-[area=right]:[grid-area:right] data-[area=pgdn]:[grid-area:pgdn] data-[area=space]:[grid-area:space] data-[area=enter]:[grid-area:ent] data-[area=mouse]:[grid-area:mouse] data-[area=space]:!w-auto data-[area=enter]:!w-auto data-[area=mouse]:!w-auto data-[area=mouse]:gap-2 data-[area=enter]:bg-primary data-[area=enter]:text-primary-foreground data-[area=ctrl][data-active=true]:bg-accent data-[area=ctrl][data-active=true]:text-accent-foreground data-[area=alt][data-active=true]:bg-accent data-[area=alt][data-active=true]:text-accent-foreground data-[area=mouse][data-active=true]:bg-primary data-[area=mouse][data-active=true]:text-primary-foreground group-data-[placement=tray]/nav:!h-(--term-tray-key) group-data-[placement=tray]/nav:!w-auto".to_owned()),
             "data-testid": test_id,
             "data-area": area,
             "data-active": active.then_some("true"),
-            selected: latched.map(|_| active),
             "aria-label": aria_label,
+            attributes: latched.map(pressed_attribute).unwrap_or_default(),
             onmousedown: keep_focus,
             onclick: move |event| press.call(event),
             if let Some(icon) = face_icon(face) {
-                Text { component: "span", sx: styles.icon.clone(), Pictogram {
-                    icon,
-                    width: "var(--term-nav-icon-size)",
-                    height: "var(--term-nav-icon-size)",
-                } }
+                Icon { icon, class: "relative z-1 size-(--term-nav-icon-size) select-none" }
             }
             if let Some(label) = label {
-                Text { component: "span", sx: styles.label.clone(), "{label}" }
+                span { class: "relative z-1 font-sans text-(length:--term-nav-label-size) leading-(--term-nav-label-line) font-medium tracking-[0.08em] uppercase select-none", "{label}" }
             }
         }
     }
 }
 
 /// The glyph a cell draws, if it draws one.
-fn face_icon(face: KeyFace) -> Option<SvgData> {
+fn face_icon(face: KeyFace) -> Option<IconType> {
     match face {
         KeyFace::Icon(icon) | KeyFace::IconAndLabel(icon, _) => Some(icon),
         KeyFace::Label(_) => None,
@@ -155,6 +145,17 @@ fn face_label(face: KeyFace) -> Option<&'static str> {
         KeyFace::IconAndLabel(_, label) => Some(label),
         KeyFace::Icon(_) => None,
     }
+}
+
+/// `aria-pressed` for a latch cell. A momentary key carries none, so a screen
+/// reader does not announce Esc or Enter as a pressed toggle.
+fn pressed_attribute(on: bool) -> Vec<Attribute> {
+    vec![Attribute::new(
+        "aria-pressed",
+        if on { "true" } else { "false" },
+        None,
+        false,
+    )]
 }
 
 /// The sixteen cells: v2's fifteen in v2's DOM order, plus Space before Enter.
@@ -208,7 +209,7 @@ fn grid_cells(
             "back",
             "nav-backspace",
             "Backspace",
-            KeyFace::Icon(pictogram_icons_lucide::delete::outlined),
+            KeyFace::Icon(IconType::Delete),
             "Backspace",
         ),
         key("home", "nav-home", "Home", KeyFace::Label("home"), "Home"),
@@ -216,7 +217,7 @@ fn grid_cells(
             "up",
             "nav-up",
             "Up arrow",
-            KeyFace::Icon(pictogram_icons_lucide::chevron_up::outlined),
+            KeyFace::Icon(IconType::ChevronUp),
             "ArrowUp",
         ),
         key("end", "nav-end", "End", KeyFace::Label("end"), "End"),
@@ -224,35 +225,35 @@ fn grid_cells(
             "pgup",
             "nav-pgup",
             "Page up",
-            KeyFace::Icon(pictogram_icons_lucide::chevrons_up::outlined),
+            KeyFace::Icon(IconType::ChevronsUp),
             "PageUp",
         ),
         key(
             "left",
             "nav-left",
             "Left arrow",
-            KeyFace::Icon(pictogram_icons_lucide::chevron_left::outlined),
+            KeyFace::Icon(IconType::ChevronLeft),
             "ArrowLeft",
         ),
         key(
             "down",
             "nav-down",
             "Down arrow",
-            KeyFace::Icon(pictogram_icons_lucide::chevron_down::outlined),
+            KeyFace::Icon(IconType::ChevronDown),
             "ArrowDown",
         ),
         key(
             "right",
             "nav-right",
             "Right arrow",
-            KeyFace::Icon(pictogram_icons_lucide::chevron_right::outlined),
+            KeyFace::Icon(IconType::ChevronRight),
             "ArrowRight",
         ),
         key(
             "pgdn",
             "nav-pgdn",
             "Page down",
-            KeyFace::Icon(pictogram_icons_lucide::chevrons_down::outlined),
+            KeyFace::Icon(IconType::ChevronsDown),
             "PageDown",
         ),
         NavCell {
@@ -270,17 +271,14 @@ fn grid_cells(
             "enter",
             "nav-enter",
             "Enter",
-            KeyFace::Icon(pictogram_icons_lucide::corner_down_left::outlined),
+            KeyFace::Icon(IconType::CornerDownLeft),
             "Enter",
         ),
         NavCell {
             area: "mouse",
             test_id: "nav-mouse",
             aria_label: "Toggle mouse forwarding",
-            face: KeyFace::IconAndLabel(
-                pictogram_icons_lucide::mouse::outlined,
-                if mouse_forward { "on" } else { "off" },
-            ),
+            face: KeyFace::IconAndLabel(IconType::Mouse, if mouse_forward { "on" } else { "off" }),
             latched: Some(mouse_forward),
             press: {
                 let pump = pump.clone();
@@ -318,8 +316,8 @@ struct NavCell {
 enum KeyFace {
     /// An uppercased word or a bare glyph.
     Label(&'static str),
-    /// A Lucide glyph drawn by `Pictogram`.
-    Icon(SvgData),
+    /// A Lucide glyph drawn by `ui::Icon`.
+    Icon(IconType),
     /// The mouse toggle: its glyph plus the value it states.
-    IconAndLabel(SvgData, &'static str),
+    IconAndLabel(IconType, &'static str),
 }

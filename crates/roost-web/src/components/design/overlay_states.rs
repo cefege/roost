@@ -1,71 +1,124 @@
-//! Real Libero modal, drawer, menu and floating-interaction examples.
+//! The `/design` gallery's overlay specimens: a dialog with an action band, a
+//! right sheet and a bottom sheet, each opened from a button and mounted by
+//! `gallery.rs`. Each overlay is controlled by a signal here; the primitives
+//! own portal, focus containment, and dismissal. `ui` has no centred sheet, so
+//! the bottom sheet stands in for the md centred variant.
 
 use dioxus::prelude::*;
-use libero::{
-    components::{Button, HoverCard, Menu, MenuEntry, MenuItem, Text, Title, Tooltip, use_menu},
-    hooks::{DrawerOptions, ModalScope, use_drawer, use_modal},
+
+use crate::components::ui::{
+    Button, ButtonVariant, Dialog, DialogAction, DialogBody, DialogContent, DialogDescription,
+    DialogFooter, DialogHeader, DialogTitle, IconType, Sheet, SheetContent, SheetHeader, SheetSide,
+    SheetTitle,
 };
 
-use super::dialog_specimen::DialogSpecimen;
-use super::popover_specimen::PopoverSpecimen;
+const BODY_TEXT_CLASS: &str = "m-0 text-sm text-muted-foreground";
+const SHEET_BODY_CLASS: &str = "grid min-w-[min(20rem,80vw)] gap-4 p-4";
 
 #[component]
 pub fn DesignOverlayStates() -> Element {
-    let dialog = use_modal(|scope: ModalScope<()>| {
-        rsx! {
-            DialogSpecimen { on_close: move |_| scope.close() }
-        }
-    });
-    let drawer = use_drawer(
-        DrawerOptions {
-            anchor: "end".into(),
-            size: "sm".into(),
-            title: Some("Workspace details".into()),
-            close_button: true,
-            ..Default::default()
-        },
-        |scope: ModalScope<()>| {
-            rsx! {
-                Text { "Drawer content uses the same modal lifecycle and focus policy." }
-                Button { onclick: move |_| scope.close(), "Done" }
-            }
-        },
-    );
-    let menu = use_menu();
-    let mut chosen = use_signal(|| "No command selected".to_string());
-    let menu_items = vec![
-        MenuEntry::Group {
-            label: "Session".into(),
-            items: vec![
-                MenuItem::new("Open session")
-                    .onselect(move |_| chosen.set("Open session".into()))
-                    .into(),
-                MenuItem::new("Copy session link")
-                    .onselect(move |_| chosen.set("Copy session link".into()))
-                    .into(),
-            ],
-        },
-        MenuEntry::Separator,
-        MenuItem::new("Unavailable action")
-            .disabled(true)
-            .description("This action is unavailable in the specimen")
-            .into(),
-    ];
+    let mut dialog_open = use_signal(|| false);
+    let mut fullscreen_dialog_open = use_signal(|| false);
+    let mut sheet_open = use_signal(|| false);
+    let mut bottom_sheet_open = use_signal(|| false);
+
     rsx! {
-        Title { order: 2, size: "lg", "Overlays and menus" }
-        Button { onclick: move |_| { dialog.open(); }, "Open dialog" }
-        Button { variant: "outlined", onclick: move |_| { drawer.open(); }, "Open drawer" }
-        Menu { state: menu, items: menu_items,
-            Button { variant: "outlined", attributes: menu.a11y_attributes(), "Session actions" }
+        div { class: "flex flex-wrap items-center gap-3",
+            Button {
+                variant: ButtonVariant::Default,
+                icon: IconType::SquareArrowOutUpRight,
+                onclick: move |_| dialog_open.set(true),
+                "Open dialog"
+            }
+            Button {
+                variant: ButtonVariant::Secondary,
+                icon: IconType::Maximize2,
+                onclick: move |_| fullscreen_dialog_open.set(true),
+                "Open fullscreen dialog"
+            }
+            Button {
+                variant: ButtonVariant::Secondary,
+                icon: IconType::Maximize2,
+                onclick: move |_| sheet_open.set(true),
+                "Open sheet"
+            }
+            Button {
+                variant: ButtonVariant::Secondary,
+                icon: IconType::Maximize2,
+                onclick: move |_| bottom_sheet_open.set(true),
+                "Open bottom sheet"
+            }
+
+            Dialog {
+                open: dialog_open(),
+                on_open_change: move |open: bool| dialog_open.set(open),
+                DialogContent { show_close_button: false,
+                    DialogHeader {
+                        DialogTitle { "Shared dialog" }
+                        DialogDescription {
+                            "The Dialog primitive owns its portal, focus containment, and dismissal."
+                        }
+                    }
+                    DialogBody {
+                        p { class: BODY_TEXT_CLASS,
+                            "Dialog body content remains ordinary application markup."
+                        }
+                    }
+                    DialogFooter {
+                        DialogAction { "Done" }
+                    }
+                }
+            }
+            Dialog {
+                open: fullscreen_dialog_open(),
+                on_open_change: move |open: bool| fullscreen_dialog_open.set(open),
+                DialogContent { fullscreen: true, show_close_button: false,
+                    DialogHeader {
+                        DialogTitle { "Fullscreen dialog" }
+                        DialogDescription {
+                            "The shared fullscreen variant fills the viewport without caller-level shape or border overrides."
+                        }
+                    }
+                    DialogBody {
+                        p { class: BODY_TEXT_CLASS,
+                            "Fullscreen presentation is a shared Dialog variant; content layout remains caller-owned."
+                        }
+                    }
+                    DialogFooter {
+                        DialogAction { "Done" }
+                    }
+                }
+            }
+
+            Sheet {
+                open: sheet_open(),
+                on_open_change: move |open: bool| sheet_open.set(open),
+                SheetContent { side: SheetSide::Right,
+                    SheetHeader {
+                        SheetTitle { "Shared sheet" }
+                    }
+                    div { class: SHEET_BODY_CLASS,
+                        p { class: BODY_TEXT_CLASS,
+                            "Sheet uses the same Dialog accessibility and dismissal owner with side-specific presentation."
+                        }
+                    }
+                }
+            }
+
+            Sheet {
+                open: bottom_sheet_open(),
+                on_open_change: move |open: bool| bottom_sheet_open.set(open),
+                SheetContent { side: SheetSide::Bottom,
+                    SheetHeader {
+                        SheetTitle { "Bottom sheet" }
+                    }
+                    div { class: SHEET_BODY_CLASS,
+                        p { class: BODY_TEXT_CLASS,
+                            "Bottom sheets enter from the lower edge with the same dismissal owner as the other sheets."
+                        }
+                    }
+                }
+            }
         }
-        Text { role: "status", "Last menu action: {chosen()}" }
-        Tooltip { label: rsx! { "Saves the current draft" }, label_id: "design-save-tip",
-            Button { variant: "outlined", aria_describedby: "design-save-tip", "Save draft" }
-        }
-        HoverCard { aria_label: "Worker details",
-            content: rsx! { Text { "ovh1 · connected · coordinator link healthy" } },
-            Button { variant: "outlined", "Worker details" }
-        }
-        PopoverSpecimen {}
     }
 }

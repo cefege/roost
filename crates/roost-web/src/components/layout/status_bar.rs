@@ -1,6 +1,23 @@
-//! The desktop status bar projects coordinator-link health, active-session
-//! context and fleet counts from one store reading. AppShell mounts it;
-//! client-core owns transport evidence and agent-status policy.
+//! The desktop status bar: the active session's
+//! machine, its agent, the session's context, and the fleet counts. Ported from
+//! `apps/web/src/components/layout/WorkbenchStatusBar.tsx`.
+//!
+//! It projects state the store ALREADY holds. Nothing here is invented: there is
+//! no synthetic source-control status, no "connected" claim the transport has
+//! not made, and no item whose absence would read as a fault.
+//!
+//! THE COORDINATOR ITEM IS ABSENT, DELIBERATELY. v2 reads a health snapshot the
+//! sync socket publishes; this port has no such publisher. The previous shape
+//! hard-coded `last_attempt_failed: false` with no `last_success_ms`, so
+//! `coordinator_state` could only ever answer `Syncing` — a status bar
+//! permanently grey and permanently mid-sync, which is a claim about the system
+//! that is not true. `shell_metrics::coordinator_state` is still there, still
+//! pure and still tested, and the item returns the moment a health source exists
+//! to feed it; nothing has to be re-derived when it does.
+//!
+//! The agent word IS shown, because it has a real source:
+//! `roost_client_core`'s own presentation table, so the status bar and the
+//! agent sidebar chips cannot spell "needs input" two ways.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -17,11 +34,8 @@ use super::shell_metrics::{
     CoordinatorState, coordinator_health_from_link, coordinator_state, session_context,
     workbench_title,
 };
+use crate::components::ui::StatusDot;
 use crate::platform::visibility::page_visible;
-use libero::{
-    components::{Box, Flex, Indicator},
-    sx::sx,
-};
 
 /// One dot-and-word reading.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,79 +114,38 @@ pub fn StatusBar() -> Element {
         &path,
     )
     .map(|session| session.id.as_str().to_owned());
-    let bar_sx = use_hook(|| {
-        sx().display("flex")
-            .min_width("0")
-            .align_items("center")
-            .gap("md")
-            .overflow("hidden")
-            .border_top("1px solid var(--lsx-paper-border-color)")
-            .background("var(--workbench-status)")
-            .padding_inline("sm")
-            .font_weight("500")
-            .font_size("xs")
-            .color("muted")
-            .with("grid-area", "statusbar")
-    });
-    let group_sx = use_hook(|| sx().display("contents"));
-    let item_sx = use_hook(|| {
-        sx().display("inline-flex")
-            .min_width("0")
-            .flex_shrink("0")
-            .align_items("center")
-            .gap("xs")
-            .white_space("nowrap")
-            .with("font-variant-numeric", "tabular-nums")
-    });
-    let narrow_item_sx = use_hook(|| {
-        item_sx
-            .clone()
-            .media("(max-width: 960px)", sx().display("none"))
-    });
-    let context_sx = use_hook(|| {
-        item_sx
-            .clone()
-            .overflow("hidden")
-            .with("overscroll-behavior-y", "auto")
-            .text_overflow("ellipsis")
-            .color("muted")
-            .media("(max-width: 1100px)", sx().display("none"))
-    });
-    let count_sx = use_hook(|| item_sx.clone());
-    let revision_sx = use_hook(|| {
-        item_sx
-            .clone()
-            .margin_left("auto")
-            .font_family("var(--font-mono)")
-            .color("muted")
-            .media("(max-width: 1100px)", sx().display("none"))
-    });
     rsx! {
-        Box { component: "footer", sx: bar_sx,
+        footer {
+            class: "flex min-w-0 items-center gap-3 overflow-hidden border-t border-border bg-[var(--workbench-status)] px-2 font-medium text-xs text-[var(--text-mid)] [grid-area:statusbar]",
             "data-testid": "workbench-status-bar",
             "aria-label": "Workbench status",
-            Box { sx: group_sx.clone(),
-                Flex { direction: "row", wrap: false, sx: item_sx,
-                    "data-testid": "workbench-status-sync",
-                    Indicator { color: status_color(coordinator.status()), size: "xs" }
-                    Box { component: "span", {coordinator.label()} }
-                }
+            div { class: "contents",
+            span {
+                class: "inline-flex min-w-0 shrink-0 items-center gap-1 whitespace-nowrap tabular-nums",
+                "data-testid": "workbench-status-sync",
+                "data-status": coordinator.status(),
+                StatusDot { status: coordinator.status().to_string() }
+                span { {coordinator.label()} }
+            }
                 if let Some(reading) = machine {
-                    Flex { direction: "row", wrap: false, sx: narrow_item_sx.clone(),
+                    span {
+                        class: "inline-flex min-w-0 shrink-0 items-center gap-1 whitespace-nowrap tabular-nums max-[960px]:hidden",
                         "data-testid": "workbench-status-worker",
-                        Indicator { color: status_color(&reading.status), size: "xs" }
-                        Box { component: "span", {reading.label} }
+                        StatusDot { status: reading.status.clone() }
+                        span { {reading.label} }
                     }
                 }
                 if let Some(reading) = agent {
-                    Flex { direction: "row", wrap: false, sx: narrow_item_sx.clone(),
+                    span {
+                        class: "inline-flex min-w-0 shrink-0 items-center gap-1 whitespace-nowrap tabular-nums max-[960px]:hidden",
                         "data-testid": "workbench-status-agent",
-                        Indicator { color: status_color(&reading.status), size: "xs" }
-                        Box { component: "span", {reading.label} }
+                        StatusDot { status: reading.status.clone() }
+                        span { {reading.label} }
                     }
                 }
                 if let Some(context) = context {
-                    Flex { direction: "row", wrap: false, sx: context_sx,
+                    span {
+                        class: "inline-flex min-w-0 shrink-0 items-center gap-1 overflow-hidden text-ellipsis whitespace-nowrap tabular-nums text-muted-foreground max-[1100px]:hidden",
                         "data-testid": "workbench-status-context",
                         {context}
                     }
@@ -181,15 +154,17 @@ pub fn StatusBar() -> Element {
                     crate::components::terminal_signal_marks::TerminalUserVarBadges { session_id }
                 }
             }
-            Box { sx: group_sx.clone(),
-                Flex { direction: "row", wrap: false, sx: count_sx,
+            div { class: "contents",
+                span {
+                    class: "inline-flex min-w-0 shrink-0 items-center gap-1 whitespace-nowrap tabular-nums",
                     "data-testid": "workbench-status-counts",
                     {readings.sessions_worded()}
-                    Box { component: "span", "aria-hidden": "true", "·" }
+                    span { "aria-hidden": "true", "·" }
                     {readings.workers_worded()}
                 }
                 if let Some(revision) = readings.revision.clone() {
-                    Flex { direction: "row", wrap: false, sx: revision_sx,
+                    span {
+                        class: "inline-flex min-w-0 shrink-0 items-center gap-1 ml-auto whitespace-nowrap tabular-nums font-[family-name:var(--font-mono)] text-muted-foreground max-[1100px]:hidden",
                         "data-testid": "workbench-status-revision",
                         {revision}
                     }
@@ -289,20 +264,12 @@ fn read_status(path: &str, core: &Rc<RefCell<ClientCore>>, now_ms: i64) -> Statu
             .map(|identity| identity.git_sha.chars().take(7).collect()),
     }
 }
-fn status_color(status: &str) -> &'static str {
-    match status {
-        "ok" => "success",
-        "warn" | "offline" => "warning",
-        "info" => "info",
-        "idle" => "muted",
-        _ => "muted",
-    }
-}
 
 /// The design-system status an agent level's dot shows.
 ///
 /// The core's `AgentDotStatus` is a four-member vocabulary of its own; this is
-/// the one place it is spelled as the status names the bar shares with sidebar chips.
+/// the one place it is spelled as the status names the dot's stylesheet knows,
+/// so the mapping is stated once instead of at every call site.
 fn agent_dot_status(dot: roost_client_core::client::agents::AgentDotStatus) -> &'static str {
     match dot {
         roost_client_core::client::agents::AgentDotStatus::Warn => "warn",
@@ -349,6 +316,22 @@ mod tests {
         // A missing counts item reads as a broken bar; `0/0 workers` reads as a
         // fleet that has not registered yet, which is what it is.
         assert_eq!(bar(0, 0, 0).workers_worded(), "0/0 workers");
+    }
+
+    #[test]
+    fn every_agent_dot_status_is_a_name_the_dot_stylesheet_knows() {
+        for dot in [
+            roost_client_core::client::agents::AgentDotStatus::Warn,
+            roost_client_core::client::agents::AgentDotStatus::Ok,
+            roost_client_core::client::agents::AgentDotStatus::Info,
+            roost_client_core::client::agents::AgentDotStatus::Idle,
+        ] {
+            let name = agent_dot_status(dot);
+            assert!(
+                crate::components::ui::status::status_dot_token_known(name).is_some(),
+                "{name} is not a status the dot styles a rule for"
+            );
+        }
     }
 
     #[test]

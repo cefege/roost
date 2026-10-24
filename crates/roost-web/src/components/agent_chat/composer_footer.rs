@@ -4,14 +4,15 @@
 //! Commands continue through `composer_commands`.
 
 use dioxus::prelude::*;
-use libero::components::{Button, Chip, Pictogram, Select};
-use libero::sx::sx;
 use roost_protocol::wire::agent_chat::{ConversationSummary, GoalState, ModelsCatalog};
 
 use super::composer_commands::{advisor_title, report_command, submit_direct_command};
 use super::goal_dock::GoalDock;
 use super::model_controls::AgentModelControls;
-use crate::components::ui::{InputPromptFooter, InputPromptSubmit, InputPromptTools};
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Chip, Icon, IconButton, IconType, InputPromptFooter,
+    InputPromptSubmit, InputPromptTools, Select, SelectOption,
+};
 use crate::pump::Pump;
 
 #[component]
@@ -49,42 +50,33 @@ pub(super) fn ComposerFooter(
     let plan_conversation = conversation.id.clone();
     let advisor_pump = pump.clone();
     let advisor_conversation = conversation.id.clone();
-    let footer_tools_sx = use_hook(|| sx().min_width("0").display("flex").flex_wrap("wrap"));
-    let footer_actions_sx = use_hook(|| {
-        sx().min_width("0")
-            .display("flex")
-            .flex_wrap("wrap")
-            .justify_content("end")
-    });
     rsx! {
         InputPromptFooter {
-            InputPromptTools { sx: footer_tools_sx,
-                Button {
-                    variant: "standard",
-                    "aria-label": "Show agent commands",
+            InputPromptTools { class: "min-w-0 flex-wrap",
+                IconButton {
+                    icon: IconType::Plus,
+                    label: "Show agent commands",
                     title: "Commands",
-                    "aria-expanded": commands_open,
-                    "aria-controls": "{listbox}",
+                    variant: ButtonVariant::Ghost,
                     "data-testid": "agent-chat-commands",
+                    expanded: Some(commands_open),
+                    controls_id: Some(listbox),
                     onclick: move |_| on_commands.call(()),
-                    Pictogram { icon: pictogram_icons_lucide::plus::outlined }
                 }
                 if conversation.mode == "plan" {
-                    Chip {
-                        checked: Some(true),
-                        icon: Some(rsx! { Pictogram { icon: pictogram_icons_lucide::clipboard_list::outlined } }),
+                    Chip { label: "Plan".to_string(), icon: Some(IconType::ClipboardList), selected: Some(true),
+                        title: Some("Plan mode is on. Select to turn it off.".to_string()),
                         onclick: Some(EventHandler::new(move |_| {
                             submit_direct_command(plan_pump.clone(), plan_conversation.clone(), "/plan".to_string(), report)
                         })),
-                        "Plan"
                     }
                 }
                 if conversation.advisor || advisor_pending() {
-                    Chip {
-                        checked: Some(conversation.advisor),
-                        disabled: Some(advisor_pending()),
+                    Chip { label: "Advisor".to_string(), icon: Some(IconType::Brain), selected: Some(conversation.advisor),
                         title: Some(advisor_title(conversation.advisor, advisor_pending()).to_string()),
-                        icon: Some(rsx! { Pictogram { icon: pictogram_icons_lucide::brain::outlined } }),
+                        test_id: Some("agent-advisor-toggle".to_string()),
+                        disabled: advisor_pending(),
+                        busy: advisor_pending(),
                         onclick: Some(EventHandler::new(move |_| {
                             if advisor_pending() {
                                 return;
@@ -92,31 +84,31 @@ pub(super) fn ComposerFooter(
                             advisor_pending.set(true);
                             submit_direct_command(advisor_pump.clone(), advisor_conversation.clone(), "/advisor".to_string(), advisor_done);
                         })),
-                        "Advisor"
                     }
                 }
                 GoalDock { goal, view_request: goal_view_request, on_open: on_goal_open }
             }
-            InputPromptTools { sx: footer_actions_sx,
+            InputPromptTools { class: "min-w-0 flex-wrap justify-end",
                 AgentModelControls { conversation: conversation.clone(), catalog, catalog_failed, pump }
                 {voice_controls}
-                Select {
-                    value: Some(busy_mode()),
-                    onchange: move |mode: Option<String>| {
-                        if let Some(mode) = mode {
-                            busy_mode.set(mode);
-                        }
-                    },
-                    options: vec!["follow_up".to_string(), "steer".to_string(), "reject".to_string()],
-                    label: "When busy",
-                }
+                    Select {
+                        test_id: "agent-chat-when-busy",
+                        label: "When busy",
+                        value: busy_mode(),
+                        options: vec![
+                            SelectOption::new("follow_up", "Follow-up"),
+                            SelectOption::new("steer", "Steer"),
+                            SelectOption::new("reject", "Reject if busy"),
+                        ],
+                        on_change: move |mode| busy_mode.set(mode),
+                    }
                 if running {
                     Button {
-                        variant: "filled",
-                        color: "error",
-                        icon: Some(rsx! { Pictogram { icon: pictogram_icons_lucide::square::outlined } }),
+                        icon: IconType::Square,
+                        size: ButtonSize::Sm,
                         "aria-label": "Interrupt foreground work",
                         title: "Interrupt foreground work. Background jobs continue.",
+                        variant: ButtonVariant::Destructive,
                         "data-testid": "agent-chat-stop",
                         onclick: move |_| on_stop.call(()),
                         "Interrupt"
@@ -141,7 +133,7 @@ pub(super) fn ComposerFooter(
                         } else { "Send" },
                         test_id: "agent-chat-send",
                         onclick: move |_| on_send.call(()),
-                        Pictogram { icon: pictogram_icons_lucide::arrow_up::outlined, width: "1rem", height: "1rem" }
+                        Icon { icon: IconType::ArrowUp, class: "size-4" }
                     }
                 }
             }

@@ -1,25 +1,26 @@
-//! One session's agent status chip: the level's Libero indicator and, unless
+//! One session's agent status chip: the level's `StatusDot` and, unless
 //! compact, its label, hidden while the session has no status or an unknown
-//! one. The level and tooltip come from
+//! one. Ports `apps/web/src/components/agents/AgentStatusIndicator.tsx`; the
+//! sidebar's session and agent rows render it. The level and tooltip come from
 //! `roost_client_core::client::agents::status_policy`.
 
 use dioxus::prelude::*;
-use libero::components::{Flex, Indicator, Text};
 use roost_client_core::client::agents::status_policy::{
     AgentDotStatus, AgentStatusLevel, agent_status_level_token, agent_status_presentation,
     agent_status_tooltip, derive_agent_status_level,
 };
 use roost_protocol::wire::SessionId;
 
+use crate::components::ui::StatusDot;
 use crate::pump::use_store;
 
-/// The Libero indicator color for an agent status dot.
-pub const fn agent_dot_color(dot: AgentDotStatus) -> &'static str {
+/// The `StatusDot` status name a level's dot paints with.
+pub const fn agent_dot_status_name(dot: AgentDotStatus) -> &'static str {
     match dot {
-        AgentDotStatus::Warn => "warning",
-        AgentDotStatus::Ok => "success",
+        AgentDotStatus::Warn => "warn",
+        AgentDotStatus::Ok => "ok",
         AgentDotStatus::Info => "info",
-        AgentDotStatus::Idle => "muted",
+        AgentDotStatus::Idle => "idle",
     }
 }
 
@@ -31,6 +32,7 @@ pub fn AgentStatusIndicator(
     /// Surfaces with their own hover card suppress the native tooltip.
     #[props(default)]
     suppress_tooltip: bool,
+    class: Option<String>,
 ) -> Element {
     let pump = use_store();
     let core = pump.core();
@@ -49,30 +51,18 @@ pub fn AgentStatusIndicator(
     }
     let presentation = agent_status_presentation(level);
     let title = (!suppress_tooltip).then(|| agent_status_tooltip(status, acknowledged));
-    let text_color = match level {
-        AgentStatusLevel::Blocked => "warning",
-        AgentStatusLevel::Done => "success",
-        AgentStatusLevel::Working => "info",
-        _ => "muted",
-    };
+    let extra_class = class.unwrap_or_default();
     rsx! {
-        Flex {
-            direction: "row",
-            align: "center",
-            gap: "xs",
-            wrap: false,
+        span {
+            class: "inline-flex items-center gap-1 min-w-0 text-sm text-muted-foreground data-[level=blocked]:text-warning data-[level=done]:text-success data-[level=working]:text-info {extra_class}",
             "data-testid": "agent-status-{session_id}",
             "data-level": agent_status_level_token(level),
             title,
             role: "img",
             "aria-label": presentation.label,
-            Indicator {
-                color: agent_dot_color(presentation.dot_status),
-                size: "xs",
-                aria_hidden: "true",
-            }
+            StatusDot { status: agent_dot_status_name(presentation.dot_status).to_owned() }
             if !compact {
-                Text { size: "sm", color: text_color, "{presentation.label}" }
+                span { class: "truncate", {presentation.label} }
             }
         }
     }

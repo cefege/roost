@@ -12,16 +12,11 @@ use std::collections::BTreeSet;
 
 use dioxus::prelude::*;
 
-use libero::components::Dialog;
-use libero::hooks::{ModalScope, use_modal};
-use libero::sx::sx;
-
+use crate::components::ui::{
+    BindingChip, Chip, Dialog, DialogContent, DialogHeader, DialogTitle, Surface, SurfaceRadius,
+};
 use crate::input_nav::pad_bindings::{PAD_CONTROL_GUIDE, PadAction, PadControlGuide};
 use crate::input_nav::{NavModality, PadHeld};
-
-#[path = "controller_map_view.rs"]
-mod view;
-use view::ControllerMapBody;
 
 /// One seat of the diagram: a cap, the cluster it sits in, and the
 /// standard-mapping indices that light it.
@@ -42,7 +37,8 @@ const FACE: &str = "face";
 const STICK_RIGHT: &str = "stick-right";
 
 /// Source order is DOM order within a cluster. The face diamond is the one
-/// exception: its four seats form a diamond in `controller_map_view`.
+/// exception: its four seats are placed by cap in `cluster_class`, a diamond being
+/// no stack.
 const PAD_MAP_SLOTS: [PadMapSlot; 15] = [
     PadMapSlot {
         cap: "LT",
@@ -160,39 +156,129 @@ pub fn ControllerMap() -> Element {
     let overlays = crate::keyboard_shortcuts::use_shortcut_overlays();
     let modality: Option<Signal<NavModality>> = try_use_context();
     let held: Option<Signal<PadHeld>> = try_use_context();
-    let mut product_open = overlays.controller_map;
-    let dialog_sx = use_hook(|| sx().max_width("65rem"));
-    let modal = use_modal(move |_scope: ModalScope<()>| {
-        let held = held.and_then(|held| held.try_read().ok().map(|value| value.cloned()));
-        rsx! {
-            Dialog { title: "Controller map", sx: dialog_sx.clone(),
-                ControllerMapBody { held: held.unwrap_or_default() }
+    // Open is not enough: this surface exists only when input is actually coming
+    // from a controller, and the modality's latch is that signal — a pad plugged
+    // in for games never asked for a controller UI.
+    let pad_seen = modality.is_some_and(|modality| modality.peek().pad_input_seen());
+    let open = *overlays.controller_map.peek() && pad_seen;
+    let on_open_change = {
+        let mut controller_map = overlays.controller_map;
+        EventHandler::new(move |is_open: bool| controller_map.set(is_open))
+    };
+    rsx! {
+        Dialog {
+            open,
+            on_open_change,
+            DialogContent {
+                class: "sm:max-w-[65rem]",
+                DialogHeader { DialogTitle { "Controller map" } }
+                if open {
+                    ControllerMapBody {
+                        held: held
+                            .and_then(|held| held.try_read().ok().map(|value| value.cloned()))
+                            .unwrap_or_default(),
+                    }
+                }
             }
         }
-    });
-    let mut previously_open = use_signal(|| false);
-    use_effect(move || {
-        let requested_open = *product_open.read()
-            && modality.is_some_and(|modality| modality.read().pad_input_seen());
-        let modal_open = modal.is_open();
-        if requested_open {
-            if modal_open {
-                previously_open.set(true);
-            } else if previously_open() {
-                product_open.set(false);
-                previously_open.set(false);
-            } else {
-                modal.open();
-                previously_open.set(true);
+    }
+}
+
+/// The silhouette, the caption, and the pads this build binds nothing to.
+#[component]
+fn ControllerMapBody(held: PadHeld) -> Element {
+    let caps = held_caps(&held);
+    let unnamed: Vec<usize> = held
+        .buttons
+        .iter()
+        .copied()
+        .filter(|index| {
+            !PAD_MAP_SLOTS
+                .iter()
+                .any(|slot| slot.buttons.contains(index))
+        })
+        .collect();
+    let caption = caption_for(&caps);
+    rsx! {
+        div { class: "flex flex-col gap-4", "data-testid": "controller-map",
+            Surface {
+                level: 2,
+                elevation: 1,
+                radius: SurfaceRadius::Lg,
+                pad: 5,
+                class: "grid grid-cols-[minmax(0,1fr)_minmax(0,0.7fr)_minmax(0,1.3fr)] items-start gap-4 [grid-template-areas:'shoulder-left_._shoulder-right'_'stick-left_centre_face'_'dpad_centre_stick-right']",
+                for cluster in PAD_MAP_CLUSTERS {
+                    div { class: cluster_class(cluster), "data-cluster": cluster,
+                        for slot in PAD_MAP_SLOTS.iter().filter(|slot| slot.cluster == cluster) {
+                            PadCallout {
+                                cap: slot.cap.to_owned(),
+                                held: caps.contains(slot.cap),
+                                guide: guide_for(slot.cap),
+                            }
+                        }
+                    }
+                }
             }
-        } else {
-            if modal_open {
-                modal.close();
+            p { class: "m-0 min-h-8 text-sm text-muted-foreground", "data-testid": "controller-map-caption", {caption} }
+            if !unnamed.is_empty() {
+                div { class: "flex flex-wrap items-center gap-2",
+                    for index in unnamed {
+                        PadCallout { cap: format!("Button {index}"), held: true, guide: None }
+                    }
+                }
             }
-            previously_open.set(false);
+            div { class: "flex flex-wrap items-center gap-2",
+                Chip { label: "B, Esc or Start closes".to_owned(), icon: None, selected: None, onclick: None, title: None, test_id: None }
+                span { class: "text-xs text-muted-foreground",
+                    "Xbox labels — the same caps on any standard-mapping pad."
+                }
+            }
         }
-    });
-    rsx! {}
+    }
+}
+
+/// The grid seat of one cluster. The face diamond is the one cluster whose
+/// callouts are placed by cap rather than by source order, so its class also
+/// places and hides its own children.
+fn cluster_class(cluster: &str) -> &'static str {
+    match cluster {
+        SHOULDER_LEFT => "flex flex-col gap-2 [grid-area:shoulder-left]",
+        SHOULDER_RIGHT => "flex flex-col gap-2 [grid-area:shoulder-right]",
+        STICK_LEFT => "flex flex-col gap-2 [grid-area:stick-left]",
+        DPAD => "flex flex-col gap-2 [grid-area:dpad]",
+        CENTRE => "flex flex-col gap-2 [grid-area:centre]",
+        STICK_RIGHT => "flex flex-col gap-2 [grid-area:stick-right]",
+        FACE => {
+            "grid grid-cols-[repeat(3,minmax(0,1fr))] gap-2 [grid-area:face] [grid-template-areas:'._face-y_.'_'face-x_._face-b'_'._face-a_.'] [&>[data-cap=Y]]:[grid-area:face-y] [&>[data-cap=X]]:[grid-area:face-x] [&>[data-cap=B]]:[grid-area:face-b] [&>[data-cap=A]]:[grid-area:face-a] [&_[data-detail]]:hidden"
+        }
+        _ => "flex flex-col gap-2",
+    }
+}
+
+/// One labelled callout.
+///
+/// The clause sits in the body AND in the title: LB/RB and LT/RT share a verb by
+/// design, so the diagram is ambiguous without it. The face diamond hides the
+/// body clause for lack of room; the title still carries it.
+#[component]
+fn PadCallout(cap: String, held: bool, guide: Option<PadControlGuide>) -> Element {
+    let detail = guide.map_or(UNBOUND_DETAIL, |guide| guide.detail);
+    let label = guide.map_or(UNBOUND_LABEL, |guide| guide.label);
+    // rsx emits a node's children before its attributes, so the two values the
+    // attribute list also reads are cloned here rather than borrowed below.
+    let data_cap = cap.clone();
+    let title = detail;
+    rsx! {
+        div {
+            class: "group flex flex-col items-start gap-1 rounded-lg border border-border bg-card p-2 data-[held=true]:border-primary data-[held=true]:bg-accent",
+            "data-cap": data_cap,
+            "data-held": if held { "true" } else { "false" },
+            title,
+            BindingChip { {cap} }
+            span { class: "text-sm font-medium text-foreground group-data-[held=true]:text-accent-foreground", {label} }
+            span { class: "text-xs text-muted-foreground", "data-detail": "true", {detail} }
+        }
+    }
 }
 
 /// The caps the current poll is holding.

@@ -11,13 +11,12 @@ use roost_web_terminal::cell_row::span_style;
 
 use super::card_swipe::CardSwipe;
 use super::dom::{now_ms, sleep_ms};
-use super::pane_registry::PaneRegistry;
+use super::pane_registry::use_pane_registry;
 use crate::components::agents::agent_status_indicator::AgentStatusIndicator;
 use crate::components::deck::deck_swipe::card_swipe_alpha;
-use crate::pump::Pump;
+use crate::components::ui::{Card, Checkbox, IconButton, IconType};
+use crate::pump::use_store;
 use crate::session_naming::{program_subtitle, session_title};
-use libero::components::{ActionIcon, Box, Checkbox, Paper, Text};
-use libero::sx::sx;
 
 /// How long a dismissed card slides before it closes.
 const DISMISS_SLIDE_MS: u64 = 180;
@@ -34,14 +33,9 @@ pub fn TerminalCard(
     selection_mode: bool,
     selected: bool,
     on_toggle_select: EventHandler<String>,
-    pump: Pump,
-    pane_registry: PaneRegistry,
 ) -> Element {
-    use_context_provider(|| pump.clone());
-    use_context_provider(|| pane_registry.clone());
-    let revision = pump.revision();
-    let _revision = revision();
-    let panes = pane_registry;
+    let pump = use_store();
+    let panes = use_pane_registry();
     let (name, subtitle) = {
         let core = pump.core();
         let core = core.borrow();
@@ -84,102 +78,12 @@ pub fn TerminalCard(
         "transform: translateX({dx}px); opacity: {}; transition: {transition};",
         card_swipe_alpha(dx)
     );
-    let paper_sx = use_hook(|| {
-        sx().position("relative")
-            .min_width("0")
-            .overflow("hidden")
-            .text_align("start")
-    });
-    let header_sx = use_hook(|| {
-        sx().display("flex")
-            .height("2.25rem")
-            .flex_shrink("0")
-            .align_items("center")
-            .gap("sm")
-            .overflow("hidden")
-            .padding_inline_start("sm")
-            .padding_inline_end("2.75rem")
-    });
-    let glyph_frame_sx = use_hook(|| {
-        sx().display("flex")
-            .width("1.5rem")
-            .height("1.5rem")
-            .flex_shrink("0")
-            .align_items("center")
-            .justify_content("center")
-            .border_radius("xs")
-            .background("neutral.1")
-    });
-    let glyph_sx = use_hook(|| {
-        sx().font_family("var(--lsx-code-font-family)")
-            .font_weight("bold")
-    });
-    let title_sx = use_hook(|| {
-        sx().min_width("0")
-            .overflow("hidden")
-            .with("overscroll-behavior-y", "auto")
-            .text_overflow("ellipsis")
-            .white_space("nowrap")
-            .font_size("sm")
-            .font_weight("500")
-    });
-    let subtitle_sx = use_hook(|| {
-        sx().display("block")
-            .overflow("hidden")
-            .with("overscroll-behavior-y", "auto")
-            .text_overflow("ellipsis")
-            .white_space("nowrap")
-            .font_size("xs")
-            .color("muted")
-    });
-    let preview_frame_sx = use_hook(|| {
-        sx().position("relative")
-            .margin("xs")
-            .height("10rem")
-            .overflow("hidden")
-            .with("border-radius", "12px 12px 20px 20px")
-            .background("var(--terminal-grid-bg)")
-    });
-    let preview_sx = use_hook(|| {
-        sx().display("block")
-            .width("100%")
-            .height("100%")
-            .overflow("hidden")
-            .with("overscroll-behavior-y", "auto")
-            .border_radius("inherit")
-            .padding_inline("xs")
-            .padding_block("xs")
-            .font_family("var(--lsx-code-font-family)")
-            .with("font-size", "var(--term-preview-font-size)")
-            .with("line-height", "var(--term-preview-line-height)")
-            .white_space("pre")
-            .box_sizing("border-box")
-            .color("var(--terminal-grid-fg)")
-            .selector("& span", sx().with("animation", "none"))
-    });
-    let preview_empty_sx = use_hook(|| {
-        sx().position("absolute")
-            .with("top", "50%")
-            .with("left", "50%")
-            .transform("translate(-50%, -50%)")
-            .font_size("xxl")
-            .with("line-height", "1")
-            .color("muted")
-            .opacity("0.7")
-    });
-    let meta_sx = use_hook(|| {
-        sx().display("flex")
-            .min_width("0")
-            .flex("1")
-            .flex_direction("column")
-            .overflow("hidden")
-    });
     let close_session = session.clone();
     let end_session = session.clone();
 
     rsx! {
-        Paper {
-            sx: paper_sx,
+        Card {
+            class: Some("relative min-w-0 cursor-pointer overflow-hidden rounded-3xl border-0 py-0 gap-0 text-left text-foreground shadow-sm [-webkit-tap-highlight-color:transparent] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary data-[active=true]:ring-2 data-[active=true]:ring-primary data-[selected=true]:ring-2 data-[selected=true]:ring-primary".to_owned()),
             "data-testid": "terminal-card-{id}",
             "data-active": if active { "true" } else { "false" },
             "data-selected": if selected { "true" } else { "false" },
@@ -223,21 +127,23 @@ pub fn TerminalCard(
                     on_key();
                 }
             },
-            Box { component: "div", sx: header_sx,
-                Box { component: "span", sx: glyph_frame_sx, Box { component: "span", sx: glyph_sx.clone(), "$" } }
-                Box { component: "div", sx: meta_sx,
-                    Text { component: "span", sx: title_sx, "{name}" }
+            div { class: "flex h-9 shrink-0 items-center gap-2 overflow-hidden pl-[11px] pr-11",
+                span { class: "flex size-6 shrink-0 items-center justify-center rounded-[3px] bg-[var(--surface-3)]",
+                    span { class: "font-mono font-bold", "$" }
+                }
+                div { class: "flex min-w-0 flex-1 flex-col overflow-hidden",
+                    span { class: "min-w-0 truncate text-sm font-medium", "{name}" }
                     if let Some(subtitle) = subtitle {
-                        Text { component: "span", sx: subtitle_sx, "{subtitle}" }
+                        span { class: "block truncate text-xs text-[var(--text-mid)]", "{subtitle}" }
                     }
                     AgentStatusIndicator { session_id: id.clone() }
                 }
             }
             if !selection_mode {
-                ActionIcon {
-                    icon: pictogram_icons_lucide::x::outlined,
-                    aria_label: "Close terminal session",
-                    size: "lg",
+                IconButton {
+                    icon: IconType::X,
+                    label: "Close terminal session",
+                    class: Some("absolute top-0 right-0 size-12 text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent".to_owned()),
                     "data-testid": "terminal-card-close-{id}",
                     onclick: move |event: MouseEvent| {
                         event.stop_propagation();
@@ -248,27 +154,27 @@ pub fn TerminalCard(
             }
             if selection_mode {
                 Checkbox {
+                    class: Some("absolute top-1.5 right-1.5 z-[1] size-6 rounded-full border-2 bg-card dark:bg-card".to_owned()),
                     checked: selected,
-                    aria_label: "Select terminal",
-                    onclick: move |event: MouseEvent| event.stop_propagation(),
-                    onchange: move |_| on_toggle_select.call(id.clone()),
+                    test_id: format!("terminal-card-check-{id}"),
+                    presentational: true,
                 }
             }
             // The per-device colour scheme writes --terminal-grid-* inline on
             // <html>; the theme's terminal role would ignore it, and the preview
             // must look like the terminal it previews (as the tab hover card does).
-            Box { component: "div", sx: preview_frame_sx,
+            div { class: "relative m-1 h-40 overflow-hidden rounded-[12px_12px_20px_20px] bg-[var(--terminal-grid-bg)]",
                 match preview {
                     Some(rows) if !rows.is_empty() => rsx! {
-                        Box { component: "div", sx: preview_sx,
+                        div { class: "block size-full overflow-hidden rounded-[inherit] px-1.5 py-1 font-mono text-preview whitespace-pre box-border text-[var(--terminal-grid-fg)] [&_span]:animate-none!",
                             for (index, row) in rows.iter().enumerate() {
                                 PreviewRow { key: "{index}", row: row.clone() }
                             }
                         }
                     },
                     _ => rsx! {
-                        Box { component: "span", sx: preview_empty_sx,
-                            Box { component: "span", sx: glyph_sx, "$" }
+                        span { class: "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[2.5rem] leading-none text-muted-foreground opacity-70",
+                            span { class: "font-mono font-bold", "$" }
                         }
                     },
                 }
@@ -280,9 +186,8 @@ pub fn TerminalCard(
 /// One preview row, painted with the renderer's own span styles.
 #[component]
 fn PreviewRow(row: CellRow) -> Element {
-    let row_sx = use_hook(|| sx().overflow("hidden").white_space("pre"));
     rsx! {
-        Box { component: "div", sx: row_sx,
+        div { class: "overflow-hidden whitespace-pre",
             if row.spans.is_empty() {
                 "\u{a0}"
             }

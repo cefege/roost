@@ -5,8 +5,6 @@
 use std::cell::RefCell;
 
 use dioxus::prelude::*;
-use libero::components::{Box, Text};
-use libero::sx::sx;
 
 use crate::components::mobile_voice_send::FinalizeSendDoor;
 use crate::voice::send_gate::SendGate;
@@ -197,33 +195,15 @@ pub(crate) fn use_dictation_context(
 /// The mirror the field paints over itself while a hypothesis is unproven.
 #[component]
 pub fn GhostMirror(ghost: PaintedDraft) -> Element {
-    let ghost_sx = use_hook(|| {
-        sx().position("absolute")
-            .with("inset", "0")
-            .z_index("0")
-            .pointer_events("none")
-            .overflow("hidden")
-            .white_space("pre-wrap")
-            .overflow_wrap("break-word")
-            .color("ink")
-            .padding_inline("md")
-            .with("padding-block", "var(--term-chat-field-pad-block)")
-            .font_family("sans-serif")
-            .with("font-size", "max(1rem, var(--term-chat-font-size))")
-            .with("line-height", "var(--term-chat-line-height)")
-    });
-    let tail_sx = use_hook(|| sx().color("muted"));
     rsx! {
-        Box {
-            component: "div",
-            sx: ghost_sx,
+        div {
+            class: "pointer-events-none absolute inset-0 z-0 overflow-hidden whitespace-pre-wrap break-words text-foreground px-3 py-(--term-chat-field-pad-block) font-sans text-[length:max(1rem,var(--term-chat-font-size))] leading-(--term-chat-line-height)",
             "data-composer-part": "ghost",
             "data-testid": "chat-ghost",
             aria_hidden: "true",
             span { "{ghost.settled_head()}" }
-            Text {
-                component: "span",
-                sx: tail_sx,
+            span {
+                class: "text-muted-foreground",
                 "data-testid": "chat-ghost-tail",
                 "{ghost.provisional_tail()}"
             }

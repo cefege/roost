@@ -4,11 +4,6 @@
 //! `picker::controls`, the markup from `picker::regions`. It holds no state of
 //! its own. Ports `apps/web/src/components/browse/WorkerBrowsePage.tsx`.
 
-use std::cell::RefCell;
-use std::rc::Rc;
-
-use crate::components::overlay_generation::OverlayGeneration;
-
 use dioxus::prelude::*;
 
 use crate::components::browse::BrowseLaunchMode;
@@ -42,9 +37,6 @@ pub fn PickerPage(
     navigate: EventHandler<String>,
     launch_mode: BrowseLaunchMode,
 ) -> Element {
-    let generation = use_hook(|| Rc::new(RefCell::new(OverlayGeneration::default())));
-    let drop_generation = Rc::clone(&generation);
-    use_drop(move || drop_generation.borrow_mut().invalidate());
     // The sheet's auto-focus would put the cursor on its own close control,
     // which is a keyboard reader's first Tab away from the entries.
     let unavailable = controls_unavailable(&reading);
@@ -67,7 +59,6 @@ pub fn PickerPage(
         crumb_menu_open,
         navigate,
         launch_mode,
-        Rc::clone(&generation),
     );
 
     rsx! {

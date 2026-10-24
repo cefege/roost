@@ -2,11 +2,13 @@
 //! The chat surface mounts this beside the composer from the runtime's typed
 //! LoopStatus item; changing the mode uses the shared command submit path.
 
-use super::composer_commands::submit_direct_command;
-use crate::pump::Pump;
 use dioxus::prelude::*;
-use libero::components::{Badge, Button, Flex, Pictogram, Text};
-use libero::sx::sx;
+
+use super::composer_commands::submit_direct_command;
+use crate::components::ui::{
+    Badge, BadgeSize, BadgeVariant, ButtonSize, FieldError, Icon, IconButton, IconType,
+};
+use crate::pump::Pump;
 
 #[component]
 pub(super) fn LoopControls(status: String, conversation_id: String, pump: Pump) -> Element {
@@ -16,30 +18,20 @@ pub(super) fn LoopControls(status: String, conversation_id: String, pump: Pump) 
         pending.set(false);
         error.set(result.err());
     });
-    let controls_sx = use_hook(|| {
-        sx().display("flex")
-            .flex_wrap("wrap")
-            .align_items("center")
-            .gap("sm")
-    });
-    let error_sx = use_hook(|| {
-        sx().with("flex-basis", "100%")
-            .font_size("sm")
-            .color("error")
-    });
     rsx! {
-        Flex { direction: "row", sx: controls_sx, "data-testid": "agent-loop-controls",
-            Text { role: "status", title: "Repeats the request until its limit, condition or Stop. Turn off to stop repeating.",
-                Badge { variant: "tonal",
-                    Pictogram { icon: pictogram_icons_lucide::repeat::outlined }
+        div { class: "flex flex-wrap items-center gap-2", "data-testid": "agent-loop-controls",
+            span { role: "status", title: "Repeats the request until its limit, condition or Stop. Turn off to stop repeating.",
+                Badge { variant: BadgeVariant::Secondary, size: BadgeSize::Sm, class: Some("gap-1".to_owned()),
+                    Icon { icon: IconType::Repeat, class: "size-3" }
                     "{status}"
                 }
             }
-            Button {
-                variant: "text",
-                disabled: pending(),
-                "aria-label": "Turn off repeat mode",
+            IconButton {
+                icon: IconType::X,
+                label: "Turn off repeat mode",
                 title: "Turn off repeat mode",
+                size: ButtonSize::IconSm,
+                disabled: pending(),
                 "aria-busy": pending().then_some("true"),
                 "data-testid": "agent-loop-disable",
                 onclick: move |_| {
@@ -49,10 +41,9 @@ pub(super) fn LoopControls(status: String, conversation_id: String, pump: Pump) 
                         submit_direct_command(pump.clone(), conversation_id.clone(), "/loop off".into(), complete);
                     }
                 },
-                Pictogram { icon: pictogram_icons_lucide::x::outlined }
             }
             if let Some(error) = error() {
-                Text { sx: error_sx, "{error}" }
+                FieldError { class: "basis-full", "{error}" }
             }
         }
     }

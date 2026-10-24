@@ -5,8 +5,7 @@
 use dioxus::prelude::*;
 
 use super::output_lines::window;
-use libero::components::{Box, Button, Flex, Paper, Text};
-use libero::sx::sx;
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, Surface};
 
 /// Lines of written content shown before folding, matching OMP's write preview.
 pub(super) const WRITE_PREVIEW_LINES: usize = 6;
@@ -44,60 +43,26 @@ pub fn WriteBody(content: String, open: bool, on_expand: EventHandler<bool>) -> 
     let hint = format!("+{} more lines", preview.hidden);
     let can_collapse = open && preview.total > WRITE_PREVIEW_LINES;
     let gutter_style = format!("--write-gutter: {};", preview.gutter);
-    let surface_sx = use_hook(|| {
-        sx().border_radius("sm")
-            .background("var(--term-bg)")
-            .color("var(--term-fg)")
-            .padding_top("sm")
-            .padding_bottom("sm")
-    });
-    let code_sx = use_hook(|| {
-        sx().margin("0")
-            .overflow_x("auto")
-            .with("overscroll-behavior-y", "auto")
-            .font_family("monospace")
-            .font_size("xs")
-    });
-    let line_sx = use_hook(|| sx().display("flex").white_space("pre"));
-    let number_sx = use_hook(|| {
-        sx().min_width("calc(var(--write-gutter) * 1ch)")
-            .with("user-select", "none")
-            .padding_right("md")
-            .text_align("right")
-            .color("muted")
-    });
-    let content_sx = use_hook(|| {
-        sx().white_space("pre-wrap")
-            .with("overflow-wrap", "anywhere")
-    });
-    let hint_sx = use_hook(|| {
-        sx().margin("0")
-            .padding_inline("md")
-            .padding_top("xs")
-            .font_size("xs")
-            .color("muted")
-    });
-    let action_sx = use_hook(|| sx().align_self("flex-start"));
     rsx! {
-        Paper { sx: surface_sx,
-            Box { component: "pre", sx: code_sx, style: gutter_style,
+        Surface { class: "rounded-md bg-terminal py-2 text-terminal-foreground",
+            pre { class: "m-0 overflow-x-auto font-mono text-xs", style: gutter_style,
                 for (number, line) in preview.lines.iter() {
-                    Flex { key: "{number}", direction: "row", sx: line_sx.clone(),
-                        Text { component: "span", sx: number_sx.clone(), "{number}" }
-                        Text { component: "span", sx: content_sx.clone(), "{line}" }
+                    div { class: "flex whitespace-pre", key: "{number}",
+                        span { class: "min-w-[calc(var(--write-gutter)*1ch)] select-none pr-3 text-right text-muted-foreground", "{number}" }
+                        span { class: "whitespace-pre-wrap break-words", "{line}" }
                     }
                 }
             }
             if preview.hidden > 0 {
-                Text { component: "p", sx: hint_sx, "{hint}" }
+                p { class: "m-0 px-3 pt-1 text-xs text-muted-foreground", "{hint}" }
             }
         }
         if preview.hidden > 0 {
-            Button { variant: "standard", size: "sm", sx: action_sx.clone(),
+            Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "self-start",
                 onclick: move |_| on_expand.call(true), "Show all" }
         }
         if can_collapse {
-            Button { variant: "standard", size: "sm", sx: action_sx,
+            Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "self-start",
                 onclick: move |_| on_expand.call(false), "Collapse" }
         }
     }

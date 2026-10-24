@@ -23,10 +23,13 @@ use roost_client_core::store::shell_intent::ShellIntent;
 
 use super::format::format_timestamp;
 use crate::components::pairing::PhonePairingCard;
+use crate::components::ui::{
+    Badge, BadgeVariant, Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader,
+    CardTitle, EmptyState, FieldError, IconType, List, ListRow,
+};
 use crate::pump::{Pump, use_store};
 use crate::router_state::use_navigate;
 use crate::routes::Route;
-use libero::components::{Button, Flex, Paper, Pictogram, Text, Title};
 
 /// The device list, and whatever the coordinator said about the last read.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -43,32 +46,41 @@ pub fn DevicesPane() -> Element {
     let pump = use_store();
     let navigate = use_navigate();
     let view = use_signal(DevicesView::default);
+    // The effect outlives this render, so it takes its OWN clone: a `move`
+    // closure over `pump` itself would consume the binding the revoke handler
+    // below still reads.
     let load_pump = pump.clone();
     use_effect(move || reload(load_pump.clone(), view));
     let state = view();
     rsx! {
-        Flex { direction: "column", gap: "md", "data-testid": "settings-devices-pane",
-            Paper {
-                Flex { direction: "column", gap: "sm",
-                    Title { size: "md", "Authorized devices" }
-                    Text { size: "sm", color: "muted",
+        div {
+            class: "flex flex-col gap-5",
+            "data-testid": "settings-devices-pane",
+            Card {
+                CardHeader {
+                    CardTitle { "Authorized devices" }
+                    CardDescription {
                         "Browsers authorized to access this coordinator. Revocation is permanent for that key."
                     }
+                }
+                CardContent {
                     if !state.loaded && state.error.is_none() {
-                        Text { size: "sm", color: "muted", "aria-live": "polite", "Loading devices…" }
+                        p { class: "text-sm text-muted-foreground", "aria-live": "polite",
+                            "Loading devices…"
+                        }
                     }
                     if let Some(message) = state.error.clone() {
-                        Text { color: "error", role: "alert", "{message}" }
+                        FieldError { {message} }
                     }
                     if state.loaded && state.error.is_none() && state.devices.is_empty() {
-                        Flex { direction: "column", align: "center", gap: "xs",
-                            Pictogram { icon: pictogram_icons_lucide::monitor_smartphone::outlined }
-                            Text { size: "sm", "No browser devices" }
-                            Text { size: "sm", color: "muted", "Pair a browser below, then refresh this list." }
+                        EmptyState {
+                            icon: IconType::MonitorSmartphone,
+                            title: "No browser devices",
+                            supporting: "Pair a browser below, then refresh this list.",
                         }
                     }
                     if !state.devices.is_empty() {
-                        Flex { direction: "column", gap: "sm",
+                        List {
                             for device in state.devices.iter() {
                                 DeviceRow { device: device.clone(), view, pump: pump.clone() }
                             }
@@ -77,15 +89,17 @@ pub fn DevicesPane() -> Element {
                 }
             }
             PhonePairingCard {}
-            Paper {
-                Flex { direction: "column", gap: "sm",
-                    Title { size: "md", "Approve a browser" }
-                    Text { size: "sm", color: "muted",
+            Card {
+                CardHeader {
+                    CardTitle { "Approve a browser" }
+                    CardDescription {
                         "A browser that requested access waits on the pairing page until you approve it with the code it shows."
                     }
+                }
+                CardContent {
                     Button {
-                        variant: "outlined",
-                        icon: Some(rsx! { Pictogram { icon: pictogram_icons_lucide::monitor_smartphone::outlined } }),
+                        variant: ButtonVariant::Secondary,
+                        icon: Some(IconType::MonitorSmartphone),
                         "data-testid": "settings-pair-device",
                         onclick: move |_| navigate.call(Route::Pair.to_path()),
                         "Open pairing"
@@ -108,41 +122,42 @@ fn DeviceRow(device: AuthorizedDevice, view: Signal<DevicesView>, pump: Pump) ->
     let busy = view().busy.as_deref() == Some(fingerprint.as_str());
     let provenance = pairing_provenance(&device);
     rsx! {
-        Flex { direction: "row", align: "center", justify: "space-between", gap: "md",
-            "data-testid": format!("authorized-device-{fingerprint}"),
-            Flex { direction: "row", align: "center", gap: "sm",
-                Pictogram {
-                    icon: if device.is_self { pictogram_icons_lucide::monitor_smartphone::outlined } else { pictogram_icons_lucide::laptop::outlined },
-                }
-                Flex { direction: "column", gap: "xs",
-                    Flex { direction: "row", align: "center", gap: "xs",
-                        Text { size: "sm", "{label}" }
-                        if device.is_self {
-                            Text { size: "xs", color: "primary", "This device" }
-                        }
+        ListRow {
+            test_id: Some(format!("authorized-device-{fingerprint}")),
+            leading_icon: Some(if device.is_self { IconType::MonitorSmartphone } else { IconType::Laptop }),
+            headline: rsx! {
+                span { class: "inline-flex max-w-full items-baseline gap-2",
+                    span { class: "overflow-hidden text-ellipsis", {label.clone()} }
+                    if device.is_self {
+                        Badge { variant: BadgeVariant::Default, class: Some("shrink-0".to_owned()), "This device" }
                     }
-                    Text { size: "xs", color: "muted",
-                        "{fingerprint} · {format_timestamp(device.added_at_ms / 1_000)}"
+                }
+            },
+            support: Some(rsx! {
+                span { class: "block [overflow-wrap:anywhere]",
+                    span { class: "font-mono", {fingerprint.clone()} }
+                    span { " · " }
+                    time { datetime: format_timestamp(device.added_at_ms / 1_000) }
+                }
+                span { class: "block [overflow-wrap:anywhere]", {provenance.clone()} }
+            }),
+            trailing: Some(rsx! {
+                if device.is_self {
+                    span { class: "text-xs text-muted-foreground", "You cannot revoke this browser" }
+                } else {
+                    Button {
+                        variant: ButtonVariant::Secondary,
+                        "aria-label": format!("Revoke {label}"),
+                        "data-testid": format!("revoke-device-{fingerprint}"),
+                        disabled: busy,
+                        onclick: {
+                            let fingerprint = fingerprint.clone();
+                            move |_| revoke(pump.clone(), fingerprint.clone(), view)
+                        },
+                        if busy { "Revoking…" } else { "Revoke" }
                     }
-                    Text { size: "xs", color: "muted", "{provenance}" }
                 }
-            }
-            if device.is_self {
-                Text { size: "xs", color: "muted", "You cannot revoke this browser" }
-            } else {
-                Button {
-                    variant: "outlined",
-                    color: "error",
-                    "aria-label": format!("Revoke {label}"),
-                    "data-testid": format!("revoke-device-{fingerprint}"),
-                    disabled: busy,
-                    onclick: {
-                        let fingerprint = fingerprint.clone();
-                        move |_| revoke(pump.clone(), fingerprint.clone(), view)
-                    },
-                    if busy { "Revoking…" } else { "Revoke" }
-                }
-            }
+            }),
         }
     }
 }

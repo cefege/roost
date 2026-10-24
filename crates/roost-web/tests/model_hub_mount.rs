@@ -4,7 +4,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use crate::palette_support;
+#[allow(dead_code)]
+mod palette_support;
 
 use std::any::Any;
 use std::cell::RefCell;
@@ -12,11 +13,10 @@ use std::rc::Rc;
 
 use dioxus::core::{ElementId, Event, Mutations};
 use dioxus::html::{
-    Code, Key, Location, Modifiers, NamedKey, PlatformEventData, SerializedHtmlEventConverter,
+    Code, Key, Location, Modifiers, PlatformEventData, SerializedHtmlEventConverter,
     SerializedKeyboardData, set_event_converter,
 };
 use dioxus::prelude::*;
-use libero::LiberoProvider;
 use roost_client_core::ClientCore;
 use roost_protocol::wire::agent_chat::{
     AgentRunState, ConversationSummary, ModelEntry, ModelsCatalog, ProviderEntry,
@@ -24,8 +24,6 @@ use roost_protocol::wire::agent_chat::{
 use roost_web::components::agent_chat::model_hub::ModelHub;
 use roost_web::platform::connect::CoordRpc;
 use roost_web::pump::Pump;
-use roost_web::theme::catalog::theme_set_for_choice;
-use roost_web::theme::choice::ThemeChoice;
 
 use palette_support::RenderedTree;
 
@@ -37,7 +35,6 @@ fn hub_root() -> Element {
             Rc::new(CoordRpc::new("http://127.0.0.1:4113", "")),
         )
     });
-    let themes = use_hook(|| theme_set_for_choice(&ThemeChoice::default()).clone());
     let open = use_signal(|| true);
     let connect_provider = use_signal(|| None::<ProviderEntry>);
     let catalog = ModelsCatalog {
@@ -72,9 +69,7 @@ fn hub_root() -> Element {
         updated_ms: 0,
     };
     rsx! {
-        LiberoProvider { themes,
-            ModelHub { open, conversation, catalog: Some(catalog), pump, connect_provider }
-        }
+        ModelHub { open, conversation, catalog: Some(catalog), pump, connect_provider }
     }
 }
 
@@ -93,10 +88,6 @@ impl Hub {
     }
 
     fn press(&mut self, target: ElementId, key: Key) {
-        let target = self
-            .tree
-            .listener_target(target, "keydown")
-            .expect("the model control's DOM path includes its keyboard owner");
         let serialized = SerializedKeyboardData::new(
             key,
             Code::Unidentified,
@@ -125,7 +116,7 @@ fn unhydrated_settings_block_keyboard_role_assignment() {
     hub.settle();
     let target = *hub
         .tree
-        .matching_attribute("data-testid", "agent-model-hub")
+        .carrying("agent-model-hub")
         .first()
         .expect("the loading dialog is mounted");
     hub.press(target, Key::Named(NamedKey::ArrowLeft));
@@ -134,16 +125,6 @@ fn unhydrated_settings_block_keyboard_role_assignment() {
     }
     hub.press(target, Key::Named(NamedKey::ArrowRight));
     hub.press(target, Key::Named(NamedKey::Enter));
-    assert_eq!(
-        hub.tree
-            .matching_attribute("data-testid", "agent-model-hub-strip")
-            .len(),
-        0
-    );
-    assert_eq!(
-        hub.tree
-            .matching_attribute("data-testid", "agent-model-hub-view-roles")
-            .len(),
-        0
-    );
+    assert_eq!(hub.tree.count("agent-model-hub-strip"), 0);
+    assert_eq!(hub.tree.count("agent-model-hub-view-roles"), 0);
 }

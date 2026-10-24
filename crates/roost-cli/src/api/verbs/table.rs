@@ -228,6 +228,12 @@ pub const VERBS: &[VerbSpec] = &[
         options: &[flag("--json")],
     },
     VerbSpec {
+        verb: "bootstrap-mint",
+        usage: "roost api bootstrap-mint <browser|worker> [--label <name>]",
+        positionals: (1, 1),
+        options: &[valued("--label")],
+    },
+    VerbSpec {
         verb: "login",
         usage: "roost api login <pairing-url | token --url <origin>> [--label <name>]",
         positionals: (1, 1),

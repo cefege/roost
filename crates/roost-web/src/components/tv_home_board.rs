@@ -12,13 +12,15 @@ use roost_client_core::store::sidebar::documents::store_navigation_documents;
 use roost_protocol::wire::SessionStatus;
 
 use crate::components::agents::agent_status_indicator::AgentStatusIndicator;
+use crate::components::ui::list::is_in_app_navigation_click;
+use crate::components::ui::{
+    Card, CardContent, CardDescription, CardHeader, CardTitle, CardVariant, Chip, EmptyState,
+    IconType,
+};
 use crate::platform::BrowserWorkerPaths;
 use crate::pump::use_store;
-use crate::router_state::{is_in_app_navigation_click, use_navigate};
-use libero::{
-    components::{Box, Flex, Paper, Pictogram, Text, Title},
-    sx::sx,
-};
+use crate::router_state::use_navigate;
+
 /// Rank the board's four status bands; attention details within the first and
 /// third bands are ordered by the shared navigation selector.
 fn status_band(document: &NavigationSearchDocument) -> u8 {
@@ -97,40 +99,19 @@ pub fn TvHomeBoard() -> Element {
             (document, href)
         })
         .collect();
-    let card_sx = use_hook(|| sx().min_height("10rem").padding("lg"));
-    let details_sx = use_hook(|| {
-        sx().display("flex")
-            .align_items("center")
-            .gap("md")
-            .margin_top("md")
-    });
-    let board_sx = use_hook(|| {
-        sx().display("flex")
-            .min_height("0")
-            .min_width("0")
-            .flex_direction("column")
-            .overflow("auto")
-            .padding("lg")
-    });
-    let session_link_sx = use_hook(|| {
-        sx().display("block")
-            .min_width("0")
-            .color("inherit")
-            .text_decoration("none")
-    });
     rsx! {
-        Box { component: "main", sx: board_sx, "data-testid": "tv-home-board", aria_label: "Open sessions",
+        main { class: "flex min-h-0 min-w-0 flex-col overflow-auto p-5", "data-testid": "tv-home-board", aria_label: "Open sessions",
             if sessions.is_empty() {
-                Flex { direction: "column", gap: "md",
-                    Pictogram { icon: pictogram_icons_lucide::terminal::outlined, width: "1.5rem", height: "1.5rem" }
-                    Title { size: "md", "No open sessions" }
-                    Text { size: "sm", color: "muted", "Open a workspace to see its sessions here." }
+                EmptyState {
+                    icon: IconType::Terminal,
+                    title: "No open sessions",
+                    supporting: Some("Open a workspace to see its sessions here.".to_owned()),
+                    action: None,
                 }
             } else {
                 for (document, href) in sessions {
-                    Box {
-                        component: "a",
-                        sx: session_link_sx.clone(),
+                    a {
+                        class: "block min-w-0 no-underline [color:inherit]",
                         href: href.clone(),
                         "data-testid": "tv-home-session-{document.session_id}",
                         "data-unseen": document.agent_unseen,
@@ -146,26 +127,33 @@ pub fn TvHomeBoard() -> Element {
                             event.prevent_default();
                             navigate.call(href.clone());
                         },
-                        Paper {
-                            sx: card_sx.clone(),
+                        Card {
+                            variant: CardVariant::Elevated,
+                            class: Some(if document.agent_unseen || needs_operator_input(document) { "min-h-40 justify-center p-5 border-s-8 border-s-primary" } else { "min-h-40 justify-center p-5" }.to_owned()),
                             "data-testid": "tv-home-card-{document.session_id}",
-                            Title { size: "lg", "{document.display_title.clone()}" }
-                            Text { size: "sm", color: "muted", "{document.worker_label} · {document.cwd}" }
-                            Flex { sx: details_sx.clone(),
-                                if let Some(attention) = document.agent_attention {
-                                    Text { size: "sm", color: "primary",
-                                        {match attention {
+                            CardHeader {
+                                CardTitle { {document.display_title.clone()} }
+                                CardDescription { {format!("{} · {}", document.worker_label, document.cwd)} }
+                            }
+                            CardContent {
+                                div { class: "flex items-center gap-3 mt-3",
+                                    if let Some(attention) = document.agent_attention {
+                                        span { class: "font-medium text-primary", {match attention {
                                             NavigationSearchAttention::Blocked => "Needs input",
                                             NavigationSearchAttention::Done => "Unseen completion",
-                                        }}
+                                        }}}
                                     }
-                                }
-                                if matches!(document.agent_status.as_deref(), Some("blocked" | "working" | "done" | "idle")) {
-                                    AgentStatusIndicator { session_id: document.session_id.clone() }
-                                } else {
-                                    Text { size: "xs", color: "muted", "data-testid": "tv-home-status-{document.session_id}",
-                                        Pictogram { icon: pictogram_icons_lucide::info::outlined, width: "1rem", height: "1rem" }
-                                        "No agent status"
+                                    if matches!(document.agent_status.as_deref(), Some("blocked" | "working" | "done" | "idle")) {
+                                        AgentStatusIndicator { session_id: document.session_id.clone() }
+                                    } else {
+                                        Chip {
+                                            label: "No agent status".to_owned(),
+                                            icon: Some(IconType::Info),
+                                            selected: None,
+                                            onclick: None,
+                                            title: None,
+                                            test_id: Some(format!("tv-home-status-{}", document.session_id)),
+                                        }
                                     }
                                 }
                             }

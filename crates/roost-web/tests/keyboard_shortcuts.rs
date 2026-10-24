@@ -39,7 +39,6 @@ fn context(deck_present: bool) -> KeydownContext {
         focus_on_body: deck_present,
         target_is_text_field: false,
         target_editable: false,
-        target_in_roving_control: false,
         directional_input_active: false,
         cursor_row_selected: true,
         has_cursor_targets: true,
@@ -315,22 +314,4 @@ fn windows_pane_focus_and_tab_selection_use_alt_not_control() {
         PlatformShortcut::PaneFocus,
         BrowserPlatform::Windows
     ));
-}
-
-#[test]
-fn a_roving_control_keeps_navigation_and_activation_without_losing_global_chords() {
-    let control = KeydownContext {
-        target_in_roving_control: true,
-        ..context(false)
-    };
-    for pressed in ["ArrowUp", "ArrowDown", "Enter"] {
-        assert_eq!(
-            keydown_action(&key(pressed), &control),
-            KeydownAction::Ignore
-        );
-    }
-    assert_eq!(
-        keydown_action(&ctrl("k"), &control),
-        KeydownAction::TogglePalette
-    );
 }

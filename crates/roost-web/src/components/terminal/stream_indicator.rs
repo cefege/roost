@@ -5,15 +5,15 @@
 //! viewport.
 
 use dioxus::prelude::*;
-use libero::components::{Box, Indicator};
-use libero::sx::sx;
+
+use crate::components::ui::StatusDot;
 
 /// The dot's status role and whether it is hollow for a presentation state.
 /// `detached` is the only remaining state, so it is the fallthrough arm.
 fn stream_dot_style(state: &str) -> (&'static str, bool) {
     match state {
         "receiving" => ("info", false),
-        "catching_up" => ("warning", false),
+        "catching_up" => ("warn", false),
         _ => ("error", true),
     }
 }
@@ -22,24 +22,15 @@ fn stream_dot_style(state: &str) -> (&'static str, bool) {
 /// `detached`), named by `title` on hover.
 #[component]
 pub fn StreamIndicator(state: &'static str, title: &'static str) -> Element {
-    let wrapper_sx = use_hook(|| {
-        sx().position("absolute")
-            .with("top", "0.5rem")
-            .with("right", "0.5rem")
-            .z_index("2")
-            .display("flex")
-            .pointer_events("none")
-    });
     let (status, hollow) = stream_dot_style(state);
     rsx! {
-        Box {
-            component: "span",
-            sx: wrapper_sx,
+        span {
+            class: "pointer-events-none absolute top-2 right-2 z-2 flex",
             "data-testid": "terminal-stream-indicator",
             "data-state": state,
             title,
             "aria-hidden": "true",
-            Indicator { color: status, with_border: hollow }
+            StatusDot { status: status.to_owned(), hollow }
         }
     }
 }

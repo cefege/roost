@@ -97,7 +97,8 @@ fn pointerless_viewport() -> bool {
         return false;
     };
     let pointer_none =
-        crate::platform::media_query::media_query_match("(pointer: none)") == Some(true);
+        crate::components::hooks::use_media_query::media_query_match("(pointer: none)")
+            == Some(true);
     let width = window
         .inner_width()
         .ok()

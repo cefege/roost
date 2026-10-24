@@ -10,8 +10,8 @@ use super::model_controls::thinking_label;
 use super::role_switch::{RoleLine, thinking_choices, with_role_thinking};
 use crate::components::settings::agent_roles::save_settings;
 use crate::components::settings::model_scope::ModelScope;
+use crate::components::ui::{Chip, IconType};
 use crate::pump::Pump;
-use libero::components::{Chip, Flex, Pictogram, Text};
 
 #[component]
 pub(super) fn RoleThinking(
@@ -22,29 +22,22 @@ pub(super) fn RoleThinking(
     settings: Signal<AgentSettingsView>,
     error: Signal<String>,
 ) -> Element {
-    let group_sx = use_hook(|| {
-        libero::sx::sx()
-            .display("flex")
-            .flex_wrap("wrap")
-            .align_items("center")
-            .gap("sm")
-    });
     let Some(selector) = line.selector.clone() else {
         return rsx! {
-            Text { size: "sm", color: "muted", "Choose a model for this role to set its thinking level." }
+            p { class: "text-sm text-muted-foreground", "Choose a model for this role to set its thinking level." }
         };
     };
     let choices = thinking_choices(&catalog, &selector);
     if choices.is_empty() {
         return rsx! {
-            Text { size: "sm", color: "muted", "This model does not think before answering." }
+            p { class: "text-sm text-muted-foreground", "This model does not think before answering." }
         };
     }
     let levels = catalog.thinking_levels.clone();
     let options = std::iter::once(None).chain(choices.into_iter().map(Some));
     rsx! {
-        Flex { sx: group_sx, direction: "row", align: "center", gap: "sm", role: "group", "aria-label": "Thinking level",
-            Text { size: "sm", color: "muted", "Thinking" }
+        div { class: "flex flex-wrap items-center gap-2", role: "group", "aria-label": "Thinking level",
+            span { class: "text-sm text-muted-foreground", "Thinking" }
             for level in options {
                 {
                     let selected = line.thinking == level;
@@ -61,14 +54,15 @@ pub(super) fn RoleThinking(
                     rsx! {
                         Chip {
                             key: "{label}",
-                            checked: selected,
-                            icon: selected.then(|| rsx! { Pictogram { icon: pictogram_icons_lucide::check::outlined, width: "1rem", height: "1rem" } }),
-                            title,
-                            onclick: move |_| {
+                            label,
+                            small: true,
+                            selected: Some(selected),
+                            icon: selected.then_some(IconType::Check),
+                            title: Some(title),
+                            onclick: Some(EventHandler::new(move |_| {
                                 let updated = with_role_thinking(&settings.peek(), &scope, role, level.as_deref(), &levels);
                                 save_settings(pump.clone(), updated, settings, error);
-                            },
-                            "{label}"
+                            })),
                         }
                     }
                 }

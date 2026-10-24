@@ -1,11 +1,15 @@
-//! One chat-toolbar menu, with Libero owning its keyboard navigation and dismissal.
-//! Used by `agent_chat::header` for the model, thinking and overflow menus.
+//! One chat-toolbar menu: a compact trigger (a labelled picker or a bare icon)
+//! and a choice list on the ui `DropdownMenu`, which anchors beside the trigger
+//! and owns its keys and dismissal. Used by `agent_chat::header` for the model,
+//! thinking and overflow menus.
 
 use dioxus::prelude::*;
-use libero::components::{
-    ActionIcon, Box, Button, Menu, MenuEntry, MenuItem, Pictogram, SvgData, Text, use_menu,
+
+use crate::components::ui::dropdown_menu::{
+    DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 };
-use libero::sx::sx;
+use crate::components::ui::menu_overlay::MenuSide;
+use crate::components::ui::{Icon, IconType};
 
 /// One choice in a toolbar menu.
 #[derive(Debug, Clone, PartialEq)]
@@ -36,7 +40,7 @@ pub enum ToolbarTrigger {
     /// Current value plus a chevron, as a picker.
     Picker { label: String },
     /// A bare icon, as an overflow button.
-    Icon { icon: SvgData },
+    Icon { icon: IconType },
 }
 
 #[component]
@@ -51,68 +55,59 @@ pub fn ToolbarMenu(
     #[props(default)]
     opens_up: bool,
 ) -> Element {
-    let menu = use_menu();
-    let check_slot_sx = use_hook(|| {
-        sx().display("flex")
-            .width("1rem")
-            .height("1rem")
-            .flex_shrink("0")
-            .align_items("center")
-            .justify_content("center")
-    });
-    let trigger_text_sx = use_hook(|| {
-        sx().min_width("0")
-            .overflow("hidden")
-            .with("overscroll-behavior-y", "auto")
-            .text_overflow("ellipsis")
-            .white_space("nowrap")
-    });
-    let trigger_sx = use_hook(|| sx().min_width("0").max_width("100%"));
-    let items = items
-        .into_iter()
-        .map(|item| {
-            let selected = item.selected;
-            let label = item.label;
-            let detail = item.detail;
-            let value = item.value;
-            MenuItem::new(label.clone())
-                .leading(rsx! {
-                    Box { sx: check_slot_sx.clone(),
-                        if selected {
-                            Pictogram { icon: pictogram_icons_lucide::check::outlined, width: "1rem", height: "1rem" }
+    let mut open = use_signal(|| false);
+    let side = if opens_up {
+        MenuSide::Above
+    } else {
+        MenuSide::Below
+    };
+    let trigger_element = match trigger {
+        ToolbarTrigger::Picker { label } => rsx! {
+            DropdownMenuTrigger { ghost: true, class: "min-w-0 max-w-full",
+                span { class: "min-w-0 truncate", "{label}" }
+                Icon { icon: IconType::ChevronDown, class: "size-4" }
+            }
+        },
+        ToolbarTrigger::Icon { icon } => rsx! {
+            DropdownMenuTrigger { ghost: true, class: "h-7 w-7 p-0",
+                Icon { icon, class: "size-4" }
+                // The icon has no text of its own; this keeps the trigger named.
+                span { class: "sr-only", "{aria_label}" }
+            }
+        },
+    };
+    rsx! {
+        DropdownMenu {
+            open: open(),
+            on_open_change: move |next: bool| open.set(next),
+            test_id: format!("agent-chat-{menu_key}-menu"),
+            side,
+            {trigger_element}
+            DropdownMenuContent { class: "w-auto min-w-48 max-h-[60vh] flex select-none flex-col overflow-y-auto",
+                for item in items {
+                    DropdownMenuItem {
+                        key: "{item.value}",
+                        test_id: format!("agent-chat-menu-{}", item.value),
+                        class: if item.danger { "text-destructive" } else { "" },
+                        onclick: {
+                            let value = item.value.clone();
+                            move |_: MouseEvent| on_choose.call(value.clone())
+                        },
+                        span {
+                            class: "flex w-full min-w-0 items-center gap-2",
+                            "data-selected": item.selected.then_some("true"),
+                            span { class: "flex size-4 shrink-0 items-center justify-center",
+                                if item.selected {
+                                    Icon { icon: IconType::Check, class: "size-4" }
+                                }
+                            }
+                            span { class: "min-w-0 flex-1 truncate text-left", "{item.label}" }
+                            if let Some(detail) = item.detail {
+                                span { class: "shrink-0 text-muted-foreground", "{detail}" }
+                            }
                         }
                     }
-                })
-                .description(detail.unwrap_or_default())
-                .disabled(false)
-                .onselect(move |_| on_choose.call(value.clone()))
-                .into()
-        })
-        .collect::<Vec<MenuEntry>>();
-    let _ = opens_up;
-    let _ = aria_label;
-    rsx! {
-        Menu { state: menu, items,
-            match trigger {
-                ToolbarTrigger::Picker { label } => rsx! {
-                    Button {
-                        variant: "standard",
-                        sx: trigger_sx,
-                        attributes: menu.a11y_attributes(),
-                        "aria-label": aria_label,
-                        "data-testid": format!("agent-chat-{menu_key}-menu"),
-                        Text { sx: trigger_text_sx, "{label}" }
-                        Pictogram { icon: pictogram_icons_lucide::chevron_down::outlined, width: "1rem", height: "1rem" }
-                    }
-                },
-                ToolbarTrigger::Icon { icon } => rsx! {
-                    ActionIcon {
-                        icon,
-                        aria_label,
-                        attributes: menu.a11y_attributes(),
-                        "data-testid": format!("agent-chat-{menu_key}-menu"),
-                    }
-                },
+                }
             }
         }
     }

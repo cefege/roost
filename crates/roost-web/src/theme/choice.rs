@@ -1,16 +1,21 @@
-//! Persisted base, accent and mode identifiers, validated against Roost's catalog.
-//! App primes Libero's scheme storage before mounting its provider.
-//! Settings persist the same three Roost keys; Libero owns their presentation.
+//! The theme choice a reader makes (base, accent, mode), its persistence through
+//! `KeyValueStore`, and its resolution to the concrete custom properties to
+//! write. Every rule the browser applies is decided here, natively testable.
 
-use libero::theme::ColorSchemeSetting;
 use roost_client_core::KeyValueStore;
 
-use super::catalog::{DEFAULT_ACCENT_ID, DEFAULT_BASE_ID, accent_theme, base_theme};
+use super::catalog::{
+    DEFAULT_ACCENT_ID, DEFAULT_BASE_ID, accent_theme, accent_themes, base_theme, base_themes,
+    default_accent, default_base,
+};
+use super::palettes::roost::{ROOST_DARK, ROOST_LIGHT};
+use super::tokens::ThemeAppearance;
 
 pub const BASE_STORAGE_KEY: &str = "roost.theme.base";
 pub const ACCENT_STORAGE_KEY: &str = "roost.theme.accent";
 pub const MODE_STORAGE_KEY: &str = "roost.theme.mode";
 
+/// The mode the reader picked: follow the OS, or pin light or dark.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ThemeMode {
     System,
@@ -41,16 +46,10 @@ impl ThemeMode {
             Self::Dark => "Dark",
         }
     }
-
-    pub const fn libero_setting(self) -> ColorSchemeSetting {
-        match self {
-            Self::System => ColorSchemeSetting::System,
-            Self::Light => ColorSchemeSetting::Light,
-            Self::Dark => ColorSchemeSetting::Dark,
-        }
-    }
 }
 
+/// The reader's full theme choice. Ids are stored verbatim; an id no longer in
+/// the catalog resolves to the default.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ThemeChoice {
     pub base: String,
@@ -68,6 +67,16 @@ impl Default for ThemeChoice {
     }
 }
 
+/// What a choice writes onto the document root.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThemeApplication {
+    pub base_id: &'static str,
+    pub accent_id: &'static str,
+    pub appearance: ThemeAppearance,
+    pub properties: Vec<(&'static str, &'static str)>,
+}
+
+/// Read the persisted choice. A missing or unrecognised value is the default.
 pub fn load_theme(store: &dyn KeyValueStore) -> ThemeChoice {
     let default = ThemeChoice::default();
     ThemeChoice {
@@ -86,17 +95,59 @@ pub fn load_theme(store: &dyn KeyValueStore) -> ThemeChoice {
     }
 }
 
+/// Persist every part of the choice.
 pub fn persist_theme(store: &dyn KeyValueStore, choice: &ThemeChoice) {
     store.set(BASE_STORAGE_KEY, &choice.base);
     store.set(ACCENT_STORAGE_KEY, &choice.accent);
     store.set(MODE_STORAGE_KEY, choice.mode.as_stored());
 }
 
-pub fn prime_libero_scheme(store: &dyn KeyValueStore) -> ThemeChoice {
-    let choice = load_theme(store);
-    store.set(
-        libero::theme::COLOR_SCHEME_STORAGE_KEY,
-        choice.mode.as_stored(),
-    );
-    choice
+/// Resolve a mode against the OS preference. An unreadable preference draws dark.
+pub fn resolve_appearance(mode: ThemeMode, system: Option<ThemeAppearance>) -> ThemeAppearance {
+    match mode {
+        ThemeMode::Light => ThemeAppearance::Light,
+        ThemeMode::Dark => ThemeAppearance::Dark,
+        ThemeMode::System => system.unwrap_or(ThemeAppearance::Dark),
+    }
+}
+
+/// Resolve `choice` against the OS preference. Base values first, then accent
+/// values (which override base keys they share), then Roost's own roles.
+pub fn theme_application(
+    choice: &ThemeChoice,
+    system: Option<ThemeAppearance>,
+) -> ThemeApplication {
+    let appearance = resolve_appearance(choice.mode, system);
+    let base = base_theme(&choice.base).unwrap_or_else(default_base);
+    let accent = accent_theme(&choice.accent).unwrap_or_else(default_accent);
+    let (base_vars, accent_vars, roost_vars) = match appearance {
+        ThemeAppearance::Light => (base.light, accent.light, ROOST_LIGHT),
+        ThemeAppearance::Dark => (base.dark, accent.dark, ROOST_DARK),
+    };
+    ThemeApplication {
+        base_id: base.id,
+        accent_id: accent.id,
+        appearance,
+        properties: base_vars
+            .iter()
+            .chain(accent_vars)
+            .chain(roost_vars)
+            .copied()
+            .collect(),
+    }
+}
+
+/// Every custom property any palette may write. The document clears these
+/// before writing a choice, so a value left by a previous palette cannot leak.
+pub fn managed_properties() -> Vec<&'static str> {
+    let mut names: Vec<&'static str> = base_themes()
+        .iter()
+        .chain(accent_themes())
+        .flat_map(|theme| theme.light.iter().chain(theme.dark))
+        .chain(ROOST_LIGHT.iter().chain(ROOST_DARK))
+        .map(|(name, _)| *name)
+        .collect();
+    names.sort_unstable();
+    names.dedup();
+    names
 }

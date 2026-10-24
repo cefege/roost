@@ -5,24 +5,26 @@
 //! through `crate::term_font_size`, and every mounted pane re-measures from the
 //! `--term-font-size` the app root applies.
 
+use dioxus::prelude::*;
+
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, IconButton, IconType};
 use crate::pump::use_store;
 use crate::term_font_size::{
     TermFontStepState, reset_term_font, step_term_font, use_device_default_term_font_px,
 };
-use dioxus::prelude::*;
-use libero::{
-    components::{ActionIcon, Button, Flex, Pictogram},
-    sx::sx,
-};
+use tw_merge::tw_merge;
 
+/// The stepper props.
 #[derive(Props, Clone, PartialEq, Debug)]
 pub struct TermFontStepperProps {
     /// The `data-testid` stem: the controls are `{stem}-smaller`,
     /// `{stem}-size` and `{stem}-larger`.
     pub test_id: String,
-    /// Libero's action-icon size.
-    #[props(default = "sm".to_owned())]
-    pub size: String,
+    /// The two step buttons' square size.
+    #[props(default = ButtonSize::Icon)]
+    pub size: ButtonSize,
+    /// An extra class on the group.
+    pub class: Option<String>,
     /// Stack larger · size · smaller top to bottom, for the narrow rail.
     #[props(default)]
     pub vertical: bool,
@@ -44,113 +46,78 @@ pub fn TermFontStepper(props: TermFontStepperProps) -> Element {
     } else {
         format!("Terminal text size {px}px; reset to {default_px}px")
     };
-    let row_sx = use_hook(|| sx().gap("xs").align_items("center"));
-    let value_sx = use_hook(|| sx().min_width("3rem").padding_inline("xs"));
-    let (
-        first_pump,
-        second_pump,
-        first_label,
-        second_label,
-        first_icon,
-        second_icon,
-        first_test,
-        second_test,
-        first_disabled,
-        second_disabled,
-        first_step,
-        second_step,
-    ) = if props.vertical {
-        (
-            larger_pump,
-            smaller_pump,
-            "Larger terminal text",
-            "Smaller terminal text",
-            pictogram_icons_lucide::a_arrow_up::outlined,
-            pictogram_icons_lucide::a_arrow_down::outlined,
-            format!("{stem}-larger"),
-            format!("{stem}-smaller"),
-            !state.can_grow,
-            !state.can_shrink,
-            1,
-            -1,
-        )
-    } else {
-        (
-            smaller_pump,
-            larger_pump,
-            "Smaller terminal text",
-            "Larger terminal text",
-            pictogram_icons_lucide::a_arrow_down::outlined,
-            pictogram_icons_lucide::a_arrow_up::outlined,
-            format!("{stem}-smaller"),
-            format!("{stem}-larger"),
-            !state.can_shrink,
-            !state.can_grow,
-            -1,
-            1,
-        )
+    let value_size = match props.size {
+        ButtonSize::IconXs => ButtonSize::Xs,
+        ButtonSize::IconSm => ButtonSize::Sm,
+        ButtonSize::IconLg => ButtonSize::Lg,
+        _ => ButtonSize::Default,
     };
-    let direction = if props.vertical { "column" } else { "row" };
     rsx! {
-        Flex {
-            sx: row_sx,
-            direction,
-            wrap: false,
+        div {
+            class: tw_merge!(
+                "term-font-stepper",
+                if props.vertical { "term-font-stepper--vertical" } else { "" },
+                props.class.as_deref().unwrap_or("")
+            ),
             role: "group",
-            aria_label: "Terminal text size",
+            "aria-label": "Terminal text size",
             if props.vertical {
-                ActionIcon {
-                    aria_label: first_label,
-                    size: props.size.clone(),
-                    "data-testid": first_test,
-                    title: first_label,
-                    disabled: first_disabled,
-                    onclick: move |_| step_term_font(&first_pump, first_step),
-                    Pictogram { icon: first_icon, width: "1rem", height: "1rem" }
+                IconButton {
+                    icon: IconType::AArrowUp,
+                    label: "Larger terminal text",
+                    size: props.size,
+                    "data-testid": format!("{stem}-larger"),
+                    title: "Larger terminal text",
+                    disabled: !state.can_grow,
+                    onclick: move |_| step_term_font(&larger_pump, 1),
                 }
                 Button {
-                    sx: value_sx.clone(), variant: "standard", size: "xs",
+                    class: "min-w-0 px-1 text-xs tabular-nums",
+                    variant: ButtonVariant::Ghost,
+                    size: value_size,
                     "data-testid": format!("{stem}-size"),
                     title: reset_label.clone(),
-                    aria_label: reset_label.clone(),
+                    "aria-label": reset_label,
                     onclick: move |_| reset_term_font(&reset_pump, default_px),
-                    "{px}px"
+                    {format!("{px}px")}
                 }
-                ActionIcon {
-                    aria_label: second_label,
+                IconButton {
+                    icon: IconType::AArrowDown,
+                    label: "Smaller terminal text",
                     size: props.size,
-                    "data-testid": second_test,
-                    title: second_label,
-                    disabled: second_disabled,
-                    onclick: move |_| step_term_font(&second_pump, second_step),
-                    Pictogram { icon: second_icon, width: "1rem", height: "1rem" }
+                    "data-testid": format!("{stem}-smaller"),
+                    title: "Smaller terminal text",
+                    disabled: !state.can_shrink,
+                    onclick: move |_| step_term_font(&smaller_pump, -1),
                 }
             } else {
-                ActionIcon {
-                    aria_label: first_label,
-                    size: props.size.clone(),
-                    "data-testid": first_test,
-                    title: first_label,
-                    disabled: first_disabled,
-                    onclick: move |_| step_term_font(&first_pump, first_step),
-                    Pictogram { icon: first_icon, width: "1rem", height: "1rem" }
+                IconButton {
+                    icon: IconType::AArrowDown,
+                    label: "Smaller terminal text",
+                    size: props.size,
+                    "data-testid": format!("{stem}-smaller"),
+                    title: "Smaller terminal text",
+                    disabled: !state.can_shrink,
+                    onclick: move |_| step_term_font(&smaller_pump, -1),
                 }
                 Button {
-                    sx: value_sx, variant: "standard", size: "xs",
+                    class: "min-w-12 px-1 tabular-nums",
+                    variant: ButtonVariant::Ghost,
+                    size: value_size,
                     "data-testid": format!("{stem}-size"),
                     title: reset_label.clone(),
-                    aria_label: reset_label,
+                    "aria-label": reset_label,
                     onclick: move |_| reset_term_font(&reset_pump, default_px),
-                    "{px}px"
+                    {format!("{px}px")}
                 }
-                ActionIcon {
-                    aria_label: second_label,
+                IconButton {
+                    icon: IconType::AArrowUp,
+                    label: "Larger terminal text",
                     size: props.size,
-                    "data-testid": second_test,
-                    title: second_label,
-                    disabled: second_disabled,
-                    onclick: move |_| step_term_font(&second_pump, second_step),
-                    Pictogram { icon: second_icon, width: "1rem", height: "1rem" }
+                    "data-testid": format!("{stem}-larger"),
+                    title: "Larger terminal text",
+                    disabled: !state.can_grow,
+                    onclick: move |_| step_term_font(&larger_pump, 1),
                 }
             }
         }

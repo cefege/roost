@@ -5,12 +5,9 @@
 //! caught — the Playwright fixture asserts zero of them on a healthy boot.
 
 use dioxus::prelude::*;
-use libero::{
-    components::{Box, Button, Flex, Paper, Pictogram, Text, Title},
-    sx::sx,
-};
 
 use crate::components::hooks::use_copy_clipboard::use_copy_clipboard;
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, Icon, IconType, Surface};
 
 /// The diagnostic a reader copies, as pretty JSON (v2's payload shape).
 pub fn diagnostic_payload(url: &str, user_agent: &str, time_iso: &str, error: &str) -> String {
@@ -61,30 +58,6 @@ pub fn AppErrorBoundary(children: Element) -> Element {
 /// The fallback surface.
 #[component]
 fn ErrorFallback(message: String, errors: ErrorContext) -> Element {
-    let page_sx = use_hook(|| {
-        sx().display("flex")
-            .min_height("100dvh")
-            .width("100%")
-            .align_items("center")
-            .justify_content("center")
-            .padding("lg")
-            .background("surface")
-    });
-    let card_sx = use_hook(|| {
-        sx().display("flex")
-            .width("100%")
-            .max_width("64ch")
-            .flex_direction("column")
-            .gap("md")
-            .padding("lg")
-    });
-    let diagnostic_sx = use_hook(|| {
-        sx().margin("0")
-            .white_space("pre-wrap")
-            .with("word-break", "break-all")
-            .with("user-select", "text")
-            .with("font-family", "var(--term-font-family)")
-    });
     #[cfg(target_arch = "wasm32")]
     use_hook({
         let errors = errors.clone();
@@ -95,22 +68,33 @@ fn ErrorFallback(message: String, errors: ErrorContext) -> Element {
     let diagnostic_message = message.clone();
     let (copy_to_clipboard, copied) = use_copy_clipboard(None);
     rsx! {
-        Box { "data-testid": "error-boundary", sx: page_sx,
-            Paper { bordered: true, radius: "lg", sx: card_sx,
-                Flex { direction: "row", align: "center", gap: "xs",
-                    Pictogram { icon: pictogram_icons_lucide::circle_alert::outlined,
-                        width: "16", height: "16",
-                    }
-                    Title { component: "h1", size: "lg", color: "error", "Unexpected error" }
+        div {
+            "data-testid": "error-boundary",
+            class: "grid min-h-dvh w-full place-items-center bg-background p-6 text-foreground",
+            Surface { border: true, pad: Some(6), class: Some("flex w-full max-w-[64ch] flex-col gap-4 rounded-xl text-card-foreground".to_owned()),
+                div { class: "flex items-center gap-2",
+                    Icon { icon: IconType::CircleAlert, class: "size-4 text-destructive" }
+                    h1 { class: "m-0 text-lg font-semibold text-destructive", "Unexpected error" }
                 }
-                Text { component: "pre", size: "xs", color: "muted", sx: diagnostic_sx, {message} }
-                Flex { direction: "row", gap: "xs",
-                    Button { variant: "outlined", size: "sm",
+                p {
+                    class: "m-0 font-mono text-xs break-all whitespace-pre-wrap select-text text-muted-foreground",
+                    {message}
+                }
+                div { class: "flex flex-wrap gap-2",
+                    Button {
+                        variant: ButtonVariant::Outline,
+                        size: ButtonSize::Sm,
                         onclick: move |_| copy_to_clipboard(&diagnostic(&diagnostic_message)),
                         if copied() { "Copied" } else { "Copy diagnostic" }
                     }
-                    Button { size: "sm",
-                        onclick: move |_| { errors.clear_errors(); reload(); }, "Reload"
+                    Button {
+                        variant: ButtonVariant::Default,
+                        size: ButtonSize::Sm,
+                        onclick: move |_| {
+                            errors.clear_errors();
+                            reload();
+                        },
+                        "Reload"
                     }
                 }
             }

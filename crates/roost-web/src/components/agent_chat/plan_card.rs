@@ -2,14 +2,14 @@
 //! The transcript supplies plan identity and state from the canonical fold.
 //! Approved plans either continue here or navigate to a newly created chat.
 
-use crate::components::ui::Markdown;
+use dioxus::prelude::*;
+
+use super::markdown::markdown_to_safe_html;
+use crate::components::ui::{
+    Button, ButtonVariant, Card, CardContent, CardHeader, CardTitle, Markdown, Textarea,
+};
 use crate::pump::{Pump, use_store};
 use crate::router_state::use_navigate;
-use dioxus::prelude::*;
-use libero::{
-    components::{Button, Flex, Paper, Textarea, Title},
-    sx::sx,
-};
 
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::client::rpc::calls::agent_chat::DecideAgentPlan;
@@ -26,6 +26,7 @@ pub fn PlanCard(
     let mut feedback = use_signal(String::new);
     let pump = use_store();
     let navigate = use_navigate();
+    let rendered = markdown_to_safe_html(&content);
     let proposed = state == "proposed";
     let approve_pump = pump.clone();
     let approve_id = conversation_id.clone();
@@ -37,40 +38,39 @@ pub fn PlanCard(
     let refine_id = conversation_id;
     let refine_item = id.clone();
     let open_refine = move |_| refine.set(true);
-    let card = use_hook(|| sx().gap("sm").padding("sm").width("100%"));
-    let actions = use_hook(|| sx().gap("sm"));
-    let refinement = use_hook(|| sx().width("100%"));
     rsx! {
-        Paper { key: "{id}", sx: card,
-            Flex { direction: "column", gap: "sm",
-                Title { size: "sm", "{title}" }
-                Markdown { text: content }
+        Card {
+            key: "{id}",
+            CardHeader {
+                CardTitle { "{title}" }
+            }
+            CardContent {
+                Markdown { html: rendered }
                 if proposed {
-                    Flex { sx: actions,
-                        Button { variant: "filled", color: "primary",
+                    div { class: "flex flex-wrap items-center gap-2",
+                        Button { variant: ButtonVariant::Default,
                             onclick: move |_| decide(approve_pump.clone(), approve_id.clone(), approve_item.clone(), "approve", String::new()),
                             "Approve"
                         }
-                        Button { variant: "tonal", color: "secondary",
+                        Button { variant: ButtonVariant::Secondary,
                             onclick: move |_| {
                                 approve_new(new_pump.clone(), new_id.clone(), new_item.clone(), navigate);
                             },
                             "Approve in new chat"
                         }
-                        Button { variant: "standard", color: "primary", onclick: open_refine, "Refine…" }
+                        Button { variant: ButtonVariant::Ghost, onclick: open_refine, "Refine…" }
                     }
                     if refine() {
-                        Flex { direction: "column", align: "start", gap: "sm",
+                        div { class: "flex w-full flex-col items-start gap-2",
                             Textarea {
-                                sx: refinement,
+                                class: "w-full",
                                 value: feedback(),
                                 rows: 3,
-                                label: "Plan refinement",
-                                oninput: move |value: String| feedback.set(value),
+                                aria_label: "Plan refinement",
+                                oninput: move |event: FormEvent| feedback.set(event.value()),
                             }
                             Button {
-                                variant: "filled",
-                                color: "primary",
+                                variant: ButtonVariant::Default,
                                 onclick: move |_| {
                                     decide(refine_pump.clone(), refine_id.clone(), refine_item.clone(), "refine", feedback());
                                     refine.set(false);

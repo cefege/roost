@@ -18,7 +18,6 @@ use std::rc::Rc;
 
 use dioxus::core::{Mutation, Mutations};
 use dioxus::prelude::*;
-use libero::LiberoProvider;
 use roost_client_core::ClientCore;
 use roost_web::components::file_viewer::FileViewer;
 use roost_web::platform::connect::CoordRpc;
@@ -194,12 +193,9 @@ fn viewer_root() -> Element {
         EventHandler::new(|_path: String| {}),
     );
     let route = MOUNTED_ROUTE.with(|mounted| mounted.borrow_mut().take());
-    rsx! {
-        LiberoProvider {
-            FileViewer { route: route.unwrap_or(Route::Home) }
-        }
-    }
+    rsx! { FileViewer { route: route.unwrap_or(Route::Home) } }
 }
+
 /// Mount the real sheet over the href a real producer minted, and read back the
 /// text it paints. This is the consumer half: the header's path and the path
 /// the read is issued for are one binding, so what the sheet names is what the

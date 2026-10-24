@@ -9,8 +9,6 @@
 //! reader the ⌘ one, from the same source the shortcut handler matches on.
 use crate::platform::browser_platform::{BrowserPlatform, PlatformShortcut};
 use dioxus::prelude::*;
-use libero::components::{ActionIcon, Box, Flex, Kbd, Paper, Pictogram, Text, Title};
-use libero::sx::sx;
 use roost_client_core::ClientEvent;
 use roost_client_core::store::sidebar::SidebarIntent;
 
@@ -18,6 +16,10 @@ use crate::components::brand_mark::{BrandMark, HOME_MARK_SIZE};
 use crate::components::layout::title_bar::PRODUCT;
 use crate::components::layout::window_size::{use_is_compact, use_tv_layout};
 use crate::components::tv_home_board::TvHomeBoard;
+use crate::components::ui::{
+    Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyMediaVariant, EmptyTitle, Icon,
+    IconButton, IconType, Kbd,
+};
 use crate::pump::use_store;
 
 /// A shortcut the landing advertises. The Windows binding comes from
@@ -89,32 +91,6 @@ pub fn HomeLanding(reader_platform: BrowserPlatform) -> Element {
     let pump = use_store();
     let compact = use_is_compact();
     let tv = use_tv_layout();
-    let empty_sx = use_hook(|| {
-        sx().display("flex")
-            .flex_direction("column")
-            .align_items("center")
-            .gap("md")
-            .text_align("center")
-            .padding("xl")
-    });
-    let copy_sx = use_hook(|| sx().max_width("42ch"));
-    let landing_sx = use_hook(|| {
-        sx().display("flex")
-            .height("100%")
-            .box_sizing("border-box")
-            .flex_direction("column")
-            .overflow_y("auto")
-            .padding_top("xl")
-            .padding_right("max(1.5rem, env(safe-area-inset-right, 0px))")
-            .padding_bottom("max(1.5rem, env(safe-area-inset-bottom, 0px))")
-            .padding_left("max(1.5rem, env(safe-area-inset-left, 0px))")
-    });
-    let brand_row_sx = use_hook(|| {
-        sx().display("flex")
-            .align_items("center")
-            .gap("sm")
-            .margin_bottom("xl")
-    });
     if tv {
         return rsx! { TvHomeBoard {} };
     }
@@ -122,36 +98,42 @@ pub fn HomeLanding(reader_platform: BrowserPlatform) -> Element {
     // a second "Open sidebar" under it would be a D-pad stop the reader cannot see.
     let drawer_open = pump.core().borrow().store().ui.sidebar_open;
     rsx! {
-        Box { sx: landing_sx, "data-testid": "home-landing",
-            Flex { direction: "row", sx: brand_row_sx,
+        div { class: "box-border flex h-full flex-col overflow-y-auto pt-7 pr-[max(1.5rem,env(safe-area-inset-right,0px))] pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] pl-[max(1.5rem,env(safe-area-inset-left,0px))]", "data-testid": "home-landing",
+            div { class: "mb-8 flex items-center gap-3",
                 if compact && !drawer_open {
-                    ActionIcon {
-                        aria_label: "Open sidebar",
+                    IconButton {
+                        icon: IconType::Menu,
+                        label: "Open sidebar",
                         "data-testid": "home-open-sidebar",
                         onclick: move |_| pump.dispatch(ClientEvent::Sidebar(SidebarIntent::OpenDrawer)),
-                        Pictogram { icon: pictogram_icons_lucide::menu::outlined, width: "1rem", height: "1rem" }
                     }
                 }
                 BrandMark { size: HOME_MARK_SIZE }
-                Text { size: "xl", "{PRODUCT}" }
+                span { class: "text-xl tracking-[0.5px] text-foreground", {PRODUCT} }
             }
-            Text { size: "xs", color: "muted", "data-testid": "home-tagline",
+            p { class: "-mt-4 mb-8 text-xs text-muted-foreground", "data-testid": "home-tagline",
                 "Press "
                 for (index, shortcut) in SHORTCUTS.iter().enumerate() {
                     if index > 0 {
                         " · "
                     }
-                    Kbd { "{shortcut.glyph(reader_platform)}" }
+                    Kbd { class: "whitespace-nowrap", {shortcut.glyph(reader_platform)} }
                     " {shortcut.action}"
                 }
             }
-            Paper { sx: empty_sx, "data-testid": "home-empty",
-                Pictogram { icon: pictogram_icons_lucide::bot::outlined, width: "1.5rem", height: "1.5rem" }
-                Title { size: "md", "Open an agent workspace" }
-                Text { size: "sm", sx: copy_sx,
-                    "Select a conversation or start a new agent from the sidebar, or press "
-                    Kbd { "{SHORTCUTS[0].glyph(reader_platform)}" }
-                    " to open the Command palette."
+            div { class: "px-6 py-9", "data-testid": "home-empty",
+                Empty { class: "flex flex-col items-center gap-3 rounded-none border-0 p-0 text-center text-muted-foreground",
+                    EmptyHeader {
+                        EmptyMedia { variant: EmptyMediaVariant::Icon,
+                            Icon { icon: IconType::Bot, class: "size-6 shrink-0" }
+                        }
+                        EmptyTitle { class: "text-base font-normal leading-normal text-foreground", "Open an agent workspace" }
+                        EmptyDescription { class: "max-w-[42ch] text-sm",
+                            "Select a conversation or start a new agent from the sidebar, or press "
+                            Kbd { class: "whitespace-nowrap", {SHORTCUTS[0].glyph(reader_platform)} }
+                            " to open the Command palette."
+                        }
+                    }
                 }
             }
         }

@@ -11,10 +11,6 @@
 //! sent an empty string would turn into a silent credential deletion.
 
 use dioxus::prelude::*;
-use libero::components::{
-    Button, Combobox, ComboboxOption, ComboboxOptionArgs, Flex, Paper, Pictogram, Switch, Text,
-    TextField, Title, use_combobox,
-};
 use roost_client_core::ClientEvent;
 use roost_client_core::client::rpc::calls::settings::transcription::DictationConfig;
 use roost_client_core::store::shell_intent::ShellIntent;
@@ -27,6 +23,10 @@ use roost_client_core::client::rpc::calls::settings::transcription::{
 };
 
 use super::voice_languages::{language_options, stored_or_default};
+use crate::components::ui::{
+    Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader, CardTitle, FieldError,
+    Icon, IconType, Select, StatusDot, SwitchRow, TextField,
+};
 use crate::pump::{Pump, use_store};
 
 /// What the coordinator holds, plus what this reader is in the middle of doing.
@@ -50,7 +50,6 @@ struct VoiceView {
 pub fn VoicePane() -> Element {
     let pump = use_store();
     let mut view = use_signal(VoiceView::default);
-    let language_picker = use_combobox();
     let core = pump.core();
     let keyterm_biasing = core.borrow().store().prefs.keyterm_biasing;
 
@@ -82,93 +81,107 @@ pub fn VoicePane() -> Element {
     } else {
         "Browser speech"
     };
-    let medium_text_sx = use_hook(|| libero::sx::sx().font_weight("500"));
-    let language_options = language_options();
+    let provider_status = if configured { "ok" } else { "warn" };
     rsx! {
-        Flex { direction: "column", gap: "lg",
+        div {
+            class: "flex flex-col gap-5",
             "data-testid": "settings-transcription-pane",
-            Paper { "data-testid": "transcription-status",
-                Flex { direction: "row", align: "center", gap: "md",
-                    Pictogram { icon: pictogram_icons_lucide::mic::outlined }
-                    Flex { direction: "column", gap: "xs",
-                        Text { size: "md", sx: medium_text_sx.clone(), "{provider_name}" }
-                        Text { size: "sm", color: "muted",
-                            if configured { "Live Deepgram transcription for your authenticated owner devices." }
-                            else { "Browser's built-in speech — add a Deepgram key below to upgrade." }
+            Card { "data-testid": "transcription-status",
+                CardContent { class: "flex items-center gap-4",
+                    Icon { icon: IconType::Mic, class: "size-6 text-primary" }
+                    div { class: "min-w-0 flex-1",
+                        div { class: "flex items-center gap-2",
+                            StatusDot { status: provider_status.to_owned() }
+                            span { class: "text-base font-medium", {provider_name} }
                         }
-                    }
-                }
-            }
-            Paper {
-                Title { size: "sm", "Dictation" }
-                Flex { direction: "row", align: "center", justify: "space-between",
-                    Flex { direction: "column", gap: "xs",
-                        Text { size: "sm", sx: medium_text_sx.clone(), "Bias dictation to on-screen terms" }
-                        Text { size: "sm", color: "muted", "Feeds the terminal's visible text, your recent commands, and learned project jargon to Deepgram as keyterms — so names like Kysely, tailnet, or coordFactory transcribe correctly. Turn off to A/B against plain transcription. This device only; next recording." }
-                    }
-                    Switch { label: "Bias dictation to on-screen terms", checked: keyterm_biasing,
-                        "data-testid": "keyterm-biasing-toggle",
-                        onchange: move |on| bias_pump.dispatch(ClientEvent::Shell(ShellIntent::SetKeytermBiasing { on })) }
-                }
-            }
-            Paper {
-                Title { size: "sm", "API key" }
-                Text { size: "sm", color: "muted", "Stored on the coordinator. For direct Deepgram dictation, Roost returns the configured key to this authenticated admin browser, which connects to Deepgram directly. Leave it empty to use the browser's built-in speech." }
-                TextField { label: "Deepgram API key", r#type: "password", placeholder: key_placeholder,
-                    value: state.key.clone(), oninput: move |value: String| view.write().key = value,
-                    "data-testid": "transcription-deepgram-key" }
-                Combobox {
-                    state: language_picker,
-                    select_only: true,
-                    "aria-label": "Language",
-                    selected_index: language_options.iter().position(|(code, _)| *code == language),
-                    option_label: |option: (String, String)| option.1,
-                    options: language_options.clone(),
-                    option: {
-                        let selected = language.clone();
-                        move |row: ComboboxOptionArgs<(String, String)>| rsx! {
-                            ComboboxOption {
-                                selected: selected == row.value.0,
-                                onpick: move |_| {
-                                    view.write().language = row.value.0.clone();
-                                    language_picker.close();
-                                },
-                                "{row.value.1}"
+                        div { class: "text-sm text-muted-foreground",
+                            if configured {
+                                "Live Deepgram transcription for your authenticated owner devices."
+                            } else {
+                                "Browser's built-in speech — add a Deepgram key below to upgrade."
                             }
                         }
-                    },
-                    Button {
-                        variant: "outlined",
-                        attributes: language_picker.a11y_attributes(),
-                        "data-testid": "transcription-language",
-                        "aria-label": "Language",
-                        onclick: move |_| language_picker.toggle(),
-                        onblur: move |_| language_picker.close(),
-                        "{language_options.iter().find(|(code, _)| *code == language).map(|(_, label)| label.as_str()).unwrap_or(\"English\")}"
                     }
                 }
-                Flex { direction: "row", align: "center", gap: "sm",
-                    Button { variant: "filled", disabled: state.saving, "data-testid": "transcription-save",
-                        onclick: move |_| save(save_pump.clone(), view),
-                        if state.saving { "Saving…" } else { "Save" } }
-                    Button { variant: "outlined", disabled: state.testing || !configured,
-                        "data-testid": "transcription-test",
-                        onclick: move |_| test(test_pump.clone(), view),
-                        if state.testing { "Testing…" } else { "Test" } }
-                    if configured {
-                        Button { variant: "text", disabled: state.saving, "data-testid": "transcription-clear",
-                            onclick: move |_| clear(clear_pump.clone(), view), "Remove key" }
-                    }
-                    if state.saved {
-                        Text { size: "sm", color: "success", "data-testid": "transcription-saved", "Saved" }
+            }
+            Card {
+                CardHeader { CardTitle { "Dictation" } }
+                CardContent { class: "flex flex-col gap-3",
+                    SwitchRow {
+                        test_id: Some("keyterm-biasing-toggle".to_owned()),
+                        headline: "Bias dictation to on-screen terms".to_owned(),
+                        support: Some("Feeds the terminal's visible text, your recent commands, and learned project jargon to Deepgram as keyterms — so names like Kysely, tailnet, or coordFactory transcribe correctly. Turn off to A/B against plain transcription. This device only; next recording.".to_owned()),
+                        checked: keyterm_biasing,
+                        on_checked_change: move |on| bias_pump.dispatch(ClientEvent::Shell(ShellIntent::SetKeytermBiasing { on })),
                     }
                 }
-                if let Some(message) = state.test_result.clone() {
-                    Text { color: if state.test_ok { "success" } else { "error" }, role: "status",
-                        "data-testid": "transcription-test-result", "{message}" }
+            }
+            Card {
+                CardHeader {
+                    CardTitle { "API key" }
+                    CardDescription {
+                        "Stored on the coordinator. For direct Deepgram dictation, Roost returns the configured key to this authenticated admin browser, which connects to Deepgram directly. Leave it empty to use the browser's built-in speech."
+                    }
                 }
-                if let Some(message) = refusal {
-                    Text { color: "error", role: "alert", "{message}" }
+                CardContent { class: "flex flex-col gap-4",
+                    TextField {
+                        test_id: Some("transcription-deepgram-key".to_owned()),
+                        label: Some("Deepgram API key".to_owned()),
+                        input_type: Some("password".to_owned()),
+                        placeholder: Some(key_placeholder),
+                        value: state.key.clone(),
+                        on_input: move |value| view.write().key = value,
+                    }
+                    Select {
+                        test_id: Some("transcription-language".to_owned()),
+                        label: Some("Language".to_owned()),
+                        value: language,
+                        options: language_options(),
+                        on_change: move |value| view.write().language = value,
+                    }
+                    div { class: "flex flex-wrap items-center gap-3",
+                        Button {
+                            variant: ButtonVariant::Default,
+                            "data-testid": "transcription-save",
+                            disabled: state.saving,
+                            onclick: move |_| save(save_pump.clone(), view),
+                            if state.saving { "Saving…" } else { "Save" }
+                        }
+                        Button {
+                            variant: ButtonVariant::Secondary,
+                            icon: Some(IconType::CircleCheck),
+                            "data-testid": "transcription-test",
+                            disabled: state.testing || !configured,
+                            onclick: move |_| test(test_pump.clone(), view),
+                            if state.testing { "Testing…" } else { "Test" }
+                        }
+                        if configured {
+                            Button {
+                                variant: ButtonVariant::Ghost,
+                                "data-testid": "transcription-clear",
+                                disabled: state.saving,
+                                onclick: move |_| clear(clear_pump.clone(), view),
+                                "Remove key"
+                            }
+                        }
+                        if state.saved {
+                            span { class: "text-sm text-primary", "data-testid": "transcription-saved", "Saved" }
+                        }
+                    }
+                    if let Some(message) = state.test_result.clone() {
+                        if state.test_ok {
+                            span {
+                                class: "text-sm text-success",
+                                "data-testid": "transcription-test-result",
+                                {message}
+                            }
+                        } else {
+                            FieldError { test_id: "transcription-test-result", {message} }
+                        }
+                    }
+                    if let Some(message) = refusal {
+                        FieldError { {message} }
+                    }
                 }
             }
         }

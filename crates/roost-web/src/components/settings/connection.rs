@@ -8,13 +8,16 @@
 //!
 //! The saved list is component state seeded from storage, exactly as v2 held it
 //! in a signal, so a second copy of the list has nowhere to drift from.
+
 use dioxus::prelude::*;
-use libero::components::{Button, Flex, Paper, Pictogram, Text, TextField};
-use libero::sx::sx;
 use roost_client_core::KeyValueStore;
 
 use std::rc::Rc;
 
+use crate::components::ui::{
+    Button, ButtonVariant, Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyState,
+    FieldError, Icon, IconType, ListRow, TextField,
+};
 use crate::platform::location::reload_document;
 use crate::platform::storage::LocalStorageKeyValueStore;
 
@@ -79,41 +82,35 @@ pub fn ConnectionPane() -> Element {
     let error = use_signal(String::new);
     let active = active_url(storage.as_ref());
     let rows = saved().clone();
-    let selected_row_sx =
-        use_hook(|| sx().selector("&[data-selected=\"true\"]", sx().background("primary.1")));
-    let detail_sx = use_hook(|| sx().min_width("0").flex("1 1 auto"));
     rsx! {
-        Flex {
-            direction: "column",
-            gap: "md",
+        div {
+            class: "flex flex-col gap-5",
             "data-testid": "settings-connection-pane",
-            Paper { bordered: true,
-                Flex { direction: "column", gap: "sm",
-                    Flex { direction: "column", gap: "xs",
-                        Text { size: "lg", "Connection" }
-                        Text { size: "sm", color: "muted",
-                            "Which coordinator this browser talks to. The default is the server that opened this page. Add a direct address such as localhost or another coordinator's origin."
-                        }
+            Card {
+                CardHeader {
+                    CardTitle { "Connection" }
+                    CardDescription {
+                        "Which coordinator this browser talks to. The default is the server that opened this page. Add a direct address such as localhost or another coordinator's origin."
                     }
-                    Text { size: "sm", color: "muted",
+                }
+                CardContent { class: "flex flex-col gap-3",
+                    p { class: "m-0 text-sm text-muted-foreground",
                         "Cloudflare Access addresses must be opened directly in the browser, not configured here."
                     }
-                    Paper { bordered: true,
-                        Flex { direction: "row", align: "center", justify: "space-between", gap: "sm",
-                            sx: selected_row_sx.clone(),
-                            "data-selected": active.is_empty().then_some("true"),
-                            Pictogram { icon: pictogram_icons_lucide::house::outlined, width: "16", height: "16" }
-                            Flex { direction: "column", gap: "xs", sx: detail_sx.clone(),
-                                Text { size: "sm", "This server (default)" }
-                                Text { size: "xs", color: "muted",
-                                    if active.is_empty() { "Connected" } else { "Same origin that served this page" }
-                                }
-                            }
+                    ListRow {
+                        test_id: Some("coord-default".to_owned()),
+                        leading_icon: Some(IconType::House),
+                        headline: rsx! { "This server (default)" },
+                        support: Some(rsx! {
+                            if active.is_empty() { "Connected" } else { "Same origin that served this page" }
+                        }),
+                        selected: active.is_empty(),
+                        trailing: Some(rsx! {
                             if active.is_empty() {
-                                Pictogram { icon: pictogram_icons_lucide::check::outlined, width: "16", height: "16" }
+                                Icon { icon: IconType::Check }
                             } else {
                                 Button {
-                                    variant: "standard",
+                                    variant: ButtonVariant::Ghost,
                                     onclick: {
                                         let storage = storage.clone();
                                         move |_| switch_to(&storage, "")
@@ -121,28 +118,25 @@ pub fn ConnectionPane() -> Element {
                                     "Use"
                                 }
                             }
-                        }
+                        }),
                     }
                     for coordinator in rows {
-                        Paper { bordered: true,
-                            Flex { direction: "row", align: "center", justify: "space-between", gap: "sm",
-                                sx: selected_row_sx.clone(),
-                                "data-selected": (active == coordinator.url).then_some("true"),
-                                "data-testid": format!("coord-row-{}", coordinator.url),
-                                Pictogram { icon: pictogram_icons_lucide::server::outlined, width: "16", height: "16" }
-                                Flex { direction: "column", gap: "xs", sx: detail_sx.clone(),
-                                    Text { size: "sm", "{coordinator.name}" }
-                                    Text { size: "xs", color: "muted",
-                                        if active == coordinator.url {
-                                            "{coordinator.url} · Connected"
-                                        } else {
-                                            "{coordinator.url}"
-                                        }
-                                    }
+                        ListRow {
+                            test_id: Some(format!("coord-row-{}", coordinator.url)),
+                            leading_icon: Some(IconType::Server),
+                            headline: rsx! { {coordinator.name.clone()} },
+                            support: Some(rsx! {
+                                if active == coordinator.url {
+                                    {format!("{} · Connected", coordinator.url)}
+                                } else {
+                                    {coordinator.url.clone()}
                                 }
+                            }),
+                            selected: active == coordinator.url,
+                            trailing: Some(rsx! {
                                 if active != coordinator.url {
                                     Button {
-                                        variant: "standard",
+                                        variant: ButtonVariant::Ghost,
                                         onclick: {
                                             let storage = storage.clone();
                                             let url = coordinator.url.clone();
@@ -151,11 +145,11 @@ pub fn ConnectionPane() -> Element {
                                         "Use"
                                     }
                                 } else {
-                                    Pictogram { icon: pictogram_icons_lucide::check::outlined, width: "16", height: "16" }
+                                    Icon { icon: IconType::Check }
                                 }
                                 Button {
-                                    variant: "standard",
-                                    icon: Some(rsx! { Pictogram { icon: pictogram_icons_lucide::trash_2::outlined } }),
+                                    variant: ButtonVariant::Ghost,
+                                    icon: Some(IconType::Trash2),
                                     "aria-label": "Remove",
                                     onclick: {
                                         let storage = storage.clone();
@@ -163,47 +157,45 @@ pub fn ConnectionPane() -> Element {
                                         move |_| remove_coordinator(&storage, saved, &url)
                                     },
                                 }
-                            }
+                            }),
                         }
                     }
                     if saved().is_empty() {
-                        Flex { direction: "column", align: "center", gap: "xs",
-                            Pictogram { icon: pictogram_icons_lucide::network::outlined, width: "20", height: "20" }
-                            Text { size: "sm", "No saved coordinators" }
-                            Text { size: "xs", color: "muted",
-                                "Add one below to reach a coord that isn't the server that served this page."
-                            }
+                        EmptyState {
+                            icon: IconType::Network,
+                            title: "No saved coordinators",
+                            supporting: "Add one below to reach a coord that isn't the server that served this page.",
                         }
                     }
                 }
             }
-            Paper { bordered: true,
-                Flex { direction: "column", gap: "sm",
-                    Flex { direction: "column", gap: "xs",
-                        Text { size: "lg", "Add a coordinator" }
-                        Text { size: "sm", color: "muted",
-                            "Give it a name and its full address. The address must be reachable from this device."
-                        }
+            Card {
+                CardHeader {
+                    CardTitle { "Add a coordinator" }
+                    CardDescription {
+                        "Give it a name and its full address. The address must be reachable from this device."
                     }
+                }
+                CardContent { class: "flex flex-col gap-3",
                     TextField {
-                        label: "Name (optional)",
-                        placeholder: "Home fleet",
+                        label: "Name (optional)".to_owned(),
+                        placeholder: "Home fleet".to_owned(),
                         value: name(),
-                        oninput: move |value| name.set(value),
+                        on_input: move |value| name.set(value),
                     }
                     TextField {
-                        label: "Address",
-                        placeholder: "https://your-coordinator.ts.net:4102",
+                        label: "Address".to_owned(),
+                        placeholder: "https://your-coordinator.ts.net:4102".to_owned(),
                         value: url(),
-                        oninput: move |value| url.set(value),
+                        on_input: move |value| url.set(value),
                     }
                     if !error().is_empty() {
-                        Text { size: "sm", color: "error", role: "alert", "{error()}" }
+                        FieldError { {error()} }
                     }
-                    Flex { direction: "row",
+                    div {
                         Button {
-                            variant: "filled",
-                            icon: Some(rsx! { Pictogram { icon: pictogram_icons_lucide::plus::outlined } }),
+                            variant: ButtonVariant::Default,
+                            icon: Some(IconType::Plus),
                             onclick: {
                                 let storage = storage.clone();
                                 move |_| add_coordinator(&storage, saved, name, url, error)

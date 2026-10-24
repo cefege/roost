@@ -4,10 +4,13 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_protocol::terminal_signals::{TerminalProgress, TerminalUserVar};
-use roost_web::components::terminal_signal_marks::{progress_presentation, user_var_badges};
+use roost_web::components::terminal_signal_marks::{
+    progress_presentation, progress_tone, user_var_badges,
+};
+use roost_web::components::ui::ProgressTone;
 
 #[test]
-fn each_progress_state_presents_its_fill_state_and_label() {
+fn each_progress_state_presents_its_fill_and_colour() {
     assert_eq!(progress_presentation(TerminalProgress::Clear), None);
     assert_eq!(
         progress_presentation(TerminalProgress::Normal(40)),
@@ -25,6 +28,10 @@ fn each_progress_state_presents_its_fill_state_and_label() {
         progress_presentation(TerminalProgress::Paused(Some(70))),
         Some((Some(0.7), "paused", "Paused at 70%".to_owned()))
     );
+    assert_eq!(progress_tone("normal"), ProgressTone::Default);
+    assert_eq!(progress_tone("busy"), ProgressTone::Default);
+    assert_eq!(progress_tone("error"), ProgressTone::Destructive);
+    assert_eq!(progress_tone("paused"), ProgressTone::Warning);
 }
 
 #[test]

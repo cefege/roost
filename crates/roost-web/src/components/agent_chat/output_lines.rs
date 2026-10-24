@@ -3,7 +3,6 @@
 //! underline), other control sequences dropped, and diff lines toned as added,
 //! removed or hunk header. Pure; `tool_card` renders and windows the lines.
 
-use libero::sx::{Sx, sx};
 /// Lines past this many characters are cut, so one minified line cannot
 /// flood the transcript.
 const MAX_LINE_CHARS: usize = 4_000;
@@ -20,24 +19,24 @@ pub(super) struct RunStyle {
 }
 
 impl RunStyle {
-    pub fn sx(self) -> Sx {
-        let mut style = sx();
+    /// The run's classes, empty for unstyled text. Every class is a literal so
+    /// the Tailwind scan sees it.
+    pub fn classes(self) -> String {
+        let mut classes: Vec<&'static str> = Vec::new();
         if let Some(index) = self.color {
-            style = style.color(color_token(index));
+            classes.push(color_class(index));
         }
-        if self.bold {
-            style = style.font_weight("bold");
+        for (on, class) in [
+            (self.bold, "font-bold"),
+            (self.dim, "opacity-60"),
+            (self.italic, "italic"),
+            (self.underline, "underline"),
+        ] {
+            if on {
+                classes.push(class);
+            }
         }
-        if self.dim {
-            style = style.opacity("0.6");
-        }
-        if self.italic {
-            style = style.font_style("italic");
-        }
-        if self.underline {
-            style = style.text_decoration("underline");
-        }
-        style
+        classes.join(" ")
     }
 
     fn apply_sgr(&mut self, parameters: &str) {
@@ -87,25 +86,27 @@ impl RunStyle {
     }
 }
 
-fn color_token(index: u8) -> &'static str {
+/// The class for one of the 16 terminal colours, read from the palette bridge
+/// so the colour follows the theme rather than a fixed hue.
+fn color_class(index: u8) -> &'static str {
     match index {
-        0 => "var(--term-color-0)",
-        1 => "var(--term-color-1)",
-        2 => "var(--term-color-2)",
-        3 => "var(--term-color-3)",
-        4 => "var(--term-color-4)",
-        5 => "var(--term-color-5)",
-        6 => "var(--term-color-6)",
-        7 => "var(--term-color-7)",
-        8 => "var(--term-color-8)",
-        9 => "var(--term-color-9)",
-        10 => "var(--term-color-10)",
-        11 => "var(--term-color-11)",
-        12 => "var(--term-color-12)",
-        13 => "var(--term-color-13)",
-        14 => "var(--term-color-14)",
-        15 => "var(--term-color-15)",
-        _ => "var(--term-fg)",
+        0 => "text-[var(--term-color-0)]",
+        1 => "text-[var(--term-color-1)]",
+        2 => "text-[var(--term-color-2)]",
+        3 => "text-[var(--term-color-3)]",
+        4 => "text-[var(--term-color-4)]",
+        5 => "text-[var(--term-color-5)]",
+        6 => "text-[var(--term-color-6)]",
+        7 => "text-[var(--term-color-7)]",
+        8 => "text-[var(--term-color-8)]",
+        9 => "text-[var(--term-color-9)]",
+        10 => "text-[var(--term-color-10)]",
+        11 => "text-[var(--term-color-11)]",
+        12 => "text-[var(--term-color-12)]",
+        13 => "text-[var(--term-color-13)]",
+        14 => "text-[var(--term-color-14)]",
+        15 => "text-[var(--term-color-15)]",
+        _ => "",
     }
 }
 
@@ -291,6 +292,7 @@ mod tests {
         assert_eq!(lines[1].runs[0].style, red_bold);
         assert_eq!(lines[1].runs[1].text, " plain");
         assert_eq!(lines[1].runs[1].style, RunStyle::default());
+        assert_eq!(red_bold.classes(), "text-[var(--term-color-1)] font-bold");
     }
 
     #[test]

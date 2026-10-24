@@ -4,67 +4,14 @@
 //! selector still shows and can be removed rather than being silently dropped.
 
 use dioxus::prelude::*;
-use libero::components::{ActionIcon, Button, Dialog, Flex, Indicator, Text};
-use libero::hooks::{ModalScope, use_modal};
-use std::{cell::RefCell, rc::Rc};
 
 use crate::components::agent_chat::model_picker::{ModelPicker, PickerOption};
 use crate::components::layout::window_size::use_is_compact;
-use crate::components::overlay_generation::OverlayGeneration;
 use crate::components::settings::model_chain::{move_entry, push_entry, split_thinking};
-
-#[derive(Clone)]
-struct ModelPickerRequest {
-    chain: Vec<String>,
-    options: Vec<PickerOption>,
-    thinking_levels: Vec<String>,
-    editing: Option<usize>,
-    role_title: String,
-}
-
-fn apply_picker_choice(
-    mut chain: Vec<String>,
-    editing: Option<usize>,
-    thinking_levels: &[String],
-    selector: String,
-) -> Option<Vec<String>> {
-    if let Some(index) = editing {
-        let entry = chain.get_mut(index)?;
-        let effort = split_thinking(entry, thinking_levels).1;
-        *entry = match effort {
-            Some(level) => format!("{selector}:{level}"),
-            None => selector,
-        };
-        Some(chain)
-    } else if push_entry(&mut chain, &selector) {
-        Some(chain)
-    } else {
-        None
-    }
-}
-
-fn picker_options(
-    chain: &[String],
-    options: &[PickerOption],
-    thinking_levels: &[String],
-    editing: Option<usize>,
-) -> Vec<PickerOption> {
-    let already_chosen: Vec<String> = chain
-        .iter()
-        .map(|entry| split_thinking(entry, thinking_levels).0.to_owned())
-        .collect();
-    let selected_entry = editing
-        .and_then(|index| chain.get(index))
-        .map(|entry| split_thinking(entry, thinking_levels).0);
-    options
-        .iter()
-        .filter(|option| {
-            !already_chosen.contains(&option.selector)
-                || selected_entry == Some(option.selector.as_str())
-        })
-        .cloned()
-        .collect()
-}
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Dialog, DialogBody, DialogContent, DialogHeader,
+    DialogTitle, IconButton, IconType, List, ListRow, StatusDot,
+};
 
 /// Edits one role's chain. `on_change` receives the whole new chain each time,
 /// so the caller decides how it is saved and scoped.
@@ -79,91 +26,37 @@ pub fn ModelChainEditor(
     test_id: String,
 ) -> Element {
     let compact = use_is_compact();
-    let generation = use_hook(|| Rc::new(RefCell::new(OverlayGeneration::default())));
-    let modal_test_id = test_id.clone();
-    let modal = use_modal(move |scope: ModalScope<ModelPickerRequest, String>| {
-        let Some(request) = scope.try_args() else {
-            return rsx! {};
-        };
-        let addable = picker_options(
-            &request.chain,
-            &request.options,
-            &request.thinking_levels,
-            request.editing,
-        );
-        let selected = request
-            .editing
-            .and_then(|index| request.chain.get(index))
-            .map(|entry| split_thinking(entry, &request.thinking_levels).0.to_owned());
-        rsx! {
-            Dialog { title: if request.editing.is_some() { format!("Change {}", request.role_title) } else { format!("Choose {}", request.role_title) }, size: "md",
-                "data-testid": "{modal_test_id}-dialog",
-                ModelPicker {
-                    options: addable,
-                    selected,
-                    placeholder: "Search models and engines".to_owned(),
-                    test_id: format!("{modal_test_id}-picker"),
-                    autofocus: !compact,
-                    on_choose: move |selector: String| scope.resolve(selector),
-                }
-            }
-        }
-    });
-    let addable = picker_options(&chain, &options, &thinking_levels, None);
-    let entry_count = chain.len();
-    let modal_for_drop = modal;
-    let open_picker = {
-        let generations = Rc::clone(&generation);
-        let chain = chain.clone();
-        let options = options.clone();
-        let thinking_levels = thinking_levels.clone();
-        let picker_role_title = role_title.clone();
-        move |editing| {
-            let token = generations.borrow_mut().begin();
-            let completion_generation = Rc::clone(&generations);
-            let completion_chain = chain.clone();
-            let completion_levels = thinking_levels.clone();
-            modal
-                .open_with(ModelPickerRequest {
-                    chain: chain.clone(),
-                    options: options.clone(),
-                    thinking_levels: thinking_levels.clone(),
-                    editing,
-                    role_title: picker_role_title.clone(),
-                })
-                .onresult(move |result| {
-                    if !completion_generation.borrow_mut().finish(token) {
-                        return;
-                    }
-                    if let Some(selector) = result
-                        && let Some(next) = apply_picker_choice(
-                            completion_chain.clone(),
-                            editing,
-                            &completion_levels,
-                            selector,
-                        )
-                    {
-                        on_change.call(next);
-                    }
-                });
-        }
+    // A phone gets the picker as a bottom sheet, within a thumb's reach.
+    let dialog_class = if compact {
+        "top-auto bottom-0 left-0 right-0 w-full max-w-none max-h-[70vh] translate-x-0 translate-y-0 rounded-t-2xl rounded-b-none"
+    } else {
+        "max-w-md"
     };
-    let open_picker = Rc::new(open_picker);
-    use_drop({
-        let generation = Rc::clone(&generation);
-        move || {
-            generation.borrow_mut().invalidate();
-            modal_for_drop.close();
-        }
-    });
-    let add_open_picker = Rc::clone(&open_picker);
+    let mut adding = use_signal(|| false);
+    let mut editing = use_signal(|| None::<usize>);
+    let selected_entry = editing()
+        .and_then(|index| chain.get(index))
+        .map(|entry| split_thinking(entry, &thinking_levels).0.to_owned());
+    let entry_count = chain.len();
+    let already_chosen: Vec<String> = chain
+        .iter()
+        .map(|entry| split_thinking(entry, &thinking_levels).0.to_owned())
+        .collect();
+    let addable: Vec<PickerOption> = options
+        .iter()
+        .filter(|option| {
+            !already_chosen.contains(&option.selector)
+                || selected_entry.as_ref() == Some(&option.selector)
+        })
+        .cloned()
+        .collect();
     rsx! {
-        Flex { direction: "column", gap: "sm", "data-testid": "{test_id}",
+        div { class: "flex flex-col gap-2", "data-testid": "{test_id}",
             if chain.is_empty() {
-                Text { size: "xs", color: "muted", "Inherits {inherited_label}" }
+                p { class: "text-xs text-muted-foreground m-0", "Inherits {inherited_label}" }
             }
             if entry_count > 0 {
-                Flex { direction: "column", gap: "xs",
+                List { contained: true,
                     for (index, entry) in chain.iter().enumerate() {
                         {
                             let (base, thinking) = split_thinking(entry, &thinking_levels);
@@ -183,38 +76,35 @@ pub fn ModelChainEditor(
                             let down_change = on_change;
                             let remove_change = on_change;
                             let row_test_id = format!("{test_id}-entry-{index}");
-                            let row_open_picker = Rc::clone(&open_picker);
                             rsx! {
-                                Flex { direction: "row", align: "center", gap: "sm",
-                                    "data-testid": "{row_test_id}",
-                                    if !known {
-                                        Indicator {
-                                            color: "warning",
-                                            size: "xs",
-                                            title: "Not available: this model is not in the catalog or its provider is not signed in",
-                                            "aria-label": "Model not available",
+                                ListRow {
+                                    leading: (!known).then(|| rsx! {
+                                        StatusDot {
+                                            status: "warn".to_owned(),
+                                            title: Some("Not available: this model is not in the catalog or its provider is not signed in".to_owned()),
                                         }
-                                    }
-                                    Flex { direction: "column", gap: "xs",
+                                    }),
+                                    headline: rsx! {
                                         Button {
-                                            variant: "standard",
-                                            color: "muted",
-                                            size: "xs",
+                                            variant: ButtonVariant::Ghost,
+                                            size: ButtonSize::Xs,
                                             disabled: options.is_empty(),
                                             title: format!("Change {role_title} candidate {}", index + 1),
-                                            onclick: move |_| row_open_picker(Some(index)),
+                                            onclick: move |_| { editing.set(Some(index)); adding.set(true); },
                                             "{headline}"
                                         }
-                                        Text { size: "xs", color: "muted",
-                                            if index == 0 { "Primary" } else { "Fallback {index}" }
-                                            if let Some(text) = support { " · {text}" }
-                                        }
-                                    }
-                                    Flex { direction: "row", align: "center", gap: "xs",
-                                        ActionIcon {
-                                            icon: pictogram_icons_lucide::arrow_up::outlined,
-                                            aria_label: format!("Move {role_title} candidate {} up", index + 1),
-                                            size: "sm",
+                                    },
+                                    support: Some(rsx! {
+                                        if index == 0 { "Primary" } else { "Fallback {index}" }
+                                        if let Some(text) = support { " · {text}" }
+                                    }),
+                                    dense: true,
+                                    test_id: row_test_id,
+                                    trailing: Some(rsx! {
+                                        IconButton {
+                                            icon: IconType::ArrowUp,
+                                            label: format!("Move {role_title} candidate {} up", index + 1),
+                                            size: ButtonSize::IconSm,
                                             disabled: index == 0,
                                             onclick: move |_| {
                                                 let mut next = up_chain.clone();
@@ -223,10 +113,10 @@ pub fn ModelChainEditor(
                                                 }
                                             },
                                         }
-                                        ActionIcon {
-                                            icon: pictogram_icons_lucide::arrow_down::outlined,
-                                            aria_label: format!("Move {role_title} candidate {} down", index + 1),
-                                            size: "sm",
+                                        IconButton {
+                                            icon: IconType::ArrowDown,
+                                            label: format!("Move {role_title} candidate {} down", index + 1),
+                                            size: ButtonSize::IconSm,
                                             disabled: index + 1 == entry_count,
                                             onclick: move |_| {
                                                 let mut next = down_chain.clone();
@@ -235,17 +125,17 @@ pub fn ModelChainEditor(
                                                 }
                                             },
                                         }
-                                        ActionIcon {
-                                            icon: pictogram_icons_lucide::x::outlined,
-                                            aria_label: format!("Remove {role_title} candidate {}", index + 1),
-                                            size: "sm",
+                                        IconButton {
+                                            icon: IconType::X,
+                                            label: format!("Remove {role_title} candidate {}", index + 1),
+                                            size: ButtonSize::IconSm,
                                             onclick: move |_| {
                                                 let mut next = remove_chain.clone();
                                                 next.remove(index);
                                                 remove_change.call(next);
                                             },
                                         }
-                                    }
+                                    }),
                                 }
                             }
                         }
@@ -253,14 +143,51 @@ pub fn ModelChainEditor(
                 }
             }
             Button {
-                variant: "outlined",
-                size: "sm",
-                icon: Some(rsx! { libero::components::Pictogram { icon: pictogram_icons_lucide::plus::outlined } }),
+                variant: ButtonVariant::Outline,
+                size: ButtonSize::Sm,
+                icon: IconType::Plus,
                 disabled: addable.is_empty(),
                 title: if options.is_empty() { "Connect a provider to choose a model" } else if addable.is_empty() { "Every available model is already in this chain" } else { "Search and choose the next model" },
                 "data-testid": format!("{test_id}-add"),
-                onclick: move |_| add_open_picker(None),
+                onclick: move |_| { editing.set(None); adding.set(true); },
                 if entry_count == 0 { "Choose model" } else { "Add fallback" }
+            }
+            Dialog {
+                open: adding(),
+                on_open_change: move |open: bool| adding.set(open),
+                DialogContent {
+                    class: dialog_class,
+                    test_id: format!("{test_id}-dialog"),
+                    DialogHeader {
+                        DialogTitle {
+                            if editing().is_some() { "Change {role_title}" } else { "Choose {role_title}" }
+                        }
+                    }
+                    DialogBody {
+                        ModelPicker {
+                            options: addable.clone(),
+                            selected: selected_entry.clone(),
+                            placeholder: "Search models and engines".to_owned(),
+                            test_id: format!("{test_id}-picker"),
+                            autofocus: !compact,
+                            on_choose: move |selector: String| {
+                                let mut next = chain.clone();
+                                if let Some(index) = editing() {
+                                    let Some(entry) = next.get_mut(index) else { adding.set(false); return; };
+                                    let effort = split_thinking(entry, &thinking_levels).1;
+                                    *entry = match effort {
+                                        Some(level) => format!("{selector}:{level}"),
+                                        None => selector,
+                                    };
+                                    on_change.call(next);
+                                } else if push_entry(&mut next, &selector) {
+                                    on_change.call(next);
+                                }
+                                adding.set(false);
+                            },
+                        }
+                    }
+                }
             }
         }
     }

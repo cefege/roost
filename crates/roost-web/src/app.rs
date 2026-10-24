@@ -114,35 +114,35 @@ impl Gate {
     }
 }
 
-/// Provides document-lifetime product state above Libero's portal outlet.
-/// Portaled controls need the same router, modality and notification target as the shell.
-pub(crate) fn provide_root_contexts() {
-    let path = router_state::use_path_signal();
-    let on_navigate = router_state::navigation_handler(path);
-    router_state::provide_router(path, on_navigate);
-    let geometry = use_signal(Default::default);
-    crate::components::terminal_chrome::composer_geometry::install_signal(geometry);
-    crate::components::notifications::notify_target::NotifyTarget::provide();
-    use_context_provider(|| Signal::new(crate::input_nav::PadHeld::default()));
-    #[cfg(target_arch = "wasm32")]
-    {
-        let modality = use_hook(|| {
-            let modality = crate::input_nav::load_nav_modality(
-                &crate::platform::LocalStorageKeyValueStore::new(),
-            );
-            crate::input_nav::apply_nav_modality(&modality);
-            Signal::new(modality)
-        });
-        use_context_provider(|| modality);
-    }
-}
-
-/// Reads the shared router above the access gate; access transitions retain
-/// pairing, document input and the single client-core subscription.
+/// The gated application. The router context is provided ABOVE the gate so an
+/// access transition never remounts it; the state is read during render with
+/// the pump's revision (`use_store`), never memoized.
 #[component]
 pub fn GatedApp() -> Element {
     let core = crate::pump::use_store().core();
-    let path = router_state::use_location();
+    let path = router_state::use_path_signal();
+    let on_navigate = router_state::navigation_handler(path);
+    router_state::provide_router(path, on_navigate);
+    // The shell's composer reserve is a MEASUREMENT a dock publishes, and a
+    // `thread_local` slot cannot re-render anything — reading only the slot
+    // leaves the compact reserve a frame behind the dock that measured it. The
+    // root owns the signal, so the root installs it. Installed above the gate
+    // and above the shell, because a dock can mount in either.
+    {
+        use dioxus::prelude::*;
+        let geometry = use_signal(Default::default);
+        crate::components::terminal_chrome::composer_geometry::install_signal(geometry);
+    }
+    // A toast names a TARGET session, and the pane tab or sidebar row that
+    // represents it is somewhere else entirely: `AuthorizedShell` and
+    // `AuthorizedOverlays` are SIBLINGS, so a target provided inside the dock
+    // cannot reach the rows that are meant to ring. Provided here, above both,
+    // for the same reason the composer geometry is: the dock is one of two
+    // children and it is not the one that reads it.
+    {
+        let _notify_target =
+            crate::components::notifications::notify_target::NotifyTarget::provide();
+    }
     #[cfg(target_arch = "wasm32")]
     install_document_input(crate::pump::use_pump(), path);
     #[cfg(target_arch = "wasm32")]
@@ -194,9 +194,14 @@ pub fn GatedApp() -> Element {
 /// keeps a file dropped on the page from opening in the tab.
 #[cfg(target_arch = "wasm32")]
 fn install_document_input(pump: crate::pump::Pump, path: Signal<String>) {
-    use crate::input_nav::install_spatial_navigation;
+    use crate::input_nav::{apply_nav_modality, install_spatial_navigation, load_nav_modality};
 
-    let modality = use_context::<Signal<NavModality>>();
+    let modality = use_hook(|| {
+        let modality = load_nav_modality(&crate::platform::LocalStorageKeyValueStore::new());
+        apply_nav_modality(&modality);
+        Signal::new(modality)
+    });
+    use_context_provider(|| modality);
     let overlays = crate::keyboard_shortcuts::use_shortcut_overlays();
     // The pad router's own hooks live in THIS scope, never inside a `use_hook`
     // initializer. A hook list is a `RefCell` borrowed for the whole of an
@@ -208,12 +213,8 @@ fn install_document_input(pump: crate::pump::Pump, path: Signal<String>) {
     // the poll the memo still holds down with it. So all three guards are built
     // by ONE initializer, and it runs once.
     let pad_router = use_hook(|| Signal::new(crate::input_nav::PadActionRouter::new()));
-    let pad_held = use_context::<Signal<crate::input_nav::PadHeld>>();
-    let compact_now = crate::components::layout::window_size::use_is_compact();
-    let mut compact = use_hook(|| Signal::new(false));
-    if compact() != compact_now {
-        compact.set(compact_now);
-    }
+    let pad_held = use_hook(|| Signal::new(crate::input_nav::PadHeld::default()));
+    let compact = crate::components::layout::window_size::use_is_compact();
     let pad_shell = PadShellContext {
         pump: pump.clone(),
         overlays,
@@ -249,7 +250,7 @@ struct PadShellContext {
     modality: Signal<NavModality>,
     router: Signal<crate::input_nav::PadActionRouter>,
     held: Signal<crate::input_nav::PadHeld>,
-    compact: Signal<bool>,
+    compact: bool,
 }
 
 /// The Gamepad poll, the TV remote's Back/OK keys, and the shell half of the

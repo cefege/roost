@@ -32,12 +32,16 @@ mod deck_swipe_style;
 mod deck_swipe_touch;
 #[path = "deploy_dialog_state.rs"]
 mod deploy_dialog_state;
+#[path = "design_catalog.rs"]
+mod design_catalog;
 #[path = "directional_input.rs"]
 mod directional_input;
 #[path = "file_route_round_trip.rs"]
 mod file_route_round_trip;
 #[path = "global_search_page.rs"]
 mod global_search_page;
+#[path = "index_page.rs"]
+mod index_page;
 #[path = "keyboard_shortcuts.rs"]
 mod keyboard_shortcuts;
 #[path = "machine_actions.rs"]
@@ -72,8 +76,6 @@ mod pairing_gate;
 mod palette_actions;
 #[path = "palette_overlay_lifecycle.rs"]
 mod palette_overlay_lifecycle;
-#[path = "palette_support.rs"]
-mod palette_support;
 #[path = "pane_drawer_mount.rs"]
 mod pane_drawer_mount;
 #[path = "peer_carrier_attempts.rs"]
@@ -94,8 +96,6 @@ mod resize_drag;
 mod route_session;
 #[path = "route_surfaces.rs"]
 mod route_surfaces;
-#[path = "router_navigation.rs"]
-mod router_navigation;
 #[path = "router_popstate_ownership.rs"]
 mod router_popstate_ownership;
 #[path = "routes.rs"]
@@ -144,6 +144,34 @@ mod tv_modality;
 mod ui_bridge_apply;
 #[path = "ui_bridge_report.rs"]
 mod ui_bridge_report;
+#[path = "ui_button.rs"]
+mod ui_button;
+#[path = "ui_chip.rs"]
+mod ui_chip;
+#[path = "ui_command.rs"]
+mod ui_command;
+#[path = "ui_dialog.rs"]
+mod ui_dialog;
+#[path = "ui_field.rs"]
+mod ui_field;
+#[path = "ui_list.rs"]
+mod ui_list;
+#[path = "ui_progress.rs"]
+mod ui_progress;
+#[path = "ui_select.rs"]
+mod ui_select;
+#[path = "ui_skeleton.rs"]
+mod ui_skeleton;
+#[path = "ui_status.rs"]
+mod ui_status;
+#[path = "ui_surface.rs"]
+mod ui_surface;
+#[path = "ui_tabs.rs"]
+mod ui_tabs;
+#[path = "ui_text_field.rs"]
+mod ui_text_field;
+#[path = "ui_usage_ring.rs"]
+mod ui_usage_ring;
 #[path = "undo_close_card.rs"]
 mod undo_close_card;
 #[path = "voice_draft_settle.rs"]

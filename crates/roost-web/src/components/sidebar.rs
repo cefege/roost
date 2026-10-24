@@ -7,7 +7,7 @@ pub mod agent_conversation_row;
 pub mod all_view;
 pub mod context_menu_frame;
 #[cfg(target_arch = "wasm32")]
-pub(crate) mod dom;
+mod dom;
 pub mod folder_list;
 pub mod folder_row;
 pub mod folder_row_context_menu;

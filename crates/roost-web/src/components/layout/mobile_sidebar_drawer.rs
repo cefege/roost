@@ -5,19 +5,8 @@
 //! The gesture is `drawer_gesture`; the drawer transforms are
 //! `motion::drawer_drag`; open/close are the store's `SidebarIntent`s.
 
-use std::cell::{Cell, RefCell};
-use std::rc::Rc;
-
 use dioxus::prelude::*;
-use libero::{
-    components::Flex,
-    hooks::{DrawerOptions, ModalScope, use_drawer},
-    sx::sx,
-};
-use roost_client_core::ClientEvent;
-use roost_client_core::store::sidebar::SidebarIntent;
 
-use crate::components::overlay_generation::OverlayGeneration;
 use crate::pump::use_store;
 
 /// The drawer; its dim is `main_pane`'s, which sits under it.
@@ -25,62 +14,24 @@ use crate::pump::use_store;
 pub fn MobileSidebarDrawer(children: Element) -> Element {
     let pump = use_store();
     let open = pump.core().borrow().store().ui.sidebar_open;
-    let last_open = use_hook(|| Rc::new(Cell::new(false)));
-    let generation = use_hook(|| Rc::new(RefCell::new(OverlayGeneration::default())));
-    let drawer_sx = use_hook(|| {
-        sx().padding("0")
-            .width("100vw")
-            .height("100dvh")
-            .max_width("100vw")
-    });
-    let content_sx = use_hook(|| {
-        sx().min_width("0")
-            .min_height("0")
-            .height("100%")
-            .padding_top("env(safe-area-inset-top)")
-            .padding_right("env(safe-area-inset-right)")
-            .padding_bottom("env(safe-area-inset-bottom)")
-            .padding_left("env(safe-area-inset-left)")
-    });
-    let drawer = use_drawer(
-        DrawerOptions {
-            anchor: "start".into(),
-            size: "100vw".into(),
-            aria_label: Some("Sidebar".to_owned()),
-            sx: drawer_sx.into(),
-            ..Default::default()
-        },
-        move |_scope: ModalScope<()>| {
-            rsx! {
-                Flex { sx: content_sx.clone(), direction: "column", wrap: false, {children.clone()} }
-            }
-        },
-    );
-    if open != last_open.get() {
-        last_open.set(open);
-        if open {
-            let token = generation.borrow_mut().begin();
-            let current_generation = generation.clone();
-            let close_pump = pump.clone();
-            drawer.open_with(()).onresult(move |_| {
-                if current_generation.borrow_mut().finish(token) {
-                    close_pump.dispatch(ClientEvent::Sidebar(SidebarIntent::CloseDrawer));
-                }
-            });
-        } else {
-            generation.borrow_mut().invalidate();
-            drawer.close();
-        }
-    }
     #[cfg(target_arch = "wasm32")]
     {
         let listeners = use_hook({
             let pump = pump.clone();
-            move || Rc::new(touch::DrawerTouchListeners::install(pump))
+            move || std::rc::Rc::new(touch::DrawerTouchListeners::install(pump))
         });
         use_drop(move || listeners.remove());
     }
-    rsx! {}
+    let flag = if open { "true" } else { "false" };
+    rsx! {
+        aside {
+            class: "fixed inset-0 z-50 box-border h-full w-screen overflow-hidden will-change-transform pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] bg-sidenav font-sans text-xs text-[var(--text-mid)] min-w-0 min-h-0 grid grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] [transform:translateX(-100%)] transition-transform duration-200 ease-[cubic-bezier(0.3,0,0.8,0.15)] data-[open=true]:[transform:translateX(0)] data-[open=true]:duration-300 data-[open=true]:ease-[cubic-bezier(0.05,0.7,0.1,1)]",
+            "data-testid": crate::motion::drawer_drag::DRAWER_TEST_ID,
+            "data-open": flag,
+            "aria-hidden": if open { "false" } else { "true" },
+            {children}
+        }
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -95,7 +46,7 @@ mod touch {
     use web_sys::TouchEvent;
 
     use crate::components::layout::drawer_gesture::{DrawerGesture, DrawerMove};
-    use crate::motion::drawer_drag::DrawerSettle;
+    use crate::motion::drawer_drag::{DrawerSettle, drag_drawer, settle_drawer};
     use crate::pump::Pump;
 
     type Listener = Closure<dyn FnMut(TouchEvent)>;
@@ -165,9 +116,10 @@ mod touch {
                         width(),
                         now_ms(),
                     );
-                    if let DrawerMove::Drag { .. } = step {
+                    if let DrawerMove::Drag { offset_px } = step {
                         event.prevent_default();
                         event.stop_propagation();
+                        drag_drawer(offset_px);
                     }
                 })
             };
@@ -184,6 +136,7 @@ mod touch {
                         };
                         pump.dispatch(ClientEvent::Sidebar(intent));
                     }
+                    settle_drawer(mode, commit);
                 })
             };
             let listeners = vec![

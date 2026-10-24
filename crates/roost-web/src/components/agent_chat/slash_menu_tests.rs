@@ -1,8 +1,11 @@
-//! Slash completion behavior: catalog filtering, action dispatch and registry order.
-//! Compiled by slash_menu under cfg(test); drafts are the public input and the
-//! registry in roost-protocol is the command table under test.
+//! Slash completion: ranking, what Enter does, and the shared name column.
+//! Compiled by slash_menu under cfg(test); drafts are the public input and
+//! the registry in roost-protocol is the command table under test.
 
-use super::{SlashAccept, SlashMenuState, SlashSources, accept_action, slash_menu_state};
+use super::{
+    SlashAccept, SlashMenuState, SlashSources, accept_action, name_column_chars, slash_menu_state,
+};
+
 fn state(draft: &str) -> Option<SlashMenuState> {
     slash_menu_state(draft, &SlashSources::default())
 }
@@ -111,4 +114,18 @@ fn a_named_command_with_nothing_to_complete_offers_no_rows() {
             .map(|command| command.name),
         Some("rename")
     );
+}
+
+#[test]
+fn the_name_column_fits_the_widest_label_within_bounds() {
+    let short = state("/new").map(|state| state.options).unwrap_or_default();
+    assert_eq!(name_column_chars(&short), 12);
+    let all = state("/").map(|state| state.options).unwrap_or_default();
+    // "modelpreset" is the longest name: eleven characters plus the gap.
+    assert_eq!(name_column_chars(&all), 13);
+    let mut long = all;
+    if let Some(first) = long.first_mut() {
+        first.label = "provider/a-model-id-well-past-the-column-cap".into();
+    }
+    assert_eq!(name_column_chars(&long), 32);
 }

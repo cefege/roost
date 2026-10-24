@@ -11,50 +11,44 @@
 //! coordinator will never answer.
 
 use dioxus::prelude::*;
-use libero::components::{Alert, Box, Button, Flex, Pictogram, Text};
-use libero::sx::sx;
+
+use crate::components::ui::{Button, ButtonVariant, EmptyState, FieldError, IconType};
 
 use super::state::MAX_VIEWED_FILE_BYTES;
 
 /// The unavailable region's element id, so the sheet can put focus on it.
 pub const UNAVAILABLE_REGION_ID: &str = "file-viewer-unavailable";
 
-/// The name the unavailable region announces.
+/// The name the unavailable region announces. v2 spells the sentence out in
+/// one string, and so does this: it is what a screen reader says when the route
+/// names a machine this coordinator has never heard of.
 pub const UNAVAILABLE_LABEL: &str =
     "File unavailable. This file isn't available on this coordinator.";
 
-/// The wait, while the machine's own registry has not answered yet.
+/// The wait, while the machine's own registry has not answered yet. The
+/// caption is the only thing on screen: a region that will be replaced by the
+/// file or by the denial must not be announced twice.
 #[component]
 pub fn LoadingCaption() -> Element {
-    let loading_sx = use_hook(|| sx().flex_shrink("0").font_size("sm").color("muted"));
     rsx! {
-        Box {
-            component: "span",
-            sx: loading_sx,
+        span {
             "data-testid": "file-viewer-sheet-loading",
             role: "status",
             "aria-live": "polite",
+            class: "flex-none text-sm text-muted-foreground",
             "Loading file…"
         }
     }
 }
 
-/// A focusable denial state for a route whose worker is absent from the registry.
+/// The machine this file lives on is not in a registry that has already
+/// published. Focusable on purpose: the route names a machine no registry row
+/// will ever match, so a reader who lands here has to be able to leave with
+/// the keyboard alone.
 #[component]
 pub fn UnavailableRegion(on_go_home: EventHandler<()>) -> Element {
-    let scroll_region_sx = use_hook(|| sx().flex("1").min_height("0").overflow_y("auto"));
-    let notice_sx = use_hook(|| {
-        sx().display("flex")
-            .flex_direction("column")
-            .align_items("center")
-            .gap("sm")
-            .padding_block("2rem")
-            .text_align("center")
-    });
-    let icon_sx = use_hook(|| sx().width("2rem").height("2rem").color("muted"));
     rsx! {
-        Box {
-            sx: scroll_region_sx,
+        div {
             id: UNAVAILABLE_REGION_ID,
             "data-testid": UNAVAILABLE_REGION_ID,
             role: "status",
@@ -62,126 +56,103 @@ pub fn UnavailableRegion(on_go_home: EventHandler<()>) -> Element {
             "aria-label": UNAVAILABLE_LABEL,
             "aria-atomic": "true",
             tabindex: "-1",
-            Flex { direction: "column", sx: notice_sx,
-                Box { component: "span", sx: icon_sx,
-                    Pictogram { icon: pictogram_icons_lucide::file_x::outlined, width: "2rem", height: "2rem" }
-                }
-                Text { size: "lg", "File unavailable" }
-                Text { size: "sm", color: "muted", "This file isn't available on this coordinator." }
-                Button {
-                    variant: "outlined",
-                    "data-testid": "file-viewer-unavailable-home",
-                    onfocus: move |_| super::dom::scroll_home_action_into_view(),
-                    onclick: move |_| on_go_home.call(()),
-                    "Go home"
-                }
+            class: "flex-auto min-h-0 overflow-y-auto",
+            EmptyState {
+                icon: IconType::FileX,
+                title: "File unavailable".to_owned(),
+                supporting: Some("This file isn't available on this coordinator.".to_owned()),
+                action: Some(rsx! {
+                    Button {
+                        variant: ButtonVariant::Secondary,
+                        "data-testid": "file-viewer-unavailable-home",
+                        onfocus: move |_| super::dom::scroll_home_action_into_view(),
+                        onclick: move |_| on_go_home.call(()),
+                        "Go home"
+                    }
+                }),
             }
         }
     }
 }
 
-/// Shows the worker's reason when the read cannot be completed.
+/// The read failed, and the machine named why: a permission, a path that is
+/// not there, a machine that could not be reached. The machine's own words are
+/// shown, because a reader who cannot open a file needs the reason, not a
+/// paraphrase of it.
 #[component]
 pub fn FailureNotice(message: String) -> Element {
     rsx! {
-        Alert { color: "error", role: "status", "aria-live": "polite", "data-testid": "file-viewer-sheet-error", {message} }
+        FieldError { role: "status", test_id: "file-viewer-sheet-error", {message} }
     }
 }
 
-/// Describes binary content and its byte count.
+/// The bytes are not UTF-8. There is no text to number and no honest way to
+/// show a few of it, so the sheet says what it is and how much of it there is.
 #[component]
 pub fn BinaryNotice(byte_size: u64) -> Element {
-    let binary_sx = use_hook(|| sx().font_size("sm").color("warning"));
     rsx! {
-        Box {
-            component: "span",
-            sx: binary_sx,
+        span {
             "data-testid": "file-viewer-sheet-binary",
             role: "status",
             "aria-live": "polite",
+            class: "text-sm text-warning",
             {format!("binary file ({byte_size} bytes) — not renderable as text")}
         }
     }
 }
 
-/// Explains that a successful read returned no content.
+/// The file is there and holds nothing a reader could read. v2 painted an
+/// empty body for it, which is indistinguishable from a failed read.
 #[component]
 pub fn EmptyNotice() -> Element {
-    let notice_sx = use_hook(|| {
-        sx().display("flex")
-            .flex_direction("column")
-            .align_items("center")
-            .gap("sm")
-            .padding_block("2rem")
-            .text_align("center")
-    });
-    let icon_sx = use_hook(|| sx().width("2rem").height("2rem").color("muted"));
     rsx! {
-        Box { "data-testid": "file-viewer-sheet-empty",
-            Flex { direction: "column", sx: notice_sx,
-                Box { component: "span", sx: icon_sx,
-                    Pictogram { icon: pictogram_icons_lucide::file::outlined, width: "2rem", height: "2rem" }
-                }
-                Text { size: "lg", "This file is empty" }
-                Text { size: "sm", color: "muted", "There is nothing in it to read." }
+        div { "data-testid": "file-viewer-sheet-empty",
+            EmptyState {
+                icon: IconType::File,
+                title: "This file is empty".to_owned(),
+                supporting: Some("There is nothing in it to read.".to_owned()),
+                action: None,
             }
         }
     }
 }
 
-/// Reports the size that prevented the preview from being rendered.
+/// The file is larger than the sheet will paint. The size is named because
+/// "too large" without a number is the least useful sentence in this product.
 #[component]
 pub fn TooLargeNotice(byte_size: u64) -> Element {
-    let notice_sx = use_hook(|| {
-        sx().display("flex")
-            .flex_direction("column")
-            .align_items("center")
-            .gap("sm")
-            .padding_block("2rem")
-            .text_align("center")
-    });
-    let icon_sx = use_hook(|| sx().width("2rem").height("2rem").color("muted"));
     rsx! {
-        Box { "data-testid": "file-viewer-sheet-too-large",
-            Flex { direction: "column", sx: notice_sx,
-                Box { component: "span", sx: icon_sx,
-                    Pictogram { icon: pictogram_icons_lucide::file::outlined, width: "2rem", height: "2rem" }
-                }
-                Text { size: "lg", "This file is too large to open" }
-                Text { size: "sm", color: "muted",
+        div { "data-testid": "file-viewer-sheet-too-large",
+            EmptyState {
+                icon: IconType::File,
+                title: "This file is too large to open".to_owned(),
+                supporting: Some(format!(
                     "It is {byte_size} bytes, and a preview reads up to {MAX_VIEWED_FILE_BYTES} bytes."
-                }
+                )),
+                action: None,
             }
         }
     }
 }
 
-/// Explains that the route names a folder and offers navigation to the browser.
+/// The path is a folder. The sheet cannot descend into it — a folder has no
+/// lines — so it offers the browser, which is where a folder is actually read.
 #[component]
 pub fn DirectoryNotice(path: String, on_browse: EventHandler<()>) -> Element {
-    let notice_sx = use_hook(|| {
-        sx().display("flex")
-            .flex_direction("column")
-            .align_items("center")
-            .gap("sm")
-            .padding_block("2rem")
-            .text_align("center")
-    });
-    let icon_sx = use_hook(|| sx().width("2rem").height("2rem").color("muted"));
     rsx! {
-        Box { "data-testid": "file-viewer-sheet-directory",
-            Flex { direction: "column", sx: notice_sx,
-                Box { component: "span", sx: icon_sx,
-                    Pictogram { icon: pictogram_icons_lucide::folder::outlined, width: "2rem", height: "2rem" }
-                }
-                Text { size: "lg", "This is a folder" }
-                Text { size: "sm", color: "muted", "{path} is a folder, not a file." }
-                Button {
-                    variant: "outlined",
-                    "data-testid": "file-viewer-sheet-open-folder",
-                    onclick: move |_| on_browse.call(()),
-                    "Browse this folder"
-                }
+        div { "data-testid": "file-viewer-sheet-directory",
+            EmptyState {
+                icon: IconType::Folder,
+                title: "This is a folder".to_owned(),
+                supporting: Some(format!("{path} is a folder, not a file.")),
+                action: Some(rsx! {
+                    Button {
+                        variant: ButtonVariant::Secondary,
+                        "data-testid": "file-viewer-sheet-open-folder",
+                        onclick: move |_| on_browse.call(()),
+                        "Browse this folder"
+                    }
+                }),
             }
         }
     }

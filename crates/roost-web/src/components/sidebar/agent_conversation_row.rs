@@ -2,18 +2,15 @@
 //! Conversation metadata comes from the client store; folder and Agents
 //! projections both use this row.
 
-use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
-use libero::{
-    components::{Box, Flex, Indicator, Paper, Pictogram, Text},
-    sx::sx,
-};
 use roost_client_core::ClientEvent;
-use roost_client_core::client::agents::status_policy::AgentDotStatus;
 use roost_client_core::store::sidebar::SidebarIntent;
 
+use crate::components::ui::IconType;
+use crate::components::ui::list::ListRow;
+use crate::components::ui::status::StatusDot;
 use crate::pump::use_store;
-use crate::router_state::{is_in_app_navigation_click, use_navigate};
+use crate::router_state::use_navigate;
 
 /// A sidebar destination for one built-in agent conversation.
 #[component]
@@ -24,30 +21,12 @@ pub fn AgentConversationRow(
 ) -> Element {
     let pump = use_store();
     let navigate = use_navigate();
-    let title_sx = use_hook(|| {
-        sx().min_width("0")
-            .flex("1")
-            .flex_direction("column")
-            .gap("xs")
-    });
-    let row_sx = use_hook(|| {
-        sx().display("flex")
-            .align_items("center")
-            .gap("sm")
-            .padding_inline("md")
-            .padding_block("sm")
-            .selector("&:hover", sx().background("primary.1"))
-            .selector("&[data-selected=true]", sx().background("primary.2"))
-    });
-    let link_sx = use_hook(|| {
-        sx().display("block")
-            .color("inherit")
-            .text_decoration("none")
-            .selector(
-                "&:focus-visible",
-                sx().outline("2px solid var(--workbench-focus-ring)")
-                    .outline_offset("2px"),
-            )
+    let navigate_to_agent = EventHandler::new({
+        let pump = pump.clone();
+        move |href: String| {
+            pump.dispatch(ClientEvent::Sidebar(SidebarIntent::CloseDrawer));
+            navigate.call(href);
+        }
     });
     let conversation = {
         let core = pump.core();
@@ -67,43 +46,39 @@ pub fn AgentConversationRow(
         .as_ref()
         .map(|model| model.model_id.as_str())
         .unwrap_or("No model");
-    let (dot_status, status_title) = match conversation.run_state {
-        roost_protocol::wire::agent_chat::AgentRunState::Running => {
-            (AgentDotStatus::Info, "Running")
-        }
-        roost_protocol::wire::agent_chat::AgentRunState::Failed => (AgentDotStatus::Warn, "Failed"),
-        roost_protocol::wire::agent_chat::AgentRunState::Idle => (AgentDotStatus::Idle, "Idle"),
+    let (status, status_title) = match conversation.run_state {
+        roost_protocol::wire::agent_chat::AgentRunState::Running => ("info", "Running"),
+        roost_protocol::wire::agent_chat::AgentRunState::Failed => ("warn", "Failed"),
+        roost_protocol::wire::agent_chat::AgentRunState::Idle => ("idle", "Idle"),
     };
-    let status = crate::components::agents::agent_status_indicator::agent_dot_color(dot_status);
-    let row_id = format!("sidebar-agent-conversation-{conversation_id}");
+    // Under a folder the row sits in the tree's indent and one dense line tall,
+    // so the tree reads as one list. The `group` root lets the texts recolor
+    // with the selection, as the session rows do.
+    let row_class = if compact {
+        "group ps-9 gap-2 min-h-7"
+    } else {
+        "group"
+    };
     rsx! {
-        Box { component: "a",
-            sx: link_sx,
-            href: href.clone(),
-            "data-testid": row_id,
-            "aria-current": if selected { Some("page") } else { None },
-            "data-selected": selected,
-            onclick: move |event: MouseEvent| {
-                if !is_in_app_navigation_click(
-                    event.trigger_button() == Some(MouseButton::Primary),
-                    event.modifiers(),
-                ) {
-                    return;
+        ListRow {
+            leading_icon: Some(IconType::Bot),
+            headline: rsx! { span { class: "min-w-0 truncate text-sm text-foreground group-data-[selected=true]:text-accent-foreground", "{crate::components::agent_chat::display_conversation_title(&conversation.title)}" } },
+            // Under a folder the row is one line, like the session rows: the
+            // model is the chat's business, not the tree's.
+            support: (!compact).then(|| rsx! { span { class: "min-w-0 truncate text-xs text-muted-foreground group-data-[selected=true]:text-accent-foreground", "{model_name}" } }),
+            trailing: Some(rsx! {
+                StatusDot {
+                    status: status.to_owned(),
+                    title: Some(status_title.to_owned()),
                 }
-                event.prevent_default();
-                pump.dispatch(ClientEvent::Sidebar(SidebarIntent::CloseDrawer));
-                navigate.call(href.clone());
-            },
-            Paper { sx: row_sx, "data-selected": selected,
-                Flex { direction: "row", wrap: false, gap: "sm",
-                    Pictogram { icon: pictogram_icons_lucide::bot::outlined, width: "1rem", height: "1rem" }
-                    Flex { sx: title_sx, direction: "column", gap: "xs",
-                        Text { size: "sm", "{crate::components::agent_chat::display_conversation_title(&conversation.title)}" }
-                        if !compact { Text { size: "xs", color: "muted", "{model_name}" } }
-                    }
-                    Indicator { color: status, size: "xs", title: status_title }
-                }
-            }
+            }),
+            href: Some(href.clone()),
+            on_navigate: Some(navigate_to_agent),
+            selected,
+            aria_current: selected.then_some("page".to_owned()),
+            dense: compact,
+            test_id: Some(format!("sidebar-agent-conversation-{conversation_id}")),
+            class: Some(row_class.to_owned()),
         }
     }
 }

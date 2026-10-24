@@ -13,7 +13,13 @@ use wasm_bindgen::JsCast;
 /// routing. A refused element is a field that already lost focus.
 #[cfg(target_arch = "wasm32")]
 pub fn blur(element: &MountedData) {
-    if let Some(field) = text_area(element) {
+    use dioxus::web::WebEventExt as _;
+    use wasm_bindgen::JsCast as _;
+
+    let Some(element) = element.try_as_web_event() else {
+        return;
+    };
+    if let Some(field) = element.dyn_ref::<web_sys::HtmlTextAreaElement>() {
         let _ = field.blur();
     }
 }
@@ -115,15 +121,7 @@ fn text_area(field: &MountedData) -> Option<web_sys::HtmlTextAreaElement> {
     use dioxus::web::WebEventExt as _;
 
     let element: web_sys::Element = field.try_as_web_event()?;
-    if element.tag_name().eq_ignore_ascii_case("textarea") {
-        return element.dyn_into::<web_sys::HtmlTextAreaElement>().ok();
-    }
-    element
-        .query_selector("textarea")
-        .ok()
-        .flatten()?
-        .dyn_into::<web_sys::HtmlTextAreaElement>()
-        .ok()
+    element.dyn_into::<web_sys::HtmlTextAreaElement>().ok()
 }
 
 /// Open a file input, from inside the gesture that asked for it.

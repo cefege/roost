@@ -6,8 +6,6 @@
 //! Ports `apps/web/src/components/deck/TerminalDeck.tsx`.
 
 use dioxus::prelude::*;
-use libero::components::Box;
-use libero::sx::{Sx, sx};
 use roost_client_core::ClientEvent;
 use roost_client_core::deck::{
     DeckIntent, DeckNavigation, TerminalSessionSlot, mounted_session_ids,
@@ -245,19 +243,9 @@ pub fn TerminalDeck(active_session_id: Option<String>, surface_visible: bool) ->
     let attach = measure.clone();
     let dismiss_pump = pump.clone();
 
-    let empty_sx = use_hook(|| {
-        sx().position("absolute")
-            .inset("0")
-            .display("flex")
-            .flex_direction("row")
-            .align_items("center")
-            .justify_content("center")
-            .font_size("xs")
-            .color("muted")
-    });
     rsx! {
         div {
-            "data-deck-root": "true",
+            class: "group/deck",
             "data-testid": "terminal-deck",
             "data-multi-pane": multi_pane,
             "data-resizing": resize.is_dragging().then_some("true"),
@@ -266,7 +254,7 @@ pub fn TerminalDeck(active_session_id: Option<String>, surface_visible: bool) ->
             onpointerdown: move |event: PointerEvent| pointer_ops.deck_pointer_down(&event),
             onfocusin: move |event: FocusEvent| focus_ops.deck_focus_in(&event),
             if frame.open_session_ids.is_empty() {
-                Box { component: "div", sx: empty_sx, "No session selected." }
+                div { class: "absolute inset-0 flex items-center justify-center text-xs text-muted-foreground", "No session selected." }
             }
             for terminal in terminals {
                 TerminalSlot {
@@ -318,11 +306,9 @@ fn TerminalSlot(
     let pane_id = slot.map_or_else(String::new, |slot| slot.pane_id.clone());
     let focused = slot.is_some_and(|slot| slot.focused);
     let spotlit = slot.is_some_and(|slot| slot.spotlit);
-    let slot_sx = use_hook(deck_slot_sx);
     rsx! {
-        Box {
-            component: "div",
-            sx: slot_sx,
+        div {
+            class: "group-data-[multi-pane=false]/deck:after:hidden data-[spotlit=true]:after:hidden group-data-[resizing=true]/deck:after:shadow-none data-[focused=true]:after:absolute data-[focused=true]:after:inset-0 data-[focused=true]:after:z-[4] data-[focused=true]:after:pointer-events-none data-[focused=true]:after:content-[''] data-[focused=true]:after:rounded-md data-[focused=true]:after:border-[calc(var(--workbench-border-width)*3)] data-[focused=true]:after:border-solid data-[focused=true]:after:border-[var(--workbench-pane-focus)] data-[focused=true]:after:shadow-[inset_0_0_0_var(--workbench-border-width)_var(--workbench-pane-focus),_0_0_20px_4px_color-mix(in_srgb,var(--workbench-pane-focus)_55%,transparent)] focus-visible:outline-[calc(var(--workbench-border-width)*3)] focus-visible:outline-solid focus-visible:outline-[var(--workbench-pane-focus)] focus-visible:-outline-offset-[calc(var(--workbench-border-width)*3)]",
             "data-testid": "terminal-slot-{session_id}",
             "data-pane-slot": "true",
             "data-pane": "true",
@@ -350,11 +336,9 @@ fn AgentSlot(agent: MountedAgent, surface_visible: bool, spotlight_active: bool)
     let spotlit = slot.is_some_and(|slot| slot.spotlit);
     let hidden =
         !surface_visible || (!spotlight_active && !focused) || (spotlight_active && !spotlit);
-    let slot_sx = use_hook(deck_slot_sx);
     rsx! {
-        Box {
-            component: "div",
-            sx: slot_sx,
+        div {
+            class: "group-data-[multi-pane=false]/deck:after:hidden data-[spotlit=true]:after:hidden group-data-[resizing=true]/deck:after:shadow-none data-[focused=true]:after:absolute data-[focused=true]:after:inset-0 data-[focused=true]:after:z-[4] data-[focused=true]:after:pointer-events-none data-[focused=true]:after:content-[''] data-[focused=true]:after:rounded-md data-[focused=true]:after:border-[calc(var(--workbench-border-width)*3)] data-[focused=true]:after:border-solid data-[focused=true]:after:border-[var(--workbench-pane-focus)] data-[focused=true]:after:shadow-[inset_0_0_0_var(--workbench-border-width)_var(--workbench-pane-focus),_0_0_20px_4px_color-mix(in_srgb,var(--workbench-pane-focus)_55%,transparent)] focus-visible:outline-[calc(var(--workbench-border-width)*3)] focus-visible:outline-solid focus-visible:outline-[var(--workbench-pane-focus)] focus-visible:-outline-offset-[calc(var(--workbench-border-width)*3)]",
             "data-testid": "agent-slot-{agent.conversation.id}",
             "data-pane-slot": "true",
             "data-pane": "true",
@@ -369,16 +353,4 @@ fn AgentSlot(agent: MountedAgent, surface_visible: bool, spotlight_active: bool)
             }
         }
     }
-}
-
-fn deck_slot_sx() -> Sx {
-    sx().selector("&[data-focused=true]::after", sx().with("content", "\"\"")
-        .position("absolute").inset("0").with("z-index", "4").pointer_events("none")
-        .border_radius("md").with("border", "calc(var(--workbench-border-width) * 3) solid var(--workbench-pane-focus)")
-        .with("box-shadow", "inset 0 0 0 var(--workbench-border-width) var(--workbench-pane-focus), 0 0 20px 4px color-mix(in srgb, var(--workbench-pane-focus) 55%, transparent)"))
-        .selector(":where([data-multi-pane=false]) &[data-focused=true]::after", sx().display("none"))
-        .selector("&[data-spotlit=true]::after", sx().display("none"))
-        .selector(":where([data-resizing=true]) &[data-focused=true]::after", sx().with("box-shadow", "none"))
-        .selector("&:focus-visible", sx().with("outline", "calc(var(--workbench-border-width) * 3) solid var(--workbench-pane-focus)")
-            .with("outline-offset", "calc(var(--workbench-border-width) * -3)"))
 }

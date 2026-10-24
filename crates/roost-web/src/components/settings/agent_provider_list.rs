@@ -3,12 +3,13 @@
 //! Rendered by `agent_models`, which opens `AgentConnectDialog` on a choice.
 
 use dioxus::prelude::*;
-use libero::components::{Button, Flex, Indicator, Pictogram, Text, TextField};
 use roost_protocol::wire::agent_chat::ProviderEntry;
 
 use super::agent_accounts::plural;
 use super::agent_provider_status::ProviderSummary;
-use libero::sx::sx;
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, EmptyState, IconType, List, ListRow, StatusDot, TextField,
+};
 
 #[component]
 pub fn AvailableProviders(
@@ -16,7 +17,6 @@ pub fn AvailableProviders(
     on_connect: EventHandler<ProviderEntry>,
 ) -> Element {
     let mut filter = use_signal(String::new);
-    let search_sx = use_hook(|| sx().width("100%").max_width("sm"));
     let needle = filter().trim().to_lowercase();
     let total = providers.len();
     let shown: Vec<ProviderSummary> = providers
@@ -30,50 +30,39 @@ pub fn AvailableProviders(
     rsx! {
         if total > 6 {
             TextField {
-                value: Some(filter()),
-                oninput: move |value| filter.set(value),
-                placeholder: "Search providers",
-                aria_label: "Search providers",
-                sx: search_sx,
-                r#type: "search",
+                value: filter(),
+                on_input: move |value| filter.set(value),
+                placeholder: Some("Search providers".to_owned()),
+                aria_label: Some("Search providers".to_owned()),
+                class: Some("w-full max-w-sm".to_owned()),
+                input_type: Some("search".to_owned()),
             }
         }
         if total == 0 {
-            Flex { direction: "row", align: "center", gap: "sm",
-                Pictogram { icon: pictogram_icons_lucide::check::outlined }
-                Text { size: "sm", "Every provider is signed in." }
-            }
+            EmptyState { icon: IconType::Check, title: "Every provider is signed in.".to_owned() }
         } else if shown.is_empty() {
-            Flex { direction: "row", align: "center", gap: "sm",
-                Pictogram { icon: pictogram_icons_lucide::search_x::outlined }
-                Text { size: "sm", "No provider matches “{filter()}”." }
-            }
+            EmptyState { icon: IconType::SearchX, title: format!("No provider matches “{}”.", filter()) }
         } else {
-            Flex { direction: "column", gap: "xs",
+            List { contained: true,
                 for summary in shown {
-                    Flex { direction: "row",
+                    ListRow {
                         key: "{summary.provider.id}",
-                        align: "center",
-                        justify: "space-between",
-                        gap: "sm",
-                        "data-testid": "agent-provider-available-{summary.provider.id}",
-                        Flex { direction: "row", align: "center", gap: "sm",
-                            Indicator { color: "muted", with_border: true }
-                            Flex { direction: "column",
-                                Text { size: "sm", "{summary.provider.name}" }
-                                Text { size: "xs", color: "muted", "{provider_support(&summary)}" }
+                        test_id: Some(format!("agent-provider-available-{}", summary.provider.id)),
+                        leading: rsx! { StatusDot { status: "idle".to_owned(), hollow: true, title: Some("Not signed in".to_owned()) } },
+                        headline: rsx! { "{summary.provider.name}" },
+                        support: rsx! { "{provider_support(&summary)}" },
+                        trailing: rsx! {
+                            Button {
+                                variant: if summary.provider.supports_oauth { ButtonVariant::Default } else { ButtonVariant::Outline },
+                                size: ButtonSize::Sm,
+                                icon: Some(if summary.provider.supports_oauth { IconType::LogIn } else { IconType::Key }),
+                                onclick: {
+                                    let provider = summary.provider.clone();
+                                    move |_| on_connect.call(provider.clone())
+                                },
+                                if summary.provider.supports_oauth { "Sign in" } else { "Add API key" }
                             }
-                        }
-                        Button {
-                            variant: if summary.provider.supports_oauth { "filled" } else { "outlined" },
-                            size: "sm",
-                            icon: Some(rsx! { Pictogram { icon: if summary.provider.supports_oauth { pictogram_icons_lucide::log_in::outlined } else { pictogram_icons_lucide::key::outlined } } }),
-                            onclick: {
-                                let provider = summary.provider.clone();
-                                move |_| on_connect.call(provider.clone())
-                            },
-                            if summary.provider.supports_oauth { "Sign in" } else { "Add API key" }
-                        }
+                        },
                     }
                 }
             }

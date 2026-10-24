@@ -8,9 +8,12 @@ use roost_protocol::wire::agent_chat::{AccountEntry, AccountKind, AccountUsageWi
 
 use super::agent_provider_status::{AccountHealth, ProviderSummary};
 use super::format::time_until;
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Card, CardAction, CardContent, CardDescription, CardHeader,
+    CardTitle, CardVariant, Chip, FieldError, IconType, List, ListRow, MetricTile, SectionTitle,
+    StatusDot,
+};
 use crate::pump::{Pump, use_store};
-use libero::components::{Badge, Button, Chip, Flex, Indicator, Paper, Text, Title};
-use libero::sx::sx;
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::client::rpc::calls::agent_chat::RemoveAgentAccount;
 
@@ -33,32 +36,33 @@ pub fn ConnectedProviderCard(
         plural(summary.model_count, "model", "models"),
     ]
     .join(" · ");
-    let card_sx = use_hook(|| sx().padding("md"));
     let state = provider_state(&health, account_count, now_ms);
     rsx! {
-        Paper { sx: card_sx, "data-testid": "agent-provider-{summary.provider.id}",
-            Flex { direction: "column", gap: "md",
-                Flex { direction: "row", align: "center", justify: "space-between", gap: "sm",
-                    Flex { direction: "column",
-                        Title { size: "md", "{summary.provider.name}" }
-                        Text { size: "sm", color: "muted", "{counts} · {state}" }
-                    }
-                    Flex { direction: "row", align: "center", gap: "sm",
-                        Indicator { color: if matches!(&health, AccountHealth::Ready) { "success" } else { "warning" }, title: health_title(&health, now_ms) }
-                        Button { variant: "outlined", size: "sm",
-                            icon: Some(rsx! { libero::components::Pictogram { icon: pictogram_icons_lucide::plus::outlined } }),
-                            onclick: move |_| on_add.call(()), "Add account"
-                        }
+        Card {
+            variant: CardVariant::Outlined,
+            class: Some("gap-3".to_owned()),
+            "data-testid": format!("agent-provider-{}", summary.provider.id),
+            CardHeader {
+                CardTitle { "{summary.provider.name}" }
+                CardDescription { "{counts} · {state}" }
+                CardAction {
+                    div { class: "flex items-center gap-2",
+                        StatusDot { status: health.dot().to_owned(), size: 10, title: Some(health_title(&health, now_ms)) }
+                        Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm, icon: Some(IconType::Plus), onclick: move |_| on_add.call(()), "Add account" }
                     }
                 }
+            }
+            CardContent {
                 if !summary.accounts.is_empty() {
-                    Flex { direction: "column", gap: "sm",
+                    List { contained: true,
                         for account in summary.accounts.clone() {
                             AccountRow { key: "{account.credential_id}", account, now_ms, on_removed: on_changed }
                         }
                     }
                 }
-                if !models.is_empty() { ModelPreview { models } }
+                if !models.is_empty() {
+                    ModelPreview { models }
+                }
             }
         }
     }
@@ -77,41 +81,37 @@ fn AccountRow(account: AccountEntry, now_ms: u64, on_removed: EventHandler<()>) 
         .map(|usage| usage.windows.clone())
         .unwrap_or_default();
     let note = account.usage.as_ref().and_then(|usage| usage.note.clone());
-    let row_sx = use_hook(|| sx().padding("sm"));
     rsx! {
-        Paper { sx: row_sx,
-            Flex { direction: "row", align: "start", justify: "space-between", gap: "sm",
-                Flex { direction: "column", gap: "sm",
-                    Flex { direction: "row", align: "center", gap: "sm",
-                        Indicator { color: if matches!(&health, AccountHealth::Ready) { "success" } else { "warning" }, title: health_title(&health, now_ms) }
-                        Text { size: "sm", "{account.label}" }
-                    }
-                    Text { size: "xs", color: "muted", "{kind_label(account.kind)} · {health_title(&health, now_ms)}" }
+        ListRow {
+            leading: rsx! { StatusDot { status: health.dot().to_owned(), title: Some(health_title(&health, now_ms)) } },
+            headline: rsx! { "{account.label}" },
+            support: rsx! {
+                div { class: "flex flex-col gap-2",
+                    div { "{kind_label(account.kind)} · {health_title(&health, now_ms)}" }
                     if !windows.is_empty() {
-                        Flex { direction: "row", gap: "sm", wrap: true,
+                        div { class: "grid grid-cols-1 gap-2 sm:grid-cols-2",
                             for window in windows {
                                 UsageWindow { key: "{window.name}", window, now_ms }
                             }
                         }
                     }
-                    if let Some(note) = note { Text { size: "sm", color: "muted", "{note}" } }
-                    if !error().is_empty() { Text { size: "sm", color: "error", role: "alert", "{error()}" } }
-                }
-                Flex { direction: "row", gap: "xs",
-                    if confirming() {
-                        Button { variant: "standard", size: "sm", onclick: move |_| confirming.set(false), "Cancel" }
-                        Button { variant: "filled", color: "error", size: "sm",
-                            onclick: move |_| remove_account(pump.clone(), credential_id, error, on_removed),
-                            "Remove"
-                        }
-                    } else {
-                        Button { variant: "standard", color: "muted", size: "sm",
-                            icon: Some(rsx! { libero::components::Pictogram { icon: pictogram_icons_lucide::trash_2::outlined } }),
-                            onclick: move |_| confirming.set(true), "Remove"
-                        }
+                    if let Some(note) = note { div { class: "text-sm text-muted-foreground", "{note}" } }
+                    if !error().is_empty() {
+                        FieldError { {error()} }
                     }
                 }
-            }
+            },
+            trailing: rsx! {
+                if confirming() {
+                    Button { variant: ButtonVariant::Ghost, size: ButtonSize::Sm, onclick: move |_| confirming.set(false), "Cancel" }
+                    Button { variant: ButtonVariant::Destructive, size: ButtonSize::Sm,
+                        onclick: move |_| remove_account(pump.clone(), credential_id, error, on_removed),
+                        "Remove"
+                    }
+                } else {
+                    Button { variant: ButtonVariant::Ghost, size: ButtonSize::Sm, icon: Some(IconType::Trash2), onclick: move |_| confirming.set(true), "Remove" }
+                }
+            },
         }
     }
 }
@@ -124,19 +124,13 @@ fn UsageWindow(window: AccountUsageWindow, now_ms: u64) -> Element {
         .and_then(|at| u64::try_from(at).ok())
         .map(|at| format!(" · resets {}", time_until(now_ms, at)))
         .unwrap_or_default();
-    let window_sx = use_hook(|| sx().padding("sm"));
     rsx! {
-        Paper { sx: window_sx,
-            Flex { direction: "column", gap: "xs",
-                Text { size: "xs", color: "muted", "{window.name}" }
-                Badge { variant: "outlined", "{percent:.0}%" }
-                Text { size: "xs", color: "muted", "used{reset}" }
-                libero::components::ProgressBar {
-                    aria_label: "{window.name} used",
-                    value: Some(percent),
-                    max: 100.0,
-                }
-            }
+        MetricTile {
+            label: window.name.clone(),
+            icon: None,
+            value: format!("{percent:.0}%"),
+            support: Some(format!("used{reset}")),
+            ratio: Some(window.used_fraction),
         }
     }
 }
@@ -153,19 +147,20 @@ fn ModelPreview(models: Vec<ModelEntry>) -> Element {
         total.min(MODEL_PREVIEW)
     };
     rsx! {
-        Flex { direction: "column", gap: "sm",
-            Title { size: "sm", "Models" }
-            Flex { direction: "row", gap: "xs", wrap: true,
+        div { class: "flex flex-col gap-2",
+            SectionTitle { "Models" }
+            div { class: "flex flex-wrap items-center gap-2",
                 for model in models.into_iter().take(shown) {
                     Chip {
                         key: "{model.model_id}",
-                        icon: model.reasoning.then(|| rsx! { libero::components::Pictogram { icon: pictogram_icons_lucide::brain::outlined } }),
-                        "{model.name}"
+                        label: model.name.clone(),
+                        icon: model.reasoning.then_some(IconType::Brain),
+                        selected: None,
                     }
                 }
             }
             if total > MODEL_PREVIEW {
-                Button { variant: "standard", size: "sm",
+                Button { variant: ButtonVariant::Link, size: ButtonSize::Sm,
                     onclick: move |_| expanded.set(!expanded()),
                     if expanded() { "Show fewer" } else { "Show all {total}" }
                 }

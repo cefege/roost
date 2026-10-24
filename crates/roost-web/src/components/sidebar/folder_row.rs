@@ -18,19 +18,20 @@ use roost_protocol::wire::SessionStatus;
 use super::folder_row_context_menu::{FolderMenuTarget, FolderRowContextMenu};
 use super::rel_time_tick::use_rel_time_now;
 use super::row_chips::{BranchChip, PortChip, PrBadgeChip, ServerChip};
-use crate::components::agents::agent_status_indicator::agent_dot_color;
+use crate::components::agents::agent_status_indicator::agent_dot_status_name;
 use crate::components::browse::folder_glyph::FolderGlyph;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::machines::machine_identity_mark::MachineIdentityMark;
 use crate::components::notifications::notify_target::{
     folder_ring_attribute, open_tab_session_ids, use_notify_target,
 };
+use crate::components::ui::list::is_in_app_navigation_click;
+use crate::components::ui::status::StatusDot;
+use crate::components::ui::{ButtonSize, IconButton, IconType};
 use crate::platform::BrowserWorkerPaths;
 use crate::pump::use_store;
-use crate::router_state::{is_in_app_navigation_click, use_location, use_navigate};
+use crate::router_state::{use_location, use_navigate};
 use crate::session_naming::rel_time_since;
-use libero::components::{ActionIcon, Box, Flex, Indicator, Pictogram, Text};
-use libero::sx::sx;
 
 /// A folder row.
 #[component]
@@ -108,87 +109,9 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
     let has_sessions = !group.session_ids.is_empty();
     let rollup = group.agent_status;
     let show_rollup = rollup.total > 0 && rollup.level != AgentStatusLevel::Unknown;
-    let row_sx = use_hook(|| {
-        sx().display("flex")
-            .position("relative")
-            .min_width("0")
-            .align_items("flex-start")
-            .gap("md")
-            .border_radius("md")
-            .padding_inline("md")
-            .padding_block("sm")
-            .selector("&:hover", sx().background("primary.1"))
-            .selector("&[data-selected=focused]", sx().background("primary.2"))
-            .selector("&[data-cursor=on]", sx().background("primary.1"))
-            .selector(
-                "&[data-selected=focused] [data-row-text]",
-                sx().color("ink"),
-            )
-    });
-    let body_sx = use_hook(|| {
-        sx().display("flex")
-            .min_width("0")
-            .flex("1")
-            .flex_direction("column")
-            .gap("xs")
-            .pointer_events("none")
-    });
-    let line_sx = use_hook(|| {
-        sx().display("flex")
-            .min_width("0")
-            .align_items("baseline")
-            .gap("sm")
-    });
-    let detail_sx = use_hook(|| {
-        sx().display("flex")
-            .min_width("0")
-            .flex_wrap("wrap")
-            .align_items("center")
-            .gap("xs")
-            .font_size("xs")
-            .color("muted")
-    });
-    let row_text_sx = use_hook(|| {
-        sx().font_size("sm")
-            .font_weight("500")
-            .color("ink")
-            .text_overflow("ellipsis")
-            .white_space("nowrap")
-            .overflow("hidden")
-            .with("overscroll-behavior-y", "auto")
-    });
-    let secondary_sx = use_hook(|| sx().font_size("xs").color("muted"));
-    let overlay_sx = use_hook(|| {
-        sx().position("absolute")
-            .inset("0")
-            .with("z-index", "10")
-            .selector(
-                "&:focus-visible",
-                sx().outline("2px solid var(--workbench-focus-ring)")
-                    .outline_offset("2px"),
-            )
-    });
-    let action_sx = use_hook(|| sx().position("relative").with("z-index", "20"));
-    let chip_sx = use_hook(|| sx().display("inline-flex").align_items("center").gap("xs"));
-    let rollup_sx = use_hook(|| {
-        sx().display("inline-flex")
-            .min_width("0")
-            .align_items("center")
-            .gap("xs")
-            .font_size("xs")
-            .color("muted")
-    });
-    let avatar_sx = use_hook(|| {
-        sx().display("flex")
-            .flex_shrink("0")
-            .align_items("center")
-            .gap("0")
-    });
-    let content_sx = use_hook(|| sx().display("contents").pointer_events("none"));
     rsx! {
-        Box {
-            component: "div",
-            sx: row_sx,
+        div {
+            class: "group relative flex min-w-0 items-start gap-3 rounded-md px-3 py-2 hover:bg-accent/50 data-[selected=focused]:bg-accent data-[cursor=on]:bg-accent/50",
             title: group.spawn_cwd.clone(),
             "data-density": "flat",
             "data-testid": "folder-row-{group.key}",
@@ -202,10 +125,9 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
                 let at = event.client_coordinates();
                 menu.set(Some(menu_target(at.x, at.y)));
             },
-            Box {
-                component: "a",
+            a {
                 href: href.clone(),
-                sx: overlay_sx,
+                class: "absolute inset-0 z-10",
                 "aria-label": "Open {group.name}",
                 onclick: move |event: MouseEvent| {
                     if has_sessions {
@@ -224,36 +146,36 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
                     }
                 },
             }
-            Box { component: "div", sx: content_sx,
-            Flex { direction: "row", sx: avatar_sx,
+            span { class: "pointer-events-none contents",
+                span { class: "flex shrink-0 items-center",
                     MachineIdentityMark { worker: worker.clone(), context_title: group.spawn_cwd.clone() }
                 }
-                Flex { direction: "column", sx: body_sx,
-                    Flex { direction: "row", sx: line_sx,
-                        Text { sx: row_text_sx, "data-row-text": "true", title: group.spawn_cwd.clone(), {group.name.clone()} }
-                        Text { sx: secondary_sx.clone(), "data-row-text": "true", "data-tabular": "nums", {rel_time_since(now_ms, group.latest_activity)} }
+                span { class: "flex min-w-0 flex-1 flex-col gap-0.5",
+                    span { class: "flex min-w-0 items-baseline gap-2",
+                        span { class: "min-w-0 truncate text-sm font-medium text-foreground group-data-[selected=focused]:text-accent-foreground", title: group.spawn_cwd.clone(), {group.name.clone()} }
+                        span { class: "shrink-0 text-xs tabular-nums text-muted-foreground group-data-[selected=focused]:text-accent-foreground", {rel_time_since(now_ms, group.latest_activity)} }
                     }
                     if !group.subtitle.is_empty() {
-                        Text { sx: secondary_sx.clone(), "data-row-text": "true", title: group.spawn_cwd.clone(), {group.subtitle.clone()} }
+                        span { class: "truncate text-xs text-muted-foreground group-data-[selected=focused]:text-accent-foreground", {group.subtitle.clone()} }
                     }
                     if show_rollup {
-                        Flex { direction: "row", sx: rollup_sx,
+                        span {
+                            class: "inline-flex min-w-0 items-center gap-1 truncate text-xs text-muted-foreground data-[level=blocked]:text-warning data-[level=done]:text-success data-[level=working]:text-info",
                             "data-level": agent_status_level_token(rollup.level),
                             "data-testid": "folder-agent-status-{group.key}",
-                            Indicator {
-                                color: agent_dot_color(agent_status_presentation(rollup.level).dot_status),
-                                size: "xs",
+                            StatusDot {
+                                status: agent_dot_status_name(agent_status_presentation(rollup.level).dot_status).to_owned(),
                             }
-                            Text { size: "xs", color: agent_dot_color(agent_status_presentation(rollup.level).dot_status), "{format_agent_status_counts(&rollup.counts)}" }
+                            span { {format_agent_status_counts(&rollup.counts)} }
                         }
                     }
-                    Flex { direction: "row", sx: detail_sx,
+                    span { class: "flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-muted-foreground",
                         if !compact || !group.online {
                             ServerChip { online: group.online, label: group.server.clone(), title: None, test_id: None }
                         }
                         if !compact {
-                            Flex { direction: "row", sx: chip_sx, title: panes_title,
-                                FolderGlyph { size: 11 }
+                            span { class: "inline-flex items-center gap-1", title: panes_title,
+                                FolderGlyph { size: 11, class: "shrink-0" }
                                 span { "{pane_count}" }
                             }
                         }
@@ -280,10 +202,11 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
                     }
                 }
             }
-            ActionIcon {
-                sx: action_sx,
-                aria_label: "Folder actions",
-                size: "sm",
+            IconButton {
+                icon: IconType::EllipsisVertical,
+                label: "Folder actions",
+                size: ButtonSize::IconSm,
+                class: "relative z-20 shrink-0 pointer-events-auto",
                 "data-testid": "folder-more-{group.key}",
                 title: "Folder actions",
                 onclick: move |event: MouseEvent| {
@@ -292,7 +215,6 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
                     let at = event.client_coordinates();
                     menu.set(Some(more_target(at.x, at.y)));
                 },
-                Pictogram { icon: pictogram_icons_lucide::ellipsis_vertical::outlined, width: "1rem", height: "1rem" }
             }
             if let Some(target) = menu() {
                 FolderRowContextMenu { target, on_close: move |()| menu.set(None) }

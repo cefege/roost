@@ -4,10 +4,9 @@
 //! state from the store so ordinary tool cards do not re-render on every delta.
 
 use dioxus::prelude::*;
-use libero::components::{Box, Button, Flex, Indicator, List, ListItem, Text};
-use libero::sx::sx;
 use roost_protocol::wire::agent_chat::AgentRunState;
 
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, List, ListRow, StatusDot};
 use crate::pump::use_store;
 use crate::router_state::use_navigate;
 
@@ -27,6 +26,14 @@ impl AgentStatus {
             AgentRunState::Idle => Self::Done,
             AgentRunState::Running => Self::Running,
             AgentRunState::Failed => Self::Failed,
+        }
+    }
+
+    fn dot_status(self) -> &'static str {
+        match self {
+            Self::Done => "ok",
+            Self::Running => "running",
+            Self::Failed => "error",
         }
     }
 
@@ -68,9 +75,8 @@ pub(super) fn hidden_agents_summary(hidden: &[AgentStatus], pending: usize) -> S
 #[component]
 pub fn TaskRows(child_ids: Vec<String>, open: bool, on_expand: EventHandler<bool>) -> Element {
     let pump = use_store();
+    let _revision = pump.revision()();
     let navigate = use_navigate();
-    let row_sx = use_hook(|| sx().width("100%").justify_content("space-between"));
-    let nav_sx = use_hook(|| sx().min_width("0"));
     let resolved: Vec<(String, String, String, AgentStatus)> = {
         let core = pump.core();
         let core = core.borrow();
@@ -106,46 +112,31 @@ pub fn TaskRows(child_ids: Vec<String>, open: bool, on_expand: EventHandler<bool
     let shown_rows = &resolved[hidden_count..];
     let can_collapse = open && resolved.len() > VISIBLE_AGENT_ROWS;
     rsx! {
-        Box { component: "nav", sx: nav_sx, aria_label: "Subagent conversations",
+        nav { class: "min-w-0", aria_label: "Subagent conversations",
             List {
                 for (child_id, agent, title, status) in shown_rows.iter().cloned() {
-                    ListItem {
+                    ListRow {
                         key: "{child_id}",
-                        icon: rsx! {
-                            Indicator {
-                                color: match status {
-                                    AgentStatus::Done => "success",
-                                    AgentStatus::Running => "info",
-                                    AgentStatus::Failed => "error",
-                                },
-                                "aria-label": status.label(),
-                            }
+                        dense: true,
+                        class: "min-h-0 gap-2 px-3 py-1",
+                        href: crate::routes::agent_href(&child_id),
+                        on_navigate: navigate,
+                        headline: rsx! { "{agent}: {title}" },
+                        support: rsx! {
+                            StatusDot { status: status.dot_status().to_string(), title: Some(status.label().to_string()) }
+                            span { "{status.label()}" }
                         },
-                        Button {
-                            to: crate::routes::agent_href(&child_id),
-                            variant: "standard",
-                            color: "muted",
-                            sx: row_sx.clone(),
-                            onclick: move |event: MouseEvent| {
-                                event.prevent_default();
-                                navigate.call(crate::routes::agent_href(&child_id));
-                            },
-                            Flex { direction: "row", align: "center", gap: "sm",
-                                Text { "{agent}: {title}" }
-                                Text { size: "xs", color: "muted", "{status.label()}" }
-                            }
-                        }
                     }
                 }
             }
         }
         if hidden_count > 0 {
-            Text { size: "xs", color: "muted", "{summary}" }
-            Button { variant: "standard", color: "primary", size: "sm",
+            p { class: "m-0 text-xs text-muted-foreground", "{summary}" }
+            Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "self-start",
                 onclick: move |_| on_expand.call(true), "Show all" }
         }
         if can_collapse {
-            Button { variant: "standard", color: "primary", size: "sm",
+            Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "self-start",
                 onclick: move |_| on_expand.call(false), "Collapse" }
         }
     }

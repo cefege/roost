@@ -31,14 +31,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
  && rm -rf target/dx/roost-web/release/web/public \
  && dx build --release --profile wasm-release -p roost-web --platform web \
  && test -f target/dx/roost-web/release/web/public/index.html \
- && test -s target/dx/roost-web/release/web/public/styles/theme-vars.css \
- && test -s target/dx/roost-web/release/web/public/styles/product-motion.css \
- && test -s target/dx/roost-web/release/web/public/styles/terminal-grid.css \
- && test -s target/dx/roost-web/release/web/public/styles/tv.css \
- && test -s target/dx/roost-web/release/web/public/styles/gamepad.css \
- && test -s target/dx/roost-web/release/web/public/components/notifications/NotificationDock.css \
- && find target/dx/roost-web/release/web/public -name '*.wasm' -type f -size +0c -print -quit | grep -q . \
- && ! grep -q '/styles/tailwind\.css' target/dx/roost-web/release/web/public/index.html \
+ && grep -q '\.bg-primary' target/dx/roost-web/release/web/public/styles/tailwind.css \
  && if grep -rl '__smoke' target/dx/roost-web/release/web/public; then \
       echo "the web bundle carries __smoke; this is not a production bundle" >&2; exit 1; \
     fi \

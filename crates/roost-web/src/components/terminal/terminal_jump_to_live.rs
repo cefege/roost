@@ -6,43 +6,32 @@
 //! It sits in a zero-height anchor after the display, so it consumes no rows: a
 //! control that took height would resize the PTY every time it appeared.
 
-use super::pane_handle::PaneHandle;
 use dioxus::prelude::*;
-use libero::components::{ActionIcon, Box};
-use libero::sx::sx;
+
+use super::pane_handle::PaneHandle;
+use crate::components::ui::{ButtonVariant, IconButton, IconType};
 
 /// The button, or nothing while the reader follows the live tail. `lift` is
 /// the display's own `transform`, so the arrow rides a display a grown composer
 /// pushed up instead of hiding under that composer.
 #[component]
 pub fn TerminalJumpToLive(visible: bool, handle: PaneHandle, lift: String) -> Element {
-    let button_sx = use_hook(|| {
-        sx().position("absolute")
-            .inset_inline("0")
-            .bottom("1rem")
-            .margin_inline("auto")
-    });
-    let anchor_sx = use_hook(|| {
-        sx().position("relative")
-            .z_index("2")
-            .height("0")
-            .flex("none")
-    });
     if !visible {
         return rsx! {};
     }
     rsx! {
-        Box {
-            component: "div",
-            sx: anchor_sx,
+        div {
+            class: "relative z-2 h-0 flex-none",
             style: "transform: {lift};",
-            ActionIcon {
-                icon: pictogram_icons_lucide::arrow_down::outlined,
-                aria_label: "Jump to the latest output",
+            IconButton {
+                icon: IconType::ArrowDown,
+                label: "Jump to the latest output",
                 title: "Jump to the latest output",
-                variant: "tonal",
-                sx: button_sx,
+                variant: ButtonVariant::Secondary,
+                class: Some("absolute inset-x-0 bottom-4 mx-auto rounded-full shadow-md".to_owned()),
                 "data-testid": "terminal-jump-to-live",
+                // Pressed without moving focus: the keyboard stays with the
+                // terminal on a desktop, and no soft keyboard opens on a phone.
                 onmousedown: move |event: MouseEvent| event.prevent_default(),
                 onclick: move |_| handle.jump_to_live(),
             }

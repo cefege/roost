@@ -126,7 +126,8 @@ pub fn is_touch_device() -> bool {
     let Some(window) = web_sys::window() else {
         return false;
     };
-    let coarse = crate::platform::media_query::media_query_match("(pointer: coarse)") == Some(true);
+    let coarse = crate::components::hooks::use_media_query::media_query_match("(pointer: coarse)")
+        == Some(true);
     coarse || window.navigator().max_touch_points() > 0
 }
 
@@ -312,6 +313,31 @@ impl std::fmt::Debug for SizeWatch {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.debug_struct("SizeWatch").finish_non_exhaustive()
     }
+}
+
+/// Apply one key to the open menu `menu_id`: roving focus, activation,
+/// Escape and Tab (`context_menu::run_menu_key`).
+pub fn run_menu_keys(
+    event: &KeyboardEvent,
+    menu_id: &str,
+    on_escape: impl FnOnce(),
+    on_tab: impl FnOnce() + 'static,
+) {
+    let Some(native) = event.data().downcast::<web_sys::KeyboardEvent>().cloned() else {
+        return;
+    };
+    let Some(menu) = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.get_element_by_id(menu_id))
+    else {
+        return;
+    };
+    crate::components::context_menu::run_menu_key(&native, &menu, on_escape, on_tab);
+}
+
+/// Focus the first or last item of menu `menu_id` once it mounts.
+pub fn focus_menu(menu_id: &str, edge: crate::components::context_menu::MenuFocusEdge) {
+    crate::components::context_menu::focus_menu_edge(menu_id, edge);
 }
 
 /// Focus the element with `id`, if it is still in the document.

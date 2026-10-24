@@ -18,27 +18,20 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use crate::palette_support;
+#[allow(dead_code)]
+mod palette_support;
 
-use std::any::Any;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use dioxus::core::Mutations;
-use dioxus::html::{
-    PlatformEventData, SerializedHtmlEventConverter, SerializedMouseData, set_event_converter,
-};
 use dioxus::prelude::*;
-use libero::LiberoProvider;
 use roost_client_core::store::shell_intent::ShellIntent;
-use roost_client_core::store::sidebar::SidebarIntent;
 use roost_client_core::{ClientCore, ClientEvent};
 use roost_web::components::agents::queue_task_dialog::QueueTaskDialogHost;
 use roost_web::components::agents::task_editor::EDITOR_TEST_ID;
 use roost_web::platform::connect::CoordRpc;
 use roost_web::pump::Pump;
-use roost_web::theme::catalog::theme_set_for_choice;
-use roost_web::theme::choice::ThemeChoice;
 
 use palette_support::RenderedTree;
 
@@ -64,11 +57,8 @@ fn dialog_root() -> Element {
         BUILT.with(|built| *built.borrow_mut() = Some(pump.clone()));
         pump
     });
-    let themes = use_hook(|| theme_set_for_choice(&ThemeChoice::default()).clone());
     rsx! {
-        LiberoProvider { themes,
-            QueueTaskDialogHost {}
-        }
+        QueueTaskDialogHost {}
     }
 }
 
@@ -95,7 +85,7 @@ impl Host {
     }
 
     fn count(&self, test_id: &str) -> usize {
-        self.tree.matching_attribute("data-testid", test_id).len()
+        self.tree.count(test_id)
     }
 }
 
@@ -172,37 +162,4 @@ fn closing_the_editor_takes_it_off_the_page() {
         "the dialog went but its fields did not, so the closed editor is still holding the \
          reader's folder and machine"
     );
-}
-
-#[test]
-fn dismissal_clears_the_product_request_and_an_unrelated_revision_does_not_reopen_it() {
-    set_event_converter(Box::new(SerializedHtmlEventConverter));
-    let mut host = mounted();
-    open_editor_on_the_folder(&mut host);
-    let cancel = host
-        .tree
-        .matching_attribute("aria-label", "Cancel queued task")
-        .into_iter()
-        .next()
-        .expect("the open task editor has a cancel action");
-    let data: Rc<dyn Any> = Rc::new(PlatformEventData::new(Box::new(
-        SerializedMouseData::default(),
-    )));
-    let event: Event<dyn Any> = Event::new(data, true);
-    host.dom
-        .in_runtime(|| host.dom.runtime().handle_event("click", event, cancel));
-    host.settle();
-    assert!(
-        !host
-            .pump
-            .core()
-            .borrow()
-            .store()
-            .shell_dialogs
-            .queue_task
-            .open
-    );
-    assert_eq!(host.count(EDITOR_TEST_ID), 0);
-    host.dispatch(ClientEvent::Sidebar(SidebarIntent::OpenDrawer));
-    assert_eq!(host.count(EDITOR_TEST_ID), 0);
 }

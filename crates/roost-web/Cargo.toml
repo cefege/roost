@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "The Dioxus 0.8 alpha web application with Libero UI and a session-keyed terminal renderer registry."
+description = "The Dioxus 0.8 alpha web application: routes, components, and static assets. Mounts a roost-web-terminal renderer through a session-keyed registry."
 autotests = false
 
 [lints]
@@ -40,18 +40,8 @@ serde_json = { workspace = true }
 pulldown-cmark = { workspace = true, features = ["html"] }
 qrcode = { workspace = true }
 similar = { workspace = true }
-libero = { workspace = true, features = [
-  "pictogram", "use-id", "use-color-scheme", "use-popover", "use-media-query",
-  "action-icon", "button", "button-group", "box", "text", "title", "code", "code-lang-rust", "paper", "flex",
-  "text-field", "textarea", "checkbox", "switch", "radio-group",
-  "segmented-control", "slider", "combobox", "dialog", "modal", "drawer",
-  "menu", "spotlight", "tooltip", "hover-card", "accordion", "collapse", "sidebar",
-  "nav-link", "scroll-area", "table", "list", "tabs", "alert", "badge",
-  "chip", "avatar", "skeleton", "loader", "progress-bar", "circular-progress", "indicator", "kbd",
-  "divider", "blockquote", "use-element",
-] }
-pictogram-icons-lucide = { workspace = true }
-pictogram-core = { workspace = true }
+tw_merge = { workspace = true }
+icons = { workspace = true }
 
 thiserror = { workspace = true }
 tracing = { workspace = true }

@@ -38,7 +38,7 @@ pub struct ShellPadSurfaces {
     overlays: ShortcutOverlays,
     route: Signal<String>,
     modality: Signal<crate::input_nav::NavModality>,
-    compact: Signal<bool>,
+    compact: bool,
 }
 
 impl std::fmt::Debug for ShellPadSurfaces {
@@ -54,14 +54,15 @@ impl ShellPadSurfaces {
     /// The shell, reading the store through `pump` on every call so a decision
     /// never rests on a snapshot the router can see past.
     ///
-    /// `compact` is a live size class: controller input can arrive between
-    /// renders, so it reads the current signal without calling a component hook.
+    /// `compact` is the size class the shell was built in: the deck intents need
+    /// it, and a pad press happens between renders, so it is captured once
+    /// beside the router rather than read through a component hook.
     pub fn new(
         pump: Pump,
         overlays: ShortcutOverlays,
         route: Signal<String>,
         modality: Signal<crate::input_nav::NavModality>,
-        compact: Signal<bool>,
+        compact: bool,
     ) -> Self {
         Self {
             pump,
@@ -76,7 +77,7 @@ impl ShellPadSurfaces {
     /// slide-over (a TV always gets the desktop shell, whose sidebar overlays
     /// the editor there). A desktop's docked sidebar covers nothing.
     fn sidebar_covering(&self, store: &roost_client_core::store::Store) -> bool {
-        if (self.compact)() {
+        if self.compact {
             store.ui.sidebar_open
         } else {
             self.modality.peek().tv_mode_active() && !store.ui.sidebar_collapsed
@@ -201,7 +202,7 @@ impl PadSurfaces for ShellPadSurfaces {
             // Executed only while `sidebar_covering` held, so the toggle is a
             // close on the TV slide-over.
             PadShellAction::CloseSidebar => {
-                let intent = if (self.compact)() {
+                let intent = if self.compact {
                     SidebarIntent::CloseDrawer
                 } else {
                     SidebarIntent::ToggleCollapsed
@@ -215,7 +216,7 @@ impl PadSurfaces for ShellPadSurfaces {
                     self.pump.dispatch(ClientEvent::Deck(DeckIntent::SelectTab {
                         folder,
                         session_id: tab,
-                        compact: (self.compact)(),
+                        compact: self.compact,
                     }));
                 }
             }
@@ -224,7 +225,7 @@ impl PadSurfaces for ShellPadSurfaces {
                     self.pump.dispatch(ClientEvent::Deck(DeckIntent::FocusPane {
                         folder,
                         pane_id,
-                        compact: (self.compact)(),
+                        compact: self.compact,
                     }));
                 }
             }

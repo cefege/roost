@@ -14,8 +14,11 @@
 //! `role="search"` landmark so the count is announced as the reader types.
 
 use dioxus::prelude::*;
-use libero::components::{ActionIcon, Box, Button, Text, TextField};
-use libero::sx::sx;
+
+use crate::components::ui::{
+    ButtonGroup, ButtonSize, IconButton, IconType, Input, ToggleGroup, ToggleGroupItem,
+    ToggleGroupSpacing, ToggleGroupVariant,
+};
 
 /// What the bar shows: one query's published state, as the controller reports it.
 ///
@@ -76,31 +79,10 @@ pub fn TerminalFindBar(
     on_toggle_regex: EventHandler<()>,
     on_dismiss: EventHandler<()>,
 ) -> Element {
-    let bar_sx = use_hook(|| {
-        sx().position("relative")
-            .z_index("1")
-            .display("flex")
-            .align_items("center")
-            .gap("sm")
-            .border_bottom("1px solid")
-            .border_color("muted.4")
-            .background("muted")
-            .padding_inline("sm")
-            .padding_block("xs")
-    });
-    let count_sx = use_hook(|| {
-        sx().flex_shrink("0")
-            .font_size("xs")
-            .with("font-variant-numeric", "tabular-nums")
-            .white_space("nowrap")
-            .color("muted")
-    });
-    let note_sx = use_hook(|| sx().font_size("xs").white_space("nowrap").color("muted"));
-    let input_sx = use_hook(|| {
-        sx().flex("1 1 0%")
-            .min_width("0")
-            .font_family("var(--lsx-code-font-family)")
-    });
+    // `FOCUS_OWNERS` in the pane's input lists `input`, so the pane's
+    // mousedown-PREVENT / keydown-RECOVER guards leave this alone instead of
+    // yanking focus to the hidden textarea mid-typing. The value is bound, so
+    // the pane's own query is what the field shows.
     let on_mounted = move |event: MountedEvent| {
         use dioxus::web::WebEventExt as _;
         use wasm_bindgen::JsCast as _;
@@ -146,73 +128,76 @@ pub fn TerminalFindBar(
         "Find in scrollback"
     };
     rsx! {
-        Box {
-            component: "div",
-            sx: bar_sx,
+        div {
+            class: "relative z-1 flex items-center gap-2 border-b border-border bg-muted px-2 py-1",
             "data-testid": "terminal-find-bar",
             role: "search",
             onkeydown: on_key_down,
-            TextField {
-                sx: input_sx,
-                size: "xs",
-                "data-testid": "terminal-find-input",
-                "aria-invalid": state.failed,
-                "aria-label": alt_label,
+            Input {
+                class: "h-7 min-w-0 flex-1 px-2 py-1 font-mono text-xs",
+                test_id: "terminal-find-input",
+                aria_invalid: state.failed,
+                aria_label: alt_label,
                 placeholder,
                 value: state.query.clone(),
                 autocomplete: "off",
-                attributes: vec![Attribute::new("spellcheck", "false", None, false)],
+                spellcheck: "false",
                 autocapitalize: "off",
                 onmounted: on_mounted,
-                oninput: move |value: String| on_query.call(value),
+                oninput: move |event: FormEvent| on_query.call(event.value()),
             }
-            Text {
-                component: "span",
-                sx: count_sx,
+            span {
+                class: "shrink-0 text-xs tabular-nums whitespace-nowrap text-muted-foreground",
                 "data-testid": "terminal-find-count",
                 {count}
             }
-            ActionIcon {
-                icon: pictogram_icons_lucide::chevron_up::outlined,
-                aria_label: "Previous match",
-                size: "sm",
-                disabled: no_matches,
-                "data-testid": "terminal-find-prev",
-                onclick: move |_| on_step.call(-1),
+            ButtonGroup {
+                IconButton {
+                    icon: IconType::ChevronUp,
+                    label: "Previous match",
+                    size: ButtonSize::IconSm,
+                    disabled: no_matches,
+                    "data-testid": "terminal-find-prev",
+                    onclick: move |_| on_step.call(-1),
+                }
+                IconButton {
+                    icon: IconType::ChevronDown,
+                    label: "Next match",
+                    size: ButtonSize::IconSm,
+                    disabled: no_matches,
+                    "data-testid": "terminal-find-next",
+                    onclick: move |_| on_step.call(1),
+                }
             }
-            ActionIcon {
-                icon: pictogram_icons_lucide::chevron_down::outlined,
-                aria_label: "Next match",
-                size: "sm",
-                disabled: no_matches,
-                "data-testid": "terminal-find-next",
-                onclick: move |_| on_step.call(1),
-            }
-            Button {
-                variant: "outlined",
-                size: "xs",
-                selected: state.case_sensitive,
-                title: "Match case",
-                "data-testid": "terminal-find-case",
-                onclick: move |_| on_toggle_case.call(()),
-                "Aa"
-            }
-            Button {
-                variant: "outlined",
-                size: "xs",
-                selected: state.regex,
-                title: "Regular expression",
-                "data-testid": "terminal-find-regex",
-                onclick: move |_| on_toggle_regex.call(()),
-                ".*"
+            ToggleGroup {
+                variant: ToggleGroupVariant::Outline,
+                spacing: ToggleGroupSpacing::Flush,
+                aria_label: "Search options",
+                class: "shrink-0",
+                ToggleGroupItem {
+                    class: "h-7 text-xs",
+                    title: "Match case",
+                    pressed: state.case_sensitive,
+                    test_id: "terminal-find-case",
+                    onclick: move |_| on_toggle_case.call(()),
+                    "Aa"
+                }
+                ToggleGroupItem {
+                    class: "h-7 text-xs",
+                    title: "Regular expression",
+                    pressed: state.regex,
+                    test_id: "terminal-find-regex",
+                    onclick: move |_| on_toggle_regex.call(()),
+                    ".*"
+                }
             }
             if state.alt_screen {
-                Text { component: "span", sx: note_sx, "visible rows only" }
+                span { class: "text-xs whitespace-nowrap text-muted-foreground", "visible rows only" }
             }
-            ActionIcon {
-                icon: pictogram_icons_lucide::x::outlined,
-                aria_label: "Close find",
-                size: "sm",
+            IconButton {
+                icon: IconType::X,
+                label: "Close find",
+                size: ButtonSize::IconSm,
                 "data-testid": "terminal-find-close",
                 onclick: move |_| on_dismiss.call(()),
             }

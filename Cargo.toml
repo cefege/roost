@@ -160,9 +160,10 @@ js-sys = "=0.3.104"
 web-sys = "=0.3.104"
 dioxus = "=0.8.0-alpha.3"
 dioxus-html = { version = "=0.8.0-alpha.3", default-features = false }
-libero = { git = "https://github.com/tdymel/libero", rev = "6d99913e6e69287a7b9fa47308b106946600a8f2", default-features = false }
-pictogram-icons-lucide = "0.5"
-pictogram-core = "0.5"
+# rust-ui (rust-ui.com): `tw_merge` resolves conflicting Tailwind classes in a
+# component's class recipe, `icons` supplies the Lucide path data `ui::Icon` draws.
+tw_merge = "0.1.22"
+icons = { version = "0.19.0", default-features = false }
 
 # Shared plumbing.
 futures = "0.3.34"

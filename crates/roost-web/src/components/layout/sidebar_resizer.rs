@@ -5,7 +5,6 @@
 //! by the store (`store::ui::clamp_sidebar_width`) through `ShellIntent::SetSidebarWidth`.
 
 use dioxus::prelude::*;
-use libero::{components::Box, sx::sx};
 use roost_client_core::ClientEvent;
 use roost_client_core::store::shell_intent::ShellIntent;
 use roost_client_core::store::ui::{SIDEBAR_WIDTH_DEFAULT, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN};
@@ -136,28 +135,9 @@ pub fn SidebarResizer() -> Element {
     let key_pump = pump.clone();
     #[cfg(target_arch = "wasm32")]
     let press_pump = pump.clone();
-    let resizer_sx = use_hook(|| {
-        sx().position("absolute")
-            .top("0")
-            .bottom("0")
-            .right("0")
-            .z_index("1")
-            .width("var(--workbench-sidebar-resizer-width)")
-            .cursor("col-resize")
-            .touch_action("none")
-            .background("transparent")
-            .hover(sx().background("var(--sidenav-primary)"))
-            .selector(
-                "&:focus-visible",
-                sx().background("primary")
-                    .outline("2px solid var(--lsx-focus-ring-color)")
-                    .outline_offset("-2px"),
-            )
-    });
     rsx! {
-        Box {
-            sx: resizer_sx,
-            class: "workbench-sidebar-resizer",
+        div {
+            class: "workbench-sidebar-resizer absolute inset-y-0 right-0 z-[1] w-[var(--workbench-sidebar-resizer-width)] cursor-col-resize touch-none bg-transparent hover:bg-sidenav-primary focus-visible:bg-foreground/12 focus-visible:outline focus-visible:outline-ring focus-visible:-outline-offset-px",
             "data-testid": "sidebar-resizer",
             role: "separator",
             "aria-label": "Resize sidebar",

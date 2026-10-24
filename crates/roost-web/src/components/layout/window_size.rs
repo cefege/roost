@@ -1,8 +1,8 @@
 //! The layout switches every component reads: whether this is the compact
 //! (phone) shell and whether the ten-foot TV layout is on. Phone-sized is
-//! (`hooks/use_is_mobile.rs`, which uses Libero media observation and Roost's
-//! short-side boundary); read by `AppShell`, `MainPane`, the deck, the sidebar,
-//! and the overlays that become sheets on a phone.
+//! rust-ui's `use_is_mobile` (`hooks/use_is_mobile.rs`, Roost's short-side
+//! boundary); read by `AppShell`, `MainPane`, the deck, the sidebar and the
+//! overlays that become sheets on a phone.
 
 use dioxus::prelude::*;
 

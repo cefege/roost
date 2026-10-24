@@ -9,6 +9,8 @@
 //! `__auto__` detects. English is first because it is the default and the only
 //! mode keyterm biasing applies to.
 
+use crate::components::ui::SelectOption;
+
 /// `(code, label)`, in the coordinator's own order.
 pub const LANGUAGES: [(&str, &str); 89] = [
     ("en", "English"),
@@ -102,11 +104,11 @@ pub const LANGUAGES: [(&str, &str); 89] = [
     ("__auto__", "Auto-detect"),
 ];
 
-/// The Deepgram language codes and labels offered by the settings picker.
-pub fn language_options() -> Vec<(String, String)> {
+/// The language options the picker offers.
+pub fn language_options() -> Vec<SelectOption> {
     LANGUAGES
         .iter()
-        .map(|(code, label)| ((*code).to_owned(), (*label).to_owned()))
+        .map(|(code, label)| SelectOption::new(*code, *label))
         .collect()
 }
 

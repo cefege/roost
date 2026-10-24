@@ -10,14 +10,9 @@ use roost_client_core::store::browse_state::intent::BrowseIntent;
 use roost_client_core::store::folder_name_validation::validate_new_folder_name;
 
 use crate::components::browse::BrowseView;
-use crate::components::overlay_generation::OverlayGeneration;
-use libero::components::{Button, Flex, Pictogram, Text};
-use libero::sx::sx;
-use std::cell::RefCell;
-use std::rc::Rc;
-
 use crate::components::browse::listing;
 use crate::components::browse::picker::NewFolderForm;
+use crate::components::ui::{Chip, IconType, SectionTitle};
 use crate::platform::worker_paths::palette::child_path;
 use crate::pump::Pump;
 
@@ -25,13 +20,6 @@ use crate::pump::Pump;
 /// and this machine has somewhere it has been.
 #[must_use]
 pub fn recents_header(view: &BrowseView, on_pick: EventHandler<String>) -> Option<Element> {
-    let recents_sx = use_hook(|| {
-        sx().flex_wrap("wrap")
-            .align_items("center")
-            .gap("sm")
-            .padding_inline("sm")
-            .padding_block("xs")
-    });
     if view.cwd != view.home || view.recents.is_empty() {
         return None;
     }
@@ -45,20 +33,18 @@ pub fn recents_header(view: &BrowseView, on_pick: EventHandler<String>) -> Optio
                 .unwrap_or_else(|| recent.clone());
         let target = folder.clone();
         chips.push(rsx! {
-            Button {
-                variant: "outlined",
-                size: "xs",
-                icon: rsx! { Pictogram { icon: pictogram_icons_lucide::folder::outlined, width: "0.75rem", height: "0.75rem" } },
-                title: recent.clone(),
-                "data-testid": "browse-recent",
+            Chip {
+                label,
+                icon: Some(IconType::Folder),
+                title: Some(recent.clone()),
+                test_id: Some("browse-recent".to_owned()),
                 onclick: move |_| on_pick.call(target.clone()),
-                {label}
             }
         });
     }
     Some(rsx! {
-        Flex { direction: "row", sx: recents_sx,
-            Text { size: "xs", color: "muted", "Recent" }
+        div { class: "flex flex-wrap items-center gap-2 px-2 py-1",
+            SectionTitle { "Recent" }
             {chips.into_iter()}
         }
     })
@@ -93,7 +79,6 @@ pub fn history_move(
 /// stands. The name is checked HERE rather than after the call so a rejected
 /// name never leaves the browser, and the failure is named in the dialog rather
 /// than raised as a card the reader has to find again.
-#[allow(clippy::too_many_arguments)]
 pub fn commit_new_folder(
     pump: &Pump,
     worker_fp: &str,
@@ -102,7 +87,6 @@ pub fn commit_new_folder(
     siblings: &[String],
     form: Signal<NewFolderForm>,
     ticket: &mut Signal<u64>,
-    generation: Rc<RefCell<OverlayGeneration>>,
 ) {
     let current = form.peek().clone();
     if current.busy {
@@ -128,34 +112,27 @@ pub fn commit_new_folder(
         ..current
     };
     settled.set(busy);
-    let token = generation.borrow_mut().begin();
     let settle = {
-        let generation = Rc::clone(&generation);
         let pump = pump.clone();
         let worker_fp = worker_fp.to_owned();
         let mut ticket = *ticket;
-        move |outcome: Result<String, String>| {
-            if !generation.borrow_mut().finish(token) {
-                return;
+        move |outcome: Result<String, String>| match outcome {
+            Ok(landed) => {
+                settled.set(NewFolderForm::default());
+                listing::apply(
+                    &pump,
+                    &mut ticket,
+                    BrowseIntent::Navigate {
+                        worker_fp: worker_fp.clone(),
+                        path: landed,
+                    },
+                );
             }
-            match outcome {
-                Ok(landed) => {
-                    settled.set(NewFolderForm::default());
-                    listing::apply(
-                        &pump,
-                        &mut ticket,
-                        BrowseIntent::Navigate {
-                            worker_fp: worker_fp.clone(),
-                            path: landed,
-                        },
-                    );
-                }
-                Err(message) => {
-                    let mut next = settled.peek().clone();
-                    next.busy = false;
-                    next.error = Some(message);
-                    settled.set(next);
-                }
+            Err(message) => {
+                let mut next = settled.peek().clone();
+                next.busy = false;
+                next.error = Some(message);
+                settled.set(next);
             }
         }
     };

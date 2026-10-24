@@ -1,11 +1,14 @@
-//! A Libero alert with an icon for agent errors and warnings.
-//! Transcript, composer status, tool cards and settings panes use this notice.
-//! Inline control errors use the same semantic Libero text role directly.
+//! The agent UI's alert block: a `ui` `Alert` with a tone icon beside its
+//! message, used by the transcript, the composer's pinned run error, tool cards
+//! and the agent settings panes. An error under a control is a line of
+//! `ERROR_TEXT_CLASS` text instead, as in the other settings panes.
+
 use dioxus::prelude::*;
-use libero::{
-    components::{Alert, Pictogram},
-    sx::sx,
-};
+
+use crate::components::ui::{Alert, AlertVariant, Icon, IconType};
+
+/// The class of an inline error line under a control or a command.
+pub const ERROR_TEXT_CLASS: &str = "text-sm text-destructive";
 
 /// What an alert reports. An error interrupts the reader; a warning waits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -21,16 +24,24 @@ pub fn AgentAlert(
     test_id: Option<String>,
     children: Element,
 ) -> Element {
-    let (icon, color) = match tone {
-        AlertTone::Error => (pictogram_icons_lucide::circle_alert::outlined, "error"),
-        AlertTone::Warning => (pictogram_icons_lucide::triangle_alert::outlined, "warning"),
+    let (icon, variant, role, icon_class) = match tone {
+        AlertTone::Error => (
+            IconType::CircleAlert,
+            AlertVariant::Destructive,
+            "alert",
+            "text-destructive",
+        ),
+        AlertTone::Warning => (
+            IconType::TriangleAlert,
+            AlertVariant::Default,
+            "status",
+            "text-warning",
+        ),
     };
-    let alert_sx = use_hook(|| sx().gap("sm").align_items("center").padding("sm"));
     rsx! {
-        Alert { color, sx: alert_sx,
-            icon: rsx! { Pictogram { icon, width: "16", height: "16" } },
-            "data-testid": test_id,
-            {children}
+        Alert { variant, role: role.to_owned(), test_id,
+            Icon { icon, class: icon_class }
+            div { class: "min-w-0 flex-1 text-sm text-foreground", {children} }
         }
     }
 }

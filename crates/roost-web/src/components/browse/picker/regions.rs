@@ -18,10 +18,7 @@ use crate::components::browse::picker::control_set::PickerControls;
 use crate::components::browse::toolbar::BrowseToolbar;
 use crate::components::browse::unavailable::MachineUnavailable;
 use crate::components::browse::view::PickerReading;
-use libero::components::Box;
-use libero::components::{Button, Paper, Pictogram};
-use libero::sx::sx;
-
+use crate::components::ui::{Button, ButtonVariant, IconType, Surface, SurfaceRadius};
 use crate::pump::Pump;
 
 /// The page's content for the machine in `worker_fp`.
@@ -37,24 +34,6 @@ pub fn PickerRegions(
     crumb_menu_open: Signal<bool>,
     controls: PickerControls,
 ) -> Element {
-    let surface_sx = use_hook(|| {
-        sx().display("flex")
-            .height("100%")
-            .min_height("0")
-            .flex_direction("column")
-            .overflow("hidden")
-            .background("var(--lsx-paper-background)")
-            .color("ink")
-    });
-    let footer_sx = use_hook(|| {
-        sx().display("flex")
-            .flex_wrap("wrap")
-            .justify_content("flex-end")
-            .gap("0.5rem")
-            .with("border-top", "1px solid var(--border)")
-            .padding_inline("1rem")
-            .padding_block("0.75rem")
-    });
     let view = reading.view;
     let c = controls;
     let on_close = c.on_close;
@@ -88,8 +67,8 @@ pub fn PickerRegions(
     let on_create_folder = c.on_create_folder;
     let online_workers = reading.online_workers;
     rsx! {
-        Box {
-            sx: surface_sx,
+        div {
+            class: "flex h-full min-h-0 flex-col overflow-hidden bg-card text-card-foreground",
             id: dom::SURFACE_ID,
             "data-testid": "browse-page",
             "data-compact": if compact { "true" } else { "false" },
@@ -103,7 +82,7 @@ pub fn PickerRegions(
                 server_label: view.server_label.clone(),
                 server_online: view.server_online,
                 online_workers,
-                server_menu_open: *server_menu_open.read(),
+                server_menu_open: *server_menu_open.peek(),
                 on_close,
                 on_toggle_filter,
                 on_toggle_show_files,
@@ -115,7 +94,7 @@ pub fn PickerRegions(
             BrowsePathBar {
                 crumb_views,
                 crumbs: view.crumbs.clone(),
-                menu_open: *crumb_menu_open.read(),
+                menu_open: *crumb_menu_open.peek(),
                 back_enabled: view.can_back,
                 forward_enabled: view.can_forward,
                 up_enabled: view.can_up,
@@ -156,19 +135,19 @@ pub fn PickerRegions(
                     on_retry,
                 }
             }
-            Paper { shadow: "none", radius: "0", sx: footer_sx,
+            Surface { class: Some("flex flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-3".to_owned()), level: 1, radius: SurfaceRadius::None,
                 if launch_mode == BrowseLaunchMode::Agent {
                     Button {
-                        variant: "filled",
-                        icon: rsx! { Pictogram { icon: pictogram_icons_lucide::bot::outlined, width: "1rem", height: "1rem" } },
+                        variant: ButtonVariant::Default,
+                        icon: Some(IconType::Bot),
                         "data-testid": "browse-start-agent",
                         disabled: !view.scoped,
                         onclick: move |_| on_start_agent.call(()),
                         "Start agent here"
                     }
                     Button {
-                        variant: "outlined",
-                        icon: rsx! { Pictogram { icon: pictogram_icons_lucide::terminal::outlined, width: "1rem", height: "1rem" } },
+                        variant: ButtonVariant::Outline,
+                        icon: Some(IconType::Terminal),
                         "data-testid": "browse-open",
                         disabled: !view.scoped,
                         onclick: move |_| on_open_here.call(()),
@@ -176,16 +155,16 @@ pub fn PickerRegions(
                     }
                 } else {
                     Button {
-                        variant: "filled",
-                        icon: rsx! { Pictogram { icon: pictogram_icons_lucide::terminal::outlined, width: "1rem", height: "1rem" } },
+                        variant: ButtonVariant::Default,
+                        icon: Some(IconType::Terminal),
                         "data-testid": "browse-open",
                         disabled: !view.scoped,
                         onclick: move |_| on_open_here.call(()),
                         "Open terminal here"
                     }
                     Button {
-                        variant: "outlined",
-                        icon: rsx! { Pictogram { icon: pictogram_icons_lucide::bot::outlined, width: "1rem", height: "1rem" } },
+                        variant: ButtonVariant::Outline,
+                        icon: Some(IconType::Bot),
                         "data-testid": "browse-start-agent",
                         disabled: !view.scoped,
                         onclick: move |_| on_start_agent.call(()),
