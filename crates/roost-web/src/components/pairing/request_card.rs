@@ -56,7 +56,7 @@ pub fn RequestAccessCard(requester: PairingRequester) -> Element {
 #[component]
 fn IdlePrompt(requester: PairingRequester, state: RequesterState) -> Element {
     rsx! {
-        p { class: "m-0 text-sm text-muted-foreground",
+        p { class: "m-0 text-muted-foreground",
             "A browser that is already paired approves the request, then shows a 6-digit code for you to enter here."
         }
         div {
@@ -89,7 +89,7 @@ fn RequestStatus(state: RequesterState) -> Element {
             "aria-live": "polite",
             "aria-atomic": "true",
             StatusDot { status: indicator.to_string() }
-            span { class: "text-sm", {message} }
+            span { {message} }
         }
     }
 }
@@ -98,11 +98,11 @@ fn RequestStatus(state: RequesterState) -> Element {
 const VERIFICATION_CODE_DIGITS: usize = 6;
 
 /// A cell the caret is not in: filled, or still empty.
-const OTP_CELL_IDLE: &str = "flex h-12 w-10 items-center justify-center rounded-md border border-input bg-background text-lg font-semibold text-foreground shadow-xs";
+const OTP_CELL_IDLE: &str = "flex h-12 w-10 items-center justify-center rounded-md border border-input bg-background text-base text-foreground shadow-xs";
 
 /// The cell the next digit lands in. The native caret is hidden under the
 /// cells, so the ring is what shows where typing goes.
-const OTP_CELL_ACTIVE: &str = "flex h-12 w-10 items-center justify-center rounded-md border border-ring bg-background text-lg font-semibold text-foreground shadow-xs ring-3 ring-ring/50";
+const OTP_CELL_ACTIVE: &str = "flex h-12 w-10 items-center justify-center rounded-md border border-ring bg-background text-base text-foreground shadow-xs ring-3 ring-ring/50";
 
 /// The digits a verification entry keeps, capped at the code length. Letters and
 /// separators a reader types or pastes never reach the coordinator, and the

@@ -144,6 +144,7 @@ pub fn AppShell(children: Element) -> Element {
         );
         super::keyboard_offset::use_keyboard_offset();
     }
+
     let toggle_pump = pump.clone();
     let on_toggle_sidebar = move |()| toggle_desktop_sidebar(&toggle_pump, compact);
 
@@ -177,7 +178,7 @@ pub fn AppShell(children: Element) -> Element {
 }
 
 /// Collapse or expand the desktop rail. Focus inside the region about to be
-/// hidden moves to the rail's Workspaces item first, so it is never stranded in
+/// hidden moves to the rail's Folders item first, so it is never stranded in
 /// an `inert` subtree.
 pub fn toggle_desktop_sidebar(pump: &crate::pump::Pump, compact: bool) {
     #[cfg(target_arch = "wasm32")]

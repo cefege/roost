@@ -23,7 +23,8 @@ use roost_client_core::store::sidebar::documents::store_navigation_documents;
 use crate::components::global_search::query::{SearchRouteQuery, SearchScope};
 use crate::components::settings::format::relative_time;
 use crate::components::ui::{
-    CommandItem, CommandList, EmptyState, Icon, IconType, StatusDot, Surface, SurfaceElement,
+    Card, CardContent, CardHeader, CardTitle, CommandItem, CommandList, EmptyState, Icon, IconType,
+    StatusDot,
 };
 use crate::platform::worker_paths::BrowserWorkerPaths;
 use crate::pump::use_store;
@@ -56,39 +57,47 @@ pub fn MetadataResults(route_query: SearchRouteQuery) -> Element {
     let summary = metadata_summary(route_query.scope, rows.len(), &route_query.text);
 
     rsx! {
-        Surface { element: SurfaceElement::Section, border: true, pad: Some(4),
-            class: Some("flex flex-col gap-2 rounded-xl text-card-foreground".to_owned()),
-            aria_labelledby: Some("global-search-metadata-title".to_owned()),
-            h2 { id: "global-search-metadata-title", class: "m-0 text-lg font-semibold",
-                match route_query.scope {
-                    SearchScope::Attention => "Agent attention",
-                    SearchScope::All => "Session metadata",
+        section {
+            class: "flex flex-col gap-2",
+            aria_labelledby: "global-search-metadata-title",
+            Card {
+                CardHeader {
+                    CardTitle {
+                        span { id: "global-search-metadata-title",
+                            match route_query.scope {
+                                SearchScope::Attention => "Agent attention",
+                                SearchScope::All => "Session metadata",
+                            }
+                        }
+                    }
+                    div { class: "text-sm font-medium", role: "status", "aria-live": "polite", "aria-atomic": "true",
+                        {summary}
+                    }
                 }
-            }
-            div { class: "text-sm font-medium", role: "status", "aria-live": "polite", "aria-atomic": "true",
-                {summary}
-            }
-            if rows.is_empty() {
-                EmptyState {
-                    icon: match route_query.scope {
-                        SearchScope::Attention => IconType::BellOff,
-                        SearchScope::All => IconType::SearchX,
-                    },
-                    title: empty_title(route_query.scope, &route_query.text),
-                    supporting: Some(empty_supporting(route_query.scope, &route_query.text).to_owned()),
-                }
-            } else {
-                div { "data-testid": "global-search-results",
-                    class: "flex flex-col gap-2",
-                    CommandList { class: "flex flex-col gap-2 max-h-none min-h-0 overflow-visible",
-                        for document in rows.iter() {
-                            MetadataRow {
-                                document: document.clone(),
-                                now_ms,
-                                on_open: {
-                                    let href = document.href.clone();
-                                    move |_| navigate.call(href.clone())
-                                },
+                CardContent {
+                    if rows.is_empty() {
+                        EmptyState {
+                            icon: match route_query.scope {
+                                SearchScope::Attention => IconType::BellOff,
+                                SearchScope::All => IconType::SearchX,
+                            },
+                            title: empty_title(route_query.scope, &route_query.text),
+                            supporting: Some(empty_supporting(route_query.scope, &route_query.text).to_owned()),
+                        }
+                    } else {
+                        div { "data-testid": "global-search-results",
+                            class: "flex flex-col gap-2",
+                            CommandList { class: "flex flex-col gap-2 max-h-none min-h-0 overflow-visible",
+                                for document in rows.iter() {
+                                    MetadataRow {
+                                        document: document.clone(),
+                                        now_ms,
+                                        on_open: {
+                                            let href = document.href.clone();
+                                            move |_| navigate.call(href.clone())
+                                        },
+                                    }
+                                }
                             }
                         }
                     }

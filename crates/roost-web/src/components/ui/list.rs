@@ -1,12 +1,6 @@
-//! `List` and `ListRow`: the container rows sit in and the Material-style row
-//! anatomy (leading icon, headline, support line, trailing slot) for static
-//! content, actions and destinations. Settings rails, folder lists and the
-//! browse picker compose them.
-//!
-//! A row is an `<a>` when it has an `href`, so it keeps native link affordances
-//! (open in new tab, copy address); a plain left click is handed to
-//! `on_navigate` instead of loading a document. An action is a `<button>`, and
-//! a static row is a `<div>`.
+//! Structural list layout and rows composed from stock Rust/UI Item recipes.
+//! Folder navigation, settings and pickers use the row's leading/content/action slots.
+//! Destination rows retain native links; only unmodified primary clicks route in-app.
 
 use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
@@ -41,7 +35,6 @@ pub fn is_in_app_navigation_click(primary_button: bool, modifiers: Modifiers) ->
 /// A list of rows.
 #[component]
 pub fn List(
-    #[props(default)] contained: bool,
     #[props(default)] layout: ListLayout,
     #[props(into, optional)] class: Option<String>,
     children: Element,
@@ -50,20 +43,11 @@ pub fn List(
         ListLayout::Stack => "flex flex-col",
         ListLayout::Grid => "grid gap-3 grid-cols-[repeat(auto-fill,minmax(12rem,1fr))]",
     };
-    let container_class = if contained {
-        "rounded-md border border-border overflow-hidden"
-    } else {
-        ""
-    };
     let layout_attribute = match layout {
         ListLayout::Stack => "stack",
         ListLayout::Grid => "grid",
     };
-    let merged = tw_merge!(
-        layout_class,
-        container_class,
-        class.as_deref().unwrap_or("")
-    );
+    let merged = tw_merge!(layout_class, class.as_deref().unwrap_or(""));
     rsx! {
         div { "data-name": "List", "data-layout": "{layout_attribute}", class: "{merged}", {children} }
     }

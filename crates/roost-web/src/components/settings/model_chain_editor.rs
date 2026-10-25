@@ -28,7 +28,7 @@ pub fn ModelChainEditor(
     let compact = use_is_compact();
     // A phone gets the picker as a bottom sheet, within a thumb's reach.
     let dialog_class = if compact {
-        "top-auto bottom-0 left-0 right-0 w-full max-w-none max-h-[70vh] translate-x-0 translate-y-0 rounded-t-2xl rounded-b-none"
+        "top-auto bottom-0 left-0 right-0 w-full max-w-none max-h-[70vh] translate-x-0 translate-y-0"
     } else {
         "max-w-md"
     };
@@ -56,7 +56,7 @@ pub fn ModelChainEditor(
                 p { class: "text-xs text-muted-foreground m-0", "Inherits {inherited_label}" }
             }
             if entry_count > 0 {
-                List { contained: true,
+                List {
                     for (index, entry) in chain.iter().enumerate() {
                         {
                             let (base, thinking) = split_thinking(entry, &thinking_levels);

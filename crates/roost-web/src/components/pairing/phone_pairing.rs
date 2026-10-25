@@ -100,7 +100,7 @@ pub fn PhonePairingCard() -> Element {
                     },
                     PhonePairing::Unreachable(message) => rsx! {
                         p {
-                            class: "m-0 text-sm text-muted-foreground",
+                            class: "m-0 text-muted-foreground",
                             "data-testid": "phone-pairing-unreachable",
                             {message}
                         }
@@ -145,10 +145,10 @@ fn ScannableCode(
                 }
             }
             div { class: "flex min-w-0 flex-col gap-3",
-                p { class: "m-0 text-sm text-foreground", "data-testid": "phone-pairing-expiry",
+                p { class: "m-0", "data-testid": "phone-pairing-expiry",
                     {remaining.unwrap_or_else(|| "This code has expired.".to_owned())}
                 }
-                p { class: "m-0 text-xs text-muted-foreground",
+                p { class: "m-0 text-muted-foreground",
                     "It works once: whoever opens it first pairs, so show it only to the phone you mean."
                 }
                 div { class: "flex flex-wrap gap-2",

@@ -42,9 +42,13 @@ pub fn SidenavInner(
 }
 
 #[component]
-pub fn SidenavHeader(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn SidenavHeader(
+    #[props(into, optional)] class: Option<String>,
+    #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
+    children: Element,
+) -> Element {
     let merged_class = tw_merge!("flex flex-col gap-2 p-2", class.as_deref().unwrap_or(""));
-    rsx! { div { "data-name": "SidenavHeader", class: "{merged_class}", {children} } }
+    rsx! { div { "data-name": "SidenavHeader", class: "{merged_class}", ..attributes, {children} } }
 }
 
 #[component]

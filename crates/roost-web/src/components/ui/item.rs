@@ -77,6 +77,7 @@ pub fn Item(
     #[props(default = ItemVariant::Default)] variant: ItemVariant,
     #[props(default = ItemSize::Default)] size: ItemSize,
     #[props(into, optional)] href: Option<String>,
+    #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
     let merged = tw_merge!(
@@ -87,9 +88,9 @@ pub fn Item(
     );
 
     if let Some(href) = href {
-        rsx! { a { "data-name": "Item", class: "{merged}", href: "{href}", {children} } }
+        rsx! { a { "data-name": "Item", class: "{merged}", href: "{href}", ..attributes, {children} } }
     } else {
-        rsx! { div { "data-name": "Item", class: "{merged}", {children} } }
+        rsx! { div { "data-name": "Item", class: "{merged}", ..attributes, {children} } }
     }
 }
 

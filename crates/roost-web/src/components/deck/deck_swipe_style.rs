@@ -65,11 +65,10 @@ pub fn swipe_offsets_px(swipe: &Swipe, width: f64) -> (f64, f64) {
 }
 
 /// The swipe layer a slot or bar composes over its placement. Every state
-/// declares the same transform, origin, shadow and transition, at rest when
-/// the swipe does not involve the element: Dioxus 0.7 keeps each inline
-/// property a new `style` string omits, so a layer that went empty left the
-/// last swipe frame on the element. The peel's corner and clip are declared
-/// by every placement it composes over (`SlotStyle`, [`mobile_bar_style`]).
+/// declares the same transform, origin and transition, at rest when the swipe
+/// does not involve the element. Dioxus 0.7 keeps each inline property a new
+/// `style` string omits, so the peel's corner and clip are declared by every
+/// placement it composes over (`SlotStyle`, [`mobile_bar_style`]).
 pub fn swipe_style_for(swipe: Option<&Swipe>, session_id: &str, width: f64) -> InlineStyle {
     let rest = swipe_layer_at_rest();
     let Some(swipe) = swipe else {
@@ -119,7 +118,6 @@ fn swipe_layer_at_rest() -> InlineStyle {
     InlineStyle::new()
         .with("transform", "none")
         .with("transform-origin", "center center")
-        .with("box-shadow", "none")
         .with("transition", "none")
 }
 
@@ -130,20 +128,8 @@ fn new_terminal_peel(swipe: &Swipe, width: f64, settle_ms: u64) -> InlineStyle {
         (SwipePhase::Track, _) => new_fab_progress(swipe.offset, width),
     };
     let peek = peek_card(progress);
-    let shadow = if progress > 0.0 {
-        format!(
-            "0 {}px {}px color-mix(in srgb, black {}%, transparent)",
-            (8.0 * progress).round(),
-            (30.0 * progress).round(),
-            (50.0 * progress).round()
-        )
-    } else {
-        "none".to_owned()
-    };
     let transition = if swipe.phase == SwipePhase::Settle {
-        format!(
-            "transform {settle_ms}ms {SWIPE_DECEL}, border-radius {settle_ms}ms {SWIPE_DECEL}, box-shadow {settle_ms}ms {SWIPE_DECEL}"
-        )
+        format!("transform {settle_ms}ms {SWIPE_DECEL}, border-radius {settle_ms}ms {SWIPE_DECEL}")
     } else {
         "none".to_owned()
     };
@@ -159,7 +145,6 @@ fn new_terminal_peel(swipe: &Swipe, width: f64, settle_ms: u64) -> InlineStyle {
         .with("transform-origin", "center center")
         .with("border-radius", px(peek.radius))
         .with("overflow", "hidden")
-        .with("box-shadow", shadow)
         .with("transition", transition)
 }
 

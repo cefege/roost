@@ -99,7 +99,7 @@ pub fn PaneTab(
     let style = (!style.is_empty()).then_some(style);
     rsx! {
         div {
-            class: "group/tab relative inline-flex items-center gap-1 px-1 box-border h-full self-stretch flex-[0_1_auto] w-[var(--workbench-tab-width-max)] min-w-[var(--workbench-tab-width-min)] max-w-[var(--workbench-tab-width-max)] overflow-hidden cursor-pointer touch-pan-y border-0 border-t border-r border-solid border-t-transparent border-r-border bg-card text-muted-foreground text-sm transition-colors duration-150 not-data-[active=true]:hover:bg-accent not-data-[active=true]:hover:text-accent-foreground data-[active=true]:bg-background data-[active=true]:text-foreground data-[active=true]:border-t-ring group-data-[focused=false]/strip:data-[active=true]:text-muted-foreground group-data-[focused=false]/strip:data-[active=true]:border-t-transparent data-[dragging=true]:z-[4] data-[dragging=true]:bg-card data-[dragging=true]:shadow-md data-[dragging=true]:cursor-grabbing data-[closing=true]:!min-w-0 data-[closing=true]:!max-w-0 data-[closing=true]:!px-0 data-[closing=true]:z-0 data-[closing=true]:opacity-0 data-[closing=true]:pointer-events-none data-[closing=true]:overflow-hidden data-[closing=true]:transition-[max-width,min-width,padding,opacity] data-[closing=true]:duration-[220ms] @container/pane-tab",
+            class: "group/tab relative inline-flex items-center gap-1 px-1 box-border h-full self-stretch flex-[0_1_auto] w-[var(--workbench-tab-width-max)] min-w-[var(--workbench-tab-width-min)] max-w-[var(--workbench-tab-width-max)] overflow-hidden cursor-pointer touch-pan-y border-t border-r border-solid border-t-transparent border-r-border bg-card text-muted-foreground text-sm transition-colors duration-150 not-data-[active=true]:hover:bg-accent not-data-[active=true]:hover:text-accent-foreground data-[active=true]:bg-background data-[active=true]:text-foreground data-[active=true]:border-t-ring group-data-[focused=false]/strip:data-[active=true]:text-muted-foreground group-data-[focused=false]/strip:data-[active=true]:border-t-transparent data-[dragging=true]:z-[4] data-[dragging=true]:bg-card data-[dragging=true]:cursor-grabbing data-[closing=true]:!min-w-0 data-[closing=true]:!max-w-0 data-[closing=true]:!px-0 data-[closing=true]:z-0 data-[closing=true]:opacity-0 data-[closing=true]:pointer-events-none data-[closing=true]:overflow-hidden data-[closing=true]:transition-[max-width,min-width,padding,opacity] data-[closing=true]:duration-[220ms] @container/pane-tab",
             "data-testid": "tab-{session_id}",
             "data-deck-tab": "true",
             "data-active": if active { "true" } else { "false" },
@@ -119,7 +119,7 @@ pub fn PaneTab(
             // add the Ghost accent band over it.
             Button {
                 variant: ButtonVariant::Ghost,
-                class: "flex flex-1 min-w-0 h-full items-center gap-1 p-0 rounded-none font-normal text-inherit text-start cursor-pointer hover:bg-transparent hover:text-inherit dark:hover:bg-transparent group-data-[packed=true]/strip:justify-center",
+                class: "flex flex-1 min-w-0 h-full items-center gap-1 p-0 text-start cursor-pointer group-data-[packed=true]/strip:justify-center",
                 "aria-label": title.clone(),
                 "data-tab-select": "true",
                 "aria-current": active.then_some("page"),

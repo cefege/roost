@@ -5,7 +5,9 @@
 
 use dioxus::prelude::*;
 
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, Card, CardDescription, CardTitle};
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Card, CardContent, CardDescription, CardTitle,
+};
 
 /// The notice.
 #[component]
@@ -21,33 +23,32 @@ pub fn TerminalOfflineNotice(
             // A discrete state change, safe to announce; the grid itself never
             // gets a live region, or a streaming pane floods the reader.
             Card {
-                class: Some(
-                    "pointer-events-auto w-[min(100%,45ch)] gap-3 rounded-lg p-6 text-center shadow-md"
-                        .to_owned(),
-                ),
+                class: Some("pointer-events-auto w-[min(100%,45ch)] text-center".to_owned()),
                 "aria-live": "polite",
-                CardTitle { class: "text-base font-medium", "This terminal isn't responding" }
-                CardDescription {
-                    "Its process may have stopped. The tab stays put so you keep your place."
-                }
-                div {
-                    class: "mt-1 flex flex-wrap justify-center gap-2",
-                    Button {
-                        variant: ButtonVariant::Outline,
-                        size: ButtonSize::Sm,
-                        class: None,
-                        "data-testid": "terminal-offline-retry",
-                        onclick: move |_| on_retry.call(()),
-                        "Retry"
+                CardContent {
+                    CardTitle { "This terminal isn't responding" }
+                    CardDescription {
+                        "Its process may have stopped. The tab stays put so you keep your place."
                     }
-                    if has_sibling {
+                    div {
+                        class: "flex flex-wrap justify-center gap-2",
                         Button {
-                            variant: ButtonVariant::Default,
+                            variant: ButtonVariant::Outline,
                             size: ButtonSize::Sm,
                             class: None,
-                            "data-testid": "terminal-offline-open-sibling",
-                            onclick: move |_| on_open_sibling.call(()),
-                            "Open another terminal here"
+                            "data-testid": "terminal-offline-retry",
+                            onclick: move |_| on_retry.call(()),
+                            "Retry"
+                        }
+                        if has_sibling {
+                            Button {
+                                variant: ButtonVariant::Default,
+                                size: ButtonSize::Sm,
+                                class: None,
+                                "data-testid": "terminal-offline-open-sibling",
+                                onclick: move |_| on_open_sibling.call(()),
+                                "Open another terminal here"
+                            }
                         }
                     }
                 }

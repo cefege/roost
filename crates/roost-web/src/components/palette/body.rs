@@ -118,7 +118,7 @@ pub fn PaletteBody(pump: Pump, overlays: ShortcutOverlays) -> Element {
             CommandHeader { class: "flex flex-none flex-row items-center gap-3 border-b border-border py-3 pr-14 pl-4 text-start",
                 span { class: "text-sm text-muted-foreground", {chord} }
                 CommandInput {
-                    class: "min-w-0 flex-1 h-auto border-0 bg-transparent px-0 py-0 text-sm text-foreground shadow-none focus-visible:border-transparent focus-visible:ring-0",
+                    class: "min-w-0 flex-1",
                     value: query(),
                     on_search_change: move |value: String| query.set(value),
                     placeholder: "Jump to session, workspace, or action…",
@@ -129,7 +129,7 @@ pub fn PaletteBody(pump: Pump, overlays: ShortcutOverlays) -> Element {
             }
             CommandList { id: list_id, class: "min-h-0 flex-1 max-h-none",
                 if !has_results {
-                    CommandEmpty { class: "px-4 py-5 text-center text-sm text-muted-foreground", "No matches" }
+                    CommandEmpty { "No matches" }
                 }
                 for (index, item) in filtered.into_iter().enumerate() {
                     PaletteRow {

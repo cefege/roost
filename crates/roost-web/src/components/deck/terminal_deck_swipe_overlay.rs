@@ -30,11 +30,11 @@ pub fn TerminalDeckSwipeOverlay(
     let armed = new_fab_progress(pull.offset, deck_width) >= 1.0;
     rsx! {
         div {
-            class: "flex items-center justify-center overflow-hidden bg-card [-webkit-tap-highlight-color:transparent]",
+            class: "flex items-center justify-center overflow-hidden bg-card shadow-lg [-webkit-tap-highlight-color:transparent]",
             "data-testid": "deck-new-peek",
             style: new_peek_style(Some(pull), pane_rect, deck_width, strip_height).css(),
             "aria-hidden": "true",
-            div { class: "flex items-center gap-2.5 font-medium text-sm leading-tight tracking-[0.1px] text-muted-foreground",
+            div { class: "flex items-center gap-2.5 text-muted-foreground",
                 Icon { icon: IconType::Plus, class: "size-5 [stroke-width:2.5]" }
                 span { "New terminal · {folder_label}" }
             }

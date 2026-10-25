@@ -195,9 +195,15 @@ pub(crate) fn use_dictation_context(
 /// The mirror the field paints over itself while a hypothesis is unproven.
 #[component]
 pub fn GhostMirror(ghost: PaintedDraft) -> Element {
+    let is_mobile = crate::components::hooks::use_is_mobile::use_is_mobile();
+    let font_class = if is_mobile() { "text-base" } else { "text-sm" };
+    let class = tw_merge::tw_merge!(
+        "pointer-events-none absolute inset-0 z-0 overflow-hidden whitespace-pre-wrap break-words px-3 py-3 font-sans text-foreground",
+        font_class
+    );
     rsx! {
         div {
-            class: "pointer-events-none absolute inset-0 z-0 overflow-hidden whitespace-pre-wrap break-words text-foreground px-3 py-(--term-chat-field-pad-block) font-sans text-[length:max(1rem,var(--term-chat-font-size))] leading-(--term-chat-line-height)",
+            class,
             "data-composer-part": "ghost",
             "data-testid": "chat-ghost",
             aria_hidden: "true",
@@ -215,13 +221,14 @@ pub fn GhostMirror(ghost: PaintedDraft) -> Element {
 #[component]
 pub fn VoiceControl(
     owner_id: String,
-    #[props(default)] compact: bool,
     #[props(default)] active: bool,
     #[props(default)] read_context: Option<crate::voice::keyterms::ContextReader>,
     binding: SharedBinding,
     /// The draft is ready to submit: Send was pressed while the recording
     /// finalized, and its words are in the draft now.
     on_submit: EventHandler<()>,
+    /// The owning composer displays voice errors outside its measured frame.
+    on_error: EventHandler<Option<String>>,
 ) -> Element {
     let send_door = binding.0.send_door.clone();
     let commit_binding = binding.0.clone();
@@ -230,7 +237,7 @@ pub fn VoiceControl(
     rsx! {
         crate::components::mobile_voice_input::MobileVoiceInput {
             owner_id,
-            compact,
+            on_error: move |error| on_error.call(error),
             active,
             on_state_change: move |state: VoiceState| binding.0.set_voice_state(state),
             on_transcript: move |text: String| commit_binding.commit(text),

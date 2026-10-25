@@ -23,9 +23,8 @@ use super::deploy_state::{DeployError, DeployModel, DeployPhase};
 use super::local_access_guide::{MachineLocalAccessGuide, RECHECK_LABEL};
 use crate::components::hooks::use_copy_clipboard::use_copy_clipboard;
 use crate::components::ui::{
-    Alert, AlertTitle, AlertVariant, Button, ButtonVariant, Dialog, DialogBody, DialogClose,
-    DialogContent, DialogFooter, DialogHeader, DialogTitle, StatusDot, Surface, SurfaceRadius,
-    TextField,
+    Alert, AlertTitle, AlertVariant, Button, ButtonVariant, Card, CardContent, Dialog, DialogBody,
+    DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle, StatusDot, TextField,
 };
 use crate::pump::use_store;
 
@@ -139,10 +138,12 @@ fn EnrollmentForm(model: DeployModel, mut label: Signal<String>) -> Element {
     rsx! {
         div { class: "grid gap-4",
             if let Some(coordinator_url) = model.coordinator_url() {
-                Surface { level: 1, radius: SurfaceRadius::Sm, pad: 3, border: true,
-                    div { class: "grid gap-4",
-                        p { class: "m-0 text-xs font-medium text-muted-foreground", "Enrollment address" }
-                        code { class: "break-all font-mono text-sm", {coordinator_url} }
+                Card { size: crate::components::ui::CardSize::Sm,
+                    CardContent {
+                        div { class: "grid gap-4",
+                            p { class: "m-0 font-medium text-muted-foreground", "Enrollment address" }
+                            code { class: "break-all font-mono", {coordinator_url} }
+                        }
                     }
                 }
             }
@@ -170,16 +171,18 @@ fn GeneratedCommand(model: DeployModel) -> Element {
     let coordinator_url = model.coordinator_url().unwrap_or_default().to_owned();
     rsx! {
         div { class: "grid gap-4",
-            p { class: "m-0 text-sm text-muted-foreground",
+            p { class: "m-0 text-muted-foreground",
                 {"Run this on the target machine, over its normal terminal, SSH session or cloud \
                   console. It must be able to reach "}
-                code { class: "break-all font-mono text-xs text-foreground", {coordinator_url} }
+                code { class: "break-all font-mono", {coordinator_url} }
                 {"."}
             }
-            Surface { level: 1, radius: SurfaceRadius::Sm, pad: 3, border: true,
-                code { class: "break-all font-mono text-xs", {command} }
+            Card { size: crate::components::ui::CardSize::Sm,
+                CardContent {
+                    code { class: "break-all font-mono", {command} }
+                }
             }
-            p { class: "m-0 text-sm text-muted-foreground",
+            p { class: "m-0 text-muted-foreground",
                 "This one-use command expires after 24 hours. Treat it as a secret, and run it only \
                  on the machine you want to add."
             }
@@ -200,7 +203,7 @@ fn DeployRefusal(error: DeployError) -> Element {
                 StatusDot { status: "error".to_owned(), title: Some("Error".to_owned()) }
                 div { class: "grid gap-4", "data-machine-deploy-error-kind": kind.attribute(),
                     AlertTitle { {error.title} }
-                    p { class: "m-0 text-xs text-muted-foreground", {error.detail} }
+                    p { class: "m-0 text-muted-foreground", {error.detail} }
                 }
             }
         }

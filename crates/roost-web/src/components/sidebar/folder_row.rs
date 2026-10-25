@@ -27,7 +27,7 @@ use crate::components::notifications::notify_target::{
 };
 use crate::components::ui::list::is_in_app_navigation_click;
 use crate::components::ui::status::StatusDot;
-use crate::components::ui::{ButtonSize, IconButton, IconType};
+use crate::components::ui::{ButtonSize, IconButton, IconType, Item, ItemSize};
 use crate::platform::BrowserWorkerPaths;
 use crate::pump::use_store;
 use crate::router_state::{use_location, use_navigate};
@@ -111,9 +111,8 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
     let show_rollup = rollup.total > 0 && rollup.level != AgentStatusLevel::Unknown;
     rsx! {
         div {
-            class: "group relative flex min-w-0 items-start gap-3 rounded-md px-3 py-2 hover:bg-accent/50 data-[selected=focused]:bg-accent data-[cursor=on]:bg-accent/50",
+            class: "group relative min-w-0",
             title: group.spawn_cwd.clone(),
-            "data-density": "flat",
             "data-testid": "folder-row-{group.key}",
             "data-selected": if selected { "focused" } else { "" },
             "data-cursor": cursor.then_some("on"),
@@ -125,6 +124,9 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
                 let at = event.client_coordinates();
                 menu.set(Some(menu_target(at.x, at.y)));
             },
+            Item {
+                size: ItemSize::Xs,
+                class: "relative w-full min-w-0 items-start gap-3 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50 group-data-[selected=focused]:bg-accent group-data-[cursor=on]:bg-accent/50",
             a {
                 href: href.clone(),
                 class: "absolute inset-0 z-10",
@@ -215,6 +217,7 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
                     let at = event.client_coordinates();
                     menu.set(Some(more_target(at.x, at.y)));
                 },
+            }
             }
             if let Some(target) = menu() {
                 FolderRowContextMenu { target, on_close: move |()| menu.set(None) }

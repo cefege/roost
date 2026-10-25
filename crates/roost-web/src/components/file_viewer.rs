@@ -152,13 +152,13 @@ pub fn FileViewer(route: Route) -> Element {
             on_open_change,
             DialogContent {
                 test_id: "file-viewer-sheet",
-                class: "max-w-180 flex flex-col gap-3 p-5",
+                class: "max-w-180 flex flex-col",
                 on_open_auto_focus: Some(EventHandler::new(move |request: AutoFocusRequest| {
                     if scope_unavailable {
                         request.prevent_default();
                     }
                 })),
-                DialogHeader { class: "text-left", DialogTitle { "File preview" } }
+                DialogHeader { DialogTitle { "File preview" } }
                 {header_row(&file_path, &worker_fp, scoped && current.is_downloadable(), current.byte_size())}
                 if scope_pending || (scoped && current.is_loading()) {
                     states::LoadingCaption {}

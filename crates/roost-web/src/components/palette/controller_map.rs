@@ -13,7 +13,8 @@ use std::collections::BTreeSet;
 use dioxus::prelude::*;
 
 use crate::components::ui::{
-    BindingChip, Chip, Dialog, DialogContent, DialogHeader, DialogTitle, Surface, SurfaceRadius,
+    BindingChip, Card, Chip, Dialog, DialogContent, DialogHeader, DialogTitle, Item, ItemContent,
+    ItemDescription, ItemMedia, ItemMediaVariant, ItemSize, ItemTitle, ItemVariant,
 };
 use crate::input_nav::pad_bindings::{PAD_CONTROL_GUIDE, PadAction, PadControlGuide};
 use crate::input_nav::{NavModality, PadHeld};
@@ -201,12 +202,8 @@ fn ControllerMapBody(held: PadHeld) -> Element {
     let caption = caption_for(&caps);
     rsx! {
         div { class: "flex flex-col gap-4", "data-testid": "controller-map",
-            Surface {
-                level: 2,
-                elevation: 1,
-                radius: SurfaceRadius::Lg,
-                pad: 5,
-                class: "grid grid-cols-[minmax(0,1fr)_minmax(0,0.7fr)_minmax(0,1.3fr)] items-start gap-4 [grid-template-areas:'shoulder-left_._shoulder-right'_'stick-left_centre_face'_'dpad_centre_stick-right']",
+            Card {
+                class: "grid grid-cols-[minmax(0,1fr)_minmax(0,0.7fr)_minmax(0,1.3fr)] items-start [grid-template-areas:'shoulder-left_._shoulder-right'_'stick-left_centre_face'_'dpad_centre_stick-right']",
                 for cluster in PAD_MAP_CLUSTERS {
                     div { class: cluster_class(cluster), "data-cluster": cluster,
                         for slot in PAD_MAP_SLOTS.iter().filter(|slot| slot.cluster == cluster) {
@@ -269,18 +266,21 @@ fn PadCallout(cap: String, held: bool, guide: Option<PadControlGuide>) -> Elemen
     let data_cap = cap.clone();
     let title = detail;
     rsx! {
-        div {
-            class: "group flex flex-col items-start gap-1 rounded-lg border border-border bg-card p-2 data-[held=true]:border-primary data-[held=true]:bg-accent",
+        Item {
+            variant: if held { ItemVariant::Muted } else { ItemVariant::Outline },
+            size: ItemSize::Xs,
+            class: "flex-col items-start",
             "data-cap": data_cap,
             "data-held": if held { "true" } else { "false" },
             title,
-            BindingChip { {cap} }
-            span { class: "text-sm font-medium text-foreground group-data-[held=true]:text-accent-foreground", {label} }
-            span { class: "text-xs text-muted-foreground", "data-detail": "true", {detail} }
+            ItemMedia { variant: ItemMediaVariant::Default, BindingChip { {cap} } }
+            ItemContent {
+                ItemTitle { {label} }
+                ItemDescription { span { "data-detail": "true", {detail} } }
+            }
         }
     }
 }
-
 /// The caps the current poll is holding.
 fn held_caps(held: &PadHeld) -> BTreeSet<&'static str> {
     let mut caps: BTreeSet<&'static str> = PAD_MAP_SLOTS

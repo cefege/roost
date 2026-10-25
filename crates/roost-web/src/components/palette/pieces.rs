@@ -30,7 +30,7 @@ pub fn KindBadge(kind: ItemKind) -> Element {
         Badge {
             variant: kind_variant(kind),
             size: BadgeSize::Sm,
-            class: Some("shrink-0 whitespace-nowrap font-normal uppercase tracking-wider".to_owned()),
+            class: Some("shrink-0 whitespace-nowrap".to_owned()),
             {kind.as_str()}
         }
     }
@@ -38,8 +38,7 @@ pub fn KindBadge(kind: ItemKind) -> Element {
 
 /// The row's own styling. The highlight comes from `aria-selected`, which
 /// `CommandItem` sets from its `selected` prop, so no active/idle class pair.
-const ROW_CLASS: &str =
-    "h-auto w-full justify-between gap-3 text-start font-normal whitespace-normal";
+const ROW_CLASS: &str = "h-auto w-full justify-between text-start whitespace-normal";
 
 /// One result: what it is, what it is called, and the dimmer hint beside it.
 #[component]
@@ -82,7 +81,7 @@ pub fn PaletteRow(
 pub fn PaletteFooter(has_results: bool) -> Element {
     rsx! {
         div { "data-testid": "command-palette-footer",
-            CommandFooter { class: "justify-between bg-card",
+            CommandFooter { class: "justify-between",
                 span { if has_results { "Select to open" } else { "Type to search" } }
                 div { class: "flex items-center gap-3",
                     FooterEntry { caps: vec!["↑", "↓"], label: "navigate" }

@@ -1,6 +1,5 @@
-//! The route-stable primary sidebar: the Folders/Agents selector, shared
-//! debounced filter, retained panels, compact terminal text-size row, and
-//! pinned workspace launch bar. Ports
+//! The route-stable primary sidebar: folders, debounced filter, compact terminal
+//! text-size row, and pinned workspace launch bar. Ports
 //! `apps/web/src/components/sidebar/SidebarRoot.tsx`; `AppShell` mounts it once
 //! in the desktop aside or the compact drawer. State changes dispatch
 //! `ClientEvent::Sidebar`.
@@ -8,22 +7,21 @@
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
 use roost_client_core::store::sidebar::SidebarIntent;
-use roost_client_core::store::ui::SidebarView;
 
 use super::all_view::AllView;
 use super::rel_time_tick::provide_rel_time_ticker;
-use super::sidebar_agents::SidebarAgents;
 use super::sidebar_new_terminal::SidebarNewTerminal;
 use super::sidebar_search::SidebarSearch;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::term_font_stepper::TermFontStepper;
-use crate::components::ui::toggle_group::ToggleGroupSpacing;
-use crate::components::ui::{ButtonSize, IconButton, IconType, ToggleGroup, ToggleGroupItem};
+use crate::components::ui::{
+    ButtonSize, IconButton, IconType, SidenavFooter, SidenavHeader, SidenavInner,
+};
+
 use crate::platform::browser_platform::{PlatformShortcut, platform_shortcut_label};
 use crate::pump::use_store;
 use crate::router_state::use_navigate;
 use crate::routes::Route;
-
 /// How long the filter waits after the last keystroke before re-projecting.
 pub const SEARCH_DEBOUNCE_MS: u32 = 120;
 
@@ -86,55 +84,20 @@ pub fn SidebarRoot() -> Element {
     } else {
         !ui.sidebar_collapsed
     };
-    let folders_selected = ui.sidebar_view == SidebarView::Folders;
-    let agents_selected = ui.sidebar_view == SidebarView::Agents;
-    let folders_active = interactive && folders_selected;
-    let agents_active = interactive && agents_selected;
-    let selected = |on: bool| if on { "true" } else { "false" };
-    let select_view = {
-        let pump = pump.clone();
-        move |view: SidebarView| pump.dispatch(ClientEvent::Sidebar(SidebarIntent::SetView(view)))
-    };
-    let select_folders = select_view.clone();
+    let folders_active = interactive;
     let close_drawer = pump.clone();
 
     rsx! {
-        div { class: "flex h-full min-h-0 flex-col bg-sidenav text-foreground", "data-testid": "sidebar-root",
-            div {
-                div { class: "flex items-center gap-2 px-2 pt-2",
-                    if compact {
+        SidenavInner { class: "min-h-0",
+            div { class: "flex h-full min-h-0 flex-col", "data-testid": "sidebar-root",
+                if compact {
+                    SidenavHeader { class: "flex-row items-center justify-between",
                         IconButton {
                             icon: IconType::X,
                             label: "Close sidebar",
                             onclick: move |_| close_drawer.dispatch(ClientEvent::Sidebar(SidebarIntent::CloseDrawer)),
                             "data-testid": "brand-row-collapse",
                         }
-                    }
-                    ToggleGroup {
-                        class: "min-w-0 flex-1 bg-muted p-0.5",
-                        spacing: ToggleGroupSpacing::Flush,
-                        aria_label: "Sidebar view",
-                        test_id: "sidebar-selector",
-                        ToggleGroupItem {
-                            id: "sidebar-view-agents",
-                            test_id: "sidebar-view-agents",
-                            class: "h-8 min-w-0 flex-1",
-                            title: "Agent workspaces",
-                            pressed: agents_selected,
-                            onclick: move |_| select_view(SidebarView::Agents),
-                            "Workspaces"
-                        }
-                        ToggleGroupItem {
-                            id: "sidebar-view-folders",
-                            test_id: "sidebar-view-folders",
-                            class: "h-8 min-w-0 flex-1",
-                            title: "Folders",
-                            pressed: folders_selected,
-                            onclick: move |_| select_folders(SidebarView::Folders),
-                            "Folders"
-                        }
-                    }
-                    if compact {
                         IconButton {
                             icon: IconType::Settings,
                             label: "Settings",
@@ -148,37 +111,25 @@ pub fn SidebarRoot() -> Element {
                 SidebarSearch {
                     query: query(),
                     on_change: on_query_change,
-                    placeholder: if folders_selected { "Filter folders…".to_owned() } else { "Filter workspaces…".to_owned() },
+                    placeholder: "Filter folders…".to_owned(),
                     shortcut_label: platform_shortcut_label(PlatformShortcut::SidebarSearch, "⌘F", platform).to_owned(),
                 }
-            }
-            div { class: "relative grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]",
-                div {
-                    class: "flex min-h-0 flex-col [grid-area:1/1] data-[active=false]:invisible data-[active=false]:pointer-events-none",
-                    "data-active": selected(folders_selected),
-                    "data-testid": "sidebar-folders",
-                    inert: (!folders_active).then_some(true),
-                    "aria-hidden": (!folders_selected).then_some("true"),
-                    AllView { active: folders_active, query: debounced() }
-                }
-                div {
-                    class: "flex min-h-0 flex-col [grid-area:1/1] data-[active=false]:invisible data-[active=false]:pointer-events-none",
-                    "data-active": selected(agents_selected),
-                    "data-testid": "sidebar-agents-section",
-                    inert: (!agents_active).then_some(true),
-                    "aria-hidden": (!agents_selected).then_some("true"),
-                    SidebarAgents { query: debounced() }
-                }
+            div {
+                class: "flex min-h-0 flex-1 flex-col",
+                "data-testid": "sidebar-folders",
+                inert: (!folders_active).then_some(true),
+                AllView { active: folders_active, query: debounced() }
             }
             if compact && terminal_route {
-                div {
-                    class: "flex items-center justify-between gap-2 border-t border-border px-3 py-2",
-                    "data-testid": "sidebar-text-size",
-                    span { class: "text-sm font-medium text-muted-foreground", "Text size" }
-                    TermFontStepper { test_id: "sidebar-term-font", size: ButtonSize::IconSm }
+                SidenavFooter { class: "flex-row items-center justify-between border-t border-sidenav-border",
+                    div { "data-testid": "sidebar-text-size",
+                        span { "Text size" }
+                        TermFontStepper { test_id: "sidebar-term-font", size: ButtonSize::IconSm }
+                    }
                 }
             }
             SidebarNewTerminal {}
+        }
         }
     }
 }

@@ -6,7 +6,7 @@ use dioxus::prelude::*;
 use roost_client_core::store::sidebar::folder_groups::PrBadge;
 use roost_protocol::wire::PullRequestChecks;
 
-use crate::components::ui::{Icon, IconType};
+use crate::components::ui::{Badge, BadgeSize, BadgeVariant, Icon, IconType};
 
 /// The link chips lift above the row's full-width primary link (`z-10`), so
 /// their own clicks land on them and not on the row.
@@ -22,12 +22,17 @@ pub fn ServerChip(
 ) -> Element {
     rsx! {
         span {
-            class: "inline-flex min-w-0 items-center gap-1 data-[online=false]:text-destructive",
+            class: "inline-flex min-w-0",
             "data-testid": test_id,
             "data-online": if online { "true" } else { "false" },
             title,
-            Icon { icon: IconType::Server, class: "size-3 shrink-0" }
-            span { class: "min-w-0 truncate", {label} }
+            Badge {
+                size: BadgeSize::Sm,
+                variant: if online { BadgeVariant::Outline } else { BadgeVariant::Destructive },
+                class: "min-w-0 gap-1",
+                Icon { icon: IconType::Server, class: "size-3 shrink-0" }
+                span { class: "min-w-0 truncate", {label} }
+            }
         }
     }
 }
@@ -36,9 +41,11 @@ pub fn ServerChip(
 #[component]
 pub fn BranchChip(branch: String) -> Element {
     rsx! {
-        span { class: "inline-flex min-w-0 items-center gap-1 font-mono", title: "On branch {branch}",
-            Icon { icon: IconType::GitBranch, class: "size-2.75 shrink-0" }
-            span { class: "min-w-0 truncate", {branch.clone()} }
+        span { title: "On branch {branch}",
+            Badge { variant: BadgeVariant::Muted, size: BadgeSize::Sm, class: "min-w-0 gap-1 font-mono",
+                Icon { icon: IconType::GitBranch, class: "size-2.75 shrink-0" }
+                span { class: "min-w-0 truncate", {branch.clone()} }
+            }
         }
     }
 }

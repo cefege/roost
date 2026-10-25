@@ -4,8 +4,8 @@
 //! only while open, so dismissal goes through its `on_close_sheet`.
 
 use crate::components::ui::{
-    Button, ButtonVariant, Card, EmptyState, Icon, IconButton, IconType, Sheet, SheetContent,
-    SheetSide, SheetTitle, StatusDot,
+    Button, ButtonVariant, Card, CardContent, EmptyState, Icon, IconButton, IconType, Sheet,
+    SheetContent, SheetSide, SheetTitle, StatusDot,
 };
 use dioxus::prelude::*;
 use roost_client_core::store::selectors::session_by_id;
@@ -116,9 +116,9 @@ pub fn WorkspaceTabsSheet(
                 test_id: "workspace-tabs-sheet",
                 show_close_button: false,
                 close_on_backdrop_click: false,
-                class: "bottom-0 h-full flex flex-col overflow-hidden border-0 bg-background p-0 pt-[env(safe-area-inset-top,0px)] shadow-none",
+                class: "bottom-0 h-full flex flex-col overflow-hidden pt-[env(safe-area-inset-top,0px)]",
                 SheetTitle { class: "sr-only", "Workspace tabs" }
-                div { class: "flex items-center gap-2 h-14 shrink-0 px-2 border-b border-border text-foreground",
+                div { class: "flex items-center gap-2 h-14 shrink-0 px-2 border-b border-border",
                     if !selection_mode() {
                         IconButton {
                             icon: IconType::ArrowLeft,
@@ -141,7 +141,7 @@ pub fn WorkspaceTabsSheet(
                             onclick: move |_| exit_selection(),
                         }
                     }
-                    span { class: "flex-1 basis-0 text-base font-medium", "{heading}" }
+                    span { class: "flex-1 basis-0", "{heading}" }
                     WorkspaceTabsMenu {
                         selection_mode: selection_mode(),
                         on_close_all: close_all,
@@ -201,16 +201,18 @@ pub fn WorkspaceTabsSheet(
                                         class: "min-w-0 animate-tc-card-enter motion-reduce:animate-none [animation-fill-mode:backwards]",
                                         style: format!("animation-delay: {}ms;", card_enter_delay_ms(session_count + index)),
                                         Card {
-                                            class: Some("gap-0 overflow-hidden py-0".to_owned()),
-                                            Button {
-                                                variant: ButtonVariant::Ghost,
-                                                class: Some("h-auto w-full min-w-0 justify-start gap-2 rounded-[inherit] px-3 py-3 text-start font-normal".to_owned()),
-                                                "data-testid": "workspace-agent-card-{conversation.id}",
-                                                aria_current: (tab_id == selected_tab).then_some("page"),
-                                                onclick: move |_| on_select.call(tab_id.clone()),
-                                                Icon { icon: IconType::Bot, class: "size-4 shrink-0" }
-                                                span { class: "min-w-0 flex-1 truncate", "{crate::components::agent_chat::display_conversation_title(&conversation.title)}" }
-                                                StatusDot { status: status.to_owned() }
+                                            class: Some("min-w-0".to_owned()),
+                                            CardContent {
+                                                Button {
+                                                    variant: ButtonVariant::Ghost,
+                                                    class: Some("w-full min-w-0 justify-start".to_owned()),
+                                                    "data-testid": "workspace-agent-card-{conversation.id}",
+                                                    aria_current: (tab_id == selected_tab).then_some("page"),
+                                                    onclick: move |_| on_select.call(tab_id.clone()),
+                                                    Icon { icon: IconType::Bot, class: "size-4 shrink-0" }
+                                                    span { class: "min-w-0 flex-1 truncate", "{crate::components::agent_chat::display_conversation_title(&conversation.title)}" }
+                                                    StatusDot { status: status.to_owned() }
+                                                }
                                             }
                                         }
                                     }

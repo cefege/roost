@@ -1,21 +1,8 @@
-//! The browser half of the pane composer's growth measurement: the observer
-//! that watches a laid-out dock, and the readings one update takes from it.
-//!
-//! Two observers, not one, and the reason is that they see different kinds of
-//! change. A `ResizeObserver` sees the dock's box change size. A
-//! `MutationObserver` sees the box's CONTENT change without its size changing —
-//! a status line that appears, a caption whose text wraps to a second line —
-//! and a composer that missed those is one whose field silently overlaps the
-//! terminal as it grows.
-//!
-//! WHY A `Weak`, NOT A CYCLE. The observer callback has to reach the state it
-//! updates, and the handle has to own the observer so it disconnects on
-//! unmount. Capturing the `Rc` in the callback would make that a cycle and leak
-//! both. A `Weak` breaks it: the handle holds the strong reference, and when
-//! the pane unmounts the upgrade fails and the observer stops firing.
-//! Ports the `attach`/`update` of
-//! `apps/web/src/components/terminal/TerminalComposePaneGeometry.ts`; the
-//! arithmetic it feeds is `super::pane_geometry`'s.
+//! Measures the terminal pane's shared InputPrompt and reports draft growth.
+//! Mounted composers hold PaneDockHandle; its observer owner disconnects DOM
+//! resize and content registrations before releasing their shared callback.
+//! Pure resting-height arithmetic lives in pane_geometry; weak state captures
+//! avoid observer/handle reference cycles when a pane detaches.
 
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
@@ -26,7 +13,6 @@ use wasm_bindgen::closure::Closure;
 use wasm_bindgen::{JsCast, JsValue};
 
 use super::pane_geometry::{PaneMeasurement, field_growth};
-use super::pane_row_dom::control_height_in_field_row;
 
 /// What one update needs, captured so the callback can reach it.
 struct GeometryState {
@@ -92,17 +78,18 @@ impl PartialEq for PaneDockHandle {
     }
 }
 
-/// The content observer, kept alive only while the dock is.
-///
-/// The field is never READ, and that is the point: a `MutationObserver` stops
-/// observing the moment it is dropped, so holding it here is what keeps the
-/// dock measuring. The callback cannot hold it — the JS function holds the
-/// observer — so it is named and the name says why. The resize observer lives
-/// in [`GeometryState`] instead, because one update has to re-target it.
-#[allow(dead_code)]
+/// Owns every registration that can invoke the shared callback.
 struct Observers {
+    resize: web_sys::ResizeObserver,
     mutation: web_sys::MutationObserver,
     _callback: Closure<dyn FnMut()>,
+}
+
+impl Drop for Observers {
+    fn drop(&mut self) {
+        self.resize.disconnect();
+        self.mutation.disconnect();
+    }
 }
 
 impl PaneDockHandle {
@@ -145,6 +132,8 @@ impl PaneDockHandle {
         self.state.published_rest.set(None);
         self.state.published_pane_height.set(None);
         self.state.published_growth.set(None);
+        *self.state.observed_box.borrow_mut() = None;
+        *self.state.observed_pane.borrow_mut() = None;
 
         // The callback is stored beside the observers, because a `Closure` must
         // outlive the JS function it was converted into — dropping it while the
@@ -177,8 +166,9 @@ impl PaneDockHandle {
             // so a size change is measured and only a content change is missed.
             tracing::debug!(target: "composer", "the pane dock refused content observation");
         }
-        *self.state.resize.borrow_mut() = Some(resize);
+        *self.state.resize.borrow_mut() = Some(resize.clone());
         *self.observers.borrow_mut() = Some(Observers {
+            resize,
             mutation,
             _callback: callback,
         });
@@ -299,11 +289,7 @@ fn measure(
 
     Some(PaneMeasurement {
         box_height,
-        field_growth: field_growth(
-            input_height,
-            computed_px(&input, "min-height"),
-            control_height_in_field_row(&box_element, &input)?,
-        ),
+        field_growth: field_growth(input_height, computed_px(&input, "min-height")),
         overflow_above: dock_rect.top() - box_rect.top(),
         // The dock scrolls sideways, or its content is taller than the room it
         // has above the pane's top edge. Whether the resting row still fits

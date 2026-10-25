@@ -254,7 +254,7 @@ pub fn TerminalDeck(active_session_id: Option<String>, surface_visible: bool) ->
             onpointerdown: move |event: PointerEvent| pointer_ops.deck_pointer_down(&event),
             onfocusin: move |event: FocusEvent| focus_ops.deck_focus_in(&event),
             if frame.open_session_ids.is_empty() {
-                div { class: "absolute inset-0 flex items-center justify-center text-xs text-muted-foreground", "No session selected." }
+                div { class: "absolute inset-0 flex items-center justify-center text-muted-foreground", "No session selected." }
             }
             for terminal in terminals {
                 TerminalSlot {

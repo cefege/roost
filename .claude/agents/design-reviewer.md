@@ -12,7 +12,7 @@ INPUTS: the changed/added `.rs`/`.css` files under `crates/roost-web/` (the invo
 Check each new/changed component against:
 
 1. **Primitive bypass** — a hand-rolled `div` that paints a panel, a raw `button {}`, a clickable `div`/`span`, an ad-hoc menu, badge, input or overlay, where a `components/ui` component exists:
-   - a panel/card → `Card` family or `Surface`; a status dot → `StatusDot` (NEVER a hand-rolled coloured `<span>`)
+   - a panel/card → `Card` family; a status dot → `StatusDot` (NEVER a hand-rolled coloured `<span>`)
    - a button → `Button`/`IconButton`; a chip/label → `Badge`/`Chip`; a glyph → `Icon { icon: IconType::… }` (Lucide)
    - a modal → `Dialog`/`AlertDialog`; a side or bottom panel → `Sheet`/`Drawer`; anchored content → `Popover`/`Tooltip`/`HoverCard`; menus → `DropdownMenu`/`ContextMenu`; a searchable list → `Command`
    - a list → `Item` family or `List`+`ListRow`; form controls → `Field`/`TextField`/`Input`/`Textarea`/`Select`/`Switch`/`Checkbox`/`RadioGroup`/`Slider`; tabs → `Tabs`

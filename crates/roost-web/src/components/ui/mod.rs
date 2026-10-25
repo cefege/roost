@@ -29,6 +29,9 @@ pub mod dialog_parts;
 pub mod dom;
 pub mod drawer;
 pub mod dropdown_menu;
+pub mod dropdown_menu_sub;
+#[cfg(any(target_arch = "wasm32", test))]
+mod dropdown_menu_sub_placement;
 pub mod empty;
 pub mod field;
 pub mod focus_scope;
@@ -68,7 +71,6 @@ pub mod skeleton;
 pub mod slider;
 pub mod spinner;
 pub mod status;
-pub mod surface;
 pub mod switch;
 pub mod table;
 pub mod tabs;
@@ -79,7 +81,6 @@ mod toast_queue;
 pub mod toggle_group;
 pub mod tooltip;
 pub mod usage_ring;
-
 pub use accordion::{
     Accordion, AccordionContent, AccordionDescription, AccordionHeader, AccordionItem,
     AccordionLink, AccordionTitle, AccordionTrigger,
@@ -137,6 +138,10 @@ pub use dropdown_menu::{
     DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel,
     DropdownMenuSeparator, DropdownMenuTrigger,
 };
+pub use dropdown_menu_sub::{
+    DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubItem, DropdownMenuSubSide,
+    DropdownMenuSubTrigger,
+};
 pub use empty::{
     Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyMediaVariant, EmptyState,
     EmptyTitle,
@@ -149,6 +154,10 @@ pub use icons::common::IconType;
 pub use input::{Input, InputType};
 pub use input_prompt::{
     InputPrompt, InputPromptFooter, InputPromptSubmit, InputPromptTextarea, InputPromptTools,
+};
+pub use item::{
+    Item, ItemContent, ItemDescription, ItemMedia, ItemMediaVariant, ItemSize, ItemTitle,
+    ItemVariant,
 };
 pub use kbd::{Kbd, KbdGroup};
 pub use label::Label;
@@ -194,7 +203,6 @@ pub use skeleton::Skeleton;
 pub use slider::{Slider, SliderVariant};
 pub use spinner::{Spinner, SpinnerCircle};
 pub use status::{Status, StatusDot, StatusVariant};
-pub use surface::{Surface, SurfaceElement, SurfaceRadius};
 pub use switch::{Switch, SwitchRow};
 pub use table::{
     Table, TableBody, TableCaption, TableCell, TableFooter, TableHead, TableHeader, TableRow,

@@ -180,7 +180,7 @@ pub fn HubRolesView(
                     }
                 }
             }
-            List { contained: true, class: "min-h-0 flex-1",
+            List { class: "min-h-0 flex-1",
                 div { class: "flex min-h-0 flex-1 flex-col overflow-y-auto", role: "listbox", "aria-label": "Roles", tabindex: "0", "aria-activedescendant": format!("agent-hub-roles-option-{cursor_row}"),
                     for (position, row) in rows.iter().cloned().enumerate() {
                         RoleRowLine {

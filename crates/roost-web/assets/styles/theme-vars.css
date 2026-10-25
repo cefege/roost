@@ -44,9 +44,7 @@
   --avatar-bg: var(--accent);
 
   /* ── 3. Layout tokens ── */
-  /* UI typography. Terminal and path roles keep their monospace stacks below. */
-  --font-ui: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif, "JBM Nerd";
-  --font-title: var(--font-ui);
+  /* Terminal and path roles keep their monospace stacks independent of UI text. */
   --term-font-family: Menlo, Consolas, "DejaVu Sans Mono", "Courier New", monospace;
   --term-font-size: 14px;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, "Cascadia Code", "Courier New", monospace;
@@ -86,27 +84,24 @@
      convention of corner toast stacks. */
   --roost-toast-inline-size: 46ch;
 
-  /* Composer dock geometry: one resting row shared by the portaled pill and the
-     AppShell reserve, plus the keyboard offset the dock rides above it. */
+  /* InputPrompt's measured field and footer baseline; DOM measurement replaces
+     this reserve after the terminal composer mounts. */
   --term-chat-control: 44px;
-  --term-chat-rest-height: calc(var(--term-chat-control) + 8px);
+  --term-chat-rest-height: 107px;
   --term-chat-dock-rest-offset: calc(env(safe-area-inset-bottom, 0px) + 8px);
   --term-chat-dock-offset: calc(var(--term-chat-dock-rest-offset) + max(var(--kb-offset, 0px), 0px));
   /* The draft field grows to whichever cap is smaller: this many lines, or this
      share of the room it floats over. Past the cap the field scrolls inside. */
   --term-chat-field-max-lines: 8;
   --term-chat-field-room-share: 0.4;
-  /* The draft text sits centred on one control row. */
-  --term-chat-font-size: 16px;
   --term-chat-line-height: 24px;
-  --term-chat-field-pad-block: calc((var(--term-chat-control) - var(--term-chat-line-height)) / 2);
   /* The terminal nav keys' glyph and label metrics; tv.css enlarges them. */
   --term-nav-icon-size: 24px;
   --term-nav-label-size: 14px;
   --term-nav-label-line: 20px;
-  /* The TV input tray's key size, shared by its grid and its height. */
+  /* Two key rows, their gap, and the stock Card's vertical padding and borders. */
   --term-tray-key: var(--control-touch-target);
-  --term-tray-height: calc(var(--term-tray-key) * 2 + 12px);
+  --term-tray-height: calc(var(--term-tray-key) * 2 + var(--spacing) * 13 + 2px);
 
   /* TV overscan: ~2.5% of a 1080p frame. TVs report env(safe-area-inset-*) as
      0px, so nothing else keeps chrome off the bezel-cropped edge. */
@@ -144,7 +139,6 @@ body {
    src/components/hooks/use_is_mobile.rs. */
 @media (max-width: 599.98px), (max-height: 599.98px) {
   :root {
-    --term-chat-rest-height: 96px;
     --term-chat-dock-rest-offset: calc(env(safe-area-inset-bottom, 0px) + 12px);
   }
 }

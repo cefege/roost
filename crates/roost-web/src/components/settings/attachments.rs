@@ -132,7 +132,7 @@ pub fn AttachmentsPane() -> Element {
                             supporting: "Drop a file into the terminal to attach it. The path lands here and you can re-inject it anytime.",
                         }
                     } else {
-                        List { contained: true,
+                        List {
                             for entry in state.entries.iter() {
                                 AttachmentRow {
                                     entry: entry.clone(),

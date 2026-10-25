@@ -4,9 +4,9 @@
 //! `apps/web/src/components/sidebar/*` and the `apps/web/src/lib/` modules they
 //! import; `roost-web`'s `components::sidebar` renders it.
 
-pub mod agents_projection;
 pub mod cursor;
 pub mod documents;
+pub mod folder_group_filter;
 pub mod folder_groups;
 pub mod format;
 pub mod intent;

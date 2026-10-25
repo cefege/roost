@@ -11,7 +11,9 @@ use super::notify_target::NotifyTarget;
 use super::store_write::write_store;
 use super::toast_card::ToastCard;
 use crate::components::layout::window_size::use_is_compact;
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, StatusDot, Surface, SurfaceRadius};
+use crate::components::ui::{
+    Button, ButtonSize, ButtonVariant, Card, CardContent, CardSize, StatusDot,
+};
 use crate::pump::use_store;
 
 /// Cards a pointer layout shows before the rest fold into the overflow bar —
@@ -96,31 +98,29 @@ pub fn ToastStack() -> Element {
             "data-testid": "toast-stack",
             "data-expanded": if is_expanded { "true" } else { "false" },
             if overflowing {
-                Surface {
-                    level: 2,
-                    elevation: 2,
-                    radius: SurfaceRadius::Md,
-                    border: true,
-                    class: "flex items-center gap-2 py-1 pr-1 pl-3",
-                    test_id: Some("toast-overflow".to_owned()),
-                    if folded_error {
-                        StatusDot { status: "error".to_owned() }
-                    }
-                    span { class: "min-w-0 flex-1 text-xs font-medium leading-4 text-muted-foreground", "{label}" }
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        size: if compact { ButtonSize::Sm } else { ButtonSize::Xs },
-                        "data-testid": "toast-overflow-toggle",
-                        "aria-expanded": if is_expanded { "true" } else { "false" },
-                        onclick: move |_event: MouseEvent| expanded.toggle(),
-                        if is_expanded { "Show less" } else { "Show all" }
-                    }
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        size: if compact { ButtonSize::Sm } else { ButtonSize::Xs },
-                        "data-testid": "toast-clear-all",
-                        onclick: clear_all,
-                        "Clear all"
+                Card {
+                    size: CardSize::Sm,
+                    "data-testid": "toast-overflow",
+                    CardContent { class: "flex items-center gap-2",
+                        if folded_error {
+                            StatusDot { status: "error".to_owned() }
+                        }
+                        span { class: "min-w-0 flex-1 font-medium text-muted-foreground", "{label}" }
+                        Button {
+                            variant: ButtonVariant::Ghost,
+                            size: if compact { ButtonSize::Sm } else { ButtonSize::Xs },
+                            "data-testid": "toast-overflow-toggle",
+                            "aria-expanded": if is_expanded { "true" } else { "false" },
+                            onclick: move |_event: MouseEvent| expanded.toggle(),
+                            if is_expanded { "Show less" } else { "Show all" }
+                        }
+                        Button {
+                            variant: ButtonVariant::Ghost,
+                            size: if compact { ButtonSize::Sm } else { ButtonSize::Xs },
+                            "data-testid": "toast-clear-all",
+                            onclick: clear_all,
+                            "Clear all"
+                        }
                     }
                 }
             }

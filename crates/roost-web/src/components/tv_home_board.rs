@@ -127,7 +127,7 @@ pub fn TvHomeBoard() -> Element {
                             navigate.call(href.clone());
                         },
                         Card {
-                            class: Some(if document.agent_unseen || needs_operator_input(document) { "min-h-40 justify-center border-s-8 border-s-primary" } else { "min-h-40 justify-center" }.to_owned()),
+                            class: Some("min-h-40 justify-center".to_owned()),
                             "data-testid": "tv-home-card-{document.session_id}",
                             CardHeader {
                                 CardTitle { {document.display_title.clone()} }

@@ -92,7 +92,7 @@ pub fn RenameDialogHost() -> Element {
                             }
                         },
                     }
-                    p { class: "text-sm text-muted-foreground",
+                    p { class: "text-muted-foreground",
                         if folder_target {
                             "Names this folder as a workspace. Shows on every device you're signed in on."
                         } else {

@@ -6,8 +6,8 @@
 //! rule on the desktop side. Every PTY height change makes an inline agent TUI
 //! repaint, and a TUI that repaints in place duplicates the rows a shrink
 //! pushed into history — so a two-line draft must push the TERMINAL up, never
-//! shrink it. The dock keeps exactly one row in flex flow and everything past
-//! that floats above it, measured here.
+//! shrink it. The dock keeps the field and footer's shared resting baseline in
+//! flex flow and floats the field growth above it, measured here.
 //! Ports `apps/web/src/components/terminal/TerminalComposePaneGeometry.ts`,
 //! including its `--term-chat-pane-rest` property and its `data-size-constrained`
 //! switch, which is what stops an over-long draft from floating out of the pane.
@@ -27,11 +27,9 @@ pub struct PaneGrowth {
 /// supplies these numbers from a live dock.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PaneMeasurement {
-    /// `box.offsetHeight`: the pill's laid-out height, including its field.
+    /// `box.offsetHeight`: the InputPrompt frame's field-plus-footer height.
     pub box_height: f64,
-    /// The field's contribution above the one-line row, accounting for a
-    /// taller control in the same grid row. Controls in another row do not
-    /// reduce the field's contribution.
+    /// The field's growth above its upstream one-line minimum.
     pub field_growth: f64,
     /// How far the dock's top edge sits above the box's top edge. Positive
     /// only when the box has overflowed upward.
@@ -51,10 +49,8 @@ pub struct PaneMeasurement {
 impl PaneMeasurement {
     /// The resting height the dock keeps in flex flow.
     ///
-    /// `box.offsetHeight` minus the field's own growth, rounded: the pill's
-    /// controls and padding with a one-line field. This is the number the CSS
-    /// consumes as `--term-chat-pane-rest`, and it is what keeps a long draft
-    /// from becoming a taller flex child.
+    /// `box.offsetHeight` minus field growth gives the shared field and footer
+    /// at their one-line baseline, which the pane keeps in flex flow.
     #[must_use]
     pub fn resting_height(&self) -> f64 {
         (self.box_height - self.field_growth).round().max(0.0)
@@ -100,12 +96,8 @@ impl PaneMeasurement {
     }
 }
 
-pub(super) fn field_growth(
-    input_height: f64,
-    min_input_height: f64,
-    row_control_height: f64,
-) -> f64 {
-    (input_height - min_input_height.max(row_control_height)).max(0.0)
+pub(super) fn field_growth(input_height: f64, min_input_height: f64) -> f64 {
+    (input_height - min_input_height).max(0.0)
 }
 
 /// The live DOM readings one update needs. Implemented against a mounted dock.
@@ -121,13 +113,13 @@ mod tests {
 
     fn resting() -> PaneMeasurement {
         PaneMeasurement {
-            box_height: 52.0,
+            box_height: 107.0,
             field_growth: 0.0,
             overflow_above: 0.0,
             content_overflows: false,
-            content_height: 52.0,
+            content_height: 107.0,
             room_to_pane_top: 600.0,
-            dock_height: 52.0,
+            dock_height: 107.0,
         }
     }
 
@@ -137,26 +129,33 @@ mod tests {
     }
 
     #[test]
-    fn the_resting_row_excludes_the_growth_the_field_itself_caused() {
-        // A three-line draft: the box is 52 + 2 extra rows, and the field's own
-        // growth is exactly those two rows, so the resting row is unchanged.
+    fn the_field_growth_is_removed_without_subtracting_the_stacked_footer() {
         let measured = PaneMeasurement {
-            box_height: 52.0 + 2.0 * 18.0,
-            field_growth: 2.0 * 18.0,
+            box_height: 107.0 + 2.0 * 24.0,
+            field_growth: 2.0 * 24.0,
             ..resting()
         };
-        assert_eq!(measured.resting_height(), 52.0);
+        assert_eq!(measured.resting_height(), 107.0);
     }
 
     #[test]
-    fn a_taller_control_keeps_the_resting_row_constant_as_the_field_grows() {
-        for input_height in [44.0_f64, 68.0, 164.0] {
-            let measured = PaneMeasurement {
-                box_height: input_height.max(56.0) + 8.0,
-                field_growth: field_growth(input_height, 44.0, 56.0),
-                ..resting()
-            };
-            assert_eq!(measured.resting_height(), 64.0);
+    fn stacked_field_and_footer_baseline_is_stable_at_standard_and_tv_metrics() {
+        for (field_minimum, baseline, excess) in
+            [(52.0_f64, 107.0_f64, 24.0_f64), (65.0, 133.0, 34.0)]
+        {
+            for field_height in [
+                field_minimum,
+                field_minimum + excess,
+                field_minimum + 3.0 * excess,
+            ] {
+                let field_excess = field_growth(field_height, field_minimum);
+                let measurement = PaneMeasurement {
+                    box_height: baseline + field_excess,
+                    field_growth: field_excess,
+                    ..resting()
+                };
+                assert_eq!(measurement.resting_height(), baseline);
+            }
         }
     }
 

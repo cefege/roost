@@ -157,7 +157,7 @@ fn PopoverPanel(class: Option<String>, test_id: Option<String>, children: Elemen
     let placement = anchored_placement_style(&trigger_id, false, true).unwrap_or_default();
     let style = format!("position: fixed; {placement}");
     let panel_class = tw_merge!(
-        "overflow-visible relative z-50 p-4 rounded-md border bg-card shadow-md my-0 w-[250px] min-h-0 pointer-events-none opacity-0 transition-all duration-150 data-[state=open]:opacity-100 data-[state=open]:pointer-events-auto",
+        "overflow-visible relative z-50 p-4 rounded-md border bg-card shadow-md my-[1ch] w-[250px] min-h-[150px] pointer-events-none opacity-0 transition-all duration-150 data-[state=open]:opacity-100 data-[state=open]:pointer-events-auto",
         class.as_deref().unwrap_or("")
     );
     rsx! {

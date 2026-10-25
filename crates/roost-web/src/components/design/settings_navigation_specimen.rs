@@ -7,7 +7,7 @@
 use dioxus::prelude::*;
 
 use crate::components::settings_navigation::SETTINGS_GROUPS;
-use crate::components::ui::{Icon, ListRow, SidenavGroupLabel};
+use crate::components::ui::{ListRow, SidenavGroupLabel};
 use crate::routes::Route;
 
 /// The pane the specimen draws selected.
@@ -18,28 +18,27 @@ const SPECIMEN_SELECTED_PANE: &str = "machines";
 pub fn SettingsNavigationSpecimen(on_navigate: EventHandler<String>) -> Element {
     rsx! {
         div { class: "flex h-[36rem] w-full min-w-0 bg-background text-foreground",
-            aside { class: "flex w-56 shrink-0 flex-col gap-4 overflow-y-auto border-r border-border bg-sidenav p-3", "aria-label": "Settings sections",
-                h1 { class: "px-2 text-xl", "Settings" }
+            aside { class: "flex w-72 shrink-0 flex-col gap-4 overflow-y-auto border-r border-sidenav-border bg-sidenav p-4", "aria-label": "Settings sections",
+                h1 { class: "px-2 text-lg font-semibold text-foreground", "Settings" }
                 for group in SETTINGS_GROUPS {
                     section { class: "flex flex-col gap-1",
-                        SidenavGroupLabel { {group.label} }
+                        SidenavGroupLabel { "{group.label}" }
                         for pane in group.panes {
                             ListRow {
-                                class: "w-full",
                                 href: Route::Settings { pane: Some(pane.id.to_string()) }.to_path(),
                                 on_navigate,
                                 selected: pane.id == SPECIMEN_SELECTED_PANE,
                                 aria_current: (pane.id == SPECIMEN_SELECTED_PANE).then(|| "page".to_string()),
-                                leading: rsx! { Icon { icon: pane.icon } },
-                                headline: rsx! { {pane.label} },
+                                leading_icon: pane.icon,
+                                headline: rsx! { span { title: pane.description, {pane.label} } },
                             }
                         }
                     }
                 }
             }
             main { class: "flex min-h-0 min-w-0 flex-1 flex-col bg-background",
-                header { class: "flex h-12 shrink-0 items-center border-b border-border bg-background px-4",
-                    h2 { class: "text-base text-foreground", "Machines" }
+                header { class: "flex h-14 shrink-0 items-center border-b border-border bg-background px-4",
+                    h2 { class: "text-base font-semibold text-foreground", "Machines" }
                 }
                 div { class: "min-h-0 flex-1 overflow-y-auto bg-background" }
             }

@@ -16,7 +16,7 @@ use crate::components::terminal_chrome::attachment_picker::ChosenFile;
 use crate::components::terminal_chrome::file_drop_dom::{
     PaneDropTarget, install_pane_drop_listeners,
 };
-use crate::components::ui::{Card, Icon, IconType};
+use crate::components::ui::{Card, CardContent, Icon, IconType};
 
 /// How long a file drag may go without a `dragover` before its overlay is
 /// taken down. A drag over the page repeats `dragover` at most every 550 ms
@@ -94,11 +94,11 @@ pub fn TerminalDropOverlay(active: bool) -> Element {
             "data-testid": "terminal-drop-overlay",
             "aria-hidden": "true",
             Card {
-                class: Some(
-                    "flex-row items-center gap-3 rounded-lg border-border p-6 shadow-md".to_owned(),
-                ),
-                Icon { icon: IconType::Upload, class: "size-6 text-primary" }
-                span { class: "text-base font-medium", "Drop to upload to this terminal" }
+                class: Some("flex-row".to_owned()),
+                CardContent { class: "flex items-center gap-3",
+                    Icon { icon: IconType::Upload, class: "size-6 text-primary" }
+                    span { "Drop to upload to this terminal" }
+                }
             }
         }
     }

@@ -18,34 +18,24 @@ use super::mobile_voice_dom::{
 };
 use super::mobile_voice_send::{FinalizeSendDoor, use_finalize_send_door};
 use super::mobile_voice_shell::use_voice_shell_controls;
-use crate::components::ui::{Alert, AlertVariant, ButtonSize, ButtonVariant, IconButton, IconType};
+use crate::components::ui::{ButtonSize, ButtonVariant, IconButton, IconType};
 use crate::pump::use_store;
 use crate::voice::engine::Engine;
 use crate::voice::keyterms::ContextReader;
 use crate::voice::ownership::{VoiceSlot, with_slot};
 use crate::voice::state::{LiveTranscript, VoiceEvent, VoiceMachine, VoiceState};
 
-/// The mic FAB. Recording morphs it to a rounded square and switches its tone to
-/// the destructive variant, so the state is readable without relying on colour
-/// alone (the icon also changes). The class carries shape and motion only.
-const VOICE_MIC_CLASS: &str = "size-14 rounded-full shadow-md transition-all data-[recording=true]:rounded-xl data-[starting=true]:opacity-70 data-[starting=true]:[&>svg]:animate-spin data-[finalizing=true]:opacity-60 data-[finalizing=true]:[&>svg]:animate-pulse";
-/// The discard FAB: a smaller circle beside the mic, in the Secondary tone.
-const VOICE_DISCARD_CLASS: &str = "size-10 rounded-full shadow-md";
-/// The mic error caption: a destructive bubble above the composer, or in the dock
-/// when the dock is size-constrained.
-const VOICE_CAPTION_CLASS: &str = "pointer-events-none absolute bottom-full left-0 right-0 mb-2 max-w-none w-auto whitespace-pre-wrap rounded-xl border-0 bg-destructive px-4 py-3 text-base text-destructive-foreground shadow-lg animate-voice-caption-enter motion-reduce:animate-none group-data-[compact=true]/box:right-[calc(3.5rem_+_0.5rem)] group-data-[size-constrained]/dock:static group-data-[size-constrained]/dock:left-auto group-data-[size-constrained]/dock:right-auto group-data-[size-constrained]/dock:bottom-auto group-data-[size-constrained]/dock:col-span-full group-data-[size-constrained]/dock:row-auto group-data-[size-constrained]/dock:w-80 group-data-[size-constrained]/dock:max-w-none";
+/// The shared inline mic control keeps state feedback without changing its size.
+const VOICE_MIC_CLASS: &str = "transition-opacity data-[starting=true]:opacity-70 data-[starting=true]:[&>svg]:animate-spin data-[finalizing=true]:opacity-60 data-[finalizing=true]:[&>svg]:animate-pulse";
 
 /// The composer this mic belongs to.
 #[component]
 pub fn MobileVoiceInput(
     /// The session whose composer owns the mic.
     owner_id: String,
-    /// Whether this composer is the one that may record.
-    #[props(default)]
-    active: bool,
-    /// Inline control for a composer footer; the terminal keeps its FAB layout.
-    #[props(default)]
-    compact: bool,
+    #[props(default)] active: bool,
+    /// Report errors to the owning composer, which renders them outside its measured frame.
+    on_error: EventHandler<Option<String>>,
     /// Where the recording is, after every step it takes.
     on_state_change: EventHandler<VoiceState>,
     /// Final words to insert.
@@ -57,13 +47,10 @@ pub fn MobileVoiceInput(
     /// Submit the draft: Send was pressed while this finalized, and it landed.
     #[props(default)]
     on_submit: EventHandler<()>,
-    /// The owning composer's door for a Send pressed while this finalizes.
+    /// Queue a Send press until the final transcript has settled.
     #[props(default)]
     send_door: Option<FinalizeSendDoor>,
-    /// The live terminal context the recognizer is biased with, asked once per
-    /// socket open.
-    #[props(default)]
-    read_context: Option<ContextReader>,
+    #[props(default)] read_context: Option<ContextReader>,
 ) -> Element {
     let pump = use_store();
     let machine = use_signal(VoiceMachine::default);
@@ -113,6 +100,10 @@ pub fn MobileVoiceInput(
         })
     });
     use_finalize_send_door(send_door, &context);
+    {
+        let on_error = on_error;
+        use_effect(move || on_error.call(error()));
+    }
 
     // A pane switch commits what was settled and drops the hypothesis.
     {
@@ -137,17 +128,8 @@ pub fn MobileVoiceInput(
 
     let state = context.machine().state();
     let owns = with_slot(|slot: &mut VoiceSlot| slot.owns(token));
-    let caption = context.error();
-
-    // The tap and a shell action (a controller's mic button) perform the same
-    // work through this one door, so both reach the same refusal and the same
-    // voice-slot claim.
     let toggle_recording = use_voice_shell_controls(Rc::clone(&context), active);
-    let toggle = {
-        let toggle_recording = Rc::clone(&toggle_recording);
-        move |_event: MouseEvent| toggle_recording()
-    };
-
+    let toggle = move |_event: MouseEvent| toggle_recording();
     rsx! {
         div {
             class: "contents",
@@ -155,39 +137,29 @@ pub fn MobileVoiceInput(
             "data-state": state.data_state(),
             "data-owner-active": if owns { "true" } else { "false" },
             "data-engine": (context.engine)().data_engine(),
-            if let Some(caption) = caption {
-                Alert {
-                    variant: AlertVariant::Destructive,
-                    test_id: "voice-caption",
-                    class: if compact { "order-last basis-full min-w-0 px-2 py-1 text-xs" } else { VOICE_CAPTION_CLASS },
-                    span { class: "text-destructive-foreground", "Mic error: {caption}" }
-                }
-            }
-            div { class: "[grid-column:2] group-data-[compact=true]/box:row-start-2 group-data-[compact=false]/box:[grid-column:3] group-data-[compact=false]/box:row-start-1 @max-[220px]/term-chat-pane:group-data-[compact=false]/box:[grid-column:2] @max-[220px]/term-chat-pane:group-data-[compact=false]/box:row-start-2 @max-[220px]/term-chat-pane:group-data-[compact=false]/box:justify-self-center @max-[104px]/term-chat-pane:group-data-[compact=false]/box:[grid-column:1] @max-[104px]/term-chat-pane:group-data-[compact=false]/box:row-start-3 flex items-center gap-2",
-                if state.is_dictating() && owns {
-                    IconButton {
-                        icon: IconType::X,
-                        label: "Discard recording",
-                        variant: ButtonVariant::Secondary,
-                        size: if compact { ButtonSize::Icon } else { ButtonSize::IconLg },
-                        class: Some(if compact { "size-8 rounded-full" } else { VOICE_DISCARD_CLASS }.to_owned()),
-                        "data-testid": "voice-discard",
-                        "type": "button",
-                        onmousedown: keep_keyboard,
-                        onclick: {
-                            let context = context.clone();
-                            move |_event: MouseEvent| context.discard()
-                        },
-                    }
+            div { class: "flex items-center gap-1",
+                IconButton {
+                    icon: IconType::X,
+                    label: "Discard recording",
+                    variant: ButtonVariant::Secondary,
+                    size: ButtonSize::IconSm,
+                    class: Some(if !state.is_dictating() || !owns { "invisible" } else { "" }.to_owned()),
+                    disabled: !state.is_dictating() || !owns,
+                    "aria-hidden": (!state.is_dictating() || !owns).then_some("true"),
+                    "data-testid": "voice-discard",
+                    "type": "button",
+                    onmousedown: keep_keyboard,
+                    onclick: {
+                        let context = context.clone();
+                        move |_event: MouseEvent| context.discard()
+                    },
                 }
                 IconButton {
                     icon: mic_icon(state),
                     label: mic_label(state),
-                    variant: if state == VoiceState::Listening { ButtonVariant::Destructive } else if compact { ButtonVariant::Ghost } else { ButtonVariant::Default },
-                    size: if compact { ButtonSize::Icon } else { ButtonSize::IconLg },
-                    class: Some(if compact {
-                        "size-8 rounded-full transition-all data-[recording=true]:rounded-lg data-[starting=true]:opacity-70 data-[starting=true]:[&>svg]:animate-spin data-[finalizing=true]:opacity-60 data-[finalizing=true]:[&>svg]:animate-pulse"
-                    } else { VOICE_MIC_CLASS }.to_owned()),
+                    variant: if state == VoiceState::Listening { ButtonVariant::Destructive } else { ButtonVariant::Ghost },
+                    size: ButtonSize::IconSm,
+                    class: Some(VOICE_MIC_CLASS.to_owned()),
                     "data-testid": "voice-mic",
                     "type": "button",
                     "data-recording": bool_attr(state == VoiceState::Listening),

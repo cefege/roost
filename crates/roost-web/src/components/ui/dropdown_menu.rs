@@ -54,6 +54,7 @@ pub fn DropdownMenuTrigger(
     #[props(into, optional)] class: Option<String>,
     #[props(into, optional)] test_id: Option<String>,
     #[props(into, optional)] aria_label: Option<String>,
+    #[props(into, optional)] title: Option<String>,
     #[props(optional)] on_key: Option<Callback<KeyboardEvent, bool>>,
     #[props(default)] disabled: bool,
     /// Drops the bordered input look for a control that sits inside a toolbar row.
@@ -91,6 +92,7 @@ pub fn DropdownMenuTrigger(
             "aria-expanded": if root.open { "true" } else { "false" },
             "aria-controls": root.open.then(|| root.menu_id.clone()),
             "data-testid": test_id,
+            title,
             disabled,
             class: merged,
             onclick: move |_| {

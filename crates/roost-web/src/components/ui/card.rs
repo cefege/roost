@@ -96,10 +96,14 @@ pub fn CardHeader(#[props(into, optional)] class: Option<String>, children: Elem
 }
 
 #[component]
-pub fn CardTitle(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn CardTitle(
+    #[props(into, optional)] class: Option<String>,
+    #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
+    children: Element,
+) -> Element {
     let merged_class = tw_merge!("leading-none font-semibold", class.as_deref().unwrap_or(""));
 
-    rsx! { h2 { "data-name": "CardTitle", class: "{merged_class}", {children} } }
+    rsx! { h2 { "data-name": "CardTitle", class: "{merged_class}", ..attributes, {children} } }
 }
 
 #[component]

@@ -143,7 +143,7 @@ fn ApproverPanel(approver: approver::PairApprover, has_workers: bool) -> Element
     rsx! {
         PairingPageHeader { title: "Browser pairing".to_owned(), body: None }
         if !has_workers {
-            p { class: "m-0 text-sm text-muted-foreground",
+            p { class: "m-0 text-muted-foreground",
                 "This browser is authorized, but no machines have registered as workers yet."
             }
         }

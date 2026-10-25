@@ -90,9 +90,9 @@ pub fn MobileDeckBar(
         ButtonSize::IconXs
     };
     let count_class = if badge.fraction {
-        "h-7 w-auto min-w-7 px-1 text-xs font-semibold tabular-nums text-foreground"
+        "h-7 w-auto min-w-7 px-1 tabular-nums"
     } else {
-        "size-7 p-0 text-sm font-semibold text-foreground"
+        "size-7 p-0 tabular-nums"
     };
     rsx! {
         div {
@@ -108,7 +108,7 @@ pub fn MobileDeckBar(
             div { class: "flex-1 basis-0 min-w-0 relative overflow-hidden h-12",
                 span {
                     title: "{reading.native_title}",
-                    class: "flex items-center gap-2 w-full min-w-0 text-base font-medium leading-12",
+                    class: "flex items-center gap-2 w-full min-w-0",
                     if reading.agent_status.is_some() {
                         Icon { icon: IconType::Bot, class: "size-4 shrink-0" }
                     }

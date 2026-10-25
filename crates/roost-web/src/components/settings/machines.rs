@@ -73,7 +73,7 @@ pub fn MachinesPane() -> Element {
                             supporting: "Add a machine to start spawning sessions.",
                         }
                     } else {
-                        List { contained: true,
+                        List {
                             for worker in workers {
                                 machine_row::MachineRowView {
                                     worker,

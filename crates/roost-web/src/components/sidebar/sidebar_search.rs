@@ -7,7 +7,7 @@ use dioxus::prelude::*;
 use crate::components::ui::input_group::{
     InputGroup, InputGroupAddon, InputGroupAddonAlign, InputGroupInput,
 };
-use crate::components::ui::{ButtonSize, Icon, IconButton, IconType, Kbd};
+use crate::components::ui::{ButtonSize, Icon, IconButton, IconType, Kbd, SidenavHeader};
 
 /// The id `SidebarRoot` focuses on Cmd-F.
 pub const SIDEBAR_SEARCH_INPUT_ID: &str = "sidebar-search-input";
@@ -23,16 +23,15 @@ pub fn SidebarSearch(
 ) -> Element {
     let has_query = !query.is_empty();
     rsx! {
-        div {
-            class: "border-b border-border px-3 py-2",
+        SidenavHeader {
+            class: "border-b border-sidenav-border",
             "data-testid": "sidebar-search-wrapper",
-            InputGroup { class: "h-8 rounded-md border-0 bg-transparent shadow-none dark:bg-transparent",
-                InputGroupAddon { class: "text-muted-foreground",
+            InputGroup { class: "h-8",
+                InputGroupAddon {
                     Icon { icon: IconType::Search, class: "size-4 shrink-0" }
                 }
                 InputGroupInput {
                     id: SIDEBAR_SEARCH_INPUT_ID,
-                    class: "text-sm text-foreground",
                     value: query,
                     oninput: move |event: FormEvent| on_change.call(event.value()),
                     onkeydown: move |event: KeyboardEvent| {
@@ -42,7 +41,7 @@ pub fn SidebarSearch(
                             on_change.call(String::new());
                         }
                     },
-                    placeholder: placeholder.unwrap_or_else(|| "Search sessions, workspaces…".to_owned()),
+                    placeholder: placeholder.unwrap_or_else(|| "Search sessions, folders…".to_owned()),
                     aria_label: "Filter sidebar",
                     test_id: "sidebar-search",
                 }

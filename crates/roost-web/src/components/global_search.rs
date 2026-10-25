@@ -103,7 +103,7 @@ pub fn GlobalSearchOverlay() -> Element {
                         },
                         test_id: "global-search-input",
                         autofocus: true,
-                        class: "rounded-md border border-border bg-background px-3",
+                        class: "w-full",
                         on_search_change: {
                             let query = route_query.clone();
                             move |text: String| update.call(query.with_text(&text))
@@ -114,24 +114,22 @@ pub fn GlobalSearchOverlay() -> Element {
                             value: "all-sessions",
                             selected: route_query.scope == SearchScope::All,
                             test_id: "global-search-scope-all",
-                            class: "rounded-full border border-border px-3 py-1.5",
                             on_select: {
                                 let query = route_query.clone();
                                 move |()| update.call(SearchRouteQuery { scope: SearchScope::All, ..query.clone() })
                             },
-                            Icon { icon: IconType::Terminal, class: "size-4" }
+                            Icon { icon: IconType::Terminal }
                             "All sessions"
                         }
                         CommandItem {
                             value: "needs-attention",
                             selected: route_query.scope == SearchScope::Attention,
                             test_id: "global-search-scope-attention",
-                            class: "rounded-full border border-border px-3 py-1.5",
                             on_select: {
                                 let query = route_query.clone();
                                 move |()| update.call(SearchRouteQuery { scope: SearchScope::Attention, ..query.clone() })
                             },
-                            Icon { icon: IconType::Bell, class: "size-4" }
+                            Icon { icon: IconType::Bell }
                             "Needs attention"
                         }
                         if route_query.scope == SearchScope::All {
@@ -139,12 +137,11 @@ pub fn GlobalSearchOverlay() -> Element {
                                 value: "match-case",
                                 selected: route_query.case_sensitive,
                                 test_id: "global-search-case-sensitive",
-                                class: "rounded-full border border-border px-3 py-1.5",
                                 on_select: {
                                     let query = route_query.clone();
                                     move |()| update.call(SearchRouteQuery { case_sensitive: !query.case_sensitive, ..query.clone() })
                                 },
-                                Icon { icon: IconType::CaseSensitive, class: "size-4" }
+                                Icon { icon: IconType::CaseSensitive }
                                 "Match terminal case"
                             }
                         }

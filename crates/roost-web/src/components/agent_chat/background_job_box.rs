@@ -28,7 +28,7 @@ pub fn BackgroundJobBox(
     rsx! {
         Card {
             size: CardSize::Sm,
-            class: Some("min-w-0 gap-1 data-[state=error]:border-destructive/40".to_owned()),
+            class: Some("min-w-0 data-[state=error]:border-destructive/40".to_owned()),
             "data-state": state_name,
             "data-tool": "bash",
             CardContent { class: "flex min-w-0 flex-col gap-1",

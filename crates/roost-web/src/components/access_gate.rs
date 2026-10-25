@@ -20,13 +20,13 @@
 
 use dioxus::prelude::*;
 
-use crate::components::ui::{Icon, IconType, Surface};
+use crate::components::ui::{Alert, AlertVariant, Icon, IconType};
 
 /// The full-height centring frame both refusal screens share. The TV overscan
 /// variant keeps the padding the TV mode gives the checking screen.
 pub const CHECKING_CLASS: &str = "flex min-h-dvh w-full items-center justify-center p-6 tv:!py-[var(--tv-overscan-block)] tv:!px-[var(--tv-overscan-inline)]";
-/// The bordered card that holds a gate's message. The live region sits on the
-/// surface itself, so an announcement carries the whole message.
+/// The alert that holds a gate's message. Its live region contains the whole
+/// announcement.
 #[component]
 pub fn GateCard(
     #[props(into)] role: String,
@@ -34,11 +34,11 @@ pub fn GateCard(
     children: Element,
 ) -> Element {
     rsx! {
-        Surface {
-            role: Some(role),
+        Alert {
+            variant: AlertVariant::Default,
+            role,
             aria_live,
-            border: true,
-            class: Some("flex items-center gap-2 rounded-xl px-4 py-3 text-sm text-card-foreground".to_owned()),
+            class: "flex items-center gap-2",
             {children}
         }
     }

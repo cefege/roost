@@ -10,7 +10,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, Icon, IconType, ScrollArea};
+use crate::components::ui::{ButtonSize, IconButton, IconType, ScrollArea};
 use crate::syntax_lite::Token;
 
 use super::state::token_color;
@@ -46,7 +46,7 @@ pub fn FileBody(
     let marker_top_px =
         u32::try_from(target_line.saturating_sub(1)).unwrap_or_default() * ROW_HEIGHT_PX;
     rsx! {
-        ScrollArea { class: "flex-auto min-h-0 bg-terminal rounded-sm font-mono text-sm",
+        ScrollArea { class: "flex-auto min-h-0 bg-background font-mono text-sm",
             div {
                 "data-testid": "file-viewer-sheet-body",
                 class: "relative p-2",
@@ -88,19 +88,15 @@ fn FileBodyLine(
                 Some(tokens) => highlighted_line(&tokens),
                 None => plain_line(&text),
             }
-            Button {
-                variant: ButtonVariant::Ghost,
-                size: ButtonSize::Xs,
-                class: "ml-auto shrink-0 min-h-0 any-pointer-coarse:min-h-0 px-1 text-xs opacity-0 group-hover:opacity-100 focus-visible:opacity-100 tv:opacity-100 pad:opacity-100",
+            IconButton {
+                size: ButtonSize::IconSm,
+                class: Some("ml-auto shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 tv:opacity-100 pad:opacity-100 data-[copied=true]:text-success".to_owned()),
                 "data-testid": "file-viewer-sheet-copy-link-{number}",
+                "data-copied": copied.then_some("true"),
                 title: label.clone(),
-                "aria-label": label,
+                label: label.clone(),
+                icon: if copied { IconType::Check } else { IconType::Hash },
                 onclick: move |_| on_copy.call(number),
-                if copied {
-                    Icon { icon: IconType::Check, class: "size-3 text-success" }
-                } else {
-                    span { class: "text-muted-foreground", "#" }
-                }
             }
         }
     }

@@ -10,8 +10,8 @@ use super::approver::{CodeDialogState, PairApprover};
 use super::notices::{NoticeTone, PairingStatusNotice};
 use super::status::group_verification_code;
 use crate::components::ui::{
-    Button, ButtonVariant, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter,
-    DialogHeader, DialogTitle, Surface, SurfaceRadius,
+    Button, ButtonVariant, Card, CardContent, Dialog, DialogBody, DialogContent, DialogDescription,
+    DialogFooter, DialogHeader, DialogTitle,
 };
 
 /// The code, the state, and the two ways out of it.
@@ -51,17 +51,15 @@ pub fn PairVerificationCodeDialog(
                     }
                 }
                 DialogBody {
-                    Surface {
-                        level: 2,
-                        radius: SurfaceRadius::Sm,
-                        pad: 4,
-                        border: true,
-                        test_id: Some("pair-verification-code".to_owned()),
-                        role: Some("status".to_owned()),
-                        aria_live: Some("polite".to_owned()),
-                        aria_atomic: Some("true".to_owned()),
-                        code { class: "block m-0 text-center text-3xl font-semibold text-foreground select-text",
-                            {group_verification_code(&verification_code)}
+                    Card {
+                        "data-testid": "pair-verification-code",
+                        role: "status",
+                        "aria-live": "polite",
+                        "aria-atomic": "true",
+                        CardContent {
+                            code { class: "block m-0 text-center text-2xl font-semibold select-text",
+                                {group_verification_code(&verification_code)}
+                            }
                         }
                     }
                     if reload_required {

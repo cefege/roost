@@ -142,7 +142,7 @@ pub fn DesignControlStates() -> Element {
 
             section {
                 SectionTitle { "Boolean controls" }
-                List { contained: true,
+                List {
                     ListRow {
                         headline: rsx! { "Switch" },
                         support: rsx! { "Interactive and controlled by the gallery." },

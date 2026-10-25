@@ -8,8 +8,8 @@ use roost_protocol::wire::agent_chat::GoalState;
 use super::agent_alert::ERROR_TEXT_CLASS;
 use super::composer_commands::submit_direct_command;
 use crate::components::ui::{
-    Button, ButtonVariant, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter,
-    DialogHeader, DialogTitle, Progress, StatusDot, Surface, TextField,
+    Button, ButtonVariant, Card, CardContent, CardSize, Dialog, DialogBody, DialogContent,
+    DialogDescription, DialogFooter, DialogHeader, DialogTitle, Progress, StatusDot, TextField,
 };
 use crate::pump::Pump;
 
@@ -83,7 +83,8 @@ pub(super) fn GoalControls(
     let drop_id = conversation_id.clone();
     let status_content = if let Some(state) = goal.as_ref() {
         rsx! {
-            Surface { class: Some("flex flex-col gap-2".to_owned()), test_id: Some("agent-goal-status".to_owned()), level: 1, pad: Some(3), border: true,
+            Card { size: CardSize::Sm, class: Some("min-w-0".to_owned()), "data-testid": "agent-goal-status",
+                CardContent { class: Some("flex flex-col gap-2".to_owned()),
                 span { class: "inline-flex items-center gap-2 text-sm font-medium", "data-status": state.status.as_str(),
                     StatusDot { status: status_indicator.to_string() }
                     "{goal_status_label(state.status.as_str())}"
@@ -103,6 +104,7 @@ pub(super) fn GoalControls(
                 if let Some(reason) = &state.waiting_reason { p { class: "text-sm text-muted-foreground", role: "status", "{reason}" } }
                 if state.status.as_str() == "active" && state.waiting_reason.is_some() {
                     p { class: "text-xs text-muted-foreground", "Send a message in the composer to re-arm goal continuation." }
+                }
                 }
             }
         }

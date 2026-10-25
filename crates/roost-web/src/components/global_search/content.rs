@@ -21,8 +21,8 @@ use roost_web_terminal::find::intent::TerminalFindIntentOptions;
 
 use crate::components::global_search::{driver, query::SearchRouteQuery};
 use crate::components::ui::{
-    Button, ButtonGroup, ButtonVariant, Card, CardContent, CardHeader, CardSize, CommandItem,
-    CommandList, EmptyState, Icon, IconType,
+    Button, ButtonGroup, ButtonVariant, Card, CardContent, CardHeader, CardSize, CardTitle,
+    CommandItem, CommandList, EmptyState, Icon, IconType,
 };
 use crate::platform::worker_paths::BrowserWorkerPaths;
 use crate::pump::{Pump, use_store};
@@ -80,10 +80,8 @@ pub fn ContentResults(route_query: SearchRouteQuery) -> Element {
             role: "region",
             "aria-labelledby": "global-content-search-title",
             CardHeader {
-                h2 {
-                    id: "global-content-search-title",
-                    class: "m-0 text-lg font-semibold",
-                    "Terminal content"
+                CardTitle {
+                    span { id: "global-content-search-title", "Terminal content" }
                 }
                 div {
                     class: "text-sm",

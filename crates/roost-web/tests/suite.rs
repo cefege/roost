@@ -32,8 +32,6 @@ mod deck_swipe_style;
 mod deck_swipe_touch;
 #[path = "deploy_dialog_state.rs"]
 mod deploy_dialog_state;
-#[path = "design_catalog.rs"]
-mod design_catalog;
 #[path = "directional_input.rs"]
 mod directional_input;
 #[path = "file_route_round_trip.rs"]
@@ -164,8 +162,6 @@ mod ui_select;
 mod ui_skeleton;
 #[path = "ui_status.rs"]
 mod ui_status;
-#[path = "ui_surface.rs"]
-mod ui_surface;
 #[path = "ui_tabs.rs"]
 mod ui_tabs;
 #[path = "ui_text_field.rs"]

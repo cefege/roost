@@ -69,7 +69,7 @@ pub fn ArrangeMenu(can_arrange: bool, on_arrange: EventHandler<ArrangeKind>) -> 
             on_open_change: move |next: bool| open.set(next),
             test_id: "arrange-menu",
             DropdownMenuTrigger {
-                class: "size-[var(--workbench-tab-action-size)] p-0 text-muted-foreground shrink-0",
+                class: "size-[var(--workbench-tab-action-size)] p-0 shrink-0",
                 ghost: true,
                 test_id: "arrange-btn",
                 aria_label: "Arrange pane layout",

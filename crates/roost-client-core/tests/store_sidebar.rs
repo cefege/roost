@@ -1,24 +1,20 @@
-//! The sidebar's state and derivations: v2 `apps/web/tests/sidebarCursor.test.ts`,
-//! `lastVisited.test.ts`, `folderGroups.test.ts` and
-//! `sidebarAgentsProjection.test.ts`, over `store::sidebar`.
+//! The sidebar's folder groups, cursor and visit memory, as well as the agent
+//! conversations retained inside folders.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod sidebar_support;
 
-use roost_client_core::client::agents::AgentStatusLevel;
+use roost_client_core::KeyValueStore as _;
 use roost_client_core::client::agents::status_policy::AgentStatusRollup;
 use roost_client_core::platform::MemoryKeyValueStore;
 use roost_client_core::store::paths::ExactWorkerPaths;
-use roost_client_core::store::sidebar::agents_projection::project_sidebar_agent_groups;
-use roost_client_core::store::sidebar::documents::store_navigation_documents;
+use roost_client_core::store::sidebar::folder_group_filter::filter_folder_groups_for_store;
 use roost_client_core::store::sidebar::folder_groups::{
     FolderGroup, build_folder_groups, filter_folder_groups,
 };
 use roost_client_core::store::sidebar::{SidebarCursor, SidebarMemory};
-use roost_client_core::{ClientCore, KeyValueStore as _};
-use roost_protocol::wire::AgentRuntimeState;
-use sidebar_support::{FIRST_FP, SECOND_FP, SESSION_A, SESSION_B, agent_status, seeded, session};
+use sidebar_support::{FIRST_FP, SECOND_FP, SESSION_A, SESSION_B, seeded, session};
 
 fn ids(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_owned()).collect()
@@ -164,108 +160,6 @@ fn an_empty_filter_keeps_order_and_a_missing_term_excludes() {
     assert!(filter_folder_groups(&groups, "web deploy").is_empty());
 }
 
-fn project(core: &ClientCore, query: &str) -> Vec<(String, Vec<(String, AgentStatusLevel)>)> {
-    let store = core.store();
-    let documents = store_navigation_documents(store, &ExactWorkerPaths, 1_000);
-    let folders = build_folder_groups(store, &ExactWorkerPaths, 1_000);
-    project_sidebar_agent_groups(store, &ExactWorkerPaths, &documents, query, &folders)
-        .into_iter()
-        .map(|group| {
-            let rows = group
-                .rows
-                .into_iter()
-                .map(|row| (row.document.session_id, row.level))
-                .collect();
-            (group.folder.key, rows)
-        })
-        .collect()
-}
-
-#[test]
-fn a_removed_status_removes_its_agent_row() {
-    let row = session(SESSION_A, FIRST_FP, "/tmp/roost", 1_000);
-    let working = agent_status(SESSION_A, AgentRuntimeState::Working, 1, 0, None);
-    let with_status = seeded(std::slice::from_ref(&row), &[], &[working]);
-    assert_eq!(
-        project(&with_status, "")[0].1,
-        [(SESSION_A.to_owned(), AgentStatusLevel::Working)]
-    );
-    let without = seeded(&[row], &[], &[]);
-    assert!(project(&without, "").is_empty());
-    assert_eq!(
-        store_navigation_documents(without.store(), &ExactWorkerPaths, 1_000)[0].agent_status,
-        None,
-        "the document is still there, with no level"
-    );
-}
-
-#[test]
-fn agent_rows_filter_through_the_navigation_metadata() {
-    let rows = [
-        session(SESSION_A, FIRST_FP, "/tmp/roost", 1_000),
-        session(SESSION_B, FIRST_FP, "/tmp/roost", 1_000),
-    ];
-    let statuses = [
-        agent_status(
-            SESSION_A,
-            AgentRuntimeState::Working,
-            1,
-            0,
-            Some("agent-filter-0"),
-        ),
-        agent_status(
-            SESSION_B,
-            AgentRuntimeState::Working,
-            1,
-            0,
-            Some("other-agent"),
-        ),
-    ];
-    let core = seeded(&rows, &[], &statuses);
-    let matched: Vec<String> = project(&core, "agent-filter-0")
-        .into_iter()
-        .flat_map(|(_, rows)| rows.into_iter().map(|(id, _)| id))
-        .collect();
-    assert_eq!(matched, [SESSION_A]);
-    assert!(project(&core, "__no_matching_agent__").is_empty());
-}
-
-#[test]
-fn one_path_on_two_machines_is_two_groups_in_folder_order() {
-    let first = session(SESSION_A, FIRST_FP, "/tmp/shared", 1_000);
-    let second = session(SESSION_B, SECOND_FP, "/tmp/shared", 2_000);
-    let statuses = [
-        agent_status(SESSION_A, AgentRuntimeState::Working, 1, 0, None),
-        agent_status(SESSION_B, AgentRuntimeState::Working, 1, 0, None),
-    ];
-    let core = seeded(
-        &[first, second],
-        &[(FIRST_FP, "First worker"), (SECOND_FP, "Second worker")],
-        &statuses,
-    );
-    let groups = project(&core, "");
-    assert_eq!(
-        groups
-            .iter()
-            .map(|(key, rows)| (key.clone(), rows[0].0.clone()))
-            .collect::<Vec<_>>(),
-        [
-            (format!("{SECOND_FP}::/tmp/shared"), SESSION_B.to_owned()),
-            (format!("{FIRST_FP}::/tmp/shared"), SESSION_A.to_owned()),
-        ],
-        "newest folder first, and the machine is part of the key"
-    );
-}
-
-#[test]
-fn an_unseen_completion_reads_done_until_acknowledged() {
-    let row = session(SESSION_A, FIRST_FP, "/tmp/roost", 1_000);
-    let completed = agent_status(SESSION_A, AgentRuntimeState::Idle, 4, 4, None);
-    let mut core = seeded(&[row], &[], std::slice::from_ref(&completed));
-    assert_eq!(project(&core, "")[0].1[0].1, AgentStatusLevel::Done);
-    core.store_mut().agent_seen.mark_seen(&completed);
-    assert_eq!(project(&core, "")[0].1[0].1, AgentStatusLevel::Idle);
-}
 #[test]
 fn agent_conversations_join_and_create_folder_groups() {
     use roost_protocol::wire::agent_chat::{AgentRunState, ConversationSummary};
@@ -297,7 +191,14 @@ fn agent_conversations_join_and_create_folder_groups() {
         "agent-only".into(),
         summary("agent-only", "/tmp/other", 3_000),
     );
-    let groups = build_folder_groups(core.store(), &ExactWorkerPaths, 4_000);
+    let mut child = summary("agent-child", "/tmp/nested", 4_000);
+    child.title = "child-only-needle".into();
+    child.parent_id = Some("agent-only".into());
+    core.store_mut()
+        .agent_chat
+        .conversations
+        .insert("agent-child".into(), child);
+    let groups = build_folder_groups(core.store(), &ExactWorkerPaths, 5_000);
     let mixed = groups
         .iter()
         .find(|group| group.spawn_cwd == "/tmp/repo")
@@ -310,5 +211,22 @@ fn agent_conversations_join_and_create_folder_groups() {
         .expect("agent-only folder");
     assert!(only.session_ids.is_empty());
     assert!(only.lead_id.is_empty());
-    assert_eq!(only.agent_conversation_ids, ["agent-only"]);
+    assert_eq!(only.agent_conversation_ids, ["agent-only", "agent-child"]);
+    let folder_match = filter_folder_groups_for_store(core.store(), &groups, "other");
+    assert_eq!(
+        folder_match.len(),
+        1,
+        "folder-only matches retain agent rows"
+    );
+    assert_eq!(
+        folder_match[0].agent_conversation_ids,
+        ["agent-only", "agent-child"]
+    );
+    let child_match = filter_folder_groups_for_store(core.store(), &groups, "child-only-needle");
+    assert_eq!(child_match.len(), 1, "a child-only match keeps its folder");
+    assert_eq!(
+        child_match[0].agent_conversation_ids,
+        ["agent-only", "agent-child"],
+        "the matching child remains reachable with parent context"
+    );
 }

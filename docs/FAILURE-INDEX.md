@@ -346,7 +346,7 @@ shrink pushed into history duplicated there. Equally wrong: debouncing or
 hysteresis on the published geometry — each surviving resize still duplicates.
 
 **Right** — **transient chrome never changes the terminal grid.** The desktop pane
-composer reserves only the pill's one-line resting height
+composer reserves its measured one-line field-plus-footer height
 (`crates/roost-web/src/components/terminal_chrome/pane_geometry.rs`); a longer draft or a
 status overflows upward and `CellTerminal` translates the display instead of
 shrinking it. The compact shell (`crates/roost-web/src/components/layout/app_shell.rs`) reserves the composer's resting
@@ -355,15 +355,18 @@ under the drawer) and handles the soft keyboard only by translation —
 `--term-chat-dock-rest-offset` excludes `--kb-offset`. Only a real pane/window
 resize (or the explicit `keyboardResize` preference) may resize the PTY.
 
-The resting row includes the tallest control in the field's grid row. Subtracting
-all field height above its CSS minimum also subtracts a taller microphone's
-contribution: a 64px reserve becomes 52px as the draft grows. `pane_row_dom.rs`
-measures same-row controls through `display: contents`; controls in another row
-do not raise the field's baseline.
+The shared Rust/UI `InputPrompt` stacks the field above a bordered toolbar.
+Subtract only field height above its CSS minimum: the entire footer, including
+wrapped controls in a narrow pane, remains in the resting baseline. Voice errors
+and staged attachments stay outside the measured frame. TV keys mount above it
+as a sibling, not inside the prompt's `overflow-hidden` boundary. The field and
+dictation mirror use the same short-side mobile typography policy.
 
-**Guard** — `components::terminal_chrome::pane_geometry::tests::a_taller_control_keeps_the_resting_row_constant_as_the_field_grows`
-pins the taller-control boundary before and after the field overtakes it. Browser
-smoke must also prove live grid-row measurement and unchanged terminal dimensions.
+**Guard** — `components::terminal_chrome::pane_geometry::tests::the_field_growth_is_removed_without_subtracting_the_stacked_footer`
+and `stacked_field_and_footer_baseline_is_stable_at_standard_and_tv_metrics`.
+Browser smoke must also prove unchanged live PTY rows and columns with a pasted
+multiline draft and a microphone error, visible TV keys, and a 16px field on
+portrait and landscape phones.
 
 ### A fast in-place row rewrite duplicates rows into history
 
@@ -2756,20 +2759,22 @@ the relationship.
 
 **Right** — **a `Closure` handed to the DOM as a raw function reference needs a NAMED owner that outlives the
 registration and unregisters before it dies.** Store the observer and its callback together in the thing that
-owns the registration — `ComposerSlot { observer: RefCell<Option<(ResizeObserver, Closure<dyn FnMut()>)>> }`,
-the shape `pane_mount/browser.rs` already uses for `browser.resize_observer` — and `disconnect()` before the
-pair is released, both when a registration is replaced and in `Drop` for the owner, since fields drop after
-`Drop::drop` returns. Releasing a `ResizeObserver` handle on its own does NOT stop it: the observed node can
+owns the registration — `ComposerSlot.observer`, `pane_mount/browser.rs`, and
+`pane_geometry_dom::Observers`. Keep every registration beside its shared callback:
+the pane dock owns both its resize and mutation observers and disconnects both
+before replacement or field destruction. A cloned resize handle used for
+retargeting does not own that lifetime. Releasing a `ResizeObserver` handle on its
+own does NOT stop it: the observed node can
 still deliver into a freed callback. This is not the "lib.dom types are the spec surface" entry's class of bug
 and has nothing to do with the DOM's view of ownership; it is ordinary Rust lifetime, which wasm-bindgen can
 only express by making the callee outlive the caller. The "a defaulted injectable host function loses its
 receiver" entry in this section is a receiver that arrived too late; this is a callee that leaves too early.
 
-**Guard** — none — its Playwright spec was deleted with the oracle; a Rust test is owed. A freed wasm-bindgen thunk is a
-JavaScript exception inside the browser; `cargo test` compiles the same ownership chain on a target with no DOM
-and cannot observe it, so the only evidence is the live run. The
-ordering discipline itself is reviewable rather than testable: any `Closure::wrap` whose result is not bound to
-a named owner is the smell to grep for.
+**Guard** — browser smoke: terminal → Settings → Back three times, then hide and
+restore a real browser tab. Assert zero page errors, preserved reader position,
+and fresh draft-growth measurements without changing PTY dimensions. Native
+tests do not instantiate a DOM or observe freed wasm-bindgen thunks; the named
+owner and disconnect-before-drop ordering also require review.
 
 ### A Dioxus `style` string keeps every property the previous render set
 

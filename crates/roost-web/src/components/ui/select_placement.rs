@@ -3,7 +3,7 @@
 //! Called by `select_listbox.rs`; depends on nothing.
 
 /// The gap between the trigger and the listbox, in CSS pixels.
-pub const SELECT_GUTTER_PX: f64 = 8.0;
+pub const SELECT_GUTTER_PX: f64 = 4.0;
 
 /// The trigger's client rect, in CSS pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]

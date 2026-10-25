@@ -24,8 +24,7 @@ use roost_client_core::store::transfers::{
     mark_transfer_state, remove_transfer, set_transfer_progress, sweep_transfers,
 };
 use roost_client_core::store::ui::{
-    SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN, SidebarView, clamp_sidebar_width, load_ui,
-    set_sidebar_view, set_sidebar_width,
+    SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN, clamp_sidebar_width, load_ui, set_sidebar_width,
 };
 use roost_client_core::{ClientCore, MemoryKeyValueStore};
 
@@ -229,13 +228,6 @@ fn chrome_and_preference_mutations_each_bump_the_revision_exactly_once() {
     });
     assert_one_bump(&mut core, "set_visible_pane_count", |store| {
         assert!(set_visible_pane_count(store, 3));
-    });
-    let next_sidebar = match core.store().ui.sidebar_view {
-        SidebarView::Agents => SidebarView::Folders,
-        SidebarView::Folders => SidebarView::Agents,
-    };
-    assert_one_bump(&mut core, "set_sidebar_view", |store| {
-        assert!(set_sidebar_view(store, &storage, next_sidebar));
     });
     assert_one_bump(&mut core, "set_sidebar_width", |store| {
         assert!(set_sidebar_width(store, &storage, 320));

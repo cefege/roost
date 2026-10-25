@@ -30,6 +30,8 @@ mod message_actions;
 mod model_controls;
 pub mod model_hub;
 pub mod model_picker;
+mod model_reference_actions;
+mod model_reference_menu;
 mod notice_card;
 mod output_lines;
 mod output_window;

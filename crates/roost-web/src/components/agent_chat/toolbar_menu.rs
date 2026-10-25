@@ -69,7 +69,7 @@ pub fn ToolbarMenu(
             }
         },
         ToolbarTrigger::Icon { icon } => rsx! {
-            DropdownMenuTrigger { ghost: true, class: "h-7 w-7 p-0",
+            DropdownMenuTrigger { ghost: true,
                 Icon { icon, class: "size-4" }
                 // The icon has no text of its own; this keeps the trigger named.
                 span { class: "sr-only", "{aria_label}" }

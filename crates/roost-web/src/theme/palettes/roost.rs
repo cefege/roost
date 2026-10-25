@@ -1,12 +1,13 @@
-//! Roost-owned colour roles that rust-ui has no counterpart for: terminal
-//! surfaces, ANSI and syntax palettes. Each appearance has one set;
-//! the base and accent palettes never touch them.
+//! ANSI colors remain data-driven terminal colors. Terminal surfaces and plain
+//! text follow rust-ui's document roles; syntax accents remain editor data.
 
+/// Roost-owned ANSI and syntax roles; rust-ui owns the terminal surface roles.
+/// Each appearance has one set and the base/accent palettes never touch them.
 /// The dark terminal and syntax roles.
 pub const ROOST_DARK: &[(&str, &str)] = &[
-    ("--term-bg", "#0a0f11"),
-    ("--term-fg", "#e3e3e1"),
-    ("--syntax-plain", "#e3e3e1"),
+    ("--term-bg", "var(--background)"),
+    ("--term-fg", "var(--foreground)"),
+    ("--syntax-plain", "var(--foreground)"),
     ("--syntax-keyword", "#7fd1ec"),
     ("--syntax-string", "#81c995"),
     ("--syntax-number", "#fdd663"),
@@ -29,11 +30,11 @@ pub const ROOST_DARK: &[(&str, &str)] = &[
     ("--ansi-bright-white", "#ffffff"),
 ];
 
-/// The light terminal and syntax roles.
+/// The light ANSI and syntax roles.
 pub const ROOST_LIGHT: &[(&str, &str)] = &[
-    ("--term-bg", "#ffffff"),
-    ("--term-fg", "#1f1f1f"),
-    ("--syntax-plain", "#383a42"),
+    ("--term-bg", "var(--background)"),
+    ("--term-fg", "var(--foreground)"),
+    ("--syntax-plain", "var(--foreground)"),
     ("--syntax-keyword", "#a626a4"),
     ("--syntax-string", "#50a14f"),
     ("--syntax-number", "#c18401"),

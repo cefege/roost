@@ -60,18 +60,18 @@ pub fn MachineLocalAccessGuide(checking: bool, on_recheck: EventHandler<()>) -> 
             CardContent {
                 div { class: "grid gap-4",
                     if checking {
-                        p { class: "m-0 text-sm text-muted-foreground", "data-testid": "machine-deploy-pending",
+                        p { class: "m-0 text-muted-foreground", "data-testid": "machine-deploy-pending",
                             {CHECKING_LABEL}
                         }
                     } else {
-                        ol { class: "m-0 grid list-decimal gap-4 pl-5 text-sm text-muted-foreground",
+                        ol { class: "m-0 grid list-decimal gap-4 pl-5 text-muted-foreground",
                             li { class: "pl-1",
                                 p { class: "m-0", {STEP_ONE} }
                             }
                             li { class: "pl-1",
                                 p { class: "m-0",
                                     {STEP_TWO_LEAD}
-                                    code { class: "break-all font-mono text-xs text-foreground", {STEP_TWO_COMMAND} }
+                                    code { class: "break-all font-mono text-foreground", {STEP_TWO_COMMAND} }
                                     {" "}
                                     {STEP_TWO_TAIL}
                                 }
@@ -79,7 +79,7 @@ pub fn MachineLocalAccessGuide(checking: bool, on_recheck: EventHandler<()>) -> 
                             li { class: "pl-1",
                                 div { class: "grid gap-4",
                                     p { class: "m-0", {STEP_THREE_LEAD} }
-                                    code { class: "break-all font-mono text-xs text-foreground", {STEP_THREE_COMMAND} }
+                                    code { class: "break-all font-mono text-foreground", {STEP_THREE_COMMAND} }
                                     p { class: "m-0", {STEP_THREE_TAIL} }
                                 }
                             }

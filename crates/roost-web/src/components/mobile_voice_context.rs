@@ -47,10 +47,6 @@ impl ComposerContext {
         self.machine.borrow().read().clone()
     }
 
-    pub(super) fn error(&self) -> Option<String> {
-        self.error.borrow().read().clone()
-    }
-
     /// Open the device on the press, so the tap that follows records against a
     /// warm mic. iOS grants no microphone outside a gesture, and the press is
     /// the gesture.

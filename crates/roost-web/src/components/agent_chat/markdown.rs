@@ -143,16 +143,15 @@ fn code_block_open(kind: &CodeBlockKind<'_>) -> String {
     } else {
         language.as_str()
     };
-    // The block lives in sanitized `innerHTML`, where no component can mount, so
-    // its chrome carries the primitives' class recipes as literals. The terminal
-    // ground stays: code reads as terminal output.
-    let copy_class = button_class(ButtonVariant::Ghost, ButtonSize::Xs, Some("text-inherit"));
+    // The sanitized markup cannot mount Dioxus primitives, so it uses the
+    // registry Card and Ghost button recipes directly.
+    let copy_class = button_class(ButtonVariant::Ghost, ButtonSize::Xs, None);
     format!(
-        "<div data-code-block class=\"my-4 overflow-hidden rounded-md border border-border bg-terminal text-terminal-foreground\">\
-         <div class=\"flex items-center justify-between gap-2 px-3 pt-2\">\
+        "<div data-code-block class=\"my-4 overflow-hidden bg-card text-card-foreground flex flex-col rounded-xl border shadow-sm py-6 gap-4\">\
+         <div class=\"flex items-center justify-between gap-2 px-6\">\
          <span class=\"font-mono text-xs text-muted-foreground\">{label}</span>\
          <button type=\"button\" class=\"{copy_class}\" {COPY_CODE_ATTRIBUTE}>Copy</button>\
-         </div><pre><code>"
+         </div><pre class=\"m-0 overflow-x-auto px-6 pb-6\"><code>"
     )
 }
 

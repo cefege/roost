@@ -197,13 +197,8 @@ fn only_the_swiped_slots_move_and_a_slide_tracks_without_transition() {
 fn a_new_terminal_pull_peels_the_current_card() {
     let style = swipe_style_for(Some(&pull(-160.0)), "cur", 400.0);
     assert_eq!(style.get("transform"), Some("translateX(-20px) scale(0.9)"));
-    assert_eq!(style.get("border-radius"), Some("28px"));
     assert_eq!(style.get("overflow"), Some("hidden"));
     assert_eq!(style.get("transition"), Some("none"));
-    assert_eq!(
-        swipe_style_for(Some(&pull(0.0)), "cur", 400.0).get("box-shadow"),
-        Some("none")
-    );
     assert_eq!(
         swipe_style_for(Some(&pull(-200.0)), "nxt", 400.0),
         swipe_style_for(None, "nxt", 400.0),

@@ -190,7 +190,7 @@ fn ToolDefinition(data: Rc<AgentInspection>, index: usize) -> Element {
         return rsx! {};
     };
     rsx! {
-        Card { class: "gap-0 overflow-hidden py-0",
+        Card {
             Collapsible { open: open(), on_open_change: move |next| open.set(next),
                 CollapsibleTrigger { class: "w-full justify-between", controls_id: panel_id.clone(),
                     span { class: "truncate", "{tool.name}" }

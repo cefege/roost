@@ -9,8 +9,8 @@ use super::upload_tray::{extension_label, format_file_size};
 use crate::components::ui::field::scoped_element_id;
 use crate::components::ui::{
     Attachment, AttachmentActions, AttachmentContent, AttachmentDescription, AttachmentMedia,
-    AttachmentMediaVariant, AttachmentSize, AttachmentTitle, ButtonSize, ButtonVariant, Icon,
-    IconButton, IconType, Surface, SurfaceRadius,
+    AttachmentMediaVariant, AttachmentSize, AttachmentTitle, ButtonSize, ButtonVariant, Card,
+    CardContent, Icon, IconButton, IconType,
 };
 
 /// One chosen file: its name, length and the browser's handle to it. The
@@ -108,17 +108,17 @@ pub fn AttachmentPreview(files: Vec<ChosenFile>, on_remove: EventHandler<usize>)
         return rsx! {};
     }
     rsx! {
-        Surface {
-            elevation: 2,
-            radius: SurfaceRadius::Sm,
-            pad: 1,
-            test_id: "attachment-preview-strip",
+        Card {
+            size: crate::components::ui::CardSize::Sm,
+            "data-testid": "attachment-preview-strip",
             role: "list",
-            aria_labelledby: label_id.clone(),
-            span { id: label_id, class: "sr-only", "Attachments staged for sending" }
-            div { class: "flex flex-col gap-1",
-                for (index, file) in files.into_iter().enumerate() {
-                    StagedAttachmentRow { key: "{index}-{file.name}", file, index, on_remove }
+            "aria-labelledby": label_id.clone(),
+            CardContent {
+                span { id: label_id, class: "sr-only", "Attachments staged for sending" }
+                div { class: "flex flex-col gap-1",
+                    for (index, file) in files.into_iter().enumerate() {
+                        StagedAttachmentRow { key: "{index}-{file.name}", file, index, on_remove }
+                    }
                 }
             }
         }
@@ -133,7 +133,7 @@ fn StagedAttachmentRow(file: ChosenFile, index: usize, on_remove: EventHandler<u
     rsx! {
         Attachment {
             size: AttachmentSize::Sm,
-            class: "w-full min-w-0 rounded-md",
+            class: "w-full min-w-0",
             "tabindex": "0",
             "role": "listitem",
             "data-testid": "staged-attachment",
@@ -147,7 +147,7 @@ fn StagedAttachmentRow(file: ChosenFile, index: usize, on_remove: EventHandler<u
                     }
                 }
             } else {
-                AttachmentMedia { variant: AttachmentMediaVariant::Icon, class: "text-xs text-muted-foreground",
+                AttachmentMedia { variant: AttachmentMediaVariant::Icon, class: "text-muted-foreground",
                     if is_video {
                         Icon { icon: IconType::Film }
                     } else {

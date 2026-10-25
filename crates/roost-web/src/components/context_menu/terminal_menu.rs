@@ -291,8 +291,7 @@ fn run_terminal_menu_key(event: &KeyboardEvent, menu_id: &str, on_escape: impl F
 // keyboard and the TV overscan, which change at runtime. Every property is set
 // in both strings, since a Dioxus style string keeps any key it omits. The
 // stacking layer comes from the dialog, so the scrim and panel share one.
-const SHEET_CLASS: &str =
-    "h-auto p-0 pt-3 rounded-t-lg border-t border-border text-foreground select-none";
+const SHEET_CLASS: &str = "h-auto select-none";
 const SHEET_STYLE: &str = "left: 0; right: 0; bottom: max(var(--kb-offset), 0px); padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 1rem); max-height: calc(100dvh - max(var(--kb-offset), 0px) - 1rem);";
 const TV_SHEET_STYLE: &str = "left: var(--tv-overscan-inline); right: var(--tv-overscan-inline); bottom: calc(max(var(--kb-offset), 0px) + var(--tv-overscan-block)); padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 1rem); max-height: calc(100dvh - max(var(--kb-offset), 0px) - var(--tv-overscan-block) - 1rem);";
 
@@ -302,10 +301,7 @@ fn SheetItem(testid: String, on_activate: EventHandler<MouseEvent>, children: El
     rsx! {
         Button {
             variant: ButtonVariant::Ghost,
-            class: Some(
-                "w-full justify-start gap-3 rounded-none px-4 py-3 text-left text-base font-normal text-foreground focus:bg-accent"
-                    .to_owned(),
-            ),
+            class: Some("w-full justify-start".to_owned()),
             role: "menuitem",
             "data-testid": testid,
             onclick: move |event: MouseEvent| on_activate.call(event),

@@ -109,7 +109,7 @@ pub fn HomeLanding(reader_platform: BrowserPlatform) -> Element {
                     }
                 }
                 BrandMark { size: HOME_MARK_SIZE }
-                span { class: "text-xl tracking-[0.5px] text-foreground", {PRODUCT} }
+                span { class: "text-lg font-semibold text-foreground", {PRODUCT} }
             }
             p { class: "-mt-4 mb-8 text-xs text-muted-foreground", "data-testid": "home-tagline",
                 "Press "
@@ -122,13 +122,13 @@ pub fn HomeLanding(reader_platform: BrowserPlatform) -> Element {
                 }
             }
             div { class: "px-6 py-9", "data-testid": "home-empty",
-                Empty { class: "flex flex-col items-center gap-3 rounded-none border-0 p-0 text-center text-muted-foreground",
+                Empty {
                     EmptyHeader {
                         EmptyMedia { variant: EmptyMediaVariant::Icon,
-                            Icon { icon: IconType::Bot, class: "size-6 shrink-0" }
+                            Icon { icon: IconType::Bot }
                         }
-                        EmptyTitle { class: "text-base font-normal leading-normal text-foreground", "Open an agent workspace" }
-                        EmptyDescription { class: "max-w-[42ch] text-sm",
+                        EmptyTitle { "Open an agent workspace" }
+                        EmptyDescription { class: "max-w-[42ch]",
                             "Select a conversation or start a new agent from the sidebar, or press "
                             Kbd { class: "whitespace-nowrap", {SHORTCUTS[0].glyph(reader_platform)} }
                             " to open the Command palette."

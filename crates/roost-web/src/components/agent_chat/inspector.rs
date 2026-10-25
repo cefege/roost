@@ -144,7 +144,7 @@ pub fn AgentInspector(
                 div { class: "shrink-0 px-4 py-2", FieldError { "{message}" } }
             }
             Tabs { class: "min-h-0 min-w-0 flex-1", value: selected_tab, on_value_change: move |value| on_tab_change.call(value),
-                TabsList { class: "w-full shrink-0 justify-start overflow-x-auto rounded-none", aria_label: "Agent inspection sections",
+                TabsList { class: "w-full shrink-0 justify-start overflow-x-auto", aria_label: "Agent inspection sections",
                     for (key, label, _) in INSPECTOR_TABS {
                         TabsTrigger { class: "flex-none", value: key.to_owned(), "{label}" }
                     }

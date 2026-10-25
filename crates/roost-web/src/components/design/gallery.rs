@@ -9,6 +9,7 @@
 
 use dioxus::prelude::*;
 
+use super::composer_specimen::ComposerSpecimen;
 use super::content_primitives::ContentPrimitives;
 use super::control_states::DesignControlStates;
 use super::loader_specimen::LoaderSpecimen;
@@ -16,29 +17,26 @@ use super::overlay_states::DesignOverlayStates;
 use super::settings_navigation_specimen::SettingsNavigationSpecimen;
 use super::token_sections::{ColorRoles, ElevationScale, ShapeScale, SpacingScale, TypeRamp};
 use super::workbench_shell_specimen::WorkbenchShellSpecimen;
-use crate::components::ui::{Surface, SurfaceRadius};
+use crate::components::ui::{Card, CardContent, CardHeader, CardTitle};
 
 /// The gallery root's `data-testid`, the one `app::ServedSurface::Design` names.
 pub const DESIGN_GALLERY_TEST_ID: &str = "design-gallery";
 
 /// The page's own frame: full height, its own scroll, the base surface.
 const GALLERY_CLASS: &str =
-    "box-border min-h-screen overflow-y-auto bg-background p-6 text-foreground";
-
-/// A gallery section's title.
-const SECTION_HEADER_CLASS: &str = "mt-0 mb-4 text-xl font-semibold text-foreground";
+    "box-border h-dvh min-h-0 overflow-y-auto bg-background p-6 text-foreground";
 
 /// A gallery section's lead paragraph.
 const LEAD_TEXT_CLASS: &str = "mt-0 mb-4 text-sm text-muted-foreground";
 
 /// A gallery section's own surface, spaced from the next section.
-const SECTION_SURFACE_CLASS: &str = "mb-6 block";
+const SECTION_CLASS: &str = "mb-6";
 
 /// A gallery section's title, rendered as an `h2`.
 #[component]
 pub fn GallerySectionHeader(children: Element) -> Element {
     rsx! {
-        h2 { class: SECTION_HEADER_CLASS, {children} }
+        CardTitle { {children} }
     }
 }
 
@@ -46,15 +44,9 @@ pub fn GallerySectionHeader(children: Element) -> Element {
 #[component]
 pub fn GallerySection(title: String, children: Element) -> Element {
     rsx! {
-        Surface {
-            level: 1,
-            elevation: 1,
-            radius: SurfaceRadius::Lg,
-            pad: 6,
-            border: true,
-            class: SECTION_SURFACE_CLASS,
-            GallerySectionHeader { {title} }
-            {children}
+        Card { class: SECTION_CLASS,
+            CardHeader { GallerySectionHeader { {title} } }
+            CardContent { {children} }
         }
     }
 }
@@ -83,6 +75,7 @@ pub fn DesignGallery(on_navigate: EventHandler<String>) -> Element {
             GallerySection { title: "Shape / radii", ShapeScale {} }
             GallerySection { title: "Elevation", ElevationScale {} }
             GallerySection { title: "Control states", DesignControlStates {} }
+            GallerySection { title: "Message composer", ComposerSpecimen {} }
             GallerySection { title: "Loader", LoaderSpecimen {} }
             GallerySection { title: "Content primitives", ContentPrimitives {} }
             GallerySection { title: "Overlay states", DesignOverlayStates {} }

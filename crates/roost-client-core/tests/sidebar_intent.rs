@@ -1,7 +1,6 @@
-//! The sidebar's actions through `ClientCore::handle`: the persisted view read
-//! at boot, the Cmd-F reveal, a row's navigation bookkeeping, and the cursor's
-//! revision contract. The actions of v2 `apps/web/src/store/uiStore.ts`,
-//! `SidebarRoot.tsx`, `SessionRow.tsx` and `lib/sidebarRecent.ts`.
+//! The sidebar's actions through `ClientCore::handle`: the Cmd-F reveal, a
+//! row's navigation bookkeeping, and the cursor's revision contract. The
+//! actions of `SidebarRoot`, `SessionRow` and `lib/sidebarRecent.ts`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -10,7 +9,6 @@ use std::rc::Rc;
 use roost_client_core::store::prefs::PrefDefaults;
 use roost_client_core::store::sidebar::SidebarIntent;
 use roost_client_core::store::sidebar::memory::{RECENT_KEY, RECENT_MAX};
-use roost_client_core::store::ui::{SIDEBAR_VIEW_KEY, SidebarView};
 use roost_client_core::{ClientCore, ClientEvent, KeyValueStore, MemoryClock, MemoryKeyValueStore};
 
 fn core_over(storage: &Rc<MemoryKeyValueStore>) -> ClientCore {
@@ -24,23 +22,6 @@ fn core_over(storage: &Rc<MemoryKeyValueStore>) -> ClientCore {
 
 fn sidebar(core: &mut ClientCore, intent: SidebarIntent) {
     core.handle(ClientEvent::Sidebar(intent));
-}
-
-#[test]
-fn the_stored_sidebar_view_is_the_one_a_new_document_shows() {
-    let storage = Rc::new(MemoryKeyValueStore::new());
-    storage.set(SIDEBAR_VIEW_KEY, "agents");
-    assert_eq!(
-        core_over(&storage).store().ui.sidebar_view,
-        SidebarView::Agents
-    );
-    let mut core = core_over(&storage);
-    sidebar(&mut core, SidebarIntent::SetView(SidebarView::Folders));
-    assert_eq!(storage.get(SIDEBAR_VIEW_KEY).as_deref(), Some("folders"));
-    assert_eq!(
-        core_over(&storage).store().ui.sidebar_view,
-        SidebarView::Folders
-    );
 }
 
 #[test]

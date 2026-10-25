@@ -25,8 +25,9 @@ pub fn WorkspaceTabsMenu(
             on_open_change: move |next: bool| open.set(next),
             test_id: "workspace-tabs-menu-popup",
             DropdownMenuTrigger {
+                ghost: true,
                 test_id: "workspace-tabs-menu",
-                class: "h-9 w-9 px-0 border-0 bg-transparent text-foreground",
+                class: "h-9 w-9 px-0",
                 Icon { icon: IconType::EllipsisVertical, class: "size-4" }
                 span { class: "sr-only", "More options" }
             }

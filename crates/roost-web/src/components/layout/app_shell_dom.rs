@@ -8,7 +8,7 @@ use dioxus::prelude::*;
 use wasm_bindgen::JsCast as _;
 use wasm_bindgen::closure::Closure;
 
-use super::activity_bar::WORKSPACES_ITEM_ID;
+use super::activity_bar::FOLDERS_ITEM_ID;
 use super::shell_style::main_left_offset;
 use super::sidebar_region::SIDEBAR_REGION_ID;
 use crate::motion::resize_drag::use_resize_drag;
@@ -96,15 +96,17 @@ pub(super) fn use_shell_listeners(pump: Pump, compact: bool, sidebar_enabled: bo
     });
 }
 
-fn workspaces_item() -> Option<web_sys::HtmlElement> {
+fn folders_item() -> Option<web_sys::HtmlElement> {
     document()?
-        .get_element_by_id(WORKSPACES_ITEM_ID)?
+        .get_element_by_id(FOLDERS_ITEM_ID)?
+        .query_selector("a")
+        .ok()??
         .dyn_into()
         .ok()
 }
 
 /// When the desktop sidebar is about to collapse with focus inside it, move
-/// focus to the rail's Workspaces item first; `true` when it did.
+/// focus to the rail's Folders item first; `true` when it did.
 pub(super) fn focus_rail_before_collapse(compact: bool, collapsed: bool) -> bool {
     if compact || collapsed {
         return false;
@@ -122,7 +124,7 @@ pub(super) fn focus_rail_before_collapse(compact: bool, collapsed: bool) -> bool
     if !inside {
         return false;
     }
-    if let Some(item) = workspaces_item() {
+    if let Some(item) = folders_item() {
         let _ = item.focus();
     }
     true
@@ -131,7 +133,7 @@ pub(super) fn focus_rail_before_collapse(compact: bool, collapsed: bool) -> bool
 /// Re-assert the rail's focus after the collapse re-rendered, on the next
 /// frame's task — the region turning `inert` can drop it again.
 pub(super) fn refocus_rail_after_collapse() {
-    if let Some(item) = workspaces_item() {
+    if let Some(item) = folders_item() {
         let _ = item.focus();
     }
     let Some(window) = web_sys::window() else {
@@ -139,7 +141,7 @@ pub(super) fn refocus_rail_after_collapse() {
     };
     let later = Closure::once_into_js(move || {
         let task = Closure::once_into_js(|| {
-            if let Some(item) = workspaces_item() {
+            if let Some(item) = folders_item() {
                 let _ = item.focus();
             }
         });

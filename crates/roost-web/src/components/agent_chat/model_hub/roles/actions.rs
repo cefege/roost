@@ -11,7 +11,7 @@ use super::edits::{
     move_fallback, next_thinking, remove_fallback, set_entry_thinking, split_entry,
 };
 use super::rows::{RoleTab, RolesRow, build_rows, chain_of};
-use crate::components::agent_chat::model_controls::{Configure, configure};
+use crate::components::agent_chat::model_controls::configure_model_pin;
 use crate::components::agent_chat::role_switch::{
     pin_clears_for, thinking_choices, with_applied_preset, with_saved_preset,
 };
@@ -324,11 +324,7 @@ impl RoleContext {
     /// chat runs clears it, as the composer does.
     fn clear_pin_if_hidden(&self, touched: &[&str]) {
         if pin_clears_for(self.pinned, self.running, touched) {
-            configure(
-                self.pump.clone(),
-                self.conversation_id.clone(),
-                Configure::Model(None),
-            );
+            configure_model_pin(self.pump.clone(), self.conversation_id.clone(), None);
         }
     }
 

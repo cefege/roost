@@ -9,9 +9,10 @@ use roost_protocol::wire::agent_chat::{ConversationSummary, GoalState, ModelsCat
 use super::composer_commands::{advisor_title, report_command, submit_direct_command};
 use super::goal_dock::GoalDock;
 use super::model_controls::AgentModelControls;
+use super::toolbar_menu::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
 use crate::components::ui::{
     Button, ButtonSize, ButtonVariant, Chip, Icon, IconButton, IconType, InputPromptFooter,
-    InputPromptSubmit, InputPromptTools, Select, SelectOption,
+    InputPromptSubmit, InputPromptTools,
 };
 use crate::pump::Pump;
 
@@ -25,7 +26,6 @@ pub(super) fn ComposerFooter(
     goal_view_request: Signal<String>,
     on_goal_open: EventHandler<()>,
     command_error: Signal<Option<String>>,
-    /// Whether the command menu is showing options, for the `+` button's state.
     commands_open: bool,
     listbox: String,
     on_commands: EventHandler<()>,
@@ -91,17 +91,36 @@ pub(super) fn ComposerFooter(
             InputPromptTools { class: "min-w-0 flex-wrap justify-end",
                 AgentModelControls { conversation: conversation.clone(), catalog, catalog_failed, pump }
                 {voice_controls}
-                    Select {
-                        test_id: "agent-chat-when-busy",
-                        label: "When busy",
-                        value: busy_mode(),
-                        options: vec![
-                            SelectOption::new("follow_up", "Follow-up"),
-                            SelectOption::new("steer", "Steer"),
-                            SelectOption::new("reject", "Reject if busy"),
-                        ],
-                        on_change: move |mode| busy_mode.set(mode),
+                {
+                    let mode = busy_mode();
+                    let label = match mode.as_str() {
+                        "steer" => "Steer",
+                        "reject" => "Reject if busy",
+                        _ => "Follow-up",
+                    };
+                    let mut items = vec![
+                        ToolbarMenuItem::choice("follow_up", "Follow-up", mode == "follow_up"),
+                        ToolbarMenuItem::choice("steer", "Steer", mode == "steer"),
+                        ToolbarMenuItem::choice("reject", "Reject if busy", mode == "reject"),
+                    ];
+                    for item in &mut items {
+                        item.detail = Some(match item.value.as_str() {
+                            "steer" => "Interrupt current turn".to_owned(),
+                            "reject" => "Do not queue".to_owned(),
+                            _ => "Queue after current turn".to_owned(),
+                        });
                     }
+                    rsx! {
+                        ToolbarMenu {
+                            menu_key: "when-busy",
+                            trigger: ToolbarTrigger::Picker { label: label.to_owned() },
+                            aria_label: "When busy",
+                            items,
+                            on_choose: move |mode| busy_mode.set(mode),
+                            opens_up: true,
+                        }
+                    }
+                }
                 if running {
                     Button {
                         icon: IconType::Square,

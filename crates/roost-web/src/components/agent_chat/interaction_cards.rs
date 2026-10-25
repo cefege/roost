@@ -8,9 +8,9 @@ use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{AskQuestion, TodoPhase, TodoStatus};
 
 use crate::components::ui::{
-    Button, ButtonVariant, Card, CardContent, CardHeader, CardTitle, Checkbox, Chip, Collapsible,
-    CollapsibleContent, CollapsibleTrigger, FieldError, Icon, IconType, Label, ListRow,
-    SectionTitle, Shimmer, StatusDot, Surface, SurfaceElement, TextField,
+    Button, ButtonVariant, Card, CardContent, CardHeader, CardSize, CardTitle, Checkbox, Chip,
+    Collapsible, CollapsibleContent, CollapsibleTrigger, FieldError, Icon, IconType, Label,
+    ListRow, SectionTitle, Shimmer, StatusDot, TextField,
 };
 use crate::pump::Pump;
 
@@ -37,11 +37,12 @@ pub fn TodoCard(phases: Vec<TodoPhase>) -> Element {
                 .find(|task| !matches!(task.status, TodoStatus::Completed | TodoStatus::Abandoned))
         });
     rsx! {
-        Surface { element: SurfaceElement::Section, class: Some("flex flex-col gap-2 min-w-0".to_owned()), test_id: Some("agent-chat-todo".to_owned()), level: 1, pad: Some(2), border: true,
-            Collapsible { class: "flex flex-col gap-2 min-w-0", open: expanded(), on_open_change: move |next: bool| expanded.set(next),
+        Card { size: CardSize::Sm, class: Some("min-w-0".to_owned()), "data-testid": "agent-chat-todo",
+            CardContent { class: Some("flex flex-col gap-2".to_owned()),
+                Collapsible { class: "flex flex-col gap-2 min-w-0", open: expanded(), on_open_change: move |next: bool| expanded.set(next),
                 CollapsibleTrigger {
                     variant: ButtonVariant::Link,
-                    class: "h-auto min-w-0 justify-start gap-2 whitespace-normal text-left",
+                    class: "w-full min-w-0 justify-start gap-2 whitespace-normal text-left",
                     test_id: "agent-chat-todo-toggle",
                     Icon { icon: IconType::ListChecks, class: "size-4" }
                     strong { class: "font-medium", "To-do {closed}/{total}" }
@@ -63,6 +64,7 @@ pub fn TodoCard(phases: Vec<TodoPhase>) -> Element {
                     }
                 }
             }
+                }
         }
     }
 }
@@ -81,7 +83,7 @@ fn TodoPhaseSection(phase: TodoPhase) -> Element {
     }));
     rsx! {
         Collapsible { class: "flex flex-col gap-1", open: open(), on_open_change: move |next: bool| open.set(next),
-            CollapsibleTrigger { variant: ButtonVariant::Ghost, class: "h-auto min-w-0 justify-start px-0",
+            CollapsibleTrigger { variant: ButtonVariant::Ghost, class: "w-full min-w-0 justify-start",
                 SectionTitle { "{phase.name}" }
             }
             CollapsibleContent { class: "flex flex-col gap-1",

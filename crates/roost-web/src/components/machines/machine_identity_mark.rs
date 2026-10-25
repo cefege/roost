@@ -31,7 +31,7 @@ pub fn MachineIdentityMark(worker: Option<Worker>, context_title: Option<String>
                 Icon { icon: presentation.icon, class: "size-4" }
             }
             if let Some(badge) = presentation.apple_chip_badge {
-                Badge { variant: BadgeVariant::Outline, class: Some("absolute -bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border-current bg-card px-1 py-0 font-mono font-normal leading-none".to_owned()), {badge} }
+                Badge { variant: BadgeVariant::Outline, class: Some("absolute -bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap".to_owned()), {badge} }
             }
         }
     }

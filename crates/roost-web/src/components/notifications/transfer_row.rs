@@ -234,12 +234,10 @@ fn progress_line(transfer: &Transfer) -> String {
 /// A write whose fate is unknown is neither a success nor a clean failure.
 fn meta_color(transfer: &Transfer, outcome: Option<TransferOutcome>) -> &'static str {
     match outcome {
-        Some(TransferOutcome::Rejected) => "text-xs leading-4 text-destructive",
-        Some(TransferOutcome::Ambiguous) => "text-xs leading-4 text-warning",
-        Some(TransferOutcome::Accepted) | Some(TransferOutcome::Deduplicated) => {
-            "text-xs leading-4 text-info"
-        }
-        None if transfer.state == TransferState::Stalled => "text-xs leading-4 text-warning",
-        None => "text-xs leading-4 text-muted-foreground",
+        Some(TransferOutcome::Rejected) => "text-destructive",
+        Some(TransferOutcome::Ambiguous) => "text-warning",
+        Some(TransferOutcome::Accepted) | Some(TransferOutcome::Deduplicated) => "text-info",
+        None if transfer.state == TransferState::Stalled => "text-warning",
+        None => "text-muted-foreground",
     }
 }

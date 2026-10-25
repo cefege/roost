@@ -56,11 +56,11 @@ pub fn PairRequestCard(request: PairRequest, busy: bool, approver: PairApprover)
                     }
                 }
                 CardContent {
-                    List { contained: true,
+                    List {
                         ListRow {
                             leading_icon: Some(IconType::MonitorSmartphone),
                             test_id: Some("pair-request-device".to_owned()),
-                            headline: rsx! { span { class: "text-sm", {label.clone()} } },
+                            headline: rsx! { span { {label.clone()} } },
                             trailing: if device_type.is_empty() {
                                 None
                             } else {
@@ -70,18 +70,18 @@ pub fn PairRequestCard(request: PairRequest, busy: bool, approver: PairApprover)
                         ListRow {
                             leading_icon: Some(IconType::MapPin),
                             test_id: Some("pair-request-location".to_owned()),
-                            headline: rsx! { span { class: "text-sm", {location_label(&request)} } },
+                            headline: rsx! { span { {location_label(&request)} } },
                         }
                         ListRow {
                             leading_icon: Some(IconType::Network),
                             test_id: Some("pair-request-network".to_owned()),
-                            headline: rsx! { span { class: "text-sm", {network_label(&request)} } },
+                            headline: rsx! { span { {network_label(&request)} } },
                         }
                         ListRow {
                             leading_icon: Some(IconType::ShieldCheck),
                             test_id: Some("pair-request-identity".to_owned()),
                             headline: rsx! {
-                                span { class: "inline-flex items-center gap-2 text-sm",
+                                span { class: "inline-flex items-center gap-2",
                                     StatusDot { status: identity_status(&request).to_owned() }
                                     span { {identity_label(&request)} }
                                 }
@@ -91,10 +91,10 @@ pub fn PairRequestCard(request: PairRequest, busy: bool, approver: PairApprover)
                             leading_icon: Some(IconType::Clock),
                             test_id: Some("pair-request-expiry".to_owned()),
                             headline: rsx! {
-                                span { class: "text-sm", {expiry_label(request.expires_at_ms, now)} }
+                                span { {expiry_label(request.expires_at_ms, now)} }
                             },
                             support: Some(rsx! {
-                                span { class: "text-xs text-muted-foreground", {relative_age(request.created_at_ms, now)} }
+                                span { class: "text-muted-foreground", {relative_age(request.created_at_ms, now)} }
                             }),
                         }
                     }
@@ -112,21 +112,21 @@ pub fn PairRequestCard(request: PairRequest, busy: bool, approver: PairApprover)
                     }
                     if details_expanded {
                         div { id: details_id.clone(), class: "mt-3",
-                            List { contained: true,
+                            List {
                                 ListRow {
                                     leading_icon: Some(IconType::Languages),
                                     test_id: Some("pair-request-user-agent".to_owned()),
-                                    headline: rsx! { span { class: "text-sm font-medium", "User agent" } },
+                                    headline: rsx! { span { "User agent" } },
                                     support: Some(rsx! {
-                                        span { class: "text-xs break-all", {user_agent_label(&request)} }
+                                        span { class: "break-all", {user_agent_label(&request)} }
                                     }),
                                 }
                                 ListRow {
                                     leading_icon: Some(IconType::KeyRound),
                                     test_id: Some("pair-request-id".to_owned()),
-                                    headline: rsx! { span { class: "text-sm font-medium", "Request ID" } },
+                                    headline: rsx! { span { "Request ID" } },
                                     support: Some(rsx! {
-                                        code { class: "text-xs break-all", {request.ephemeral_id.clone()} }
+                                        code { class: "break-all", {request.ephemeral_id.clone()} }
                                     }),
                                 }
                             }

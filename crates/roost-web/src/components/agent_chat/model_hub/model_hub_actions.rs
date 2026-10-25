@@ -16,7 +16,7 @@ use super::hub_logic::HubView;
 use super::model_role_strip::OpenStrip;
 use super::strip_chips::{StripAction, StripChip, apply_settings, strip_view_chips};
 use super::strip_thinking::thinking_step_after_assign;
-use crate::components::agent_chat::model_controls::{Configure, configure};
+use crate::components::agent_chat::model_controls::configure_model_pin;
 use crate::components::agent_chat::role_switch::{initial_scope, pin_clears_for};
 use crate::components::settings::agent_roles::save_settings;
 use crate::components::settings::model_scope::ModelScope;
@@ -254,10 +254,10 @@ pub(super) fn apply_strip_chip(
     let selector = open_strip.selector.as_str();
     let Some(role) = chip.action.role() else {
         let mut open = commit.open;
-        configure(
+        configure_model_pin(
             commit.pump.clone(),
             commit.conversation_id.clone(),
-            Configure::Model(Some(selector.to_owned())),
+            Some(selector.to_owned()),
         );
         open.set(false);
         return;
@@ -271,11 +271,7 @@ pub(super) fn apply_strip_chip(
     if !matches!(chip.action, StripAction::Think { .. })
         && pin_clears_for(commit.pinned, commit.running, &[role])
     {
-        configure(
-            commit.pump.clone(),
-            commit.conversation_id.clone(),
-            Configure::Model(None),
-        );
+        configure_model_pin(commit.pump.clone(), commit.conversation_id.clone(), None);
     }
     if matches!(chip.action, StripAction::Assign(_))
         && let Some(step) =

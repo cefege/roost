@@ -146,7 +146,7 @@ pub fn ToolCard(
     rsx! {
         Card {
             size: CardSize::Sm,
-            class: Some("min-w-0 gap-1 data-[state=error]:border-destructive/40".to_owned()),
+            class: Some("min-w-0 data-[state=error]:border-destructive/40".to_owned()),
             "data-state": state,
             "data-tool": tool_name.clone(),
             CardContent { class: "min-w-0",
@@ -156,7 +156,7 @@ pub fn ToolCard(
                     CollapsibleTrigger {
                         variant: ButtonVariant::Ghost,
                         size: ButtonSize::Sm,
-                        class: "h-auto w-full min-w-0 justify-start gap-2 px-1 py-1 text-left text-sm",
+                        class: "w-full min-w-0 justify-start gap-2 text-left",
                         span { class: "inline-flex flex-none items-center gap-1",
                             Icon { icon, class: "size-4" }
                         }
@@ -252,7 +252,7 @@ pub fn ToolCard(
                                     CollapsibleTrigger {
                                         variant: ButtonVariant::Ghost,
                                         size: ButtonSize::Sm,
-                                        class: "h-auto justify-start px-0 py-1 text-xs font-normal text-muted-foreground",
+                                        class: "justify-start",
                                         "Details"
                                     }
                                     CollapsibleContent { class: "flex flex-col gap-2 pb-2",

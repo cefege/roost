@@ -33,7 +33,7 @@ pub fn TerminalPasteGuard(
                 }
                 DialogBody {
                     p {
-                        class: "m-0 text-sm text-muted-foreground",
+                        class: "m-0 text-muted-foreground",
                         "This shell has bracketed paste off, so all {lines} lines run as they arrive — you will not get a chance to edit them first."
                     }
                 }

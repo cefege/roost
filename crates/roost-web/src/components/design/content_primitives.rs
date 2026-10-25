@@ -13,15 +13,11 @@ use crate::components::terminal::stream_indicator::StreamIndicator;
 use crate::components::ui::{
     BindingChip, Button, ButtonVariant, Card, CardAction, CardContent, CardDescription, CardFooter,
     CardHeader, CardSize, CardTitle, Chip, EmptyState, Icon, IconButton, IconType, List,
-    ListLayout, ListRow, MetricTile, Progress, SectionTitle, Skeleton, StatusDot, Surface,
-    SurfaceRadius, UsageRing,
+    ListLayout, ListRow, MetricTile, Progress, SectionTitle, Skeleton, StatusDot, UsageRing,
 };
 
 /// Body copy in the small body ramp.
 const BODY_SMALL_CLASS: &str = "text-sm text-muted-foreground";
-
-/// A surface specimen's caption.
-const SPECIMEN_LABEL_CLASS: &str = "text-sm text-muted-foreground";
 
 /// A low-emphasis monospace caption under a specimen.
 const SPECIMEN_CAPTION_CLASS: &str = "font-mono text-xs text-muted-foreground";
@@ -78,7 +74,7 @@ pub fn ContentPrimitives() -> Element {
         }
 
         SectionTitle { "List" }
-        List { contained: true,
+        List {
             ListRow {
                 leading_icon: IconType::Terminal,
                 headline: rsx! { "Static row" },
@@ -145,7 +141,7 @@ pub fn ContentPrimitives() -> Element {
         }
 
         SectionTitle { "Skeleton (loading placeholder)" }
-        List { contained: true,
+        List {
             ListRow {
                 leading_icon: IconType::Folder,
                 headline: rsx! { Skeleton { class: "h-4 w-full" } },
@@ -175,21 +171,6 @@ pub fn ContentPrimitives() -> Element {
             }
         }
 
-        SectionTitle { "Surface (level / elevation / radius / pad)" }
-        div { class: TILE_GRID_CLASS,
-            Surface { level: 2, elevation: 0, radius: SurfaceRadius::Sm, pad: 4, border: true,
-                span { class: SPECIMEN_LABEL_CLASS, "level=2 elev=0 sm pad=4 border" }
-            }
-            Surface { level: 3, elevation: 2, radius: SurfaceRadius::Lg, pad: 5,
-                span { class: SPECIMEN_LABEL_CLASS, "level=3 elev=2 lg pad=5" }
-            }
-            Surface { level: 0, elevation: 4, radius: SurfaceRadius::Xl, pad: 6, border: true,
-                span { class: SPECIMEN_LABEL_CLASS, "level=0 elev=4 xl pad=6 border" }
-            }
-            Surface { level: 2, elevation: 0, radius: SurfaceRadius::None, pad: 4, border: true,
-                span { class: SPECIMEN_LABEL_CLASS, "level=2 elev=0 radius=none pad=4 border" }
-            }
-        }
 
         SectionTitle { "Status dots (solid + hollow)" }
         div { class: SPECIMEN_ROW_CLASS,

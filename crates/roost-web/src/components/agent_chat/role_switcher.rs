@@ -9,7 +9,7 @@ use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{AgentSettingsView, ConversationSummary, ModelsCatalog};
 
 use super::agent_alert::ERROR_TEXT_CLASS;
-use super::model_controls::{Configure, configure};
+use super::model_controls::configure_model_pin;
 use super::model_picker::ModelPicker;
 use super::role_presets::RolePresets;
 use super::role_switch::{
@@ -77,14 +77,13 @@ pub(super) fn RoleSwitcher(
                 }
             }),
             PopoverTrigger {
-                ghost: true,
-                class: "h-8 min-w-0 max-w-full justify-start px-2",
+                class: "min-w-0 max-w-full",
                 test_id: "agent-chat-model-trigger",
                 title: trigger_title,
                 span { class: "truncate", "{trigger_label}" }
             }
             PopoverContent {
-                class: "w-80 p-2",
+                class: "w-80",
                 if settings_loaded() {
                     RolePanel { editing, on_close: close, conversation, catalog, pump, settings, error }
                 } else if !error().is_empty() {
@@ -214,7 +213,7 @@ fn RolePanel(
                         save_settings(choose_pump.clone(), updated, settings, error);
                         // A session pin runs ahead of this role; clear it so this chat follows.
                         if clear_pin {
-                            configure(choose_pump.clone(), conversation_id.clone(), Configure::Model(None));
+                            configure_model_pin(choose_pump.clone(), conversation_id.clone(), None);
                         }
                         editing.set(None);
                     },

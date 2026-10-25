@@ -25,7 +25,6 @@ pub mod file_drop;
 pub mod file_drop_dom;
 pub mod pane_geometry;
 pub mod pane_geometry_dom;
-mod pane_row_dom;
 pub mod short_paths;
 pub mod terminal_upload;
 pub mod upload;

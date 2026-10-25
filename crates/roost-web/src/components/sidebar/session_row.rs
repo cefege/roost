@@ -21,7 +21,7 @@ use super::session_row_context_menu::SessionRowContextMenu;
 use super::session_row_flat::{SessionRowFacts, SessionRowFlat};
 use crate::components::notifications::notify_target::{ring_attribute, use_notify_target};
 use crate::components::ui::list::is_in_app_navigation_click;
-use crate::components::ui::{ButtonSize, Icon, IconButton, IconType};
+use crate::components::ui::{ButtonSize, Icon, IconButton, IconType, Item, ItemSize};
 use crate::platform::BrowserWorkerPaths;
 use crate::platform::worker_paths::short_worker_path;
 use crate::pump::{Pump, use_store};
@@ -143,14 +143,13 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
                 Icon { icon: IconType::Trash2, class: "size-4" }
             }
             div {
-                class: "group relative flex min-w-0 items-start gap-3 bg-sidenav px-3 py-2 hover:bg-accent/50 data-[cursor=on]:bg-accent/50 data-[selected=focused]:bg-accent {row_motion_class}",
+                class: "group relative min-w-0 {row_motion_class}",
                 "data-testid": "sidebar-session-row",
                 "data-session-id": session_id.clone(),
                 "data-worker-fp": facts.worker_fp.clone(),
                 "data-status": facts.status,
                 "data-selected": if facts.active { "focused" } else { "" },
                 "data-cursor": cursor.then_some("on"),
-                "data-density": "flat",
                 "data-swiping": tracking.then_some("1"),
                 "data-notify-target": ringing,
                 style: "--avatar-bg: {facts.avatar}; transform: translateX({offset}px);",
@@ -185,6 +184,9 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
                         });
                     }
                 },
+                Item {
+                    size: ItemSize::Xs,
+                    class: "relative w-full min-w-0 items-start gap-3 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50 group-data-[cursor=on]:bg-accent/50 group-data-[selected=focused]:bg-accent",
                 a {
                     href: href.clone(),
                     class: "absolute inset-0 z-10",
@@ -219,6 +221,7 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
                         event.prevent_default();
                         close();
                     },
+                }
                 }
             }
             // A sibling of the row, not a child: the row's swipe `transform`

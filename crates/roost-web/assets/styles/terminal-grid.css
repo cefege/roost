@@ -1,7 +1,5 @@
 /* Terminal renderer internals: the wterm surface and scrollbar, the cell grid,
    cursor, find-hit spans and image layers that CellGridRenderer generates. */
-/* wterm theme colors. Full 16-color ANSI palette in the warm-cream family
-   keeps shell prompts readable against the terminal background. */
 /* Terminal font: the full JetBrains Mono Nerd Font Mono, every Nerd icon range
    (U+E000-F8FF and U+F0000+). Do not subset or PUA-strip it: prompts and
    `eza --icons` emit those glyphs, and a stripped font renders them as tofu. */

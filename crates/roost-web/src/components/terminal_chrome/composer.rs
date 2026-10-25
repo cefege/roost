@@ -1,12 +1,7 @@
-//! The permanent terminal composer: the draft field, the submit action, the
-//! attachment picker, and the submission status line. It grows OVER the terminal
-//! rather than taking rows from it, because every PTY resize makes an inline
-//! agent repaint, and a repaint in place duplicates the rows a height shrink
-//! pushed into history.
-//! Ports `apps/web/src/components/terminal/TerminalComposeButton.tsx`: its
-//! markup, its test ids, its draft retention, and its autogrow field. The one v2
-//! piece with no browser owner in this build is the native Selection guard around
-//! the terminal's own text.
+//! The shared Rust/UI composer for terminal input, attachments and dictation.
+//! The pane owns its draft, submission and key tray; this component places them.
+//! Drafts and transient status float above the reserved field-plus-footer height
+//! rather than resizing the PTY, which would duplicate inline TUI history.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -30,10 +25,10 @@ use crate::voice::keyterms::ContextReader;
 use crate::voice::send_gate::SendGate;
 
 use crate::components::layout::portal::Portal;
-use crate::components::layout::window_size::use_is_compact;
 use crate::components::terminal::pane_handle::PaneHandle;
 use crate::components::ui::{
-    ButtonSize, ButtonVariant, IconButton, IconType, InputPromptTextarea, Surface,
+    ButtonSize, ButtonVariant, FieldError, Icon, IconButton, IconType, InputPrompt,
+    InputPromptFooter, InputPromptSubmit, InputPromptTextarea, InputPromptTools,
 };
 
 /// What a submission is doing, for the status line under the field.
@@ -85,9 +80,9 @@ pub fn TerminalComposer(
     #[props(default)]
     key_tray: Option<KeyTray>,
 ) -> Element {
-    let compact = use_is_compact();
     let mut draft = use_signal(|| get_composer_draft(&session_id));
     let mut status = use_signal(SubmissionStatus::default);
+    let mut voice_error = use_signal(|| Option::<String>::None);
     let mut field = use_signal(|| Option::<Rc<MountedData>>::None);
     let mut file_input = use_signal(|| Option::<Rc<MountedData>>::None);
     // What the mic owns while it records: the draft it started from, and where
@@ -157,7 +152,6 @@ pub fn TerminalComposer(
     // hypothesis starts.
     let read_context = use_dictation_context(read_context, draft);
     let ghost = dictation.ghost();
-    let mic_visible = active;
     let status_message = status().message.clone();
 
     // The submission is one piece of work; the button and the Enter key differ
@@ -294,88 +288,88 @@ pub fn TerminalComposer(
                 staged_files,
                 on_send_uploads,
             }
-            Surface {
-                level: 2,
-                elevation: 4,
-                pad: 1,
-                test_id: "chat-box",
-                class: "group/box pointer-events-auto relative grid grid-cols-[minmax(0,1fr)_auto_auto] items-end gap-1 rounded-[1.75rem] animate-voice-dock-enter motion-reduce:animate-none data-[compact=true]:grid-rows-[auto_var(--term-chat-control)] data-[compact=false]:grid-cols-[auto_minmax(0,1fr)_auto_auto] data-[compact=false]:grid-rows-[auto] tv:data-[keys=true]:data-[compact=false]:grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] @max-[220px]/term-chat-pane:data-[compact=false]:grid-cols-3 @max-[220px]/term-chat-pane:data-[compact=false]:grid-rows-[auto_auto] @max-[148px]/term-chat-pane:data-[compact=false]:grid-cols-2 @max-[148px]/term-chat-pane:data-[compact=false]:grid-rows-[auto_auto_auto] @max-[104px]/term-chat-pane:data-[compact=false]:grid-cols-[minmax(0,1fr)] @max-[104px]/term-chat-pane:data-[compact=false]:grid-rows-[auto_auto_auto_auto] @max-[52px]/term-chat-pane:px-0",
+            div { class: "relative min-w-0",
+                if let Some(tray) = key_tray.as_ref().filter(|tray| tray.open) {
+                    {tray.keys.clone()}
+                }
+            InputPrompt {
+                class: "pointer-events-auto relative animate-voice-dock-enter motion-reduce:animate-none @container/term-chat-pane",
+                "data-testid": "chat-box",
                 "data-composer-part": "box",
-                "data-compact": if compact { "true" } else { "false" },
-                "data-keys": key_tray.is_some().then_some("true"),
-                IconButton {
-                    icon: IconType::Paperclip,
-                    label: "Attach files",
-                    title: "Attach files",
-                    variant: ButtonVariant::Ghost,
-                    size: ButtonSize::IconLg,
-                    class: Some("!size-(--term-chat-control) !rounded-full col-start-1 row-start-2 group-data-[compact=false]/box:row-start-1 @max-[220px]/term-chat-pane:group-data-[compact=false]/box:row-start-2 @max-[220px]/term-chat-pane:group-data-[compact=false]/box:justify-self-center".to_owned()),
-                    "data-testid": "chat-attach",
-                    "aria-disabled": disabled.then_some("true"),
-                    onmousedown: keep_keyboard,
-                    onclick: open_picker,
-                }
                 div {
-                    class: "relative grid min-w-0 col-span-full row-start-1 group-data-[compact=false]/box:[grid-column:2] @max-[220px]/term-chat-pane:group-data-[compact=false]/box:[grid-column:1/-1]",
+                    class: "relative flex w-full min-w-0",
                     "data-testid": "chat-field",
-                    InputPromptTextarea {
-                        value: draft,
-                        class: "relative z-1 box-border min-h-[var(--term-chat-control)] w-full min-w-0 resize-none border-none bg-transparent px-3 py-[var(--term-chat-field-pad-block)] font-sans text-[length:max(1rem,var(--term-chat-font-size))] leading-(--term-chat-line-height) text-foreground outline-none field-sizing-fixed overflow-y-auto max-h-[min(calc(var(--term-chat-line-height)_*_var(--term-chat-field-max-lines)_+_2_*_var(--term-chat-field-pad-block)),calc(var(--term-chat-pane-height,calc(100dvh_-_max(var(--kb-offset,0px),0px)))_*_var(--term-chat-field-room-share)))] placeholder:whitespace-nowrap placeholder:text-muted-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary focus-visible:rounded-lg data-[ghosted=true]:text-transparent data-[ghosted=true]:caret-foreground data-[ghosted=true]:[scrollbar-width:none] data-[ghosted=true]:[&::-webkit-scrollbar]:hidden disabled:cursor-auto disabled:opacity-100",
-                        "data-testid": "chat-input",
-                        "data-composer-part": "input",
-                        "data-ghosted": ghost.has_ghost().then_some("true"),
-                        aria_label: "Terminal input",
-                        rows: "1",
-                        placeholder: dictation.placeholder(),
-                        disabled: disabled,
-                        submit_on_enter: false,
-                        on_mounted: move |event: MountedEvent| field.set(Some(event.data())),
-                        on_input: move |_next: String| {
-                            // A keystroke ends the provisional paint: the words
-                            // the operator typed are now the draft.
-                            dictation.forget_provisional();
-                            status.set(SubmissionStatus::default());
-                        },
+                InputPromptTextarea {
+                    value: draft,
+                    class: "relative z-1 w-full min-w-0 field-sizing-fixed overflow-y-auto max-h-[min(calc(var(--term-chat-line-height)_*_var(--term-chat-field-max-lines)_+_6_*_var(--spacing)),calc(var(--term-chat-pane-height,calc(100dvh_-_max(var(--kb-offset,0px),0px)))_*_var(--term-chat-field-room-share)))] placeholder:whitespace-nowrap data-[ghosted=true]:text-transparent data-[ghosted=true]:caret-foreground data-[ghosted=true]:[scrollbar-width:none] data-[ghosted=true]:[&::-webkit-scrollbar]:hidden disabled:cursor-auto disabled:opacity-100",
+                    "data-testid": "chat-input",
+                    "data-composer-part": "input",
+                    "data-ghosted": ghost.has_ghost().then_some("true"),
+                    aria_label: "Terminal input",
+                    rows: "1",
+                    placeholder: dictation.placeholder(),
+                    disabled,
+                    submit_on_enter: false,
+                    on_mounted: move |event: MountedEvent| field.set(Some(event.data())),
+                    on_input: move |_next: String| {
+                        dictation.forget_provisional();
+                        status.set(SubmissionStatus::default());
+                    },
+                }
+                if ghost.has_ghost() {
+                    GhostMirror { ghost: ghost.clone() }
+                }
+                }
+                InputPromptFooter { class: "flex-wrap",
+                    InputPromptTools { class: "min-w-0 flex-wrap",
+                        IconButton {
+                            icon: IconType::Paperclip,
+                            label: "Attach files",
+                            title: "Attach files",
+                            variant: ButtonVariant::Ghost,
+                            size: ButtonSize::IconSm,
+                            "data-testid": "chat-attach",
+                            "aria-disabled": disabled.then_some("true"),
+                            onmousedown: keep_keyboard,
+                            onclick: open_picker,
+                        }
+                        if let Some(tray) = key_tray.clone() {
+                            ComposerKeyTray { tray }
+                        }
                     }
-                    if ghost.has_ghost() {
-                        GhostMirror { ghost: ghost.clone() }
-                    }
+                    InputPromptTools { class: "min-w-0 flex-wrap justify-end",
+                        div { class: if active { "contents" } else { "invisible" },
+                            VoiceControl {
+                                owner_id: owner_id.clone(),
+                                active: active && !pending,
+                                read_context: Some(read_context.clone()),
+                                binding: SharedBinding(dictation_for_mic_control.clone()),
+                                on_submit: submit_queued,
+                                on_error: move |error| voice_error.set(error),
+                            }
+                        }
+                        InputPromptSubmit {
+                            disabled: !dictation_for_send.send_gate().offers_send() || !active || pending,
+                            aria_label: "Send to terminal",
+                            title: "Send to terminal",
+                            test_id: "chat-send",
+                            onmousedown: keep_keyboard,
+                            onclick: submit,
+                            Icon { icon: IconType::ArrowUp, class: "size-4" }
+                        }
                 }
-                if let Some(tray) = key_tray.clone() {
-                    ComposerKeyTray { tray }
-                }
-                if mic_visible {
-                    VoiceControl {
-                        owner_id: owner_id.clone(),
-                        active: active && !pending,
-                        read_context: Some(read_context.clone()),
-                        binding: SharedBinding(dictation_for_mic_control.clone()),
-                        on_submit: submit_queued,
-                    }
-                }
-                if dictation_for_send.send_gate().offers_send() {
-                IconButton {
-                    icon: IconType::Send,
-                    label: "Send to terminal",
-                    variant: ButtonVariant::Default,
-                    size: ButtonSize::IconLg,
-                    class: Some("!size-(--term-chat-control) !rounded-full col-start-3 row-start-2 justify-self-center group-data-[compact=false]/box:[grid-column:4] group-data-[compact=false]/box:row-start-1 @max-[220px]/term-chat-pane:group-data-[compact=false]/box:[grid-column:3] @max-[220px]/term-chat-pane:group-data-[compact=false]/box:row-start-2 @max-[148px]/term-chat-pane:group-data-[compact=false]/box:[grid-column:1/-1] @max-[148px]/term-chat-pane:group-data-[compact=false]/box:row-start-3 @max-[104px]/term-chat-pane:group-data-[compact=false]/box:[grid-column:1] @max-[104px]/term-chat-pane:group-data-[compact=false]/box:row-start-4".to_owned()),
-                    "data-testid": "chat-send",
-                    "aria-disabled": disabled.then_some("true"),
-                    onmousedown: keep_keyboard,
-                    onclick: submit,
-                }
-                }
+            }
+            }
             }
             AttachmentInput {
                 on_chosen: move |chosen| on_attach.call(chosen),
                 onmounted: move |event: MountedEvent| file_input.set(Some(event.data())),
             }
             if let Some(message) = status_message {
-                div {
-                    role: "status",
-                    "{message}"
-                }
+                div { role: "status", "{message}" }
+            }
+            if let Some(error) = voice_error() {
+                FieldError { test_id: "voice-caption", "Mic error: {error}" }
             }
         }
     };

@@ -7,7 +7,9 @@
 use dioxus::prelude::*;
 
 use crate::components::hooks::use_copy_clipboard::use_copy_clipboard;
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, Icon, IconType, Surface};
+use crate::components::ui::{
+    Alert, AlertDescription, AlertTitle, AlertVariant, Button, ButtonVariant, Icon, IconType,
+};
 
 /// The diagnostic a reader copies, as pretty JSON (v2's payload shape).
 pub fn diagnostic_payload(url: &str, user_agent: &str, time_iso: &str, error: &str) -> String {
@@ -71,30 +73,30 @@ fn ErrorFallback(message: String, errors: ErrorContext) -> Element {
         div {
             "data-testid": "error-boundary",
             class: "grid min-h-dvh w-full place-items-center bg-background p-6 text-foreground",
-            Surface { border: true, pad: Some(6), class: Some("flex w-full max-w-[64ch] flex-col gap-4 rounded-xl text-card-foreground".to_owned()),
-                div { class: "flex items-center gap-2",
-                    Icon { icon: IconType::CircleAlert, class: "size-4 text-destructive" }
-                    h1 { class: "m-0 text-lg font-semibold text-destructive", "Unexpected error" }
-                }
-                p {
-                    class: "m-0 font-mono text-xs break-all whitespace-pre-wrap select-text text-muted-foreground",
-                    {message}
-                }
-                div { class: "flex flex-wrap gap-2",
-                    Button {
-                        variant: ButtonVariant::Outline,
-                        size: ButtonSize::Sm,
-                        onclick: move |_| copy_to_clipboard(&diagnostic(&diagnostic_message)),
-                        if copied() { "Copied" } else { "Copy diagnostic" }
+            Alert { variant: AlertVariant::Destructive, class: "w-full max-w-[64ch]",
+                Icon { icon: IconType::CircleAlert }
+                div { class: "flex flex-col gap-4",
+                    div {
+                        AlertTitle { "Unexpected error" }
+                        AlertDescription {
+                            class: "font-mono break-all whitespace-pre-wrap select-text",
+                            {message}
+                        }
                     }
-                    Button {
-                        variant: ButtonVariant::Default,
-                        size: ButtonSize::Sm,
-                        onclick: move |_| {
-                            errors.clear_errors();
-                            reload();
-                        },
-                        "Reload"
+                    div { class: "flex flex-wrap gap-2",
+                        Button {
+                            variant: ButtonVariant::Outline,
+                            onclick: move |_| copy_to_clipboard(&diagnostic(&diagnostic_message)),
+                            if copied() { "Copied" } else { "Copy diagnostic" }
+                        }
+                        Button {
+                            variant: ButtonVariant::Default,
+                            onclick: move |_| {
+                                errors.clear_errors();
+                                reload();
+                            },
+                            "Reload"
+                        }
                     }
                 }
             }

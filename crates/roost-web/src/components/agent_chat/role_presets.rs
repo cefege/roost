@@ -9,7 +9,7 @@ use roost_protocol::wire::agent_chat::{
     AgentSettingsView, ConversationSummary, active_preset, presets_with_builtins,
 };
 
-use super::model_controls::{Configure, configure};
+use super::model_controls::configure_model_pin;
 use super::role_switch::{pin_hides, with_applied_preset, with_saved_preset};
 use crate::components::settings::agent_roles::save_settings;
 use crate::components::ui::{Button, ButtonSize, ButtonVariant, Chip, IconType, TextField};
@@ -76,7 +76,7 @@ pub(super) fn RolePresets(
                                 let updated = with_applied_preset(&settings.peek(), &roles);
                                 save_settings(apply_pump.clone(), updated, settings, error);
                                 if clear_pin {
-                                    configure(apply_pump.clone(), conversation_id.clone(), Configure::Model(None));
+                                    configure_model_pin(apply_pump.clone(), conversation_id.clone(), None);
                                 }
                             })),
                         }

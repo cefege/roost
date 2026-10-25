@@ -232,7 +232,7 @@ pub fn PaneStrip(
                         trigger_id: "tab-overflow-{pane_id}",
                         menu_id: TAB_LIST_MENU_ID,
                         DropdownMenuTrigger {
-                            class: "shrink-0 size-[var(--workbench-tab-action-size)] p-0 text-muted-foreground hover:text-foreground",
+                            class: "shrink-0 size-[var(--workbench-tab-action-size)] p-0",
                             test_id: "tab-overflow",
                             aria_label: "All terminals in this pane",
                             Icon { icon: IconType::ChevronDown, class: "size-4" }

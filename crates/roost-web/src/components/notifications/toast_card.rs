@@ -19,7 +19,7 @@ use crate::components::hooks::use_copy_clipboard::{copy_text_then, use_copy_clip
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::terminal::dom::now_ms;
 use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, IconButton, IconType, StatusDot, Surface, SurfaceRadius,
+    Alert, AlertVariant, Button, ButtonSize, ButtonVariant, IconButton, IconType, StatusDot,
 };
 use crate::pump::{Pump, use_store};
 use crate::router_state::use_navigate;
@@ -230,48 +230,45 @@ pub fn ToastCard(toast_id: ToastId) -> Element {
             onmouseleave: move |event: MouseEvent| release.call(event),
             onfocusin: move |event: FocusEvent| hold_focus.call(event),
             onfocusout: move |event: FocusEvent| release_focus.call(event),
-            Surface {
-                level: 2,
-                elevation: 3,
-                radius: SurfaceRadius::Md,
-                border: true,
-                class: "relative flex flex-col gap-2 overflow-hidden p-3 text-foreground whitespace-pre-wrap [word-break:break-word]",
-                role: Some(if is_error { "alert".to_owned() } else { "status".to_owned() }),
+            Alert {
+                variant: AlertVariant::Default,
+                role: if is_error { "alert".to_owned() } else { "status".to_owned() },
+                class: Some("relative overflow-hidden whitespace-pre-wrap [word-break:break-word]".to_owned()),
                 aria_live: Some(if is_error { "assertive" } else { "polite" }.to_owned()),
                 aria_atomic: Some("true".to_owned()),
-                div {
-                    class: "flex items-start gap-2",
-                    StatusDot { status: dot }
-                    span {
-                        class: "line-clamp-4 min-w-0 flex-1 select-text overflow-hidden text-sm leading-5",
-                        title: headline.clone(),
-                        "{headline}"
-                    }
-                    if !compact {
-                        {action.clone()}
-                    }
-                }
-                if let Some(detail) = details.as_ref() {
-                    pre {
-                        "data-testid": "toast-details",
-                        class: "m-0 max-h-36 overflow-auto select-text rounded bg-muted p-2 text-xs leading-4 text-muted-foreground whitespace-pre-wrap [word-break:break-word] [font-family:var(--term-font-family)]",
-                        "{detail}"
-                    }
-                }
-                if compact {
                     div {
-                        class: "flex items-center justify-end gap-2",
-                        {action}
+                        class: "flex items-start gap-2",
+                        StatusDot { status: dot }
+                        span {
+                            class: "line-clamp-4 min-w-0 flex-1 select-text overflow-hidden",
+                            title: headline.clone(),
+                            "{headline}"
+                        }
+                        if !compact {
+                            {action.clone()}
+                        }
+                    }
+                    if let Some(detail) = details.as_ref() {
+                        pre {
+                            "data-testid": "toast-details",
+                            class: "m-0 max-h-36 overflow-auto select-text bg-muted text-muted-foreground whitespace-pre-wrap [word-break:break-word] [font-family:var(--term-font-family)]",
+                            "{detail}"
+                        }
+                    }
+                    if compact {
+                        div {
+                            class: "flex items-center justify-end gap-2",
+                            {action}
+                        }
+                    }
+                    if let Some(window) = window_ms {
+                        span {
+                            "aria-hidden": "true",
+                            class: "{countdown_class(toast.kind)} animate-roost-countdown-drain motion-reduce:animate-none",
+                            style: "animation-duration: {window}ms; animation-play-state: {play_state};",
+                        }
                     }
                 }
-                if let Some(window) = window_ms {
-                    span {
-                        "aria-hidden": "true",
-                        class: "{countdown_class(toast.kind)} animate-roost-countdown-drain motion-reduce:animate-none",
-                        style: "animation-duration: {window}ms; animation-play-state: {play_state};",
-                    }
-                }
-            }
         }
     }
 }

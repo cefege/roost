@@ -3,7 +3,7 @@
 //! collapsed until a step is slow or stuck. Rendered by `CellTerminal`; its
 //! entry/exit keyframes are Tailwind utilities (`animate-terminal-startup-*`).
 
-use crate::components::ui::{Card, Progress};
+use crate::components::ui::{Card, CardContent, Progress};
 use dioxus::prelude::*;
 use roost_web_terminal::startup_progress::{StartupChunks, terminal_startup_chunk_detail};
 
@@ -65,47 +65,46 @@ pub fn TerminalStartupOverlay(notice: Option<TerminalStartupNotice>) -> Element 
                 "{title}. {detail}"
             }
             Card {
-                class: Some(
-                    "w-[min(100%,38ch)] gap-3 rounded-lg p-6 text-center shadow-md".to_owned(),
-                ),
-                div {
-                    class: "text-sm font-medium uppercase tracking-wide text-muted-foreground",
-                    "data-testid": "terminal-loading-title",
-                    "Opening terminal"
-                }
-                div {
-                    class: "text-2xl font-semibold tabular-nums",
-                    "data-testid": "terminal-loading-percent",
-                    "{percent}%"
-                }
-                Progress {
-                    value: Some(state.percent() / 100.0),
-                    label: "Terminal startup progress",
-                    class: "h-1",
-                    test_id: "terminal-loading-progress",
-                    fill_test_id: "terminal-loading-progress-fill",
-                }
-                div {
-                    class: "text-sm text-muted-foreground",
-                    "data-testid": "terminal-loading-detail",
-                    "{step_label}"
-                }
-                div {
-                    class: "flex flex-col gap-1 border-t border-border pt-3 text-sm text-muted-foreground [&[hidden]]:hidden",
-                    "data-testid": "terminal-loading-details",
-                    hidden: !state.slow(),
-                    div { class: "text-sm", "data-testid": "terminal-loading-technical", "{held.detail}" }
-                    if let Some(part) = chunk_detail {
-                        div { class: "text-sm font-medium", "data-testid": "terminal-loading-progress-label", "{part}" }
+                class: Some("w-[min(100%,38ch)] text-center".to_owned()),
+                CardContent {
+                    div {
+                        class: "font-medium text-muted-foreground",
+                        "data-testid": "terminal-loading-title",
+                        "Opening terminal"
                     }
                     div {
-                        class: "text-sm font-medium",
-                        "data-testid": "terminal-loading-elapsed",
-                        "aria-hidden": "true",
-                        "This step has taken {elapsed}s"
+                        class: "tabular-nums",
+                        "data-testid": "terminal-loading-percent",
+                        "{percent}%"
                     }
-                    if let Some(reason) = held.stuck_reason.clone() {
-                        div { class: "text-sm", "data-testid": "terminal-loading-stuck-reason", "{reason}" }
+                    Progress {
+                        value: Some(state.percent() / 100.0),
+                        label: "Terminal startup progress",
+                        test_id: "terminal-loading-progress",
+                        fill_test_id: "terminal-loading-progress-fill",
+                    }
+                    div {
+                        class: "text-muted-foreground",
+                        "data-testid": "terminal-loading-detail",
+                        "{step_label}"
+                    }
+                    div {
+                        class: "flex flex-col gap-1 border-t border-border pt-3 text-muted-foreground [&[hidden]]:hidden",
+                        "data-testid": "terminal-loading-details",
+                        hidden: !state.slow(),
+                        div { "data-testid": "terminal-loading-technical", "{held.detail}" }
+                        if let Some(part) = chunk_detail {
+                            div { class: "font-medium", "data-testid": "terminal-loading-progress-label", "{part}" }
+                        }
+                        div {
+                            class: "font-medium",
+                            "data-testid": "terminal-loading-elapsed",
+                            "aria-hidden": "true",
+                            "This step has taken {elapsed}s"
+                        }
+                        if let Some(reason) = held.stuck_reason.clone() {
+                            div { "data-testid": "terminal-loading-stuck-reason", "{reason}" }
+                        }
                     }
                 }
             }

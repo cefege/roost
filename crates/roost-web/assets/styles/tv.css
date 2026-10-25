@@ -18,7 +18,7 @@ html[data-tv="true"] {
   --text-2xl: 2.125rem;
   --text-3xl: 2.5rem;
   --spacing: 0.3125rem;
-  --term-chat-font-size: 1.5rem;
+  --term-chat-rest-height: 133px;
   --term-chat-line-height: 2.125rem;
   --term-nav-icon-size: 2.125rem;
   --term-nav-label-size: 1.375rem;
@@ -65,8 +65,8 @@ html[data-tv="true"] {
   justify-self: start;
   width: min(var(--workbench-sidebar-expanded-width), 80%);
   z-index: 2;
-  box-shadow: 0 6px 10px 4px color-mix(in srgb, black 15%, transparent),
-    0 2px 3px 0 color-mix(in srgb, black 30%, transparent);
+  box-shadow: 0 6px 10px 4px color-mix(in srgb, var(--foreground) 15%, transparent),
+    0 2px 3px 0 color-mix(in srgb, var(--foreground) 30%, transparent);
 }
 [data-tv="true"] .workbench-shell[data-compact="false"] .workbench-sidebar-region[data-collapsed="true"] {
   display: none;

@@ -5,7 +5,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::ui::{StatusDot, Surface, SurfaceRadius};
+use crate::components::ui::{Alert, AlertVariant, StatusDot};
 
 /// The header a standalone pairing page opens with: the product eyebrow, the
 /// page's own `h1`, and optional supporting copy.
@@ -51,23 +51,20 @@ impl NoticeTone {
 #[component]
 pub fn PairingStatusNotice(tone: NoticeTone, message: String, test_id: Option<String>) -> Element {
     let is_error = tone == NoticeTone::Error;
-    let message_class = if is_error {
-        "min-w-0 break-words text-destructive"
+    let variant = if is_error {
+        AlertVariant::Destructive
     } else {
-        "min-w-0 break-words"
+        AlertVariant::Default
     };
     rsx! {
-        Surface {
-            level: 2,
-            radius: SurfaceRadius::Sm,
-            pad: 3,
-            border: true,
+        Alert {
+            variant,
             class: Some("flex items-center gap-2".to_owned()),
-            role: Some(if is_error { "alert" } else { "status" }.to_owned()),
-            aria_live: if is_error { None } else { Some("polite".to_owned()) },
+            role: if is_error { "alert".to_owned() } else { "status".to_owned() },
+            aria_live: Some(if is_error { "assertive" } else { "polite" }.to_owned()),
             test_id,
             StatusDot { status: tone.as_str().to_owned() }
-            span { class: message_class, {message} }
+            span { class: "min-w-0 break-words", {message} }
         }
     }
 }

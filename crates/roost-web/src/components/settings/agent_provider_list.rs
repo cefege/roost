@@ -43,7 +43,7 @@ pub fn AvailableProviders(
         } else if shown.is_empty() {
             EmptyState { icon: IconType::SearchX, title: format!("No provider matches “{}”.", filter()) }
         } else {
-            List { contained: true,
+            List {
                 for summary in shown {
                     ListRow {
                         key: "{summary.provider.id}",

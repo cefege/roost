@@ -11,6 +11,7 @@ use roost_client_core::store::navigation::query::normalize_navigation_search_que
 use roost_client_core::store::pending_close::is_pending_close;
 use roost_client_core::store::selectors::{session_by_id, session_folder_key};
 use roost_client_core::store::sidebar::SidebarIntent;
+use roost_client_core::store::sidebar::folder_group_filter::filter_folder_groups_for_store;
 use roost_client_core::store::sidebar::folder_groups::{
     FolderGroup, build_folder_groups, filter_folder_groups,
 };
@@ -19,8 +20,8 @@ use roost_protocol::wire::{Session, SessionKind};
 use super::agent_conversation_row::AgentConversationRow;
 use super::folder_row::FolderRow;
 use super::session_row::SessionRow;
-use crate::components::ui::IconType;
 use crate::components::ui::empty::EmptyState;
+use crate::components::ui::{IconType, List};
 use crate::platform::BrowserWorkerPaths;
 use crate::pump::{Pump, use_store};
 use crate::route_session::active_session_for_path;
@@ -50,10 +51,16 @@ pub fn FolderList(active: bool, query: String) -> Element {
             .into_iter()
             .filter(|group| !is_chat_folder(&group.spawn_cwd))
             .collect();
-        let groups = filter_folder_groups(&visible, &query);
+        let folder_matches = filter_folder_groups(&visible, &query);
+        let folder_match_keys: Vec<&str> = folder_matches
+            .iter()
+            .map(|group| group.key.as_str())
+            .collect();
+        let groups = filter_folder_groups_for_store(store, &visible, &query);
         let filtered_ids: Vec<String> = if has_active_filter(&query) {
             groups
                 .iter()
+                .filter(|group| folder_match_keys.contains(&group.key.as_str()))
                 .flat_map(|group| group.session_ids.iter())
                 .filter(|id| is_visible_space_session(store, id))
                 .cloned()
@@ -86,6 +93,9 @@ pub fn FolderList(active: bool, query: String) -> Element {
             .map(|group| group.lead_id.clone())
             .collect()
     };
+    let has_filtered_agents = groups
+        .iter()
+        .any(|group| !group.agent_conversation_ids.is_empty());
     publish_cursor_targets(&pump, active, visible_ids);
 
     rsx! {
@@ -98,7 +108,7 @@ pub fn FolderList(active: bool, query: String) -> Element {
                         supporting: "Open a terminal to add your first folder.",
                     }
                 } else {
-                    div { class: "flex flex-col",
+                    List { class: "min-w-0",
                         for group in groups {
                             FolderRow {
                                 key: "{group.key}",
@@ -108,25 +118,27 @@ pub fn FolderList(active: bool, query: String) -> Element {
                                     && cursor_id.as_deref() == Some(group.lead_id.as_str()),
                                 group: group.clone(),
                             }
-                            for conversation_id in group.agent_conversation_ids.iter() {
-                                AgentConversationRow {
-                                    key: "{conversation_id}",
-                                    conversation_id: conversation_id.clone(),
-                                    selected: active_agent_id.as_deref() == Some(conversation_id.as_str()),
-                                    compact: true,
-                                }
+                            FolderConversationRows {
+                                conversation_ids: group.agent_conversation_ids.clone(),
+                                active_agent_id: active_agent_id.clone(),
                             }
                         }
                     }
                 }
-            } else if filtered_ids.is_empty() {
+            } else if filtered_ids.is_empty() && !has_filtered_agents {
                 EmptyState {
                     icon: IconType::SearchX,
                     title: "No matches",
                     supporting: format!("Nothing matches \"{query}\". Esc clears the search."),
                 }
             } else {
-                div { class: "flex flex-col",
+                List { class: "min-w-0",
+                    for group in groups {
+                        FolderConversationRows {
+                            conversation_ids: group.agent_conversation_ids,
+                            active_agent_id: active_agent_id.clone(),
+                        }
+                    }
                     for session_id in filtered_ids {
                         SessionRow {
                             key: "{session_id}",
@@ -134,6 +146,103 @@ pub fn FolderList(active: bool, query: String) -> Element {
                             session_id,
                         }
                     }
+
+                }
+            }
+        }
+    }
+}
+#[component]
+fn FolderConversationRows(
+    conversation_ids: Vec<String>,
+    active_agent_id: Option<String>,
+) -> Element {
+    let pump = use_store();
+    let conversation_id_set: std::collections::BTreeSet<&str> =
+        conversation_ids.iter().map(String::as_str).collect();
+    let (roots, children_by_parent) = {
+        let core = pump.core();
+        let core = core.borrow();
+        let conversations = &core.store().agent_chat.conversations;
+        let mut roots = Vec::new();
+        let mut children_by_parent =
+            std::collections::BTreeMap::<String, Vec<(i64, String)>>::new();
+        for id in &conversation_ids {
+            let Some(conversation) = conversations.get(id.as_str()) else {
+                continue;
+            };
+            if let Some(parent) = conversation
+                .parent_id
+                .as_deref()
+                .filter(|parent| conversation_id_set.contains(parent))
+            {
+                children_by_parent
+                    .entry(parent.to_owned())
+                    .or_default()
+                    .push((conversation.updated_ms, conversation.id.clone()));
+            } else {
+                roots.push((conversation.updated_ms, conversation.id.clone()));
+            }
+        }
+        roots.sort_by_key(|(updated_ms, _)| std::cmp::Reverse(*updated_ms));
+        let roots = roots.into_iter().map(|(_, id)| id).collect::<Vec<_>>();
+        let children_by_parent = children_by_parent
+            .into_iter()
+            .map(|(parent, mut children)| {
+                children.sort_by_key(|(updated_ms, _)| std::cmp::Reverse(*updated_ms));
+                (
+                    parent,
+                    children.into_iter().map(|(_, id)| id).collect::<Vec<_>>(),
+                )
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
+        (roots, std::rc::Rc::new(children_by_parent))
+    };
+    let active_agent_id = active_agent_id.map(std::rc::Rc::new);
+    rsx! {
+        for conversation_id in roots {
+            FolderConversationBranch {
+                key: "{conversation_id}",
+                conversation_id,
+                children_by_parent: children_by_parent.clone(),
+                active_agent_id: active_agent_id.clone(),
+                depth: 0,
+            }
+        }
+    }
+}
+
+#[component]
+fn FolderConversationBranch(
+    conversation_id: String,
+    children_by_parent: std::rc::Rc<std::collections::BTreeMap<String, Vec<String>>>,
+    active_agent_id: Option<std::rc::Rc<String>>,
+    depth: usize,
+) -> Element {
+    let children = children_by_parent
+        .get(&conversation_id)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    let row_class = if depth == 0 {
+        "min-w-0"
+    } else {
+        "min-w-0 ps-3"
+    };
+    rsx! {
+        div { class: row_class,
+            AgentConversationRow {
+                conversation_id: conversation_id.clone(),
+                selected: active_agent_id.as_deref().map(String::as_str)
+                    == Some(conversation_id.as_str()),
+                compact: true,
+            }
+            for child_id in children {
+                FolderConversationBranch {
+                    key: "{child_id}",
+                    conversation_id: child_id.clone(),
+                    children_by_parent: children_by_parent.clone(),
+                    active_agent_id: active_agent_id.clone(),
+                    depth: depth + 1,
                 }
             }
         }

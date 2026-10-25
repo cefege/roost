@@ -265,6 +265,13 @@ operator retired it; `/fork` and the `AgentChatFork` RPC still fork a
 conversation, surfaced through the "Conversation forked" notice's "Open
 fork" link).
 
+The alternate Workspaces/Agents sidebar mode is retired (`SidebarView`,
+`roost.sidebarView`, `sidebar_agents.rs`, `agents_projection.rs`). Folders is
+the only sidebar view and includes terminal sessions and agent conversations;
+old stored view keys are ignored. The custom `ui::Surface`/`SurfaceLevel` skin
+and `List.contained` border option are removed; panels use stock Rust/UI `Card`
+recipes and lists compose stock `Item` rows.
+
 ---
 
 ## Design system (web) — cohesion by construction
@@ -290,13 +297,14 @@ for Dioxus 0.7 + Tailwind v4. Roost adapts those components under the web crate'
    Token files (`theme-vars.css`, `tailwind.css`,
    `agents.rs`, `src/theme/palettes/`, vendored rust-ui CSS under
    `crates/roost-web/vendor/`) DECLARE values and are exempt. Components copy
-   rust-ui's class recipes byte for byte; the few raw values rust-ui itself
+   rust-ui's class recipes byte for byte; caller classes place components,
+   not recolor, reshape, or reskin them. The few raw values rust-ui itself
    ships are baselined. Enforced by `cargo xtask lint`'s design ratchet against
    `xtask/design-raw-baseline.json`: a NEW raw value fails the build. After
    migrating a file down, re-snapshot with
    `cargo xtask lint --update-design-baseline`.
 2. **Components first.** Compose from `ui` (`Button`, `IconButton`, `Card`,
-   `Surface`, `StatusDot`, `Badge`, `Dialog`, `Sheet`, `Drawer`, `Popover`,
+   `StatusDot`, `Badge`, `Dialog`, `Sheet`, `Drawer`, `Popover`,
    `DropdownMenu`, `ContextMenu`, `Command`, `Select`, `Tabs`, `Item`,
    `Sidenav`, `Message`, `InputPrompt`, `Icon`, …) — don't hand-roll a
    `<div style>`, a `<button>`, a menu, or a new stylesheet rule a utility can
@@ -520,12 +528,15 @@ gh workflow run promote.yml -f tag=<older tag>   # roll back (see below)
 4. **Workers.** Linux and macOS workers poll the coordinator's `/version` and
    install exactly that release themselves (`roost __self-update`, log
    `self-update-<tag>.log` in the worker's log directory), so they follow a
-   promotion and a rollback alike; a machine that was off catches up within a
-   minute of starting. ovh1, m5, m1-new and m1-old follow since rc.39 (rc.37's
-   and rc.38's updater restarted the old unit on Linux and failed launchd's
-   bootstrap on macOS). desktop-pc (offline) and roost-win (Windows, never
-   self-updates) still need `cargo xtask fleet install --version <tag> --host
-   <name>`; desktop-pc only once, roost-win every release.
+   promotion and a rollback alike. The first poll is 60 seconds after startup,
+   then every 15 minutes; persisted attempt state enforces an hour between
+   updater starts, even across tags or restarts
+   (`crates/roost-worker/src/runtime/auto_update.rs`). ovh1, m5, m1-new and m1-old
+   follow since rc.39 (rc.37's and rc.38's updater restarted the old unit on Linux
+   and failed launchd's bootstrap on macOS). desktop-pc (offline) and roost-win
+   (Windows, never self-updates) still need
+   `cargo xtask fleet install --version <tag> --host <name>`; desktop-pc only
+   once, roost-win every release.
 
 **Rolling back** is promoting an older tag. Going back past a migration or
 the credential encryption also needs the database restored from a

@@ -82,23 +82,23 @@ pub fn TerminalCaptureConsentDialog(
                     DialogTitle { "{kind.headline()}" }
                 }
                 DialogBody {
-                    p { class: "m-0 text-sm text-muted-foreground",
+                    p { class: "m-0 text-muted-foreground",
                         "Terminal text and raw PTY output are recorded. They may contain secrets — \
                          passwords, tokens, file contents — and are readable by anyone who can sign \
                          in as you."
                     }
-                    p { class: "m-0 text-sm text-muted-foreground",
+                    p { class: "m-0 text-muted-foreground",
                         "The bundle is written on the machine that owns this terminal, downloaded only \
                          through your authenticated session, and deleted after at most \
                          {retention_hours} hours."
                     }
-                    p { class: "m-0 text-sm text-muted-foreground",
+                    p { class: "m-0 text-muted-foreground",
                         "Confirming grants a {lease_minutes}-minute debugging lease for this terminal \
                          only. No other session is recorded, and an expired lease must be started \
                          again."
                     }
                     p {
-                        class: "m-0 text-sm text-muted-foreground",
+                        class: "m-0 text-muted-foreground",
                         "data-testid": "ctx-debug-consent-prehistory",
                         "{kind.prehistory()}"
                     }
@@ -138,7 +138,7 @@ pub fn CaptureStateRow(phase: CapturePhase, detail: Option<String>) -> Element {
         div {
             "data-testid": "ctx-capture-state-row",
             role: "presentation",
-            class: "flex items-center gap-2 px-4 py-2 text-sm text-muted-foreground",
+            class: "flex items-center gap-2 text-muted-foreground",
             "data-phase": phase.as_str(),
             StatusDot { status: phase.dot_status().to_owned(), title: Some(label.clone()) }
             span { "{label}" }

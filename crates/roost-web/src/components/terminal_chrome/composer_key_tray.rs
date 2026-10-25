@@ -1,7 +1,6 @@
-//! The TV input tray's half inside the composer bar: the keys toggle, and the
-//! terminal keys drawn above the bar while open. The pane hands the keys in
-//! (`CellTerminal`, which owns the key pad and its latches); the composer only
-//! places them, so text, mic, Send and keys are one surface on a television.
+//! The TV key tray toggle in the terminal composer's footer.
+//! `CellTerminal` owns the key grid and latches; `TerminalComposer` mounts
+//! the supplied grid above the shared prompt, outside its clipping frame.
 
 use dioxus::prelude::*;
 
@@ -28,21 +27,18 @@ impl std::fmt::Debug for KeyTray {
     }
 }
 
-/// The tray's keys (while open) and its toggle, as children of the bar.
+/// The footer toggle; the composer mounts the supplied keys outside the frame.
 #[component]
 pub fn ComposerKeyTray(tray: KeyTray) -> Element {
     let open = tray.open;
     let on_toggle = tray.on_toggle;
     rsx! {
-        if open {
-            {tray.keys.clone()}
-        }
         IconButton {
             icon: key_toggle_icon(open),
             label: key_toggle_label(open),
             variant: ButtonVariant::Ghost,
-            size: ButtonSize::IconLg,
-            class: Some("!size-(--term-chat-control) !rounded-full tv:data-[open=true]:bg-accent tv:data-[open=true]:text-accent-foreground".to_owned()),
+            size: ButtonSize::IconSm,
+            class: Some("tv:data-[open=true]:bg-accent tv:data-[open=true]:text-accent-foreground".to_owned()),
             "data-testid": "chat-keys",
             "data-open": if open { "true" } else { "false" },
             // A press must not pull focus off whatever the D-pad is on.

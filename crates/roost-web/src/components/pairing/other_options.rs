@@ -142,7 +142,7 @@ fn SetupTokenSection(
 ) -> Element {
     rsx! {
         div { class: "flex min-w-0 flex-col gap-3",
-            span { class: "text-sm font-medium text-foreground",
+            span { class: "text-foreground",
                 "Use a one-time setup token"
             }
             TextField {
@@ -185,10 +185,10 @@ fn SetupTokenSection(
 fn KeyRecoverySection(busy: bool, error: Option<String>, on_reset: EventHandler<()>) -> Element {
     rsx! {
         div { class: "flex min-w-0 flex-col gap-3", "data-testid": "pairing-key-recovery",
-            span { class: "text-sm font-medium text-foreground",
+            span { class: "text-foreground",
                 "Recover a rejected browser key"
             }
-            p { class: "m-0 text-sm text-muted-foreground",
+            p { class: "m-0 text-muted-foreground",
                 "If this browser was previously paired and revoked, create a new local device key before requesting access again."
             }
             div {

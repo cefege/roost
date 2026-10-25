@@ -244,7 +244,7 @@ pub fn ModelPicker(
                         if !group.is_empty() {
                             SectionTitle { "{group}" }
                         }
-                        List { contained: true,
+                        List {
                             for option in rows {
                                 {
                                     let is_selected = selected.as_deref() == Some(option.selector.as_str());

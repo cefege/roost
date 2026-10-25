@@ -5,7 +5,7 @@
 use dioxus::prelude::*;
 
 use super::output_lines::{styled_lines, window};
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, Surface};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant};
 
 /// The line printed where folded output hides lines. A tail preview names how
 /// much it shows of the whole, since the reader is looking at the latest lines.
@@ -41,7 +41,7 @@ pub fn OutputWindow(
     let can_collapse = open && lines.len() > rows;
     let error = failed.then_some("true");
     rsx! {
-        Surface { class: "rounded-md bg-terminal py-2 text-terminal-foreground",
+        div { class: "bg-terminal py-2 text-terminal-foreground",
             if hidden > 0 && !from_head {
                 p { class: "m-0 px-3 pb-1 text-xs text-muted-foreground", "{hint}" }
             }

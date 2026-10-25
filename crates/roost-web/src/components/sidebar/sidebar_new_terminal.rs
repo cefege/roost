@@ -17,7 +17,7 @@ use crate::components::ui::menu_overlay::{
     MenuContext, MenuSide, anchored_placement, request_close, request_open,
 };
 use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, StatusDot,
+    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, SidenavFooter, StatusDot,
 };
 use crate::new_terminal_target::{
     default_new_terminal_worker_fp, effective_new_terminal_target, online_workers_by_label,
@@ -142,9 +142,8 @@ pub fn SidebarNewTerminal() -> Element {
             trigger_id: MACHINE_TRIGGER_ID,
             menu_id: MACHINE_MENU_ID,
             test_id: "sidebar-new-terminal-machine-menu",
-            footer {
-                class: "flex items-center gap-2 border-t border-border bg-sidenav p-2",
-                "data-testid": "sidebar-new-terminal",
+            footer { class: "border-t border-sidenav-border", "data-testid": "sidebar-new-terminal",
+                SidenavFooter { class: "flex-row items-center",
                 if online.len() > 1 {
                     MachineTrigger { target_label: target_label.clone() }
                 } else if !target_label.is_empty() {
@@ -212,6 +211,7 @@ pub fn SidebarNewTerminal() -> Element {
                             }
                         }
                     }
+                }
                 }
             }
         }

@@ -9,7 +9,7 @@
 
 use dioxus::prelude::*;
 
-use crate::components::ui::{BindingChip, Surface, SurfaceRadius};
+use crate::components::ui::{BindingChip, Card, CardContent};
 use crate::input_nav::modality::NavModality;
 use crate::input_nav::pad_hints::{PadHintContext, pad_hints};
 
@@ -29,18 +29,18 @@ pub fn PadHintBar() -> Element {
     }
     let hints = pad_hints(PadHintContext::Default);
     rsx! {
-        Surface {
-            level: 2,
-            elevation: 3,
-            radius: SurfaceRadius::Md,
-            test_id: Some("pad-hint-bar".to_owned()),
-            aria_hidden: Some("true".to_owned()),
-            class: "pad-hint pointer-events-none flex w-auto max-w-full flex-wrap items-center justify-center gap-3 self-center",
-            for hint in hints {
-                span {
-                    class: "inline-flex items-center gap-1",
-                    BindingChip { "{hint.cap}" }
-                    span { class: "text-xs whitespace-nowrap text-muted-foreground", "{hint.label}" }
+        Card {
+            size: crate::components::ui::CardSize::Sm,
+            class: "pad-hint pointer-events-none w-auto max-w-full self-center",
+            "data-testid": "pad-hint-bar",
+            "aria-hidden": "true",
+            CardContent { class: "flex flex-wrap items-center justify-center gap-3",
+                for hint in hints {
+                    span {
+                        class: "inline-flex items-center gap-1",
+                        BindingChip { "{hint.cap}" }
+                        span { class: "text-muted-foreground whitespace-nowrap", "{hint.label}" }
+                    }
                 }
             }
         }

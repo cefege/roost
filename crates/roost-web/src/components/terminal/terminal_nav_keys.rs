@@ -11,7 +11,7 @@ use roost_client_core::store::shell_intent::ShellIntent;
 
 use super::pane_handle::PaneHandle;
 use super::pane_state::PaneUi;
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, Icon, IconType, Surface};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, Card, CardContent, Icon, IconType};
 use crate::pump::Pump;
 
 /// The key grid. `placement` is `sheet` for the floating sheet and `tray` for
@@ -38,19 +38,18 @@ pub fn TerminalKeyGrid(
         mouse_forward,
     );
     rsx! {
-            Surface {
-                level: 2,
-                elevation: 4,
-                pad: 1,
-                class: "group/nav fixed z-40 box-border max-h-[max(0rem,calc(100dvh_-_env(safe-area-inset-top,0px)_-_env(safe-area-inset-bottom,0px)_-_13.75rem_-_1rem))] right-[calc(env(safe-area-inset-right,0px)_+_1rem)] bottom-[calc(env(safe-area-inset-bottom,0px)_+_13.75rem)] overflow-y-auto pointer-events-auto font-sans animate-voice-dock-enter motion-reduce:animate-none data-[placement=tray]:absolute data-[placement=tray]:inset-x-0 data-[placement=tray]:bottom-full data-[placement=tray]:h-(--term-tray-height) data-[placement=tray]:max-h-none data-[placement=tray]:overflow-visible",
-                test_id: "terminal-nav-buttons",
-                "data-placement": placement,
-                "data-keypad": "true",
-            div {
-                class: "grid grid-cols-[repeat(4,var(--term-chat-control))] gap-1 [grid-template-areas:'esc_tab_ctrl_alt'_'home_up_end_pgup'_'left_down_right_pgdn'_'back_space_space_ent'_'mouse_mouse_mouse_mouse'] group-data-[placement=tray]/nav:grid-cols-[repeat(9,minmax(0,1fr))] group-data-[placement=tray]/nav:[grid-template-areas:'esc_tab_ctrl_alt_mouse_home_up_end_pgup'_'back_space_space_ent_ent_left_down_right_pgdn']",
-                "data-keypad-grid": "true",
-                for cell in cells {
-                    {key_cell(cell)}
+        Card {
+            class: Some("group/nav fixed z-40 box-border max-h-[max(0rem,calc(100dvh_-_env(safe-area-inset-top,0px)_-_env(safe-area-inset-bottom,0px)_-_13.75rem_-_1rem))] right-[calc(env(safe-area-inset-right,0px)_+_1rem)] bottom-[calc(env(safe-area-inset-bottom,0px)_+_13.75rem)] overflow-y-auto pointer-events-auto font-sans animate-voice-dock-enter motion-reduce:animate-none data-[placement=tray]:absolute data-[placement=tray]:inset-x-0 data-[placement=tray]:bottom-full data-[placement=tray]:h-(--term-tray-height) data-[placement=tray]:max-h-none data-[placement=tray]:overflow-visible".to_owned()),
+            "data-testid": "terminal-nav-buttons",
+            "data-placement": placement,
+            "data-keypad": "true",
+            CardContent {
+                div {
+                    class: "grid grid-cols-[repeat(4,var(--term-chat-control))] gap-1 [grid-template-areas:'esc_tab_ctrl_alt'_'home_up_end_pgup'_'left_down_right_pgdn'_'back_space_space_ent'_'mouse_mouse_mouse_mouse'] group-data-[placement=tray]/nav:grid-cols-[repeat(9,minmax(0,1fr))] group-data-[placement=tray]/nav:[grid-template-areas:'esc_tab_ctrl_alt_mouse_home_up_end_pgup'_'back_space_space_ent_ent_left_down_right_pgdn']",
+                    "data-keypad-grid": "true",
+                    for cell in cells {
+                        {key_cell(cell)}
+                    }
                 }
             }
         }
@@ -112,7 +111,7 @@ fn key_cell(cell: NavCell) -> Element {
         Button {
             variant: ButtonVariant::Secondary,
             size: ButtonSize::Icon,
-            class: Some("relative !size-(--term-chat-control) !rounded-md shadow-sm transition-[box-shadow,transform] duration-150 active:scale-[0.94] after:pointer-events-none after:absolute after:inset-0 after:bg-current after:opacity-0 after:content-[''] hover:after:opacity-[0.08] active:after:opacity-[0.12] focus-visible:after:opacity-[0.12] data-[area=esc]:[grid-area:esc] data-[area=tab]:[grid-area:tab] data-[area=ctrl]:[grid-area:ctrl] data-[area=alt]:[grid-area:alt] data-[area=back]:[grid-area:back] data-[area=home]:[grid-area:home] data-[area=up]:[grid-area:up] data-[area=end]:[grid-area:end] data-[area=pgup]:[grid-area:pgup] data-[area=left]:[grid-area:left] data-[area=down]:[grid-area:down] data-[area=right]:[grid-area:right] data-[area=pgdn]:[grid-area:pgdn] data-[area=space]:[grid-area:space] data-[area=enter]:[grid-area:ent] data-[area=mouse]:[grid-area:mouse] data-[area=space]:!w-auto data-[area=enter]:!w-auto data-[area=mouse]:!w-auto data-[area=mouse]:gap-2 data-[area=enter]:bg-primary data-[area=enter]:text-primary-foreground data-[area=ctrl][data-active=true]:bg-accent data-[area=ctrl][data-active=true]:text-accent-foreground data-[area=alt][data-active=true]:bg-accent data-[area=alt][data-active=true]:text-accent-foreground data-[area=mouse][data-active=true]:bg-primary data-[area=mouse][data-active=true]:text-primary-foreground group-data-[placement=tray]/nav:!h-(--term-tray-key) group-data-[placement=tray]/nav:!w-auto".to_owned()),
+            class: Some("!size-(--term-chat-control) transition-colors duration-150 data-[area=esc]:[grid-area:esc] data-[area=tab]:[grid-area:tab] data-[area=ctrl]:[grid-area:ctrl] data-[area=alt]:[grid-area:alt] data-[area=back]:[grid-area:back] data-[area=home]:[grid-area:home] data-[area=up]:[grid-area:up] data-[area=end]:[grid-area:end] data-[area=pgup]:[grid-area:pgup] data-[area=left]:[grid-area:left] data-[area=down]:[grid-area:down] data-[area=right]:[grid-area:right] data-[area=pgdn]:[grid-area:pgdn] data-[area=space]:[grid-area:space] data-[area=enter]:[grid-area:ent] data-[area=mouse]:[grid-area=mouse] data-[area=space]:!w-auto data-[area=enter]:!w-auto data-[area=mouse]:!w-auto data-[area=mouse]:gap-2 data-[area=enter]:bg-primary data-[area=enter]:text-primary-foreground data-[area=ctrl][data-active=true]:bg-accent data-[area=ctrl][data-active=true]:text-accent-foreground data-[area=alt][data-active=true]:bg-accent data-[area=alt][data-active=true]:text-accent-foreground data-[area=mouse][data-active=true]:bg-primary data-[area=mouse][data-active=true]:text-primary-foreground group-data-[placement=tray]/nav:!h-(--term-tray-key) group-data-[placement=tray]/nav:!w-auto".to_owned()),
             "data-testid": test_id,
             "data-area": area,
             "data-active": active.then_some("true"),
@@ -121,10 +120,10 @@ fn key_cell(cell: NavCell) -> Element {
             onmousedown: keep_focus,
             onclick: move |event| press.call(event),
             if let Some(icon) = face_icon(face) {
-                Icon { icon, class: "relative z-1 size-(--term-nav-icon-size) select-none" }
+                Icon { icon, class: "size-(--term-nav-icon-size) select-none" }
             }
             if let Some(label) = label {
-                span { class: "relative z-1 font-sans text-(length:--term-nav-label-size) leading-(--term-nav-label-line) font-medium tracking-[0.08em] uppercase select-none", "{label}" }
+                span { class: "select-none", "{label}" }
             }
         }
     }

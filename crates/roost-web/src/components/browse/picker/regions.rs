@@ -18,7 +18,7 @@ use crate::components::browse::picker::control_set::PickerControls;
 use crate::components::browse::toolbar::BrowseToolbar;
 use crate::components::browse::unavailable::MachineUnavailable;
 use crate::components::browse::view::PickerReading;
-use crate::components::ui::{Button, ButtonVariant, IconType, Surface, SurfaceRadius};
+use crate::components::ui::{Button, ButtonVariant, IconType};
 use crate::pump::Pump;
 
 /// The page's content for the machine in `worker_fp`.
@@ -68,7 +68,7 @@ pub fn PickerRegions(
     let online_workers = reading.online_workers;
     rsx! {
         div {
-            class: "flex h-full min-h-0 flex-col overflow-hidden bg-card text-card-foreground",
+            class: "flex h-full min-h-0 flex-col overflow-hidden",
             id: dom::SURFACE_ID,
             "data-testid": "browse-page",
             "data-compact": if compact { "true" } else { "false" },
@@ -135,7 +135,7 @@ pub fn PickerRegions(
                     on_retry,
                 }
             }
-            Surface { class: Some("flex flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-3".to_owned()), level: 1, radius: SurfaceRadius::None,
+            div { class: "flex flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-3",
                 if launch_mode == BrowseLaunchMode::Agent {
                     Button {
                         variant: ButtonVariant::Default,

@@ -110,7 +110,6 @@ fn a_slot_declares_one_property_set_through_every_swipe_state() {
     let at_rest = base.merged(&swipe_style_for(None, "cur", WIDTH));
     assert_eq!(at_rest.get("transform"), Some("none"));
     assert_eq!(at_rest.get("transition"), Some("none"));
-    assert_eq!(at_rest.get("box-shadow"), Some("none"));
 }
 
 /// The phone bar's wrapper is one element for the deck's life, whichever tab

@@ -28,7 +28,7 @@ pub fn TerminalJumpToLive(visible: bool, handle: PaneHandle, lift: String) -> El
                 label: "Jump to the latest output",
                 title: "Jump to the latest output",
                 variant: ButtonVariant::Secondary,
-                class: Some("absolute inset-x-0 bottom-4 mx-auto rounded-full shadow-md".to_owned()),
+                class: Some("absolute inset-x-0 bottom-4 mx-auto".to_owned()),
                 "data-testid": "terminal-jump-to-live",
                 // Pressed without moving focus: the keyboard stays with the
                 // terminal on a desktop, and no soft keyboard opens on a phone.

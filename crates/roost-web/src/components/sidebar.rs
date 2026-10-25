@@ -1,7 +1,7 @@
-//! The primary sidebar: the Folders and Agents panels, the shared filter, the
-//! pinned new-terminal bar, and the rows, chips and adapters they compose.
-//! Ports `apps/web/src/components/sidebar/`; `AppShell` mounts `SidebarRoot`.
-//! The state and derivations are `roost_client_core::store::sidebar`.
+//! The primary folders sidebar: its filter, pinned new-terminal bar, rows,
+//! chips and adapters. Ports `apps/web/src/components/sidebar/`; `AppShell`
+//! mounts `SidebarRoot`; its state and derivations live in
+//! `roost_client_core::store::sidebar`.
 
 pub mod agent_conversation_row;
 pub mod all_view;
@@ -18,7 +18,6 @@ pub mod row_swipe;
 pub mod session_row;
 pub mod session_row_context_menu;
 pub mod session_row_flat;
-pub mod sidebar_agents;
 pub mod sidebar_empty_state;
 pub mod sidebar_new_terminal;
 pub mod sidebar_root;

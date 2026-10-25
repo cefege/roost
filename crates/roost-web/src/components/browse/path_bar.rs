@@ -7,8 +7,7 @@ use crate::components::ui::dropdown_menu::{
     DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 };
 use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, Surface, SurfaceRadius,
-    TextField,
+    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, TextField,
 };
 use crate::platform::worker_paths::WorkerPathCrumb;
 use crate::platform::worker_paths::palette::CrumbView;
@@ -87,10 +86,7 @@ pub fn BrowsePathBar(
             open: menu_open,
             on_open_change: on_menu_open_change,
             test_id: "browse-crumb-menu",
-            Surface {
-                class: Some("flex min-w-0 items-center gap-1 px-2 py-1".to_owned()),
-                level: 1,
-                radius: SurfaceRadius::None,
+            div { class: "flex min-w-0 items-center gap-1 px-2 py-1",
                 if filter_open {
                     TextField {
                         class: Some("min-w-0 flex-1".to_owned()),
@@ -179,11 +175,11 @@ pub fn BrowsePathBar(
                                 }
                                 CrumbView::Ellipsis(_) => rsx! {
                                     DropdownMenuTrigger {
-                                        class: "size-7 p-0 text-muted-foreground shrink-0",
+                                        class: "shrink-0",
                                         ghost: true,
                                         test_id: "browse-crumb-overflow",
                                         span { class: "sr-only", "Show hidden folders" }
-                                        Icon { icon: IconType::Ellipsis, class: "size-4" }
+                                        Icon { icon: IconType::Ellipsis }
                                     }
                                 },
                             }
@@ -217,7 +213,7 @@ pub fn BrowsePathBar(
                 }
             }
             DropdownMenuContent {
-                class: "w-auto min-w-48 max-h-[60vh] flex flex-col gap-0.5 overflow-y-auto",
+                class: "w-auto min-w-48 max-h-[60vh] overflow-y-auto",
                 {menu_items.into_iter()}
             }
         }

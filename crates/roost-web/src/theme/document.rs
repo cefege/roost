@@ -31,9 +31,12 @@ impl ThemeDocument for BrowserThemeDocument {
     }
 
     fn write(&self, application: &ThemeApplication) {
-        let Some(root) = web_sys::window()
-            .and_then(|window| window.document())
-            .and_then(|document| document.document_element())
+        let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+            tracing::warn!(target: "theme", "no document to theme");
+            return;
+        };
+        let Some(root) = document
+            .document_element()
             .and_then(|element| element.dyn_into::<web_sys::HtmlElement>().ok())
         else {
             tracing::warn!(target: "theme", "no document element to theme");
@@ -55,6 +58,15 @@ impl ThemeDocument for BrowserThemeDocument {
         // Tailwind's `dark:` variant also matches on this attribute (tailwind.css).
         let _ = root.set_attribute("data-color-scheme", scheme);
         let _ = style.set_property("color-scheme", scheme);
+        if let Some(background) = application
+            .properties
+            .iter()
+            .find_map(|(property, value)| (*property == "--background").then_some(*value))
+        {
+            if let Ok(Some(theme_color)) = document.query_selector("meta[name='theme-color']") {
+                let _ = theme_color.set_attribute("content", background);
+            }
+        }
         super::terminal_palette::apply_stored_palette();
     }
 }

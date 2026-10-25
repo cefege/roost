@@ -5,7 +5,7 @@
 use dioxus::prelude::*;
 
 use super::output_lines::window;
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, Surface};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant};
 
 /// Lines of written content shown before folding, matching OMP's write preview.
 pub(super) const WRITE_PREVIEW_LINES: usize = 6;
@@ -44,7 +44,7 @@ pub fn WriteBody(content: String, open: bool, on_expand: EventHandler<bool>) -> 
     let can_collapse = open && preview.total > WRITE_PREVIEW_LINES;
     let gutter_style = format!("--write-gutter: {};", preview.gutter);
     rsx! {
-        Surface { class: "rounded-md bg-terminal py-2 text-terminal-foreground",
+        div { class: "bg-terminal py-2 text-terminal-foreground",
             pre { class: "m-0 overflow-x-auto font-mono text-xs", style: gutter_style,
                 for (number, line) in preview.lines.iter() {
                     div { class: "flex whitespace-pre", key: "{number}",

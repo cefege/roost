@@ -1,15 +1,14 @@
-//! The `/design` gallery's overlay specimens: a dialog with an action band, a
-//! right sheet and a bottom sheet, each opened from a button and mounted by
-//! `gallery.rs`. Each overlay is controlled by a signal here; the primitives
-//! own portal, focus containment, and dismissal. `ui` has no centred sheet, so
-//! the bottom sheet stands in for the md centred variant.
+//! Dialog, sheet and nested-menu specimens for the design gallery.
+//! `gallery.rs` mounts the controls; local signals own their open state.
+//! Shared UI primitives own anchoring, portals, focus and dismissal.
 
 use dioxus::prelude::*;
 
 use crate::components::ui::{
     Button, ButtonVariant, Dialog, DialogAction, DialogBody, DialogContent, DialogDescription,
-    DialogFooter, DialogHeader, DialogTitle, IconType, Sheet, SheetContent, SheetHeader, SheetSide,
-    SheetTitle,
+    DialogFooter, DialogHeader, DialogTitle, DropdownMenu, DropdownMenuContent, DropdownMenuSub,
+    DropdownMenuSubContent, DropdownMenuSubItem, DropdownMenuSubTrigger, DropdownMenuTrigger,
+    IconType, Sheet, SheetContent, SheetHeader, SheetSide, SheetTitle,
 };
 
 const BODY_TEXT_CLASS: &str = "m-0 text-sm text-muted-foreground";
@@ -21,6 +20,8 @@ pub fn DesignOverlayStates() -> Element {
     let mut fullscreen_dialog_open = use_signal(|| false);
     let mut sheet_open = use_signal(|| false);
     let mut bottom_sheet_open = use_signal(|| false);
+    let mut menu_open = use_signal(|| false);
+    let mut submenu_open = use_signal(|| false);
 
     rsx! {
         div { class: "flex flex-wrap items-center gap-3",
@@ -47,6 +48,33 @@ pub fn DesignOverlayStates() -> Element {
                 icon: IconType::Maximize2,
                 onclick: move |_| bottom_sheet_open.set(true),
                 "Open bottom sheet"
+            }
+            DropdownMenu {
+                open: menu_open(),
+                on_open_change: move |open: bool| {
+                    menu_open.set(open);
+                    if !open {
+                        submenu_open.set(false);
+                    }
+                },
+                DropdownMenuTrigger { "Nested menu" }
+                DropdownMenuContent {
+                    DropdownMenuSub {
+                        open: submenu_open(),
+                        on_open_change: move |open: bool| submenu_open.set(open),
+                        DropdownMenuSubTrigger { "Open overlay" }
+                        DropdownMenuSubContent {
+                            DropdownMenuSubItem {
+                                on_select: Some(EventHandler::new(move |_event: MouseEvent| dialog_open.set(true))),
+                                "Dialog"
+                            }
+                            DropdownMenuSubItem {
+                                on_select: Some(EventHandler::new(move |_event: MouseEvent| sheet_open.set(true))),
+                                "Sheet"
+                            }
+                        }
+                    }
+                }
             }
 
             Dialog {

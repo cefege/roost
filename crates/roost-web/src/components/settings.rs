@@ -100,7 +100,7 @@ fn SettingsEditor(active: Option<SettingsPaneSpec>) -> Element {
     rsx! {
         div { class: "flex h-full min-h-0 w-full bg-background",
             aside {
-                class: "flex w-72 shrink-0 flex-col gap-4 overflow-y-auto border-r border-border bg-sidenav p-4",
+                class: "flex w-72 shrink-0 flex-col gap-4 overflow-y-auto border-r border-sidenav-border bg-sidenav p-4",
                 "aria-label": "Settings sections",
                 h1 { class: "px-2 text-lg font-semibold text-foreground", "Settings" }
                 TextField {
@@ -113,10 +113,9 @@ fn SettingsEditor(active: Option<SettingsPaneSpec>) -> Element {
                 }
                 for (label, panes) in &groups {
                     section { class: "flex flex-col gap-1",
-                        SidenavGroupLabel { class: "px-3 uppercase tracking-wide", "{label}" }
+                        SidenavGroupLabel { "{label}" }
                         for pane in panes {
                             ListRow {
-                                class: "rounded-md",
                                 href: Route::Settings { pane: Some(pane.id.to_string()) }.to_path(),
                                 on_navigate: navigate,
                                 selected: pane.id == active.id,
@@ -183,7 +182,7 @@ fn MobileSettingsList() -> Element {
             List { class: "gap-4 overflow-y-auto p-2",
                 for (label, panes) in &groups {
                     div { class: "flex flex-col",
-                        h2 { class: "px-4 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground", "{label}" }
+                        SidenavGroupLabel { "{label}" }
                         for pane in panes {
                             {
                                 let href = Route::Settings { pane: Some(pane.id.to_string()) }.to_path();

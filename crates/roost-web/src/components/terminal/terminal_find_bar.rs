@@ -134,7 +134,7 @@ pub fn TerminalFindBar(
             role: "search",
             onkeydown: on_key_down,
             Input {
-                class: "h-7 min-w-0 flex-1 px-2 py-1 font-mono text-xs",
+                class: "min-w-0 flex-1",
                 test_id: "terminal-find-input",
                 aria_invalid: state.failed,
                 aria_label: alt_label,
@@ -147,7 +147,7 @@ pub fn TerminalFindBar(
                 oninput: move |event: FormEvent| on_query.call(event.value()),
             }
             span {
-                class: "shrink-0 text-xs tabular-nums whitespace-nowrap text-muted-foreground",
+                class: "shrink-0 tabular-nums whitespace-nowrap text-muted-foreground",
                 "data-testid": "terminal-find-count",
                 {count}
             }
@@ -175,7 +175,6 @@ pub fn TerminalFindBar(
                 aria_label: "Search options",
                 class: "shrink-0",
                 ToggleGroupItem {
-                    class: "h-7 text-xs",
                     title: "Match case",
                     pressed: state.case_sensitive,
                     test_id: "terminal-find-case",
@@ -183,7 +182,6 @@ pub fn TerminalFindBar(
                     "Aa"
                 }
                 ToggleGroupItem {
-                    class: "h-7 text-xs",
                     title: "Regular expression",
                     pressed: state.regex,
                     test_id: "terminal-find-regex",
@@ -192,7 +190,7 @@ pub fn TerminalFindBar(
                 }
             }
             if state.alt_screen {
-                span { class: "text-xs whitespace-nowrap text-muted-foreground", "visible rows only" }
+                span { class: "whitespace-nowrap text-muted-foreground", "visible rows only" }
             }
             IconButton {
                 icon: IconType::X,

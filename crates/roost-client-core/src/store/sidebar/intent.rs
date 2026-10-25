@@ -1,21 +1,15 @@
-//! The sidebar's user actions, as one event the pump dispatches: the view
-//! selector, the drawer and rail, the Cmd-F reveal, a row's navigation
-//! bookkeeping, the keyboard cursor, and the visit memory. The actions of
-//! `apps/web/src/store/uiStore.ts`, `SidebarRoot.tsx`'s shortcut, and the row
-//! click handlers of `FolderList.tsx`, `SessionRow.tsx` and `SidebarAgents.tsx`.
+//! The sidebar's user actions: drawer and rail, Cmd-F reveal, navigation
+//! bookkeeping, keyboard cursor and visit memory. `SidebarRoot` and row click
+//! handlers dispatch these intents.
 
 use crate::platform::KeyValueStore;
 use crate::store::Store;
 use crate::store::sidebar::memory::remember_last_workspace;
-use crate::store::ui::{
-    SidebarView, close_sidebar, open_sidebar, set_sidebar_view, toggle_sidebar_collapsed,
-};
+use crate::store::ui::{close_sidebar, open_sidebar, toggle_sidebar_collapsed};
 
 /// A sidebar action.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SidebarIntent {
-    /// Show the Folders or Agents projection (the selector buttons).
-    SetView(SidebarView),
     /// Open the compact drawer.
     OpenDrawer,
     /// Close the compact drawer.
@@ -58,7 +52,6 @@ impl SidebarIntent {
     /// A stable name for the transition log.
     pub const fn kind_name(&self) -> &'static str {
         match self {
-            Self::SetView(_) => "set_view",
             Self::OpenDrawer => "open_drawer",
             Self::CloseDrawer => "close_drawer",
             Self::ToggleCollapsed => "toggle_collapsed",
@@ -78,7 +71,6 @@ pub fn apply_sidebar_intent(
     intent: &SidebarIntent,
 ) {
     let changed = match intent {
-        SidebarIntent::SetView(view) => set_sidebar_view(store, storage, *view),
         SidebarIntent::OpenDrawer => open_sidebar(store),
         SidebarIntent::CloseDrawer => close_sidebar(store),
         SidebarIntent::ToggleCollapsed => toggle_sidebar_collapsed(store, storage),

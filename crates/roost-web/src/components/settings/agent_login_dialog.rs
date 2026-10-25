@@ -10,9 +10,9 @@ use roost_client_core::client::rpc::calls::agent_chat::{
 };
 
 use crate::components::ui::{
-    Alert, AlertDescription, AlertTitle, AlertVariant, Button, ButtonSize, ButtonVariant, Dialog,
-    DialogBody, DialogContent, DialogHeader, DialogTitle, FieldError, IconButton, IconType,
-    Surface, SurfaceRadius, TextField,
+    Alert, AlertDescription, AlertTitle, AlertVariant, Button, ButtonSize, ButtonVariant, Card,
+    CardContent, CardSize, Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle,
+    FieldError, IconButton, IconType, TextField,
 };
 use crate::pump::{Pump, use_store};
 use roost_protocol::wire::agent_chat::{LoginPromptType, LoginState, LoginStatus};
@@ -127,20 +127,18 @@ pub fn AgentLoginDialog(
                     div { class: "flex flex-col gap-3",
                         if let Some(value) = current {
                             for notice in value.notices {
-                                Surface {
-                                    key: "{notice.notice_type:?}-{notice.message}",
-                                    border: true,
-                                    pad: Some(3),
-                                    radius: SurfaceRadius::Md,
-                                    p { class: "text-base", "{notice.message}" }
-                                    if notice.notice_type == roost_protocol::wire::agent_chat::LoginNoticeType::AuthUrl {
-                                        if let Some(url) = notice.url {
-                                            SignInUrl { url }
+                                Card { key: "{notice.notice_type:?}-{notice.message}", size: CardSize::Sm,
+                                    CardContent { class: "flex flex-col gap-3",
+                                        p { "{notice.message}" }
+                                        if notice.notice_type == roost_protocol::wire::agent_chat::LoginNoticeType::AuthUrl {
+                                            if let Some(url) = notice.url {
+                                                SignInUrl { url }
+                                            }
                                         }
-                                    }
-                                    if notice.notice_type == roost_protocol::wire::agent_chat::LoginNoticeType::DeviceCode {
-                                        if let Some(code) = notice.code {
-                                            p { class: "font-mono text-xl tracking-widest", "{code}" }
+                                        if notice.notice_type == roost_protocol::wire::agent_chat::LoginNoticeType::DeviceCode {
+                                            if let Some(code) = notice.code {
+                                                code { class: "font-mono", "{code}" }
+                                            }
                                         }
                                     }
                                 }
@@ -229,28 +227,27 @@ pub fn AgentLoginDialog(
 fn SignInUrl(url: String) -> Element {
     let (copy_url, copied) = crate::components::hooks::use_copy_clipboard::use_copy_clipboard(None);
     rsx! {
-        Surface {
-            class: "flex items-center gap-2 break-all",
-            pad: Some(2),
-            radius: SurfaceRadius::Sm,
-            a {
-                class: "min-w-0 flex-1 text-primary underline",
-                href: "{url}",
-                target: "_blank",
-                rel: "noopener noreferrer",
-                "data-testid": "agent-login-url",
-                "{url}"
-            }
-            IconButton {
-                icon: if copied() { IconType::Check } else { IconType::Copy },
-                label: "Copy sign-in link",
-                title: if copied() { "Copied" } else { "Copy link" },
-                size: ButtonSize::IconSm,
-                "data-testid": "agent-login-url-copy",
-                onclick: {
-                    let url = url.clone();
-                    move |_| copy_url(&url)
-                },
+        Card { size: CardSize::Sm,
+            CardContent { class: "flex items-center gap-2 break-all",
+                a {
+                    class: "min-w-0 flex-1 text-primary underline",
+                    href: "{url}",
+                    target: "_blank",
+                    rel: "noopener noreferrer",
+                    "data-testid": "agent-login-url",
+                    "{url}"
+                }
+                IconButton {
+                    icon: if copied() { IconType::Check } else { IconType::Copy },
+                    label: "Copy sign-in link",
+                    title: if copied() { "Copied" } else { "Copy link" },
+                    size: ButtonSize::IconSm,
+                    "data-testid": "agent-login-url-copy",
+                    onclick: {
+                        let url = url.clone();
+                        move |_| copy_url(&url)
+                    },
+                }
             }
         }
     }

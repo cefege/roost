@@ -12,7 +12,7 @@ use roost_protocol::wire::agent_chat::{
 
 use super::model_controls::supports_reasoning;
 use super::model_hub::hub_logic::model_argument_values;
-use crate::components::ui::{Command, CommandItem, CommandList, Surface};
+use crate::components::ui::{Card, CardSize, Command, CommandItem, CommandList};
 
 #[cfg(target_arch = "wasm32")]
 use web_sys::{ScrollIntoViewOptions, ScrollLogicalPosition};
@@ -292,13 +292,9 @@ pub fn SlashMenu(
             class: "absolute inset-x-0 bottom-full z-10 mb-2",
             "data-testid": "agent-chat-command-menu",
             onmousedown: move |event: MouseEvent| event.prevent_default(),
-            // The composer's level, so the selected row's container color reads
-            // against it; the elevation is what lifts it off the transcript.
-            Surface {
-                class: Some("max-h-[min(21rem,40dvh)] overflow-y-auto overscroll-contain py-1".to_owned()),
-                level: 1,
-                elevation: 2,
-                border: true,
+            Card {
+                size: CardSize::Sm,
+                class: Some("max-h-[min(21rem,40dvh)] overflow-y-auto overscroll-contain".to_owned()),
                 if let Some(command) = usage_line {
                     p { class: "px-3 py-2 text-xs text-muted-foreground", "data-testid": "agent-chat-command-usage",
                         span { class: "font-mono",

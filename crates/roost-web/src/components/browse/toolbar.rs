@@ -11,8 +11,7 @@ use crate::components::ui::dropdown_menu::{
     DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 };
 use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, StatusDot, Surface,
-    SurfaceRadius,
+    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, StatusDot,
 };
 
 /// The header band.
@@ -60,10 +59,7 @@ pub fn BrowseToolbar(
             open: server_menu_open,
             on_open_change: on_server_open_change,
             test_id: "browse-server-menu",
-            Surface {
-                class: Some("flex min-w-0 items-center gap-2 px-2 py-1".to_owned()),
-                level: 2,
-                radius: SurfaceRadius::None,
+            div { class: "flex min-w-0 items-center gap-2 px-2 py-1",
                 IconButton {
                     size: ButtonSize::IconSm,
                     "data-testid": "browse-close",
@@ -87,32 +83,30 @@ pub fn BrowseToolbar(
                 }
                 if online_workers.len() > 1 {
                     DropdownMenuTrigger {
-                        class: "h-8 max-w-40 truncate px-2",
+                        class: "max-w-40 truncate",
                         ghost: true,
                         test_id: "browse-server",
                         span { class: "sr-only", {server_label.clone()} }
-                        Icon { icon: IconType::ChevronsUpDown, class: "size-3" }
+                        Icon { icon: IconType::ChevronsUpDown }
                     }
                 }
                 IconButton {
-                    class: Some("data-[active=true]:bg-accent".to_owned()),
+                    variant: if filter_open { ButtonVariant::Secondary } else { ButtonVariant::Ghost },
                     size: ButtonSize::IconSm,
                     "data-testid": "browse-filter-toggle",
                     icon: IconType::Search,
                     label: "Filter this folder",
                     title: "Filter this folder",
-                    "data-active": filter_open.then_some("true"),
                     "aria-pressed": filter_open.to_string(),
                     onclick: move |_| on_toggle_filter.call(()),
                 }
                 IconButton {
-                    class: Some("data-[active=true]:bg-accent".to_owned()),
+                    variant: if show_files { ButtonVariant::Secondary } else { ButtonVariant::Ghost },
                     size: ButtonSize::IconSm,
                     "data-testid": "browse-show-files",
                     icon: IconType::FileText,
                     label: "Show files in this folder",
                     title: "Show files in this folder",
-                    "data-active": show_files.then_some("true"),
                     "aria-pressed": show_files.to_string(),
                     onclick: move |_| on_toggle_show_files.call(()),
                 }
@@ -128,7 +122,7 @@ pub fn BrowseToolbar(
                 }
             }
             DropdownMenuContent {
-                class: "w-auto min-w-48 max-h-[60vh] flex flex-col gap-0.5 overflow-y-auto",
+                class: "w-auto min-w-48 max-h-[60vh] overflow-y-auto",
                 for worker in online_workers.iter() {
                     ServerOption {
                         worker: worker.clone(),

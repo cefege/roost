@@ -55,6 +55,7 @@
 :root {
   --bottom__nav__height: 4rem;
   --radius: 0.625rem;
+  --font-sans: 'Inter', sans-serif;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -188,8 +189,7 @@
   --spacing-bottom__nav__height: var(--bottom__nav__height);
   --breakpoint-3xl: 1600px;
   --breakpoint-4xl: 2000px;
-  --font-sans: var(--font-ui);
-  --font-display: var(--font-title);
+  --font-sans: var(--font-sans);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);

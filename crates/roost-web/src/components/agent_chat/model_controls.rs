@@ -1,21 +1,17 @@
-//! The composer's model button and thinking picker, and the setup card shown
-//! while no model can run. The button names the model this chat runs and opens
-//! `role_switcher`, where every model role is changed in place. Mounted by
-//! `agent_chat::composer` and `agent_chat::surface`; the thinking menu opens
-//! upward because the composer sits at the bottom of its pane.
+//! The composer's model selector and setup card. The model menu owns this-chat
+//! model pins and thinking level; the inspector's role editor owns shared role
+//! settings. Mounted by `agent_chat::composer` and `agent_chat::surface`.
 
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{ConversationSummary, ModelsCatalog};
 
 use super::composer_commands::model_picker_trigger_id;
-use super::role_switcher::RoleSwitcher;
-use super::toolbar_menu::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
+use super::model_reference_menu::ModelReferenceMenu;
 use crate::components::ui::{
     Button, ButtonSize, ButtonVariant, Card, CardContent, CardHeader, CardTitle, IconType,
 };
 use crate::pump::Pump;
 use crate::router_state::use_navigate;
-
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::client::rpc::calls::agent_chat::ConfigureAgentChat;
 
@@ -88,51 +84,14 @@ pub fn AgentModelControls(
             }
         };
     }
-    let model_label = current_model_label(catalog.as_ref(), &conversation);
-    let reasoning = supports_reasoning(&conversation, catalog.as_ref());
-    let thinking = conversation
-        .thinking_level
-        .clone()
-        .unwrap_or_else(|| "off".to_string());
-    let thinking_items = catalog
-        .as_ref()
-        .map(|catalog| {
-            catalog
-                .thinking_levels
-                .iter()
-                .map(|level| {
-                    ToolbarMenuItem::choice(
-                        level.clone(),
-                        thinking_label(level),
-                        *level == thinking,
-                    )
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    let thinking_pump = pump.clone();
-    let thinking_id = conversation.id.clone();
     rsx! {
-        div { class: "flex flex-wrap items-center gap-1",
-            RoleSwitcher {
-                trigger_id: trigger_id.clone(),
-                trigger_label: model_label.clone(),
-                trigger_title: format!("{model_label}. Change the models for this chat and its subagents."),
-                conversation: conversation.clone(),
-                catalog: catalog.clone(),
+        div { class: "flex min-w-0 max-w-full items-center",
+            ModelReferenceMenu {
+                trigger_id,
+                conversation,
+                catalog,
+                catalog_failed,
                 pump,
-            }
-            if reasoning && !thinking_items.is_empty() {
-                ToolbarMenu {
-                    menu_key: "thinking",
-                    trigger: ToolbarTrigger::Picker { label: thinking_label(&thinking) },
-                    aria_label: "Thinking effort",
-                    items: thinking_items,
-                    opens_up: true,
-                    on_choose: move |level: String| {
-                        configure(thinking_pump.clone(), thinking_id.clone(), Configure::Thinking(level))
-                    },
-                }
             }
         }
     }
@@ -185,12 +144,6 @@ pub fn ModelSetupCard(setup: ModelSetup, on_retry: EventHandler<()>) -> Element 
     }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-pub(super) enum Configure {
-    Model(Option<String>),
-    Thinking(String),
-}
-
 /// `xhigh` → `XHigh`, `auto` → `Auto`: a thinking level as a label.
 pub(super) fn thinking_label(level: &str) -> String {
     if level == "xhigh" {
@@ -235,17 +188,17 @@ pub(super) fn current_model_label(
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
-pub(super) fn configure(pump: Pump, conversation_id: String, change: Configure) {
+pub(super) fn configure_model_pin(pump: Pump, conversation_id: String, selector: Option<String>) {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_futures::spawn_local(async move {
-        let call = match change {
-            Configure::Model(None) => ConfigureAgentChat {
+        let call = match selector {
+            None => ConfigureAgentChat {
                 conversation_id,
                 model_provider: Some(String::new()),
                 model_id: Some(String::new()),
                 ..Default::default()
             },
-            Configure::Model(Some(selector)) => {
+            Some(selector) => {
                 let Some((provider, model_id)) = selector.split_once('/') else {
                     return;
                 };
@@ -256,11 +209,6 @@ pub(super) fn configure(pump: Pump, conversation_id: String, change: Configure) 
                     ..Default::default()
                 }
             }
-            Configure::Thinking(level) => ConfigureAgentChat {
-                conversation_id,
-                thinking_level: Some(level),
-                ..Default::default()
-            },
         };
         if let Err(error) = pump.rpc().call(&call).await {
             tracing::warn!(target: "agent_chat", %error, "agent configure failed");

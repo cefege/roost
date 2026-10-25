@@ -20,7 +20,7 @@ fn a_television_reporting_a_phone_sized_viewport_gets_the_desktop_shell() {
 }
 
 #[test]
-fn agent_and_terminal_routes_highlight_workspaces() {
+fn agent_and_terminal_routes_highlight_folders() {
     for pathname in [
         "/",
         "/a/c-agent",
@@ -31,8 +31,8 @@ fn agent_and_terminal_routes_highlight_workspaces() {
     ] {
         assert_eq!(
             active_destination(pathname),
-            Some(Destination::Workspaces),
-            "{pathname} is a workspace destination"
+            Some(Destination::Folders),
+            "{pathname} is a folder destination"
         );
     }
 }

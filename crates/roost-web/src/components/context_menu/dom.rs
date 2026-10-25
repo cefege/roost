@@ -157,8 +157,10 @@ impl DismissListeners {
         let click =
             Closure::<dyn FnMut(web_sys::MouseEvent)>::new(move |event: web_sys::MouseEvent| {
                 let inside = event.composed_path().iter().any(|node| {
-                    node.dyn_ref::<web_sys::Element>()
-                        .is_some_and(|element| click_ids.iter().any(|id| element.id() == *id))
+                    node.dyn_ref::<web_sys::Element>().is_some_and(|element| {
+                        click_ids.iter().any(|id| element.id() == *id)
+                            || has_menu_owner(element, &click_ids)
+                    })
                 });
                 if !inside {
                     on_close.call(());
@@ -212,9 +214,11 @@ fn escape_belongs_to(event: &KeyboardEvent, within_ids: &[String]) -> bool {
         let Some(element) = node.dyn_ref::<Element>() else {
             continue;
         };
-        let id = element.id();
-        if within_ids.contains(&id) {
+        if within_ids.contains(&element.id()) {
             return true;
+        }
+        if has_menu_owner(element, within_ids) {
+            return false;
         }
         if matches!(
             element.get_attribute("role").as_deref(),
@@ -224,4 +228,10 @@ fn escape_belongs_to(event: &KeyboardEvent, within_ids: &[String]) -> bool {
         }
     }
     true
+}
+
+fn has_menu_owner(element: &Element, within_ids: &[String]) -> bool {
+    element
+        .get_attribute("data-menu-owner")
+        .is_some_and(|owner_id| within_ids.iter().any(|id| id == &owner_id))
 }

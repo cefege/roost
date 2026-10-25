@@ -23,8 +23,8 @@ use roost_protocol::wire::McpRelay;
 
 use crate::components::ui::{
     Badge, BadgeVariant, Button, ButtonVariant, Card, CardAction, CardContent, CardDescription,
-    CardHeader, CardTitle, EmptyState, FieldError, Icon, IconType, List, ListRow, Select,
-    SelectOption, Surface, SurfaceRadius, TextField,
+    CardHeader, CardSize, CardTitle, EmptyState, FieldError, Icon, IconType, List, ListRow, Select,
+    SelectOption, TextField,
 };
 use crate::pump::{Pump, use_store};
 
@@ -126,7 +126,7 @@ pub fn McpPane() -> Element {
             if has_relays {
                 Card {
                     CardContent {
-                        List { contained: true,
+                        List {
                             for relay in view().relays.to_vec() {
                                 RelayRow { relay, view, confirming, pump: row_pump.clone() }
                             }
@@ -247,55 +247,52 @@ fn RelayEditor(
         "/usr/local/bin/mcp-server"
     };
     rsx! {
-        Surface {
-            radius: SurfaceRadius::Sm,
-            pad: Some(3),
-            border: true,
-            class: Some("flex flex-col gap-2".to_owned()),
-            test_id: Some("mcp-relay-editor".to_owned()),
-            TextField {
-                test_id: "mcp-editor-label".to_owned(),
-                label: "Relay name".to_owned(),
-                placeholder: "e.g. filesystem".to_owned(),
-                value: label(),
-                on_input: move |value| label.set(value),
-            }
-            Select {
-                test_id: "mcp-editor-kind".to_owned(),
-                label: "Kind".to_owned(),
-                value: kind(),
-                on_change: move |value| kind.set(value),
-                options: vec![
-                    SelectOption::new("stdio", "stdio (binary path)"),
-                    SelectOption::new("sse", "sse (URL)"),
-                ],
-            }
-            TextField {
-                test_id: "mcp-editor-target".to_owned(),
-                label: target_label.to_owned(),
-                placeholder: target_placeholder.to_owned(),
-                value: target(),
-                on_input: move |value| target.set(value),
-            }
-            div { class: "flex gap-2",
-                Button {
-                    variant: ButtonVariant::Default,
-                    "data-testid": "mcp-editor-save",
-                    disabled: label().trim().is_empty() || target().trim().is_empty(),
-                    onclick: move |_| {
-                        on_save.call((
-                            label().trim().to_owned(),
-                            kind().clone(),
-                            relay_config_json(&kind(), target().trim()),
-                        ));
-                    },
-                    "Add relay"
+        Card { size: CardSize::Sm, "data-testid": "mcp-relay-editor",
+            CardContent { class: "flex flex-col gap-3",
+                TextField {
+                    test_id: "mcp-editor-label".to_owned(),
+                    label: "Relay name".to_owned(),
+                    placeholder: "e.g. filesystem".to_owned(),
+                    value: label(),
+                    on_input: move |value| label.set(value),
                 }
-                Button {
-                    variant: ButtonVariant::Ghost,
-                    "data-testid": "mcp-editor-cancel",
-                    onclick: move |_| on_cancel.call(()),
-                    "Cancel"
+                Select {
+                    test_id: "mcp-editor-kind".to_owned(),
+                    label: "Kind".to_owned(),
+                    value: kind(),
+                    on_change: move |value| kind.set(value),
+                    options: vec![
+                        SelectOption::new("stdio", "stdio (binary path)"),
+                        SelectOption::new("sse", "sse (URL)"),
+                    ],
+                }
+                TextField {
+                    test_id: "mcp-editor-target".to_owned(),
+                    label: target_label.to_owned(),
+                    placeholder: target_placeholder.to_owned(),
+                    value: target(),
+                    on_input: move |value| target.set(value),
+                }
+                div { class: "flex gap-2",
+                    Button {
+                        variant: ButtonVariant::Default,
+                        "data-testid": "mcp-editor-save",
+                        disabled: label().trim().is_empty() || target().trim().is_empty(),
+                        onclick: move |_| {
+                            on_save.call((
+                                label().trim().to_owned(),
+                                kind().clone(),
+                                relay_config_json(&kind(), target().trim()),
+                            ));
+                        },
+                        "Add relay"
+                    }
+                    Button {
+                        variant: ButtonVariant::Ghost,
+                        "data-testid": "mcp-editor-cancel",
+                        onclick: move |_| on_cancel.call(()),
+                        "Cancel"
+                    }
                 }
             }
         }

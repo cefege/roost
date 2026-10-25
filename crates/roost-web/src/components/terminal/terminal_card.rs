@@ -132,13 +132,11 @@ pub fn TerminalCard(
                 }
             },
             CardContent { class: "flex h-9 shrink-0 items-center gap-2 overflow-hidden pr-11",
-                span { class: "flex size-6 shrink-0 items-center justify-center rounded-md bg-accent text-accent-foreground",
-                    Icon { icon: IconType::Terminal, class: "size-4" }
-                }
+                Icon { icon: IconType::Terminal, class: "size-4 shrink-0 text-muted-foreground" }
                 div { class: "flex min-w-0 flex-1 flex-col overflow-hidden",
-                    span { class: "min-w-0 truncate text-sm font-medium", "{name}" }
+                    span { class: "min-w-0 truncate", "{name}" }
                     if let Some(subtitle) = subtitle {
-                        span { class: "block truncate text-xs text-muted-foreground",
+                        span { class: "block truncate text-muted-foreground",
                             "{subtitle}"
                         }
                     }
@@ -170,10 +168,10 @@ pub fn TerminalCard(
             // <html>; the theme's terminal role would ignore it, and the preview
             // must look like the terminal it previews (as the tab hover card does).
             CardContent { class: "min-h-0 flex-1",
-                div { class: "relative h-full overflow-hidden rounded-md bg-[var(--terminal-grid-bg)]",
+                div { class: "relative h-full overflow-hidden bg-[var(--terminal-grid-bg)]",
                     match preview {
                         Some(rows) if !rows.is_empty() => rsx! {
-                            div { class: "block size-full overflow-hidden rounded-[inherit] px-1.5 py-1 font-mono text-xs whitespace-pre box-border text-[var(--terminal-grid-fg)] [&_span]:animate-none!",
+                            div { class: "block size-full overflow-hidden px-1.5 py-1 font-mono text-xs whitespace-pre box-border text-[var(--terminal-grid-fg)] [&_span]:animate-none!",
                                 for (index, row) in rows.iter().enumerate() {
                                     PreviewRow { key: "{index}", row: row.clone() }
                                 }

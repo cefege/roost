@@ -1,14 +1,9 @@
 //! The agent composer keeps the draft, slash commands and voice input together.
 //! Its footer exposes models, busy submission modes and foreground interruption.
 //! Submissions reuse their request ID until the outcome is known.
-
-use std::rc::Rc;
-
-use dioxus::prelude::*;
-use roost_protocol::wire::agent_chat::{
-    ConversationSummary, ModelsCatalog, ProviderEntry, Transcript, parse_slash_command,
+use super::composer_commands::{
+    LocalCommandScope, report_command, run_local_command, submit_message,
 };
-
 use super::composer_footer::ComposerFooter;
 #[cfg(target_arch = "wasm32")]
 use super::composer_helpers::abort_run;
@@ -27,11 +22,11 @@ use crate::components::ui::{FieldError, InputPrompt, InputPromptTextarea};
 use crate::pump::Pump;
 use crate::router_state::use_navigate;
 use crate::voice::send_gate::SendGate;
-
-use super::composer_commands::{
-    LocalCommandScope, report_command, run_local_command, submit_message,
+use dioxus::prelude::*;
+use roost_protocol::wire::agent_chat::{
+    ConversationSummary, ModelsCatalog, ProviderEntry, Transcript, parse_slash_command,
 };
-
+use std::rc::Rc;
 #[component]
 pub fn AgentComposer(
     conversation: ConversationSummary,
@@ -57,6 +52,7 @@ pub fn AgentComposer(
     let mut field = use_signal(|| None::<Rc<MountedData>>);
     let mut connect_provider = connect_provider;
     let mut command_error = use_signal(|| None::<String>);
+    let mut voice_error = use_signal(|| None::<String>);
     let mut goal_open = use_signal(|| false);
     let mut goal_view_request = use_signal(String::new);
     let mut goal_pending = use_signal(|| false);
@@ -300,12 +296,6 @@ pub fn AgentComposer(
             }
             InputPrompt {
                 class: "min-w-0 flex-col",
-                ComposerErrorBanner {
-                    error: run_error,
-                    running,
-                    on_stop: stop,
-                    on_switch_model: switch_model,
-                }
                 InputPromptTextarea {
                     id: super::composer_helpers::composer_input_id(&conversation_id),
                     value: draft,
@@ -313,7 +303,7 @@ pub fn AgentComposer(
                     aria_label: "Message the agent",
                     disabled,
                     submit_on_enter: send_available,
-                    class: "w-full min-h-6 max-h-60 py-1 px-3 text-base leading-6",
+                    class: "w-full",
                     on_mounted: capture_field,
                     on_keydown: handle_draft_key,
                     on_input: handle_draft_input,
@@ -325,9 +315,6 @@ pub fn AgentComposer(
                     "aria-activedescendant": options_open.then(|| option_id(&conversation_id, selected)),
                     rows: "1",
                     "data-testid": "agent-chat-input",
-                }
-                if let Some(message) = command_error() {
-                    FieldError { test_id: "agent-command-error", class: "px-3 pb-1", {message} }
                 }
                 ComposerFooter {
                     conversation: conversation.clone(),
@@ -357,10 +344,10 @@ pub fn AgentComposer(
                         VoiceControl {
                             owner_id: conversation_id.clone(),
                             active: active && !disabled,
-                            compact: true,
                             read_context: Some(dictation_context.clone()),
                             binding: SharedBinding(dictation.clone()),
                             on_submit: submit,
+                            on_error: move |error| voice_error.set(error),
                         }
                     },
                     disabled,
@@ -369,6 +356,18 @@ pub fn AgentComposer(
                     on_send: send,
                     on_stop: stop,
                 }
+            }
+            ComposerErrorBanner {
+                error: run_error,
+                running,
+                on_stop: stop,
+                on_switch_model: switch_model,
+            }
+            if let Some(message) = command_error() {
+                FieldError { test_id: "agent-command-error", class: "px-3", {message} }
+            }
+            if let Some(message) = voice_error() {
+                FieldError { test_id: "agent-voice-error", class: "px-3", {message} }
             }
             GoalControls {
                 goal,

@@ -4,6 +4,7 @@
 //! `apps/web/src/lib/folderKey.ts` it reads (`folderPathOf`,
 //! `workspaceForFolder`, `folderDisplayName`). Pure reads of the store; the
 //! folder key is `store::paths::folder_key_of`, the same key the deck uses.
+use std::collections::{BTreeMap, BTreeSet};
 
 use roost_protocol::wire::{PullRequestChecks, PullRequestState, Session, SessionKind, Workspace};
 
@@ -67,7 +68,7 @@ pub struct FolderGroup {
     pub reach_addr: Option<String>,
     /// The highest agent level present and the per-level counts.
     pub agent_status: AgentStatusRollup,
-    /// Agent conversations in this folder, newest first.
+    /// Root conversations in this folder followed by their descendants.
     pub agent_conversation_ids: Vec<String>,
 }
 
@@ -78,15 +79,6 @@ pub const fn pr_check_glyph(checks: PullRequestChecks) -> &'static str {
         PullRequestChecks::Failing => "✕",
         PullRequestChecks::Pending => "•",
         PullRequestChecks::None => "",
-    }
-}
-
-/// The colour token the checks glyph paints in.
-pub const fn pr_check_color(checks: PullRequestChecks) -> &'static str {
-    match checks {
-        PullRequestChecks::Passing => "var(--color-ok)",
-        PullRequestChecks::Failing => "var(--color-warn)",
-        PullRequestChecks::Pending | PullRequestChecks::None => "var(--text-lo)",
     }
 }
 
@@ -181,16 +173,51 @@ pub fn build_folder_groups_from(
             None => agent_buckets.push((key, vec![conversation])),
         }
     }
-    for (key, conversations) in agent_buckets {
+    let mut children_by_parent =
+        BTreeMap::<&str, Vec<&roost_protocol::wire::agent_chat::ConversationSummary>>::new();
+    for conversation in store.agent_chat.conversations.values() {
+        if let Some(parent) = conversation.parent_id.as_deref() {
+            children_by_parent
+                .entry(parent)
+                .or_default()
+                .push(conversation);
+        }
+    }
+    for (key, mut conversations) in agent_buckets {
+        conversations.sort_by_key(|row| std::cmp::Reverse(row.updated_ms));
         let Some(newest) = conversations.first() else {
             continue;
         };
-        if let Some(group) = groups.iter_mut().find(|group| group.key == key) {
+        let group = if let Some(index) = groups.iter().position(|group| group.key == key) {
+            let Some(group) = groups.get_mut(index) else {
+                continue;
+            };
             group.latest_activity = group.latest_activity.max(newest.updated_ms);
             group.agent_conversation_ids = conversations.iter().map(|row| row.id.clone()).collect();
+            group
         } else {
-            if let Some(group) = agent_only_group_of(store, paths, now_ms, key, &conversations) {
-                groups.push(group);
+            let Some(group) = agent_only_group_of(store, paths, now_ms, key, &conversations) else {
+                continue;
+            };
+            groups.push(group);
+            let Some(group) = groups.last_mut() else {
+                continue;
+            };
+            group
+        };
+        let mut included: BTreeSet<&str> =
+            conversations.iter().map(|row| row.id.as_str()).collect();
+        let mut pending: Vec<&str> = conversations.iter().map(|row| row.id.as_str()).collect();
+        while let Some(parent_id) = pending.pop() {
+            let Some(children) = children_by_parent.get(parent_id) else {
+                continue;
+            };
+            for child in children {
+                if included.insert(child.id.as_str()) {
+                    group.latest_activity = group.latest_activity.max(child.updated_ms);
+                    group.agent_conversation_ids.push(child.id.clone());
+                    pending.push(child.id.as_str());
+                }
             }
         }
     }

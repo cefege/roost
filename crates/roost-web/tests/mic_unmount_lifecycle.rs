@@ -76,6 +76,7 @@ fn mic_root() -> Element {
             MobileVoiceInput {
                 owner_id: SESSION_ID.to_owned(),
                 active: true,
+                on_error: EventHandler::new(|_error: Option<String>| {}),
                 on_state_change: told,
                 on_transcript: EventHandler::new(|_words: String| {}),
                 on_live_transcript: EventHandler::new(|_update: Option<LiveTranscript>| {}),

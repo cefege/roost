@@ -51,7 +51,7 @@ pub fn ConnectedProviderCard(
             }
             CardContent {
                 if !summary.accounts.is_empty() {
-                    List { contained: true,
+                    List {
                         for account in summary.accounts.clone() {
                             AccountRow { key: "{account.credential_id}", account, now_ms, on_removed: on_changed }
                         }
