@@ -145,7 +145,7 @@ fn code_block_open(kind: &CodeBlockKind<'_>) -> String {
     };
     // The sanitized markup cannot mount Dioxus primitives, so it uses the
     // registry Card and Ghost button recipes directly.
-    let copy_class = button_class(ButtonVariant::Ghost, ButtonSize::Xs, None);
+    let copy_class = button_class(ButtonVariant::Ghost, ButtonSize::Sm, None);
     format!(
         "<div data-code-block class=\"my-4 overflow-hidden bg-card text-card-foreground flex flex-col rounded-xl border shadow-sm py-6 gap-4\">\
          <div class=\"flex items-center justify-between gap-2 px-6\">\

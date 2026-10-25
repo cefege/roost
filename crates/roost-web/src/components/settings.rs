@@ -31,13 +31,19 @@ pub mod voice_languages;
 
 mod pane;
 
+use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
 
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::settings_navigation::{SETTINGS_GROUPS, SettingsPaneSpec, settings_pane};
+use crate::components::ui::list::is_in_app_navigation_click;
+use crate::components::ui::sidenav_layout::{
+    SidenavGroup, SidenavGroupContent, SidenavGroupLabel, SidenavMenu, SidenavMenuItem,
+};
+use crate::components::ui::sidenav_links::SidenavMenuButton;
 use crate::components::ui::{
     Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyMediaVariant, EmptyTitle, Icon,
-    IconButton, IconType, List, ListRow, SidenavGroupLabel, TextField,
+    IconButton, IconType, List, TextField,
 };
 use crate::router_state::use_navigate;
 use crate::routes::Route;
@@ -112,17 +118,34 @@ fn SettingsEditor(active: Option<SettingsPaneSpec>) -> Element {
                     test_id: "settings-search",
                 }
                 for (label, panes) in &groups {
-                    section { class: "flex flex-col gap-1",
+                    SidenavGroup {
                         SidenavGroupLabel { "{label}" }
-                        for pane in panes {
-                            ListRow {
-                                href: Route::Settings { pane: Some(pane.id.to_string()) }.to_path(),
-                                on_navigate: navigate,
-                                selected: pane.id == active.id,
-                                aria_current: (pane.id == active.id).then(|| "page".to_string()),
-                                test_id: Some(format!("rail-{}", pane.id)),
-                                leading_icon: pane.icon,
-                                headline: rsx! { span { title: pane.description, {pane.label} } },
+                        SidenavGroupContent {
+                            SidenavMenu {
+                                for pane in panes {
+                                    {
+                                        let href = Route::Settings { pane: Some(pane.id.to_string()) }.to_path();
+                                        let is_active = pane.id == active.id;
+                                        rsx! {
+                                            SidenavMenuItem {
+                                                SidenavMenuButton {
+                                                    href: Some(href.clone()),
+                                                    aria_current: is_active.then(|| "page".to_owned()),
+                                                    "data-testid": format!("rail-{}", pane.id),
+                                                    onclick: move |event: MouseEvent| {
+                                                        let primary = event.trigger_button() == Some(MouseButton::Primary);
+                                                        if is_in_app_navigation_click(primary, event.modifiers()) {
+                                                            event.prevent_default();
+                                                            navigate.call(href.clone());
+                                                        }
+                                                    },
+                                                    Icon { icon: pane.icon }
+                                                    span { title: pane.description, {pane.label} }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -181,19 +204,34 @@ fn MobileSettingsList() -> Element {
             }
             List { class: "gap-4 overflow-y-auto p-2",
                 for (label, panes) in &groups {
-                    div { class: "flex flex-col",
+                    SidenavGroup {
                         SidenavGroupLabel { "{label}" }
-                        for pane in panes {
-                            {
-                                let href = Route::Settings { pane: Some(pane.id.to_string()) }.to_path();
-                                rsx! {
-                                    ListRow {
-                                        test_id: Some(format!("settings-list-{}", pane.id)),
-                                        onclick: move |_| navigate.call(href.clone()),
-                                        leading_icon: pane.icon,
-                                        headline: rsx! { {pane.label} },
-                                        support: rsx! { {pane.description} },
-                                        trailing: rsx! { Icon { icon: IconType::ChevronRight, class: "size-4" } },
+                        SidenavGroupContent {
+                            SidenavMenu {
+                                for pane in panes {
+                                    {
+                                        let href = Route::Settings { pane: Some(pane.id.to_string()) }.to_path();
+                                        rsx! {
+                                            SidenavMenuItem {
+                                                SidenavMenuButton {
+                                                    href: Some(href.clone()),
+                                                    "data-testid": format!("settings-list-{}", pane.id),
+                                                    onclick: move |event: MouseEvent| {
+                                                        let primary = event.trigger_button() == Some(MouseButton::Primary);
+                                                        if is_in_app_navigation_click(primary, event.modifiers()) {
+                                                            event.prevent_default();
+                                                            navigate.call(href.clone());
+                                                        }
+                                                    },
+                                                    Icon { icon: pane.icon }
+                                                    span { class: "min-w-0 flex-1",
+                                                        span { class: "block truncate", {pane.label} }
+                                                        span { class: "block truncate text-xs font-normal text-muted-foreground", {pane.description} }
+                                                    }
+                                                    Icon { icon: IconType::ChevronRight }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }

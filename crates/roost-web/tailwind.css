@@ -474,7 +474,6 @@
   --radius-xs: 0.25rem;
   --radius-2xl: 1rem;
 
-  --color-brand: var(--brand-coral);
   --color-terminal: var(--term-bg);
   --color-terminal-foreground: var(--term-fg);
 }

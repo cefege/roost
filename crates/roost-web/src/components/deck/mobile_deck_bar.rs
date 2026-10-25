@@ -85,15 +85,11 @@ pub fn MobileDeckBar(
     );
     let open_drawer = pump.clone();
     let count_size = if badge.fraction {
-        ButtonSize::Xs
+        ButtonSize::Sm
     } else {
         ButtonSize::IconXs
     };
-    let count_class = if badge.fraction {
-        "h-7 w-auto min-w-7 px-1 tabular-nums"
-    } else {
-        "size-7 p-0 tabular-nums"
-    };
+    let count_class = "tabular-nums";
     rsx! {
         div {
             class: "flex items-center gap-2 h-12 shrink-0 px-2 bg-card border-b border-border text-foreground touch-pan-y",

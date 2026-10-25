@@ -1,25 +1,21 @@
-//! One folder row: the machine mark, folder name and age, offline subtitle,
-//! agent rollup, and machine / pane / branch / PR / port details. The full-row
-//! link targets its last-visited terminal, lead terminal, or first agent
-//! conversation when the folder has no terminals.
+//! A folder destination composed from the stock Sidenav menu parts.
+//! The link resolves the remembered terminal or first agent; supporting badges
+//! keep machine, activity, git and port context outside the destination link.
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
 use roost_client_core::client::agents::status_policy::{
-    AgentStatusLevel, agent_status_level_token, agent_status_presentation,
-    format_agent_status_counts,
+    AgentStatusLevel, agent_status_presentation, format_agent_status_counts,
 };
 use roost_client_core::store::selectors::{session_by_id, session_folder_key};
 use roost_client_core::store::sidebar::SidebarIntent;
 use roost_client_core::store::sidebar::folder_groups::{FolderGroup, pr_check_glyph};
-use roost_client_core::store::sidebar::format::avatar_background;
 use roost_protocol::wire::SessionStatus;
 
 use super::folder_row_context_menu::{FolderMenuTarget, FolderRowContextMenu};
 use super::rel_time_tick::use_rel_time_now;
-use super::row_chips::{BranchChip, PortChip, PrBadgeChip, ServerChip};
+use super::row_chips::{BranchChip, PortChip, PrBadgeChip};
 use crate::components::agents::agent_status_indicator::agent_dot_status_name;
-use crate::components::browse::folder_glyph::FolderGlyph;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::machines::machine_identity_mark::MachineIdentityMark;
 use crate::components::notifications::notify_target::{
@@ -27,7 +23,10 @@ use crate::components::notifications::notify_target::{
 };
 use crate::components::ui::list::is_in_app_navigation_click;
 use crate::components::ui::status::StatusDot;
-use crate::components::ui::{ButtonSize, IconButton, IconType, Item, ItemSize};
+use crate::components::ui::{
+    Badge, BadgeSize, BadgeVariant, Icon, IconType, SidenavMenuAction, SidenavMenuButton,
+    SidenavMenuButtonSize, SidenavMenuItem,
+};
 use crate::platform::BrowserWorkerPaths;
 use crate::pump::use_store;
 use crate::router_state::{use_location, use_navigate};
@@ -35,7 +34,7 @@ use crate::session_naming::rel_time_since;
 
 /// A folder row.
 #[component]
-pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
+pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool, children: Element) -> Element {
     let pump = use_store();
     let navigate = use_navigate();
     let compact = use_is_compact();
@@ -109,29 +108,38 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
     let has_sessions = !group.session_ids.is_empty();
     let rollup = group.agent_status;
     let show_rollup = rollup.total > 0 && rollup.level != AgentStatusLevel::Unknown;
+    let rollup_variant = match rollup.level {
+        AgentStatusLevel::Blocked => BadgeVariant::Warning,
+        AgentStatusLevel::Done => BadgeVariant::Success,
+        _ => BadgeVariant::Secondary,
+    };
     rsx! {
-        div {
-            class: "group relative min-w-0",
+        SidenavMenuItem {
+            class: "min-w-0",
             title: group.spawn_cwd.clone(),
             "data-testid": "folder-row-{group.key}",
             "data-selected": if selected { "focused" } else { "" },
             "data-cursor": cursor.then_some("on"),
             "data-notify-target": ringing,
-            style: "--avatar-bg: {avatar_background(&group.key)}",
             oncontextmenu: move |event: MouseEvent| {
                 event.prevent_default();
                 event.stop_propagation();
                 let at = event.client_coordinates();
                 menu.set(Some(menu_target(at.x, at.y)));
             },
-            Item {
-                size: ItemSize::Xs,
-                class: "relative w-full min-w-0 items-start gap-3 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50 group-data-[selected=focused]:bg-accent group-data-[cursor=on]:bg-accent/50",
-            a {
+            SidenavMenuButton {
                 href: href.clone(),
-                class: "absolute inset-0 z-10",
+                size: SidenavMenuButtonSize::Lg,
+                aria_current: if selected { "page" } else { "false" },
+                class: if cursor { "ring-2 ring-sidenav-ring" } else { "" },
                 "aria-label": "Open {group.name}",
                 onclick: move |event: MouseEvent| {
+                    let primary = event.trigger_button()
+                        == Some(dioxus::html::input_data::MouseButton::Primary);
+                    if !is_in_app_navigation_click(primary, event.modifiers()) {
+                        return;
+                    }
+                    event.prevent_default();
                     if has_sessions {
                         pump.dispatch(ClientEvent::Sidebar(SidebarIntent::RecordNavigation {
                             session_id: target_id.clone(),
@@ -141,74 +149,21 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
                     } else {
                         pump.dispatch(ClientEvent::Sidebar(SidebarIntent::CloseDrawer));
                     }
-                    let primary = event.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary);
-                    if is_in_app_navigation_click(primary, event.modifiers()) {
-                        event.prevent_default();
-                        navigate.call(href.clone());
-                    }
+                    navigate.call(href.clone());
                 },
-            }
-            span { class: "pointer-events-none contents",
-                span { class: "flex shrink-0 items-center",
-                    MachineIdentityMark { worker: worker.clone(), context_title: group.spawn_cwd.clone() }
-                }
-                span { class: "flex min-w-0 flex-1 flex-col gap-0.5",
-                    span { class: "flex min-w-0 items-baseline gap-2",
-                        span { class: "min-w-0 truncate text-sm font-medium text-foreground group-data-[selected=focused]:text-accent-foreground", title: group.spawn_cwd.clone(), {group.name.clone()} }
-                        span { class: "shrink-0 text-xs tabular-nums text-muted-foreground group-data-[selected=focused]:text-accent-foreground", {rel_time_since(now_ms, group.latest_activity)} }
-                    }
-                    if !group.subtitle.is_empty() {
-                        span { class: "truncate text-xs text-muted-foreground group-data-[selected=focused]:text-accent-foreground", {group.subtitle.clone()} }
-                    }
-                    if show_rollup {
-                        span {
-                            class: "inline-flex min-w-0 items-center gap-1 truncate text-xs text-muted-foreground data-[level=blocked]:text-warning data-[level=done]:text-success data-[level=working]:text-info",
-                            "data-level": agent_status_level_token(rollup.level),
-                            "data-testid": "folder-agent-status-{group.key}",
-                            StatusDot {
-                                status: agent_dot_status_name(agent_status_presentation(rollup.level).dot_status).to_owned(),
-                            }
-                            span { {format_agent_status_counts(&rollup.counts)} }
-                        }
-                    }
-                    span { class: "flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-muted-foreground",
-                        if !compact || !group.online {
-                            ServerChip { online: group.online, label: group.server.clone(), title: None, test_id: None }
-                        }
-                        if !compact {
-                            span { class: "inline-flex items-center gap-1", title: panes_title,
-                                FolderGlyph { size: 11, class: "shrink-0" }
-                                span { "{pane_count}" }
-                            }
-                        }
-                        if let Some(branch) = group.branch.clone() {
-                            BranchChip { branch }
-                        }
-                        if let Some(pr) = group.pr.clone() {
-                            PrBadgeChip {
-                                folder_key: group.key.clone(),
-                                glyph: pr_check_glyph(pr.checks).to_owned(),
-                                pr,
-                            }
-                        }
-                        if !compact {
-                            for port in group.ports.iter().copied() {
-                                PortChip {
-                                    key: "{port}",
-                                    folder_key: group.key.clone(),
-                                    port,
-                                    reach_addr: group.reach_addr.clone(),
-                                }
-                            }
-                        }
+                Icon { icon: IconType::Folder }
+                span { class: "grid min-w-0 flex-1 text-left text-sm leading-tight",
+                    span { class: "truncate font-medium", {group.name.clone()} }
+                    span { class: "flex min-w-0 items-center gap-1 text-xs",
+                        StatusDot { status: if group.online { "ok" } else { "offline" } }
+                        "{group.server} · {rel_time_since(now_ms, group.latest_activity)}"
+                        if !group.subtitle.is_empty() { " · {group.subtitle}" }
                     }
                 }
             }
-            IconButton {
-                icon: IconType::EllipsisVertical,
-                label: "Folder actions",
-                size: ButtonSize::IconSm,
-                class: "relative z-20 shrink-0 pointer-events-auto",
+            SidenavMenuAction {
+                show_on_hover: true,
+                "aria-label": "Folder actions",
                 "data-testid": "folder-more-{group.key}",
                 title: "Folder actions",
                 onclick: move |event: MouseEvent| {
@@ -217,8 +172,47 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool) -> Element {
                     let at = event.client_coordinates();
                     menu.set(Some(more_target(at.x, at.y)));
                 },
+                Icon { icon: IconType::Ellipsis }
             }
+            div { class: "flex min-w-0 flex-wrap items-center gap-1 px-2 pb-2",
+                MachineIdentityMark { worker, context_title: group.spawn_cwd.clone() }
+                if !compact {
+                    span { title: panes_title,
+                        Badge { variant: BadgeVariant::Outline, size: BadgeSize::Sm,
+                            "{pane_count} terminal"
+                        }
+                    }
+                }
+                if show_rollup {
+                    span { "data-testid": "folder-agent-status-{group.key}",
+                        Badge { variant: rollup_variant, size: BadgeSize::Sm, class: "gap-1",
+                            StatusDot {
+                                status: agent_dot_status_name(agent_status_presentation(rollup.level).dot_status).to_owned(),
+                            }
+                            "{format_agent_status_counts(&rollup.counts)}"
+                        }
+                    }
+                }
+                if let Some(branch) = group.branch.clone() { BranchChip { branch } }
+                if let Some(pr) = group.pr.clone() {
+                    PrBadgeChip {
+                        folder_key: group.key.clone(),
+                        glyph: pr_check_glyph(pr.checks).to_owned(),
+                        pr,
+                    }
+                }
+                if !compact {
+                    for port in group.ports.iter().copied() {
+                        PortChip {
+                            key: "{port}",
+                            folder_key: group.key.clone(),
+                            port,
+                            reach_addr: group.reach_addr.clone(),
+                        }
+                    }
+                }
             }
+            {children}
             if let Some(target) = menu() {
                 FolderRowContextMenu { target, on_close: move |()| menu.set(None) }
             }

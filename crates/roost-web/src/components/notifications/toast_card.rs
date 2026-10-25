@@ -3,7 +3,6 @@
 //! text, and the hover/focus hold that freezes auto-dismiss and rings the toast's
 //! target session. Rendered by `toast_stack`; identity, window and dismissal
 //! are `roost_client_core::store::toasts`, read here rather than reimplemented.
-//! Ports `apps/web/src/components/notifications/ToastCard.tsx`.
 
 use dioxus::prelude::*;
 use roost_client_core::store::selectors::session_by_id;
@@ -18,37 +17,10 @@ use crate::components::deck::deck_dom;
 use crate::components::hooks::use_copy_clipboard::{copy_text_then, use_copy_clipboard};
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::terminal::dom::now_ms;
-use crate::components::ui::{
-    Alert, AlertVariant, Button, ButtonSize, ButtonVariant, IconButton, IconType, StatusDot,
-};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, ToastPresentation, ToastType};
 use crate::pump::{Pump, use_store};
 use crate::router_state::use_navigate;
 use crate::terminal_href::terminal_href;
-
-/// The `StatusDot` spelling each kind reads as.
-const fn dot_status(kind: ToastKind) -> &'static str {
-    match kind {
-        ToastKind::Ok => "ok",
-        ToastKind::Warn => "warn",
-        ToastKind::Err => "error",
-    }
-}
-
-/// The countdown bar's classes: its theme status role and placement. Each arm is
-/// a full literal so Tailwind scans it.
-const fn countdown_class(kind: ToastKind) -> &'static str {
-    match kind {
-        ToastKind::Ok => {
-            "absolute inset-x-0 bottom-0 h-[var(--workbench-border-width)] origin-left bg-success"
-        }
-        ToastKind::Warn => {
-            "absolute inset-x-0 bottom-0 h-[var(--workbench-border-width)] origin-left bg-warning"
-        }
-        ToastKind::Err => {
-            "absolute inset-x-0 bottom-0 h-[var(--workbench-border-width)] origin-left bg-destructive"
-        }
-    }
-}
 
 /// The message, its window and its actions, read from the store on every render.
 #[component]
@@ -202,22 +174,24 @@ pub fn ToastCard(toast_id: ToastId) -> Element {
             // where there is output worth keeping.
             show_copy: toast.kind == ToastKind::Err || toast.details.is_some(),
             copied: copy_confirmed,
-            button_size: if compact { ButtonSize::Sm } else { ButtonSize::Xs },
-            icon_size: if compact { ButtonSize::IconSm } else { ButtonSize::IconXs },
+            button_size: ButtonSize::Sm,
             on_reveal: reveal,
             on_copy: copy,
-            on_dismiss: dismiss,
         }
     };
 
     let kind_name = toast.kind.as_str();
-    let headline = toast.msg.clone();
+    let title = toast.msg.clone();
     let details = toast.details.clone();
     let is_error = toast.kind == ToastKind::Err;
     let window_ms = toast.kind.default_ttl_ms();
     let held_now = held();
     let play_state = if held_now { "paused" } else { "running" };
-    let dot = dot_status(toast.kind).to_owned();
+    let variant = match toast.kind {
+        ToastKind::Ok => ToastType::Success,
+        ToastKind::Warn => ToastType::Warning,
+        ToastKind::Err => ToastType::Error,
+    };
 
     rsx! {
         div {
@@ -230,45 +204,68 @@ pub fn ToastCard(toast_id: ToastId) -> Element {
             onmouseleave: move |event: MouseEvent| release.call(event),
             onfocusin: move |event: FocusEvent| hold_focus.call(event),
             onfocusout: move |event: FocusEvent| release_focus.call(event),
-            Alert {
-                variant: AlertVariant::Default,
-                role: if is_error { "alert".to_owned() } else { "status".to_owned() },
-                class: Some("relative overflow-hidden whitespace-pre-wrap [word-break:break-word]".to_owned()),
+            ToastPresentation {
+                variant,
+                title,
+                role: Some(if is_error { "alert" } else { "status" }.to_owned()),
                 aria_live: Some(if is_error { "assertive" } else { "polite" }.to_owned()),
                 aria_atomic: Some("true".to_owned()),
-                    div {
-                        class: "flex items-start gap-2",
-                        StatusDot { status: dot }
-                        span {
-                            class: "line-clamp-4 min-w-0 flex-1 select-text overflow-hidden",
-                            title: headline.clone(),
-                            "{headline}"
-                        }
-                        if !compact {
-                            {action.clone()}
-                        }
-                    }
-                    if let Some(detail) = details.as_ref() {
-                        pre {
-                            "data-testid": "toast-details",
-                            class: "m-0 max-h-36 overflow-auto select-text bg-muted text-muted-foreground whitespace-pre-wrap [word-break:break-word] [font-family:var(--term-font-family)]",
-                            "{detail}"
-                        }
-                    }
-                    if compact {
-                        div {
-                            class: "flex items-center justify-end gap-2",
-                            {action}
-                        }
-                    }
-                    if let Some(window) = window_ms {
-                        span {
-                            "aria-hidden": "true",
-                            class: "{countdown_class(toast.kind)} animate-roost-countdown-drain motion-reduce:animate-none",
-                            style: "animation-duration: {window}ms; animation-play-state: {play_state};",
-                        }
+                close_label: Some("Dismiss".to_owned()),
+                on_close: dismiss,
+                class: "relative w-full max-w-full min-w-0 cursor-default touch-auto overflow-hidden whitespace-pre-wrap [word-break:break-word]",
+                progress: window_ms.map(|_| 1.0),
+                progress_class: Some("animate-roost-countdown-drain motion-reduce:animate-none".to_owned()),
+                progress_style: window_ms.map(|window| format!(
+                    "animation-duration: {window}ms; animation-play-state: {play_state};"
+                )),
+                if let Some(detail) = details.as_ref() {
+                    pre {
+                        class: "m-0 mt-2 max-h-36 overflow-auto select-text bg-muted text-muted-foreground whitespace-pre-wrap [word-break:break-word] [font-family:var(--term-font-family)]",
+                        "{detail}"
                     }
                 }
+                if toast.action.is_some() || toast.kind == ToastKind::Err || details.is_some() {
+                    div { class: "mt-2 flex flex-wrap items-center justify-end gap-2", {action} }
+                }
+            }
+        }
+    }
+}
+#[component]
+fn ToastActionRow(
+    label: Option<String>,
+    show_copy: bool,
+    copied: bool,
+    button_size: ButtonSize,
+    on_reveal: EventHandler<MouseEvent>,
+    on_copy: EventHandler<MouseEvent>,
+) -> Element {
+    rsx! {
+        if let Some(label) = label.as_ref() {
+            Button {
+                variant: ButtonVariant::Ghost,
+                size: button_size,
+                title: label.clone(),
+                class: "shrink-0",
+                onclick: move |event: MouseEvent| {
+                    event.stop_propagation();
+                    on_reveal.call(event);
+                },
+                "{label}"
+            }
+        }
+        if show_copy {
+            Button {
+                variant: ButtonVariant::Ghost,
+                size: button_size,
+                title: if copied { "Copied to clipboard" } else { "Copy full message" },
+                class: "shrink-0",
+                onclick: move |event: MouseEvent| {
+                    event.stop_propagation();
+                    on_copy.call(event);
+                },
+                if copied { "Copied" } else { "Copy" }
+            }
         }
     }
 }
@@ -302,58 +299,4 @@ fn release_toast_dismissal(
     held.set(false);
     ring.clear(id);
     write_store(pump, |store| release_toast_dismiss(store, id, now_ms()));
-}
-
-/// The card's three actions in v2's order. Every one stops the card's hover
-/// handlers, so pressing a button is not read as a pointer that arrived and
-/// left — which would release the hold it just needed.
-#[component]
-fn ToastActionRow(
-    label: Option<String>,
-    show_copy: bool,
-    copied: bool,
-    button_size: ButtonSize,
-    icon_size: ButtonSize,
-    on_reveal: EventHandler<MouseEvent>,
-    on_copy: EventHandler<MouseEvent>,
-    on_dismiss: EventHandler<MouseEvent>,
-) -> Element {
-    rsx! {
-        if let Some(label) = label.as_ref() {
-            Button {
-                variant: ButtonVariant::Ghost,
-                size: button_size,
-                title: label.clone(),
-                class: "shrink-0",
-                onclick: move |event: MouseEvent| {
-                    event.stop_propagation();
-                    on_reveal.call(event);
-                },
-                "{label}"
-            }
-        }
-        if show_copy {
-            Button {
-                variant: ButtonVariant::Ghost,
-                size: button_size,
-                title: if copied { "Copied to clipboard" } else { "Copy full message" },
-                class: "shrink-0",
-                onclick: move |event: MouseEvent| {
-                    event.stop_propagation();
-                    on_copy.call(event);
-                },
-                if copied { "Copied" } else { "Copy" }
-            }
-        }
-        IconButton {
-            icon: IconType::X,
-            label: "Dismiss",
-            title: "Dismiss",
-            size: icon_size,
-            onclick: move |event: MouseEvent| {
-                event.stop_propagation();
-                on_dismiss.call(event);
-            },
-        }
-    }
 }

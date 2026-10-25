@@ -10,8 +10,8 @@ use dioxus::prelude::*;
 use tw_merge::tw_merge;
 
 use crate::components::ui::field::{
-    Field, FieldDescription, FieldError, FieldLabel, described_by, description_id, error_id,
-    scoped_element_id,
+    Field, FieldContent, FieldDescription, FieldError, FieldLabel, described_by, description_id,
+    error_id, scoped_element_id,
 };
 use crate::components::ui::input::{Input, InputType};
 use crate::components::ui::textarea::Textarea;
@@ -82,78 +82,80 @@ pub fn TextField(
             if let Some(label) = label {
                 FieldLabel { html_for: control_id.clone(), {label} }
             }
-            if is_textarea {
-                Textarea {
-                    id: control_id.clone(),
-                    class: control_class.unwrap_or_default(),
-                    value,
-                    rows: i64::from(rows.unwrap_or(4)),
-                    placeholder,
-                    autocomplete,
-                    inputmode: input_mode,
-                    required,
-                    minlength: min_length,
-                    maxlength: max_length,
-                    autofocus,
-                    disabled,
-                    test_id,
-                    aria_describedby: control_described_by,
-                    aria_invalid: aria_invalid_attribute,
-                    aria_label,
-                    oninput: on_value,
-                    onkeydown: move |event| {
-                        if let Some(handler) = &onkeydown {
-                            handler.call(event);
-                        }
-                    },
-                    onmounted: move |event| {
-                        if let Some(handler) = &onmounted {
-                            handler.call(event);
-                        }
-                    },
+            FieldContent {
+                if is_textarea {
+                    Textarea {
+                        id: control_id.clone(),
+                        class: control_class.unwrap_or_default(),
+                        value,
+                        rows: i64::from(rows.unwrap_or(4)),
+                        placeholder,
+                        autocomplete,
+                        inputmode: input_mode,
+                        required,
+                        minlength: min_length,
+                        maxlength: max_length,
+                        autofocus,
+                        disabled,
+                        test_id,
+                        aria_describedby: control_described_by,
+                        aria_invalid: aria_invalid_attribute,
+                        aria_label,
+                        oninput: on_value,
+                        onkeydown: move |event| {
+                            if let Some(handler) = &onkeydown {
+                                handler.call(event);
+                            }
+                        },
+                        onmounted: move |event| {
+                            if let Some(handler) = &onmounted {
+                                handler.call(event);
+                            }
+                        },
+                    }
+                } else {
+                    Input {
+                        id: control_id.clone(),
+                        class: control_class.unwrap_or_default(),
+                        r#type: InputType::from_name(input_type.as_deref().unwrap_or("text")),
+                        value,
+                        min,
+                        max,
+                        placeholder,
+                        autocomplete,
+                        inputmode: input_mode,
+                        required,
+                        minlength: min_length,
+                        maxlength: max_length,
+                        autofocus,
+                        disabled,
+                        test_id,
+                        aria_describedby: control_described_by,
+                        aria_invalid: aria_invalid_attribute,
+                        aria_label,
+                        role,
+                        aria_controls,
+                        aria_expanded,
+                        aria_activedescendant: aria_active_descendant,
+                        oninput: on_value,
+                        onkeydown: move |event| {
+                            if let Some(handler) = &onkeydown {
+                                handler.call(event);
+                            }
+                        },
+                        onmounted: move |event| {
+                            if let Some(handler) = &onmounted {
+                                handler.call(event);
+                            }
+                        },
+                    }
                 }
-            } else {
-                Input {
-                    id: control_id.clone(),
-                    class: control_class.unwrap_or_default(),
-                    r#type: InputType::from_name(input_type.as_deref().unwrap_or("text")),
-                    value,
-                    min,
-                    max,
-                    placeholder,
-                    autocomplete,
-                    inputmode: input_mode,
-                    required,
-                    minlength: min_length,
-                    maxlength: max_length,
-                    autofocus,
-                    disabled,
-                    test_id,
-                    aria_describedby: control_described_by,
-                    aria_invalid: aria_invalid_attribute,
-                    aria_label,
-                    role,
-                    aria_controls,
-                    aria_expanded,
-                    aria_activedescendant: aria_active_descendant,
-                    oninput: on_value,
-                    onkeydown: move |event| {
-                        if let Some(handler) = &onkeydown {
-                            handler.call(event);
-                        }
-                    },
-                    onmounted: move |event| {
-                        if let Some(handler) = &onmounted {
-                            handler.call(event);
-                        }
-                    },
+                if let Some(description) = description {
+                    FieldDescription { id: description_element_id, {description} }
                 }
-            }
-            if let Some(description) = description {
-                FieldDescription { id: description_element_id, {description} }
-            }
-            if let Some(error) = error {
-                FieldError { id: error_element_id, {error} }
+                if let Some(error) = error {
+                    FieldError { id: error_element_id, {error} }
+                }
             }
         }
     }

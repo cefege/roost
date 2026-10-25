@@ -1,6 +1,6 @@
-//! Sidenav navigation controls: links, menu buttons (a link or a button), sub-links,
-//! the hover-revealed menu action, and the ellipsis trigger. Active state comes from
-//! the browser location, as in rust-ui, so callers do not pass it.
+//! Sidenav navigation controls retain Rust/UI's link and action recipes.
+//! App-owned routes provide current state and native handlers; standalone links
+//! fall back to the browser location. Attributes reach the actual control.
 
 use dioxus::prelude::*;
 use tw_merge::tw_merge;
@@ -47,6 +47,8 @@ pub fn SidenavMenuButton(
     #[props(default = SidenavMenuButtonVariant::default())] variant: SidenavMenuButtonVariant,
     #[props(default = SidenavMenuButtonSize::default())] size: SidenavMenuButtonSize,
     #[props(into, optional)] aria_current: Option<String>,
+    #[props(optional)] onclick: Option<EventHandler<MouseEvent>>,
+    #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
     let base = "peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-hidden ring-sidenav-ring transition-[width,height,padding] hover:bg-sidenav-accent hover:text-sidenav-accent-foreground focus-visible:ring-2 active:bg-sidenav-accent active:text-sidenav-accent-foreground disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidenav=menu-action]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 aria-[current=page]:bg-sidenav-accent aria-[current=page]:font-medium aria-[current=page]:text-sidenav-accent-foreground data-[state=open]:hover:bg-sidenav-accent data-[state=open]:hover:text-sidenav-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0 group-data-[collapsible=Icon]:size-8! group-data-[collapsible=Icon]:p-0! [&>svg]:stroke-2 aria-[current=page]:[&>svg]:stroke-[2.7]";
@@ -88,16 +90,30 @@ pub fn SidenavMenuButton(
                 class: "{merged_class}",
                 href: "{href}",
                 "aria-current": aria_current.unwrap_or_else(|| "false".to_string()),
+                onclick: move |event| {
+                    if let Some(handler) = onclick {
+                        handler.call(event);
+                    }
+                },
+                ..attributes,
                 {children}
             }
         }
     } else {
         rsx! {
             button {
+                r#type: "button",
                 "data-name": "SidenavMenuButton",
                 "data-variant": data_variant,
                 "data-size": data_size,
                 class: "{merged_class}",
+                "aria-current": aria_current.unwrap_or_else(|| "false".to_owned()),
+                onclick: move |event| {
+                    if let Some(handler) = onclick {
+                        handler.call(event);
+                    }
+                },
+                ..attributes,
                 {children}
             }
         }
@@ -108,19 +124,35 @@ pub fn SidenavMenuButton(
 pub fn SidenavMenuSubButton(
     #[props(into)] href: String,
     #[props(into, optional)] class: Option<String>,
+    #[props(into, optional)] aria_current: Option<String>,
+    #[props(optional)] onclick: Option<EventHandler<MouseEvent>>,
+    #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
     let merged_class = tw_merge!(
         "text-sidenav-foreground ring-sidenav-ring hover:bg-sidenav-accent hover:text-sidenav-accent-foreground active:bg-sidenav-accent active:text-sidenav-accent-foreground flex h-7 min-w-0 -translate-x-px items-center gap-2 overflow-hidden rounded-md px-2 text-sm outline-hidden focus-visible:ring-2 disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 aria-[current=page]:bg-sidenav-accent aria-[current=page]:font-medium aria-[current=page]:text-sidenav-accent-foreground [&>svg]:size-4 [&>svg]:shrink-0",
         class.as_deref().unwrap_or("")
     );
-    let is_active = href_is_current(&href);
+    let current = aria_current.unwrap_or_else(|| {
+        if href_is_current(&href) {
+            "page"
+        } else {
+            "false"
+        }
+        .to_owned()
+    });
     rsx! {
         a {
             "data-name": "SidenavMenuSubButton",
             class: "{merged_class}",
             href: "{href}",
-            "aria-current": if is_active { "page" } else { "false" },
+            "aria-current": current,
+            onclick: move |event| {
+                if let Some(handler) = onclick {
+                    handler.call(event);
+                }
+            },
+            ..attributes,
             {children}
         }
     }
@@ -130,6 +162,8 @@ pub fn SidenavMenuSubButton(
 pub fn SidenavMenuAction(
     #[props(default = false)] show_on_hover: bool,
     #[props(into, optional)] class: Option<String>,
+    #[props(optional)] onclick: Option<EventHandler<MouseEvent>>,
+    #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
     let merged_class = tw_merge!(
@@ -143,9 +177,16 @@ pub fn SidenavMenuAction(
     );
     rsx! {
         button {
+            r#type: "button",
             "data-sidenav": "menu-action",
             "data-name": "SidenavMenuAction",
             class: "{merged_class}",
+            onclick: move |event| {
+                if let Some(handler) = onclick {
+                    handler.call(event);
+                }
+            },
+            ..attributes,
             {children}
         }
     }

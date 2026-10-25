@@ -3,12 +3,14 @@
 //! reads. Filtering swaps the trail for the filter field. Called by
 //! `browse::picker`; the trail collapse is `platform::worker_paths::palette`.
 
+use crate::components::ui::breadcrumb::{
+    Breadcrumb, BreadcrumbEllipsis, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage,
+    BreadcrumbSeparator,
+};
 use crate::components::ui::dropdown_menu::{
     DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 };
-use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, TextField,
-};
+use crate::components::ui::{ButtonSize, Icon, IconButton, IconType, TextField};
 use crate::platform::worker_paths::WorkerPathCrumb;
 use crate::platform::worker_paths::palette::CrumbView;
 use dioxus::prelude::*;
@@ -148,40 +150,58 @@ pub fn BrowsePathBar(
                         title: "Home folder",
                         onclick: move |_| on_home.call(()),
                     }
-                    div {
-                        class: "relative flex min-w-0 flex-1 items-center gap-1 overflow-hidden whitespace-nowrap",
-                        id: CRUMBS_ID,
-                        "data-testid": "browse-crumbs",
-                        for (index, view) in crumb_views.iter().enumerate() {
-                            if index > 0 {
-                                Icon { icon: IconType::ChevronRight, class: "size-3 shrink-0 text-muted-foreground" }
-                            }
-                            match view {
-                                CrumbView::Crumb(crumb) => {
-                                    let target = crumb.path.clone();
-                                    rsx! {
-                                        Button {
-                                            class: Some("max-w-48 truncate".to_owned()),
-                                            variant: if index == last_index { ButtonVariant::Secondary } else { ButtonVariant::Ghost },
-                                            size: ButtonSize::Sm,
-                                            "data-testid": "browse-crumb",
-                                            "data-current": (index == last_index).then_some("true"),
-                                            "aria-current": (index == last_index).then(|| "page".to_owned()),
-                                            title: crumb.path.clone(),
-                                            onclick: move |_| on_navigate.call(target.clone()),
-                                            {crumb.label.clone()}
+                    Breadcrumb { class: "min-w-0 flex-1 overflow-hidden whitespace-nowrap",
+                        BreadcrumbList {
+                            class: "min-w-0 flex-nowrap overflow-hidden",
+                            id: CRUMBS_ID,
+                            "data-testid": "browse-crumbs",
+                            for (index, view) in crumb_views.iter().enumerate() {
+                                if index > 0 {
+                                    BreadcrumbSeparator {}
+                                }
+                                match view {
+                                    CrumbView::Crumb(crumb) => {
+                                        let target = crumb.path.clone();
+                                        let link_content = rsx! {
+                                            span { class: "max-w-48 truncate", {crumb.label.clone()} }
+                                        };
+                                        if index == last_index {
+                                            rsx! {
+                                                BreadcrumbItem {
+                                                    BreadcrumbPage { title: crumb.path.clone(), {link_content} }
+                                                }
+                                            }
+                                        } else {
+                                            rsx! {
+                                                BreadcrumbItem {
+                                                    BreadcrumbLink {
+                                                        title: crumb.path.clone(),
+                                                        onclick: move |event: MouseEvent| {
+                                                            event.prevent_default();
+                                                            on_navigate.call(target.clone());
+                                                        },
+                                                        {link_content}
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
+                                    CrumbView::Ellipsis(_) => rsx! {
+                                        BreadcrumbItem {
+                                            BreadcrumbEllipsis {
+                                                DropdownMenuTrigger {
+                                                    class: "h-auto w-fit rounded-md px-1 py-1",
+                                                    ghost: true,
+                                                    test_id: "browse-crumb-overflow",
+                                                    aria_label: "Show hidden folders",
+                                                    title: "Show hidden folders",
+                                                    span { class: "sr-only", "Show hidden folders" }
+                                                    Icon { icon: IconType::Ellipsis, class: "size-4" }
+                                                }
+                                            }
+                                        }
+                                    },
                                 }
-                                CrumbView::Ellipsis(_) => rsx! {
-                                    DropdownMenuTrigger {
-                                        class: "shrink-0",
-                                        ghost: true,
-                                        test_id: "browse-crumb-overflow",
-                                        span { class: "sr-only", "Show hidden folders" }
-                                        Icon { icon: IconType::Ellipsis }
-                                    }
-                                },
                             }
                         }
                     }
@@ -189,25 +209,36 @@ pub fn BrowsePathBar(
                         class: "pointer-events-none invisible absolute top-0 left-0 flex items-center gap-1 whitespace-nowrap",
                         id: CRUMBS_MEASURE_ID,
                         "aria-hidden": "true",
-                        for (index, crumb) in crumbs.iter().enumerate() {
-                            if index > 0 {
-                                Icon { icon: IconType::ChevronRight, class: "size-3 shrink-0" }
+                        BreadcrumbList {
+                            class: "flex-nowrap",
+                            for (index, crumb) in crumbs.iter().enumerate() {
+                                if index > 0 {
+                                    BreadcrumbSeparator {}
+                                }
+                                BreadcrumbItem {
+                                    if index == last_index {
+                                        BreadcrumbPage { "data-mirror-crumb": "true", {crumb.label.clone()} }
+                                    } else {
+                                        BreadcrumbLink {
+                                            "data-mirror-crumb": "true",
+                                            tabindex: "-1",
+                                            {crumb.label.clone()}
+                                        }
+                                    }
+                                }
                             }
-                            Button {
-                                variant: ButtonVariant::Ghost,
-                                size: ButtonSize::Sm,
-                                "data-mirror-crumb": "true",
-                                tabindex: "-1",
-                                {crumb.label.clone()}
+                            BreadcrumbSeparator {}
+                            BreadcrumbItem {
+                                BreadcrumbEllipsis {
+                                    IconButton {
+                                        size: ButtonSize::IconSm,
+                                        icon: IconType::Ellipsis,
+                                        label: "Show hidden folders",
+                                        "data-mirror-overflow": "true",
+                                        tabindex: "-1",
+                                    }
+                                }
                             }
-                        }
-                        Icon { icon: IconType::ChevronRight, class: "size-3 shrink-0" }
-                        IconButton {
-                            size: ButtonSize::IconSm,
-                            icon: IconType::Ellipsis,
-                            label: "Show hidden folders",
-                            "data-mirror-overflow": "true",
-                            tabindex: "-1",
                         }
                     }
                 }

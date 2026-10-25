@@ -20,8 +20,9 @@ use super::streaming_reveal::StreamingText;
 use super::thinking_block::ThinkingBlock;
 use super::tool_card::ToolCard;
 use crate::components::ui::{
-    Button, ButtonVariant, IconButton, IconType, Marker, Message, MessageAlign, MessageContent,
-    MessageFooter, MessageHeader, StatusDot,
+    Avatar, AvatarFallback, Bubble, BubbleContent, BubbleGroup, BubbleVariant, Button,
+    ButtonVariant, IconButton, IconType, Marker, Message, MessageAlign, MessageAvatar,
+    MessageContent, MessageFooter, StatusDot,
 };
 use crate::pump::Pump;
 
@@ -163,10 +164,20 @@ fn UserMessage(
     pump: Pump,
 ) -> Element {
     rsx! {
-        Message { align: MessageAlign::End, class: "items-end data-[align=End]:flex-col",
-            MessageHeader { class: "justify-end text-xs text-muted-foreground", "You" }
-            MessageContent { class: "max-w-4/5 whitespace-pre-wrap text-right", "{text}" }
-            UserMessageActions { conversation_id, item_id: id, text, draft, pump }
+        Message { align: MessageAlign::End,
+            MessageAvatar {
+                Avatar {
+                    AvatarFallback { "ME" }
+                }
+            }
+            MessageContent {
+                Bubble {
+                    BubbleContent { class: "whitespace-pre-wrap", "{text}" }
+                }
+                MessageFooter {
+                    UserMessageActions { conversation_id, item_id: id, text, draft, pump }
+                }
+            }
         }
     }
 }
@@ -194,41 +205,58 @@ fn AssistantMessage(
     let has_text = !copy_text.trim().is_empty();
     rsx! {
         div { class: "group/assistant flex flex-col gap-3", "data-streaming": streaming.then_some("true"),
-            Message { align: MessageAlign::Start, class: "flex-col gap-3",
-                MessageHeader { class: "text-xs text-muted-foreground", "Agent" }
-                MessageContent { class: "gap-3",
-                    for (index, block) in blocks.iter().enumerate() {
-                        match block {
-                            // Every text block goes through StreamingText under one key,
-                            // so a block that stops streaming keeps revealing its backlog.
-                            TranscriptBlock::Text { text } if !text.is_empty() => rsx! {
-                                StreamingText { key: "text-{index}", text: text.clone(), live: streaming && index + 1 == blocks.len() }
-                            },
-                            TranscriptBlock::Thinking { text } if !text.is_empty() => {
-                                let live = streaming && Some(index) == last_thinking && index + 1 == blocks.len();
-                                rsx! { ThinkingBlock { key: "thinking-{index}", text: text.clone(), live, globally_visible: show_thinking } }
-                            }
-                            _ => rsx! {},
-                        }
-                    }
-                    if streaming {
-                        Marker { role: "status",
-                            StatusDot { status: "running".to_string() }
-                            "Generating response"
-                        }
-                    }
-                    if let Some(error) = error {
-                        AgentAlert { p { "{error}" } }
+            Message {
+                MessageAvatar {
+                    Avatar {
+                        AvatarFallback { "A" }
                     }
                 }
-                if !streaming && has_text {
-                    MessageFooter { class: "-mt-2 gap-1 px-0 opacity-0 transition-opacity group-hover/assistant:opacity-100 group-focus-within/assistant:opacity-100 pointer-coarse:opacity-100",
-                        IconButton {
-                            icon: if response_copied() { IconType::Check } else { IconType::Copy },
-                            label: "Copy response",
-                            title: if response_copied() { "Copied" } else { "Copy" },
-                            variant: ButtonVariant::Ghost,
-                            onclick: move |_| copy_response(&copy_text),
+                MessageContent {
+                    BubbleGroup {
+                        for (index, block) in blocks.iter().enumerate() {
+                            match block {
+                                // Every text block goes through StreamingText under one key,
+                                // so a block that stops streaming keeps revealing its backlog.
+                                TranscriptBlock::Text { text } if !text.is_empty() => rsx! {
+                                    Bubble { variant: BubbleVariant::Muted,
+                                        BubbleContent {
+                                            StreamingText { key: "text-{index}", text: text.clone(), live: streaming && index + 1 == blocks.len() }
+                                        }
+                                    }
+                                },
+                                TranscriptBlock::Thinking { text } if !text.is_empty() => {
+                                    let live = streaming && Some(index) == last_thinking && index + 1 == blocks.len();
+                                    rsx! {
+                                        Bubble { variant: BubbleVariant::Ghost,
+                                            BubbleContent {
+                                                ThinkingBlock { key: "thinking-{index}", text: text.clone(), live, globally_visible: show_thinking }
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => rsx! {},
+                            }
+                        }
+                        if streaming {
+                            Marker { role: "status",
+                                StatusDot { status: "running".to_string() }
+                                "Generating response"
+                            }
+                        }
+                        if let Some(error) = error {
+                            AgentAlert { p { "{error}" } }
+                        }
+                    }
+                    if !streaming && has_text {
+                        MessageFooter {
+                            IconButton {
+                                icon: if response_copied() { IconType::Check } else { IconType::Copy },
+                                label: "Copy response",
+                                title: if response_copied() { "Copied" } else { "Copy" },
+                                size: crate::components::ui::ButtonSize::IconXs,
+                                variant: ButtonVariant::Ghost,
+                                onclick: move |_| copy_response(&copy_text),
+                            }
                         }
                     }
                 }

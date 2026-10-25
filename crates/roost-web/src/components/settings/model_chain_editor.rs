@@ -87,7 +87,7 @@ pub fn ModelChainEditor(
                                     headline: rsx! {
                                         Button {
                                             variant: ButtonVariant::Ghost,
-                                            size: ButtonSize::Xs,
+                                            size: ButtonSize::Sm,
                                             disabled: options.is_empty(),
                                             title: format!("Change {role_title} candidate {}", index + 1),
                                             onclick: move |_| { editing.set(Some(index)); adding.set(true); },

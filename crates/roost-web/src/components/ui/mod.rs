@@ -11,6 +11,7 @@ pub mod anchored_panel;
 pub mod attachment;
 pub mod avatar;
 pub mod badge;
+pub mod breadcrumb;
 pub mod bubble;
 pub mod button;
 pub mod button_group;
@@ -79,6 +80,7 @@ pub mod textarea;
 pub mod toast;
 mod toast_queue;
 pub mod toggle_group;
+pub mod toolbar;
 pub mod tooltip;
 pub mod usage_ring;
 pub use accordion::{
@@ -100,6 +102,10 @@ pub use avatar::{
     Avatar, AvatarBadge, AvatarFallback, AvatarGroup, AvatarGroupCount, AvatarImage, AvatarSize,
 };
 pub use badge::{Badge, BadgeSize, BadgeVariant, badge_class};
+pub use breadcrumb::{
+    Breadcrumb, BreadcrumbEllipsis, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage,
+    BreadcrumbSeparator,
+};
 pub use bubble::{
     Bubble, BubbleAlign, BubbleContent, BubbleGroup, BubbleReactions, BubbleReactionsSide,
     BubbleVariant,
@@ -148,7 +154,9 @@ pub use empty::{
 };
 pub use field::{Field, FieldDescription, FieldError, FieldLabel};
 pub use focus_scope::AutoFocusRequest;
-pub use hover_card::{HoverCard, HoverCardContent, HoverCardSide, HoverCardTrigger};
+pub use hover_card::{
+    HoverCard, HoverCardContent, HoverCardPresentation, HoverCardSide, HoverCardTrigger,
+};
 pub use icon::Icon;
 pub use icons::common::IconType;
 pub use input::{Input, InputType};
@@ -208,16 +216,20 @@ pub use table::{
     Table, TableBody, TableCaption, TableCell, TableFooter, TableHead, TableHeader, TableRow,
     TableWrapper,
 };
-pub use tabs::{Tabs, TabsContent, TabsList, TabsTrigger};
+pub use tabs::{Tabs, TabsContent, TabsList, TabsTrigger, TabsVariant};
 pub use text_field::TextField;
 pub use textarea::Textarea;
 pub use toast::{
-    ToastContainer, ToastDirection, ToastList, ToastPosition, ToastToaster, ToastTrigger,
-    ToastType, Toaster,
+    ToastContainer, ToastDirection, ToastList, ToastPosition, ToastPresentation, ToastToaster,
+    ToastTrigger, ToastType, Toaster,
 };
 pub use toast_queue::{ToastHandle, use_toast};
 pub use toggle_group::{
     ToggleGroup, ToggleGroupAction, ToggleGroupItem, ToggleGroupSpacing, ToggleGroupVariant,
 };
-pub use tooltip::{Tooltip, TooltipContent, TooltipPosition, TooltipProvider};
+pub use toolbar::{
+    Toolbar, ToolbarButton, ToolbarButtonVariant, ToolbarItem, ToolbarLink, ToolbarList,
+    ToolbarSeparator, ToolbarToggleGroup, ToolbarToggleItem,
+};
+pub use tooltip::{Tooltip, TooltipContent, TooltipPosition};
 pub use usage_ring::UsageRing;

@@ -46,12 +46,6 @@ pub fn TermFontStepper(props: TermFontStepperProps) -> Element {
     } else {
         format!("Terminal text size {px}px; reset to {default_px}px")
     };
-    let value_size = match props.size {
-        ButtonSize::IconXs => ButtonSize::Xs,
-        ButtonSize::IconSm => ButtonSize::Sm,
-        ButtonSize::IconLg => ButtonSize::Lg,
-        _ => ButtonSize::Default,
-    };
     rsx! {
         div {
             class: tw_merge!(
@@ -72,9 +66,9 @@ pub fn TermFontStepper(props: TermFontStepperProps) -> Element {
                     onclick: move |_| step_term_font(&larger_pump, 1),
                 }
                 Button {
-                    class: "min-w-0 tabular-nums",
+                    class: "tabular-nums",
                     variant: ButtonVariant::Ghost,
-                    size: value_size,
+                    size: props.size,
                     "data-testid": format!("{stem}-size"),
                     title: reset_label.clone(),
                     "aria-label": reset_label,
@@ -101,9 +95,9 @@ pub fn TermFontStepper(props: TermFontStepperProps) -> Element {
                     onclick: move |_| step_term_font(&smaller_pump, -1),
                 }
                 Button {
-                    class: "min-w-12 px-1 tabular-nums",
+                    class: "tabular-nums",
                     variant: ButtonVariant::Ghost,
-                    size: value_size,
+                    size: props.size,
                     "data-testid": format!("{stem}-size"),
                     title: reset_label.clone(),
                     "aria-label": reset_label,

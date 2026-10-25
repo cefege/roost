@@ -8,7 +8,7 @@ use tw_merge::tw_merge;
 
 use crate::components::ui::{Icon, IconType};
 
-/// The emphasis levels: rust-ui's set plus `Secondary` and the `Ghost` toolbar treatment.
+/// Rust/UI's action emphasis variants.
 #[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ButtonVariant {
     #[default]
@@ -44,19 +44,16 @@ impl ButtonVariant {
     }
 }
 
-/// The control sizes: rust-ui's set plus the extra-small text control and the
-/// large icon square.
+/// Rust/UI's text and icon control sizes.
 #[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ButtonSize {
     #[default]
     Default,
-    Xs,
     Sm,
     Lg,
     Icon,
     IconSm,
     IconXs,
-    IconLg,
 }
 
 impl ButtonSize {
@@ -64,13 +61,11 @@ impl ButtonSize {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Default => "h-9 px-4 py-2 has-[>svg]:px-3",
-            Self::Xs => "h-6 gap-1 rounded-md px-2 text-xs has-[>svg]:px-1.5",
             Self::Sm => "h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5",
             Self::Lg => "h-10 rounded-md px-6 has-[>svg]:px-4",
             Self::Icon => "size-9",
             Self::IconSm => "size-8 rounded-md",
             Self::IconXs => "size-6 rounded-md",
-            Self::IconLg => "size-10 rounded-md",
         }
     }
 }

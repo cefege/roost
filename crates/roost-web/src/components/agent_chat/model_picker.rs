@@ -11,9 +11,10 @@ use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{model_family, model_search_text, rank_matches};
 
 use crate::components::file_viewer::dom::focus_by_id;
+use crate::components::ui::input_group::{InputGroup, InputGroupAddon};
 use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Chip, Command, CommandItem, CommandList, EmptyState, Icon,
-    IconType, List, SectionTitle, TextField,
+    Button, ButtonSize, ButtonVariant, Chip, Command, CommandEmpty, CommandGroup,
+    CommandGroupLabel, CommandInput, CommandItem, CommandList, EmptyState, Icon, IconType,
 };
 
 /// One choice the picker offers. `selector` is the saved string (`provider/id`
@@ -145,106 +146,95 @@ pub fn ModelPicker(
         format!("{hidden} older versions hidden")
     };
     rsx! {
-        div { class: "flex min-h-0 flex-col gap-2", "data-testid": "{test_id}",
-            TextField {
-                value: current_query.clone(),
-                on_input: move |text: String| {
-                    query.set(text);
-                    active.set(0);
-                },
-                aria_label: Some("Search models".to_owned()),
-                placeholder: Some(placeholder),
-                input_type: Some("search".to_owned()),
-                autocomplete: Some("off".to_owned()),
-                autofocus,
-                test_id: Some(format!("{test_id}-search")),
-                id: Some(search_id.clone()),
-                role: "combobox",
-                aria_controls: results_id.clone(),
-                aria_expanded: "true",
-                aria_active_descendant: active_id,
-                onkeydown: move |event: KeyboardEvent| {
-                    let count = keyboard_choices.len();
-                    if count == 0 { return; }
-                    let next = match event.key().to_string().as_str() {
-                        "ArrowDown" => (highlighted + 1) % count,
-                        "ArrowUp" => (highlighted + count - 1) % count,
-                        "Home" => 0,
-                        "End" => count - 1,
-                        "Enter" => {
-                            event.prevent_default();
-                            on_choose.call(keyboard_choices[highlighted].clone());
-                            return;
-                        },
-                        _ => return,
-                    };
-                    event.prevent_default();
-                    active.set(next);
-                    scroll_choice_into_view(&format!("{keyboard_id}-option-{next}"));
-                },
-            }
-            if hidden > 0 {
-                div { class: "flex flex-wrap items-center gap-2",
-                    Chip {
-                        label: "Latest only".to_owned(),
-                        icon: Some(IconType::ListFilter),
-                        selected: Some(!show_all()),
-                        small: true,
-                        title: Some("Show only the newest version of each model".to_owned()),
-                        test_id: Some(format!("{test_id}-latest-only")),
-                        onclick: Some(EventHandler::new(move |()| {
-                            let next = !show_all();
-                            show_all.set(next);
-                            active.set(0);
-                        })),
+        Command { class: "min-h-0 h-auto overflow-visible", handles_keys: false, should_filter: false,
+            div { class: "flex min-h-0 flex-col gap-2", "data-testid": "{test_id}",
+                InputGroup { class: "h-9 rounded-none border-b",
+                    InputGroupAddon {
+                        Icon { icon: IconType::Search, class: "size-4" }
                     }
-                    span { class: "text-xs text-muted-foreground", "{versions_note}" }
+                    CommandInput {
+                        class: "flex-1 py-0 h-9 rounded-none border-0 shadow-none",
+                        id: Some(search_id.clone()),
+                        value: current_query.clone(),
+                        on_search_change: move |text| {
+                            query.set(text);
+                            active.set(0);
+                        },
+                        aria_label: Some("Search models".to_owned()),
+                        aria_controls: Some(results_id.clone()),
+                        aria_active_descendant: active_id,
+                        placeholder: Some(placeholder),
+                        autofocus,
+                        test_id: Some(format!("{test_id}-search")),
+                        onkeydown: move |event: KeyboardEvent| {
+                            let count = keyboard_choices.len();
+                            if count == 0 { return; }
+                            let next = match event.key().to_string().as_str() {
+                                "ArrowDown" => (highlighted + 1) % count,
+                                "ArrowUp" => (highlighted + count - 1) % count,
+                                "Home" => 0,
+                                "End" => count - 1,
+                                "Enter" => {
+                                    event.prevent_default();
+                                    on_choose.call(keyboard_choices[highlighted].clone());
+                                    return;
+                                },
+                                _ => return,
+                            };
+                            event.prevent_default();
+                            active.set(next);
+                            scroll_choice_into_view(&format!("{keyboard_id}-option-{next}"));
+                        },
+                    }
                 }
-            }
-            if older_match {
-                EmptyState {
-                    icon: IconType::History,
-                    title: format!("Only older versions match “{current_query}”."),
-                    action: rsx! {
-                        Button {
-                            variant: ButtonVariant::Outline,
-                            size: ButtonSize::Sm,
-                            "data-testid": "{test_id}-show-all",
-                            // The button goes away with the hint; focus returns to
-                            // the search so the dialog keeps it (and Escape works).
-                            onclick: move |_| {
-                                show_all.set(true);
-                                focus_by_id(&search_focus);
-                            },
-                            "Show all versions"
+                if hidden > 0 {
+                    div { class: "flex flex-wrap items-center gap-2 px-2",
+                        Chip {
+                            label: "Latest only".to_owned(),
+                            icon: Some(IconType::ListFilter),
+                            selected: Some(!show_all()),
+                            small: true,
+                            title: Some("Show only the newest version of each model".to_owned()),
+                            test_id: Some(format!("{test_id}-latest-only")),
+                            onclick: Some(EventHandler::new(move |()| {
+                                let next = !show_all();
+                                show_all.set(next);
+                                active.set(0);
+                            })),
                         }
-                    },
+                        span { class: "text-xs text-muted-foreground", "{versions_note}" }
+                    }
                 }
-            } else if no_matches {
-                EmptyState {
-                    icon: IconType::SearchX,
-                    title: format!("No models match “{current_query}”."),
+                if older_match {
+                    EmptyState {
+                        icon: IconType::History,
+                        title: format!("Only older versions match “{current_query}”."),
+                        action: rsx! {
+                            Button {
+                                variant: ButtonVariant::Outline,
+                                size: ButtonSize::Sm,
+                                "data-testid": "{test_id}-show-all",
+                                onclick: move |_| {
+                                    show_all.set(true);
+                                    focus_by_id(&search_focus);
+                                },
+                                "Show all versions"
+                            }
+                        },
+                    }
+                } else if no_matches {
+                    CommandEmpty { "No models match “{current_query}”." }
                 }
-            }
-            // The search field keeps focus and owns the arrow/Home/End/Enter ladder;
-            // `handles_keys: false` stops the results root from acting on the same keys,
-            // and rows never take tab focus.
-            Command {
-                class: "h-auto min-h-0 overflow-visible",
-                handles_keys: false,
-                should_filter: false,
-                highlighted: format!("{test_id}-option-{highlighted}"),
                 CommandList {
                     id: results_id.clone(),
                     role: "listbox",
                     aria_label: "Models",
                     class: "max-h-[min(50dvh,32rem)] min-h-0 overflow-y-auto overscroll-contain",
                     for (group, rows) in groups {
-                        // A blank group is one the surrounding view already names.
-                        if !group.is_empty() {
-                            SectionTitle { "{group}" }
-                        }
-                        List {
+                        CommandGroup {
+                            if !group.is_empty() {
+                                CommandGroupLabel { "{group}" }
+                            }
                             for option in rows {
                                 {
                                     let is_selected = selected.as_deref() == Some(option.selector.as_str());
@@ -260,7 +250,6 @@ pub fn ModelPicker(
                                             show_check: false,
                                             selected: is_highlighted,
                                             test_id: format!("model-picker-option-{}", option.selector),
-                                            class: "gap-4 px-4",
                                             on_select: Some(EventHandler::new(move |_| on_choose.call(choice.clone()))),
                                             div { class: "flex min-w-0 flex-1 flex-col",
                                                 span { class: "truncate text-sm font-medium text-foreground", "{option.name}" }

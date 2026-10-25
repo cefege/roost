@@ -10,9 +10,7 @@ use dioxus::prelude::*;
 use roost_client_core::TerminalTransport;
 use roost_client_core::store::terminal_transport::session_terminal_transport_kind;
 
-use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, StatusDot,
-};
+use crate::components::ui::{ButtonSize, Icon, IconButton, IconType, StatusDot, TabsTrigger};
 
 /// v2 `sessionTerminalTransportLabel`: the tooltip for a DIRECT carrier, and
 /// nothing for the coordinator or an unconfirmed one.
@@ -39,7 +37,6 @@ pub fn PaneTab(
     style: String,
     hover_card_available: bool,
     on_pointer_down: EventHandler<PointerEvent>,
-    on_select: EventHandler<()>,
     on_hover_start: EventHandler<super::deck_dom::ClientBox>,
     on_hover_end: EventHandler<()>,
     on_close: EventHandler<MouseEvent>,
@@ -99,7 +96,7 @@ pub fn PaneTab(
     let style = (!style.is_empty()).then_some(style);
     rsx! {
         div {
-            class: "group/tab relative inline-flex items-center gap-1 px-1 box-border h-full self-stretch flex-[0_1_auto] w-[var(--workbench-tab-width-max)] min-w-[var(--workbench-tab-width-min)] max-w-[var(--workbench-tab-width-max)] overflow-hidden cursor-pointer touch-pan-y border-t border-r border-solid border-t-transparent border-r-border bg-card text-muted-foreground text-sm transition-colors duration-150 not-data-[active=true]:hover:bg-accent not-data-[active=true]:hover:text-accent-foreground data-[active=true]:bg-background data-[active=true]:text-foreground data-[active=true]:border-t-ring group-data-[focused=false]/strip:data-[active=true]:text-muted-foreground group-data-[focused=false]/strip:data-[active=true]:border-t-transparent data-[dragging=true]:z-[4] data-[dragging=true]:bg-card data-[dragging=true]:cursor-grabbing data-[closing=true]:!min-w-0 data-[closing=true]:!max-w-0 data-[closing=true]:!px-0 data-[closing=true]:z-0 data-[closing=true]:opacity-0 data-[closing=true]:pointer-events-none data-[closing=true]:overflow-hidden data-[closing=true]:transition-[max-width,min-width,padding,opacity] data-[closing=true]:duration-[220ms] @container/pane-tab",
+            class: "group/tab relative inline-flex items-center gap-1 box-border h-full self-stretch flex-[0_1_auto] w-[var(--workbench-tab-width-max)] min-w-[var(--workbench-tab-width-min)] max-w-[var(--workbench-tab-width-max)] cursor-pointer touch-pan-y text-sm data-[dragging=true]:z-[4] data-[dragging=true]:bg-background data-[dragging=true]:cursor-grabbing data-[closing=true]:!min-w-0 data-[closing=true]:!max-w-0 data-[closing=true]:!px-0 data-[closing=true]:z-0 data-[closing=true]:opacity-0 data-[closing=true]:pointer-events-none data-[closing=true]:overflow-hidden data-[closing=true]:transition-[max-width,min-width,padding,opacity] data-[closing=true]:duration-[220ms] @container/pane-tab",
             "data-testid": "tab-{session_id}",
             "data-deck-tab": "true",
             "data-active": if active { "true" } else { "false" },
@@ -115,17 +112,14 @@ pub fn PaneTab(
                 }
             },
             onmouseleave: move |_| on_hover_end.call(()),
-            // The row paints its own hover and selection fill, so the label must not
-            // add the Ghost accent band over it.
-            Button {
-                variant: ButtonVariant::Ghost,
-                class: "flex flex-1 min-w-0 h-full items-center gap-1 p-0 text-start cursor-pointer group-data-[packed=true]/strip:justify-center",
-                "aria-label": title.clone(),
-                "data-tab-select": "true",
-                "aria-current": active.then_some("page"),
+            TabsTrigger {
+                value: session_id.clone(),
+                class: "h-full min-w-0 flex-1 justify-start text-start after:bottom-0",
+                aria_label: title.clone(),
+                has_panel: false,
                 title: native_tooltip,
                 onpointerdown: move |event| on_pointer_down.call(event),
-                onclick: move |_| on_select.call(()),
+                "data-tab-select": "true",
                 Icon {
                     icon: if agent_status.is_some() { IconType::Bot } else { IconType::Terminal },
                     class: "size-4 shrink-0 text-muted-foreground group-data-[packed=true]/strip:group-data-[active=true]/tab:hidden",
@@ -149,8 +143,8 @@ pub fn PaneTab(
             IconButton {
                 icon: IconType::X,
                 label: if agent_status.is_some() { "Close agent" } else { "Close terminal" },
-                size: ButtonSize::IconSm,
-                class: "shrink-0 size-6 text-muted-foreground opacity-0 pointer-events-none transition-opacity duration-150 hover:text-foreground group-hover/tab:opacity-100 group-hover/tab:pointer-events-auto group-focus-within/tab:opacity-100 group-data-[active=true]/tab:opacity-100 group-data-[active=true]/tab:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto tv:opacity-100 tv:pointer-events-auto pad:opacity-100 pad:pointer-events-auto group-data-[packed=true]/strip:hidden group-data-[packed=true]/strip:group-data-[active=true]/tab:inline-flex",
+                size: ButtonSize::IconXs,
+                class: "shrink-0 opacity-0 pointer-events-none transition-opacity duration-150 group-hover/tab:opacity-100 group-hover/tab:pointer-events-auto group-focus-within/tab:opacity-100 group-data-[active=true]/tab:opacity-100 group-data-[active=true]/tab:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto tv:opacity-100 tv:pointer-events-auto pad:opacity-100 pad:pointer-events-auto group-data-[packed=true]/strip:hidden group-data-[packed=true]/strip:group-data-[active=true]/tab:inline-flex",
                 "data-testid": "tab-close-{session_id}",
                 onclick: move |event| on_close.call(event),
             }

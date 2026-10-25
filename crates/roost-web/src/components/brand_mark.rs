@@ -1,21 +1,8 @@
-//! The Roost brand mark: one SVG, one fill, used wherever the product names
-//! itself. Ported from `apps/web/src/components/machines/BrandMark.tsx`, whose
-//! geometry is identical to `apps/web/public/icon.svg` so the tab icon and the
-//! in-app wordmark stay one mark.
-//!
-//! The fill is the FIXED brand token, not `--accent`: a brand mark is stable
-//! across themes, and retinting it is how a wordmark stops matching its favicon.
-//! The colour therefore comes from the stylesheet rule below rather than from a
-//! `color:` in the markup, so a caller cannot accidentally restyle it.
-//!
-//! The primitives are hand-authored overlapping shapes sharing a single fill, so
-//! the silhouette is a clean union. A second fill or a stroke would put a
-//! winding-rule hole through the body.
+//! The shared Roost silhouette used by the title bar and home heading.
+//! The mark inherits currentColor so it follows the surrounding Rust/UI
+//! foreground role in both themes; its geometry is independent of the palette.
 
 use dioxus::prelude::*;
-
-/// The brand's one colour, as a token the stylesheet resolves.
-pub const BRAND_COLOR_VAR: &str = "--brand-coral";
 
 /// The mark, sized by the surrounding type ramp rather than by a pixel count.
 ///

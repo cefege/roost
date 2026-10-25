@@ -1,8 +1,6 @@
-//! One terminal session row in the filtered Folders list: a full-row link to
-//! `/s/:id`, the flat body, the ✕ soft-close, and swipe-left-to-close on
-//! touch. Ports `apps/web/src/components/sidebar/SessionRow.tsx`; `FolderList`
-//! renders it. Closing dispatches the deck's `CloseTab`, the same five-second
-//! undoable close every close path converges on.
+//! A filtered terminal destination using the stock Sidenav menu anatomy.
+//! The deck still owns undoable close; this row owns native navigation, its
+//! context menu and the touch swipe that requests the same close intent.
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
@@ -12,7 +10,7 @@ use roost_client_core::store::selectors::{
     deck_tab_ids_for_folder, session_by_id, session_folder_key,
 };
 use roost_client_core::store::sidebar::SidebarIntent;
-use roost_client_core::store::sidebar::format::{avatar_background, short_server_label};
+use roost_client_core::store::sidebar::format::short_server_label;
 use roost_protocol::wire::SessionStatus;
 
 use super::rel_time_tick::use_rel_time_now;
@@ -21,7 +19,9 @@ use super::session_row_context_menu::SessionRowContextMenu;
 use super::session_row_flat::{SessionRowFacts, SessionRowFlat};
 use crate::components::notifications::notify_target::{ring_attribute, use_notify_target};
 use crate::components::ui::list::is_in_app_navigation_click;
-use crate::components::ui::{ButtonSize, Icon, IconButton, IconType, Item, ItemSize};
+use crate::components::ui::{
+    Icon, IconType, SidenavMenuAction, SidenavMenuButton, SidenavMenuButtonSize, SidenavMenuItem,
+};
 use crate::platform::BrowserWorkerPaths;
 use crate::platform::worker_paths::short_worker_path;
 use crate::pump::{Pump, use_store};
@@ -84,7 +84,6 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
         };
         RowFacts {
             title: session_title(store, session),
-            avatar: avatar_background(&format!("{}|{}", session.worker_fp.as_str(), session.cwd)),
             worker_fp: session.worker_fp.to_string(),
             workspace_id: session.workspace_id.as_ref().map(ToString::to_string),
             status: session.status.as_str(),
@@ -135,7 +134,7 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
         }
     };
     rsx! {
-        div { class: "relative overflow-hidden", "data-swipe-row": "true",
+        SidenavMenuItem { class: "overflow-hidden", "data-swipe-row": "true",
             div {
                 class: "absolute inset-y-0 right-0 flex items-center justify-center overflow-hidden bg-destructive text-destructive-foreground",
                 "aria-hidden": "true",
@@ -152,7 +151,7 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
                 "data-cursor": cursor.then_some("on"),
                 "data-swiping": tracking.then_some("1"),
                 "data-notify-target": ringing,
-                style: "--avatar-bg: {facts.avatar}; transform: translateX({offset}px);",
+                style: "transform: translateX({offset}px);",
                 title: "{facts.title} — {facts.flat.cwd} — right-click for actions",
                 oncontextmenu: move |event: MouseEvent| {
                     event.prevent_default();
@@ -184,19 +183,19 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
                         });
                     }
                 },
-                Item {
-                    size: ItemSize::Xs,
-                    class: "relative w-full min-w-0 items-start gap-3 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50 group-data-[cursor=on]:bg-accent/50 group-data-[selected=focused]:bg-accent",
-                a {
+                SidenavMenuButton {
                     href: href.clone(),
-                    class: "absolute inset-0 z-10",
+                    size: SidenavMenuButtonSize::Lg,
+                    aria_current: if facts.active { "page" } else { "false" },
+                    class: if cursor { "ring-2 ring-sidenav-ring" } else { "" },
                     "aria-label": "Open {facts.title}",
                     onclick: move |event: MouseEvent| {
                         if swipe.write().take_swiped() {
                             event.prevent_default();
                             return;
                         }
-                        let primary = event.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary);
+                        let primary = event.trigger_button()
+                            == Some(dioxus::html::input_data::MouseButton::Primary);
                         if !is_in_app_navigation_click(primary, event.modifiers()) {
                             return;
                         }
@@ -204,16 +203,29 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
                         record();
                         navigate.call(href.clone());
                     },
+                    Icon { icon: IconType::Terminal }
+                    span { class: "grid min-w-0 flex-1 text-left text-sm leading-tight",
+                        span { class: "truncate font-medium",
+                            "data-testid": "session-headline-{session_id}",
+                            {facts.flat.headline.clone()}
+                        }
+                        if let Some(subtitle) = facts.flat.subtitle.clone() {
+                            span { class: "truncate text-xs",
+                                "data-testid": "session-subtitle-{session_id}",
+                                title: subtitle.clone(),
+                                "{subtitle}"
+                            }
+                        }
+                    }
+                    span { class: "shrink-0 text-xs tabular-nums",
+                        "data-testid": "session-reltime-{session_id}",
+                        title: if facts.flat.open { "Opened" } else { "Closed" },
+                        {facts.flat.rel_time.clone()}
+                    }
                 }
-                span { class: "pointer-events-none contents",
-                    span { class: "shrink-0 font-mono text-xs text-muted-foreground", "aria-hidden": "true", "$" }
-                    SessionRowFlat { facts: facts.flat.clone() }
-                }
-                IconButton {
-                    icon: IconType::X,
-                    label: "Close pane",
-                    size: ButtonSize::IconSm,
-                    class: "relative z-20 shrink-0 pointer-events-auto",
+                SidenavMenuAction {
+                    show_on_hover: true,
+                    "aria-label": "Close pane",
                     "data-testid": "session-close-{session_id}",
                     title: "Close pane",
                     onclick: move |event: MouseEvent| {
@@ -221,7 +233,10 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
                         event.prevent_default();
                         close();
                     },
+                    Icon { icon: IconType::X }
                 }
+                div { class: "px-2 pb-2",
+                    SessionRowFlat { facts: facts.flat.clone() }
                 }
             }
             // A sibling of the row, not a child: the row's swipe `transform`
@@ -243,7 +258,6 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
 
 struct RowFacts {
     title: String,
-    avatar: String,
     worker_fp: String,
     workspace_id: Option<String>,
     status: &'static str,

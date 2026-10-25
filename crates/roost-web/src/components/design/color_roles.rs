@@ -233,10 +233,6 @@ pub const COLOR_GROUPS: [ColorGroup; 9] = [
                 name: "ring",
                 class: "bg-ring",
             },
-            ColorRole {
-                name: "brand",
-                class: "bg-brand",
-            },
         ],
     },
     ColorGroup {

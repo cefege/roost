@@ -54,11 +54,6 @@ pub fn color_for_fp(key: &str) -> FpColor {
     }
 }
 
-/// The avatar background a folder or session row sets as `--avatar-bg`.
-pub fn avatar_background(key: &str) -> String {
-    format!("hsl({} 48% 42%)", color_for_fp(key).hue)
-}
-
 /// ECMAScript `ToUint32` of a non-negative integral double.
 fn wrap_to_u32(value: f64) -> u32 {
     let wrapped = value % 4_294_967_296.0;

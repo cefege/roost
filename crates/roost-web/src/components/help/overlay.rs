@@ -13,8 +13,8 @@ use crate::components::app_error_boundary::diagnostic;
 use crate::components::hooks::use_copy_clipboard::use_copy_clipboard;
 use crate::components::palette::dom::focus_by_test_id_next_frame;
 use crate::components::ui::{
-    BindingChip, Button, ButtonVariant, Dialog, DialogContent, DialogHeader, DialogTitle, Input,
-    List, ListRow, SectionTitle,
+    Button, ButtonVariant, Dialog, DialogContent, DialogHeader, DialogTitle, Input, Kbd, List,
+    ListRow, SectionTitle,
 };
 
 /// The Shift+? modal, rendered by the route surface that owns it.
@@ -118,7 +118,7 @@ fn ShortcutRow(
         div { "data-testid": "help-overlay-action", "data-action-id": action_id,
             ListRow {
                 headline: rsx! { span { class: "text-foreground", {entry.label} } },
-                trailing: rsx! { BindingChip { {binding} } },
+                trailing: rsx! { Kbd { {binding} } },
             }
         }
     }

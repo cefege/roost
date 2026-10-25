@@ -1,9 +1,6 @@
-//! The desktop hover card for a terminal tab: title and agent chip, program
-//! subtitle, direct-carrier chip and short cwd, anchored under the tab.
-//! `PaneStrip` decides the dwell and which tab; this renders it. Ports
-//! `apps/web/src/components/deck/PaneTabHoverCard.tsx` without its live
-//! preview, whose renderer (`renderer/terminalPreview.ts`) is not ported, so
-//! the preview well renders empty exactly as v2 does when no preview exists.
+//! The tab controller's stock HoverCard presentation: title, program,
+//! carrier and cwd. `PaneStrip` owns dwell and dismissal; this view keeps
+//! the anchor in the transformed deck's coordinate space.
 
 use dioxus::prelude::*;
 use roost_client_core::store::selectors::session_by_id;
@@ -13,7 +10,7 @@ use super::deck_dom::{ClientBox, DeckContainer};
 use super::inline_style::px;
 use super::pane_tab::direct_transport_label;
 use crate::components::agents::agent_status_indicator::AgentStatusIndicator;
-use crate::components::ui::{Card, CardContent, Icon, IconType};
+use crate::components::ui::{HoverCardPresentation, Icon, IconType};
 use crate::platform::worker_paths::short_worker_path;
 use crate::pump::use_store;
 use crate::session_naming::{program_subtitle, session_title};
@@ -70,11 +67,12 @@ pub fn PaneTabHoverCard(session_id: String, anchor: ClientBox) -> Element {
     );
     let top = format!("calc({} + 8px)", px(anchor.bottom() - origin.top));
     rsx! {
-        Card {
-            class: Some("fixed z-[70] pointer-events-none w-[var(--workbench-tab-hovercard-width)] starting:opacity-0 transition-opacity duration-150 motion-reduce:transition-none".to_owned()),
+        HoverCardPresentation {
+            class: "fixed z-[70] pointer-events-none w-[var(--workbench-tab-hovercard-width)] starting:opacity-0 transition-opacity duration-150 motion-reduce:transition-none",
             "data-testid": "tab-hovercard",
+            role: "tooltip",
             style: format!("left: {left}; top: {top};"),
-            CardContent { class: "flex flex-col gap-1.5",
+            div { class: "flex flex-col gap-1.5 text-sm",
                 div { class: "flex items-center gap-2 min-w-0",
                     Icon { icon: IconType::Terminal, class: "size-4 shrink-0 text-muted-foreground" }
                     span { class: "flex-1 min-w-0 truncate font-medium", "{reading.title}" }
@@ -90,10 +88,6 @@ pub fn PaneTabHoverCard(session_id: String, anchor: ClientBox) -> Element {
                     }
                 }
                 div { class: "truncate text-xs font-mono text-muted-foreground", "{reading.cwd}" }
-                // The colour scheme writes its palette inline on <html>; bg-terminal reads the theme's fixed terminal colour and would ignore it.
-                div { class: "mt-1 h-24 overflow-hidden bg-[var(--terminal-grid-bg)]", "data-preview": "false",
-                    div { class: "block size-full overflow-hidden px-1.5 py-1 font-mono text-preview whitespace-pre box-border text-[var(--terminal-grid-fg)] [&_span]:animate-none!", }
-                }
             }
         }
     }

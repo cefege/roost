@@ -21,7 +21,8 @@ use super::pane_tab_new_menu::PaneTabNewMenu;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::terminal::terminal_transport_indicator::TerminalTransportIndicator;
 use crate::components::ui::{
-    DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, Icon, IconType,
+    DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, Icon, IconType, Tabs, TabsList,
+    TabsVariant, Toolbar,
 };
 /// How long a pointer rests on a tab before its hover card opens, ms.
 const HOVER_DWELL_MS: u32 = 450;
@@ -109,6 +110,7 @@ pub fn PaneStrip(
         on_drag_end: on_tab_drag_end,
     };
     let hovered = hover.read().clone();
+    let clear_hover_on_select = clear_hover.clone();
 
     rsx! {
         div {
@@ -117,72 +119,77 @@ pub fn PaneStrip(
             "data-pane-strip": "{pane_id}",
             "data-focused": if focused { "true" } else { "false" },
             "data-dragging": if drag.is_some() { "true" } else { "false" },
-            div {
-                class: "group/strip flex min-w-0 h-full flex-[0_1_auto] items-center overflow-x-auto overflow-y-hidden scrollbar-none data-[dragging=true]:cursor-grabbing data-[dragging=true]:select-none",
-                "data-tab-bar": "true",
-                "data-focused": if focused { "true" } else { "false" },
-                "data-dragging": if drag.is_some() { "true" } else { "false" },
-                "data-packed": if overflowing() { "true" } else { "false" },
-                onmounted: move |event: MountedEvent| {
-                    let mut rail = gesture.rail;
-                    rail.set(Some(event.data()));
+            Tabs {
+                class: "contents",
+                value: selected_tab.clone(),
+                on_value_change: move |session_id| {
+                    clear_hover_on_select();
+                    on_select.call(session_id);
                 },
-                for (index, session_id) in tab_ids.iter().cloned().enumerate() {
-                    PaneTab {
-                        key: "{session_id}",
-                        session_id: session_id.clone(),
-                        active: session_id == selected_tab,
-                        dragging: drag.as_ref().is_some_and(|active| active.id == session_id),
-                        closing: closing.read().contains(&session_id),
-                        style: drag.as_ref().map(|active| active.tab_style(index).css()).unwrap_or_default(),
-                        hover_card_available,
-                        on_pointer_down: {
-                            let outlets = outlets.clone();
-                            let clear_hover = clear_hover.clone();
-                            let session_id = session_id.clone();
-                            move |event: PointerEvent| {
-                                if event.trigger_button() != Some(dioxus::html::input_data::MouseButton::Primary) {
-                                    return;
-                                }
-                                clear_hover();
-                                let point = event.client_coordinates();
-                                gesture.press(session_id.clone(), index, (point.x, point.y), outlets.clone());
+                div {
+                    class: "group/strip flex min-w-0 h-full flex-[0_1_auto] items-center overflow-x-auto overflow-y-hidden scrollbar-none data-[dragging=true]:cursor-grabbing data-[dragging=true]:select-none",
+                    "data-tab-bar": "true",
+                    "data-focused": if focused { "true" } else { "false" },
+                    "data-dragging": if drag.is_some() { "true" } else { "false" },
+                    "data-packed": if overflowing() { "true" } else { "false" },
+                    onmounted: move |event: MountedEvent| {
+                        let mut rail = gesture.rail;
+                        rail.set(Some(event.data()));
+                    },
+                    TabsList {
+                        variant: TabsVariant::Line,
+                        class: "h-full min-w-0 flex-[0_1_auto] items-center justify-start overflow-visible rounded-none bg-transparent p-0",
+                        aria_label: "Terminal tabs",
+                        for (index, session_id) in tab_ids.iter().cloned().enumerate() {
+                            PaneTab {
+                                key: "{session_id}",
+                                session_id: session_id.clone(),
+                                active: session_id == selected_tab,
+                                dragging: drag.as_ref().is_some_and(|active| active.id == session_id),
+                                closing: closing.read().contains(&session_id),
+                                style: drag.as_ref().map(|active| active.tab_style(index).css()).unwrap_or_default(),
+                                hover_card_available,
+                                on_pointer_down: {
+                                    let outlets = outlets.clone();
+                                    let clear_hover = clear_hover.clone();
+                                    let session_id = session_id.clone();
+                                    move |event: PointerEvent| {
+                                        if event.trigger_button() != Some(dioxus::html::input_data::MouseButton::Primary) {
+                                            return;
+                                        }
+                                        clear_hover();
+                                        let point = event.client_coordinates();
+                                        gesture.press(session_id.clone(), index, (point.x, point.y), outlets.clone());
+                                    }
+                                },
+                                on_hover_start: {
+                                    let hover_timer = Rc::clone(&hover_timer);
+                                    let session_id = session_id.clone();
+                                    move |anchor: ClientBox| {
+                                        if !hover_card_available || gesture.drag.peek().is_some() || *list_open.peek() {
+                                            return;
+                                        }
+                                        let session_id = session_id.clone();
+                                        *hover_timer.borrow_mut() = Timeout::after(HOVER_DWELL_MS, move || {
+                                            hover.set(Some((session_id, anchor)));
+                                        });
+                                    }
+                                },
+                                on_hover_end: {
+                                    let clear_hover = clear_hover.clone();
+                                    move |()| clear_hover()
+                                },
+                                on_close: {
+                                    let close_tab = close_tab.clone();
+                                    let session_id = session_id.clone();
+                                    move |event: MouseEvent| {
+                                        event.stop_propagation();
+                                        event.prevent_default();
+                                        close_tab(session_id.clone());
+                                    }
+                                },
                             }
-                        },
-                        on_select: {
-                            let clear_hover = clear_hover.clone();
-                            let session_id = session_id.clone();
-                            move |()| {
-                                clear_hover();
-                                on_select.call(session_id.clone());
-                            }
-                        },
-                        on_hover_start: {
-                            let hover_timer = Rc::clone(&hover_timer);
-                            let session_id = session_id.clone();
-                            move |anchor: ClientBox| {
-                                if !hover_card_available || gesture.drag.peek().is_some() || *list_open.peek() {
-                                    return;
-                                }
-                                let session_id = session_id.clone();
-                                *hover_timer.borrow_mut() = Timeout::after(HOVER_DWELL_MS, move || {
-                                    hover.set(Some((session_id, anchor)));
-                                });
-                            }
-                        },
-                        on_hover_end: {
-                            let clear_hover = clear_hover.clone();
-                            move |()| clear_hover()
-                        },
-                        on_close: {
-                            let close_tab = close_tab.clone();
-                            let session_id = session_id.clone();
-                            move |event: MouseEvent| {
-                                event.stop_propagation();
-                                event.prevent_default();
-                                close_tab(session_id.clone());
-                            }
-                        },
+                        }
                     }
                 }
             }
@@ -215,8 +222,8 @@ pub fn PaneStrip(
             if !matches!(roost_client_core::deck::tab::DeckTab::parse(&selected_tab), Some(roost_client_core::deck::tab::DeckTab::Agent(_))) {
                 TerminalTransportIndicator { session_id: selected_tab.clone() }
             }
-            div { class: "flex items-center gap-1 shrink-0", role: "toolbar", "aria-label": "Terminal actions",
-                if overflowing() {
+            if overflowing() {
+                Toolbar { class: "shrink-0", aria_label: "Terminal actions",
                     DropdownMenu {
                         open: list_open(),
                         on_open_change: {

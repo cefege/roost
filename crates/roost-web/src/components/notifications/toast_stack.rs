@@ -108,7 +108,7 @@ pub fn ToastStack() -> Element {
                         span { class: "min-w-0 flex-1 font-medium text-muted-foreground", "{label}" }
                         Button {
                             variant: ButtonVariant::Ghost,
-                            size: if compact { ButtonSize::Sm } else { ButtonSize::Xs },
+                            size: ButtonSize::Sm,
                             "data-testid": "toast-overflow-toggle",
                             "aria-expanded": if is_expanded { "true" } else { "false" },
                             onclick: move |_event: MouseEvent| expanded.toggle(),
@@ -116,7 +116,7 @@ pub fn ToastStack() -> Element {
                         }
                         Button {
                             variant: ButtonVariant::Ghost,
-                            size: if compact { ButtonSize::Sm } else { ButtonSize::Xs },
+                            size: ButtonSize::Sm,
                             "data-testid": "toast-clear-all",
                             onclick: clear_all,
                             "Clear all"

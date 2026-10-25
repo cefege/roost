@@ -25,6 +25,7 @@ pub fn SidenavInset(
 pub fn SidenavInner(
     #[props(into, optional)] variant: Option<String>,
     #[props(into, optional)] class: Option<String>,
+    #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
     let merged_class = tw_merge!(
@@ -36,6 +37,7 @@ pub fn SidenavInner(
             "data-name": "SidenavInner",
             "data-variant": variant.as_deref().unwrap_or(""),
             class: "{merged_class}",
+            ..attributes,
             {children}
         }
     }
@@ -75,31 +77,47 @@ pub fn SidenavMenuSub(
 #[component]
 pub fn SidenavMenuItem(
     #[props(into, optional)] class: Option<String>,
+    #[props(optional)] oncontextmenu: Option<EventHandler<MouseEvent>>,
+    #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
     let merged_class = tw_merge!("relative group/menu-item", class.as_deref().unwrap_or(""));
-    rsx! { li { "data-name": "SidenavMenuItem", class: "{merged_class}", {children} } }
+    rsx! {
+        li {
+            "data-name": "SidenavMenuItem",
+            class: "{merged_class}",
+            oncontextmenu: move |event| {
+                if let Some(handler) = oncontextmenu {
+                    handler.call(event);
+                }
+            },
+            ..attributes,
+            {children}
+        }
+    }
 }
 
 #[component]
 pub fn SidenavMenuSubItem(
     #[props(into, optional)] class: Option<String>,
+    #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
     let merged_class = tw_merge!("group/menu-sub-item", class.as_deref().unwrap_or(""));
-    rsx! { li { "data-name": "SidenavMenuSubItem", class: "{merged_class}", {children} } }
+    rsx! { li { "data-name": "SidenavMenuSubItem", class: "{merged_class}", ..attributes, {children} } }
 }
 
 #[component]
 pub fn SidenavContent(
     #[props(into, optional)] class: Option<String>,
+    #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
     let merged_class = tw_merge!(
         "scrollbar__on_hover flex min-h-0 flex-1 flex-col gap-2 overflow-auto group-data-[collapsible=Icon]:overflow-hidden",
         class.as_deref().unwrap_or("")
     );
-    rsx! { div { "data-name": "SidenavContent", class: "{merged_class}", {children} } }
+    rsx! { div { "data-name": "SidenavContent", class: "{merged_class}", ..attributes, {children} } }
 }
 
 #[component]
@@ -138,9 +156,13 @@ pub fn SidenavGroupLabel(
 }
 
 #[component]
-pub fn SidenavFooter(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn SidenavFooter(
+    #[props(into, optional)] class: Option<String>,
+    #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
+    children: Element,
+) -> Element {
     let merged_class = tw_merge!("flex flex-col gap-2 p-2", class.as_deref().unwrap_or(""));
-    rsx! { footer { "data-name": "SidenavFooter", class: "{merged_class}", {children} } }
+    rsx! { footer { "data-name": "SidenavFooter", class: "{merged_class}", ..attributes, {children} } }
 }
 
 #[component]
@@ -151,6 +173,8 @@ pub fn SidenavInput(
     #[props(into, optional)] name: Option<String>,
     #[props(into, optional)] value: Option<String>,
     #[props(optional)] oninput: Option<EventHandler<FormEvent>>,
+    #[props(optional)] onkeydown: Option<EventHandler<KeyboardEvent>>,
+    #[props(extends = GlobalAttributes, extends = input)] attributes: Vec<Attribute>,
 ) -> Element {
     let merged_class = tw_merge!(
         "file:text-foreground placeholder:text-muted-foreground selection:bg-primary selection:text-primary-foreground dark:bg-input/30 border-input flex h-9 w-full min-w-0 rounded-md border bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-2 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive read-only:bg-muted w-full h-8 shadow-none bg-background",
@@ -169,6 +193,12 @@ pub fn SidenavInput(
                     handler.call(event);
                 }
             },
+            onkeydown: move |event| {
+                if let Some(handler) = onkeydown {
+                    handler.call(event);
+                }
+            },
+            ..attributes,
         }
     }
 }

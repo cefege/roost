@@ -1,6 +1,6 @@
-//! CSS-only tooltip with rust-ui's classes: visibility is Tailwind `group-hover`, so there is no open
-//! state and no DOM access. Callers compose `Tooltip` around a trigger with a sibling `TooltipContent`.
-//! Depends only on `tw_merge` for class merging; no other module.
+//! Rust/UI tooltip presentation with caller-owned visibility.
+//! Pointer and keyboard focus report open changes; closed content unmounts.
+//! Activity controls retain the registry's content and arrow recipes.
 
 use dioxus::prelude::*;
 use tw_merge::tw_merge;
@@ -14,21 +14,57 @@ pub enum TooltipPosition {
     Bottom,
 }
 
-/// Kept so rust-ui call sites that wrap their tree in a provider port unchanged.
-/// Visibility is CSS-driven, so there is nothing to provide.
-#[component]
-pub fn TooltipProvider() -> Element {
-    rsx! {}
+#[derive(Clone, Copy)]
+struct TooltipContext {
+    open: Memo<bool>,
 }
 
 #[component]
-pub fn Tooltip(#[props(into, optional)] class: Option<String>, children: Element) -> Element {
+pub fn Tooltip(
+    open: bool,
+    on_open_change: EventHandler<bool>,
+    #[props(into, optional)] class: Option<String>,
+    children: Element,
+) -> Element {
+    let view = use_memo(use_reactive((&open,), |(open,)| open));
+    use_context_provider(|| TooltipContext { open: view });
+    let mut hovered = use_signal(|| false);
+    let mut focused = use_signal(|| false);
+    let mut dismissed = use_signal(|| false);
     let merged = tw_merge!(
         "inline-block relative mx-0 whitespace-nowrap transition-all duration-300 ease-in-out group/tooltip my-[5px]",
         class.as_deref().unwrap_or("")
     );
     rsx! {
-        div { class: "{merged}", {children} }
+        div {
+            class: "{merged}",
+            onmouseenter: move |_| {
+                hovered.set(true);
+                dismissed.set(false);
+                on_open_change.call(true);
+            },
+            onmouseleave: move |_| {
+                hovered.set(false);
+                on_open_change.call(focused() && !dismissed());
+            },
+            onfocusin: move |_| {
+                focused.set(true);
+                dismissed.set(false);
+                on_open_change.call(true);
+            },
+            onfocusout: move |_| {
+                focused.set(false);
+                on_open_change.call(hovered() && !dismissed());
+            },
+            onkeydown: move |event: KeyboardEvent| {
+                if open && event.key() == Key::Named(NamedKey::Escape) {
+                    event.stop_propagation();
+                    dismissed.set(true);
+                    on_open_change.call(false);
+                }
+            },
+            {children}
+        }
     }
 }
 
@@ -38,7 +74,10 @@ pub fn TooltipContent(
     #[props(default = TooltipPosition::default())] position: TooltipPosition,
     children: Element,
 ) -> Element {
-    const SHARED: &str = "absolute opacity-0 transition-all duration-300 ease-in-out pointer-events-none group-hover/tooltip:opacity-100 group-hover/tooltip:pointer-events-auto z-[1000000]";
+    if !(use_context::<TooltipContext>().open)() {
+        return rsx! {};
+    }
+    const SHARED: &str = "absolute opacity-100 transition-all duration-300 ease-in-out pointer-events-none z-[1000000]";
 
     let (pos_class, arrow_pos_class, pos_str) = match position {
         TooltipPosition::Top => (

@@ -4,10 +4,9 @@
 
 use dioxus::prelude::*;
 
-use crate::components::ui::input_group::{
-    InputGroup, InputGroupAddon, InputGroupAddonAlign, InputGroupInput,
+use crate::components::ui::{
+    ButtonSize, Icon, IconButton, IconType, Kbd, SidenavGroupContent, SidenavHeader, SidenavInput,
 };
-use crate::components::ui::{ButtonSize, Icon, IconButton, IconType, Kbd, SidenavHeader};
 
 /// The id `SidebarRoot` focuses on Cmd-F.
 pub const SIDEBAR_SEARCH_INPUT_ID: &str = "sidebar-search-input";
@@ -24,13 +23,10 @@ pub fn SidebarSearch(
     let has_query = !query.is_empty();
     rsx! {
         SidenavHeader {
-            class: "border-b border-sidenav-border",
             "data-testid": "sidebar-search-wrapper",
-            InputGroup { class: "h-8",
-                InputGroupAddon {
-                    Icon { icon: IconType::Search, class: "size-4 shrink-0" }
-                }
-                InputGroupInput {
+            SidenavGroupContent { class: "relative",
+                SidenavInput {
+                    class: "pl-8 pr-10",
                     id: SIDEBAR_SEARCH_INPUT_ID,
                     value: query,
                     oninput: move |event: FormEvent| on_change.call(event.value()),
@@ -41,27 +37,26 @@ pub fn SidebarSearch(
                             on_change.call(String::new());
                         }
                     },
-                    placeholder: placeholder.unwrap_or_else(|| "Search sessions, folders…".to_owned()),
-                    aria_label: "Filter sidebar",
-                    test_id: "sidebar-search",
+                    placeholder: placeholder.unwrap_or_else(|| "Filter folders…".to_owned()),
+                    "aria-label": "Filter sidebar",
+                    "data-testid": "sidebar-search",
                 }
-                if has_query {
-                    InputGroupAddon { align: InputGroupAddonAlign::InlineEnd,
+                Icon {
+                    icon: IconType::Search,
+                    class: "pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 opacity-50",
+                }
+                span { class: "absolute right-1 top-1/2 -translate-y-1/2",
+                    if has_query {
                         IconButton {
                             icon: IconType::X,
                             label: "Clear search",
-                            size: ButtonSize::IconSm,
-                            class: "shrink-0",
+                            size: ButtonSize::IconXs,
                             onclick: move |_| on_change.call(String::new()),
                             title: "Clear (Esc)",
                             "data-testid": "sidebar-search-clear",
                         }
-                    }
-                } else {
-                    InputGroupAddon { align: InputGroupAddonAlign::InlineEnd,
-                        span { "aria-hidden": "true",
-                            Kbd { class: "shrink-0", {shortcut_label} }
-                        }
+                    } else {
+                        span { "aria-hidden": "true", Kbd { {shortcut_label} } }
                     }
                 }
             }

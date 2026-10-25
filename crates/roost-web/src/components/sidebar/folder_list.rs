@@ -1,8 +1,6 @@
-//! The Folders panel list: one row per (machine, folder) bucket, newest
-//! activity first; with an active filter, the matching buckets' terminal rows
-//! instead. Owns the sidebar keyboard cursor's row order. Ports
-//! `apps/web/src/components/sidebar/FolderList.tsx`; `AllView` renders it. The
-//! buckets and filter are `roost_client_core::store::sidebar::folder_groups`.
+//! The Folders navigation tree, newest activity first, with stock Sidenav parts.
+//! Filtering projects matching terminal and agent destinations without folder
+//! headers. This component also owns the sidebar keyboard cursor's row order.
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
@@ -21,7 +19,10 @@ use super::agent_conversation_row::AgentConversationRow;
 use super::folder_row::FolderRow;
 use super::session_row::SessionRow;
 use crate::components::ui::empty::EmptyState;
-use crate::components::ui::{IconType, List};
+use crate::components::ui::{
+    IconType, SidenavContent, SidenavGroup, SidenavGroupContent, SidenavGroupLabel, SidenavMenu,
+    SidenavMenuSub, SidenavMenuSubItem,
+};
 use crate::platform::BrowserWorkerPaths;
 use crate::pump::{Pump, use_store};
 use crate::route_session::active_session_for_path;
@@ -99,7 +100,10 @@ pub fn FolderList(active: bool, query: String) -> Element {
     publish_cursor_targets(&pump, active, visible_ids);
 
     rsx! {
-        div { class: "flex min-h-0 flex-1 flex-col overflow-y-auto py-1", "data-testid": "folder-list",
+        SidenavContent { "data-testid": "folder-list",
+            SidenavGroup {
+                SidenavGroupLabel { if filtering { "Matches" } else { "Folders" } }
+                SidenavGroupContent {
             if !filtering {
                 if groups.is_empty() {
                     EmptyState {
@@ -108,7 +112,7 @@ pub fn FolderList(active: bool, query: String) -> Element {
                         supporting: "Open a terminal to add your first folder.",
                     }
                 } else {
-                    List { class: "min-w-0",
+                    SidenavMenu {
                         for group in groups {
                             FolderRow {
                                 key: "{group.key}",
@@ -117,10 +121,11 @@ pub fn FolderList(active: bool, query: String) -> Element {
                                 cursor: !group.lead_id.is_empty()
                                     && cursor_id.as_deref() == Some(group.lead_id.as_str()),
                                 group: group.clone(),
-                            }
-                            FolderConversationRows {
-                                conversation_ids: group.agent_conversation_ids.clone(),
-                                active_agent_id: active_agent_id.clone(),
+                                FolderConversationRows {
+                                    conversation_ids: group.agent_conversation_ids.clone(),
+                                    active_agent_id: active_agent_id.clone(),
+                                    nested: true,
+                                }
                             }
                         }
                     }
@@ -132,11 +137,12 @@ pub fn FolderList(active: bool, query: String) -> Element {
                     supporting: format!("Nothing matches \"{query}\". Esc clears the search."),
                 }
             } else {
-                List { class: "min-w-0",
+                SidenavMenu {
                     for group in groups {
                         FolderConversationRows {
                             conversation_ids: group.agent_conversation_ids,
                             active_agent_id: active_agent_id.clone(),
+                            nested: false,
                         }
                     }
                     for session_id in filtered_ids {
@@ -149,6 +155,8 @@ pub fn FolderList(active: bool, query: String) -> Element {
 
                 }
             }
+                }
+            }
         }
     }
 }
@@ -156,6 +164,7 @@ pub fn FolderList(active: bool, query: String) -> Element {
 fn FolderConversationRows(
     conversation_ids: Vec<String>,
     active_agent_id: Option<String>,
+    nested: bool,
 ) -> Element {
     let pump = use_store();
     let conversation_id_set: std::collections::BTreeSet<&str> =
@@ -199,16 +208,20 @@ fn FolderConversationRows(
         (roots, std::rc::Rc::new(children_by_parent))
     };
     let active_agent_id = active_agent_id.map(std::rc::Rc::new);
-    rsx! {
+    let branches = rsx! {
         for conversation_id in roots {
             FolderConversationBranch {
                 key: "{conversation_id}",
                 conversation_id,
                 children_by_parent: children_by_parent.clone(),
                 active_agent_id: active_agent_id.clone(),
-                depth: 0,
             }
         }
+    };
+    if nested && !conversation_ids.is_empty() {
+        rsx! { SidenavMenuSub { {branches} } }
+    } else {
+        branches
     }
 }
 
@@ -217,32 +230,28 @@ fn FolderConversationBranch(
     conversation_id: String,
     children_by_parent: std::rc::Rc<std::collections::BTreeMap<String, Vec<String>>>,
     active_agent_id: Option<std::rc::Rc<String>>,
-    depth: usize,
 ) -> Element {
     let children = children_by_parent
         .get(&conversation_id)
         .map(Vec::as_slice)
         .unwrap_or(&[]);
-    let row_class = if depth == 0 {
-        "min-w-0"
-    } else {
-        "min-w-0 ps-3"
-    };
     rsx! {
-        div { class: row_class,
+        SidenavMenuSubItem {
             AgentConversationRow {
                 conversation_id: conversation_id.clone(),
                 selected: active_agent_id.as_deref().map(String::as_str)
                     == Some(conversation_id.as_str()),
-                compact: true,
             }
-            for child_id in children {
-                FolderConversationBranch {
-                    key: "{child_id}",
-                    conversation_id: child_id.clone(),
-                    children_by_parent: children_by_parent.clone(),
-                    active_agent_id: active_agent_id.clone(),
-                    depth: depth + 1,
+            if !children.is_empty() {
+                SidenavMenuSub {
+                    for child_id in children {
+                        FolderConversationBranch {
+                            key: "{child_id}",
+                            conversation_id: child_id.clone(),
+                            children_by_parent: children_by_parent.clone(),
+                            active_agent_id: active_agent_id.clone(),
+                        }
+                    }
                 }
             }
         }

@@ -88,8 +88,7 @@ pub fn SidebarRoot() -> Element {
     let close_drawer = pump.clone();
 
     rsx! {
-        SidenavInner { class: "min-h-0",
-            div { class: "flex h-full min-h-0 flex-col", "data-testid": "sidebar-root",
+        SidenavInner { class: "min-h-0", "data-testid": "sidebar-root",
                 if compact {
                     SidenavHeader { class: "flex-row items-center justify-between",
                         IconButton {
@@ -121,15 +120,14 @@ pub fn SidebarRoot() -> Element {
                 AllView { active: folders_active, query: debounced() }
             }
             if compact && terminal_route {
-                SidenavFooter { class: "flex-row items-center justify-between border-t border-sidenav-border",
-                    div { "data-testid": "sidebar-text-size",
+                SidenavFooter { class: "flex-row items-center justify-between",
+                    div { class: "flex items-center gap-2 text-sm", "data-testid": "sidebar-text-size",
                         span { "Text size" }
                         TermFontStepper { test_id: "sidebar-term-font", size: ButtonSize::IconSm }
                     }
                 }
             }
             SidebarNewTerminal {}
-        }
         }
     }
 }

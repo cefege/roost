@@ -50,7 +50,7 @@ pub fn TerminalNavPad(
                 icon: key_toggle_icon(open),
                 label: key_toggle_label(open),
                 variant: if open { ButtonVariant::Secondary } else { ButtonVariant::Outline },
-                size: ButtonSize::IconLg,
+                size: ButtonSize::Icon,
                 class: Some("!size-[calc(var(--control-touch-target)_+_0.75rem)] fixed z-40 touch-manipulation right-[calc(env(safe-area-inset-right,0px)_+_1rem)] bottom-[calc(env(safe-area-inset-bottom,0px)_+_9.5rem)] tv:right-[calc(var(--tv-overscan-inline)_+_1rem)] tv:bottom-[calc(var(--tv-overscan-block)_+_9.5rem)]".to_owned()),
                 "data-testid": "terminal-nav-toggle",
                 "data-open": if open { "true" } else { "false" },

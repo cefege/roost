@@ -7,7 +7,7 @@ use dioxus::prelude::*;
 use tw_merge::tw_merge;
 
 use crate::components::ui::field::{
-    Field, FieldContent, FieldDescription, FieldTitle, FieldVariant, scoped_element_id,
+    Field, FieldContent, FieldDescription, FieldLabel, FieldVariant, scoped_element_id,
 };
 
 #[component]
@@ -70,17 +70,19 @@ pub fn SwitchRow(
     test_id: Option<String>,
     #[props(default)] disabled: bool,
 ) -> Element {
-    let support_id = use_hook(|| format!("{}-support", scoped_element_id("roost-switch-row")));
+    let switch_id = use_hook(|| scoped_element_id("roost-switch-row"));
+    let support_id = format!("{switch_id}-support");
     let described_by = support.is_some().then(|| support_id.clone());
     rsx! {
-        Field { variant: FieldVariant::Horizontal,
+        Field { variant: FieldVariant::Horizontal, disabled,
             FieldContent { class: "min-w-0",
-                FieldTitle { {headline.clone()} }
+                FieldLabel { html_for: switch_id.clone(), {headline.clone()} }
                 if let Some(support) = support {
                     FieldDescription { id: support_id, {support} }
                 }
             }
             Switch {
+                id: switch_id,
                 checked,
                 disabled,
                 aria_label: headline,

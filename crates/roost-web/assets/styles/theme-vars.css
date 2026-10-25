@@ -6,8 +6,6 @@
 
 :root {
   --roost-main-left: 0px;
-  /* Fixed Roost brand coral remains product identity, not selection chrome. */
-  --brand-coral: #db7556;
   /* Pairing QR code. Theme-invariant on purpose: a phone camera reads dark
      modules on a light field, and many refuse a code drawn inverted, so a dark
      theme must not flip it. The SVG draws its modules in currentColor. */
@@ -40,8 +38,6 @@
   --terminal-cursor: var(--primary);
   --terminal-selection: var(--secondary);
 
-  /* Written inline per row by the sidebar; this is the base for the cascade. */
-  --avatar-bg: var(--accent);
 
   /* ── 3. Layout tokens ── */
   /* Terminal and path roles keep their monospace stacks independent of UI text. */
@@ -58,8 +54,8 @@
   --workbench-border-width: 1px;
   --workbench-sidebar-expanded-width: 300px;
   --workbench-sidebar-width: var(--workbench-sidebar-expanded-width);
-  --workbench-tab-strip-height: 35px;
-  --workbench-tab-action-size: 28px;
+  --workbench-tab-strip-height: 48px;
+  --workbench-tab-action-size: 32px;
   --workbench-tab-width-max: 200px;
   --workbench-tab-width-min: calc(var(--workbench-tab-action-size) + 40px);
   --workbench-editor-actions-reserve: calc(var(--workbench-tab-action-size) + 16px);
@@ -120,7 +116,7 @@ body {
 }
 @media (any-pointer: coarse) {
   :root {
-    --workbench-tab-strip-height: var(--control-touch-target);
+    --workbench-tab-strip-height: calc(var(--control-touch-target) + var(--spacing) * 2 + 2px);
     --workbench-tab-action-size: var(--control-touch-target);
   }
 }

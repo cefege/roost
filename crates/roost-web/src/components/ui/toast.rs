@@ -78,8 +78,8 @@ impl ToastType {
     const fn icon(self) -> Option<IconType> {
         match self {
             Self::Default => None,
-            Self::Success => Some(IconType::CircleCheck),
-            Self::Error => Some(IconType::CircleX),
+            Self::Success => Some(IconType::Check),
+            Self::Error => Some(IconType::X),
             Self::Warning => Some(IconType::TriangleAlert),
             Self::Info => Some(IconType::Info),
             Self::Loading => Some(IconType::LoaderCircle),
@@ -258,8 +258,81 @@ pub fn ToastToaster(#[props(default)] position: ToastPosition) -> Element {
     }
 }
 
-/// One toast row. Layout and `data-*` state come from the entry; the JS
-/// bridge's stacking transforms are not reproduced (see the report).
+/// Shared rust-ui toast item presentation for the demo queue and product dock.
+#[component]
+pub fn ToastPresentation(
+    #[props(into, optional)] class: Option<String>,
+    #[props(default)] variant: ToastType,
+    #[props(into)] title: String,
+    #[props(into, optional)] description: Option<String>,
+    #[props(into, optional)] role: Option<String>,
+    #[props(into, optional)] aria_live: Option<String>,
+    #[props(into, optional)] aria_atomic: Option<String>,
+    #[props(into, optional)] close_label: Option<String>,
+    #[props(optional)] on_close: Option<EventHandler<MouseEvent>>,
+    #[props(optional)] progress: Option<f64>,
+    #[props(into, optional)] progress_class: Option<String>,
+    #[props(into, optional)] progress_style: Option<String>,
+    children: Element,
+) -> Element {
+    let merged = tw_merge!(
+        ITEM_BASE,
+        variant.item_class(),
+        class.as_deref().unwrap_or("")
+    );
+    let loading = variant == ToastType::Loading;
+    let icon_class = if loading {
+        format!("{ICON_CLASS} [&>svg]:animate-spin")
+    } else {
+        ICON_CLASS.to_owned()
+    };
+    let title_id = close_label.as_deref().unwrap_or("Close toast");
+    let close = on_close;
+    let icon = variant.icon();
+    rsx! {
+        div {
+            class: "{merged}",
+            role: role,
+            "aria-live": aria_live,
+            "aria-atomic": aria_atomic,
+            if let Some(icon) = icon {
+                div { "data-icon": "", class: "{icon_class}",
+                    Icon { icon, class: "size-4" }
+                }
+            }
+            div { class: "flex-1 min-w-0",
+                div { class: "flex items-center gap-2",
+                    h3 { class: "font-semibold text-base leading-[1.4] min-w-0 flex-1", title: "{title}", "{title}" }
+                    if let Some(on_close) = close {
+                        button {
+                            r#type: "button",
+                            "data-close-button": "",
+                            "aria-label": "{title_id}",
+                            class: CLOSE_CLASS,
+                            onclick: move |event| on_close.call(event),
+                            Icon { icon: IconType::X, class: "size-3" }
+                        }
+                    }
+                }
+                if let Some(description) = description {
+                    p { class: "text-sm leading-[1.5] opacity-90 mt-1", "{description}" }
+                }
+                {children}
+            }
+            if let Some(progress) = progress {
+                div { "data-duration-track": "", class: TRACK_CLASS,
+                    div {
+                        "data-duration-progress": "",
+                        class: "{PROGRESS_CLASS} {progress_class.as_deref().unwrap_or(\"\")}",
+                        style: "{progress_style.as_deref().unwrap_or(\"\")} transform: scaleX({progress});",
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// One toast in the shared demonstration queue.
 #[component]
 fn ToastItem(
     entry: ToastEntry,
@@ -272,21 +345,18 @@ fn ToastItem(
     let from_end = total - 1 - index;
     let visible = from_end < VISIBLE_TOASTS_AMOUNT;
     let hidden = from_end >= MAX_TOASTS;
-    let item_class = format!("{ITEM_BASE} {}", entry.variant.item_class());
     let style = format!("--index: {index}; --toasts-before: {index}; --z-index: {index};");
-    let loading = entry.variant == ToastType::Loading;
-    let icon_class = if loading {
-        format!("{ICON_CLASS} [&>svg]:animate-spin")
-    } else {
-        ICON_CLASS.to_string()
-    };
-    let timed = !loading;
     let id = entry.id;
+    let variant = entry.variant;
+    let title = entry.title.clone();
+    let description = entry.description.clone();
+    let progress = entry.progress;
+    let close: EventHandler<MouseEvent> = EventHandler::new(move |_| hub.dismiss(id));
     rsx! {
         li {
             "data-name": "ToastItem",
             "data-toast-toast": "true",
-            "data-variant": "{entry.variant.as_str()}",
+            "data-variant": "{variant.as_str()}",
             "data-mounted": "{entry.mounted}",
             "data-entering": "{entry.entering}",
             "data-expanded": "{expanded}",
@@ -296,39 +366,14 @@ fn ToastItem(
             "data-removed": "{entry.removed}",
             "data-swipe-out": "false",
             "data-front": "{front}",
-            class: "{item_class}",
             style: "{style}",
-            if let Some(icon) = entry.variant.icon() {
-                div { "data-icon": "", class: "{icon_class}",
-                    Icon { icon, class: "size-5" }
-                }
-            }
-            div { class: "flex-1",
-                div { class: "flex items-center gap-2",
-                    h3 { class: "font-semibold text-base leading-[1.4] flex-1", "{entry.title}" }
-                    if !loading {
-                        button {
-                            r#type: "button",
-                            "data-close-button": "",
-                            "aria-label": "Close toast",
-                            class: CLOSE_CLASS,
-                            onclick: move |_| hub.dismiss(id),
-                            Icon { icon: IconType::X }
-                        }
-                    }
-                }
-                if let Some(description) = entry.description.clone() {
-                    p { class: "text-sm leading-[1.5] opacity-90 mt-1", "{description}" }
-                }
-            }
-            if timed {
-                div { "data-duration-track": "", class: TRACK_CLASS,
-                    div {
-                        "data-duration-progress": "",
-                        class: PROGRESS_CLASS,
-                        style: "transform: scaleX({entry.progress}); transition: transform 50ms linear;",
-                    }
-                }
+            ToastPresentation {
+                variant,
+                title,
+                description,
+                on_close: (variant != ToastType::Loading).then_some(close),
+                progress: (variant != ToastType::Loading).then_some(progress),
+                progress_style: Some("transition: transform 50ms linear;".to_owned()),
             }
         }
     }

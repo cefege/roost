@@ -139,6 +139,43 @@ pub fn HoverCardContent(
     }
 }
 
+/// Registry surface for native hover owners that already have an anchor.
+#[component]
+pub fn HoverCardPresentation(
+    #[props(into, optional)] class: Option<String>,
+    #[props(optional)] onmouseenter: Option<EventHandler<MouseEvent>>,
+    #[props(optional)] onmouseleave: Option<EventHandler<MouseEvent>>,
+    #[props(optional)] onfocusin: Option<EventHandler<FocusEvent>>,
+    #[props(optional)] onfocusout: Option<EventHandler<FocusEvent>>,
+    #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
+    children: Element,
+) -> Element {
+    let card_class = tw_merge!(
+        "overflow-visible relative z-50 p-4 rounded-lg border bg-card shadow-md w-64",
+        class.as_deref().unwrap_or("")
+    );
+    rsx! {
+        div {
+            "data-name": "HoverCardContent",
+            class: "{card_class}",
+            onmouseenter: move |event| {
+                if let Some(handler) = onmouseenter { handler.call(event); }
+            },
+            onmouseleave: move |event| {
+                if let Some(handler) = onmouseleave { handler.call(event); }
+            },
+            onfocusin: move |event| {
+                if let Some(handler) = onfocusin { handler.call(event); }
+            },
+            onfocusout: move |event| {
+                if let Some(handler) = onfocusout { handler.call(event); }
+            },
+            ..attributes,
+            {children}
+        }
+    }
+}
+
 #[component]
 fn HoverCardPanel(
     class: Option<String>,
@@ -168,17 +205,12 @@ fn HoverCardPanel(
     let placement = anchored_placement_style(&trigger_id, side == HoverCardSide::Top, false)
         .unwrap_or_default();
     let style = format!("position: fixed; {placement}");
-    let card_class = tw_merge!(
-        "overflow-visible relative z-50 p-4 rounded-lg border bg-card shadow-md w-64",
-        class.as_deref().unwrap_or("")
-    );
     rsx! {
-        div {
+        HoverCardPresentation {
             id: "{content_id}",
             role: "dialog",
-            "data-name": "HoverCardContent",
             "data-testid": test_id.as_deref(),
-            class: "{card_class}",
+            class,
             style: "{style}",
             onmouseenter: move |_| set_presence(&hover_enter, Presence::Pointer, true, on_open_change),
             onmouseleave: move |_| set_presence(&hover_leave, Presence::Pointer, false, on_open_change),

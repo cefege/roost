@@ -11,7 +11,8 @@ use dioxus::prelude::*;
 use super::shell_metrics::{Destination, active_destination};
 use crate::components::term_font_stepper::TermFontStepper;
 use crate::components::ui::{
-    ButtonSize, Icon, SidenavInner, SidenavMenu, SidenavMenuButton, SidenavMenuButtonSize,
+    ButtonSize, Icon, SidenavFooter, SidenavGroup, SidenavInner, SidenavMenu, SidenavMenuButton,
+    SidenavMenuItem, Tooltip, TooltipContent, TooltipPosition,
 };
 use crate::router_state::{use_location, use_navigate};
 
@@ -50,21 +51,23 @@ pub fn ActivityBar(on_toggle_sidebar: EventHandler<()>) -> Element {
     rsx! {
         SidenavInner { class: "min-h-0 [grid-area:activity]",
         nav { class: "flex min-h-0 flex-1 flex-col", "aria-label": "Workbench navigation",
-            SidenavMenu { class: "items-center gap-1",
-                for destination in top {
-                    ActivityItem { destination, active, on_toggle_sidebar }
+            SidenavGroup {
+                SidenavMenu {
+                    for destination in top {
+                        ActivityItem { destination, active, on_toggle_sidebar }
+                    }
                 }
             }
-            div { class: "mt-auto flex flex-col",
+            SidenavFooter { class: "mt-auto",
                 if terminal_route {
                     TermFontStepper {
                         test_id: "rail-term-font",
                         size: ButtonSize::IconSm,
                         vertical: true,
-                        class: "self-center border-b border-border py-1",
+                        class: "self-center",
                     }
                 }
-                SidenavMenu { class: "items-center gap-1",
+                SidenavMenu {
                     for destination in bottom {
                     ActivityItem { destination, active, on_toggle_sidebar }
                     }
@@ -83,34 +86,39 @@ fn ActivityItem(
     on_toggle_sidebar: EventHandler<()>,
 ) -> Element {
     let navigate = use_navigate();
+    let mut tooltip_open = use_signal(|| false);
     let href = destination.href();
     let target = href.clone();
     let is_active = active == Some(destination);
     rsx! {
-        li {
+        SidenavMenuItem {
             id: (destination == Destination::Folders).then_some(FOLDERS_ITEM_ID),
             "data-testid": destination.test_id(),
-            onclick: move |event: MouseEvent| {
-                let modified = !event.modifiers().is_empty();
-                let primary = event.trigger_button() == Some(dioxus::html::input_data::MouseButton::Primary);
-                if modified || !primary {
-                    return;
-                }
-                event.prevent_default();
-                if click_toggles_sidebar(destination, active, primary, modified) {
-                    on_toggle_sidebar.call(());
-                } else {
-                    navigate.call(target.clone());
-                }
-            },
-            title: destination.label(),
+            Tooltip {
+                open: tooltip_open(),
+                on_open_change: move |open| tooltip_open.set(open),
+                class: "my-0 block",
             SidenavMenuButton {
                 href: Some(href),
-                size: SidenavMenuButtonSize::Default,
-                class: "h-[var(--workbench-activity-width)] w-[var(--workbench-activity-width)] justify-center",
                 aria_current: (if is_active { "page" } else { "false" }).to_owned(),
+                onclick: move |event: MouseEvent| {
+                    let modified = !event.modifiers().is_empty();
+                    let primary = event.trigger_button()
+                        == Some(dioxus::html::input_data::MouseButton::Primary);
+                    if modified || !primary {
+                        return;
+                    }
+                    event.prevent_default();
+                    if click_toggles_sidebar(destination, active, primary, modified) {
+                        on_toggle_sidebar.call(());
+                    } else {
+                        navigate.call(target.clone());
+                    }
+                },
                 Icon { icon: destination.icon() }
                 span { class: "sr-only", {destination.label()} }
+            }
+                TooltipContent { position: TooltipPosition::Right, {destination.label()} }
             }
         }
     }

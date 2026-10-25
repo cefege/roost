@@ -16,12 +16,15 @@ pub fn CommandInput(
     #[props(into, optional)] placeholder: Option<String>,
     #[props(into, optional)] aria_label: Option<String>,
     #[props(into, optional)] aria_controls: Option<String>,
-    /// The query the field shows, when the caller owns it (the route, for
-    /// server-side search). Absent, the field keeps its own query.
+    #[props(into, optional)] id: Option<String>,
+    /// Query value for a caller-owned search.
     #[props(into, optional)]
     value: Option<String>,
     #[props(into, optional)] test_id: Option<String>,
     #[props(default = false)] autofocus: bool,
+    /// Caller-owned active option ID for a list whose rows use external IDs.
+    #[props(into, optional)]
+    aria_active_descendant: Option<String>,
     /// Callback fired when the search text changes. Use for server-side search.
     #[props(optional)]
     on_search_change: Option<EventHandler<String>>,
@@ -36,17 +39,20 @@ pub fn CommandInput(
     let merged_class = tw_merge!(INPUT_RECIPE, class.as_deref().unwrap_or(""));
     let label = aria_label.unwrap_or_else(|| "Search".to_string());
     let query = value.unwrap_or_else(|| context.search_query.read().clone());
-    let active_descendant = context
-        .highlighted
-        .read()
-        .as_deref()
-        .map(|value| item_element_id(&context.root_id, value));
+    let active_descendant = aria_active_descendant.or_else(|| {
+        context
+            .highlighted
+            .read()
+            .as_deref()
+            .map(|value| item_element_id(&context.root_id, value))
+    });
 
     rsx! {
         input {
+            id: id.as_deref(),
             "data-name": "CommandInput",
-            "data-testid": test_id.as_deref(),
             class: "{merged_class}",
+            "data-testid": test_id.as_deref(),
             autofocus,
             placeholder: placeholder.as_deref(),
             autocomplete: "off",

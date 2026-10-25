@@ -53,7 +53,6 @@ pub fn DesignControlStates() -> Element {
                     Button { variant: ButtonVariant::Link, "Link" }
                 }
                 div { class: CONTROL_ROW_SPACED_CLASS,
-                    Button { size: ButtonSize::Xs, "Extra small" }
                     Button { size: ButtonSize::Sm, "Small" }
                     Button { size: ButtonSize::Default, "Default" }
                     Button { size: ButtonSize::Lg, "Large" }
@@ -66,7 +65,6 @@ pub fn DesignControlStates() -> Element {
                     IconButton { size: ButtonSize::IconXs, icon: IconType::X, label: "Extra small icon button" }
                     IconButton { size: ButtonSize::IconSm, icon: IconType::X, label: "Small icon button" }
                     IconButton { size: ButtonSize::Icon, icon: IconType::X, label: "Default icon button" }
-                    IconButton { size: ButtonSize::IconLg, icon: IconType::X, label: "Large icon button" }
                 }
             }
 

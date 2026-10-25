@@ -1,7 +1,6 @@
-//! The sidebar's pinned launch bar: its target machine is selectable when
-//! several are online, while New agent and New terminal use the active
-//! workspace when available and otherwise open the target machine's browser.
-//! The target rule is `new_terminal_target`.
+//! The stock Sidenav footer's machine picker and launch actions.
+//! Existing target selection chooses the active folder when possible and the
+//! target machine's browser otherwise; keyboard focus remains menu-owned.
 
 use dioxus::prelude::*;
 
@@ -17,7 +16,7 @@ use crate::components::ui::menu_overlay::{
     MenuContext, MenuSide, anchored_placement, request_close, request_open,
 };
 use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, SidenavFooter, StatusDot,
+    Button, ButtonSize, ButtonVariant, Icon, IconType, SidenavFooter, StatusDot,
 };
 use crate::new_terminal_target::{
     default_new_terminal_worker_fp, effective_new_terminal_target, online_workers_by_label,
@@ -142,21 +141,21 @@ pub fn SidebarNewTerminal() -> Element {
             trigger_id: MACHINE_TRIGGER_ID,
             menu_id: MACHINE_MENU_ID,
             test_id: "sidebar-new-terminal-machine-menu",
-            footer { class: "border-t border-sidenav-border", "data-testid": "sidebar-new-terminal",
-                SidenavFooter { class: "flex-row items-center",
+            SidenavFooter { "data-testid": "sidebar-new-terminal",
                 if online.len() > 1 {
                     MachineTrigger { target_label: target_label.clone() }
                 } else if !target_label.is_empty() {
                     span {
-                        class: "flex min-w-0 flex-1 items-center gap-2 px-2 text-sm text-foreground",
+                        class: "flex min-w-0 items-center gap-2 px-2 text-sm",
                         "data-testid": "sidebar-new-terminal-machine-label",
                         title: target_label.clone(),
                         StatusDot { status: "ok".to_owned() }
                         span { class: "min-w-0 truncate", {target_label.clone()} }
                     }
                 }
+                div { class: "flex items-center gap-2",
                 Button {
-                    class: "shrink-0",
+                    class: "flex-1",
                     variant: ButtonVariant::Default,
                     size: ButtonSize::Sm,
                     icon: IconType::Bot,
@@ -173,11 +172,12 @@ pub fn SidebarNewTerminal() -> Element {
                     },
                     "New agent"
                 }
-                IconButton {
-                    variant: ButtonVariant::Ghost,
-                    size: ButtonSize::IconSm,
+                Button {
+                    variant: ButtonVariant::Outline,
+                    size: ButtonSize::Sm,
+                    class: "flex-1",
                     icon: IconType::Terminal,
-                    label: "Open terminal",
+                    "aria-label": "Open terminal",
                     "data-testid": "sidebar-new-terminal-button",
                     title: "Open a terminal in this workspace",
                     disabled: target_fp.is_none(),
@@ -188,8 +188,10 @@ pub fn SidebarNewTerminal() -> Element {
                             terminal_navigate.call(Route::Browse { worker_fp: Some(worker_fp) }.to_path());
                         }
                     },
+                    "Terminal"
                 }
-                DropdownMenuContent { class: "w-auto min-w-40 overflow-y-auto",
+                }
+                DropdownMenuContent { class: "min-w-40",
                     for (fp, label) in online.iter().cloned() {
                         DropdownMenuItem {
                             key: "{fp}",
@@ -211,7 +213,6 @@ pub fn SidebarNewTerminal() -> Element {
                             }
                         }
                     }
-                }
                 }
             }
         }
@@ -248,7 +249,7 @@ fn MachineTrigger(target_label: String) -> Element {
     });
     rsx! {
         DropdownMenuTrigger {
-            class: "min-w-0 flex-1 justify-start gap-2 px-2",
+            class: "w-full justify-between",
             test_id: "sidebar-new-terminal-machine",
             on_key,
             StatusDot { status: "ok".to_owned() }

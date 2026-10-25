@@ -181,6 +181,15 @@ pub fn TabsTrigger(
     #[props(into)] value: String,
     #[props(into, optional)] class: Option<String>,
     #[props(into, optional)] test_id: Option<String>,
+    #[props(into, optional)] title: Option<String>,
+    #[props(into, optional)] aria_label: Option<String>,
+    /// False when the tab selects content rendered outside a `TabsContent` panel.
+    #[props(default = true)]
+    has_panel: bool,
+    /// Pointer-down for draggable tab lists.
+    #[props(optional)]
+    onpointerdown: Option<EventHandler<PointerEvent>>,
+    #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
     let TabsCtx {
@@ -238,9 +247,16 @@ pub fn TabsTrigger(
             "data-name": "TabsTrigger",
             "data-testid": test_id.as_deref(),
             "data-state": if is_active { "Active" } else { "Inactive" },
+            "aria-label": aria_label.as_deref(),
+            "aria-controls": has_panel.then_some(panel_id.as_str()),
             "aria-selected": "{is_active}",
-            "aria-controls": "{panel_id}",
+            title: title.as_deref(),
             tabindex,
+            onpointerdown: move |event| {
+                if let Some(handler) = &onpointerdown {
+                    handler.call(event);
+                }
+            },
             onclick: move |_| {
                 active.set(click_value.clone());
                 if let Some(handler) = &on_value_change {
@@ -257,6 +273,7 @@ pub fn TabsTrigger(
                     move_focus_to_adjacent_tab(&key_tab_id, step);
                 }
             },
+            ..attributes,
             {children}
         }
     }
@@ -309,15 +326,15 @@ fn move_focus_to_adjacent_tab(tab_id: &str, step: TabStep) {
     let Some(list) = current.closest("[role=tablist]").ok().flatten() else {
         return;
     };
-    let children = list.children();
+    let Ok(tab_nodes) = list.query_selector_all("[role=tab]") else {
+        return;
+    };
     let mut tabs: Vec<web_sys::HtmlElement> = Vec::new();
-    for index in 0..children.length() {
-        let Some(child) = children.item(index) else {
+    for index in 0..tab_nodes.length() {
+        let Some(node) = tab_nodes.item(index) else {
             continue;
         };
-        if child.get_attribute("role").as_deref() == Some("tab")
-            && let Ok(tab) = child.dyn_into::<web_sys::HtmlElement>()
-        {
+        if let Ok(tab) = node.dyn_into::<web_sys::HtmlElement>() {
             tabs.push(tab);
         }
     }

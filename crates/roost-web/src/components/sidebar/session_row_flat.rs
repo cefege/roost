@@ -1,7 +1,6 @@
-//! The flat-density body of a session row: the folder headline and age, the
-//! program subtitle, the machine and short path, and the agent status /
-//! offline / viewers line. Ports
-//! `apps/web/src/components/sidebar/SessionRowFlat.tsx`; `SessionRow` renders it.
+//! Supporting metadata beneath a terminal's Sidenav link.
+//! `SessionRow` renders its headline and age in the destination control; this
+//! body keeps machine/path, agent signals and viewers outside that link.
 
 use dioxus::prelude::*;
 
@@ -38,14 +37,11 @@ pub struct SessionRowFacts {
 pub fn SessionRowFlat(facts: SessionRowFacts) -> Element {
     let SessionRowFacts {
         session_id,
-        headline,
-        subtitle,
-        rel_time,
-        open,
         cwd,
         short_cwd,
         server_label,
         server_online,
+        ..
     } = facts;
     let server_title = if server_online {
         format!("server: {server_label} — online")
@@ -53,29 +49,8 @@ pub fn SessionRowFlat(facts: SessionRowFacts) -> Element {
         format!("server: {server_label} — offline / not running")
     };
     rsx! {
-        span { class: "flex min-w-0 flex-1 flex-col gap-0.5",
-            span { class: "flex min-w-0 items-baseline gap-2",
-                span {
-                    class: "min-w-0 flex-1 truncate text-sm text-foreground group-data-[selected=focused]:text-accent-foreground",
-                    "data-testid": "session-headline-{session_id}",
-                    {headline}
-                }
-                span {
-                    class: "shrink-0 text-xs tabular-nums text-muted-foreground group-data-[selected=focused]:text-accent-foreground",
-                    "data-testid": "session-reltime-{session_id}",
-                    title: if open { "Opened" } else { "Closed" },
-                    {rel_time}
-                }
-            }
-            if let Some(subtitle) = subtitle {
-                span {
-                    class: "min-w-0 truncate font-mono text-xs text-muted-foreground group-data-[selected=focused]:text-accent-foreground",
-                    "data-testid": "session-subtitle-{session_id}",
-                    title: subtitle.clone(),
-                    {subtitle.clone()}
-                }
-            }
-            span { class: "flex min-w-0 items-center gap-2 text-xs text-muted-foreground group-data-[selected=focused]:text-accent-foreground [&>*+*]:before:me-1 [&>*+*]:before:content-['·']",
+        span { class: "flex min-w-0 flex-col gap-1",
+            span { class: "flex min-w-0 items-center gap-2 text-xs text-muted-foreground",
                 ServerChip {
                     online: server_online,
                     label: server_label,

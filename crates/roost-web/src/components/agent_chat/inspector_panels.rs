@@ -152,7 +152,7 @@ pub(super) fn TasksPanel(
                                 }
                             }
                             if activity.kind == "run" && activity.state == "running" {
-                                Button { variant: ButtonVariant::Outline, size: ButtonSize::Xs, disabled: pending,
+                                Button { variant: ButtonVariant::Outline, size: ButtonSize::Sm, disabled: pending,
                                     onclick: move |event| on_stop.call(event), "Stop run" }
                             }
                         }
