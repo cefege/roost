@@ -213,17 +213,12 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
         ),
     }
 
-    // The browser-command pump is connected to the ONE production `Deps` now
-    // that the manager exists to answer through. It used to be `detached()`,
-    // which refuses every command with a cause — honest, and a capability that
-    // answers in tests and refuses in production is the defect this whole tree
-    // is about.
     let deps = Arc::new(stack.deps(platform));
     // One uplink for the process: every owner that puts a frame on the
     // coordinator link sends through a clone of it, and the link loop owns the
     // receiving half, so the link stays the only writer of bytes.
     let (uplink, uplink_rx) = crate::uplink::channel();
-    let browser = BrowserLink::connect(Arc::clone(&deps), uplink.clone());
+    let browser = BrowserLink::connect(Arc::clone(&deps), uplink.clone(), stop.clone());
     // The downstream owners, the cell cadence and the query-reply writer, over
     // the stack (moved in; reached as `owners.stack` from here on).
     let mut owners = super::owners::WorkerOwners::build(
@@ -329,6 +324,10 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
         Ok(reason) => reason.to_string(),
         Err(error) => format!("the coordinator link task failed: {error}"),
     };
+    let command_executor_failed = matches!(
+        &ended,
+        Ok(super::stop::StopReason::BrowserCommandExecutorFailed)
+    );
 
     tracing::info!(
         reason = %reason,
@@ -347,6 +346,9 @@ pub(super) async fn run(boot: WorkerBoot, stop: StopRequests) -> anyhow::Result<
     door.close();
     owners.shutdown();
     drop(keeper);
+    if command_executor_failed {
+        anyhow::bail!("{reason}");
+    }
     ended
         .map(drop)
         .map_err(|error| anyhow::anyhow!("the coordinator link task failed: {error}"))

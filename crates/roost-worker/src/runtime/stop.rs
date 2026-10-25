@@ -33,8 +33,12 @@ pub enum StopReason {
     /// end it. `serve` holds the requester for the whole run, so this is a
     /// never-in-production path kept named rather than left as `None`.
     RequesterGone,
-    /// A reconcile pass could not make a session event durable; v2 rethrows
-    /// that to the uncaught handler, so the worker does not run on.
+    /// The browser command executor task panicked or was cancelled.
+    ///
+    /// Its receiver cannot be recreated without rebuilding the session stack,
+    /// so the service exits for its supervisor to restart it.
+    BrowserCommandExecutorFailed,
+    /// A reconcile pass could not make a session event durable.
     DurabilityLost,
 }
 
@@ -46,6 +50,9 @@ impl std::fmt::Display for StopReason {
                 formatter.write_str("the coordinator asked the worker to shut down")
             }
             StopReason::RequesterGone => formatter.write_str("the stop requester went away"),
+            StopReason::BrowserCommandExecutorFailed => {
+                formatter.write_str("the browser command executor failed")
+            }
             StopReason::DurabilityLost => {
                 formatter.write_str("a session event could not be made durable")
             }

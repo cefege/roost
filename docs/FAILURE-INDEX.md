@@ -1785,6 +1785,29 @@ with the refusal's own cause rather than the deadline's.
 
 ## Worker, keeper and host
 
+### A worker remains online after its command executor dies
+
+**Symptom** — "New terminal failed: Internal: this worker build has no session layer,
+so it cannot execute browser commands", while the worker still appears online.
+
+**Wrong** — Diagnose a missing build feature or retry commands against a closed
+executor channel. An unsupervised command task can die without stopping worker
+presence or its coordinator link.
+
+**Right** — Keep a scrollback page ordered when retention advances past its
+exclusive end: a request for `[0, 250)` below floor `907` becomes the empty
+`[250, 250)` page, not an inverted range that panics `u32::clamp`. The helper is
+shared by browser and local-terminal reads; a panic without a backtrace does not
+identify which transport triggered it. Supervise the production executor and
+stop the worker on task failure so its service manager recovers it. Drop the
+keeper connection during shutdown, never the keeper's surviving PTYs.
+
+**Guard** — `roost-worker`:
+`scrollback_read::a_retained_floor_past_the_requested_end_keeps_the_window_ordered`,
+`browser_command_terminal::a_page_older_than_the_retained_floor_does_not_stop_later_commands`,
+and `runtime::link_loop::browser::tests::a_panicked_command_pump_requests_worker_shutdown`.
+
+
 ### Pane close races the worker reading the kill
 
 **Symptom** — "pane ✕ click does nothing"

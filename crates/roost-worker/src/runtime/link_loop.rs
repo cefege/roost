@@ -77,10 +77,6 @@ pub const DURABLE_MIRROR_CAP: usize = 256;
 /// window.
 pub const SNAPSHOT_STARVATION: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// What a browser command is answered with while nothing can execute one.
-pub const NO_SESSION_LAYER_REFUSAL: &str =
-    "this worker build has no session layer, so it cannot execute browser commands";
-
 /// Who this worker is to the coordinator, in the fields the hello carries.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkerIdentity {

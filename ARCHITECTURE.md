@@ -154,6 +154,11 @@ session reconcile → ready (`crates/roost-worker/src/runtime/boot_order.rs`).
 Keeper admission is three-valued — adopt, replace, or refuse when a survivor's
 channel set cannot be proven (`crates/roost-worker/src/boot_keeper.rs`).
 
+The worker supervises its browser-command executor. A failed executor stops the
+worker with an error so the service manager restarts it; reconnecting an online
+worker with a dead command channel is not recovery. Shutdown drops the keeper
+connection without killing its PTYs.
+
 ## The terminal data plane
 
 Normative detail lives in `protocol/spec/terminal-stream.md` and

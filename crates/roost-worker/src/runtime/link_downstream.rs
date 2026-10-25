@@ -104,11 +104,11 @@ impl DownstreamLink for LinkLoop {
             let request_id = command.request_id;
             tracing::warn!(
                 request_id,
-                "a browser command arrived with no command pump to run it"
+                "a browser command could not reach the command executor"
             );
             let refusal = CoordWorkerUpstream::RpcError {
                 request_id,
-                message: super::link_loop::NO_SESSION_LAYER_REFUSAL.to_owned(),
+                message: "browser command executor is unavailable".to_owned(),
                 trace_id: None,
             };
             push_upstream(self, &refusal, "browser-command-refusal");

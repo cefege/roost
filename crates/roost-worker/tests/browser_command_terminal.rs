@@ -5,13 +5,15 @@
 
 mod browser_command_support;
 use browser_command_support::{
-    EPOCH, FINGERPRINT, SESSION, command, dispatch, floor, frame_of, harness, only, session,
+    EPOCH, FINGERPRINT, FakeGrid, SESSION, command, dispatch, floor, frame_of, harness, only,
+    session,
 };
 use roost_worker::browser_commands::scrollback_page::GridDescription;
 use roost_worker::browser_commands::search::Searches;
 use roost_worker::browser_commands::search_cancellation::{MAX_TOMBSTONES, TOMBSTONE_TTL};
 use roost_worker::scrollback_read::EpochBinding;
 use serde_json::json;
+use std::sync::Arc;
 
 /// A PAGE THAT STOPPED AT AN EDGE SAYS WHICH. A client that is told nothing
 /// retries forever; a client that is told "evicted" can name the floor it is
@@ -80,6 +82,39 @@ async fn a_page_against_a_stale_epoch_is_refused() {
     assert_eq!(
         refused.message(),
         Some("`get-scrollback-cells`: grid epoch changed")
+    );
+}
+/// A stale request window wholly below the retained floor returns an empty
+/// correlated page; clamping the floor must not panic the command executor.
+#[tokio::test]
+async fn a_page_older_than_the_retained_floor_does_not_stop_later_commands() {
+    let mut harness = harness();
+    harness.deps.grid = Arc::new(FakeGrid::evicting(1_000, 907));
+    let request = roost_worker::browser_commands::Command::decode(
+        FINGERPRINT,
+        FINGERPRINT,
+        "req-1",
+        json!({
+            "kind": "get-scrollback-cells",
+            "request_id": "page-before-floor",
+            "session_id": SESSION,
+            "grid_epoch": EPOCH,
+            "end_row": 250,
+            "max_rows": 250,
+        }),
+    )
+    .expect("the page request is canonical");
+
+    let reply = only(dispatch(&request, &harness.deps).await);
+    let data = reply.data().expect("the empty page is still answered");
+    assert_eq!(data["rows"], json!([]));
+    assert_eq!(data["start_row"], json!(250));
+    assert_eq!(data["end_row"], json!(250));
+    assert_eq!(data["history_floor"], json!("evicted"));
+    let subsequent = only(dispatch(&command(frame_of("search-scrollback")), &harness.deps).await);
+    assert!(
+        subsequent.is_ok(),
+        "a valid browser command remains answerable after an older-page request"
     );
 }
 

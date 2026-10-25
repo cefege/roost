@@ -100,19 +100,19 @@ impl Page {
         self.end_row.saturating_sub(self.start_row)
     }
 
-    /// This window with its start raised to the grid's retained floor.
+    /// This window with its start raised to the retained floor, but never past
+    /// its exclusive end.
     ///
     /// A window whose start is BELOW the floor names rows the core no longer
-    /// holds, and every one of them reads as absent. Serving that window
-    /// produces a page with a hole at its front, which a client cannot tell
-    /// from silent loss — so the floor is part of the arithmetic, here, rather
-    /// than at each of the two call sites that own a transport.
+    /// holds. When the whole window predates the floor, the empty window ends
+    /// at the requested end; an inverted range would make shortening it panic.
     pub fn clamped_to_floor(self, retained_floor: u32) -> Self {
         if self.start_row >= retained_floor {
             return self;
         }
+        let start_row = retained_floor.min(self.end_row);
         Self {
-            start_row: retained_floor,
+            start_row,
             has_more: retained_floor > 0,
             ..self
         }

@@ -123,6 +123,18 @@ fn has_more_is_exact_at_the_boundary() {
     let partial = page_for(&request("", 1_000, 999), 1_000, 80, &binding()).expect("bound");
     assert_eq!((partial.start_row, partial.end_row), (1, 1_000));
 }
+/// A retention floor beyond an old requested page produces an empty,
+/// non-inverted window that can still be shortened safely.
+#[test]
+fn a_retained_floor_past_the_requested_end_keeps_the_window_ordered() {
+    let page = page_for(&request("", 250, 250), 1_000, 80, &binding()).expect("bound");
+    let window = page.clamped_to_floor(907);
+
+    assert_eq!((window.start_row, window.end_row), (250, 250));
+    assert_eq!(window.row_count(), 0);
+    let shortened = window.with_end(200);
+    assert_eq!((shortened.start_row, shortened.end_row), (250, 250));
+}
 
 /// A page spanning several slices says so, because the client budgets its
 /// backfill wave by it — a page that silently became ten slices would stall

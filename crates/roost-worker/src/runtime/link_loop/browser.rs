@@ -5,13 +5,16 @@
 //! answers on the one uplink arm every off-loop frame uses. Ports the
 //! `onBrowserCommand` hand-off of v2 `apps/worker/src/transport/coord-link-downstream.ts`.
 //!
-//! A pump that is gone REFUSES the command with a cause rather than dropping
-//! it: a browser command that is neither executed nor refused hangs the
-//! coordinator's pending entry until it expires with no error anywhere.
+//! A disconnected receiver refuses a command instead of leaving its request
+//! pending. Production also supervises the pump task: once a dispatch panics,
+//! the worker exits so the service manager can rebuild the executor.
 
 use std::sync::Arc;
 
+use tokio::task::JoinHandle;
+
 use crate::browser_commands::{Command, Deps};
+use crate::runtime::stop::{StopReason, StopRequests};
 use crate::uplink::{LinkFence, Uplink};
 
 /// One command and the connection its answers belong to.
@@ -30,9 +33,9 @@ impl BrowserLink {
     /// worker that ran them concurrently would let a `read-file` against a
     /// network mount block the `diag-snapshot` behind it, and the coordinator
     /// has no ordering guarantee to make that safe.
-    pub fn connect(deps: Arc<Deps>, uplink: Uplink) -> Self {
+    pub fn connect(deps: Arc<Deps>, uplink: Uplink, stop: StopRequests) -> Self {
         let (inbound, mut inbound_rx) = tokio::sync::mpsc::unbounded_channel::<FencedCommand>();
-        tokio::spawn(async move {
+        let pump = tokio::spawn(async move {
             while let Some((command, fence)) = inbound_rx.recv().await {
                 let frames = crate::browser_commands::dispatch(&command, &deps).await;
                 for frame in frames {
@@ -41,19 +44,17 @@ impl BrowserLink {
             }
             tracing::info!("the browser command pump stopped");
         });
+        supervise_pump(pump, stop);
         Self { inbound }
     }
 
     /// A link with no pump behind it.
     ///
     /// Only a caller that will never send a command builds this — a test
-    /// exercising the reconnect ladder, which has no capabilities to dispatch
-    /// to. Every command it IS sent is refused, and that refusal is the truth:
-    /// there is no pump, so there is no session layer.
+    /// exercising the reconnect ladder, which has no command executor.
+    /// Every command it receives is refused because its receiver is gone.
     pub fn detached() -> Self {
         let (inbound, inbound_rx) = tokio::sync::mpsc::unbounded_channel();
-        // Dropping the pump's own receiving half is exactly what makes every
-        // send fail, and therefore every command refused with a cause.
         drop(inbound_rx);
         Self { inbound }
     }
@@ -70,5 +71,38 @@ impl BrowserLink {
         self.inbound
             .send((command, fence))
             .map_err(|error| Box::new(error.0.0))
+    }
+}
+
+fn supervise_pump(pump: JoinHandle<()>, stop: StopRequests) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        if let Err(error) = pump.await {
+            tracing::error!(
+                %error,
+                "the browser command pump failed; the worker must restart to restore command execution"
+            );
+            stop.request(StopReason::BrowserCommandExecutorFailed);
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::supervise_pump;
+    use crate::runtime::stop::{StopReason, StopRequests};
+
+    #[tokio::test]
+    async fn a_panicked_command_pump_requests_worker_shutdown() {
+        let (stop, signal) = StopRequests::channel();
+        let pump = tokio::spawn(async { panic!("command execution failed") });
+
+        supervise_pump(pump, stop)
+            .await
+            .expect("the monitor completes");
+
+        assert_eq!(
+            signal.reason(),
+            Some(StopReason::BrowserCommandExecutorFailed)
+        );
     }
 }
