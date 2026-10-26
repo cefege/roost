@@ -17,12 +17,18 @@ use roost_client_core::store::terminal_nav_pad::{
 };
 use roost_client_core::store::toasts::ToastKind;
 use roost_client_core::store::toasts::ToastSource;
-use roost_client_core::{ClientCore, ClientEvent, KeyValueStore, MemoryClock, MemoryKeyValueStore};
+use roost_client_core::{
+    ClientCore, ClientEvent, ClientStateStore, KeyValueStore, MemoryClock, MemoryEpochClock,
+    MemoryKeyValueStore,
+};
 
 fn core_over(storage: &Rc<MemoryKeyValueStore>) -> ClientCore {
     ClientCore::new(
         Rc::new(MemoryClock::new()),
-        Rc::clone(storage) as Rc<dyn KeyValueStore>,
+        Rc::new(ClientStateStore::new(
+            storage.clone(),
+            Rc::new(MemoryEpochClock::new()),
+        )),
         "tab-shell-nav-pad",
         &PrefDefaults::default(),
     )

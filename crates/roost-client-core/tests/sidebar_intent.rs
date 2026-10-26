@@ -9,12 +9,18 @@ use std::rc::Rc;
 use roost_client_core::store::prefs::PrefDefaults;
 use roost_client_core::store::sidebar::SidebarIntent;
 use roost_client_core::store::sidebar::memory::{RECENT_KEY, RECENT_MAX};
-use roost_client_core::{ClientCore, ClientEvent, KeyValueStore, MemoryClock, MemoryKeyValueStore};
+use roost_client_core::{
+    ClientCore, ClientEvent, ClientStateStore, KeyValueStore, MemoryClock, MemoryEpochClock,
+    MemoryKeyValueStore,
+};
 
 fn core_over(storage: &Rc<MemoryKeyValueStore>) -> ClientCore {
     ClientCore::new(
         Rc::new(MemoryClock::new()),
-        Rc::clone(storage) as Rc<dyn KeyValueStore>,
+        Rc::new(ClientStateStore::new(
+            storage.clone(),
+            Rc::new(MemoryEpochClock::new()),
+        )),
         "tab-sidebar",
         &PrefDefaults::default(),
     )

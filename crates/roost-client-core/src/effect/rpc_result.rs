@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use roost_protocol::wire::{McpRelay, SessionMap, Task, Worker, Workspace};
 
+use crate::client::client_state::ClientStateEntry;
 use crate::client::rpc::CallError;
 use crate::search::global::GlobalSearchResponse;
 use crate::store::browse_entries::BrowseEntry;
@@ -168,6 +169,16 @@ pub enum RpcResult {
         call_id: u64,
         conversation_id: String,
     },
+    /// `ClientStateList` answered with every synced key on the account.
+    ClientStateListed {
+        call_id: u64,
+        entries: Vec<ClientStateEntry>,
+    },
+    /// `ClientStateSet` answered with the winning entry for every requested key.
+    ClientStateSetAnswered {
+        call_id: u64,
+        entries: Vec<ClientStateEntry>,
+    },
 }
 
 impl RpcResult {
@@ -189,7 +200,9 @@ impl RpcResult {
             | Self::SearchPage { call_id, .. }
             | Self::GlobalSearchCancelled { call_id, .. }
             | Self::SessionKillAnswered { call_id, .. }
-            | Self::AgentChatDeleteAnswered { call_id, .. } => *call_id,
+            | Self::AgentChatDeleteAnswered { call_id, .. }
+            | Self::ClientStateListed { call_id, .. }
+            | Self::ClientStateSetAnswered { call_id, .. } => *call_id,
         }
     }
 
@@ -212,6 +225,8 @@ impl RpcResult {
             Self::GlobalSearchCancelled { .. } => "global_search_cancelled",
             Self::SessionKillAnswered { .. } => "session_kill_answered",
             Self::AgentChatDeleteAnswered { .. } => "agent_chat_delete_answered",
+            Self::ClientStateListed { .. } => "client_state_listed",
+            Self::ClientStateSetAnswered { .. } => "client_state_set_answered",
         }
     }
 }

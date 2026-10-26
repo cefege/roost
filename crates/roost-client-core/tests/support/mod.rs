@@ -12,7 +12,8 @@ pub mod sync_reconnect;
 
 use roost_client_core::store::prefs::PrefDefaults;
 use roost_client_core::{
-    ClientCore, MemoryClock, MemoryKeyValueStore, TerminalSession, TerminalToken,
+    ClientCore, ClientStateStore, MemoryClock, MemoryEpochClock, MemoryKeyValueStore,
+    TerminalSession, TerminalToken,
 };
 use roost_proto::{PbCellGridFrame, PbCellRow, PbCellSpan};
 
@@ -123,9 +124,25 @@ pub fn client_with_clock() -> (ClientCore, std::rc::Rc<MemoryClock>) {
     let clock = std::rc::Rc::new(MemoryClock::new());
     let core = ClientCore::new(
         clock.clone(),
-        std::rc::Rc::new(MemoryKeyValueStore::new()),
+        std::rc::Rc::new(ClientStateStore::in_memory()),
         "tab-1",
         &PrefDefaults::default(),
     );
     (core, clock)
+}
+
+/// A core over `storage`, so a test can boot a second one over the same bytes.
+pub fn core_over(
+    storage: &std::rc::Rc<MemoryKeyValueStore>,
+    defaults: &PrefDefaults,
+) -> ClientCore {
+    ClientCore::new(
+        std::rc::Rc::new(MemoryClock::new()),
+        std::rc::Rc::new(ClientStateStore::new(
+            storage.clone(),
+            std::rc::Rc::new(MemoryEpochClock::new()),
+        )),
+        "tab-prefs",
+        defaults,
+    )
 }

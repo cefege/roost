@@ -10,7 +10,9 @@ use roost_client_core::store::prefs::PrefDefaults;
 use roost_client_core::store::{
     ChannelId, Session, SessionId, SessionKind, SessionMap, SessionStatus, WorkerFp,
 };
-use roost_client_core::{ClientCore, ClientEvent, MemoryClock, MemoryKeyValueStore};
+use roost_client_core::{
+    ClientCore, ClientEvent, ClientStateStore, MemoryClock, MemoryEpochClock, MemoryKeyValueStore,
+};
 use roost_protocol::layout::document::LayoutDirection;
 
 pub const MACHINE: &str = "00000000000000000000000000000000000000000000000000000000000000ff";
@@ -92,7 +94,10 @@ pub fn layout(root: PaneNode, focused: &str) -> PaneLayout {
 pub fn core_over(storage: &Rc<MemoryKeyValueStore>) -> ClientCore {
     ClientCore::new(
         Rc::new(MemoryClock::starting_at(1_000)),
-        storage.clone(),
+        Rc::new(ClientStateStore::new(
+            storage.clone(),
+            Rc::new(MemoryEpochClock::new()),
+        )),
         "tab-deck",
         &PrefDefaults::default(),
     )

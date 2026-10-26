@@ -10,8 +10,8 @@ use std::rc::Rc;
 use roost_client_core::store::prefs::PrefDefaults;
 use roost_client_core::terminal::input::outcome_feed::ViewAdmission;
 use roost_client_core::{
-    ClientCore, ClientEvent, InputOutcome, InputPhase, InputRouter, KeyValueStore, MemoryClock,
-    MemoryKeyValueStore, TerminalToken,
+    ClientCore, ClientEvent, ClientStateStore, InputOutcome, InputPhase, InputRouter, MemoryClock,
+    TerminalToken,
 };
 
 fn admit(router: &mut InputRouter, view_id: &str, bytes: &[u8]) -> u64 {
@@ -28,7 +28,7 @@ fn token() -> TerminalToken {
 
 #[test]
 fn a_pane_keystroke_with_no_route_is_admitted_then_reaches_its_view_rejected() {
-    let storage: Rc<dyn KeyValueStore> = Rc::new(MemoryKeyValueStore::new());
+    let storage: Rc<ClientStateStore> = Rc::new(ClientStateStore::in_memory());
     let mut core = ClientCore::new(
         Rc::new(MemoryClock::new()),
         storage,

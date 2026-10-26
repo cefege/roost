@@ -32,7 +32,10 @@ use roost_client_core::store::prefs::{
     NOTIFY_PREFS_KEY, PREDICT_MODE_KEY, PrefDefaults, TERM_FONT_PX_KEY, TERMINAL_LIGATURES_KEY,
     clear_account_scoped_prefs, load_prefs,
 };
-use roost_client_core::{ClientCore, KeyValueStore, MemoryClock, MemoryKeyValueStore};
+use roost_client_core::{ClientCore, KeyValueStore, MemoryKeyValueStore};
+mod support;
+
+use support::core_over;
 
 fn client() -> ClientCore {
     ClientCore::in_memory("tab-prefs")
@@ -40,16 +43,6 @@ fn client() -> ClientCore {
 
 fn defaults() -> PrefDefaults {
     PrefDefaults::default()
-}
-
-/// A core over `storage`, so a test can boot a second one over the same bytes.
-fn core_over(storage: &Rc<MemoryKeyValueStore>, defaults: &PrefDefaults) -> ClientCore {
-    ClientCore::new(
-        Rc::new(MemoryClock::new()),
-        Rc::clone(storage) as Rc<dyn KeyValueStore>,
-        "tab-prefs",
-        defaults,
-    )
 }
 
 #[test]

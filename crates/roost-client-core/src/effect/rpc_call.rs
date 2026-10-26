@@ -5,6 +5,7 @@
 //! the wire by `client::rpc::methods`. The per-domain hydration calls are v2's
 //! `apps/web/src/store/sync-bootstrap-hydration.ts:52-203`.
 
+use crate::client::client_state::ClientStateEntry;
 use crate::sync::link::SyncDomain;
 
 /// One Connect unary call.
@@ -139,6 +140,13 @@ pub enum RpcCall {
     AgentChatDelete {
         call_id: u64,
         conversation_id: String,
+    },
+    /// `ClientStateList` — every account-scoped synced key.
+    ClientStateList { call_id: u64 },
+    /// `ClientStateSet` — one batch of dirty synced keys to upsert.
+    ClientStateSet {
+        call_id: u64,
+        entries: Vec<ClientStateEntry>,
     },
 }
 
