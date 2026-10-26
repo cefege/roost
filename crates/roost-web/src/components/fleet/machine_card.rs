@@ -11,7 +11,7 @@ use super::readings::{ReadingState, format_uptime};
 use crate::components::machines::host_usage_tiles::{HostUsage, HostUsageTiles};
 use crate::components::ui::{
     Badge, BadgeVariant, Card, CardAction, CardContent, CardDescription, CardHeader, CardSize,
-    CardTitle, Collapsible, CollapsibleContent, CollapsibleTrigger, Skeleton,
+    CardTitle, Collapsible, CollapsibleContent, CollapsibleTrigger, Skeleton, StatusDot,
 };
 
 #[component]
@@ -65,12 +65,16 @@ pub fn MachineCard(
 #[component]
 fn StateBadge(state: ReadingState) -> Element {
     match state {
-        ReadingState::Live => rsx! { Badge { variant: BadgeVariant::Success, "Live" } },
+        ReadingState::Live => rsx! {
+            StatusDot { status: "ok".to_owned(), title: Some("Live".to_owned()) }
+        },
         ReadingState::Stale { .. } => rsx! { Badge { variant: BadgeVariant::Warning, "Stale" } },
         ReadingState::Awaiting => {
             rsx! { Badge { variant: BadgeVariant::Muted, "Awaiting sample" } }
         }
-        ReadingState::Offline => rsx! { Badge { variant: BadgeVariant::Muted, "Offline" } },
+        ReadingState::Offline => rsx! {
+            StatusDot { status: "offline".to_owned(), title: Some("Offline".to_owned()) }
+        },
     }
 }
 
