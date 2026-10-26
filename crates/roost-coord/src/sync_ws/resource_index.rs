@@ -34,8 +34,8 @@ pub struct SyncResourceIndex {
     pub worker_fps: BTreeSet<WorkerFp>,
     /// Workspaces whose deletes and membership changes this socket receives.
     pub workspace_ids: BTreeSet<String>,
-    /// Workers whose live host snapshots this socket receives. Set by the
-    /// socket's own `worker_live_subscription` command, never by a reload.
+    /// Owned workers whose live host snapshots this socket receives. Set by
+    /// the socket's own `worker_live_subscription` command, never by a reload.
     pub live_metric_fps: BTreeSet<WorkerFp>,
 }
 
@@ -46,6 +46,17 @@ impl SyncResourceIndex {
         self.owner_worker_fp
             .as_deref()
             .is_none_or(|owner| owner == worker_fp)
+    }
+
+    /// The subset of `requested` this socket observes. A worker-owned socket
+    /// names only its own worker, so a live subscription to any other worker is
+    /// dropped here, as presence for that worker is dropped.
+    #[must_use]
+    pub fn owned_subset(&self, requested: BTreeSet<WorkerFp>) -> BTreeSet<WorkerFp> {
+        requested
+            .into_iter()
+            .filter(|worker_fp| self.owns_worker(worker_fp.as_str()))
+            .collect()
     }
 
     /// Whether this socket sees install-wide resources -- tasks, MCP relays,
@@ -173,6 +184,10 @@ async fn ids(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
+    use roost_protocol::wire::WorkerFp;
+
     use super::SyncResourceIndex;
 
     fn index_of(sessions: &[&str], workspaces: &[&str]) -> SyncResourceIndex {
@@ -193,6 +208,32 @@ mod tests {
         assert_eq!(
             first,
             index_of(&["kept", "opened-meanwhile", "shared"], &["w1", "w2"])
+        );
+    }
+
+    fn fp(digit: char) -> WorkerFp {
+        match WorkerFp::try_from(digit.to_string().repeat(64)) {
+            Ok(worker_fp) => worker_fp,
+            Err(_) => panic!("a 64-hex fingerprint"),
+        }
+    }
+
+    /// A worker socket keeps only its own worker from a live subscription; an
+    /// account device keeps every worker it names.
+    #[test]
+    fn live_subscription_is_narrowed_to_the_owned_worker() {
+        let requested = BTreeSet::from([fp('a'), fp('b')]);
+        let worker_socket = SyncResourceIndex {
+            owner_worker_fp: Some(fp('a').as_str().to_owned()),
+            ..SyncResourceIndex::default()
+        };
+        assert_eq!(
+            worker_socket.owned_subset(requested.clone()),
+            BTreeSet::from([fp('a')])
+        );
+        assert_eq!(
+            SyncResourceIndex::default().owned_subset(requested.clone()),
+            requested
         );
     }
 }

@@ -185,17 +185,17 @@ fn carry_out(effect: IngressEffect, opened: &mut OpenedSocket, services: &Arc<Co
                 command,
             );
         }
-        IngressEffect::WorkerLiveSubscription(worker_fps) => {
-            opened
-                .link
-                .lock()
-                .index
-                .live_metric_fps
-                .clone_from(&worker_fps);
+        IngressEffect::WorkerLiveSubscription(requested_fps) => {
+            let owned_fps = {
+                let mut state = opened.link.lock();
+                let owned = state.index.owned_subset(requested_fps);
+                state.index.live_metric_fps.clone_from(&owned);
+                owned
+            };
             crate::live_metrics::replace_socket_subscriptions(
                 services,
                 &opened.socket_id,
-                worker_fps,
+                owned_fps,
             );
         }
     }
