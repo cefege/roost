@@ -1,6 +1,6 @@
-//! The route-stable primary sidebar: folders, debounced filter, compact terminal
-//! text-size row, and pinned workspace launch bar. Ports
-//! `apps/web/src/components/sidebar/SidebarRoot.tsx`; `AppShell` mounts it once
+//! The route-stable primary sidebar: the session heading with its Recent /
+//! Folders switcher, debounced search, the folder tree, the compact
+//! terminal text-size row, and the terminal launcher. `AppShell` mounts it once
 //! in the desktop aside or the compact drawer. State changes dispatch
 //! `ClientEvent::Sidebar`.
 
@@ -9,7 +9,9 @@ use roost_client_core::ClientEvent;
 use roost_client_core::store::sidebar::SidebarIntent;
 
 use super::all_view::AllView;
+use super::recent_conversations::RecentConversations;
 use super::rel_time_tick::provide_rel_time_ticker;
+use super::sidebar_heading::{SidebarHeading, SidebarView};
 use super::sidebar_new_terminal::SidebarNewTerminal;
 use super::sidebar_search::SidebarSearch;
 use crate::components::layout::window_size::use_is_compact;
@@ -38,6 +40,7 @@ pub fn SidebarRoot() -> Element {
         Route::Session { .. } | Route::Terminal { .. } | Route::Workspace { .. }
     );
     let mut query = use_signal(String::new);
+    let mut view = use_signal(SidebarView::default);
     let mut debounced = use_signal(String::new);
     let mut debounce_generation = use_signal(|| 0_u64);
     let ui = pump.core().borrow().store().ui;
@@ -84,11 +87,11 @@ pub fn SidebarRoot() -> Element {
     } else {
         !ui.sidebar_collapsed
     };
-    let folders_active = interactive;
+    let folders_active = interactive && view() == SidebarView::Folders;
     let close_drawer = pump.clone();
 
     rsx! {
-        SidenavInner { class: "min-h-0", "data-testid": "sidebar-root",
+        SidenavInner { class: "min-h-0", variant: "Floating", "data-testid": "sidebar-root",
                 if compact {
                     SidenavHeader { class: "flex-row items-center justify-between",
                         IconButton {
@@ -107,18 +110,28 @@ pub fn SidebarRoot() -> Element {
                         }
                     }
                 }
+                SidebarHeading {
+                    view: view(),
+                    on_view_change: move |next: SidebarView| view.set(next),
+                }
                 SidebarSearch {
                     query: query(),
                     on_change: on_query_change,
-                    placeholder: "Filter folders…".to_owned(),
+                    placeholder: "Search sessions".to_owned(),
                     shortcut_label: platform_shortcut_label(PlatformShortcut::SidebarSearch, "⌘F", platform).to_owned(),
                 }
-            div {
-                class: "flex min-h-0 flex-1 flex-col",
-                "data-testid": "sidebar-folders",
-                inert: (!folders_active).then_some(true),
-                AllView { active: folders_active, query: debounced() }
-            }
+                div {
+                    class: if view() == SidebarView::Recent { "flex min-h-0 flex-1 flex-col" } else { "hidden" },
+                    "data-testid": "sidebar-recent-panel",
+                    inert: (!interactive || view() != SidebarView::Recent).then_some(true),
+                    RecentConversations { query: debounced() }
+                }
+                div {
+                    class: if view() == SidebarView::Folders { "flex min-h-0 flex-1 flex-col" } else { "hidden" },
+                    "data-testid": "sidebar-folders",
+                    inert: (!interactive || view() != SidebarView::Folders).then_some(true),
+                    AllView { active: folders_active, query: debounced() }
+                }
             if compact && terminal_route {
                 SidenavFooter { class: "flex-row items-center justify-between",
                     div { class: "flex items-center gap-2 text-sm", "data-testid": "sidebar-text-size",
