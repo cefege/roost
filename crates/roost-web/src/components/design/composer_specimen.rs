@@ -1,13 +1,13 @@
 //! The shared Rust/UI InputPrompt reference on the design gallery.
 //! The terminal and agent surfaces use this same frame, field and toolbar.
-//! The pill variant is the agent-chat composer, which the operator chose from
-//! pi-pocket: the same field inside a fully rounded frame. Each specimen owns
+//! The sheet variant is the agent-chat composer, which the operator chose from
+//! pi-pocket: the same field inside a rounded sheet frame. Each specimen owns
 //! only local draft state; it makes no backend requests.
 
 use dioxus::prelude::*;
 
 use crate::components::ui::{
-    Icon, IconType, InputPrompt, InputPromptFooter, InputPromptPill, InputPromptSubmit,
+    Icon, IconType, InputPrompt, InputPromptFooter, InputPromptSheet, InputPromptSubmit,
     InputPromptTextarea, InputPromptTools,
 };
 
@@ -77,10 +77,10 @@ fn ComposerPillSpecimen() -> Element {
         }
     });
     rsx! {
-        InputPromptPill {
+        InputPromptSheet {
             InputPromptTextarea {
                 value: draft,
-                aria_label: "Pill composer preview",
+                aria_label: "Sheet composer preview",
                 on_submit: submit,
             }
             InputPromptFooter { class: "flex-wrap",
