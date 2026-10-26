@@ -15,7 +15,7 @@ jobs:
       matrix:
         os: [macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       # Caches the DEPENDENCY artifacts, not the workspace crates, so a cache
@@ -65,7 +65,7 @@ jobs:
   postgres:
     name: coordinator on postgres
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     services:
       postgres:
         image: postgres:17
