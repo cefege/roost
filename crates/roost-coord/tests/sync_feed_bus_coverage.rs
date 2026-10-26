@@ -175,6 +175,7 @@ fn every_bus_in_the_coordinator_has_a_producer() {
         "terminal_signal_bus",
         session_terminal_signals_frame(&SessionTerminalSignals {
             session_id: SESSION_A.to_owned(),
+            program_status: None,
             progress: Some(roost_protocol::terminal_signals::TerminalProgress::Normal(
                 42,
             )),

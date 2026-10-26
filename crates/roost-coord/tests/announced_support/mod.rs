@@ -159,6 +159,7 @@ pub fn metadata(
     CoordWorkerUpstream::TerminalMetadata(TerminalMetadata {
         channel_id: ChannelId::try_from(i64::from(CHANNEL)).unwrap(),
         title_changed,
+        program_status: None,
         title: title.to_owned(),
         activity_changed,
         activity_ts_ms,

@@ -59,6 +59,9 @@ pub struct ChannelMetadata {
     bell_pending: bool,
     last_bell_at_ms: Option<i64>,
     signals: signals::ChannelSignals,
+    /// The process exited. The state exists only to publish what the exit left
+    /// standing, and is dropped once that frame is accepted by the link.
+    closing: bool,
 }
 
 /// The semantic lane: every channel's facts, the ready ring, and the flag.
@@ -255,9 +258,14 @@ impl TerminalMetadataStage {
                 return;
             };
             self.ready_set.remove(&channel_id);
-            let Some(state) = self.channels.get(&channel_id).filter(|_| live(channel_id)) else {
+            let Some(state) = self
+                .channels
+                .get(&channel_id)
+                .filter(|state| state.closing || live(channel_id))
+            else {
                 continue;
             };
+            let closing = state.closing;
             let title = state.title.clone();
             let activity = state.activity_ts_ms;
             let command_finished = state.command_dirty && state.command_finished.is_some();
@@ -275,6 +283,9 @@ impl TerminalMetadataStage {
                 && !bell
                 && signals == signals::PendingSignals::default()
             {
+                if closing {
+                    self.channels.remove(&channel_id);
+                }
                 continue;
             }
             let result = send(TerminalMetadata {
@@ -295,6 +306,7 @@ impl TerminalMetadataStage {
                 notifications: signals.notification.clone().into_iter().collect(),
                 user_vars_changed: signals.user_vars.is_some(),
                 user_vars: signals.user_vars.clone().unwrap_or_default(),
+                program_status: signals.program_status.clone(),
             });
             frames += 1;
             if result == MetadataSend::Dropped {
@@ -303,6 +315,10 @@ impl TerminalMetadataStage {
                 self.ready_set.insert(channel_id);
                 tracing::debug!(%channel_id, "terminal metadata was refused by the link; it stays ready");
                 return;
+            }
+            if closing {
+                self.channels.remove(&channel_id);
+                continue;
             }
             let Some(state) = self.channels.get_mut(&channel_id) else {
                 continue;
@@ -344,12 +360,16 @@ impl TerminalMetadataStage {
         self.flush_scheduled = !self.ready.is_empty();
     }
 
-    /// v2 `disposeTerminalMetadataState`.
+    /// v2 `disposeTerminalMetadataState`, for a channel whose process exited.
+    /// The exit leaves program status standing (`done`, `error`), so the channel
+    /// stays queued until the flush has sent it; `flush` then drops the state.
     pub fn forget_channel(&mut self, channel_id: ChannelId) {
-        self.channels.remove(&channel_id);
-        if self.ready_set.remove(&channel_id) {
-            self.ready.retain(|queued| *queued != channel_id);
-        }
+        let Some(state) = self.channels.get_mut(&channel_id) else {
+            return;
+        };
+        state.closing = true;
+        state.signals.close();
+        self.mark_ready(channel_id);
     }
 
     /// Queue a channel and owe a flush. Returns whether the flush is newly owed.

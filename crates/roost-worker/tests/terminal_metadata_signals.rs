@@ -3,6 +3,7 @@
 //! rate limit thins, and coalescing keeps the newest of each.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use roost_protocol::program_status::{ProgramState, ProgramStatusRecord, ProgramStatusUpdate};
 use roost_protocol::terminal_signals::{TerminalNotification, TerminalProgress, TerminalUserVar};
 use roost_protocol::wire::brand::ChannelId;
 use roost_protocol::wire::coord_worker::TerminalMetadata;
@@ -161,6 +162,7 @@ fn coalescing_keeps_the_newest_facts_and_every_notification() {
         |progress, notifications: Vec<TerminalNotification>, vars: Option<&str>| TerminalMetadata {
             channel_id: channel(),
             title_changed: false,
+            program_status: None,
             title: String::new(),
             activity_changed: false,
             activity_ts_ms: 0,
@@ -193,4 +195,139 @@ fn coalescing_keeps_the_newest_facts_and_every_notification() {
     let merged = merge_terminal_metadata(Some(&merged), &newer);
     assert_eq!(merged.progress, Some(TerminalProgress::Normal(90)));
     assert_eq!(merged.user_vars, branch("dev"));
+}
+
+fn program_record(id: &str, state: ProgramState) -> ProgramStatusRecord {
+    ProgramStatusRecord {
+        id: Some(id.to_owned()),
+        state,
+        kind: None,
+        app: None,
+        title: None,
+        msg: None,
+        progress: None,
+    }
+}
+
+fn program_set(id: &str, state: ProgramState) -> ProgramStatusUpdate {
+    ProgramStatusUpdate::Set(program_record(id, state))
+}
+
+#[test]
+fn program_status_is_sent_as_the_whole_set_and_reasserted_on_replay() {
+    let mut stage = TerminalMetadataStage::default();
+    stage.set_negotiated(true);
+    stage.observe_signals(
+        channel(),
+        LiveSignals {
+            program_status: vec![program_set("build", ProgramState::Working)],
+            ..LiveSignals::default()
+        },
+        1_000,
+    );
+    let sent = flush(&mut stage, 1_000);
+    assert_eq!(
+        sent[0].program_status,
+        Some(vec![program_record("build", ProgramState::Working)])
+    );
+
+    stage.replay();
+    let replayed = flush(&mut stage, 1_200);
+    assert_eq!(
+        replayed[0].program_status,
+        Some(vec![program_record("build", ProgramState::Working)])
+    );
+}
+
+#[test]
+fn a_prompt_drops_working_records_and_keeps_done_ones_in_the_sent_set() {
+    let mut stage = TerminalMetadataStage::default();
+    stage.set_negotiated(true);
+    stage.observe_signals(
+        channel(),
+        LiveSignals {
+            program_status: vec![
+                program_set("build", ProgramState::Working),
+                program_set("test", ProgramState::Done),
+                ProgramStatusUpdate::ProgramEnded,
+            ],
+            ..LiveSignals::default()
+        },
+        1_000,
+    );
+    let sent = flush(&mut stage, 1_000);
+    assert_eq!(
+        sent[0].program_status,
+        Some(vec![program_record("test", ProgramState::Done)])
+    );
+}
+
+#[test]
+fn a_cleared_program_status_set_is_sent_once_and_not_reasserted() {
+    let mut stage = TerminalMetadataStage::default();
+    stage.set_negotiated(true);
+    stage.observe_signals(
+        channel(),
+        LiveSignals {
+            program_status: vec![program_set("test", ProgramState::Done)],
+            ..LiveSignals::default()
+        },
+        1_000,
+    );
+    flush(&mut stage, 1_000);
+
+    stage.observe_signals(
+        channel(),
+        LiveSignals {
+            program_status: vec![ProgramStatusUpdate::Clear {
+                id: Some("test".to_owned()),
+            }],
+            ..LiveSignals::default()
+        },
+        2_000,
+    );
+    assert_eq!(flush(&mut stage, 2_000)[0].program_status, Some(Vec::new()));
+
+    stage.replay();
+    let replayed = flush(&mut stage, 3_000);
+    assert!(
+        replayed
+            .iter()
+            .all(|metadata| metadata.program_status.is_none())
+    );
+}
+
+#[test]
+fn a_done_record_pending_at_close_reaches_the_coordinator() {
+    let mut stage = TerminalMetadataStage::default();
+    stage.set_negotiated(true);
+    stage.observe_signals(
+        channel(),
+        LiveSignals {
+            program_status: vec![
+                program_set("build", ProgramState::Done),
+                program_set("test", ProgramState::Working),
+            ],
+            ..LiveSignals::default()
+        },
+        1_000,
+    );
+    // The process exits before the flush gets a turn.
+    stage.forget_channel(channel());
+
+    let sent = flush(&mut stage, 2_000);
+    assert_eq!(sent.len(), 1);
+    assert_eq!(
+        sent[0].program_status,
+        Some(vec![program_record("build", ProgramState::Done)])
+    );
+    assert!(flush(&mut stage, 3_000).is_empty());
+}
+
+#[test]
+fn closing_a_channel_that_never_reported_sends_nothing() {
+    let mut stage = TerminalMetadataStage::default();
+    stage.set_negotiated(true);
+    stage.forget_channel(channel());
+    assert!(flush(&mut stage, 1_000).is_empty());
 }

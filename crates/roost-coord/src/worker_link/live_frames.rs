@@ -352,6 +352,13 @@ impl WorkerFrameDispatcher {
                 );
             }
         }
+        if let Some(records) = &metadata.program_status {
+            services.terminal_signals.observe_program_status(
+                &services.buses,
+                session_id.as_str(),
+                records.clone(),
+            );
+        }
         if metadata.activity_changed
             && let Ok(observed_at_ms) = i64::try_from(metadata.activity_ts_ms)
         {

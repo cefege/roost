@@ -1,11 +1,13 @@
 //! A program's terminal signals as the browser holds them: each session's
-//! progress report and shell user variables (retained, replaced per frame) and
-//! the desktop notifications not yet presented (a bounded queue the
-//! notification presenter drains). The Sync fold (`handle_sync::apply_frame`)
-//! writes here; the sidebar and the notification dock read.
+//! progress report, shell user variables, and OSC 7501 program status records
+//! (retained, replaced per frame), and the desktop notifications not yet
+//! presented (a bounded queue the notification presenter drains). The Sync fold
+//! (`handle_sync::apply_frame`) writes here; the sidebar and the notification
+//! dock read.
 
 use std::collections::{BTreeMap, VecDeque};
 
+use roost_protocol::program_status::ProgramStatusRecord;
 use roost_protocol::terminal_signals::{TerminalNotification, TerminalProgress, TerminalUserVar};
 
 /// Notifications held for a presenter that has not drained them.
@@ -24,17 +26,19 @@ pub struct TerminalNotificationRequest {
 pub struct TerminalSignals {
     progress: BTreeMap<String, TerminalProgress>,
     user_vars: BTreeMap<String, Vec<TerminalUserVar>>,
+    program_status: BTreeMap<String, Vec<ProgramStatusRecord>>,
     notifications: VecDeque<TerminalNotificationRequest>,
 }
 
 impl TerminalSignals {
-    /// Fold one frame's changed parts. `Clear` and an empty variable set
-    /// remove the session's entry.
+    /// Fold one frame's changed parts. `Clear` and an empty variable or
+    /// program status set remove the session's entry.
     pub fn apply(
         &mut self,
         session_id: &str,
         progress: Option<TerminalProgress>,
         user_vars: Option<&[TerminalUserVar]>,
+        program_status: Option<&[ProgramStatusRecord]>,
         notification: Option<&TerminalNotification>,
         delivery_seq: u64,
     ) {
@@ -53,6 +57,16 @@ impl TerminalSignals {
             }
             Some(vars) => {
                 self.user_vars.insert(session_id.to_owned(), vars.to_vec());
+            }
+            None => {}
+        }
+        match program_status {
+            Some([]) => {
+                self.program_status.remove(session_id);
+            }
+            Some(records) => {
+                self.program_status
+                    .insert(session_id.to_owned(), records.to_vec());
             }
             None => {}
         }
@@ -79,6 +93,14 @@ impl TerminalSignals {
         self.user_vars.get(session_id).map_or(&[], Vec::as_slice)
     }
 
+    /// The session's OSC 7501 program status records, in the order the
+    /// coordinator sent them.
+    pub fn program_status(&self, session_id: &str) -> &[ProgramStatusRecord] {
+        self.program_status
+            .get(session_id)
+            .map_or(&[], Vec::as_slice)
+    }
+
     /// Remove every pending notification in arrival order.
     pub fn drain_notifications(
         &mut self,
@@ -90,6 +112,7 @@ impl TerminalSignals {
     pub fn reset_retained(&mut self) {
         self.progress.clear();
         self.user_vars.clear();
+        self.program_status.clear();
     }
 
     /// Forget everything: a credential change.
@@ -101,11 +124,24 @@ impl TerminalSignals {
 
 #[cfg(test)]
 mod tests {
+    use roost_protocol::program_status::{ProgramState, ProgramStatusRecord};
     use roost_protocol::terminal_signals::{
         TerminalNotification, TerminalProgress, TerminalUserVar,
     };
 
     use super::TerminalSignals;
+
+    fn working_record() -> ProgramStatusRecord {
+        ProgramStatusRecord {
+            id: Some("build".to_owned()),
+            state: ProgramState::Working,
+            kind: None,
+            app: Some("cargo".to_owned()),
+            title: None,
+            msg: None,
+            progress: Some(50),
+        }
+    }
 
     #[test]
     fn clear_and_empty_sets_remove_and_notifications_queue_in_order() {
@@ -119,19 +155,20 @@ mod tests {
             Some(TerminalProgress::Normal(40)),
             Some(&vars),
             None,
+            None,
             1,
         );
         assert_eq!(signals.progress("s"), Some(TerminalProgress::Normal(40)));
         assert_eq!(signals.user_vars("s"), &vars);
 
-        signals.apply("s", None, None, None, 2);
+        signals.apply("s", None, None, None, None, 2);
         assert_eq!(
             signals.progress("s"),
             Some(TerminalProgress::Normal(40)),
             "absent is unchanged"
         );
 
-        signals.apply("s", Some(TerminalProgress::Clear), Some(&[]), None, 3);
+        signals.apply("s", Some(TerminalProgress::Clear), Some(&[]), None, None, 3);
         assert_eq!(signals.progress("s"), None);
         assert!(signals.user_vars("s").is_empty());
 
@@ -139,10 +176,32 @@ mod tests {
             title: String::new(),
             body: "Done".to_owned(),
         };
-        signals.apply("s", None, None, Some(&done), 4);
+        signals.apply("s", None, None, None, Some(&done), 4);
         let drained: Vec<_> = signals.drain_notifications().collect();
         assert_eq!(drained.len(), 1);
         assert_eq!(drained[0].notification, done);
         assert_eq!(signals.drain_notifications().count(), 0);
+    }
+
+    #[test]
+    fn program_status_replaces_per_session_and_an_empty_set_clears_it() {
+        let mut signals = TerminalSignals::default();
+        let records = [working_record()];
+        signals.apply("s", None, None, Some(&records), None, 1);
+        assert_eq!(signals.program_status("s"), &records);
+
+        signals.apply("s", None, None, None, None, 2);
+        assert_eq!(signals.program_status("s"), &records, "absent is unchanged");
+
+        signals.apply("s", None, None, Some(&[]), None, 3);
+        assert!(signals.program_status("s").is_empty());
+    }
+
+    #[test]
+    fn reset_retained_forgets_program_status() {
+        let mut signals = TerminalSignals::default();
+        signals.apply("s", None, None, Some(&[working_record()]), None, 1);
+        signals.reset_retained();
+        assert!(signals.program_status("s").is_empty());
     }
 }

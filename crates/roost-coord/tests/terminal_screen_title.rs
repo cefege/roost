@@ -157,6 +157,7 @@ async fn a_negotiated_metadata_frame_feeds_the_title_and_activity_hubs() {
     let metadata = CoordWorkerUpstream::TerminalMetadata(TerminalMetadata {
         channel_id: ChannelId::try_from(CHANNEL).unwrap(),
         title_changed: true,
+        program_status: None,
         title: "semantic title".to_owned(),
         activity_changed: true,
         activity_ts_ms: 123,
@@ -199,6 +200,7 @@ async fn a_clipboard_write_is_published_once_and_retained_nowhere() {
     let metadata = CoordWorkerUpstream::TerminalMetadata(TerminalMetadata {
         channel_id: ChannelId::try_from(CHANNEL).unwrap(),
         title_changed: false,
+        program_status: None,
         title: String::new(),
         activity_changed: false,
         activity_ts_ms: 0,

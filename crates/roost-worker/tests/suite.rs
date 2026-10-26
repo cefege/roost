@@ -258,6 +258,8 @@ mod open_session_credential;
 mod open_session_set;
 #[path = "outbox_order.rs"]
 mod outbox_order;
+#[path = "program_status_query.rs"]
+mod program_status_query;
 #[path = "query_reply.rs"]
 mod query_reply;
 #[path = "query_reply_lane.rs"]
@@ -336,6 +338,8 @@ mod terminal_input_work_budget;
 mod terminal_input_write;
 #[path = "terminal_metadata.rs"]
 mod terminal_metadata;
+#[path = "terminal_metadata_clipboard.rs"]
+mod terminal_metadata_clipboard;
 #[path = "terminal_metadata_signals.rs"]
 mod terminal_metadata_signals;
 #[path = "terminal_peer_offer_faults.rs"]

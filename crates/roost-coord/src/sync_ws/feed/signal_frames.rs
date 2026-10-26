@@ -1,7 +1,7 @@
-//! A session's terminal signals as the Sync frame a browser folds: progress
-//! and user variables (retained, also seeded) and a desktop notification
-//! (one-shot). Built from `terminal_signal_bus` messages by `live_feed` and
-//! from `TerminalSignalHub::snapshot` by the seed.
+//! A session's terminal signals as the Sync frame a browser folds: progress,
+//! user variables, and OSC 7501 program status (retained, also seeded) and a
+//! desktop notification (one-shot). Built from `terminal_signal_bus` messages
+//! by `live_feed` and from `TerminalSignalHub::snapshot` by the seed.
 
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
 use roost_proto::{FirehoseFrame, TerminalSignalsFrame, TerminalUserVar as PbTerminalUserVar};
@@ -36,6 +36,10 @@ pub fn session_terminal_signals_frame(signals: &SessionTerminalSignals) -> FeedF
             notification_present: notification.is_some(),
             notification_title: notification.map(|n| n.title.clone()).unwrap_or_default(),
             notification_body: notification.map(|n| n.body.clone()).unwrap_or_default(),
+            program_status_present: signals.program_status.is_some(),
+            program_status: roost_protocol::proto_adapters::program_status_records_to_proto(
+                signals.program_status.as_deref().unwrap_or_default(),
+            ),
             ..TerminalSignalsFrame::default()
         }))),
         ..FirehoseFrame::default()

@@ -160,6 +160,10 @@ impl TerminalCore for RioCore {
         self.queues.signals.take_notifications()
     }
 
+    fn take_program_status(&mut self) -> Vec<crate::signals::ProgramStatusUpdate> {
+        self.queues.signals.take_program_status()
+    }
+
     fn user_vars(&self) -> Vec<crate::signals::TerminalUserVar> {
         self.user_vars.current()
     }

@@ -199,6 +199,7 @@ impl EventListener for RioListener {
             RioEvent::Bell(_) => self.bells.record(),
             RioEvent::UpdateGraphics { queues, .. } => locked(&self.graphics.queued).push(queues),
             RioEvent::ProgressReport(report) => self.signals.record_progress(report),
+            RioEvent::ProgramStatus(report) => self.signals.record_program_status(report),
             RioEvent::DesktopNotification { title, body } => {
                 self.signals.record_notification(&title, &body);
             }

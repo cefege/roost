@@ -15,6 +15,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::program_status::ProgramStatusRecord;
 use crate::terminal_signals::{TerminalNotification, TerminalProgress, TerminalUserVar};
 
 use crate::wire::agent_status::AgentStatus;
@@ -107,6 +108,9 @@ pub struct TerminalMetadata {
     /// `user_vars` is then the whole current set.
     pub user_vars_changed: bool,
     pub user_vars: Vec<TerminalUserVar>,
+    /// The channel's OSC 7501 program status, present when it changed; the
+    /// whole retained record set, so an empty set clears every record.
+    pub program_status: Option<Vec<ProgramStatusRecord>>,
 }
 
 /// Notifications one coalesced record carries; older ones are dropped.
@@ -121,6 +125,10 @@ impl TerminalMetadata {
         self.progress = update
             .progress
             .or_else(|| held.and_then(|held| held.progress));
+        self.program_status = update
+            .program_status
+            .clone()
+            .or_else(|| held.and_then(|held| held.program_status.clone()));
         let mut notifications: Vec<TerminalNotification> =
             held.map_or_else(Vec::new, |held| held.notifications.clone());
         notifications.extend(update.notifications.iter().cloned());

@@ -59,6 +59,7 @@ impl CellEmitter {
                     .terminal_core
                     .take_user_vars_changed()
                     .then(|| record.terminal_core.user_vars()),
+                program_status: record.terminal_core.take_program_status(),
             },
         };
         self.observe_sync_output(channel_id, chunk);

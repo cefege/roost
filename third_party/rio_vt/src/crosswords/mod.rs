@@ -3406,6 +3406,17 @@ impl<U: EventListener> Handler for Crosswords<U> {
         self.event_proxy
             .send_event(RioEvent::CursorBlinkingChange, self.window_id);
         self.mark_fully_damaged();
+        // A full reset removes every program-status record; a soft reset never
+        // reaches this path, so it keeps them.
+        self.set_program_status(crate::event::ProgramStatusReport {
+            id: None,
+            state: crate::event::ProgramStatusState::Clear,
+            kind: None,
+            app: None,
+            title: None,
+            msg: None,
+            progress: None,
+        });
     }
 
     #[inline]
@@ -3506,6 +3517,12 @@ impl<U: EventListener> Handler for Crosswords<U> {
     fn set_progress_report(&mut self, report: crate::event::ProgressReport) {
         self.event_proxy
             .send_event(RioEvent::ProgressReport(report), self.window_id);
+    }
+
+    /// ROOST PATCH R8: forwards a report the parser already validated.
+    fn set_program_status(&mut self, report: crate::event::ProgramStatusReport) {
+        self.event_proxy
+            .send_event(RioEvent::ProgramStatus(report), self.window_id);
     }
 
     fn set_current_directory(&mut self, path: std::path::PathBuf) {

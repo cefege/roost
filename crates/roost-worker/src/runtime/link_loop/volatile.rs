@@ -169,6 +169,7 @@ pub fn merge_terminal_metadata(
     let mut merged = TerminalMetadata {
         channel_id: update.channel_id,
         title_changed: update.title_changed || held.is_some_and(|held| held.title_changed),
+        program_status: None,
         title: if update.title_changed {
             update.title.clone()
         } else {

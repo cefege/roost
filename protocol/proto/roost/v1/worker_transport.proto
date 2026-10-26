@@ -63,6 +63,10 @@ message WTerminalMetadata {
   // The OSC 1337 user variables changed; user_vars is the whole current set.
   bool user_vars_changed = 14;
   repeated WTerminalUserVar user_vars = 15;
+  // OSC 7501 program status: when it changed, program_status is the channel's
+  // whole retained record set; an empty set clears every record.
+  bool program_status_changed = 16;
+  repeated ProgramStatusRecord program_status = 17;
 }
 
 // OSC 9;4: state 0 clear, 1 normal, 2 error, 3 indeterminate, 4 paused.

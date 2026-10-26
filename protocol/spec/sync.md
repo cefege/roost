@@ -23,6 +23,7 @@ Sync is the authenticated browser metadata, control, terminal-fallback, and auth
 | `ClipboardHistoryFrame` | `protocol/proto/roost/v1/sync.proto` | Persisted clipboard history added/removed/cleared event, sent to every install-wide Sync link (an added entry carries its text). Not seeded: the history sheet loads `ClipboardList` when it opens and folds these while open. |
 | `TerminalCommandFinishedFrame` | `protocol/proto/roost/v1/sync.proto` | One-shot long-command completion for an observed session; not retained or seeded, and contains no terminal text. |
 | `TerminalBellFrame` | `protocol/proto/roost/v1/sync.proto` | One-shot terminal BEL for an observed session (worker rate limit: one per 500 ms per channel); not retained or seeded. |
+| `TerminalSignalsFrame` | `protocol/proto/roost/v1/sync.proto` | Per observed session: OSC 9;4 progress, OSC 1337 user variables and OSC 7501 program status are retained and seeded on connect (program status carries the whole record set, and an empty set clears it); the OSC 9/777 notification is one-shot. Each part is present only when it changed. |
 
 ## State machine
 

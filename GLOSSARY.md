@@ -158,6 +158,19 @@ wins.
   what a plain shell shows.
   Source: `crates/roost-protocol/src/wire/agent_status.rs`.
 
+- **program status** — the OSC 7501 Program Status Protocol: a terminal program
+  reports `idle`, `working`, `done`, `blocked`, or `error` for an id-addressed
+  record in its own output, with optional kind (`permission`, `question`,
+  `auth`), progress, title, and message. Roost parses the sequence in the
+  terminal core, retains the record set per channel in the worker, and
+  publishes it as terminal signals. It is separate from agent runtime state:
+  it never feeds `AgentStatusRegistry`. Working and blocked records drop at a
+  shell prompt (OSC 133 `A`) and when the channel closes; done and error persist
+  until cleared or the channel closes.
+  Source: `third_party/rio_vt/src/performer/program_status.rs`,
+  `crates/roost-protocol/src/program_status.rs`,
+  `crates/roost-worker/src/session/terminal_metadata/signals.rs`.
+
 - **lifecycle integration** — a small file Roost owns inside an agent's own
   extension directory (OMP, Pi) that reports that agent's state to the worker.
   Authoritative: it beats screen detection while its 30 s lease is fresh.

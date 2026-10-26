@@ -1,20 +1,25 @@
-//! The progress reports and desktop notifications rio's parse produced and
-//! [`super::RioCore`] has not taken. The listener (`listener.rs`) fills it from
-//! `RioEvent::ProgressReport` / `TerminalNotification`; a replay `write`
-//! discards it, so history never re-notifies.
+//! The progress reports, desktop notifications and OSC 7501 program-status
+//! updates rio's parse produced and [`super::RioCore`] has not taken. The
+//! listener (`listener.rs`) fills it from `RioEvent::ProgressReport`,
+//! `RioEvent::DesktopNotification` and `RioEvent::ProgramStatus`; a replay
+//! `write` discards it, so history never re-notifies or re-applies a status.
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use rio_vt::event::{ProgressReport, ProgressState};
+use rio_vt::event::{
+    ProgramStatusKind, ProgramStatusReport, ProgramStatusState, ProgressReport, ProgressState,
+};
 
 use crate::signals::{
-    NOTIFICATION_TEXT_MAX_CHARS, NOTIFICATIONS_PER_PARSE_MAX, TerminalNotification,
-    TerminalProgress, TerminalUserVar, bounded_user_vars, truncated,
+    NOTIFICATION_TEXT_MAX_CHARS, NOTIFICATIONS_PER_PARSE_MAX, ProgramKind, ProgramState,
+    ProgramStatusRecord, ProgramStatusUpdate, TerminalNotification, TerminalProgress,
+    TerminalUserVar, bounded_user_vars, truncated,
 };
 
 #[derive(Debug, Default)]
 struct PendingSignals {
     progress: Option<TerminalProgress>,
+    program_status: Vec<ProgramStatusUpdate>,
     notifications: Vec<TerminalNotification>,
 }
 
@@ -33,10 +38,15 @@ impl SignalQueue {
         std::mem::take(&mut self.lock().notifications)
     }
 
+    pub(crate) fn take_program_status(&self) -> Vec<ProgramStatusUpdate> {
+        std::mem::take(&mut self.lock().program_status)
+    }
+
     pub(crate) fn discard(&self) {
         let mut pending = self.lock();
         pending.progress = None;
         pending.notifications.clear();
+        pending.program_status.clear();
     }
 
     pub(super) fn record_progress(&self, report: ProgressReport) {
@@ -67,6 +77,30 @@ impl SignalQueue {
         });
     }
 
+    pub(super) fn record_program_status(&self, report: ProgramStatusReport) {
+        let update = match program_state(report.state) {
+            None => ProgramStatusUpdate::Clear { id: report.id },
+            Some(state) => ProgramStatusUpdate::Set(ProgramStatusRecord {
+                id: report.id,
+                state,
+                kind: report.kind.map(program_kind),
+                app: report.app,
+                title: report.title,
+                msg: report.msg,
+                progress: report.progress,
+            }),
+        };
+        self.lock().program_status.push(update);
+    }
+
+    /// OSC 133 `A`, or the program's exit: a live program's working and
+    /// blocked records no longer describe anything.
+    pub(super) fn record_program_ended(&self) {
+        self.lock()
+            .program_status
+            .push(ProgramStatusUpdate::ProgramEnded);
+    }
+
     fn lock(&self) -> MutexGuard<'_, PendingSignals> {
         self.pending.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -76,6 +110,26 @@ impl SignalQueue {
 fn is_conemu_subcommand(body: &str) -> bool {
     let digits = body.bytes().take_while(u8::is_ascii_digit).count();
     digits > 0 && matches!(body.as_bytes().get(digits), None | Some(b';'))
+}
+
+/// The protocol state a report names; `None` for `clear`, which removes records.
+fn program_state(state: ProgramStatusState) -> Option<ProgramState> {
+    Some(match state {
+        ProgramStatusState::Idle => ProgramState::Idle,
+        ProgramStatusState::Working => ProgramState::Working,
+        ProgramStatusState::Done => ProgramState::Done,
+        ProgramStatusState::Blocked => ProgramState::Blocked,
+        ProgramStatusState::Error => ProgramState::Error,
+        ProgramStatusState::Clear => return None,
+    })
+}
+
+fn program_kind(kind: ProgramStatusKind) -> ProgramKind {
+    match kind {
+        ProgramStatusKind::Permission => ProgramKind::Permission,
+        ProgramStatusKind::Question => ProgramKind::Question,
+        ProgramStatusKind::Auth => ProgramKind::Auth,
+    }
 }
 
 /// The shell's user variables as last published, and whether they changed

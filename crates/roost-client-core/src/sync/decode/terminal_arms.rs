@@ -227,6 +227,13 @@ pub(super) fn signals(value: roost_proto::TerminalSignalsFrame) -> Result<SyncFr
     } else {
         None
     };
+    let program_status = value
+        .program_status_present
+        .then(|| {
+            roost_protocol::proto_adapters::program_status_records_from_proto(&value.program_status)
+        })
+        .transpose()
+        .map_err(|error| error.to_string())?;
     Ok(SyncFrame::TerminalSignals {
         session_id: value.session_id,
         progress,
@@ -244,5 +251,6 @@ pub(super) fn signals(value: roost_proto::TerminalSignalsFrame) -> Result<SyncFr
             title: value.notification_title,
             body: value.notification_body,
         }),
+        program_status,
     })
 }

@@ -252,6 +252,7 @@ pub enum SyncFrame {
         progress: Option<roost_protocol::terminal_signals::TerminalProgress>,
         user_vars: Option<Vec<roost_protocol::terminal_signals::TerminalUserVar>>,
         notification: Option<roost_protocol::terminal_signals::TerminalNotification>,
+        program_status: Option<Vec<roost_protocol::program_status::ProgramStatusRecord>>,
     },
     /// The coordinator-stamped last-activity time of a session.
     LastActivity {

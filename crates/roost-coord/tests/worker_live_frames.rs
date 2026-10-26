@@ -38,6 +38,7 @@ fn metadata(channel: i64, title: &str) -> CoordWorkerUpstream {
     CoordWorkerUpstream::TerminalMetadata(TerminalMetadata {
         channel_id: ChannelId::try_from(channel).expect("the fixture channel fits"),
         title_changed: true,
+        program_status: None,
         title: title.to_owned(),
         activity_changed: false,
         activity_ts_ms: 1_000,

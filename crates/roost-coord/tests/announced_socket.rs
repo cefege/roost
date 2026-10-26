@@ -88,6 +88,7 @@ fn title(on: u32, text: &str) -> Vec<u8> {
     upstream_bytes(&CoordWorkerUpstream::TerminalMetadata(TerminalMetadata {
         channel_id: channel(on),
         title_changed: true,
+        program_status: None,
         title: text.to_owned(),
         activity_changed: false,
         activity_ts_ms: 0,

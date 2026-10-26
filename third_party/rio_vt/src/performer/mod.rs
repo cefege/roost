@@ -1,5 +1,6 @@
 pub mod handler;
 mod osc;
+mod program_status;
 pub mod parser;
 
 #[cfg(all(test, feature = "pty"))]

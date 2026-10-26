@@ -131,6 +131,7 @@ async fn metadata_frames(capabilities: Vec<String>) -> Vec<Up> {
     let metadata = TerminalMetadata {
         channel_id: channel(),
         title_changed: true,
+        program_status: None,
         title: "vim".to_owned(),
         activity_changed: false,
         activity_ts_ms: 0,

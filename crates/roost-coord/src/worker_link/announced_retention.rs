@@ -73,6 +73,7 @@ pub fn merge_terminal_metadata(
     let metadata = TerminalMetadata {
         channel_id: incoming.channel_id,
         title_changed: previous.title_changed || incoming.title_changed,
+        program_status: None,
         title: newest_title.title.clone(),
         activity_changed: previous.activity_changed || incoming.activity_changed,
         activity_ts_ms: newest_activity.activity_ts_ms,
