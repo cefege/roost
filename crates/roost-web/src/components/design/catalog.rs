@@ -50,7 +50,7 @@ pub const TYPE_STEPS: [Specimen; 8] = [
 ];
 
 /// The corner-radius scale, one `rounded-*` per `--radius-*` theme entry.
-pub const SHAPE_STEPS: [Specimen; 6] = [
+pub const SHAPE_STEPS: [Specimen; 12] = [
     Specimen {
         label: "rounded-xs",
         class: "size-12 rounded-xs border border-border bg-accent",
@@ -74,6 +74,30 @@ pub const SHAPE_STEPS: [Specimen; 6] = [
     Specimen {
         label: "rounded-2xl",
         class: "size-12 rounded-2xl border border-border bg-accent",
+    },
+    Specimen {
+        label: "rounded-row",
+        class: "size-12 rounded-row border border-border bg-accent",
+    },
+    Specimen {
+        label: "rounded-control",
+        class: "size-12 rounded-control border border-border bg-accent",
+    },
+    Specimen {
+        label: "rounded-card",
+        class: "size-12 rounded-card border border-border bg-accent",
+    },
+    Specimen {
+        label: "rounded-window",
+        class: "size-12 rounded-window border border-border bg-accent",
+    },
+    Specimen {
+        label: "rounded-sheet",
+        class: "size-12 rounded-sheet border border-border bg-accent",
+    },
+    Specimen {
+        label: "rounded-pill",
+        class: "size-12 rounded-pill border border-border bg-accent",
     },
 ];
 
@@ -118,7 +142,7 @@ pub const SPACE_BARS: [Specimen; 9] = [
 ];
 
 /// The elevation scale, one `shadow-*` per step.
-pub const ELEVATION_STEPS: [Specimen; 6] = [
+pub const ELEVATION_STEPS: [Specimen; 8] = [
     Specimen {
         label: "shadow-xs",
         class: "flex h-16 items-center justify-center rounded-md bg-card font-mono text-xs text-muted-foreground shadow-xs",
@@ -142,6 +166,14 @@ pub const ELEVATION_STEPS: [Specimen; 6] = [
     Specimen {
         label: "shadow-2xl",
         class: "flex h-16 items-center justify-center rounded-md bg-card font-mono text-xs text-muted-foreground shadow-2xl",
+    },
+    Specimen {
+        label: "shadow-card",
+        class: "flex h-16 items-center justify-center rounded-md bg-card font-mono text-xs text-muted-foreground shadow-card",
+    },
+    Specimen {
+        label: "shadow-pop",
+        class: "flex h-16 items-center justify-center rounded-md bg-card font-mono text-xs text-muted-foreground shadow-pop",
     },
 ];
 

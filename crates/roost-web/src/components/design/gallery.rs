@@ -14,6 +14,7 @@ use super::content_primitives::ContentPrimitives;
 use super::control_states::DesignControlStates;
 use super::loader_specimen::LoaderSpecimen;
 use super::overlay_states::DesignOverlayStates;
+use super::palette_family::PaletteFamily;
 use super::settings_navigation_specimen::SettingsNavigationSpecimen;
 use super::token_sections::{ColorRoles, ElevationScale, ShapeScale, SpacingScale, TypeRamp};
 use super::workbench_shell_specimen::WorkbenchShellSpecimen;
@@ -70,6 +71,7 @@ pub fn DesignGallery(on_navigate: EventHandler<String>) -> Element {
             }
             GallerySection { title: "Settings navigation", SettingsNavigationSpecimen { on_navigate } }
             GallerySection { title: "Color roles", ColorRoles {} }
+            GallerySection { title: "Palette family", PaletteFamily {} }
             GallerySection { title: "Type ramp", TypeRamp {} }
             GallerySection { title: "Spacing scale", SpacingScale {} }
             GallerySection { title: "Shape / radii", ShapeScale {} }
