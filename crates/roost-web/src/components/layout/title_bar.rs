@@ -41,7 +41,9 @@ pub fn TitleBar(
                     BrandMark { size: TITLE_BAR_MARK_SIZE }
                     span { class: "whitespace-nowrap text-sm font-medium", {PRODUCT} }
                     if context != PRODUCT {
-                        span { class: "min-w-0 truncate text-xs text-muted-foreground max-[1100px]:hidden", {context} }
+                        span { class: "min-w-0 truncate text-xs text-muted-foreground max-[1100px]:hidden",
+                            {context}
+                        }
                     }
                 }
             }
