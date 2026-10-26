@@ -16,6 +16,7 @@ pub mod bubble;
 pub mod button;
 pub mod button_group;
 pub mod card;
+pub mod card_window;
 pub mod checkbox;
 pub mod chip;
 pub mod collapsible;
@@ -41,6 +42,7 @@ pub mod icon;
 pub mod input;
 pub mod input_group;
 pub mod input_prompt;
+pub mod input_prompt_pill;
 pub mod item;
 pub mod kbd;
 pub mod label;
@@ -63,6 +65,7 @@ pub mod select_navigation;
 pub mod select_placement;
 pub mod separator;
 pub mod sheet;
+pub mod sheet_phone;
 pub mod shimmer;
 pub mod sidenav;
 pub mod sidenav_layout;
@@ -118,6 +121,7 @@ pub use card::{
     Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardItem, CardList,
     CardSize, CardTitle,
 };
+pub use card_window::CardWindow;
 pub use checkbox::Checkbox;
 pub use chip::{BindingChip, Chip};
 pub use collapsible::{Collapsible, CollapsibleContent, CollapsibleTrigger};
@@ -163,6 +167,7 @@ pub use input::{Input, InputType};
 pub use input_prompt::{
     InputPrompt, InputPromptFooter, InputPromptSubmit, InputPromptTextarea, InputPromptTools,
 };
+pub use input_prompt_pill::InputPromptPill;
 pub use item::{
     Item, ItemContent, ItemDescription, ItemMedia, ItemMediaVariant, ItemSize, ItemTitle,
     ItemVariant,
@@ -192,6 +197,7 @@ pub use sheet::{
     Sheet, SheetBody, SheetClose, SheetContent, SheetDescription, SheetFooter, SheetHeader,
     SheetSide, SheetTitle, SheetTrigger,
 };
+pub use sheet_phone::PhoneSheetContent;
 pub use shimmer::Shimmer;
 pub use sidenav::{Sidenav, SidenavTrigger, SidenavWrapper};
 pub use sidenav_layout::{
