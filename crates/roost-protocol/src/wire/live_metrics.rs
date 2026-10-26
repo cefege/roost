@@ -1,10 +1,14 @@
 //! The live host snapshot a worker samples while a coordinator holds a live
 //! subscription: host CPU, memory, disk, and a bounded process list. The worker
 //! link (`WLiveMetrics`) and the sync firehose (`WorkerLiveMetricsFrame`) carry
-//! this one model, so both directions share one set of rules.
+//! this one model, so both directions share one set of rules. The sync socket's
+//! subscription command (`WorkerLiveSubscription`) lists the workers it wants.
+
+use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
+use crate::wire::brand::WorkerFp;
 use crate::{ProtocolError, ProtocolResult};
 
 /// The longest process list a snapshot may carry: the top 50 by CPU unioned
@@ -91,4 +95,37 @@ impl LiveHostSnapshot {
         }
         Ok(())
     }
+}
+
+/// The worker fingerprints one sync socket wants live metrics for. Each command
+/// replaces the socket's whole set, and an empty list cancels every subscription.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkerLiveSubscription {
+    pub worker_fps: Vec<WorkerFp>,
+}
+
+impl WorkerLiveSubscription {
+    /// The coordinator counts subscribers per worker, so a fingerprint listed
+    /// twice would be counted twice.
+    pub fn check(&self) -> ProtocolResult<()> {
+        let mut seen = HashSet::new();
+        for worker_fp in &self.worker_fps {
+            if !seen.insert(worker_fp) {
+                return Err(ProtocolError::new(
+                    "worker_live_subscription.worker_fps",
+                    format!("lists worker {worker_fp} more than once"),
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// One live sample for a worker a sync socket subscribed to. The snapshot is
+/// held to `LiveHostSnapshot::check` by the codec, so this type carries no
+/// rules of its own.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkerLiveMetricsFrame {
+    pub worker_fp: WorkerFp,
+    pub snapshot: LiveHostSnapshot,
 }
