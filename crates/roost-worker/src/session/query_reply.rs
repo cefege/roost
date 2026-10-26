@@ -45,11 +45,15 @@ use tokio::sync::mpsc;
 use super::input_write::WorkerInputResult;
 use super::lifecycle::SessionManager;
 pub use super::query_probe::{PRIMARY_DA_REPLY, XTVERSION_REPLY};
-use super::query_probe::{forwarded_native, synthesized_reply};
+use super::query_probe::{
+    PROGRAM_STATUS_REPLY, ProgramStatusProbe, forwarded_native, program_status_probe,
+    synthesized_reply,
+};
 use crate::uplink::OwnerFuture;
 
 const ESC: u8 = 0x1b;
 const CSI_OPEN: u8 = b'[';
+const OSC_OPEN: u8 = b']';
 // CSI body: parameter bytes 0x30-0x3f and intermediate bytes 0x20-0x2f. Their
 // order is not enforced — classification needs the span and the final byte,
 // and a malformed order is not a probe either way.
@@ -120,6 +124,30 @@ pub fn answer_queries(
         if esc + 1 == buf.len() {
             carry_from = esc;
             break;
+        }
+        if buf[esc + 1] == OSC_OPEN {
+            match program_status_probe(&buf[esc..], QUERY_CARRY_MAX) {
+                ProgramStatusProbe::NotQuery => at = esc + 1,
+                ProgramStatusProbe::Partial => {
+                    carry_from = esc;
+                    break;
+                }
+                ProgramStatusProbe::Complete(len) => {
+                    at = esc + len;
+                    if let Some(core) = core.as_deref_mut() {
+                        // Same segmenting as a CSI probe: the core sees the
+                        // query's bytes, its (empty) answer is drained, then
+                        // the synthesized reply follows.
+                        let probe_end = at - shift;
+                        core.write_raw(&chunk[cursor..probe_end]);
+                        cursor = probe_end;
+                        drain_core_replies(core, &mut reply);
+                        reply.bytes.push_str(PROGRAM_STATUS_REPLY);
+                        reply.synth_bytes += PROGRAM_STATUS_REPLY.len();
+                    }
+                }
+            }
+            continue;
         }
         if buf[esc + 1] != CSI_OPEN {
             at = esc + 1;

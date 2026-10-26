@@ -148,6 +148,7 @@ pub fn upstream_arms() -> Vec<(&'static str, CoordWorkerUpstream)> {
             CoordWorkerUpstream::TerminalMetadata(TerminalMetadata {
                 channel_id: channel(4),
                 title_changed: true,
+                program_status: None,
                 title: "vim".to_owned(),
                 activity_changed: true,
                 activity_ts_ms: 1_700_000_000_001,

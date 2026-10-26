@@ -28,6 +28,7 @@ pub mod fleet_update;
 pub mod keeper_update;
 pub mod layout;
 pub mod local_ui_door;
+pub mod program_status;
 pub mod proto_adapters;
 pub mod terminal_capture;
 pub mod terminal_input;

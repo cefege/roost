@@ -30,6 +30,11 @@ pub(super) struct CommandLifecycle {
 
 impl RioCore {
     pub(super) fn apply_prompt_mark(&mut self, mark: PromptMark) {
+        // The spec's lifetime ends a program run at the shell's next prompt with
+        // no screen exemption, so this runs before the alternate-screen return.
+        if mark == PromptMark::Prompt {
+            self.queues.signals.record_program_ended();
+        }
         // The alternate screen is a full-screen program's canvas, never a shell
         // prompt, and its rows are discarded when the program exits.
         if self.using_alt_screen() {

@@ -64,10 +64,10 @@ message TerminalBellFrame {
   string session_id = 1;
 }
 
-// A program's signals for an observed session: its OSC 9;4 progress report
-// and OSC 1337 user variables (retained, seeded on connect) and an OSC 9 /
-// OSC 777 desktop notification (one-shot). Each part is present only when it
-// changed; progress state 0 clears the report.
+// A program's signals for an observed session: its OSC 9;4 progress report,
+// OSC 1337 user variables and OSC 7501 program status (retained, seeded on
+// connect), and an OSC 9 / OSC 777 desktop notification (one-shot). Each part
+// is present only when it changed; progress state 0 clears the report.
 message TerminalSignalsFrame {
   string session_id = 1;
   bool progress_present = 2;
@@ -78,11 +78,27 @@ message TerminalSignalsFrame {
   bool notification_present = 7;
   string notification_title = 8;
   string notification_body = 9;
+  // OSC 7501 program status, present only when it changed; program_status is
+  // the channel's whole retained record set.
+  bool program_status_present = 10;
+  repeated ProgramStatusRecord program_status = 11;
 }
 
 message TerminalUserVar {
   string key = 1;
   string value = 2;
+}
+
+// One OSC 7501 record, as the worker's terminal metadata and the coordinator's
+// TerminalSignalsFrame both carry it.
+message ProgramStatusRecord {
+  optional string id = 1;
+  string state = 2;
+  optional string kind = 3;
+  optional string app = 4;
+  optional string title = 5;
+  optional string msg = 6;
+  optional uint32 progress = 7;
 }
 
 // OSC 0/2 terminal title, parsed centrally by coord (terminal-title-hub) from

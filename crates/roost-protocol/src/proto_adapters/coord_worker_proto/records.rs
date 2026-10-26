@@ -16,6 +16,9 @@ use roost_proto::{
     WUpdateProgress,
 };
 
+use crate::proto_adapters::program_status_proto::{
+    program_status_records_from_proto, program_status_records_to_proto,
+};
 use crate::terminal_signals::{TerminalNotification, TerminalProgress, TerminalUserVar};
 use crate::wire::agent_status::{AgentStatus, AgentStatusSource, AgentStatusUpdate};
 use crate::wire::brand::ChannelId;
@@ -231,6 +234,11 @@ pub(super) fn metadata_to_proto(metadata: &TerminalMetadata) -> ProtocolResult<W
                 ..Default::default()
             })
             .collect(),
+        program_status_changed: metadata.program_status.is_some(),
+        program_status: metadata
+            .program_status
+            .as_deref()
+            .map_or_else(Vec::new, program_status_records_to_proto),
         ..Default::default()
     })
 }
@@ -238,6 +246,11 @@ pub(super) fn metadata_to_proto(metadata: &TerminalMetadata) -> ProtocolResult<W
 pub(super) fn metadata_from_proto(
     metadata: &WTerminalMetadata,
 ) -> ProtocolResult<TerminalMetadata> {
+    let program_status = if metadata.program_status_changed {
+        Some(program_status_records_from_proto(&metadata.program_status)?)
+    } else {
+        None
+    };
     Ok(TerminalMetadata {
         channel_id: channel_id("terminal_metadata.channel_id", metadata.channel_id)?,
         title_changed: metadata.title_changed,
@@ -278,6 +291,7 @@ pub(super) fn metadata_from_proto(
                 value: var.value.clone(),
             })
             .collect(),
+        program_status,
     })
 }
 

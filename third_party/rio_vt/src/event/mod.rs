@@ -259,6 +259,9 @@ pub enum RioEvent {
     /// Progress bar report from OSC 9;4 sequence
     ProgressReport(ProgressReport),
 
+    /// ROOST PATCH R8: an OSC 7501 Program Status report, already validated.
+    ProgramStatus(ProgramStatusReport),
+
     /// Terminal bell ring, from the PTY identified by `route_id`.
     Bell(usize),
 
@@ -334,6 +337,9 @@ impl Debug for RioEvent {
             }
             RioEvent::ProgressReport(report) => {
                 write!(f, "ProgressReport({:?})", report)
+            }
+            RioEvent::ProgramStatus(report) => {
+                write!(f, "ProgramStatus({:?})", report)
             }
             RioEvent::MouseCursorDirty => write!(f, "MouseCursorDirty"),
             RioEvent::ResetTitle => write!(f, "ResetTitle"),
@@ -584,4 +590,40 @@ pub struct ProgressReport {
     pub state: ProgressState,
     /// Optional progress percentage (0-100), only used with Set, Error, and Pause states
     pub progress: Option<u8>,
+}
+
+/// ROOST PATCH R8: one OSC 7501 Program Status report, validated by the
+/// parser. The spec's state-dependent fields are already normalised here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProgramStatusReport {
+    /// `None` is the root record, which a report without `id=` addresses.
+    pub id: Option<String>,
+    pub state: ProgramStatusState,
+    /// Present only with `ProgramStatusState::Blocked`.
+    pub kind: Option<ProgramStatusKind>,
+    pub app: Option<String>,
+    pub title: Option<String>,
+    pub msg: Option<String>,
+    /// Present only with `Working` and `Blocked`.
+    pub progress: Option<u8>,
+}
+
+/// ROOST PATCH R8: the states an OSC 7501 report can name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProgramStatusState {
+    Idle,
+    Working,
+    Done,
+    Blocked,
+    Error,
+    /// Removes the addressed record and its subtree, or every record.
+    Clear,
+}
+
+/// ROOST PATCH R8: the reasons a blocked program is waiting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProgramStatusKind {
+    Permission,
+    Question,
+    Auth,
 }

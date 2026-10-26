@@ -24,6 +24,7 @@ use std::fmt::Write;
 
 // https://vt100.net/emu/dec_ansi_parser
 use super::osc;
+use super::program_status;
 use super::parser::{Params, ParamsIter, Parser, Perform};
 
 /// Maximum time before a synchronized update is aborted.
@@ -426,6 +427,9 @@ pub trait Handler {
 
     /// Set progress bar report (OSC 9;4).
     fn set_progress_report(&mut self, _: crate::event::ProgressReport) {}
+
+    /// ROOST PATCH R8: an OSC 7501 Program Status report (`7501;<pairs>`).
+    fn set_program_status(&mut self, _: crate::event::ProgramStatusReport) {}
 
     /// Report current keyboard mode.
     fn report_keyboard_mode(&mut self) {}
@@ -1194,6 +1198,13 @@ impl<U: Handler> Perform for Performer<'_, U> {
             b"133" => {
                 if let Some(mark) = osc::parse_semantic_prompt(params) {
                     self.handler.set_semantic_prompt(mark);
+                }
+            }
+
+            // OSC 7501 - Program Status Protocol (ROOST PATCH R8).
+            b"7501" => {
+                if let Some(report) = program_status::parse_program_status(params) {
+                    self.handler.set_program_status(report);
                 }
             }
 

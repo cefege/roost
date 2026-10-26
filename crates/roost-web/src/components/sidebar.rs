@@ -15,6 +15,7 @@ pub mod machine_action_items;
 pub mod rel_time_tick;
 pub mod row_chips;
 pub mod row_swipe;
+pub mod session_program_mark;
 pub mod session_row;
 pub mod session_row_context_menu;
 pub mod session_row_flat;

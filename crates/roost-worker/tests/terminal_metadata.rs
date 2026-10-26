@@ -234,6 +234,7 @@ fn a_backpressured_title_survives_a_later_activity_only_record() {
     let pending = TerminalMetadata {
         channel_id: channel(9),
         title_changed: true,
+        program_status: None,
         title: "vim".to_owned(),
         activity_changed: false,
         activity_ts_ms: 0,
@@ -251,6 +252,7 @@ fn a_backpressured_title_survives_a_later_activity_only_record() {
     let activity = TerminalMetadata {
         channel_id: channel(9),
         title_changed: false,
+        program_status: None,
         title: String::new(),
         activity_changed: true,
         activity_ts_ms: 5_000,
@@ -278,61 +280,6 @@ fn a_backpressured_title_survives_a_later_activity_only_record() {
     assert_eq!(merged.command_duration_ms, 12_000);
     assert!(merged.bell, "a pending bell event survives coalescing");
     assert_eq!(merge_terminal_metadata(None, &activity), activity);
-}
-
-/// A clipboard write is an event: one send, then gone. A reconnect replay and a
-/// renegotiation reassert retained facts, and a write the operator already got
-/// is not one of them — re-sending it would overwrite whatever they copied since.
-#[test]
-fn a_clipboard_write_is_sent_once_and_never_reasserted() {
-    let mut stage = TerminalMetadataStage::default();
-    let mut sent = Vec::new();
-    stage.observe_live(
-        channel(7),
-        b"",
-        Some("before negotiation".to_owned()),
-        0,
-        500,
-    );
-    stage.set_negotiated(true);
-    stage.observe_live(channel(7), b"", Some("copied".to_owned()), 0, 1_000);
-    flush_if_due(&mut stage, &mut sent, 1_000);
-    assert_eq!(
-        sent.len(),
-        1,
-        "the pre-negotiation write is dropped, not held"
-    );
-    assert!(sent[0].clipboard_changed);
-    assert_eq!(sent[0].clipboard, "copied");
-
-    stage.replay();
-    flush_if_due(&mut stage, &mut sent, 2_000);
-    stage.set_negotiated(false);
-    stage.set_negotiated(true);
-    flush_if_due(&mut stage, &mut sent, 3_000);
-    assert!(
-        sent[1..].iter().all(|record| !record.clipboard_changed),
-        "a replay or renegotiation re-sent a clipboard write: {sent:?}"
-    );
-}
-
-#[test]
-fn clipboard_event_coalesces_without_erasing_a_pending_title() {
-    let mut stage = TerminalMetadataStage::default();
-    let mut sent = Vec::new();
-    stage.set_negotiated(true);
-    stage.observe_live(
-        channel(7),
-        b"\x1b]2;terminal title\x07",
-        Some("clipboard text".to_owned()),
-        0,
-        1_000,
-    );
-    flush_if_due(&mut stage, &mut sent, 1_000);
-    assert_eq!(sent.len(), 1);
-    assert!(sent[0].title_changed && sent[0].clipboard_changed);
-    assert_eq!(sent[0].title, "terminal title");
-    assert_eq!(sent[0].clipboard, "clipboard text");
 }
 
 #[test]

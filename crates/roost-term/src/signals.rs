@@ -1,8 +1,9 @@
 //! Program-to-operator signals a core parses from live output: a progress
-//! report (OSC 9;4), a desktop notification (OSC 9 / OSC 777;notify) and the
-//! shell's published user variables (OSC 1337 SetUserVar). The adapter in
-//! `rio/` fills them; the worker's terminal-metadata stage drains them. The
-//! caps here bound what one program can push down the metadata lane.
+//! report (OSC 9;4), a desktop notification (OSC 9 / OSC 777;notify), the
+//! shell's published user variables (OSC 1337 SetUserVar), and OSC 7501
+//! program-status updates kept in arrival order. The adapter in `rio/` fills
+//! them; the worker's terminal-metadata stage drains them. The caps here bound
+//! what one program can push down the metadata lane.
 
 /// Characters kept of a notification's title or body.
 pub const NOTIFICATION_TEXT_MAX_CHARS: usize = 256;
@@ -15,6 +16,9 @@ pub const USER_VAR_KEY_MAX_CHARS: usize = 32;
 /// Characters kept of a user variable's value.
 pub const USER_VAR_VALUE_MAX_CHARS: usize = 64;
 
+pub use roost_protocol::program_status::{
+    ProgramKind, ProgramState, ProgramStatusRecord, ProgramStatusUpdate,
+};
 pub use roost_protocol::terminal_signals::{
     TerminalNotification, TerminalProgress, TerminalUserVar,
 };

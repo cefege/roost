@@ -1,14 +1,15 @@
-//! A coordinator-shaped terminal-signals frame folds into the store: progress
-//! and user variables replace the session's entry (a clear removes it), a
-//! notification queues for the presenter, and an unknown progress state is
-//! refused rather than shown as a guess.
+//! A coordinator-shaped terminal-signals frame folds into the store: progress,
+//! user variables and the OSC 7501 program-status set replace the session's
+//! entry (a clear removes it), a notification queues for the presenter, and an
+//! unknown progress or program state is refused rather than shown as a guess.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod sync_decode_support;
 
 use roost_client_core::SyncDomain;
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
-use roost_proto::{TerminalSignalsFrame, TerminalUserVar};
+use roost_proto::{ProgramStatusRecord, TerminalSignalsFrame, TerminalUserVar};
+use roost_protocol::program_status::{ProgramState, ProgramStatusRecord as DomainProgramRecord};
 use roost_protocol::terminal_signals::{TerminalProgress, TerminalUserVar as DomainUserVar};
 
 use sync_decode_support::{SESSION, acked, application, deliver, ready_core, refused};
@@ -89,4 +90,65 @@ fn an_unknown_progress_state_is_refused() {
         ..TerminalSignalsFrame::default()
     });
     refused(&application(SyncDomain::Terminal, 7, frame));
+}
+
+#[test]
+fn the_program_status_set_replaces_per_session_and_an_empty_set_clears_it() {
+    let (mut core, generation) = ready_core();
+    let frame = signals(TerminalSignalsFrame {
+        program_status_present: true,
+        program_status: vec![ProgramStatusRecord {
+            id: Some("build".to_owned()),
+            state: "working".to_owned(),
+            app: Some("ci".to_owned()),
+            ..ProgramStatusRecord::default()
+        }],
+        ..TerminalSignalsFrame::default()
+    });
+    deliver(
+        &mut core,
+        generation,
+        &application(SyncDomain::Terminal, 8, frame),
+    );
+    assert_eq!(
+        core.store().terminal_signals.program_status(SESSION),
+        &[DomainProgramRecord {
+            id: Some("build".to_owned()),
+            state: ProgramState::Working,
+            kind: None,
+            app: Some("ci".to_owned()),
+            title: None,
+            msg: None,
+            progress: None,
+        }]
+    );
+
+    let clear = signals(TerminalSignalsFrame {
+        program_status_present: true,
+        ..TerminalSignalsFrame::default()
+    });
+    deliver(
+        &mut core,
+        generation,
+        &application(SyncDomain::Terminal, 9, clear),
+    );
+    assert!(
+        core.store()
+            .terminal_signals
+            .program_status(SESSION)
+            .is_empty()
+    );
+}
+
+#[test]
+fn an_unknown_program_state_is_refused() {
+    let frame = signals(TerminalSignalsFrame {
+        program_status_present: true,
+        program_status: vec![ProgramStatusRecord {
+            state: "sleeping".to_owned(),
+            ..ProgramStatusRecord::default()
+        }],
+        ..TerminalSignalsFrame::default()
+    });
+    refused(&application(SyncDomain::Terminal, 10, frame));
 }

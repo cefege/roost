@@ -155,3 +155,20 @@ std's validator reports the maximal subpart, 1) runs only with the feature.
 
 Guard: `tests/roost_scalar_base64.rs`, and the suite runs both ways, `--no-default-features --features graphics`
 (what Roost builds) and `--features graphics,simdutf`.
+
+## R8 — OSC 7501 Program Status is parsed and handed to the listener
+
+`src/performer/program_status.rs` (new) parses `ESC ] 7501 ; <pairs>` per the
+Program Status Protocol spec; `src/performer/handler.rs` gains a `b"7501"` arm
+in `osc_dispatch` and a default `set_program_status`; `src/crosswords/mod.rs`
+sends the validated report as `RioEvent::ProgramStatus`; `src/event/mod.rs`
+holds `ProgramStatusReport`, `ProgramStatusState`, `ProgramStatusKind` and the
+event variant. Upstream has no OSC length cap, so the whole-sequence cap is
+enforced in the parser before any field is decoded. Record retention, the
+record cap and lifetime rules live in `roost-protocol`, not here; the parser
+only validates and normalises a single report (kind only with `blocked`,
+progress only with `working` and `blocked`).
+
+Over-cap, bad-base64, or non-UTF-8 `title` or `msg`, and a control character in either, discard the whole report; a malformed pair alone is skipped. `src/crosswords/mod.rs` `reset_state` (RIS, `ESC c`) sends a root `Clear` report at its end; DECSTR (`CSI ! p`) has no handler in this crate and sends nothing.
+
+Guard: `tests/roost_program_status.rs`.

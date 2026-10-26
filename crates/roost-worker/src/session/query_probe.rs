@@ -1,9 +1,10 @@
 //! Classifies the CSI probes the worker answers itself, what it answers, and
 //! which of the core's own replies reach the application.
 //! `session::query_reply` calls [`synthesized_reply`] for every complete CSI it
-//! tokenizes and [`forwarded_native`] for every core reply. Pure byte logic. The terminal core answers both probes
-//! too, so neither reaches its unhandled-sequence ring; the lane withholds the
-//! core's answer and sends this one.
+//! tokenizes, [`program_status_probe`] for every OSC 7501 query, and
+//! [`forwarded_native`] for every core reply. Pure byte logic. The terminal
+//! core answers the CSI probes too, so neither reaches its unhandled-sequence
+//! ring; the lane withholds the core's answer and sends this one.
 
 use std::borrow::Cow;
 
@@ -18,6 +19,12 @@ pub const PRIMARY_DA_REPLY: &str = "\x1b[?62;4;22c";
 /// XTVERSION reply, `DCS > | name ST`: a client that version-gates behaviour
 /// sees a name instead of silence. v2's bytes, verbatim.
 pub const XTVERSION_REPLY: &str = "\x1bP>|wterm(roost)\x1b\\";
+/// Feature-detection reply for OSC 7501: the states and kinds this terminal
+/// accepts, in the spec's own spacing.
+pub const PROGRAM_STATUS_REPLY: &str = concat!(
+    "\x1b]7501 ; ? : states=idle,working,done,blocked,error : kinds=permission,question,auth",
+    "\x1b\\",
+);
 
 /// A synthesized reply for one complete CSI, or `Some("")` to drain a native
 /// reply at that probe boundary; `None` means the CSI is not a handled probe.
@@ -113,4 +120,56 @@ fn is_pixel_size_report(reply: &str, prefix: &str) -> bool {
         .strip_prefix(prefix)
         .and_then(|rest| rest.strip_suffix('t'))
         .is_some_and(digits_and_semicolons)
+}
+
+/// What the bytes at an `ESC ]` say about the OSC 7501 feature query.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ProgramStatusProbe {
+    /// Not the query, or one that can never become it; the core alone sees it.
+    NotQuery,
+    /// A prefix of the query that the next chunk may complete.
+    Partial,
+    /// A whole query, this many bytes long including its terminator.
+    Complete(usize),
+}
+
+const ESC_BYTE: u8 = 0x1b;
+const BEL_BYTE: u8 = 0x07;
+/// The query body with spaces removed. The spec ignores whitespace around keys
+/// and values, so `OSC 7501 ; ? ST` and `OSC 7501;?ST` both ask the question.
+const PROGRAM_STATUS_QUERY_BODY: &[u8] = b"7501;?";
+
+/// Classifies the OSC that begins `run`, whose first two bytes are `ESC ]`.
+/// `max_len` bounds how long an unterminated run may be held as a carry, so an
+/// OSC that never ends cannot pin worker memory.
+pub(super) fn program_status_probe(run: &[u8], max_len: usize) -> ProgramStatusProbe {
+    let rest = run.get(2..).unwrap_or_default();
+    let terminator = rest
+        .iter()
+        .position(|&byte| byte == BEL_BYTE || byte == ESC_BYTE);
+    let body: Vec<u8> = rest[..terminator.unwrap_or(rest.len())]
+        .iter()
+        .copied()
+        .filter(|&byte| byte != b' ')
+        .collect();
+    let Some(end) = terminator else {
+        let may_complete = run.len() <= max_len && PROGRAM_STATUS_QUERY_BODY.starts_with(&body);
+        return if may_complete {
+            ProgramStatusProbe::Partial
+        } else {
+            ProgramStatusProbe::NotQuery
+        };
+    };
+    if body != PROGRAM_STATUS_QUERY_BODY {
+        return ProgramStatusProbe::NotQuery;
+    }
+    match rest.get(end) {
+        Some(&BEL_BYTE) => ProgramStatusProbe::Complete(end + 3),
+        Some(_) => match rest.get(end + 1) {
+            Some(&b'\\') => ProgramStatusProbe::Complete(end + 4),
+            Some(_) => ProgramStatusProbe::NotQuery,
+            None => ProgramStatusProbe::Partial,
+        },
+        None => ProgramStatusProbe::NotQuery,
+    }
 }

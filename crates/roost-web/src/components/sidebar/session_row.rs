@@ -15,6 +15,7 @@ use roost_protocol::wire::SessionStatus;
 
 use super::rel_time_tick::use_rel_time_now;
 use super::row_swipe::{RowSwipe, SwipeRelease};
+use super::session_program_mark::SessionProgramMark;
 use super::session_row_context_menu::SessionRowContextMenu;
 use super::session_row_flat::{SessionRowFacts, SessionRowFlat};
 use crate::components::notifications::notify_target::{ring_attribute, use_notify_target};
@@ -217,6 +218,7 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
                             }
                         }
                     }
+                    SessionProgramMark { session_id: session_id.clone() }
                     span { class: "shrink-0 text-xs tabular-nums",
                         "data-testid": "session-reltime-{session_id}",
                         title: if facts.flat.open { "Opened" } else { "Closed" },

@@ -7,6 +7,7 @@ pub mod coord_worker_proto;
 pub mod host_identity_proto;
 pub mod keeper_runtime_proto;
 pub mod layout_document_proto;
+pub mod program_status_proto;
 pub mod terminal_core_capacity_proto;
 
 pub use coord_worker_proto::{
@@ -16,6 +17,10 @@ pub use host_identity_proto::{host_identity_from_proto, host_identity_to_proto};
 pub use keeper_runtime_proto::{
     keeper_contract_from_proto, keeper_contract_to_proto, keeper_runtime_observation_from_proto,
     keeper_runtime_observation_to_proto,
+};
+pub use program_status_proto::{
+    program_status_from_proto, program_status_records_from_proto, program_status_records_to_proto,
+    program_status_to_proto,
 };
 pub use terminal_core_capacity_proto::{
     terminal_core_capacity_report_from_proto, terminal_core_capacity_report_to_proto,

@@ -110,6 +110,10 @@ name = "roost_row_mark"
 path = "tests/roost_row_mark.rs"
 
 [[test]]
+name = "roost_program_status"
+path = "tests/roost_program_status.rs"
+
+[[test]]
 name = "roost_scalar_base64"
 path = "tests/roost_scalar_base64.rs"
 

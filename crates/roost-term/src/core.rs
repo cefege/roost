@@ -153,6 +153,10 @@ pub trait TerminalCore {
     fn take_desktop_notifications(&mut self) -> Vec<crate::signals::TerminalNotification> {
         Vec::new()
     }
+    /// Live OSC 7501 program-status updates since the last take, in arrival order.
+    fn take_program_status(&mut self) -> Vec<crate::signals::ProgramStatusUpdate> {
+        Vec::new()
+    }
     /// The shell's published user variables, bounded and sorted.
     fn user_vars(&self) -> Vec<crate::signals::TerminalUserVar> {
         Vec::new()

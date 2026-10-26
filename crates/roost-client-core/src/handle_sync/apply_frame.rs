@@ -291,11 +291,13 @@ pub(super) fn apply_frame(
             progress,
             user_vars,
             notification,
+            program_status,
         } => {
             store.terminal_signals.apply(
                 session_id,
                 *progress,
                 user_vars.as_deref(),
+                program_status.as_deref(),
                 notification.as_ref(),
                 delivery_seq,
             );
