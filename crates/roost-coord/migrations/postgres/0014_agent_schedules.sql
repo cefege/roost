@@ -4,7 +4,7 @@ CREATE TABLE agent_schedules (
   text TEXT NOT NULL,
   due_ms BIGINT NOT NULL,
   every_ms BIGINT,
-  fired INTEGER NOT NULL DEFAULT 0,
+  fired BIGINT NOT NULL DEFAULT 0,
   created_ms BIGINT NOT NULL,
   PRIMARY KEY (conversation_id, id)
 );
