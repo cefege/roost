@@ -46,6 +46,7 @@ pub fn ActivityBar(on_toggle_sidebar: EventHandler<()>) -> Element {
         Destination::Folders,
         Destination::Search,
         Destination::Files,
+        Destination::Fleet,
     ];
     let bottom = [Destination::Settings, Destination::Help];
     rsx! {

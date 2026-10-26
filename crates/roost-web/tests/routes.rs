@@ -190,6 +190,7 @@ fn every_route_with_captures_round_trips_through_its_own_path() {
             worker_fp: Some("aa11".to_string()),
         },
         Route::Search,
+        Route::Fleet,
     ];
     for route in routes {
         assert_eq!(Route::parse(&route.to_path()), route, "{route:?}");

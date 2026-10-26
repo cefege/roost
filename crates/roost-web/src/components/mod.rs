@@ -24,6 +24,7 @@ pub mod deck;
 pub mod design;
 pub mod download;
 pub mod file_viewer;
+pub mod fleet;
 pub mod global_search;
 pub mod help;
 pub mod home;

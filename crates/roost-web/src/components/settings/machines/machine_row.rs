@@ -19,13 +19,13 @@ use roost_client_core::store::shell_intent::ShellIntent;
 use roost_protocol::fleet_update::{
     WorkerUpdateInputs, WorkerUpdateState, worker_update_label, worker_update_state,
 };
-use roost_protocol::wire::{HostMetrics, Worker};
+use roost_protocol::wire::Worker;
 
+use crate::components::machines::host_usage_tiles::{HostUsage, HostUsageTiles, NetworkRates};
 use crate::components::machines::machine_identity_mark::MachineIdentityMark;
 use crate::components::ui::{
-    Button, ButtonVariant, Chip, FieldError, IconType, ListRow, MetricTile, StatusDot, TextField,
+    Button, ButtonVariant, Chip, FieldError, IconType, ListRow, StatusDot, TextField,
 };
-use crate::display_format::{format_bytes, format_speed};
 use crate::pump::Pump;
 
 use super::super::format::{relative_time, short_identifier};
@@ -130,7 +130,10 @@ pub fn MachineRowView(
                     }
                     if online {
                         if let Some(metrics) = worker.host_metrics.clone() {
-                            MetricTiles { metrics }
+                            HostUsageTiles {
+                                usage: HostUsage::from_host_metrics(&metrics),
+                                network: Some(NetworkRates::from_host_metrics(&metrics)),
+                            }
                         }
                     }
                     div { class: "flex flex-wrap items-center gap-2",
@@ -222,66 +225,6 @@ fn RenameForm(fingerprint: String, mut row: Signal<MachineRow>, pump: Pump) -> E
             }
         }
     }
-}
-
-/// The live CPU, memory, disk and network tiles.
-#[component]
-fn MetricTiles(metrics: HostMetrics) -> Element {
-    let memory_ratio = ratio(metrics.mem_used_bytes, metrics.mem_total_bytes);
-    let disk_ratio = ratio(metrics.disk_used_bytes, metrics.disk_total_bytes);
-    rsx! {
-        div { class: "grid grid-cols-2 gap-3",
-            MetricTile {
-                icon: Some(IconType::Cpu),
-                label: "CPU",
-                value: format!("{:.0}%", metrics.cpu_pct),
-                support: None,
-                ratio: Some(metrics.cpu_pct / 100.0),
-            }
-            MetricTile {
-                icon: Some(IconType::MemoryStick),
-                label: "Memory",
-                value: percent(memory_ratio),
-                support: Some(format!(
-                    "{} of {}",
-                    format_bytes(metrics.mem_used_bytes as f64),
-                    format_bytes(metrics.mem_total_bytes as f64)
-                )),
-                ratio: memory_ratio,
-            }
-            MetricTile {
-                icon: Some(IconType::HardDrive),
-                label: "Disk",
-                value: percent(disk_ratio),
-                support: Some(format!(
-                    "{} of {}",
-                    format_bytes(metrics.disk_used_bytes as f64),
-                    format_bytes(metrics.disk_total_bytes as f64)
-                )),
-                ratio: disk_ratio,
-            }
-            MetricTile {
-                icon: Some(IconType::Network),
-                label: "Network",
-                value: format_speed((metrics.net_rx_bps + metrics.net_tx_bps) as f64),
-                support: Some(format!(
-                    "↓ {} · ↑ {}",
-                    format_speed(metrics.net_rx_bps as f64),
-                    format_speed(metrics.net_tx_bps as f64)
-                )),
-                ratio: None,
-            }
-        }
-    }
-}
-
-/// A used/total pair as a fraction, or `None` when the machine reported no total.
-fn ratio(used: i64, total: i64) -> Option<f64> {
-    (total > 0).then(|| (used as f64 / total as f64).clamp(0.0, 1.0))
-}
-
-fn percent(value: Option<f64>) -> String {
-    value.map_or_else(|| "—".to_owned(), |ratio| format!("{:.0}%", ratio * 100.0))
 }
 
 /// The support line: how quiet the machine is, and where it can be reached.
