@@ -14,12 +14,19 @@ use super::request_ids::new_request_id;
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::client::rpc::calls::agent_chat::{RewindAgentChat, SubmitAgentChat};
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct EditTarget {
+    pub item_id: String,
+}
+
 #[component]
 pub fn UserMessageActions(
     conversation_id: String,
     item_id: String,
     text: String,
     draft: Signal<String>,
+    edit_target: Signal<Option<EditTarget>>,
+    running: bool,
     pump: Pump,
 ) -> Element {
     let mut confirm = use_signal(|| false);
@@ -31,9 +38,22 @@ pub fn UserMessageActions(
     let rewind_pump = pump.clone();
     let rewind_id = conversation_id.clone();
     let rewind_item = item_id.clone();
+    let mut edit_draft = draft;
+    let edit_item = item_id.clone();
+    let edit_text = text.clone();
     rsx! {
         div { class: "flex items-center gap-1",
-            Button { variant: ButtonVariant::Ghost, icon: Some(IconType::RotateCcw), onclick: move |_| retry_message(retry_pump.clone(), retry_id.clone(), retry_item.clone(), retry_text.clone()), "Retry" }
+            Button {
+                variant: ButtonVariant::Ghost,
+                icon: Some(IconType::Pencil),
+                disabled: running,
+                onclick: move |_| {
+                    edit_draft.set(edit_text.clone());
+                    edit_target.set(Some(EditTarget { item_id: edit_item.clone() }));
+                },
+                "Edit"
+            }
+            Button { variant: ButtonVariant::Ghost, icon: Some(IconType::RotateCcw), onclick: move |_| rewind_and_submit(retry_pump.clone(), retry_id.clone(), retry_item.clone(), retry_text.clone()), "Retry" }
             Button { variant: ButtonVariant::Ghost, icon: Some(IconType::History), onclick: move |_| confirm.set(true), "Rewind to here" }
         }
         Dialog { open: confirm(), on_open_change: move |open: bool| confirm.set(open),
@@ -68,7 +88,15 @@ pub fn UserMessageActions(
     }
 }
 
-fn retry_message(pump: Pump, conversation_id: String, item_id: String, text: String) {
+/// Rewinds to `item_id` (files untouched) then submits `text` as the
+/// replacement turn. Shared by `/retry` (unedited text) and the composer's
+/// edit-and-resend send path (edited text).
+pub(super) fn rewind_and_submit(
+    pump: Pump,
+    conversation_id: String,
+    item_id: String,
+    text: String,
+) {
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_futures::spawn_local(async move {
         match pump
@@ -82,7 +110,9 @@ fn retry_message(pump: Pump, conversation_id: String, item_id: String, text: Str
             .await
         {
             Ok(_) => submit_message(pump, conversation_id, text),
-            Err(error) => tracing::warn!(target: "agent_chat", %error, "agent retry rewind failed"),
+            Err(error) => {
+                tracing::warn!(target: "agent_chat", %error, "agent rewind-and-submit rewind failed")
+            }
         }
     });
     #[cfg(not(target_arch = "wasm32"))]

@@ -7,9 +7,10 @@ use super::composer_commands::{
 use super::composer_footer::ComposerFooter;
 #[cfg(target_arch = "wasm32")]
 use super::composer_helpers::abort_run;
-use super::composer_helpers::{fill_draft, focus_field};
+use super::composer_helpers::{EditBanner, fill_draft, focus_field, latest_goal, try_submit_edit};
 use super::composer_status::ComposerErrorBanner;
 use super::goal_controls::GoalControls;
+use super::message_actions::EditTarget;
 use super::slash_menu::{
     SlashAccept, SlashMenu, accept_action, initial_selection, listbox_id, option_id,
     scroll_option_into_view, slash_menu_state, slash_sources,
@@ -34,6 +35,7 @@ pub fn AgentComposer(
     catalog_failed: bool,
     transcript: Transcript,
     draft: Signal<String>,
+    edit_target: Signal<Option<EditTarget>>,
     running: bool,
     host_connected: bool,
     active: bool,
@@ -82,10 +84,7 @@ pub fn AgentComposer(
         .map(|option| option.text.clone());
     let listbox = listbox_id(&conversation_id);
     let run_error = transcript.error.clone();
-    let goal = transcript.items.iter().rev().find_map(|item| match item {
-        roost_protocol::wire::agent_chat::TranscriptItem::Goal { state, .. } => Some(state.clone()),
-        _ => None,
-    });
+    let goal = latest_goal(&transcript);
     let submit = EventHandler::new({
         let pump = pump.clone();
         let conversation_id = conversation_id.clone();
@@ -97,6 +96,9 @@ pub fn AgentComposer(
             }
             let text = draft.peek().trim().to_string();
             if text.is_empty() {
+                return;
+            }
+            if try_submit_edit(edit_target, draft, &pump, &conversation_id, &text, report) {
                 return;
             }
             if let Some((command, args)) = parse_slash_command(&text) {
@@ -246,6 +248,12 @@ pub fn AgentComposer(
             menu_dismissed.set(true);
             return;
         }
+        if !menu_open && key == "Escape" && edit_target.peek().is_some() {
+            event.prevent_default();
+            edit_target.set(None);
+            draft.set(String::new());
+            return;
+        }
         if running && key == "Escape" {
             event.prevent_default();
             event.stop_propagation();
@@ -294,6 +302,7 @@ pub fn AgentComposer(
                     on_choose: pick,
                 }
             }
+            EditBanner { edit_target, draft }
             InputPrompt {
                 class: "min-w-0 flex-col",
                 InputPromptTextarea {

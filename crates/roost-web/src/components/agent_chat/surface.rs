@@ -11,6 +11,7 @@ use super::draft::use_conversation_draft;
 use super::header::{AgentChatHeader, current_context_window, header_usage};
 use super::interaction_cards::TodoCard;
 use super::loop_controls::LoopControls;
+use super::message_actions::EditTarget;
 use super::model_controls::{ModelSetup, ModelSetupCard};
 use super::model_hub::ModelHub;
 use super::queued_band::QueuedBand;
@@ -62,6 +63,12 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
     let mut catalog_failed = use_signal(|| false);
     let mut catalog_attempt = use_signal(|| 0_u32);
     let draft = use_conversation_draft(&conversation_id);
+    let mut edit_target = use_signal(|| None::<EditTarget>);
+    let mut edit_target_owner = use_signal(|| conversation_id.clone());
+    if *edit_target_owner.peek() != conversation_id {
+        edit_target.set(None);
+        edit_target_owner.set(conversation_id.clone());
+    }
     let model_hub_open = use_signal(|| false);
     let connect_provider = use_signal(|| None::<ProviderEntry>);
     // Opening the hub refetches the catalog so its recent models are current.
@@ -191,6 +198,7 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
             catalog_failed: catalog_failed(),
             transcript: transcript.clone(),
             draft,
+            edit_target,
             running,
             host_connected,
             active,
@@ -235,7 +243,7 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
                     if transcript.items.is_empty() && !running {
                         super::welcome::AgentWelcome { conversation_id: conversation_id.clone(), draft, connected: host_connected }
                     }
-                    super::transcript::AgentTranscriptView { transcript: transcript.clone(), conversation_id: conversation_id.clone(), pump: pump.clone(), draft }
+                    super::transcript::AgentTranscriptView { transcript: transcript.clone(), conversation_id: conversation_id.clone(), pump: pump.clone(), draft, edit_target }
                 }
             }
             div { class: "relative mx-auto flex w-full max-w-3xl shrink-0 flex-col gap-3 px-4 pt-2 pb-4",
