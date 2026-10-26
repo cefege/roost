@@ -340,6 +340,11 @@ pub(super) fn apply_frame(
             store.agent_chat.apply_events(conversation_id, *seq, events);
             store.note_change();
         }
+        SyncFrame::WorkerLiveMetrics { frame } => {
+            if store.worker_live.apply(frame.clone()) {
+                store.note_change();
+            }
+        }
         SyncFrame::CoordinatorRelocation { relocation } => {
             fold_coordinator_relocation(store, generation, relocation, out);
         }

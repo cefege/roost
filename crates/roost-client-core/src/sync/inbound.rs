@@ -306,4 +306,10 @@ pub enum SyncFrame {
         seq: u64,
         events: Vec<ChatEvent>,
     },
+    /// One live host snapshot for a worker this client subscribed to. A control
+    /// frame: latest-only, never acknowledged, never replayed.
+    WorkerLiveMetrics {
+        /// The worker and its newest snapshot.
+        frame: roost_protocol::wire::live_metrics::WorkerLiveMetricsFrame,
+    },
 }
