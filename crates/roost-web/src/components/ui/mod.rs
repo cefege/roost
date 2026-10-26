@@ -42,7 +42,7 @@ pub mod icon;
 pub mod input;
 pub mod input_group;
 pub mod input_prompt;
-pub mod input_prompt_pill;
+pub mod input_prompt_sheet;
 pub mod item;
 pub mod kbd;
 pub mod label;
@@ -167,7 +167,7 @@ pub use input::{Input, InputType};
 pub use input_prompt::{
     InputPrompt, InputPromptFooter, InputPromptSubmit, InputPromptTextarea, InputPromptTools,
 };
-pub use input_prompt_pill::InputPromptPill;
+pub use input_prompt_sheet::InputPromptSheet;
 pub use item::{
     Item, ItemContent, ItemDescription, ItemMedia, ItemMediaVariant, ItemSize, ItemTitle,
     ItemVariant,
