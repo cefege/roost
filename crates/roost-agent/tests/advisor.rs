@@ -123,6 +123,62 @@ async fn idle_blocker_starts_one_primary_run_with_advisory_context() {
 }
 
 #[tokio::test]
+async fn terminal_answer_is_reviewed_after_a_live_tool_response_review() {
+    let harness = Harness::new();
+    enable_advisor(&harness).await;
+    let id = harness.conversation().await;
+    let advisor_id = format!("{id}-advisor");
+    harness.tools.answer("read", "[README.md#AAAA]\n1:source");
+    let advisor_gate = harness.llm.hold_stream(&advisor_id, 1);
+    harness.llm.script(
+        &id,
+        tool_reply(&[("read-call", "read", r#"{"path":"README.md"}"#)]),
+    );
+    harness
+        .llm
+        .script(&id, text_reply("The final answer follows the review."));
+    script_advisor(
+        &harness,
+        &id,
+        vec![
+            text_reply("No issue in the tool-call turn."),
+            scripted_advise("The final answer needs a source.", "concern"),
+            text_reply("Review complete."),
+        ],
+    )
+    .await;
+
+    harness.submit(&id, "Review the change").await;
+    advisor_gate.entered.notified().await;
+    harness.settle(&id).await;
+    advisor_gate.released.notify_one();
+
+    let transcript = wait_for_card(&harness, &id).await;
+    assert_eq!(harness.llm.requests_for(&id).len(), 2);
+    let advisor_requests = harness.llm.requests_for(&advisor_id);
+    assert!(advisor_requests.len() >= 3);
+    assert!(
+        advisor_requests[1]
+            .messages
+            .iter()
+            .any(|message| match message {
+                Message::User { content } => content.iter().any(|part| {
+                    matches!(
+                        part,
+                        roost_llm::UserContent::Text { text }
+                            if text.contains("The final answer follows the review.")
+                    )
+                }),
+                _ => false,
+            }),
+        "{:?}",
+        advisor_requests[1].messages
+    );
+    assert!(transcript.items.iter().any(|item| matches!(item,
+        TranscriptItem::Advisory { severity, delivered: false, .. } if severity == "concern")));
+}
+
+#[tokio::test]
 async fn concern_after_terminal_answer_stays_an_undelivered_card() {
     let harness = Harness::new();
     enable_advisor(&harness).await;

@@ -62,6 +62,7 @@ async fn late_run_intent_does_not_discard_already_consumed_output() {
                 item_id: "completed-output".into(),
                 blocks: vec![AssistantBlock::Text {
                     text: "completed".into(),
+                    provider_data: None,
                 }],
                 usage: Usage::default(),
                 model: None,

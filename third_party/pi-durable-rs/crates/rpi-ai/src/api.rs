@@ -1,0 +1,33 @@
+//! API adapters, mirroring `packages/ai/src/api/` (design §3.3).
+
+pub mod anthropic_messages;
+pub mod azure_openai_responses;
+pub mod bedrock;
+pub mod bedrock_converse_stream;
+pub mod classifier_shared;
+pub mod cloudflare_workers_ai_system_one;
+pub mod codex_ws;
+pub mod constrained_sampling;
+pub mod copilot_headers;
+pub mod google_adc;
+pub mod google_generative_ai;
+pub mod google_shared;
+pub mod google_vertex;
+pub mod http_client;
+pub mod lazy;
+pub mod mistral_conversations;
+pub mod openai_codex_responses;
+pub mod openai_completions;
+pub mod openai_decisions;
+pub mod openai_prompt_cache;
+pub mod openai_responses;
+pub mod openai_responses_shared;
+pub mod openrouter_images;
+pub mod pi_messages;
+pub mod session_affinity;
+pub mod simple_options;
+pub mod sse;
+pub mod stream_cancel;
+pub mod stream_timeouts;
+pub mod system_one_shared;
+pub mod typesafe_system_one;

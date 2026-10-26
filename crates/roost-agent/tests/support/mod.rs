@@ -25,7 +25,7 @@ mod gated;
 mod llm;
 mod sink;
 
-pub use gated::{ArmOnCheckSink, GatedStore};
+pub use gated::{ArmOnCheckSink, GatedStore, PublicationKind};
 pub use llm::{ANY_SESSION, JudgeScript, Script, ScriptedLlm};
 pub use sink::RecordingSink;
 
@@ -298,6 +298,7 @@ pub fn text_reply(text: &str) -> Script {
             index: 0,
             block: AssistantBlock::Text {
                 text: text.to_owned(),
+                provider_data: None,
             },
         },
         usage(),
@@ -308,6 +309,22 @@ pub fn text_reply(text: &str) -> Script {
 pub fn tool_reply(calls: &[(&str, &str, &str)]) -> Script {
     let mut events = Vec::new();
     for (index, (call_id, name, args)) in calls.iter().enumerate() {
+        let arguments =
+            serde_json::from_str::<serde_json::Value>(args)
+                .ok()
+                .map(|mut arguments| {
+                    if *name != "codemode"
+                        && let Some(object) = arguments.as_object_mut()
+                    {
+                        object
+                            .entry(roost_protocol::wire::agent_chat::INTENT_FIELD)
+                            .or_insert_with(|| serde_json::json!(format!("Executing {name}")));
+                    }
+                    arguments
+                });
+        let args = arguments
+            .map(|arguments| arguments.to_string())
+            .unwrap_or_else(|| (*args).to_owned());
         events.push(StreamEvent::ToolCallStart {
             index,
             call_id: (*call_id).to_owned(),
@@ -315,14 +332,15 @@ pub fn tool_reply(calls: &[(&str, &str, &str)]) -> Script {
         });
         events.push(StreamEvent::ToolArgsDelta {
             index,
-            json: (*args).to_owned(),
+            json: args.clone(),
         });
         events.push(StreamEvent::BlockEnd {
             index,
             block: AssistantBlock::ToolCall {
                 call_id: (*call_id).to_owned(),
                 name: (*name).to_owned(),
-                args_json: (*args).to_owned(),
+                args_json: args,
+                provider_data: None,
             },
         });
     }

@@ -49,6 +49,7 @@ async fn recovery_replays_unexpected_stop_policy_once_for_completed_output() {
                 item_id: "completed-stop".into(),
                 blocks: vec![AssistantBlock::Text {
                     text: "I'll fix that now.".into(),
+                    provider_data: None,
                 }],
                 usage: Usage::default(),
                 model: Some(model_ref(support::PROVIDER, support::MODEL)),

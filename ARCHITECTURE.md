@@ -66,7 +66,7 @@ container image built from `Dockerfile` and the Helm chart in
 | CLI | `roost-cli` (binary `roost`) | Service entry points (`coord`, `worker`, `keeper`), `quickstart`, `join`, `add-machine`, `add-browser`, `status`, `doctor`, `logs`, `update`, `deploy`, `push` (journaled fleet rollout), `api` (28 headless verbs incl. `agent-*`, `ui`, `tasks`), `skill` (prints the embedded agent skill), `db-to-postgres`, `db-to-sqlite`, `import-v2`. |
 | Protocol | `roost-proto`, `roost-protocol` | `roost-proto`: protobuf messages and Connect stubs generated from `protocol/proto/roost/v1/` (the only protobuf runtime). `roost-protocol`: I/O-free wire logic — the one event fold, cell model, chunk assembly, viewport geometry, view registry, peer packet framing, layout documents. Builds for wasm32 and native. |
 | Host/platform | `roost-host`, `roost-platform`, `roost-observability` | `ROOST_*` config and service names; path/shell conventions; the JSON log line `roost status`/`roost doctor` parse. |
-| Agent harness | `roost-agent`, `roost-llm`, `roost-coord::agent` | The coordinator owns conversations, provider accounts and the Rust harness. `ROOST_AGENT_ENDPOINT_OVERRIDES` configures provider endpoint bases; worker tools run in `roost-agent-tools` over `agent_tools_v1` worker-link frames. |
+| Agent harness | `roost-agent`, vendored `rpi-durable`/`rpi-ai`, `roost-llm`, `roost-coord::agent` | Pi Durable owns generation/tool/compaction tasks and execution recovery. Roost owns native chat/policies, shared SQL fences, accounts and worker dispatch over `agent_tools_v1`; `ROOST_AGENT_ENDPOINT_OVERRIDES` configures provider endpoint bases. |
 
 `roost-client-core` is UI-free: no DOM type, no async runtime I/O, no timer.
 `roost-web` calls `ClientCore::handle` from exactly one place
@@ -207,9 +207,11 @@ Normative detail lives in `protocol/spec/terminal-stream.md` and
   Alternate-screen occupancy alone never captures the mouse.
 
 Every terminal session is a shell PTY. Agent CLIs (`omp`, Claude Code, Codex)
-still run inside it. Separately, the built-in Rust harness runs in the
-coordinator (`roost-agent` and `roost-llm`), with tools executed by
-`roost-agent-tools` on workers over `agent_tools_v1` worker-link frames.
+still run inside it. Separately, the built-in Rust agent runs in the
+coordinator: `roost-agent` adapts the [vendored Pi Durable engine](third_party/pi-durable-rs/ROOST-PATCHES.md)
+to native chat and `roost-llm` accounts. `roost-agent-tools` executes worker
+tools over `agent_tools_v1` worker-link frames. Code-mode uses embedded
+QuickJS, not a Node sidecar.
 
 The harness journals accepted input and run intent in the coordinator database.
 Startup resumes unfinished work from the same conversation; explicit Stop and
@@ -219,6 +221,16 @@ notices. Each finished tool result commits before the next mutating call starts.
 A tool call missing its durable result has an unknown outcome: recovery records
 that uncertainty instead of replaying its effects. Dispatch waits for an offline
 worker before starting the tool timeout; a lost dispatched call is not resent.
+
+Each native conversation opens one fenced Durable namespace. Confirmed kernel
+batches and native transcript projections commit in the same SQLite/Postgres
+transaction; an indexed memory view is adopted afterward. The kernel owns
+documents, tasks, submissions and generation/tool/compaction phases. Native
+input admission, run intent and product policies remain host-owned. Origin
+maps import existing history and rewind visibility without re-importing
+projected kernel replies. Core IDs and commit sequences are not native journal
+sequences or provider session IDs. See [the cutover boundary](docs/plans/pi-durable-rust.md).
+
 
 Goals add durable objective/status/budget snapshots to that journal. Each
 primary request records the goal ID admitted with it, so usage cannot leak into

@@ -32,6 +32,7 @@ pub fn index_tool_calls(entries: &[(u64, Entry)]) -> ToolCallIndex {
                     call_id,
                     name,
                     args_json,
+                    ..
                 } = block
                 {
                     index.insert(call_id.clone(), (name.clone(), args_json.clone()));
@@ -46,7 +47,7 @@ pub fn transcript_blocks(blocks: &[AssistantBlock]) -> Vec<TranscriptBlock> {
     blocks
         .iter()
         .map(|block| match block {
-            AssistantBlock::Text { text } => TranscriptBlock::Text { text: text.clone() },
+            AssistantBlock::Text { text, .. } => TranscriptBlock::Text { text: text.clone() },
             AssistantBlock::Thinking { text, .. } => {
                 TranscriptBlock::Thinking { text: text.clone() }
             }
@@ -54,6 +55,7 @@ pub fn transcript_blocks(blocks: &[AssistantBlock]) -> Vec<TranscriptBlock> {
                 call_id,
                 name,
                 args_json,
+                ..
             } => TranscriptBlock::ToolCall {
                 call_id: call_id.clone(),
                 tool_name: name.clone(),
@@ -105,10 +107,27 @@ pub fn entry_item(seq: u64, entry: &Entry, tools: &ToolCallIndex) -> Option<Tran
             text,
             is_error,
             details_json,
+            ..
         } => {
-            let args_json = tools
-                .get(call_id)
-                .map_or_else(|| "{}".to_owned(), |(_, args)| args.clone());
+            let args_json = tools.get(call_id).map_or_else(
+                || {
+                    let Some(details) = serde_json::from_str::<serde_json::Value>(details_json)
+                        .ok()
+                        .filter(|details| details.get("parentCallId").is_some())
+                    else {
+                        return "{}".to_owned();
+                    };
+                    details
+                        .get("arguments")
+                        .cloned()
+                        .map(|arguments| match arguments {
+                            serde_json::Value::String(arguments) => arguments,
+                            arguments => arguments.to_string(),
+                        })
+                        .unwrap_or_else(|| "{}".to_owned())
+                },
+                |(_, args)| args.clone(),
+            );
             Some(TranscriptItem::Tool {
                 id: tool_item_id(call_id),
                 call_id: call_id.clone(),

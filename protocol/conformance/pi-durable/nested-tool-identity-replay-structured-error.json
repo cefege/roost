@@ -1,0 +1,195 @@
+{
+  "source": {
+    "repository": "https://github.com/earendil-works/pi",
+    "commit": "d5b3de22d0e24a3e9c38a9410d3329b099717283",
+    "package": "packages/durable"
+  },
+  "normalization": "timestamp, duration, startedAt, and endedAt fields omitted; generated faux API ids mapped to faux:<generated>; all Durable IDs and commit sequences remain exact",
+  "trace": {
+    "name": "nested-tool-identity-replay-structured-error",
+    "nestedResults": [
+      {
+        "taskId": 14,
+        "structuredOutput": {
+          "value": "x"
+        },
+        "isError": false,
+        "diagnostics": []
+      },
+      {
+        "taskId": 14,
+        "structuredOutput": {
+          "value": "x"
+        },
+        "isError": false,
+        "diagnostics": []
+      },
+      {
+        "taskId": 16,
+        "isError": true,
+        "diagnostics": [
+          {
+            "severity": "error",
+            "code": "tool_unavailable",
+            "message": "Tool missing is not available"
+          }
+        ]
+      }
+    ],
+    "identities": [
+      {
+        "taskId": 12,
+        "callId": "batch-1"
+      }
+    ],
+    "entries": [
+      {
+        "model": [
+          {
+            "role": "user",
+            "content": "run nested batch"
+          }
+        ],
+        "kind": "pi.user",
+        "id": 7,
+        "conversationId": 1
+      },
+      {
+        "model": [
+          {
+            "role": "system",
+            "content": "",
+            "toolsAdded": [
+              {
+                "name": "echo",
+                "description": "Echo structured data",
+                "parameters": {
+                  "type": "object",
+                  "required": [
+                    "value"
+                  ],
+                  "properties": {
+                    "value": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "name": "batch",
+                "description": "Run keyed nested calls",
+                "parameters": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ]
+          }
+        ],
+        "kind": "pi.system",
+        "id": 10,
+        "conversationId": 1,
+        "byTaskId": 9
+      },
+      {
+        "model": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "toolCall",
+                "id": "batch-1",
+                "name": "batch",
+                "arguments": {}
+              }
+            ],
+            "api": "faux:<generated>",
+            "provider": "faux",
+            "model": "faux-1",
+            "usage": {
+              "input": 0,
+              "output": 2,
+              "cacheRead": 0,
+              "cacheWrite": 73,
+              "totalTokens": 75,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "toolUse",
+            "thinkingLevel": "off"
+          }
+        ],
+        "kind": "pi.assistant",
+        "id": 11,
+        "conversationId": 1,
+        "byTaskId": 9
+      },
+      {
+        "model": [
+          {
+            "role": "toolResult",
+            "toolCallId": "batch-1",
+            "toolName": "batch",
+            "content": [
+              {
+                "type": "text",
+                "text": "batch complete"
+              }
+            ],
+            "isError": false
+          }
+        ],
+        "data": {
+          "diagnostics": []
+        },
+        "kind": "pi.tool-result",
+        "id": 17,
+        "conversationId": 1,
+        "byTaskId": 12
+      },
+      {
+        "model": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "done"
+              }
+            ],
+            "api": "faux:<generated>",
+            "provider": "faux",
+            "model": "faux-1",
+            "usage": {
+              "input": 0,
+              "output": 1,
+              "cacheRead": 73,
+              "cacheWrite": 13,
+              "totalTokens": 87,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "thinkingLevel": "off"
+          }
+        ],
+        "kind": "pi.assistant",
+        "id": 19,
+        "conversationId": 1,
+        "byTaskId": 18
+      }
+    ],
+    "tasks": []
+  },
+  "sha256": "2f3b9047ba7116cede18f13f400d507de086dd1083ebe9a5a468616805fcf224"
+}

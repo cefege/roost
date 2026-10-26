@@ -1,32 +1,30 @@
-//! One tool round: run the assistant's tool calls (concurrently when every
-//! call only reads), stream their live output into the transcript, and record
-//! each result. Harness tools run here; worker tools go through `ToolExecutor`.
+//! Roost's tool dispatch policy beneath Durable's tool task.
+//! Registered callbacks reuse this executor for native policies and worker links;
+//! the kernel owns parallel rounds, output bounds and durable result settlement.
 
-use futures::future::join_all;
-use roost_protocol::wire::agent_chat::{
-    ChatEvent, TOOL_BASH, TOOL_LSP, TOOL_WAIT, TranscriptItem, split_intent,
-};
+use roost_protocol::wire::agent_chat::{ChatEvent, TOOL_BASH, TOOL_LSP, TOOL_WAIT, split_intent};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::error::AgentError;
 use crate::goal_mode::TOOL_GOAL;
 use crate::projection::tool_item_id;
-use crate::records::{ConversationRecord, Entry};
+use crate::records::ConversationRecord;
 use crate::runtime::{AgentRuntime, RunEnd};
 use crate::toolset::{
     LSP_READ_ACTIONS, TOOL_ASK, TOOL_FETCH, TOOL_FIND, TOOL_MESSAGE, TOOL_PROPOSE_PLAN, TOOL_TASK,
-    TOOL_TODO, TOOL_WEB_SEARCH, TOOL_YIELD, Toolset, is_read_only,
+    TOOL_TODO, TOOL_WEB_SEARCH, TOOL_YIELD, Toolset,
 };
 use crate::traits::{OwnerConversationId, ToolCall, ToolOutcome, WorkerConversationNamespace};
 use crate::web_tools;
 use crate::{ask, find, peer_message, plan_mode, subagents, todo, wait};
 
-/// Live output kept in a running tool card; older output is trimmed.
-const LIVE_OUTPUT_CHARS: u64 = 64 * 1024;
 const DEFAULT_TIMEOUT_MS: u32 = 120_000;
 /// Slack over a bash command's own timeout for process teardown and transfer.
 const BASH_GRACE_SECS: u64 = 30;
+
+/// A durable task's raw-byte progress sink.
+pub(crate) type DurableOutput = std::sync::Arc<dyn Fn(&[u8]) -> Result<(), String> + Send + Sync>;
 
 /// One call's result and whether it ends the run.
 pub(crate) struct CallResult {
@@ -58,79 +56,17 @@ pub(crate) struct CallScope<'a> {
     /// The turn's user-entry seq; workers key file restore points by it.
     pub checkpoint_id: u64,
     pub cancel: &'a CancellationToken,
+    /// Stable kernel task identity, independent of a provider's tool-call ID.
+    pub execution_id: &'a str,
+    pub durable_output: DurableOutput,
 }
 
-pub(crate) async fn execute_round(
-    scope: CallScope<'_>,
-    calls: Vec<(String, String, String)>,
-) -> Result<Option<RunEnd>, AgentError> {
-    let running: Vec<ChatEvent> = calls
-        .iter()
-        .map(|(call_id, name, args)| ChatEvent::Item {
-            item: TranscriptItem::Tool {
-                id: tool_item_id(call_id),
-                call_id: call_id.clone(),
-                tool_name: name.clone(),
-                args_json: args.clone(),
-                output: String::new(),
-                is_error: false,
-                running: true,
-                children: Vec::new(),
-                queued: true,
-                details_json: String::new(),
-            },
-        })
-        .collect();
-    scope.runtime.emit(&scope.record.id, running).await;
-    let results = if calls.iter().all(|(_, name, _)| is_read_only(name)) {
-        join_all(
-            calls
-                .iter()
-                .map(|(call_id, name, args)| run_and_record(&scope, call_id, name, args)),
-        )
-        .await
-    } else {
-        let mut results = Vec::with_capacity(calls.len());
-        for (call_id, name, args) in &calls {
-            results.push(Ok(run_and_record(&scope, call_id, name, args).await?));
-        }
-        results
-    };
-    let mut end = None;
-    for result in results {
-        let call_end = result?;
-        if end.is_none() {
-            end = call_end;
-        }
-    }
-    Ok(end)
-}
-
-async fn run_and_record(
+pub(crate) async fn run_call(
     scope: &CallScope<'_>,
     call_id: &str,
     name: &str,
     args: &str,
-) -> Result<Option<RunEnd>, AgentError> {
-    let result = run_call(scope, call_id, name, args).await;
-    scope
-        .runtime
-        .append(
-            &scope.record.id,
-            Entry::ToolResult {
-                call_id: call_id.to_owned(),
-                tool_name: name.to_owned(),
-                text: result.outcome.content,
-                is_error: result.outcome.is_error,
-                details_json: result.outcome.details_json,
-            },
-        )
-        .await?;
-    tracing::debug!(conversation_id = %scope.record.id, call_id, tool = name, is_error = result.outcome.is_error, "agent tool call recorded");
-    Ok(result.end)
-}
-
-async fn run_call(scope: &CallScope<'_>, call_id: &str, name: &str, args: &str) -> CallResult {
+) -> CallResult {
     if scope.cancel.is_cancelled() {
         return CallResult::plain(ToolOutcome {
             is_error: false,
@@ -170,12 +106,7 @@ async fn run_call(scope: &CallScope<'_>, call_id: &str, name: &str, args: &str) 
         return CallResult::failure(format!("Tool `{name}` is disabled in read-only mode."));
     }
     let (out, out_rx) = mpsc::channel::<String>(64);
-    let forwarder = tokio::spawn(forward_output(
-        scope.runtime.clone(),
-        scope.record.id.clone(),
-        tool_item_id(call_id),
-        out_rx,
-    ));
+    let forwarder = tokio::spawn(forward_output(out_rx, scope.durable_output.clone()));
     let result = match name {
         TOOL_TASK => subagents::run_task(scope, call_id, args, out).await,
         TOOL_FIND => find::run_find(scope, args, out).await,
@@ -211,11 +142,13 @@ async fn run_call(scope: &CallScope<'_>, call_id: &str, name: &str, args: &str) 
             drop(out);
             yield_result(args)
         }
-        _ => run_worker_tool(scope, call_id, name, args, out).await,
+        _ => run_worker_tool(scope, name, args, out).await,
     };
-    // Every sender is gone once the call returns, so the forwarder drains and ends.
-    let _ = forwarder.await;
-    result
+    match forwarder.await {
+        Ok(Ok(())) => result,
+        Ok(Err(error)) => CallResult::failure(error),
+        Err(error) => CallResult::failure(format!("Tool output forwarding failed: {error}")),
+    }
 }
 
 async fn run_goal_tool(scope: &CallScope<'_>, args: &str) -> CallResult {
@@ -297,7 +230,6 @@ fn yield_result(args: &str) -> CallResult {
 
 async fn run_worker_tool(
     scope: &CallScope<'_>,
-    call_id: &str,
     name: &str,
     args: &str,
     out: mpsc::Sender<String>,
@@ -319,7 +251,7 @@ async fn run_worker_tool(
         ));
     }
     let call = ToolCall {
-        call_id: call_id.to_owned(),
+        call_id: scope.execution_id.to_owned(),
         conversation_id: WorkerConversationNamespace(scope.record.id.clone()),
         owner_conversation_id: OwnerConversationId(scope.record.id.clone()),
         cwd: scope.record.cwd.clone(),
@@ -360,29 +292,11 @@ pub(crate) fn timeout_ms(name: &str, args: &str) -> u32 {
 }
 
 async fn forward_output(
-    runtime: AgentRuntime,
-    conversation_id: String,
-    item_id: String,
     mut chunks: mpsc::Receiver<String>,
-) {
-    let mut shown: u64 = 0;
+    output: DurableOutput,
+) -> Result<(), String> {
     while let Some(chunk) = chunks.recv().await {
-        shown += chunk.chars().count() as u64;
-        let trim_start = (shown > LIVE_OUTPUT_CHARS).then(|| {
-            let trimmed = shown - LIVE_OUTPUT_CHARS / 2;
-            shown -= trimmed;
-            trimmed
-        });
-        runtime
-            .emit(
-                &conversation_id,
-                vec![ChatEvent::ToolOutput {
-                    item_id: item_id.clone(),
-                    trim_start,
-                    append: Some(chunk),
-                    set: None,
-                }],
-            )
-            .await;
+        output(chunk.as_bytes())?;
     }
+    Ok(())
 }

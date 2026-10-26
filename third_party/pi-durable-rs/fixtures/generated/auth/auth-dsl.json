@@ -1,0 +1,10 @@
+{
+  "anthropic": {
+    "type": "api_key",
+    "key": "$RPI_FIXTURE_API_KEY"
+  },
+  "openai": {
+    "type": "api_key",
+    "key": "!printf 'fixture-command-key'"
+  }
+}

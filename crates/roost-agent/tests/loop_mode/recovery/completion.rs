@@ -64,6 +64,7 @@ async fn recovered_final_output_admits_the_next_loop_iteration() {
             item_id: "first-loop-answer".into(),
             blocks: vec![AssistantBlock::Text {
                 text: "first answer".into(),
+                provider_data: None,
             }],
             usage: Usage::default(),
             model: Some(model_ref(

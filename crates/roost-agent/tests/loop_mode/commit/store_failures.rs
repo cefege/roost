@@ -21,6 +21,31 @@ pub(super) struct FailAppendStore {
 }
 
 impl AgentStore for FailAppendStore {
+    fn durable_batches<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<roost_agent::durable::DurableBatch>, AgentError>> {
+        self.inner.durable_batches(id)
+    }
+    fn mint_durable_id<'a>(
+        &'a self,
+        id: &'a str,
+        fence: &'a LeaseFence,
+    ) -> BoxFuture<'a, Result<u64, AgentError>> {
+        self.inner.mint_durable_id(id, fence)
+    }
+    fn append_durable_batch<'a>(
+        &'a self,
+        id: &'a str,
+        expected_sequence: u64,
+        writes: &'a [roost_agent::durable::StorageWrite],
+        entries: &'a [Entry],
+        fence: &'a LeaseFence,
+    ) -> BoxFuture<'a, Result<roost_agent::durable::DurableCommit, AgentError>> {
+        self.inner
+            .append_durable_batch(id, expected_sequence, writes, entries, fence)
+    }
+
     fn conversations(&self) -> BoxFuture<'_, Result<Vec<ConversationRecord>, AgentError>> {
         self.inner.conversations()
     }

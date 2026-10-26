@@ -13,7 +13,7 @@ use roost_agent::traits::{AdmitOutcome, CommandAdmission, IntentChange, LeaseFen
 use sqlx::Row as _;
 use tokio_util::sync::CancellationToken;
 
-use crate::db::CoordDb;
+use crate::db::{CoordDb, DbBackend};
 
 type WriteTx<'c> = sqlx::Transaction<'c, sqlx::Any>;
 
@@ -28,7 +28,7 @@ pub(super) async fn append_entry(
     let mut tx = db.begin_write().await.map_err(store_error)?;
     require_conversation(&mut tx, id).await?;
     if let Some(fence) = fence
-        && !holds_lease(&mut tx, id, fence).await?
+        && !holds_lease(db.backend(), &mut tx, id, fence).await?
     {
         tx.rollback().await.map_err(store_error)?;
         return Err(AgentError::Fenced(id.to_owned()));
@@ -84,7 +84,7 @@ pub(super) async fn admit_command(
             tx.rollback().await.map_err(store_error)?;
             return Err(AgentError::Fenced(id.to_owned()));
         };
-        if !holds_lease(&mut tx, id, fence).await? {
+        if !holds_lease(db.backend(), &mut tx, id, fence).await? {
             tx.rollback().await.map_err(store_error)?;
             return Err(AgentError::Fenced(id.to_owned()));
         }
@@ -220,7 +220,7 @@ pub(super) async fn acquire_lease(
     let now = super::now_ms();
     let mut tx = db.begin_write().await.map_err(store_error)?;
     require_conversation(&mut tx, id).await?;
-    let current = lease_row(&mut tx, id).await?;
+    let current = lease_row(db.backend(), &mut tx, id).await?;
     let Some(epoch) = next_lease_epoch(current.as_ref(), owner, now) else {
         tx.rollback().await.map_err(store_error)?;
         return Ok(None);
@@ -283,7 +283,7 @@ pub(super) async fn orphaned_runs(db: &CoordDb, now_ms: i64) -> Result<Vec<Strin
     .map_err(store_error)
 }
 
-async fn require_conversation(tx: &mut WriteTx<'_>, id: &str) -> Result<(), AgentError> {
+pub(super) async fn require_conversation(tx: &mut WriteTx<'_>, id: &str) -> Result<(), AgentError> {
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM agent_conversations WHERE id=$1")
         .bind(id)
         .fetch_one(&mut **tx)
@@ -295,7 +295,7 @@ async fn require_conversation(tx: &mut WriteTx<'_>, id: &str) -> Result<(), Agen
     Ok(())
 }
 
-async fn last_seq(tx: &mut WriteTx<'_>, id: &str) -> Result<u64, AgentError> {
+pub(super) async fn last_seq(tx: &mut WriteTx<'_>, id: &str) -> Result<u64, AgentError> {
     let last: i64 = sqlx::query_scalar(
         "SELECT COALESCE(MAX(seq), 0) FROM agent_entries WHERE conversation_id=$1",
     )
@@ -306,7 +306,7 @@ async fn last_seq(tx: &mut WriteTx<'_>, id: &str) -> Result<u64, AgentError> {
     u64::try_from(last).map_err(serialize_error)
 }
 
-async fn insert_entry(
+pub(super) async fn insert_entry(
     tx: &mut WriteTx<'_>,
     id: &str,
     seq: u64,
@@ -325,14 +325,24 @@ async fn insert_entry(
     Ok(())
 }
 
-async fn lease_row(tx: &mut WriteTx<'_>, id: &str) -> Result<Option<LeaseRow>, AgentError> {
-    let row = sqlx::query(
-        "SELECT owner_instance,epoch,expires_ms FROM agent_run_leases WHERE conversation_id=$1",
-    )
-    .bind(id)
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(store_error)?;
+async fn lease_row(
+    backend: DbBackend,
+    tx: &mut WriteTx<'_>,
+    id: &str,
+) -> Result<Option<LeaseRow>, AgentError> {
+    let statement = match backend {
+        DbBackend::Sqlite => {
+            "SELECT owner_instance,epoch,expires_ms FROM agent_run_leases WHERE conversation_id=$1"
+        }
+        DbBackend::Postgres => {
+            "SELECT owner_instance,epoch,expires_ms FROM agent_run_leases WHERE conversation_id=$1 FOR UPDATE"
+        }
+    };
+    let row = sqlx::query(statement)
+        .bind(id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(store_error)?;
     row.map(|row| {
         let epoch: i64 = row.try_get("epoch").map_err(store_error)?;
         Ok(LeaseRow {
@@ -344,17 +354,18 @@ async fn lease_row(tx: &mut WriteTx<'_>, id: &str) -> Result<Option<LeaseRow>, A
     .transpose()
 }
 
-async fn holds_lease(
+pub(super) async fn holds_lease(
+    backend: DbBackend,
     tx: &mut WriteTx<'_>,
     id: &str,
     fence: &LeaseFence,
 ) -> Result<bool, AgentError> {
-    Ok(lease_row(tx, id)
-        .await?
-        .is_some_and(|row| row.owner == fence.owner && row.epoch == fence.epoch))
+    Ok(lease_row(backend, tx, id).await?.is_some_and(|row| {
+        row.owner == fence.owner && row.epoch == fence.epoch && row.expires_ms > super::now_ms()
+    }))
 }
 
-fn to_i64(value: u64) -> Result<i64, AgentError> {
+pub(super) fn to_i64(value: u64) -> Result<i64, AgentError> {
     i64::try_from(value).map_err(serialize_error)
 }
 

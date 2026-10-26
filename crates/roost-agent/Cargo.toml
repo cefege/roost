@@ -14,9 +14,13 @@ workspace = true
 [dependencies]
 roost-llm = { workspace = true }
 roost-protocol = { workspace = true }
+rpi-durable = { workspace = true }
+rpi-ai = { workspace = true }
+async-trait = { workspace = true }
 futures = { workspace = true }
 getrandom = { workspace = true }
 hex = { workspace = true }
+sha2 = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }

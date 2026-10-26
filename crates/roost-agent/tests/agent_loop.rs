@@ -214,6 +214,7 @@ async fn usage_near_the_context_window_compacts_before_the_next_call() {
                     item_id: format!("a{turn}"),
                     blocks: vec![roost_llm::AssistantBlock::Text {
                         text: "y".repeat(40_000),
+                        provider_data: None,
                     }],
                     usage: roost_llm::Usage {
                         input: window - 1000,

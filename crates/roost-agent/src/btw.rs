@@ -108,6 +108,7 @@ async fn answer(
                 thinking,
                 session_id: session_id.clone(),
                 max_tokens: None,
+                cache_retention: None,
             }
         })
         .collect();

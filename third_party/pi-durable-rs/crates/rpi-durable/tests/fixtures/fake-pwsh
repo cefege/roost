@@ -1,0 +1,6 @@
+#!/bin/sh
+# Fixture for the durable powershell tool tests: prints its argv separated by
+# pipes so the test can assert the argv transport. Committed (and executable)
+# so the tests never write-then-exec a script, which is flaky on Linux
+# (ETXTBSY when a concurrent fork copies the open write fd).
+printf '%s|' "$@"

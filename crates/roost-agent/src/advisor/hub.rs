@@ -34,7 +34,10 @@ struct AdvisorQueue {
 
 #[derive(Debug, Clone, Copy)]
 enum AdvisorJob {
-    Turn { ended_with_tool_calls: bool },
+    Turn {
+        ended_with_tool_calls: bool,
+        response_boundary: Option<super::AssistantResponseBoundary>,
+    },
     Reset,
 }
 
@@ -47,11 +50,17 @@ impl std::fmt::Debug for AdvisorQueue {
 }
 
 impl AdvisorHub {
-    pub(crate) fn enqueue(runtime: &AgentRuntime, id: &str, ended_with_tool_calls: bool) {
+    pub(crate) fn enqueue(
+        runtime: &AgentRuntime,
+        id: &str,
+        ended_with_tool_calls: bool,
+        response_boundary: Option<super::AssistantResponseBoundary>,
+    ) {
         let sender = ensure_queue(runtime, id);
         if sender
             .send(AdvisorJob::Turn {
                 ended_with_tool_calls,
+                response_boundary,
             })
             .is_err()
         {
@@ -139,7 +148,7 @@ async fn queue_loop(
         }
     }
     while let Some(job) = receiver.recv().await {
-        let ended_with_tool_calls = match job {
+        let (ended_with_tool_calls, response_boundary) = match job {
             AdvisorJob::Reset => {
                 let cursor = runtime
                     .inner
@@ -160,8 +169,10 @@ async fn queue_loop(
             }
             AdvisorJob::Turn {
                 ended_with_tool_calls,
-            } => ended_with_tool_calls,
+                response_boundary,
+            } => (ended_with_tool_calls, response_boundary),
         };
+        let terminal_output = response_boundary.is_some_and(|boundary| boundary.terminal);
         let record = match runtime.record(&id).await {
             Ok(record) => record,
             Err(error) => {
@@ -189,22 +200,77 @@ async fn queue_loop(
         let mut review_state = state.lock().await;
         if !review_state.seeded {
             review_state.seeded = true;
-            review_state.cursor = entries
-                .iter()
-                .rev()
-                .find_map(|(seq, entry)| {
-                    matches!(entry, crate::records::Entry::User { .. })
+            review_state.cursor = match response_boundary {
+                Some(boundary) => entries
+                    .iter()
+                    .rev()
+                    .find_map(|(seq, entry)| {
+                        (*seq <= boundary.input_through_seq
+                            && matches!(entry, crate::records::Entry::User { .. }))
                         .then_some(seq.saturating_sub(1))
-                })
-                .or_else(|| entries.last().map(|(seq, _)| *seq))
-                .unwrap_or_default();
+                    })
+                    .unwrap_or_default(),
+                None => entries
+                    .iter()
+                    .rev()
+                    .find_map(|(seq, entry)| {
+                        matches!(entry, crate::records::Entry::User { .. })
+                            .then_some(seq.saturating_sub(1))
+                    })
+                    .or_else(|| entries.last().map(|(seq, _)| *seq))
+                    .unwrap_or_default(),
+            };
         }
         if review_state.immune_turns_left > 0 {
             review_state.immune_turns_left -= 1;
         }
-        let delta = render_delta(&entries, review_state.cursor);
-        if let Some((seq, _)) = entries.last() {
+        let newly_deferred = response_boundary.map_or_else(Vec::new, |boundary| {
+            entries
+                .iter()
+                .filter_map(|(seq, entry)| {
+                    (*seq > boundary.input_through_seq
+                        && *seq < boundary.assistant_seq
+                        && matches!(
+                            entry,
+                            crate::records::Entry::User { .. }
+                                | crate::records::Entry::Advisory { .. }
+                        ))
+                    .then_some(*seq)
+                })
+                .collect::<Vec<_>>()
+        });
+        let bounded_entries = response_boundary.map_or_else(
+            || entries.clone(),
+            |boundary| {
+                entries
+                    .iter()
+                    .filter(|(seq, _)| {
+                        *seq <= boundary.assistant_seq
+                            && (*seq <= boundary.input_through_seq
+                                || *seq == boundary.assistant_seq)
+                    })
+                    .cloned()
+                    .collect()
+            },
+        );
+        let delta = render_delta(
+            &bounded_entries,
+            review_state.cursor,
+            &review_state.deferred_sequences,
+        );
+        if let Some(boundary) = response_boundary {
+            review_state.cursor = review_state.cursor.max(boundary.assistant_seq);
+        } else if let Some((seq, _)) = entries.last() {
             review_state.cursor = *seq;
+        }
+        if delta.trim().is_empty() {
+            for seq in newly_deferred {
+                if !review_state.deferred_sequences.contains(&seq) {
+                    review_state.deferred_sequences.push(seq);
+                }
+            }
+        } else {
+            review_state.deferred_sequences = newly_deferred;
         }
         review_with_retries(
             &runtime,
@@ -212,6 +278,7 @@ async fn queue_loop(
             &delta,
             &mut review_state,
             ended_with_tool_calls,
+            terminal_output,
         )
         .await;
         persist_state(&runtime, &id, &review_state).await;

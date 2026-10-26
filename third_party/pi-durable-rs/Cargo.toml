@@ -1,0 +1,45 @@
+[workspace]
+resolver = "3"
+members = ["crates/rpi-ai", "crates/rpi-codemode", "crates/rpi-durable", "crates/rpi-test-env"]
+
+[workspace.package]
+version = "0.1.7"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+
+[workspace.dependencies]
+rpi-ai = { path = "crates/rpi-ai" }
+rpi-test-env = { path = "crates/rpi-test-env" }
+rpi-codemode = { path = "crates/rpi-codemode" }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+futures = "0.3"
+async-trait = "0.1"
+tracing = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+http = "1"
+bytes = "1"
+jsonschema = "0.33"
+regex = "1"
+url = "2"
+httpdate = "1"
+fs2 = "0.4"
+oauth2 = { version = "5", default-features = false }
+axum = "0.8"
+sha2 = "0.10"
+hmac = "0.12"
+tokio-tungstenite = { version = "0.26", default-features = false, features = ["connect", "handshake", "rustls-tls-webpki-roots"] }
+zstd = "0.13"
+ring = "0.17"
+base64 = "0.22"
+unicode-normalization = "0.1"
+libc = "0.2"
+notify = "8.2"
+rusqlite = { version = "0.39", default-features = false, features = ["bundled"] }
+chrono = { version = "0.4", features = ["clock", "serde"] }
+wasmtime = "=48.0.6"
+uuid = { version = "1", features = ["v4"] }

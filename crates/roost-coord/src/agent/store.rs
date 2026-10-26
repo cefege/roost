@@ -14,6 +14,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::db::CoordDb;
 
+#[path = "store_durable.rs"]
+mod store_durable;
 #[path = "store_execution.rs"]
 mod store_execution;
 #[path = "store_rows.rs"]
@@ -206,6 +208,39 @@ impl AgentStore for CoordAgentStore {
         fence: &'a LeaseFence,
     ) -> BoxFuture<'a, Result<(), AgentError>> {
         Box::pin(store_execution::release_lease(&self.db, id, fence))
+    }
+
+    fn durable_batches<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<roost_agent::durable::DurableBatch>, AgentError>> {
+        Box::pin(store_durable::durable_batches(&self.db, id))
+    }
+
+    fn mint_durable_id<'a>(
+        &'a self,
+        id: &'a str,
+        fence: &'a LeaseFence,
+    ) -> BoxFuture<'a, Result<u64, AgentError>> {
+        Box::pin(store_durable::mint_durable_id(&self.db, id, fence))
+    }
+
+    fn append_durable_batch<'a>(
+        &'a self,
+        id: &'a str,
+        expected_sequence: u64,
+        writes: &'a [roost_agent::durable::StorageWrite],
+        entries: &'a [Entry],
+        fence: &'a LeaseFence,
+    ) -> BoxFuture<'a, Result<roost_agent::durable::DurableCommit, AgentError>> {
+        Box::pin(store_durable::append_durable_batch(
+            &self.db,
+            id,
+            expected_sequence,
+            writes,
+            entries,
+            fence,
+        ))
     }
 
     fn orphaned_runs(&self, now_ms: i64) -> BoxFuture<'_, Result<Vec<String>, AgentError>> {

@@ -17,7 +17,6 @@ pub const YIELD_TOOL: &str = include_str!("prompts/yield_tool.md");
 pub const YIELD_REMINDER: &str = include_str!("prompts/yield_reminder.md");
 pub const UNEXPECTED_STOP: &str = include_str!("prompts/unexpected_stop.md");
 pub const RESUME_INTERRUPTED: &str = include_str!("prompts/resume_interrupted.md");
-pub const COMPACTION: &str = include_str!("prompts/compaction.md");
 pub const FIND_TOOL: &str = include_str!("prompts/find_tool.md");
 pub const TODO_TOOL: &str = include_str!("prompts/todo_tool.md");
 pub const ASK_TOOL: &str = include_str!("prompts/ask_tool.md");

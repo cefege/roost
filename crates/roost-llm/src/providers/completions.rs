@@ -66,7 +66,7 @@ pub(super) fn stream(
             .filter(|text| !text.is_empty())
         {
             let index = find_or_start(&mut blocks, &mut events, BlockKind::Text);
-            if let Some(Some(AssistantBlock::Text { text: full })) = blocks.get_mut(index) {
+            if let Some(Some(AssistantBlock::Text { text: full, .. })) = blocks.get_mut(index) {
                 full.push_str(text);
             }
             events.push(StreamEvent::TextDelta {
@@ -130,6 +130,7 @@ pub(super) fn stream(
                         call_id: id,
                         name,
                         args_json: String::new(),
+                        provider_data: None,
                     }));
                     tool_indices[stream_index] = Some(index);
                     index
@@ -138,8 +139,12 @@ pub(super) fn stream(
                     call_id,
                     name,
                     args_json,
+                    provider_data,
                 })) = blocks.get_mut(block_index)
                 {
+                    if let Some(signature) = call.get("thought_signature") {
+                        *provider_data = Some(json!({"thoughtSignature": signature}));
+                    }
                     if let Some(id) = call.get("id").and_then(Value::as_str) {
                         call_id.clone_from(&id.to_owned());
                     }
@@ -195,12 +200,12 @@ fn build_body(request: &ChatRequest) -> Value {
                 }).collect();
                 messages.push(json!({"role":"user","content":content}));
             }
-            Message::Assistant { blocks } => {
+            Message::Assistant { blocks, .. } => {
                 let mut message = json!({"role":"assistant"});
                 let text = blocks
                     .iter()
                     .filter_map(|block| match block {
-                        AssistantBlock::Text { text } => Some(text.as_str()),
+                        AssistantBlock::Text { text, .. } => Some(text.as_str()),
                         _ => None,
                     })
                     .collect::<Vec<_>>()
@@ -209,7 +214,15 @@ fn build_body(request: &ChatRequest) -> Value {
                     message["content"] = json!(text);
                 }
                 let calls: Vec<Value> = blocks.iter().filter_map(|block| match block {
-                    AssistantBlock::ToolCall { call_id, name, args_json } => Some(json!({"id":call_id,"type":"function","function":{"name":name,"arguments":args_json}})),
+                    AssistantBlock::ToolCall { call_id, name, args_json, provider_data } => {
+                        let mut call = json!({"id":call_id,"type":"function","function":{"name":name,"arguments":args_json}});
+                        if request.model.provider == "openrouter"
+                            && let Some(signature) = provider_data.as_ref().and_then(|data| data.get("thoughtSignature"))
+                        {
+                            call["thought_signature"] = signature.clone();
+                        }
+                        Some(call)
+                    },
                     _ => None,
                 }).collect();
                 if !calls.is_empty() {
@@ -237,8 +250,20 @@ fn build_body(request: &ChatRequest) -> Value {
                 }
                 messages.push(message);
             }
-            Message::ToolResult { call_id, text, .. } => {
-                messages.push(json!({"role":"tool","tool_call_id":call_id,"content":text}))
+            Message::ToolResult {
+                call_id,
+                text,
+                content,
+                ..
+            } => {
+                let result_content = content.as_ref().map(|content| {
+                    Value::Array(content.iter().map(|part| match part {
+                        crate::message::UserContent::Text { text } => json!({"type":"text","text":text}),
+                        crate::message::UserContent::Image { mime, base64 } => json!({"type":"image_url","image_url":{"url":format!("data:{mime};base64,{base64}")}}),
+                    }).collect::<Vec<_>>())
+                }).unwrap_or_else(|| json!(text));
+                messages
+                    .push(json!({"role":"tool","tool_call_id":call_id,"content":result_content}))
             }
         }
     }
@@ -285,6 +310,7 @@ fn find_or_start(
     blocks.push(Some(match kind {
         BlockKind::Text => AssistantBlock::Text {
             text: String::new(),
+            provider_data: None,
         },
         BlockKind::Thinking => AssistantBlock::Thinking {
             text: String::new(),
@@ -294,6 +320,7 @@ fn find_or_start(
             call_id: String::new(),
             name: String::new(),
             args_json: String::new(),
+            provider_data: None,
         },
     }));
     index

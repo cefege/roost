@@ -15,6 +15,9 @@ use crate::todo_notice::todo_message;
 /// every `tool_use` paired with a result.
 const MISSING_RESULT: &str = "Tool call did not complete: the run was interrupted.";
 
+/// A compaction boundary's sequence and summary text, paired with the window after it.
+type ActiveWindow<'a> = (Option<(u64, &'a str)>, &'a [(u64, Entry)]);
+
 /// The model-facing form of a delivered advisory.
 pub fn advisory_message(severity: AdvisorySeverity, note: &str) -> String {
     format!(
@@ -25,32 +28,47 @@ pub fn advisory_message(severity: AdvisorySeverity, note: &str) -> String {
 
 /// The entries after the latest compaction, and that compaction's summary.
 pub fn active_window(entries: &[(u64, Entry)]) -> (Option<&str>, &[(u64, Entry)]) {
+    let (summary, window) = active_window_with_sequence(entries);
+    (summary.map(|(_, summary)| summary), window)
+}
+
+fn active_window_with_sequence(entries: &[(u64, Entry)]) -> ActiveWindow<'_> {
     let latest = entries
         .iter()
         .enumerate()
         .rev()
-        .find_map(|(position, (_, entry))| match entry {
+        .find_map(|(position, (sequence, entry))| match entry {
             Entry::Compaction {
                 summary,
                 first_kept_seq,
-            } => Some((position, summary.as_str(), *first_kept_seq)),
+            } => Some((*sequence, position, summary.as_str(), *first_kept_seq)),
             _ => None,
         });
-    let Some((_, summary, first_kept_seq)) = latest else {
+    let Some((summary_sequence, _, summary, first_kept_seq)) = latest else {
         return (None, entries);
     };
     let start = entries
         .iter()
-        .position(|(seq, _)| *seq >= first_kept_seq)
+        .position(|(sequence, _)| *sequence >= first_kept_seq)
         .unwrap_or(entries.len());
-    (Some(summary), &entries[start..])
+    (Some((summary_sequence, summary)), &entries[start..])
 }
 
 /// Provider messages for a call to `provider`. Thinking blocks from another
 /// provider are dropped: their signatures are meaningless elsewhere.
 pub fn build_messages(entries: &[(u64, Entry)], provider: &str) -> Vec<Message> {
+    build_message_entries(entries, provider)
+        .into_iter()
+        .map(|(_, message)| message)
+        .collect()
+}
+
+pub(crate) fn build_message_entries(
+    entries: &[(u64, Entry)],
+    provider: &str,
+) -> Vec<(u64, Message)> {
     let entries = &crate::journal::delivery_order(crate::journal::effective_entries(entries));
-    let (summary, window) = active_window(entries);
+    let (summary, window) = active_window_with_sequence(entries);
     let latest_copies = latest_item_copies(window);
     let latest_todo = window
         .iter()
@@ -86,14 +104,17 @@ pub fn build_messages(entries: &[(u64, Entry)], provider: &str) -> Vec<Message> 
                 .then_some((position, goal_id.as_str()))
             });
     let mut messages = Vec::new();
-    if let Some(summary) = summary {
-        messages.push(Message::user_text(format!(
-            "<conversation-summary>\nThe earlier conversation was compacted. Summary:\n{summary}\n</conversation-summary>"
-        )));
+    if let Some((summary_sequence, summary)) = summary {
+        messages.push((
+            summary_sequence,
+            Message::user_text(format!(
+                "<conversation-summary>\nThe earlier conversation was compacted. Summary:\n{summary}\n</conversation-summary>"
+            )),
+        ));
     }
-    let mut open_calls: Vec<(String, String)> = Vec::new();
+    let mut open_calls: Vec<(String, String, u64)> = Vec::new();
     let mut deferred_context = Vec::new();
-    for (position, (_, entry)) in window.iter().enumerate() {
+    for (position, (sequence, entry)) in window.iter().enumerate() {
         match entry {
             Entry::GoalContinuation {
                 goal_id,
@@ -104,6 +125,7 @@ pub fn build_messages(entries: &[(u64, Entry)], provider: &str) -> Vec<Message> 
                     &mut messages,
                     &mut deferred_context,
                     &open_calls,
+                    *sequence,
                     Message::user_text(if *budget_wrap_up {
                         "<goal-budget-wrap-up>Provide a concise progress report, evidence gathered, blockers, and next step. Do not start substantive work.</goal-budget-wrap-up>"
                     } else {
@@ -115,6 +137,7 @@ pub fn build_messages(entries: &[(u64, Entry)], provider: &str) -> Vec<Message> 
                 &mut messages,
                 &mut deferred_context,
                 &open_calls,
+                *sequence,
                 Message::user_text(text.clone()),
             ),
             Entry::Assistant { blocks, model, .. } => {
@@ -131,41 +154,66 @@ pub fn build_messages(entries: &[(u64, Entry)], provider: &str) -> Vec<Message> 
                         same_provider || !matches!(block, AssistantBlock::Thinking { .. })
                     })
                     .filter(|block| match block {
-                        AssistantBlock::Text { text } => !text.is_empty(),
+                        AssistantBlock::Text { text, .. } => !text.is_empty(),
                         _ => true,
                     })
-                    .cloned()
+                    .map(|block| {
+                        let mut block = block.clone();
+                        if !same_provider {
+                            match &mut block {
+                                AssistantBlock::Text { provider_data, .. }
+                                | AssistantBlock::ToolCall { provider_data, .. } => {
+                                    *provider_data = None;
+                                }
+                                AssistantBlock::Thinking { .. } => {}
+                            }
+                        }
+                        block
+                    })
                     .collect();
                 if kept.is_empty() {
                     continue;
                 }
                 for block in &kept {
                     if let AssistantBlock::ToolCall { call_id, name, .. } = block {
-                        open_calls.push((call_id.clone(), name.clone()));
+                        open_calls.push((call_id.clone(), name.clone(), *sequence));
                     }
                 }
-                messages.push(Message::Assistant { blocks: kept });
+                messages.push((
+                    *sequence,
+                    Message::Assistant {
+                        blocks: kept,
+                        provider_data: None,
+                    },
+                ));
             }
             Entry::ToolResult {
                 call_id,
                 tool_name,
                 text,
                 is_error,
+                content,
+                provider_data,
                 ..
             } => {
                 let Some(open) = open_calls
                     .iter()
-                    .position(|(open_id, _)| open_id == call_id)
+                    .position(|(open_id, _, _)| open_id == call_id)
                 else {
                     continue;
                 };
                 open_calls.remove(open);
-                messages.push(Message::ToolResult {
-                    call_id: call_id.clone(),
-                    tool_name: tool_name.clone(),
-                    text: text.clone(),
-                    is_error: *is_error,
-                });
+                messages.push((
+                    *sequence,
+                    Message::ToolResult {
+                        call_id: call_id.clone(),
+                        tool_name: tool_name.clone(),
+                        text: text.clone(),
+                        is_error: *is_error,
+                        content: content.clone(),
+                        provider_data: provider_data.clone(),
+                    },
+                ));
                 if open_calls.is_empty() {
                     messages.append(&mut deferred_context);
                 }
@@ -179,6 +227,7 @@ pub fn build_messages(entries: &[(u64, Entry)], provider: &str) -> Vec<Message> 
                 &mut messages,
                 &mut deferred_context,
                 &open_calls,
+                *sequence,
                 Message::user_text(advisory_message(*severity, note)),
             ),
             Entry::BackgroundJob {
@@ -192,6 +241,7 @@ pub fn build_messages(entries: &[(u64, Entry)], provider: &str) -> Vec<Message> 
                 &mut messages,
                 &mut deferred_context,
                 &open_calls,
+                *sequence,
                 Message::user_text(background_job_message(
                     job_id, command, *state, output, *exit_code,
                 )),
@@ -205,6 +255,7 @@ pub fn build_messages(entries: &[(u64, Entry)], provider: &str) -> Vec<Message> 
                 &mut messages,
                 &mut deferred_context,
                 &open_calls,
+                *sequence,
                 Message::user_text(peer_message_text(from, from_id, *broadcast, text)),
             ),
             Entry::Todo { phases } if latest_todo == Some(position) => {
@@ -212,6 +263,7 @@ pub fn build_messages(entries: &[(u64, Entry)], provider: &str) -> Vec<Message> 
                     &mut messages,
                     &mut deferred_context,
                     &open_calls,
+                    *sequence,
                     Message::user_text(todo_message(phases)),
                 );
             }
@@ -222,6 +274,7 @@ pub fn build_messages(entries: &[(u64, Entry)], provider: &str) -> Vec<Message> 
                 &mut messages,
                 &mut deferred_context,
                 &open_calls,
+                *sequence,
                 Message::user_text(format!(
                     "<answers>{}</answers>",
                     serde_json::to_string(answers).unwrap_or_default()
@@ -254,26 +307,35 @@ pub fn build_messages(entries: &[(u64, Entry)], provider: &str) -> Vec<Message> 
 }
 
 fn append_context_message(
-    messages: &mut Vec<Message>,
-    deferred_context: &mut Vec<Message>,
-    open_calls: &[(String, String)],
+    messages: &mut Vec<(u64, Message)>,
+    deferred_context: &mut Vec<(u64, Message)>,
+    open_calls: &[(String, String, u64)],
+    sequence: u64,
     message: Message,
 ) {
     if open_calls.is_empty() {
-        messages.push(message);
+        messages.push((sequence, message));
     } else {
-        deferred_context.push(message);
+        deferred_context.push((sequence, message));
     }
 }
 
-fn close_open_calls(messages: &mut Vec<Message>, open_calls: &mut Vec<(String, String)>) {
-    for (call_id, tool_name) in open_calls.drain(..) {
-        messages.push(Message::ToolResult {
-            call_id,
-            tool_name,
-            text: MISSING_RESULT.into(),
-            is_error: true,
-        });
+fn close_open_calls(
+    messages: &mut Vec<(u64, Message)>,
+    open_calls: &mut Vec<(String, String, u64)>,
+) {
+    for (call_id, tool_name, sequence) in open_calls.drain(..) {
+        messages.push((
+            sequence,
+            Message::ToolResult {
+                call_id,
+                tool_name,
+                text: MISSING_RESULT.into(),
+                is_error: true,
+                content: None,
+                provider_data: None,
+            },
+        ));
     }
 }
 

@@ -1,0 +1,34 @@
+{
+  "source": {
+    "repository": "https://github.com/earendil-works/pi",
+    "commit": "d5b3de22d0e24a3e9c38a9410d3329b099717283",
+    "package": "packages/durable"
+  },
+  "normalization": "timestamp, duration, startedAt, and endedAt fields omitted; generated faux API ids mapped to faux:<generated>; all Durable IDs and commit sequences remain exact",
+  "trace": {
+    "name": "durable-sleep-wake",
+    "asleep": {
+      "status": "sleeping",
+      "checkpoint": {
+        "phase": "after"
+      },
+      "until": 61000
+    },
+    "earlyWake": {
+      "active": false,
+      "at": 61000
+    },
+    "dueWake": {
+      "active": true
+    },
+    "settled": {
+      "status": "terminal",
+      "outcome": {
+        "status": "completed",
+        "result": 61000
+      }
+    },
+    "afterRuns": 1
+  },
+  "sha256": "48964b44eb91ede755642c7bf6763e856fbd587c4d7d9b68c76f6aee1aa33a57"
+}

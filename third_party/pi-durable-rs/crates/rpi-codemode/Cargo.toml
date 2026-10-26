@@ -1,0 +1,20 @@
+[package]
+name = "rpi-codemode"
+description = "Reusable deterministic QuickJS WASM codemode sandbox"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json = { workspace = true, features = ["unbounded_depth"] }
+thiserror.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+futures.workspace = true
+sha2.workspace = true
+chrono.workspace = true
+wasmtime.workspace = true
+
+[dev-dependencies]

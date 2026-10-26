@@ -64,8 +64,8 @@ async fn recovered_partial_assistant_output_retries_the_primary_call() {
     ));
     assert!(requests[0].messages.iter().any(|message| matches!(
         message,
-        Message::Assistant { blocks } if blocks.iter().any(|block| matches!(
-            block, AssistantBlock::Text { text } if text == "partial text"
+        Message::Assistant { blocks, .. } if blocks.iter().any(|block| matches!(
+            block, AssistantBlock::Text { text, .. } if text == "partial text"
         ))
     )));
 }

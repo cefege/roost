@@ -1,6 +1,6 @@
 //! The live transcript item of one assistant response: provider stream events
-//! become transcript events as they arrive. Driven by `model_call`; depends on
-//! the runtime's emit path and the transcript projection.
+//! become transcript events as they arrive. Driven by the durable model adapter;
+//! durable partials and terminal records remain the kernel's responsibility.
 
 use roost_llm::{AssistantBlock, BlockKind, StreamEvent};
 use roost_protocol::wire::agent_chat::{ChatEvent, TranscriptBlock, TranscriptItem};
@@ -18,8 +18,6 @@ pub(crate) struct LiveItem {
     pub item_id: String,
     /// Provider block index → transcript block index.
     positions: Vec<(usize, usize)>,
-    /// Partial blocks, kept so an aborted response still records its text.
-    partial: Vec<AssistantBlock>,
     /// Set once any event reached the transcript. A call that has committed
     /// visible output is never failed over to another model.
     committed: bool,
@@ -31,7 +29,6 @@ impl LiveItem {
             events,
             item_id: random_id("a-"),
             positions: Vec::new(),
-            partial: Vec::new(),
             committed: false,
         };
         item.restart();
@@ -46,25 +43,9 @@ impl LiveItem {
         if let Some((_, position)) = self.positions.iter().find(|(known, _)| *known == index) {
             return *position;
         }
-        let position = self.partial.len();
+        let position = self.positions.len();
         self.positions.push((index, position));
-        self.partial.push(AssistantBlock::Text {
-            text: String::new(),
-        });
         position
-    }
-
-    pub(crate) fn partial_text(&self) -> Vec<AssistantBlock> {
-        self.partial
-            .iter()
-            .filter(|block| match block {
-                AssistantBlock::Text { text } | AssistantBlock::Thinking { text, .. } => {
-                    !text.is_empty()
-                }
-                AssistantBlock::ToolCall { .. } => false,
-            })
-            .cloned()
-            .collect()
     }
 }
 
@@ -75,7 +56,6 @@ impl StreamObserver for LiveItem {
 
     fn restart(&mut self) {
         self.positions.clear();
-        self.partial.clear();
         self.send(ChatEvent::Item {
             item: TranscriptItem::Assistant {
                 id: self.item_id.clone(),
@@ -94,32 +74,15 @@ impl StreamObserver for LiveItem {
         match event {
             StreamEvent::BlockStart { index, kind } => {
                 let position = self.position(*index);
-                let (block, value) = match kind {
-                    BlockKind::Thinking => (
-                        AssistantBlock::Thinking {
-                            text: String::new(),
-                            provider_data: None,
-                        },
-                        Some(TranscriptBlock::Thinking {
-                            text: String::new(),
-                        }),
-                    ),
-                    BlockKind::Text => (
-                        AssistantBlock::Text {
-                            text: String::new(),
-                        },
-                        Some(TranscriptBlock::Text {
-                            text: String::new(),
-                        }),
-                    ),
-                    BlockKind::ToolCall => (
-                        AssistantBlock::Text {
-                            text: String::new(),
-                        },
-                        None,
-                    ),
+                let value = match kind {
+                    BlockKind::Thinking => Some(TranscriptBlock::Thinking {
+                        text: String::new(),
+                    }),
+                    BlockKind::Text => Some(TranscriptBlock::Text {
+                        text: String::new(),
+                    }),
+                    BlockKind::ToolCall => None,
                 };
-                self.partial[position] = block;
                 if let Some(value) = value {
                     self.send(ChatEvent::BlockSet {
                         item_id,
@@ -130,11 +93,6 @@ impl StreamObserver for LiveItem {
             }
             StreamEvent::TextDelta { index, text } | StreamEvent::ThinkingDelta { index, text } => {
                 let position = self.position(*index);
-                if let AssistantBlock::Text { text: buffer }
-                | AssistantBlock::Thinking { text: buffer, .. } = &mut self.partial[position]
-                {
-                    buffer.push_str(text);
-                }
                 let delta = text.clone();
                 self.send(if matches!(event, StreamEvent::ThinkingDelta { .. }) {
                     ChatEvent::ThinkingDelta {
@@ -156,11 +114,6 @@ impl StreamObserver for LiveItem {
                 name,
             } => {
                 let position = self.position(*index);
-                self.partial[position] = AssistantBlock::ToolCall {
-                    call_id: call_id.clone(),
-                    name: name.clone(),
-                    args_json: String::new(),
-                };
                 self.send(ChatEvent::BlockSet {
                     item_id,
                     block: position,
@@ -173,7 +126,6 @@ impl StreamObserver for LiveItem {
             }
             StreamEvent::BlockEnd { index, block } => {
                 let position = self.position(*index);
-                self.partial[position] = block.clone();
                 if let Some(value) = transcript_blocks(std::slice::from_ref(block)).pop() {
                     self.send(ChatEvent::BlockSet {
                         item_id,
@@ -197,7 +149,7 @@ fn is_substantive(event: &StreamEvent) -> bool {
         }
         StreamEvent::ToolCallStart { name, .. } => !name.is_empty(),
         StreamEvent::BlockEnd { block, .. } => match block {
-            AssistantBlock::Text { text } | AssistantBlock::Thinking { text, .. } => {
+            AssistantBlock::Text { text, .. } | AssistantBlock::Thinking { text, .. } => {
                 !text.is_empty()
             }
             AssistantBlock::ToolCall { name, .. } => !name.is_empty(),

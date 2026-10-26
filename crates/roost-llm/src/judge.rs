@@ -200,6 +200,7 @@ impl Judge {
             thinking: "off".into(),
             session_id: "judge".into(),
             max_tokens: Some(2048),
+            cache_retention: None,
         };
         let events = crate::providers::stream_chat(
             &self.http,
@@ -213,7 +214,7 @@ impl Judge {
         let mut text = String::new();
         while let Some(event) = futures::StreamExt::next(&mut events).await {
             if let crate::message::StreamEvent::BlockEnd {
-                block: AssistantBlock::Text { text: value },
+                block: AssistantBlock::Text { text: value, .. },
                 ..
             } = event?
             {

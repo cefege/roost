@@ -248,7 +248,7 @@ async fn last_text(runtime: &AgentRuntime, id: &str) -> String {
                 let text: Vec<&str> = blocks
                     .iter()
                     .filter_map(|block| match block {
-                        roost_llm::AssistantBlock::Text { text } if !text.trim().is_empty() => {
+                        roost_llm::AssistantBlock::Text { text, .. } if !text.trim().is_empty() => {
                             Some(text.as_str())
                         }
                         _ => None,

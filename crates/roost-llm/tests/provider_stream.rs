@@ -85,7 +85,10 @@ async fn recorded_provider_sse_builds_blocks_usage_and_followup_replay_data() {
         })
         .collect();
     anthropic_request.messages = vec![
-        Message::Assistant { blocks },
+        Message::Assistant {
+            blocks,
+            provider_data: None,
+        },
         Message::user_text("continue"),
     ];
     let _ = events(anthropic_request, &anthropic_url).await;
@@ -142,6 +145,7 @@ async fn recorded_provider_sse_builds_blocks_usage_and_followup_replay_data() {
     followup.messages = vec![
         Message::Assistant {
             blocks: codex_blocks,
+            provider_data: None,
         },
         Message::user_text("continue"),
     ];
@@ -207,6 +211,7 @@ async fn unsigned_interrupted_thinking_becomes_context_without_an_invalid_signat
                     provider_data: Some(json!({"signature":"sealed-signature"})),
                 },
             ],
+            provider_data: None,
         },
         Message::user_text("Continue the same task"),
     ];
@@ -220,4 +225,118 @@ async fn unsigned_interrupted_thinking_becomes_context_without_an_invalid_signat
     );
     assert!(blocks[0].get("signature").is_none());
     assert_eq!(blocks[1]["type"], "thinking");
+}
+
+#[tokio::test]
+async fn provider_replay_preserves_ordered_tool_images_and_origin_signatures() {
+    let catalog = Catalog::builtin();
+    let content = vec![
+        roost_llm::UserContent::Text {
+            text: "before".into(),
+        },
+        roost_llm::UserContent::Image {
+            mime: "image/png".into(),
+            base64: "aW1hZ2U=".into(),
+        },
+        roost_llm::UserContent::Text {
+            text: "after".into(),
+        },
+    ];
+    let result = || Message::ToolResult {
+        call_id: "call-1".into(),
+        tool_name: "read".into(),
+        text: "compatibility display".into(),
+        is_error: false,
+        content: Some(content.clone()),
+        provider_data: Some(json!({"details":{"source":"test"}})),
+    };
+
+    let anthropic_model = catalog.get("anthropic", "claude-fable-5").unwrap();
+    let (anthropic_url, anthropic_requests, _) =
+        server(include_str!("fixtures/anthropic.sse"), StatusCode::OK).await;
+    let mut anthropic_request = request(anthropic_model, vec![]);
+    anthropic_request.messages = vec![result()];
+    let _ = events(anthropic_request, &anthropic_url).await;
+    let anthropic_bodies = anthropic_requests.lock().await;
+    let anthropic_parts = &anthropic_bodies[0]["messages"][0]["content"][0]["content"];
+    assert_eq!(anthropic_parts[0]["text"], "before");
+    assert_eq!(anthropic_parts[1]["type"], "image");
+    assert_eq!(anthropic_parts[2]["text"], "after");
+    drop(anthropic_bodies);
+
+    let codex_model = catalog.get("openai-codex", "gpt-5.3-codex-spark").unwrap();
+    let (codex_url, codex_requests, _) =
+        server(include_str!("fixtures/codex.sse"), StatusCode::OK).await;
+    let mut codex_request = request(codex_model, vec![]);
+    codex_request.messages = vec![
+        Message::Assistant {
+            blocks: vec![
+                AssistantBlock::Text {
+                    text: "signed response".into(),
+                    provider_data: Some(json!({
+                        "textSignature":"{\"v\":1,\"id\":\"msg-native\",\"phase\":\"commentary\"}"
+                    })),
+                },
+                AssistantBlock::ToolCall {
+                    call_id: "call-1".into(),
+                    name: "read".into(),
+                    args_json: "{}".into(),
+                    provider_data: Some(json!({"namespace":"functions"})),
+                },
+            ],
+            provider_data: Some(json!({"api":"ignored-metadata","responseId":"ignored"})),
+        },
+        result(),
+    ];
+    let _ = events(codex_request, &codex_url).await;
+    let codex_bodies = codex_requests.lock().await;
+    let codex_input = &codex_bodies[0]["input"];
+    assert_eq!(codex_input[0]["id"], "msg-native");
+    assert_eq!(codex_input[0]["phase"], "commentary");
+    assert_eq!(codex_input[1]["namespace"], "functions");
+    assert_eq!(codex_input[2]["output"][0]["text"], "before");
+    assert_eq!(codex_input[2]["output"][1]["type"], "input_image");
+    assert_eq!(codex_input[2]["output"][2]["text"], "after");
+    assert!(codex_input[0].get("responseId").is_none());
+    drop(codex_bodies);
+
+    let openrouter_model = catalog
+        .get("openrouter", "anthropic/claude-fable-5")
+        .unwrap();
+    let (openrouter_url, openrouter_requests, _) =
+        server(include_str!("fixtures/completions.sse"), StatusCode::OK).await;
+    let mut completion_model = openrouter_model.clone();
+    completion_model.api = roost_llm::WireApi::OpenAiCompletions;
+    let mut completion_request = request(&completion_model, vec![]);
+    completion_request.messages = vec![
+        Message::Assistant {
+            blocks: vec![AssistantBlock::ToolCall {
+                call_id: "call-1".into(),
+                name: "read".into(),
+                args_json: "{}".into(),
+                provider_data: Some(json!({"thoughtSignature":"opaque-google-signature"})),
+            }],
+            provider_data: None,
+        },
+        result(),
+    ];
+    let _ = events(completion_request, &openrouter_url).await;
+    let openrouter_bodies = openrouter_requests.lock().await;
+    let completion_messages = openrouter_bodies[0]["messages"].as_array().unwrap();
+    let assistant = completion_messages
+        .iter()
+        .find(|message| message["role"] == "assistant")
+        .unwrap();
+    let tool_result = completion_messages
+        .iter()
+        .find(|message| message["role"] == "tool")
+        .unwrap();
+    assert_eq!(
+        assistant["tool_calls"][0]["thought_signature"],
+        "opaque-google-signature"
+    );
+    let completion_parts = &tool_result["content"];
+    assert_eq!(completion_parts[0]["text"], "before");
+    assert_eq!(completion_parts[1]["type"], "image_url");
+    assert_eq!(completion_parts[2]["text"], "after");
 }

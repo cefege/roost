@@ -141,3 +141,31 @@ async fn explicit_input_after_stop_restarts_a_completed_run_once() {
             )
     )));
 }
+
+#[tokio::test]
+async fn stop_between_partial_checkpoints_keeps_visible_text_and_usage() {
+    let harness = Harness::new();
+    let id = harness.conversation().await;
+    let stream_gate = harness.llm.hold_stream_after_events(&id, 1, 4);
+    harness
+        .llm
+        .script(&id, super::support::text_reply("visible partial"));
+    harness.submit(&id, "start a long response").await;
+    tokio::time::timeout(Duration::from_secs(5), stream_gate.entered.notified())
+        .await
+        .expect("the response pauses after its visible text and usage");
+
+    assert!(harness.runtime.abort(&id).await.unwrap());
+    harness.settle(&id).await;
+
+    let entries = harness.runtime_entries(&id).await;
+    assert!(
+        entries.iter().any(|(_, entry)| matches!(entry,
+            Entry::Assistant { blocks, usage, .. }
+                if blocks.iter().any(|block| matches!(block,
+                    roost_llm::AssistantBlock::Text { text, .. } if text == "visible partial"))
+                    && usage.input == 100 && usage.output == 20
+        )),
+        "Stop must retain the partial message and its observed usage"
+    );
+}

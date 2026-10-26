@@ -241,7 +241,7 @@ async fn a_submitted_message_runs_a_tool_round_and_publishes_the_transcript() {
     let setup = setup("agent-chat-tool-round").await;
     add_key(&setup, "sk-ant-first-key-0001").await;
     setup.fake.replies.lock().extend([
-        tool_sse("call-1", "read", r#"{"path":"README.md"}"#),
+        tool_sse("call-1", "read", r#"{"i":"Reading","path":"README.md"}"#),
         text_sse("The README says hello."),
     ]);
     let (published, mut published_rx) = mpsc::unbounded_channel();

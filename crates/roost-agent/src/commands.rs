@@ -3,13 +3,12 @@
 //! are refused here; the browser runs them.
 
 use roost_protocol::wire::agent_chat::{AGENT_SLASH_COMMANDS, SlashCommand};
-use tokio_util::sync::CancellationToken;
 
 use crate::error::AgentError;
 use crate::journal::effective_entries;
 use crate::records::{ConversationRecord, Entry, model_ref};
 use crate::runtime::AgentRuntime;
-use crate::{advisor, btw, compaction, model_presets, model_switch, plan_mode, turn};
+use crate::{advisor, btw, model_presets, model_switch, plan_mode};
 
 pub(crate) async fn execute(
     runtime: &AgentRuntime,
@@ -230,13 +229,14 @@ async fn compact(
             "wait for the current run to finish before compacting".into(),
         ));
     }
-    let models = turn::side_task_models(runtime, record).await?;
     let runtime = runtime.clone();
     let record = record.clone();
     let instructions = args.to_owned();
     tokio::spawn(async move {
-        let cancel = CancellationToken::new();
-        match compaction::compact(&runtime, &record, &models, Some(&instructions), &cancel).await {
+        match runtime
+            .compact_durable(&record.id, Some(instructions))
+            .await
+        {
             Ok(true) => {}
             Ok(false) => {
                 runtime

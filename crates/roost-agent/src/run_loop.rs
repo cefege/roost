@@ -5,12 +5,13 @@
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use crate::durable::DurableDriver;
 use crate::error::AgentError;
 use crate::model_call::ModelOutput;
 use crate::prompts;
 use crate::roles::ResolvedModel;
 use crate::runtime::{AgentRuntime, RunEnd, Steer};
-use crate::turn::{RunMemory, TurnOutcome, take_turn};
+use crate::turn::{RunMemory, TurnOutcome};
 use crate::unexpected_stop;
 
 const MAX_YIELD_REMINDERS: u32 = 3;
@@ -46,7 +47,21 @@ pub(crate) async fn run_conversation(
     recovered: Option<RecoveredRun>,
     steer_rx: &mut mpsc::UnboundedReceiver<Steer>,
 ) -> RunEnd {
-    drive(&runtime, &id, &cancel, recovered, steer_rx).await
+    let driver = match DurableDriver::open(runtime.clone(), id.clone()).await {
+        Ok(driver) => driver,
+        Err(error) => return RunEnd::Failed(error.to_string()),
+    };
+    let end = drive(&runtime, &id, &cancel, recovered, steer_rx, &driver).await;
+    let closing = driver
+        .close(matches!(end, RunEnd::Aborted) || cancel.is_cancelled())
+        .await;
+    if let Err(error) = closing {
+        tracing::error!(conversation_id = id, %error, "durable conversation close failed");
+        if !matches!(end, RunEnd::Failed(_)) {
+            return RunEnd::Failed(error.to_string());
+        }
+    }
+    end
 }
 
 async fn drive(
@@ -55,6 +70,7 @@ async fn drive(
     cancel: &CancellationToken,
     mut recovered: Option<RecoveredRun>,
     steer_rx: &mut mpsc::UnboundedReceiver<Steer>,
+    driver: &DurableDriver,
 ) -> RunEnd {
     let mut memory = RunMemory::default();
     loop {
@@ -85,7 +101,7 @@ async fn drive(
         if let Err(error) = inject_steered(runtime, id, steer_rx, &mut memory).await {
             return RunEnd::Failed(error.to_string());
         }
-        let outcome = match take_turn(runtime, id, &mut memory, cancel).await {
+        let outcome = match driver.generate(&mut memory, cancel).await {
             Ok(outcome) => outcome,
             Err(AgentError::Cancelled) => return RunEnd::Aborted,
             Err(_) if cancel.is_cancelled() => return RunEnd::Aborted,
@@ -126,11 +142,13 @@ async fn finish_text_turn(
     model: Option<ResolvedModel>,
 ) -> Result<Option<RunEnd>, AgentError> {
     if inject_steered(runtime, id, steer_rx, memory).await? > 0 {
+        enqueue_advisor_review(runtime, id, false).await;
         return Ok(None);
     }
     let record = runtime.record(id).await?;
     if record.agent.is_some() {
         if memory.yield_reminders >= MAX_YIELD_REMINDERS {
+            enqueue_advisor_review(runtime, id, true).await;
             return Ok(Some(RunEnd::Yielded(output.text())));
         }
         memory.yield_reminders += 1;
@@ -151,6 +169,7 @@ async fn finish_text_turn(
                 },
             )
             .await?;
+        enqueue_advisor_review(runtime, id, false).await;
         return Ok(None);
     }
     if cancel.is_cancelled() {
@@ -171,6 +190,7 @@ async fn finish_text_turn(
             item_id: None,
         };
         runtime.append(id, nudge).await?;
+        enqueue_advisor_review(runtime, id, false).await;
         return Ok(None);
     }
     if runtime.refresh_goal(id).await?.is_some_and(|goal| {
@@ -179,6 +199,7 @@ async fn finish_text_turn(
                 && goal.waiting_reason.is_none())
     }) {
         if inject_steered(runtime, id, steer_rx, memory).await? > 0 {
+            enqueue_advisor_review(runtime, id, false).await;
             return Ok(None);
         }
         tokio::select! {
@@ -187,6 +208,7 @@ async fn finish_text_turn(
                 if let Some(accepted) = accepted {
                     memory.pending_steers.push_back(accepted);
                     if inject_steered(runtime, id, steer_rx, memory).await? > 0 {
+                        enqueue_advisor_review(runtime, id, false).await;
                         return Ok(None);
                     }
                 }
@@ -194,10 +216,41 @@ async fn finish_text_turn(
             () = tokio::time::sleep(std::time::Duration::from_millis(800)) => {}
         }
         if runtime.continue_goal_after_turn(id, steer_rx).await? {
+            enqueue_advisor_review(runtime, id, false).await;
             return Ok(None);
         }
     }
+    enqueue_advisor_review(runtime, id, true).await;
     Ok(Some(RunEnd::Completed))
+}
+
+async fn enqueue_advisor_review(runtime: &AgentRuntime, id: &str, terminal: bool) {
+    let entries = match runtime.inner.store.entries(id).await {
+        Ok(entries) => entries,
+        Err(error) => {
+            tracing::warn!(conversation_id = id, %error, "advisor response boundary unavailable");
+            return;
+        }
+    };
+    if let Some((assistant_seq, input_through_seq)) =
+        entries.iter().rev().find_map(|(seq, entry)| match entry {
+            crate::records::Entry::Assistant {
+                metadata: Some(metadata),
+                ..
+            } if metadata.completed => Some((*seq, metadata.input_through_seq)),
+            _ => None,
+        })
+    {
+        runtime.advisor_turn_ended(
+            id,
+            false,
+            Some(crate::advisor::AssistantResponseBoundary {
+                assistant_seq,
+                input_through_seq,
+                terminal,
+            }),
+        );
+    }
 }
 
 async fn inject_steered(

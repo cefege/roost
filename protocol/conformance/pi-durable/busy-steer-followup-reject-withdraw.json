@@ -1,0 +1,215 @@
+{
+  "source": {
+    "repository": "https://github.com/earendil-works/pi",
+    "commit": "d5b3de22d0e24a3e9c38a9410d3329b099717283",
+    "package": "packages/durable"
+  },
+  "normalization": "timestamp, duration, startedAt, and endedAt fields omitted; generated faux API ids mapped to faux:<generated>; all Durable IDs and commit sequences remain exact",
+  "trace": {
+    "name": "busy-steer-followup-reject-withdraw",
+    "reject": {
+      "accepted": false,
+      "name": "ConversationBusy",
+      "message": "Conversation 1 is busy"
+    },
+    "queuedStatuses": [
+      {
+        "conversationId": 1,
+        "type": "input",
+        "status": "queued",
+        "id": 10
+      },
+      {
+        "conversationId": 1,
+        "type": "input",
+        "status": "queued",
+        "id": 11
+      },
+      {
+        "conversationId": 1,
+        "type": "input",
+        "status": "queued",
+        "id": 12
+      }
+    ],
+    "withdrawal": "aborted",
+    "inboxWhileBusy": [
+      {
+        "id": 10,
+        "mode": "steer",
+        "content": "steer"
+      },
+      {
+        "id": 11,
+        "mode": "followUp",
+        "content": "follow"
+      },
+      {
+        "id": 12,
+        "mode": "followUp",
+        "content": "withdraw me"
+      }
+    ],
+    "inbox": [],
+    "entries": [
+      {
+        "model": [
+          {
+            "role": "user",
+            "content": "start"
+          }
+        ],
+        "kind": "pi.user",
+        "id": 7,
+        "conversationId": 1
+      },
+      {
+        "model": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "first"
+              }
+            ],
+            "api": "faux:<generated>",
+            "provider": "faux",
+            "model": "faux-1",
+            "usage": {
+              "input": 0,
+              "output": 2,
+              "cacheRead": 0,
+              "cacheWrite": 3,
+              "totalTokens": 5,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "thinkingLevel": "off"
+          }
+        ],
+        "kind": "pi.assistant",
+        "id": 13,
+        "conversationId": 1,
+        "byTaskId": 9
+      },
+      {
+        "model": [
+          {
+            "role": "user",
+            "content": "steer"
+          }
+        ],
+        "kind": "pi.user",
+        "id": 14,
+        "conversationId": 1,
+        "byTaskId": 9
+      },
+      {
+        "model": [
+          {
+            "role": "user",
+            "content": "follow"
+          }
+        ],
+        "kind": "pi.user",
+        "id": 15,
+        "conversationId": 1,
+        "byTaskId": 9
+      },
+      {
+        "model": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "successor-1"
+              }
+            ],
+            "api": "faux:<generated>",
+            "provider": "faux",
+            "model": "faux-1",
+            "usage": {
+              "input": 0,
+              "output": 3,
+              "cacheRead": 3,
+              "cacheWrite": 10,
+              "totalTokens": 16,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "thinkingLevel": "off"
+          }
+        ],
+        "kind": "pi.assistant",
+        "id": 17,
+        "conversationId": 1,
+        "byTaskId": 16
+      }
+    ],
+    "requests": [
+      [
+        {
+          "role": "user",
+          "content": "start"
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "start"
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "first"
+            }
+          ],
+          "api": "faux:<generated>",
+          "provider": "faux",
+          "model": "faux-1",
+          "usage": {
+            "input": 0,
+            "output": 2,
+            "cacheRead": 0,
+            "cacheWrite": 3,
+            "totalTokens": 5,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "stop",
+          "thinkingLevel": "off"
+        },
+        {
+          "role": "user",
+          "content": "steer"
+        },
+        {
+          "role": "user",
+          "content": "follow"
+        }
+      ]
+    ]
+  },
+  "sha256": "8c672b3d6a0381cceac9e1585a11e2a8894e0ffd999e6474506e6713f7d21877"
+}

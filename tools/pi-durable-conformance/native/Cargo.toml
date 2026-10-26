@@ -1,0 +1,24 @@
+[package]
+name = "pi-durable-conformance-native"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+rpi-ai = { path = "../../../third_party/pi-durable-rs/crates/rpi-ai" }
+rpi-durable = { path = "../../../third_party/pi-durable-rs/crates/rpi-durable" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+async-trait = "0.1"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4"] }
+
+[[bin]]
+name = "pi-durable-conformance-native"
+path = "src/main.rs"
+
+[[bin]]
+name = "pi-durable-unsafe-child"
+path = "src/helpers/unsafe_child.rs"

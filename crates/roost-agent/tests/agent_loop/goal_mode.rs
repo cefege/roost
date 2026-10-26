@@ -140,6 +140,7 @@ async fn budget_exhaustion_schedules_one_hidden_wrap_up_turn() {
                 item_id: "over-budget".into(),
                 blocks: vec![AssistantBlock::Text {
                     text: "Work completed.".into(),
+                    provider_data: None,
                 }],
                 usage: Usage {
                     input: 100,

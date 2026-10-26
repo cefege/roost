@@ -27,7 +27,7 @@ impl AgentRuntime {
 
     /// Claims `id`'s run for this replica, reusing a lease it already holds.
     /// `None` while another replica's lease is live.
-    pub(super) async fn claim_lease(&self, id: &str) -> Result<Option<LeaseFence>, AgentError> {
+    pub(crate) async fn claim_lease(&self, id: &str) -> Result<Option<LeaseFence>, AgentError> {
         if let Some(fence) = self.held_lease(id) {
             return Ok(Some(fence));
         }
@@ -62,7 +62,7 @@ impl AgentRuntime {
     }
 
     /// Frees the lease so another replica, or this one later, may run `id`.
-    pub(super) async fn release_lease(&self, id: &str) {
+    pub(crate) async fn release_lease(&self, id: &str) {
         let Some(fence) = lock(&self.inner.leases).remove(id) else {
             return;
         };
@@ -79,7 +79,7 @@ impl AgentRuntime {
 
     /// Another replica owns `id` now: stop the local run without settling.
     /// The stale fence stays held so every later write of that run is refused.
-    pub(super) fn lease_lost(&self, id: &str) {
+    pub(crate) fn lease_lost(&self, id: &str) {
         let fenced = self.with_run(id, |run| {
             run.fenced.store(true, Ordering::SeqCst);
             run.cancel.cancel();

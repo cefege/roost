@@ -4,14 +4,9 @@
 
 use futures::StreamExt;
 use roost_llm::{AssistantBlock, ChatRequest, LlmError, StopReason, StreamEvent, Usage};
-use roost_protocol::wire::agent_chat::{ChatEvent, TranscriptItem};
-use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::error::AgentError;
-use crate::live_item::LiveItem;
-use crate::projection::transcript_blocks;
-use crate::records::{AssistantMetadata, Entry, model_ref};
 use crate::runtime::AgentRuntime;
 
 const MAX_ROTATIONS: usize = 3;
@@ -33,6 +28,7 @@ impl ModelOutput {
                     call_id,
                     name,
                     args_json,
+                    ..
                 } => Some((call_id.clone(), name.clone(), args_json.clone())),
                 _ => None,
             })
@@ -43,7 +39,7 @@ impl ModelOutput {
         self.blocks
             .iter()
             .filter_map(|block| match block {
-                AssistantBlock::Text { text } => Some(text.as_str()),
+                AssistantBlock::Text { text, .. } => Some(text.as_str()),
                 _ => None,
             })
             .collect::<Vec<_>>()
@@ -210,73 +206,4 @@ fn merge_usage(total: &mut Usage, update: &Usage) {
     total.output = total.output.max(update.output);
     total.cache_read = total.cache_read.max(update.cache_read);
     total.cache_write = total.cache_write.max(update.cache_write);
-}
-
-/// The primary call of a turn: streams into the transcript and records the
-/// assistant entry, attributed to the candidate that answered. An aborted
-/// response records whatever text had arrived.
-pub(crate) async fn primary_call(
-    runtime: &AgentRuntime,
-    conversation_id: &str,
-    attempts: &[ChatRequest],
-    cancel: &CancellationToken,
-    mut metadata: AssistantMetadata,
-) -> Result<(u64, ModelOutput, usize), AgentError> {
-    let (events, mut events_rx) = mpsc::unbounded_channel::<Vec<ChatEvent>>();
-    let forwarder = {
-        let runtime = runtime.clone();
-        let conversation_id = conversation_id.to_owned();
-        tokio::spawn(async move {
-            while let Some(batch) = events_rx.recv().await {
-                runtime.emit(&conversation_id, batch).await;
-            }
-        })
-    };
-    let mut live = LiveItem::new(events);
-    let (used, result) = call_chain(runtime, conversation_id, attempts, cancel, &mut live).await;
-    let item_id = live.item_id.clone();
-    let partial = live.partial_text();
-    drop(live);
-    let _ = forwarder.await;
-    let reference = attempts
-        .get(used)
-        .map(|request| model_ref(&request.model.provider, &request.model.id));
-    metadata.completed = result.is_ok();
-    metadata.stop_reason = result.as_ref().ok().map(|output| output.stop.clone());
-    let metadata = Some(metadata);
-    let (blocks, usage) = match &result {
-        Ok(output) => (output.blocks.clone(), output.usage),
-        Err(_) => (partial, Usage::default()),
-    };
-    let entry = Entry::Assistant {
-        item_id: item_id.clone(),
-        blocks: blocks.clone(),
-        usage,
-        model: reference,
-        metadata,
-    };
-    let seq = runtime.append_fenced(conversation_id, &entry, &[]).await?;
-    let error_text = result.as_ref().err().and_then(|error| match error {
-        AgentError::Cancelled => None,
-        other => Some(other.to_string()),
-    });
-    runtime
-        .emit(
-            conversation_id,
-            vec![ChatEvent::Item {
-                item: TranscriptItem::Assistant {
-                    id: item_id,
-                    blocks: transcript_blocks(&blocks),
-                    streaming: false,
-                    error: error_text,
-                },
-            }],
-        )
-        .await;
-    if let Ok(totals) = runtime.usage_totals(conversation_id).await {
-        runtime
-            .emit(conversation_id, vec![ChatEvent::Usage { usage: totals }])
-            .await;
-    }
-    result.map(|output| (seq, output, used))
 }

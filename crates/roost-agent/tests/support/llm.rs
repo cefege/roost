@@ -18,6 +18,8 @@ pub type Script = Result<Vec<StreamEvent>, LlmError>;
 pub type JudgeScript = Result<BTreeMap<String, Answer>, LlmError>;
 pub type SearchScript = Result<SearchResponse, LlmError>;
 pub type PartialScript = (Vec<StreamEvent>, LlmError);
+/// Entered/released gates for one session's Nth stream, keyed by session id and call index.
+pub type StreamGates = Mutex<HashMap<(String, usize), (usize, Arc<ModelStreamGate>)>>;
 
 /// Replies for any session whose own queue is empty (children with fresh ids).
 pub const ANY_SESSION: &str = "*";
@@ -34,7 +36,7 @@ pub struct ScriptedLlm {
     pub catalog: Option<Catalog>,
     pub providers: Mutex<Vec<String>>,
     pub scripts: Mutex<HashMap<String, VecDeque<Script>>>,
-    pub stream_gates: Mutex<HashMap<(String, usize), Arc<ModelStreamGate>>>,
+    pub stream_gates: StreamGates,
     pub credential_gate: Mutex<Option<Arc<ModelStreamGate>>>,
     pub partials: Mutex<HashMap<String, VecDeque<PartialScript>>>,
     pub judgments: Mutex<VecDeque<JudgeScript>>,
@@ -74,11 +76,20 @@ impl ScriptedLlm {
     }
 
     pub fn hold_stream(&self, session_id: &str, request_number: usize) -> Arc<ModelStreamGate> {
+        self.hold_stream_after_events(session_id, request_number, 0)
+    }
+
+    pub fn hold_stream_after_events(
+        &self,
+        session_id: &str,
+        request_number: usize,
+        event_count: usize,
+    ) -> Arc<ModelStreamGate> {
         let gate = Arc::new(ModelStreamGate::default());
-        self.stream_gates
-            .lock()
-            .unwrap()
-            .insert((session_id.to_owned(), request_number), gate.clone());
+        self.stream_gates.lock().unwrap().insert(
+            (session_id.to_owned(), request_number),
+            (event_count, gate.clone()),
+        );
         gate
     }
 
@@ -243,18 +254,24 @@ impl Llm for ScriptedLlm {
             .unwrap()
             .remove(&(session, request_number));
         Box::pin(futures::stream::unfold(
-            (gate, events.into_iter()),
-            move |(gate, mut events)| {
+            (gate, events.into_iter(), 0_usize),
+            move |(gate, mut events, mut emitted)| {
                 let cancel = cancel.clone();
                 async move {
-                    if let Some(gate) = gate {
-                        gate.entered.notify_one();
-                        tokio::select! {
-                            () = gate.released.notified() => {}
-                            () = cancel.cancelled() => return None,
+                    let gate = match gate {
+                        Some((after_events, gate)) if emitted == after_events => {
+                            gate.entered.notify_one();
+                            tokio::select! {
+                                () = gate.released.notified() => {}
+                                () = cancel.cancelled() => return None,
+                            }
+                            None
                         }
-                    }
-                    events.next().map(|event| (event, (None, events)))
+                        retained => retained,
+                    };
+                    let event = events.next()?;
+                    emitted += 1;
+                    Some((event, (gate, events, emitted)))
                 }
             },
         ))

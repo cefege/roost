@@ -1,10 +1,18 @@
 //! The provider-neutral chat wire model: one request shape every provider
 //! client translates from, and one stream-event shape every provider client
-//! translates into. Thinking blocks carry provider data the provider requires back.
+//! translates into. Blocks and tool results retain provider replay data.
 
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::ModelInfo;
+
+/// Provider prompt-cache policy; absence on a request retains provider defaults.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CacheRetention {
+    None,
+    Short,
+    Long,
+}
 
 /// One model call.
 #[derive(Debug, Clone, PartialEq)]
@@ -18,6 +26,7 @@ pub struct ChatRequest {
     /// Stable per conversation: prompt-cache affinity and Codex session id.
     pub session_id: String,
     pub max_tokens: Option<u64>,
+    pub cache_retention: Option<CacheRetention>,
 }
 
 /// A tool the model may call.
@@ -36,12 +45,18 @@ pub enum Message {
     },
     Assistant {
         blocks: Vec<AssistantBlock>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider_data: Option<serde_json::Value>,
     },
     ToolResult {
         call_id: String,
         tool_name: String,
         text: String,
         is_error: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content: Option<Vec<UserContent>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider_data: Option<serde_json::Value>,
     },
 }
 
@@ -65,6 +80,8 @@ pub enum UserContent {
 pub enum AssistantBlock {
     Text {
         text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider_data: Option<serde_json::Value>,
     },
     /// `provider_data` round-trips Anthropic `signature` / `redacted_thinking`
     /// and Codex encrypted reasoning: providers reject a resent thinking block
@@ -78,6 +95,8 @@ pub enum AssistantBlock {
         call_id: String,
         name: String,
         args_json: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider_data: Option<serde_json::Value>,
     },
 }
 
