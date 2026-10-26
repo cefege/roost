@@ -539,6 +539,23 @@ message ClipboardDeleteResponse { bool ok = 1; }
 message ClipboardClearRequest {}
 message ClipboardClearResponse { bool ok = 1; }
 
+// ─── client state ─────────────────────────────────────────────────────────
+
+// Account-scoped browser state (layout, recents, drafts). The server stores
+// only allowlisted keys; `updated_ms` is wall-clock epoch milliseconds set by
+// the writing browser and decides last-writer-wins on merge.
+message ClientStateEntry {
+  string key = 1;
+  string value = 2;
+  int64 updated_ms = 3;
+}
+message ClientStateListRequest {}
+message ClientStateListResponse { repeated ClientStateEntry entries = 1; }
+// Batch write. The response carries the stored entry for every requested key,
+// so a browser whose write lost to a newer one adopts the winner.
+message ClientStateSetRequest { repeated ClientStateEntry entries = 1; }
+message ClientStateSetResponse { repeated ClientStateEntry entries = 1; }
+
 // ─── auth ─────────────────────────────────────────────────────────────────
 
 message AuthCoordIdentityRequest {}
@@ -1187,6 +1204,10 @@ service CoordinatorService {
   rpc ClipboardAdd(ClipboardAddRequest) returns (ClipboardAddResponse);
   rpc ClipboardDelete(ClipboardDeleteRequest) returns (ClipboardDeleteResponse);
   rpc ClipboardClear(ClipboardClearRequest) returns (ClipboardClearResponse);
+
+  // client state
+  rpc ClientStateList(ClientStateListRequest) returns (ClientStateListResponse);
+  rpc ClientStateSet(ClientStateSetRequest) returns (ClientStateSetResponse);
 
   // auth
   rpc AuthCoordIdentity(AuthCoordIdentityRequest) returns (AuthCoordIdentityResponse);

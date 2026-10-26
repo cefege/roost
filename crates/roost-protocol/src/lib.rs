@@ -16,6 +16,7 @@
 #![forbid(unsafe_code)]
 
 pub mod cell;
+pub mod client_state;
 pub mod error;
 pub mod json;
 pub mod validate;
