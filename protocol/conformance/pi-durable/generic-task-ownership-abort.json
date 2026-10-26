@@ -1,0 +1,52 @@
+{
+  "source": {
+    "repository": "https://github.com/earendil-works/pi",
+    "commit": "d5b3de22d0e24a3e9c38a9410d3329b099717283",
+    "package": "packages/durable"
+  },
+  "normalization": "timestamp, duration, startedAt, and endedAt fields omitted; generated faux API ids mapped to faux:<generated>; all Durable IDs and commit sequences remain exact",
+  "trace": {
+    "name": "generic-task-ownership-abort",
+    "abortResult": "marked",
+    "owner": {
+      "id": 7,
+      "conversationId": 1,
+      "kind": "oracle.held",
+      "version": 1,
+      "input": {
+        "name": "owner"
+      },
+      "background": false,
+      "abortRequested": true,
+      "state": {
+        "status": "running",
+        "checkpoint": {
+          "phase": "wait"
+        }
+      }
+    },
+    "child": {
+      "id": 8,
+      "conversationId": 1,
+      "kind": "oracle.held",
+      "version": 1,
+      "input": {
+        "name": "child"
+      },
+      "owner": 7,
+      "background": false,
+      "abortRequested": true,
+      "state": {
+        "status": "terminal",
+        "outcome": {
+          "status": "aborted"
+        }
+      }
+    },
+    "started": [
+      "child",
+      "owner"
+    ]
+  },
+  "sha256": "3a2cce0f10815954d344f64238b342ec353e7a04eee7d2edfe778bc0fcfb5744"
+}

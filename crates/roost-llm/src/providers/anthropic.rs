@@ -2,6 +2,10 @@
 //! Builds Anthropic Messages requests, including cache breakpoints and OAuth
 //! identity headers, then folds message SSE events into provider-neutral blocks.
 
+mod request;
+
+use request::build_body;
+
 use futures::StreamExt;
 use reqwest::header::HeaderValue;
 use serde_json::{Value, json};
@@ -11,7 +15,7 @@ use super::{HeaderObserver, ProviderStream, auth_headers, decode_json, post_sse,
 use crate::{
     auth::ResolvedAuth,
     endpoints::Endpoints,
-    message::{AssistantBlock, BlockKind, ChatRequest, Message, StopReason, StreamEvent, Usage},
+    message::{AssistantBlock, BlockKind, ChatRequest, StopReason, StreamEvent, Usage},
 };
 
 pub(super) fn stream(
@@ -51,7 +55,6 @@ pub(super) fn stream(
     let response = post_sse(&http, url, headers, body, &cancel, &observer).await?;
     let mut payloads = response_events(response, cancel.clone());
     let mut blocks: Vec<Option<AssistantBlock>> = Vec::new();
-    let mut args: Vec<String> = Vec::new();
     while let Some(payload) = payloads.next().await {
         let payload = payload?;
         let mut events = Vec::new();
@@ -76,7 +79,6 @@ pub(super) fn stream(
                 let block = item.get("content_block").cloned().unwrap_or(Value::Null);
                 while blocks.len() <= index {
                     blocks.push(None);
-                    args.push(String::new());
                 }
                 match block.get("type").and_then(Value::as_str).unwrap_or("") {
                     "text" => {
@@ -90,6 +92,7 @@ pub(super) fn stream(
                                 .and_then(Value::as_str)
                                 .unwrap_or("")
                                 .to_owned(),
+                            provider_data: None,
                         });
                     }
                     "thinking" => {
@@ -143,7 +146,7 @@ pub(super) fn stream(
                             .filter(|v| !v.is_null())
                             .cloned()
                             .unwrap_or_else(|| json!({}));
-                        args[index] = if initial == json!({}) {
+                        let args_json = if initial == json!({}) {
                             String::new()
                         } else {
                             initial.to_string()
@@ -151,7 +154,8 @@ pub(super) fn stream(
                         blocks[index] = Some(AssistantBlock::ToolCall {
                             call_id,
                             name,
-                            args_json: args[index].clone(),
+                            args_json,
+                            provider_data: None,
                         });
                     }
                     _ => {}
@@ -167,7 +171,7 @@ pub(super) fn stream(
                             .and_then(Value::as_str)
                             .unwrap_or("")
                             .to_owned();
-                        if let Some(Some(AssistantBlock::Text { text: full })) =
+                        if let Some(Some(AssistantBlock::Text { text: full, .. })) =
                             blocks.get_mut(index)
                         {
                             full.push_str(&text);
@@ -205,15 +209,11 @@ pub(super) fn stream(
                             .get("partial_json")
                             .and_then(Value::as_str)
                             .unwrap_or("");
-                        if let Some(arguments) = args.get_mut(index) {
-                            arguments.push_str(addition);
-                        } else {
-                            Err(crate::error::LlmError::Decode("tool arguments arrived before block start".into()))?;
-                        }
-                        if let Some(Some(AssistantBlock::ToolCall { args_json, .. })) =
-                            blocks.get_mut(index)
-                        {
-                            args_json.push_str(addition);
+                        match blocks.get_mut(index) {
+                            Some(Some(AssistantBlock::ToolCall { args_json, .. })) => {
+                                args_json.push_str(addition);
+                            }
+                            _ => Err(crate::error::LlmError::Decode("tool arguments arrived before block start".into()))?,
                         }
                         events.push(StreamEvent::ToolArgsDelta {
                             index,
@@ -265,104 +265,6 @@ fn event_index(item: &Value) -> Result<usize, crate::error::LlmError> {
         .ok_or_else(|| {
             crate::error::LlmError::Decode("provider block index is out of range".into())
         })
-}
-
-fn build_body(request: &ChatRequest, oauth: bool) -> Value {
-    let mut system = Vec::new();
-    if oauth {
-        system.push(json!({"type":"text","text":"You are Claude Code, Anthropic's official CLI for Claude."}));
-    }
-    for text in &request.system {
-        system.push(json!({"type":"text","text":text}));
-    }
-    if let Some(last_system) = system.last_mut() {
-        last_system["cache_control"] = json!({"type":"ephemeral"});
-    }
-    let user_total = request
-        .messages
-        .iter()
-        .filter(|message| matches!(message, Message::User { .. } | Message::ToolResult { .. }))
-        .count();
-    let mut user_idx = 0;
-    let mut messages = Vec::new();
-    for message in &request.messages {
-        match message {
-            Message::User { content } => {
-                let mut blocks: Vec<Value> = content.iter().map(|part| match part {
-                    crate::message::UserContent::Text { text } => json!({"type":"text","text":text}),
-                    crate::message::UserContent::Image { mime, base64 } => json!({"type":"image","source":{"type":"base64","media_type":mime,"data":base64}}),
-                }).collect();
-                if user_idx + 2 >= user_total && let Some(last) = blocks.last_mut() {
-                    last["cache_control"] = json!({"type":"ephemeral"});
-                }
-                user_idx += 1;
-                messages.push(json!({"role":"user","content":blocks}));
-            }
-            Message::Assistant { blocks } => messages.push(json!({"role":"assistant","content":blocks.iter().map(anthropic_block).collect::<Vec<_>>()})),
-            Message::ToolResult { call_id, text, is_error, .. } => {
-                user_idx += 1;
-                let mut result = json!({"type":"tool_result","tool_use_id":call_id,"content":text,"is_error":is_error});
-                if user_idx + 1 >= user_total { result["cache_control"] = json!({"type":"ephemeral"}); }
-                messages.push(json!({"role":"user","content":[result]}));
-            }
-        }
-    }
-    let mut body = json!({"model":request.model.id,"max_tokens":request.max_tokens.unwrap_or(request.model.max_tokens),"stream":true,"messages":messages,"system":system});
-    if request.model.reasoning {
-        let thinking = request.model.provider_thinking_value(&request.thinking);
-        if request.model.compat_flag("forceAdaptiveThinking") {
-            if let Some(effort) = thinking {
-                body["thinking"] = json!({"type":"adaptive"});
-                body["output_config"] = json!({"effort":effort});
-            }
-        } else if thinking.is_some() {
-            body["thinking"] = json!({"type":"enabled","budget_tokens":(request.max_tokens.unwrap_or(request.model.max_tokens)/2).clamp(1024, 32000)});
-        } else if request.thinking == "off"
-            && request.model.thinking_level_map.get("off") != Some(&None)
-        {
-            body["thinking"] = json!({"type":"disabled"});
-        }
-    }
-    let tools: Vec<Value> = request.tools.iter().enumerate().map(|(index, tool)| {
-        let mut value = json!({"name":tool.name,"description":tool.description,"input_schema":tool.parameters});
-        if index + 1 == request.tools.len() { value["cache_control"] = json!({"type":"ephemeral"}); }
-        value
-    }).collect();
-    if !tools.is_empty() {
-        body["tools"] = json!(tools);
-    }
-    body
-}
-
-fn anthropic_block(block: &AssistantBlock) -> Value {
-    match block {
-        AssistantBlock::Text { text } => json!({"type":"text","text":text}),
-        AssistantBlock::Thinking {
-            text,
-            provider_data,
-        } => match provider_data {
-            Some(data) if data.get("redacted_thinking").is_some() => {
-                json!({"type":"redacted_thinking","data":data["redacted_thinking"]})
-            }
-            // A dropped stream can persist thinking before its signature arrives.
-            Some(data)
-                if data
-                    .get("signature")
-                    .and_then(Value::as_str)
-                    .is_some_and(|signature| !signature.is_empty()) =>
-            {
-                json!({"type":"thinking","thinking":text,"signature":data["signature"]})
-            }
-            _ => json!({"type":"text","text":text}),
-        },
-        AssistantBlock::ToolCall {
-            call_id,
-            name,
-            args_json,
-        } => {
-            json!({"type":"tool_use","id":call_id,"name":name,"input":serde_json::from_str::<Value>(args_json).unwrap_or_else(|_| json!({}))})
-        }
-    }
 }
 
 fn push_usage(value: &Value, output: &mut Vec<StreamEvent>) {

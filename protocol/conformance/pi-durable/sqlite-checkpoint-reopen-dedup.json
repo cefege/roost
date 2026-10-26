@@ -1,0 +1,120 @@
+{
+  "source": {
+    "repository": "https://github.com/earendil-works/pi",
+    "commit": "d5b3de22d0e24a3e9c38a9410d3329b099717283",
+    "package": "packages/durable"
+  },
+  "normalization": "timestamp, duration, startedAt, and endedAt fields omitted; generated faux API ids mapped to faux:<generated>; all Durable IDs and commit sequences remain exact",
+  "trace": {
+    "name": "sqlite-checkpoint-reopen-dedup",
+    "beforeClose": [
+      {
+        "model": [
+          {
+            "role": "user",
+            "content": "persist me"
+          }
+        ],
+        "kind": "pi.user",
+        "id": 7,
+        "conversationId": 1
+      },
+      {
+        "model": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "committed once"
+              }
+            ],
+            "api": "faux:<generated>",
+            "provider": "faux",
+            "model": "faux-1",
+            "usage": {
+              "input": 0,
+              "output": 4,
+              "cacheRead": 0,
+              "cacheWrite": 4,
+              "totalTokens": 8,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "thinkingLevel": "off"
+          }
+        ],
+        "kind": "pi.assistant",
+        "id": 10,
+        "conversationId": 1,
+        "byTaskId": 9
+      }
+    ],
+    "afterOpen": [
+      {
+        "model": [
+          {
+            "role": "user",
+            "content": "persist me"
+          }
+        ],
+        "kind": "pi.user",
+        "id": 7,
+        "conversationId": 1
+      },
+      {
+        "model": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "committed once"
+              }
+            ],
+            "api": "faux:<generated>",
+            "provider": "faux",
+            "model": "faux-1",
+            "usage": {
+              "input": 0,
+              "output": 4,
+              "cacheRead": 0,
+              "cacheWrite": 4,
+              "totalTokens": 8,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "thinkingLevel": "off"
+          }
+        ],
+        "kind": "pi.assistant",
+        "id": 10,
+        "conversationId": 1,
+        "byTaskId": 9
+      }
+    ],
+    "duplicateStatus": {
+      "conversationId": 1,
+      "requestId": "reopen-1",
+      "type": "input",
+      "status": "done",
+      "entry": 7,
+      "id": 8,
+      "answer": 10
+    },
+    "providerCalls": 1
+  },
+  "sha256": "6e35678f40bdcbed14a19d90d1e34624ac867e5ef73924f925227b6f1a0f60e2"
+}

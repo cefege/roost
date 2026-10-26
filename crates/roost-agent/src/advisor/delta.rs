@@ -6,10 +6,14 @@ use crate::records::Entry;
 
 const TOOL_RESULT_LIMIT: usize = 4 * 1024;
 
-pub(crate) fn render_delta(entries: &[(u64, Entry)], cursor: u64) -> String {
+pub(crate) fn render_delta(
+    entries: &[(u64, Entry)],
+    cursor: u64,
+    deferred_sequences: &[u64],
+) -> String {
     entries
         .iter()
-        .filter(|(seq, _)| *seq > cursor)
+        .filter(|(seq, _)| *seq > cursor || deferred_sequences.contains(seq))
         .filter_map(|(_, entry)| render_entry(entry))
         .collect::<Vec<_>>()
         .join("\n\n")
@@ -22,7 +26,7 @@ fn render_entry(entry: &Entry) -> Option<String> {
             let blocks = blocks
                 .iter()
                 .map(|block| match block {
-                    roost_llm::AssistantBlock::Text { text } => text.clone(),
+                    roost_llm::AssistantBlock::Text { text, .. } => text.clone(),
                     roost_llm::AssistantBlock::Thinking { text, .. } => text.clone(),
                     roost_llm::AssistantBlock::ToolCall {
                         name, args_json, ..

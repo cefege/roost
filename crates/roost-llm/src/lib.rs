@@ -30,8 +30,8 @@ pub use error::LlmError;
 pub use judge::{Answer, Judge, Question, QuestionKind};
 pub use memory_store::InMemoryCredentialStore;
 pub use message::{
-    AssistantBlock, BlockKind, ChatRequest, Message, StopReason, StreamEvent, ToolSpec, Usage,
-    UserContent,
+    AssistantBlock, BlockKind, CacheRetention, ChatRequest, Message, StopReason, StreamEvent,
+    ToolSpec, Usage, UserContent,
 };
 pub use oauth::{LoginSession, LoginView, NewCredential};
 pub use pool::AccountPool;

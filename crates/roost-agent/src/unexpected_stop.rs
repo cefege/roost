@@ -19,10 +19,9 @@ const WHEN_FALSE: &str = "Not an unexpected stop:\n- \"I've completed the task.\
 /// Whether a text-only turn is a candidate at all: a normal stop with text.
 fn is_candidate(output: &ModelOutput) -> bool {
     output.stop == StopReason::EndTurn
-        && output
-            .blocks
-            .iter()
-            .any(|block| matches!(block, AssistantBlock::Text { text } if !text.trim().is_empty()))
+        && output.blocks.iter().any(
+            |block| matches!(block, AssistantBlock::Text { text, .. } if !text.trim().is_empty()),
+        )
         && !output
             .blocks
             .iter()

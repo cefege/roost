@@ -1,0 +1,192 @@
+{
+  "source": {
+    "repository": "https://github.com/earendil-works/pi",
+    "commit": "d5b3de22d0e24a3e9c38a9410d3329b099717283",
+    "package": "packages/durable"
+  },
+  "normalization": "timestamp, duration, startedAt, and endedAt fields omitted; generated faux API ids mapped to faux:<generated>; all Durable IDs and commit sequences remain exact",
+  "trace": {
+    "name": "unsafe-tool-sigkill-recovery",
+    "processExit": {
+      "code": null,
+      "signal": "SIGKILL"
+    },
+    "submission": {
+      "conversationId": 1,
+      "requestId": "unsafe-interrupted",
+      "type": "input",
+      "status": "done",
+      "entry": 7,
+      "id": 8,
+      "answer": 16
+    },
+    "entries": [
+      {
+        "model": [
+          {
+            "role": "user",
+            "content": "perform the unsafe action"
+          }
+        ],
+        "kind": "pi.user",
+        "id": 7,
+        "conversationId": 1
+      },
+      {
+        "model": [
+          {
+            "role": "system",
+            "content": "",
+            "toolsAdded": [
+              {
+                "name": "unsafe",
+                "description": "An externally visible non-idempotent action",
+                "parameters": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ]
+          }
+        ],
+        "kind": "pi.system",
+        "id": 10,
+        "conversationId": 1,
+        "byTaskId": 9
+      },
+      {
+        "model": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "toolCall",
+                "id": "unsafe-1",
+                "name": "unsafe",
+                "arguments": {}
+              }
+            ],
+            "api": "faux:<generated>",
+            "provider": "faux",
+            "model": "faux-1",
+            "usage": {
+              "input": 0,
+              "output": 3,
+              "cacheRead": 0,
+              "cacheWrite": 43,
+              "totalTokens": 46,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "toolUse",
+            "thinkingLevel": "off"
+          }
+        ],
+        "kind": "pi.assistant",
+        "id": 11,
+        "conversationId": 1,
+        "byTaskId": 9
+      },
+      {
+        "model": [
+          {
+            "role": "toolResult",
+            "toolCallId": "unsafe-1",
+            "toolName": "unsafe",
+            "content": [
+              {
+                "type": "text",
+                "text": "<harness>\n[error] Tool unsafe was interrupted and may have partially run\n</harness>"
+              }
+            ],
+            "isError": true
+          }
+        ],
+        "data": {
+          "diagnostics": [
+            {
+              "severity": "error",
+              "code": "interrupted",
+              "message": "Tool unsafe was interrupted and may have partially run"
+            }
+          ]
+        },
+        "kind": "pi.tool-result",
+        "id": 13,
+        "conversationId": 1,
+        "byTaskId": 12
+      },
+      {
+        "model": [
+          {
+            "role": "system",
+            "content": "",
+            "toolsRemoved": [
+              {
+                "name": "unsafe"
+              }
+            ],
+            "toolsAdded": [
+              {
+                "name": "unsafe",
+                "description": "Unsafe work with no automatic replay",
+                "parameters": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ]
+          }
+        ],
+        "kind": "pi.system",
+        "id": 15,
+        "conversationId": 1,
+        "byTaskId": 14
+      },
+      {
+        "model": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "recovered"
+              }
+            ],
+            "api": "faux:<generated>",
+            "provider": "faux",
+            "model": "faux-1",
+            "usage": {
+              "input": 0,
+              "output": 3,
+              "cacheRead": 0,
+              "cacheWrite": 113,
+              "totalTokens": 116,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "thinkingLevel": "off"
+          }
+        ],
+        "kind": "pi.assistant",
+        "id": 16,
+        "conversationId": 1,
+        "byTaskId": 14
+      }
+    ],
+    "reexecutedUnsafeTool": 0,
+    "providerCallsAfterRestart": 1
+  },
+  "sha256": "8c4c62f0bd8cbb23515ce1b04a04409fe6b331d9a97de1e51f59d0fc3b0d2ba5"
+}

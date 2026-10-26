@@ -1,6 +1,6 @@
-//! The agent harness: the conversation loop, prompts, model roles, plan mode,
-//! subagents, the advisor and slash commands. The coordinator drives it through
-//! the store, tool-executor, sink and model seams in `traits`.
+//! Roost policies and native chat around the vendored Pi Durable Rust engine.
+//! The coordinator supplies stores, worker tools, accounts and event sinks;
+//! Durable owns generation, tool tasks, compaction and execution recovery.
 
 #![forbid(unsafe_code)]
 mod web_types;
@@ -15,6 +15,7 @@ mod commands;
 mod compaction;
 mod compaction_text;
 mod context_files;
+pub mod durable;
 pub mod error;
 mod find;
 mod folder_roles;

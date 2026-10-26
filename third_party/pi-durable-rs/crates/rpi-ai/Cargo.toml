@@ -1,0 +1,50 @@
+[package]
+name = "rpi-ai"
+description = "Port of @earendil-works/pi-ai: types, stream events, API adapters, providers, auth (library only, no bin; ADR-0003 §4)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+# Schema v6 catalog order: the upstream generator writes entries in
+# insertion order (not key-sorted); preserve_order keeps that order when
+# the vendored JSON is parsed (feature unification already enables it via
+# wasmtime, declared here so `cargo test -p rpi-ai` alone is deterministic).
+serde_json = { workspace = true, features = ["preserve_order"] }
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+futures.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+reqwest.workspace = true
+http.workspace = true
+bytes.workspace = true
+jsonschema.workspace = true
+regex.workspace = true
+url.workspace = true
+httpdate.workspace = true
+fs2.workspace = true
+oauth2.workspace = true
+axum.workspace = true
+ring.workspace = true
+base64.workspace = true
+sha2.workspace = true
+hmac.workspace = true
+tokio-tungstenite.workspace = true
+zstd.workspace = true
+libc.workspace = true
+
+[dev-dependencies]
+rpi-test-env.workspace = true
+# rpi#54 (V15-12 FR-A'): `#[tokio::test(start_paused = true)]` for the
+# virtual-clock silence tests (same pattern as the rpi crate V14-22 tick
+# tests and rpi-ext-smart-fetch FR-P2-D).
+tokio = { workspace = true, features = ["test-util"] }
+# Independent sha256/base64url cross-check for PKCE unit tests (challenge == base64url(sha256(verifier))).
+sha2 = "0.10"
+base64 = "0.22"
+# Codex contract tests: mock WS server and zstd request-body decoding.
+tokio-tungstenite = "0.26"
+zstd = "0.13"

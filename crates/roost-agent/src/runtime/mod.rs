@@ -6,6 +6,7 @@ mod abort;
 mod advisory_delivery;
 mod api;
 mod dedup;
+mod durable_commands;
 mod inspection;
 mod lease;
 mod publishing;

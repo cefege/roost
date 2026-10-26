@@ -10,10 +10,7 @@ use dioxus::prelude::*;
 use std::rc::Rc;
 
 #[cfg(target_arch = "wasm32")]
-use roost_client_core::store::selectors::session_by_id;
-
-#[cfg(target_arch = "wasm32")]
-use crate::pump::{Pump, use_store};
+use crate::pump::use_store;
 #[cfg(target_arch = "wasm32")]
 use crate::router_state::{navigate_path, use_location};
 #[cfg(target_arch = "wasm32")]
@@ -26,9 +23,8 @@ use crate::web_push::desktop_push_plan::NotificationClick;
 pub fn DesktopPushBridge() -> Element {
     #[cfg(target_arch = "wasm32")]
     {
-        let pump = use_store();
+        let reconcile_pump = use_store();
         let path = use_location();
-        let reconcile_pump = pump.clone();
         use_hook(move || {
             wasm_bindgen_futures::spawn_local(async move {
                 crate::web_push::push_lifecycle::reconcile_on_load(&reconcile_pump).await;
@@ -37,25 +33,18 @@ pub fn DesktopPushBridge() -> Element {
         // The registration lives in the hook slot, so the handler comes off the
         // container when this scope ends rather than outliving the router it
         // writes to.
-        let _clicks = use_hook(move || Rc::new(route_notification_clicks(pump, path)));
+        let _clicks = use_hook(move || Rc::new(route_notification_clicks(path)));
     }
     rsx! {}
 }
 
-/// Open each clicked notification's destination in this window: a session at
-/// the same stable terminal URL a toast's View action uses, or /pair.
+/// Open each clicked notification's exact session destination in this window,
+/// or the pairing approvals.
 #[cfg(target_arch = "wasm32")]
-fn route_notification_clicks(pump: Pump, path: Signal<String>) -> Option<ServiceWorkerClicks> {
+fn route_notification_clicks(path: Signal<String>) -> Option<ServiceWorkerClicks> {
     ServiceWorkerClicks::install(move |click: NotificationClick| match click {
         NotificationClick::Session(session_id) => {
-            let href = {
-                let core = pump.core();
-                let core = core.borrow();
-                let store = core.store();
-                session_by_id(store, session_id.as_str())
-                    .map(|session| crate::terminal_href::terminal_href(store, session))
-            }
-            .unwrap_or_else(|| crate::routes::session_href(session_id.as_str()));
+            let href = crate::routes::session_href(session_id.as_str());
             tracing::info!(
                 target: "notifications",
                 session = %session_id,

@@ -16,11 +16,22 @@ use crate::runtime::AgentRuntime;
 
 pub(crate) use hub::AdvisorHub;
 
-impl AgentRuntime {
-    pub(crate) fn advisor_turn_ended(&self, id: &str, ended_with_tool_calls: bool) {
-        AdvisorHub::enqueue(self, id, ended_with_tool_calls);
-    }
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct AssistantResponseBoundary {
+    pub assistant_seq: u64,
+    pub input_through_seq: u64,
+    pub terminal: bool,
+}
 
+impl AgentRuntime {
+    pub(crate) fn advisor_turn_ended(
+        &self,
+        id: &str,
+        ended_with_tool_calls: bool,
+        response_boundary: Option<AssistantResponseBoundary>,
+    ) {
+        AdvisorHub::enqueue(self, id, ended_with_tool_calls, response_boundary);
+    }
     pub(crate) fn advisor_reset(&self, id: &str) {
         AdvisorHub::reset(self, id);
     }

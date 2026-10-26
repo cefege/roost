@@ -34,6 +34,8 @@ mod agent_status_wait;
 mod agent_store;
 #[path = "agent_store_completion.rs"]
 mod agent_store_completion;
+#[path = "agent_store_durable.rs"]
+mod agent_store_durable;
 #[path = "agent_store_execution.rs"]
 mod agent_store_execution;
 #[path = "agent_tool_calls.rs"]

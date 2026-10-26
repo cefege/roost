@@ -1,0 +1,93 @@
+{
+  "source": {
+    "repository": "https://github.com/earendil-works/pi",
+    "commit": "d5b3de22d0e24a3e9c38a9410d3329b099717283",
+    "package": "packages/durable"
+  },
+  "normalization": "timestamp, duration, startedAt, and endedAt fields omitted; generated faux API ids mapped to faux:<generated>; all Durable IDs and commit sequences remain exact",
+  "trace": {
+    "name": "plain-dedup-context-usage",
+    "requestIds": [
+      8,
+      8
+    ],
+    "requestCount": 1,
+    "requests": [
+      [
+        {
+          "role": "user",
+          "content": "hello"
+        }
+      ]
+    ],
+    "entries": [
+      {
+        "model": [
+          {
+            "role": "user",
+            "content": "hello"
+          }
+        ],
+        "kind": "pi.user",
+        "id": 7,
+        "conversationId": 1
+      },
+      {
+        "model": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "oracle answer"
+              }
+            ],
+            "api": "faux:<generated>",
+            "provider": "faux",
+            "model": "faux-1",
+            "usage": {
+              "input": 0,
+              "output": 4,
+              "cacheRead": 0,
+              "cacheWrite": 3,
+              "totalTokens": 7,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "thinkingLevel": "off"
+          }
+        ],
+        "kind": "pi.assistant",
+        "id": 10,
+        "conversationId": 1,
+        "byTaskId": 9
+      }
+    ],
+    "usage": {
+      "models": {
+        "faux/faux-1": {
+          "input": 0,
+          "output": 4,
+          "cacheRead": 0,
+          "cacheWrite": 3,
+          "totalTokens": 7,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        }
+      },
+      "tools": {}
+    }
+  },
+  "sha256": "464836c3d6b6e043b66310e60ec14324dd53563c0eb745addf02fb5f1bc2a363"
+}

@@ -115,7 +115,7 @@ impl AgentRuntime {
                     AgentError::InvalidArgument(format!("transcript item {item_id} not found"))
                 })?
         } else {
-            u64::MAX
+            effective.last().map_or(0, |(sequence, _)| *sequence)
         };
         let now = now_ms();
         let mut child = ConversationRecord {
@@ -161,6 +161,12 @@ impl AgentRuntime {
                     return Err(error);
                 }
             }
+        }
+        if let Err(error) =
+            crate::durable::fork_documents(self, id, &child.id, &sequence_mapping).await
+        {
+            let _ = self.inner.store.delete_conversation(&child.id).await;
+            return Err(error);
         }
 
         tracing::info!(conversation_id = %child.id, source_conversation_id = id, item_id = ?item_id, "agent conversation forked");

@@ -7,6 +7,8 @@
 
 mod agent_cluster_support;
 mod db_support;
+#[path = "agent_two_instances/failover.rs"]
+mod failover;
 #[path = "agent_two_instances/inbox.rs"]
 mod inbox;
 
@@ -16,7 +18,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use agent_cluster_support::{
     MODEL, Replica, add_key, replica, settled, text_sse, tool_sse, user_texts,
 };
-use roost_agent::{AgentError, AgentStore, ChatSink, Entry, LeaseFence, NewConversation};
+use roost_agent::{AgentStore, ChatSink, Entry, NewConversation};
 use roost_coord::agent::store::CoordAgentStore;
 use roost_protocol::wire::agent_chat::{AgentRunState, ChatEvent, ModelRef, UsageTotals};
 
@@ -151,7 +153,7 @@ async fn input_admitted_on_one_replica_reaches_the_run_another_owns() {
     let id = create(&a).await;
     *a.worker.hold.lock() = true;
     a.fake.replies.lock().extend([
-        tool_sse("call-wait", "bash", r#"{"command":"sleep 1"}"#),
+        tool_sse("call-wait", "bash", r#"{"i":"Wait","command":"sleep 1"}"#),
         text_sse("Both requests handled."),
     ]);
     a.service
@@ -186,10 +188,11 @@ async fn an_abort_on_one_replica_stops_the_run_another_owns() {
     let (a, b, _root) = pair("abort").await;
     let id = create(&a).await;
     *a.worker.hold.lock() = true;
-    a.fake
-        .replies
-        .lock()
-        .push(tool_sse("call-wait", "bash", r#"{"command":"sleep 60"}"#));
+    a.fake.replies.lock().push(tool_sse(
+        "call-wait",
+        "bash",
+        r#"{"i":"Wait","command":"sleep 60"}"#,
+    ));
     a.service
         .runtime
         .submit_request(&id, "long-request", "run for a minute".into())
@@ -212,86 +215,6 @@ async fn an_abort_on_one_replica_stops_the_run_another_owns() {
         _ => None,
     });
     assert_eq!(last_intent, Some((false, true)));
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_replica_that_dies_mid_tool_is_replaced_without_replaying_the_tool() {
-    let root = scratch("failover");
-    let replies: Arc<parking_lot::Mutex<Vec<String>>> = Arc::default();
-    let b = replica(&root, "coord-b", Arc::clone(&replies), None).await;
-    add_key(&b).await;
-    let id = create(&b).await;
-    let runtime_a = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(2)
-        .enable_all()
-        .build()
-        .unwrap();
-    let a = {
-        let root = root.clone();
-        let replies = Arc::clone(&replies);
-        let notifier = Arc::clone(&b.service.cluster.notifier);
-        runtime_a
-            .spawn(async move { replica(&root, "coord-a", replies, Some(notifier)).await })
-            .await
-            .unwrap()
-    };
-    *a.worker.hold.lock() = true;
-    replies.lock().extend([
-        tool_sse("call-lost", "bash", r#"{"command":"make migrate"}"#),
-        text_sse("Checked the migration state instead."),
-    ]);
-    let service_a = Arc::clone(&a.service);
-    let submit_id = id.clone();
-    runtime_a
-        .spawn(async move {
-            service_a
-                .runtime
-                .submit_request(&submit_id, "migrate", "run the migration".into())
-                .await
-        })
-        .await
-        .unwrap()
-        .unwrap();
-    tokio::time::timeout(Duration::from_secs(5), a.worker.started.notified())
-        .await
-        .expect("A runs the tool");
-    runtime_a.shutdown_background();
-
-    let adopted = tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            if b.service.runtime.recover_orphaned_runs().await.unwrap() == 1 {
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-    })
-    .await;
-    assert!(adopted.is_ok(), "B adopts the run once A's lease expires");
-    settled(&b, &id, Duration::from_secs(10)).await;
-
-    assert_eq!(
-        b.worker.bash_calls(),
-        0,
-        "the lost tool call is not replayed"
-    );
-    assert_eq!(primary_requests(&b), 1);
-    let journal = store(&b);
-    let entries = journal.entries(&id).await.unwrap();
-    assert!(entries.iter().any(|(_, entry)| matches!(entry,
-        Entry::ToolResult { call_id, is_error: true, .. } if call_id == "call-lost")));
-    let stale = LeaseFence {
-        owner: "coord-a".into(),
-        epoch: 1,
-    };
-    let note = Entry::Notice {
-        level: "info".into(),
-        title: "late write from the dead replica".into(),
-        body: String::new(),
-    };
-    assert!(matches!(
-        journal.append_entry(&id, &note, &[], Some(&stale)).await,
-        Err(AgentError::Fenced(_))
-    ));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

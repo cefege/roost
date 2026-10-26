@@ -72,6 +72,7 @@ pub fn request(model: &roost_llm::ModelInfo, tools: Vec<ToolSpec>) -> ChatReques
         thinking: "high".into(),
         session_id: "session-test".into(),
         max_tokens: Some(4096),
+        cache_retention: None,
     }
 }
 

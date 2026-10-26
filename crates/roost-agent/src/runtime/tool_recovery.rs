@@ -12,6 +12,9 @@ const UNKNOWN_OUTCOME: &str = "The harness was interrupted before this tool's re
 
 impl AgentRuntime {
     pub(crate) async fn reconcile_interrupted_tools(&self, id: &str) -> Result<(), AgentError> {
+        if !self.inner.store.durable_batches(id).await?.is_empty() {
+            return Ok(());
+        }
         let entries = crate::journal::effective_entries(&self.inner.store.entries(id).await?);
         let mut pending = Vec::new();
         for (_, entry) in &entries {
@@ -63,6 +66,8 @@ impl AgentRuntime {
                         "children": children,
                     })
                     .to_string(),
+                    content: None,
+                    provider_data: None,
                 },
             )
             .await?;

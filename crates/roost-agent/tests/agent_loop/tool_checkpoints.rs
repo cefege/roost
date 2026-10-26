@@ -27,7 +27,9 @@ impl ToolExecutor for BlockingSecondTool {
         cancel: CancellationToken,
     ) -> BoxFuture<'a, Result<ToolOutcome, String>> {
         Box::pin(async move {
-            if call.call_id == "second-effect" {
+            if serde_json::from_str::<serde_json::Value>(&call.args_json)
+                .is_ok_and(|arguments| arguments["command"] == "second-action")
+            {
                 self.second_started.notify_one();
                 cancel.cancelled().await;
                 return Err("cancelled".into());

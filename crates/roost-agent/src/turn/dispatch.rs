@@ -10,13 +10,13 @@ use crate::history;
 use crate::records::Entry;
 use crate::runtime::{AgentRuntime, latest_submission_seq};
 
-pub(super) struct ClaimedInputs {
+pub(crate) struct ClaimedInputs {
     pub entries: Vec<(u64, Entry)>,
     pub through_seq: u64,
     pub new_submission: bool,
 }
 
-pub(super) async fn claim_dispatch_inputs(
+pub(crate) async fn claim_dispatch_inputs(
     runtime: &AgentRuntime,
     id: &str,
     cancel: &CancellationToken,

@@ -1,6 +1,9 @@
-//! Store and sink seams that park a loop at a chosen point. A test parks the
-//! loop's condition-record read or its repeat's prompt append, delivers `/loop
-//! off` or an abort while it is parked, then releases it.
+//! Store fault injection and one-shot gates at native semantic boundaries.
+//! Tests park admission or a confirmed kernel receipt before runtime adoption;
+//! all persistence remains in the real in-memory AgentStore.
+
+#[path = "gated/control.rs"]
+mod control;
 
 use std::sync::Arc;
 
@@ -23,8 +26,18 @@ struct Holds {
     user_append_target: Option<usize>,
     user_append_after_commit: bool,
     completion_admission_armed: bool,
+    publication_failure: Option<PublicationKind>,
+    publication_read_armed: bool,
+    publication_failures_consumed: usize,
+    yield_receipt_armed: bool,
+    yield_receipt_id: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PublicationKind {
+    Assistant,
+    ToolResult,
+}
 /// Wraps the in-memory store. Each park is one-shot: only the call it targets
 /// parks, and every other call passes straight through.
 pub struct GatedStore {
@@ -36,88 +49,71 @@ pub struct GatedStore {
     user_append_resume: Notify,
     completion_admission_parked: Notify,
     completion_admission_resume: Notify,
-}
-
-impl GatedStore {
-    pub fn new(inner: Arc<InMemoryAgentStore>) -> Self {
-        Self {
-            inner,
-            holds: Mutex::new(Holds::default()),
-            conversation_parked: Notify::new(),
-            conversation_resume: Notify::new(),
-            user_append_parked: Notify::new(),
-            user_append_resume: Notify::new(),
-            completion_admission_parked: Notify::new(),
-            completion_admission_resume: Notify::new(),
-        }
-    }
-
-    /// Parks the next conversation read. Arm it when the loop announces its
-    /// condition check: the read that follows is the check's record lookup.
-    pub fn hold_next_conversation(&self) {
-        self.holds.lock().conversation_armed = true;
-    }
-
-    pub async fn conversation_held(&self) {
-        self.conversation_parked.notified().await;
-    }
-
-    pub fn release_conversation(&self) {
-        self.conversation_resume.notify_one();
-    }
-
-    /// Parks the `nth` user entry the store appends, counting from its first.
-    pub fn hold_user_append(&self, nth: usize) {
-        let mut holds = self.holds.lock();
-        holds.user_append_target = Some(nth);
-        holds.user_append_after_commit = false;
-    }
-
-    pub fn hold_committed_user_append(&self, nth: usize) {
-        let mut holds = self.holds.lock();
-        holds.user_append_target = Some(nth);
-        holds.user_append_after_commit = true;
-    }
-
-    pub async fn user_append_held(&self) {
-        self.user_append_parked.notified().await;
-    }
-
-    pub fn release_user_append(&self) {
-        self.user_append_resume.notify_one();
-    }
-
-    pub fn hold_completion_admission(&self) {
-        self.holds.lock().completion_admission_armed = true;
-    }
-
-    pub async fn completion_admission_held(&self) {
-        self.completion_admission_parked.notified().await;
-    }
-
-    pub fn release_completion_admission(&self) {
-        self.completion_admission_resume.notify_one();
-    }
-
-    fn take_completion_admission_hold(&self) -> bool {
-        std::mem::take(&mut self.holds.lock().completion_admission_armed)
-    }
-    fn take_conversation_hold(&self) -> bool {
-        std::mem::take(&mut self.holds.lock().conversation_armed)
-    }
-
-    fn take_user_append_hold(&self) -> Option<bool> {
-        let mut holds = self.holds.lock();
-        holds.user_appends += 1;
-        if holds.user_append_target != Some(holds.user_appends) {
-            return None;
-        }
-        holds.user_append_target = None;
-        Some(holds.user_append_after_commit)
-    }
+    yield_receipt_parked: Notify,
+    yield_receipt_resume: Notify,
 }
 
 impl AgentStore for GatedStore {
+    fn durable_batches<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<roost_agent::durable::DurableBatch>, AgentError>> {
+        self.inner.durable_batches(id)
+    }
+    fn mint_durable_id<'a>(
+        &'a self,
+        id: &'a str,
+        fence: &'a LeaseFence,
+    ) -> BoxFuture<'a, Result<u64, AgentError>> {
+        self.inner.mint_durable_id(id, fence)
+    }
+    fn append_durable_batch<'a>(
+        &'a self,
+        id: &'a str,
+        expected_sequence: u64,
+        writes: &'a [roost_agent::durable::StorageWrite],
+        entries: &'a [Entry],
+        fence: &'a LeaseFence,
+    ) -> BoxFuture<'a, Result<roost_agent::durable::DurableCommit, AgentError>> {
+        Box::pin(async move {
+            let result = self
+                .inner
+                .append_durable_batch(id, expected_sequence, writes, entries, fence)
+                .await?;
+            let hold_yield = {
+                let mut holds = self.holds.lock();
+                let matches_projection = entries.iter().any(|entry| {
+                    matches!(
+                        (holds.publication_failure, entry),
+                        (Some(PublicationKind::Assistant), Entry::Assistant { .. })
+                            | (Some(PublicationKind::ToolResult), Entry::ToolResult { .. })
+                    )
+                });
+                if matches_projection {
+                    holds.publication_failure = None;
+                    holds.publication_read_armed = true;
+                }
+                let yielded = writes.iter().any(|write| matches!(write,
+                    roost_agent::durable::StorageWrite::Task { value }
+                    if matches!(&value.state, rpi_durable::TaskState::Terminal {
+                        outcome: rpi_durable::types::TaskOutcome::Completed { result },
+                    } if result.pointer("/control/handoff").and_then(serde_json::Value::as_str).is_some())
+                ));
+                let armed = holds.yield_receipt_armed && yielded;
+                if armed {
+                    holds.yield_receipt_armed = false;
+                    holds.yield_receipt_id = Some(id.to_owned());
+                }
+                armed
+            };
+            if hold_yield {
+                self.yield_receipt_parked.notify_one();
+                self.yield_receipt_resume.notified().await;
+            }
+            Ok(result)
+        })
+    }
+
     fn conversations(&self) -> BoxFuture<'_, Result<Vec<ConversationRecord>, AgentError>> {
         self.inner.conversations()
     }
@@ -249,7 +245,24 @@ impl AgentStore for GatedStore {
     }
 
     fn entries<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Vec<(u64, Entry)>, AgentError>> {
-        self.inner.entries(id)
+        Box::pin(async move {
+            let fail = {
+                let mut holds = self.holds.lock();
+                if std::mem::take(&mut holds.publication_read_armed) {
+                    holds.publication_failures_consumed += 1;
+                    true
+                } else {
+                    false
+                }
+            };
+            if fail {
+                Err(AgentError::Store(
+                    "injected post-settlement publication read failure".into(),
+                ))
+            } else {
+                self.inner.entries(id).await
+            }
+        })
     }
 
     fn settings(&self) -> BoxFuture<'_, Result<AgentSettings, AgentError>> {

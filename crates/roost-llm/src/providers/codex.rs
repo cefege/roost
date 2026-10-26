@@ -69,6 +69,7 @@ pub(super) fn stream(
                         });
                         blocks[index] = Some(AssistantBlock::Text {
                             text: String::new(),
+                            provider_data: None,
                         });
                     }
                     "reasoning" => {
@@ -107,6 +108,10 @@ pub(super) fn stream(
                             call_id,
                             name,
                             args_json: initial.to_owned(),
+                            provider_data: output
+                                .get("namespace")
+                                .cloned()
+                                .map(|namespace| json!({"namespace": namespace})),
                         });
                     }
                     _ => {}
@@ -122,7 +127,7 @@ pub(super) fn stream(
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_owned();
-                if let Some(Some(AssistantBlock::Text { text: full })) = blocks.get_mut(index) {
+                if let Some(Some(AssistantBlock::Text { text: full, .. })) = blocks.get_mut(index) {
                     full.push_str(&text);
                 }
                 events.push(StreamEvent::TextDelta { index, text });
@@ -201,16 +206,23 @@ pub(super) fn stream(
                     .and_then(Value::as_u64)
                     .unwrap_or(0) as usize;
                 let output = item.get("item").cloned().unwrap_or(Value::Null);
+                if let Some(Some(AssistantBlock::Text { provider_data, .. })) =
+                    blocks.get_mut(index)
+                {
+                    let id = output.get("id").and_then(Value::as_str);
+                    if let Some(id) = id {
+                        let signature = if let Some(phase) = output.get("phase").and_then(Value::as_str) {
+                            json!({"v":1,"id":id,"phase":phase}).to_string()
+                        } else {
+                            json!({"v":1,"id":id}).to_string()
+                        };
+                        *provider_data = Some(json!({"textSignature": signature}));
+                    }
+                }
                 if let Some(Some(AssistantBlock::Thinking { provider_data, .. })) =
                     blocks.get_mut(index)
                 {
-                    let encrypted = output
-                        .get("encrypted_content")
-                        .or_else(|| output.get("summary"))
-                        .cloned();
-                    if let Some(encrypted) = encrypted {
-                        *provider_data = Some(json!({"encrypted_content":encrypted}));
-                    }
+                    *provider_data = Some(output);
                 }
                 if let Some(Some(block)) = blocks.get(index) {
                     events.push(StreamEvent::BlockEnd {
@@ -289,17 +301,73 @@ fn build_body(request: &ChatRequest) -> Value {
                 }
                 }
             }
-            Message::Assistant { blocks } => {
+            Message::Assistant { blocks, .. } => {
                 for block in blocks {
                     match block {
-                    AssistantBlock::Text { text } => input.push(json!({"type":"message","role":"assistant","content":[{"type":"output_text","text":text}]})),
-                    AssistantBlock::Thinking { provider_data, .. } => if let Some(encrypted) = provider_data.as_ref().and_then(|data| data.get("encrypted_content")) { input.push(json!({"type":"reasoning","encrypted_content":encrypted})); },
-                    AssistantBlock::ToolCall { call_id, name, args_json } => input.push(json!({"type":"function_call","call_id":call_id,"name":name,"arguments":args_json})),
-                }
+                        AssistantBlock::Text {
+                            text,
+                            provider_data,
+                        } => {
+                            let mut item = json!({"type":"message","role":"assistant","content":[{"type":"output_text","text":text}]});
+                            if let Some(signature) = provider_data
+                                .as_ref()
+                                .and_then(|data| data.get("textSignature"))
+                                .and_then(Value::as_str)
+                            {
+                                if let Ok(signature) = serde_json::from_str::<Value>(signature) {
+                                    if let Some(id) = signature.get("id") {
+                                        item["id"] = id.clone();
+                                    }
+                                    if let Some(phase) = signature.get("phase") {
+                                        item["phase"] = phase.clone();
+                                    }
+                                } else {
+                                    item["id"] = json!(signature);
+                                }
+                            }
+                            input.push(item);
+                        }
+                        AssistantBlock::Thinking { provider_data, .. } => {
+                            if let Some(encrypted) = provider_data
+                                .as_ref()
+                                .and_then(|data| data.get("encrypted_content"))
+                            {
+                                input.push(
+                                    json!({"type":"reasoning","encrypted_content":encrypted}),
+                                );
+                            }
+                        }
+                        AssistantBlock::ToolCall {
+                            call_id,
+                            name,
+                            args_json,
+                            provider_data,
+                        } => {
+                            let mut item = json!({"type":"function_call","call_id":call_id,"name":name,"arguments":args_json});
+                            if let Some(namespace) = provider_data
+                                .as_ref()
+                                .and_then(|data| data.get("namespace"))
+                            {
+                                item["namespace"] = namespace.clone();
+                            }
+                            input.push(item);
+                        }
+                    }
                 }
             }
-            Message::ToolResult { call_id, text, .. } => {
-                input.push(json!({"type":"function_call_output","call_id":call_id,"output":text}))
+            Message::ToolResult {
+                call_id,
+                text,
+                content,
+                ..
+            } => {
+                let output = content.as_ref().map(|content| {
+                    Value::Array(content.iter().map(|part| match part {
+                        crate::message::UserContent::Text { text } => json!({"type":"input_text","text":text}),
+                        crate::message::UserContent::Image { mime, base64 } => json!({"type":"input_image","image_url":format!("data:{mime};base64,{base64}")}),
+                    }).collect::<Vec<_>>())
+                }).unwrap_or_else(|| json!(text));
+                input.push(json!({"type":"function_call_output","call_id":call_id,"output":output}))
             }
         }
     }
@@ -310,7 +378,10 @@ fn build_body(request: &ChatRequest) -> Value {
     } else {
         instructions
     };
-    let mut body = json!({"model":request.model.id,"store":false,"stream":true,"instructions":instructions,"input":input,"include":["reasoning.encrypted_content"],"prompt_cache_key":request.session_id,"parallel_tool_calls":true,"tool_choice":"auto","max_output_tokens":request.max_tokens.unwrap_or(request.model.max_tokens)});
+    let mut body = json!({"model":request.model.id,"store":false,"stream":true,"instructions":instructions,"input":input,"include":["reasoning.encrypted_content"],"parallel_tool_calls":true,"tool_choice":"auto","max_output_tokens":request.max_tokens.unwrap_or(request.model.max_tokens)});
+    if request.cache_retention != Some(crate::CacheRetention::None) {
+        body["prompt_cache_key"] = json!(request.session_id);
+    }
     if !tools.is_empty() {
         body["tools"] = json!(tools);
     }

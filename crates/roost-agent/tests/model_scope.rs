@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 
 use roost_agent::roles::role_chain;
 use roost_agent::{AgentSettings, NewConversation, Role};
-use roost_llm::{BlockKind, LlmError, StreamEvent};
+use roost_llm::{Answer, BlockKind, LlmError, StreamEvent};
 use roost_protocol::wire::agent_chat::{FolderModelRoles, ModelRef};
 use support::{Harness, ScriptedLlm, text_reply, texts};
 
@@ -128,6 +128,51 @@ async fn transient_failures_exhaust_retries_then_fail_over_in_chain_order() {
     expected.push(HAIKU.to_owned());
     assert_eq!(model_ids(&harness, &id), expected);
     assert_eq!(harness.runtime.settings().await.unwrap(), settings);
+}
+
+#[tokio::test]
+async fn failover_uses_fallback_effort_and_resolves_its_auto_selector() {
+    let harness = Harness::new();
+    let mut settings = AgentSettings::default();
+    settings.model_roles.insert(
+        Role::Default,
+        format!("anthropic/{SONNET}:high, anthropic/{HAIKU}:low, anthropic/{OPUS}:auto"),
+    );
+    harness.runtime.set_settings(settings).await.unwrap();
+    let id = unpinned(&harness, "worker-fp", "/repo").await;
+
+    for _ in 0..8 {
+        harness
+            .llm
+            .script(&id, Err(LlmError::Network("connection reset".into())));
+    }
+    harness.llm.judgment(Ok(BTreeMap::from([(
+        "level".to_owned(),
+        Answer::Choice {
+            choice: "low".into(),
+            probabilities: BTreeMap::new(),
+            confidence: 0.9,
+        },
+    )])));
+    harness.llm.script(&id, text_reply("recovered"));
+    harness.submit(&id, "hi").await;
+    let transcript = harness.settle(&id).await;
+
+    assert!(texts(&transcript).iter().any(|text| text == "recovered"));
+    let requests = harness.llm.requests_for(&id);
+    assert_eq!(requests.len(), 9);
+    assert!(
+        requests[..4]
+            .iter()
+            .all(|request| request.thinking == "high")
+    );
+    assert!(
+        requests[4..8]
+            .iter()
+            .all(|request| { request.model.id == HAIKU && request.thinking == "low" })
+    );
+    assert_eq!(requests[8].model.id, OPUS);
+    assert_eq!(requests[8].thinking, "low");
 }
 
 #[tokio::test]

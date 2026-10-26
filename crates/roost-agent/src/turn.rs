@@ -1,23 +1,19 @@
-//! One turn of a conversation: compaction check, model and thinking-level
-//! resolution, request assembly, the streamed model call, then the tool round
-//! its tool calls ask for. The run loop repeats turns until one ends the run.
+//! Roost's model selection, thinking policy and per-run product state.
+//! The Durable driver calls these policies; the outer run supervisor retains
+//! yield reminders, goals and loop behavior without owning a model/tool engine.
 
-mod dispatch;
+pub(crate) mod dispatch;
 
-use dispatch::{ClaimedInputs, claim_dispatch_inputs};
-use roost_llm::{ChatRequest, Message, ModelInfo};
+use roost_llm::ModelInfo;
 use roost_protocol::wire::agent_chat::ModelRef;
 use std::collections::VecDeque;
-use tokio_util::sync::CancellationToken;
 
+use crate::auto_thinking;
 use crate::error::AgentError;
-use crate::model_call::{self, ModelOutput};
-use crate::prompts::{self, SubagentPrompt};
+use crate::model_call::ModelOutput;
 use crate::records::{ConversationRecord, Entry, Mode, Role};
 use crate::roles::{self, ResolvedModel};
 use crate::runtime::{AgentRuntime, RunEnd, Steer};
-use crate::toolset::{SubagentKind, toolset_for};
-use crate::{auto_thinking, compaction, context_files, find, history, tool_round};
 
 /// Per-run state the loop carries between turns.
 #[derive(Debug, Default)]
@@ -199,155 +195,7 @@ pub(crate) fn latest_user_text(entries: &[(u64, Entry)]) -> String {
         .unwrap_or_default()
 }
 
-pub(crate) async fn take_turn(
-    runtime: &AgentRuntime,
-    id: &str,
-    memory: &mut RunMemory,
-    cancel: &CancellationToken,
-) -> Result<TurnOutcome, AgentError> {
-    let record = runtime.record(id).await?;
-    let chain = conversation_chain(runtime, &record).await?;
-    if chain.is_empty() {
-        return Err(no_model_available());
-    }
-    let models: Vec<ModelInfo> = chain
-        .iter()
-        .map(|candidate| candidate.info.clone())
-        .collect();
-    compaction::compact_if_needed(runtime, &record, &models, cancel).await?;
-    let Some(ClaimedInputs {
-        entries,
-        through_seq: dispatch_through,
-        new_submission,
-    }) = claim_dispatch_inputs(runtime, id, cancel, &chain[0].info.provider).await?
-    else {
-        return Ok(TurnOutcome::NoWork);
-    };
-    if new_submission {
-        memory.new_submission();
-    }
-    let depth = depth_of(runtime, &record).await;
-    let find_available = find::available(runtime, id).await;
-    let toolset = toolset_for(&record, depth, find_available);
-    let files = context_files::context_files(runtime, &record, cancel).await;
-    let child_context = entries
-        .iter()
-        .find_map(|(_, entry)| match entry {
-            Entry::SubagentContext { context } => Some(context.clone()),
-            _ => None,
-        })
-        .unwrap_or_default();
-    let subagent = record
-        .agent
-        .as_deref()
-        .and_then(SubagentKind::from_name)
-        .map(|kind| SubagentPrompt {
-            agent_prompt: kind.prompt(),
-            context: &child_context,
-        });
-    let mut system = prompts::system_blocks(&record, &toolset.names(), &files.context, subagent);
-    if let Some(goal_entry) = entries
-        .iter()
-        .rev()
-        .find_map(|(_, entry)| match entry {
-            Entry::Goal { state } => Some(state),
-            _ => None,
-        })
-        .filter(|state| {
-            matches!(
-                state.status,
-                roost_protocol::wire::agent_chat::GoalStatus::Active
-                    | roost_protocol::wire::agent_chat::GoalStatus::BudgetLimited
-                    | roost_protocol::wire::agent_chat::GoalStatus::Paused
-            )
-        })
-    {
-        let todo_context = entries
-            .iter()
-            .rev()
-            .find_map(|(_, entry)| match entry {
-                Entry::Todo { phases } => Some(crate::todo_notice::todo_message(phases)),
-                _ => None,
-            })
-            .unwrap_or_default();
-        system.push(prompts::render(
-            prompts::GOAL_MODE,
-            &[
-                ("objective", &escape_goal_xml(&goal_entry.objective)),
-                ("status", goal_entry.status.as_str()),
-                ("todo_context", &escape_goal_xml(&todo_context)),
-            ],
-        ));
-    }
-    let mut attempts = Vec::with_capacity(chain.len());
-    for candidate in &chain {
-        let thinking = resolve_thinking(runtime, &record, candidate, &entries, memory).await;
-        let mut messages = history::build_messages(&entries, &candidate.info.provider);
-        // Some providers reject assistant prefill, even when its partial output is durable.
-        if matches!(messages.last(), Some(Message::Assistant { .. })) {
-            messages.push(Message::user_text(prompts::RESUME_INTERRUPTED));
-        }
-        attempts.push(ChatRequest {
-            system: system.clone(),
-            messages,
-            tools: toolset.specs.clone(),
-            thinking: thinking.to_owned(),
-            session_id: record.id.clone(),
-            max_tokens: None,
-            model: candidate.info.clone(),
-        });
-    }
-    let input_through_seq = dispatch_through;
-    let captured_goal = entries.iter().rev().find_map(|(_, entry)| match entry {
-        Entry::Goal { state } => Some(state),
-        _ => None,
-    });
-    let goal_id = captured_goal.map(|state| state.id.clone());
-    let metadata = crate::records::AssistantMetadata {
-        completed: false,
-        stop_reason: None,
-        input_through_seq,
-        continued: memory.continued,
-        yield_reminders: memory.yield_reminders,
-        goal_id: captured_goal
-            .filter(|state| {
-                matches!(
-                    state.status,
-                    roost_protocol::wire::agent_chat::GoalStatus::Active
-                        | roost_protocol::wire::agent_chat::GoalStatus::BudgetLimited
-                )
-            })
-            .map(|state| state.id.clone()),
-    };
-    let (_, output, used) =
-        model_call::primary_call(runtime, id, &attempts, cancel, metadata).await?;
-    runtime.note_processed_seq(id, input_through_seq);
-    let calls = output.tool_calls();
-    runtime.advisor_turn_ended(id, !calls.is_empty());
-    if calls.is_empty() {
-        let model = chain.into_iter().nth(used).ok_or_else(no_model_available)?;
-        return Ok(TurnOutcome::Text {
-            output: Box::new(output),
-            model: Box::new(model),
-        });
-    }
-    let end = tool_round::execute_round(
-        tool_round::CallScope {
-            runtime,
-            record: &record,
-            toolset: &toolset,
-            depth,
-            goal_id,
-            checkpoint_id: crate::journal::current_checkpoint(&entries),
-            cancel,
-        },
-        calls,
-    )
-    .await?;
-    Ok(TurnOutcome::Tools { end })
-}
-
-async fn resolve_thinking(
+pub(crate) async fn resolve_thinking(
     runtime: &AgentRuntime,
     record: &ConversationRecord,
     model: &ResolvedModel,
@@ -369,7 +217,7 @@ async fn resolve_thinking(
     memory.auto_level = Some(level);
     model.info.clamp_thinking_level(level)
 }
-fn escape_goal_xml(value: &str) -> String {
+pub(crate) fn escape_goal_xml(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
     for character in value.chars() {
         match character {

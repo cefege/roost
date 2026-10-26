@@ -1,0 +1,28 @@
+{
+  "source": {
+    "repository": "https://github.com/earendil-works/pi",
+    "commit": "d5b3de22d0e24a3e9c38a9410d3329b099717283",
+    "package": "packages/durable"
+  },
+  "normalization": "timestamp, duration, startedAt, and endedAt fields omitted; generated faux API ids mapped to faux:<generated>; all Durable IDs and commit sequences remain exact",
+  "trace": {
+    "name": "fork-document-policies",
+    "asOf": {
+      "value": "at-fork"
+    },
+    "current": {
+      "value": "current-at-fork-time"
+    },
+    "parentAsOf": {
+      "value": "later"
+    },
+    "childHistory": [
+      {
+        "kind": "oracle.point",
+        "id": 7,
+        "conversationId": 1
+      }
+    ]
+  },
+  "sha256": "feb5c89a894669c8d64984648c7db7281cb63078099b46291777ed259a3b0956"
+}

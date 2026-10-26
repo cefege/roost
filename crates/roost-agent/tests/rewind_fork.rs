@@ -163,6 +163,7 @@ async fn recovery_resumes_current_and_legacy_interrupted_work_once() {
                 call_id: "prior-call".into(),
                 name: "read".into(),
                 args_json: r#"{"path":"old.txt"}"#.into(),
+                provider_data: None,
             }],
             usage: Usage {
                 input: 1,
@@ -187,11 +188,14 @@ async fn recovery_resumes_current_and_legacy_interrupted_work_once() {
             text: "persisted tool result".into(),
             is_error: false,
             details_json: "{}".into(),
+            content: None,
+            provider_data: None,
         },
         Entry::Assistant {
             item_id: "prior-answer".into(),
             blocks: vec![AssistantBlock::Text {
                 text: "prior result".into(),
+                provider_data: None,
             }],
             usage: Usage {
                 input: 1,
@@ -237,6 +241,7 @@ async fn recovery_resumes_current_and_legacy_interrupted_work_once() {
                 call_id: "legacy-call".into(),
                 name: "bash".into(),
                 args_json: r#"{"command":"make"}"#.into(),
+                provider_data: None,
             }],
             usage: Usage {
                 input: 1,
@@ -287,6 +292,7 @@ async fn recovery_resumes_current_and_legacy_interrupted_work_once() {
                 call_id: "failed-prior-call".into(),
                 name: "read".into(),
                 args_json: r#"{"path":"before-failure.txt"}"#.into(),
+                provider_data: None,
             }],
             usage: Usage {
                 input: 1,
@@ -303,6 +309,8 @@ async fn recovery_resumes_current_and_legacy_interrupted_work_once() {
             text: "persisted before provider failure".into(),
             is_error: false,
             details_json: "{}".into(),
+            content: None,
+            provider_data: None,
         },
     ] {
         harness
@@ -339,8 +347,8 @@ async fn recovery_resumes_current_and_legacy_interrupted_work_once() {
     )));
     assert!(resumed.messages.iter().any(|message| matches!(
         message,
-        Message::Assistant { blocks }
-            if blocks.iter().any(|block| matches!(block, AssistantBlock::Text { text } if text == "prior result"))
+        Message::Assistant { blocks, .. }
+            if blocks.iter().any(|block| matches!(block, AssistantBlock::Text { text, .. } if text == "prior result"))
     )));
     let legacy_request = &harness.llm.requests_for(&legacy_id)[0];
     assert_eq!(

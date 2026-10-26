@@ -60,6 +60,10 @@ pub enum Entry {
         text: String,
         is_error: bool,
         details_json: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content: Option<Vec<roost_llm::UserContent>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider_data: Option<serde_json::Value>,
     },
     Compaction {
         summary: String,

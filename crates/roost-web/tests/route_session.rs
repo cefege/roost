@@ -17,7 +17,7 @@ use roost_web::route_session::{
     active_deck_tab_for_route, active_open_session_for_route, active_session_for_path,
     sibling_or_home_href,
 };
-use roost_web::routes::Route;
+use roost_web::routes::{Route, session_href};
 use roost_web::terminal_href::{decode_folder_path, encode_folder_path, terminal_href};
 
 const ID: &str = "00000000-0000-4000-8000-000000000001";
@@ -68,6 +68,41 @@ fn resolved(core: &ClientCore, path: &str) -> Option<String> {
         .map(|session| session.id.as_str().to_owned())
 }
 
+/// Notification actions carry an ephemeral session id. Resolving that id
+/// must not pass through the stable folder route, which selects the newest
+/// sibling when both terminals share a spawn directory.
+#[test]
+fn notification_destination_keeps_the_originating_session_after_view_changes() {
+    let core = core_with(vec![session(ID, 1, 1000), session(SECOND, 2, 2000)]);
+
+    let destination = session_href(ID);
+    assert_eq!(destination, format!("/s/{ID}"));
+    assert_eq!(resolved(&core, &destination).as_deref(), Some(ID));
+    assert_eq!(
+        resolved(
+            &core,
+            &format!("/t/{}/{}", fp(), encode_folder_path(None, FOLDER))
+        )
+        .as_deref(),
+        Some(SECOND),
+        "the stable folder bookmark intentionally chooses the newer sibling"
+    );
+
+    let mut closed_origin = session(ID, 1, 1000);
+    closed_origin.status = SessionStatus::Closed;
+    let core = core_with(vec![closed_origin, session(SECOND, 2, 2000)]);
+    assert_eq!(resolved(&core, &session_href(ID)).as_deref(), Some(ID));
+    assert_eq!(
+        active_open_session_for_route(
+            core.store(),
+            &BrowserWorkerPaths,
+            &Route::parse(&session_href(ID))
+        )
+        .map(|session| session.id.as_str()),
+        None,
+        "a closed notification target remains closed rather than becoming its live sibling"
+    );
+}
 #[test]
 fn a_session_route_resolves_by_id() {
     let core = core_with(vec![session(ID, 1, 1000)]);

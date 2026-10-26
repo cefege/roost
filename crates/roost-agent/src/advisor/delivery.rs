@@ -13,27 +13,31 @@ pub(crate) async fn deliver(
     state: &mut ReviewState,
     notes: &[(String, AdvisorySeverity)],
     ended_with_tool_calls: bool,
+    terminal_output: bool,
 ) -> Result<(), AgentError> {
     let mut started_run = false;
     for (note, severity) in notes {
         let item_id = random_id("adv_");
         let mut output_severity = *severity;
         let mut deliver_now = false;
-        if *severity == AdvisorySeverity::Nit {
-            deliver_now = true;
-        } else if state.immune_turns_left > 0 && *severity == AdvisorySeverity::Concern {
-            output_severity = AdvisorySeverity::Nit;
-            deliver_now = true;
-        } else if record.mode != Mode::Plan && !runtime.last_run_aborted(&record.id) {
-            if runtime.is_running(&record.id) {
+        let concern_must_wait = terminal_output && *severity == AdvisorySeverity::Concern;
+        if !concern_must_wait {
+            if *severity == AdvisorySeverity::Nit {
                 deliver_now = true;
-            } else if !started_run
-                && (*severity == AdvisorySeverity::Blocker
-                    || ended_with_tool_calls
-                    || stopped_unexpectedly(runtime, record).await)
-            {
+            } else if state.immune_turns_left > 0 && *severity == AdvisorySeverity::Concern {
+                output_severity = AdvisorySeverity::Nit;
                 deliver_now = true;
-                started_run = true;
+            } else if record.mode != Mode::Plan && !runtime.last_run_aborted(&record.id) {
+                if runtime.is_running(&record.id) {
+                    deliver_now = !terminal_output || *severity == AdvisorySeverity::Blocker;
+                } else if !started_run
+                    && (*severity == AdvisorySeverity::Blocker
+                        || ended_with_tool_calls
+                        || stopped_unexpectedly(runtime, record).await)
+                {
+                    deliver_now = true;
+                    started_run = true;
+                }
             }
         }
 

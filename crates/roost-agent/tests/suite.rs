@@ -10,6 +10,18 @@ mod advisor;
 mod agent_loop;
 #[path = "background_jobs.rs"]
 mod background_jobs;
+#[path = "durable_branch_state.rs"]
+mod durable_branch_state;
+#[path = "durable_code_mode.rs"]
+mod durable_code_mode;
+#[path = "durable_images.rs"]
+mod durable_images;
+#[path = "durable_publication.rs"]
+mod durable_publication;
+#[path = "durable_rewind.rs"]
+mod durable_rewind;
+#[path = "durable_yield.rs"]
+mod durable_yield;
 #[path = "find.rs"]
 mod find;
 #[path = "loop_mode.rs"]

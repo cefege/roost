@@ -84,6 +84,14 @@ handover, when the old owner is still draining:
   was never recorded is not dispatched again; it is recorded as an
   outcome-unknown error.
 
+The owner opens one Pi Durable namespace per native conversation. Core batches
+and native projection rows settle atomically under the same lease fence and a
+core-sequence compare-and-swap; ID allocation is fenced too. `0013` adds these
+tables without rewriting older migrations. The indexed in-memory kernel view
+is adopted only after the SQL transaction succeeds. Publication failures do not
+turn an already committed effect into retryable uncommitted work.
+
+
 ## Cross-replica wake-ups
 
 After a replica admits input, an abort, or deletes a conversation it does not
@@ -141,6 +149,20 @@ the full OMP-harness parity project. Exact OMP parity is not this contract.
 Applied SQLite and Postgres migration history remains intact. The single
 advisor reads and writes the empty `roster_slug` slot through the current
 `(conversation_id, roster_slug)` key; named roster slots are inactive.
+
+The engine is the Rust fork recorded in
+[`third_party/pi-durable-rs/ROOST-PATCHES.md`](../../third_party/pi-durable-rs/ROOST-PATCHES.md).
+It owns generation, tool/nested-tool and compaction tasks. Native commands,
+provider accounts, worker dispatch and product policies retain their existing
+API ownership. The source pin, namespace identities and compatibility boundary
+are documented in [`docs/plans/pi-durable-rust.md`](../../docs/plans/pi-durable-rust.md).
+
+Existing journal history is imported with origin mappings, including effective
+rewinds and compaction visibility. Kernel replies are projected once, not
+re-imported as new messages. Optional rich tool content and provider data retain
+image ordering and replay metadata when materialized native history is forked.
+Old tool rows without these fields remain readable.
+
 
 The rollback does not rewrite operator settings, credentials or conversation
 journals. Compatibility with journal variants written by the retired parity

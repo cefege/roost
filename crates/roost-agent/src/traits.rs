@@ -76,6 +76,26 @@ pub enum AdmitOutcome {
 
 pub trait AgentStore: Send + Sync {
     fn conversations(&self) -> BoxFuture<'_, Result<Vec<ConversationRecord>, AgentError>>;
+    /// Durable kernel commits in settlement order for one owned conversation scope.
+    fn durable_batches<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<crate::durable::DurableBatch>, AgentError>>;
+    /// Reserves a never-reused kernel ID, including IDs whose transaction aborts.
+    fn mint_durable_id<'a>(
+        &'a self,
+        id: &'a str,
+        fence: &'a LeaseFence,
+    ) -> BoxFuture<'a, Result<u64, AgentError>>;
+    /// Settles kernel writes and their chat projection in the same fenced transaction.
+    fn append_durable_batch<'a>(
+        &'a self,
+        id: &'a str,
+        expected_sequence: u64,
+        writes: &'a [crate::durable::StorageWrite],
+        entries: &'a [Entry],
+        fence: &'a LeaseFence,
+    ) -> BoxFuture<'a, Result<crate::durable::DurableCommit, AgentError>>;
     fn conversation<'a>(
         &'a self,
         id: &'a str,

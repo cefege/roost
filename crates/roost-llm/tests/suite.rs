@@ -8,6 +8,8 @@
 mod accounts;
 #[path = "provider_auth.rs"]
 mod provider_auth;
+#[path = "provider_cache.rs"]
+mod provider_cache;
 #[path = "provider_stream.rs"]
 mod provider_stream;
 #[path = "provider_support.rs"]

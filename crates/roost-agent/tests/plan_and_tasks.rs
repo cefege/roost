@@ -140,6 +140,28 @@ async fn task_runs_two_children_and_returns_both_yields() {
             .count()
             == 2
     );
+    let reopened = harness.restart_runtime();
+    assert_eq!(reopened.recover_interrupted_runs().await.unwrap(), 0);
+    let recovered = reopened.transcript(&id).await.unwrap();
+    assert!(recovered.items.iter().any(|item| matches!(item,
+        TranscriptItem::Tool { tool_name, output, .. }
+            if tool_name == "task" && output.contains("report one") && output.contains("report two")
+    )));
+    for child_id in &tool.1 {
+        let child_entries = harness.store.entries(child_id).await.unwrap();
+        assert!(
+            child_entries.iter().rev().any(|(_, entry)| matches!(
+                entry,
+                Entry::RunIntent {
+                    active: false,
+                    yielded: true,
+                    ..
+                }
+            )),
+            "each child yield must survive reopening"
+        );
+        assert_eq!(harness.llm.requests_for(child_id).len(), 1);
+    }
 }
 
 #[tokio::test]
@@ -171,6 +193,7 @@ fn assistant_entry(item_id: &str, text: &str, metadata: Option<AssistantMetadata
         item_id: item_id.to_owned(),
         blocks: vec![AssistantBlock::Text {
             text: text.to_owned(),
+            provider_data: None,
         }],
         usage: Usage::default(),
         model: Some(model_ref(support::PROVIDER, support::MODEL)),

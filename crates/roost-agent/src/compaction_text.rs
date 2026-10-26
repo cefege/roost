@@ -1,7 +1,6 @@
-//! Plain-text views of journal entries for compaction: the token estimate that
-//! sizes the window a compaction keeps, and the transcript its summariser reads.
-//! Called by `compaction.rs` and `btw.rs`; the wording of delivered notices comes
-//! from the notice modules, so the summariser sees what the model saw.
+//! Plain-text journal excerpts for side questions.
+//! `btw.rs` uses these excerpts without changing model context or its head.
+//! Delivered notices reuse their normal model-facing text.
 
 use roost_llm::AssistantBlock;
 
@@ -10,51 +9,7 @@ use crate::peer_notice::peer_summary_text;
 use crate::records::Entry;
 use crate::todo_notice::todo_message;
 
-/// A rough token estimate (4 bytes per token) for sizing compaction.
-pub fn estimate_tokens(entry: &Entry) -> u64 {
-    let bytes = match entry {
-        Entry::User { text, .. } => text.len(),
-        Entry::Assistant { blocks, .. } => blocks
-            .iter()
-            .map(|block| match block {
-                AssistantBlock::Text { text } | AssistantBlock::Thinking { text, .. } => text.len(),
-                AssistantBlock::ToolCall {
-                    args_json, name, ..
-                } => args_json.len() + name.len(),
-            })
-            .sum(),
-        Entry::ToolResult { text, .. } => text.len(),
-        Entry::Advisory { note, .. } => note.len(),
-        Entry::BackgroundJob {
-            command, output, ..
-        } => command.len() + output.len(),
-        Entry::PeerMessage { from, text, .. } => from.len() + text.len(),
-        Entry::Compaction { summary, .. } => summary.len(),
-        Entry::Todo { phases } => todo_message(phases).len(),
-        Entry::SubagentContext { context } => context.len(),
-        Entry::Ask { questions, .. } => questions
-            .iter()
-            .map(|question| question.question.len())
-            .sum(),
-        Entry::ModeChange { .. }
-        | Entry::PlanProposal { .. }
-        | Entry::Notice { .. }
-        | Entry::Btw { .. }
-        | Entry::Rewind { .. }
-        | Entry::QueuedInput { .. }
-        | Entry::QueuedInputWithdrawn { .. }
-        | Entry::InputConsumed { .. }
-        | Entry::ExtraUsage { .. }
-        | Entry::RunIntent { .. }
-        | Entry::LoopState { .. }
-        | Entry::Goal { .. }
-        | Entry::GoalContinuation { .. }
-        | Entry::GoalActivity { .. } => 0,
-    };
-    (bytes as u64).div_ceil(4)
-}
-
-/// Renders entries as plain text for the compaction summariser.
+/// Renders journal context for a side-question request.
 pub fn render_for_summary(entries: &[(u64, Entry)]) -> String {
     let mut rendered = String::new();
     for (_, entry) in entries {
@@ -63,7 +18,7 @@ pub fn render_for_summary(entries: &[(u64, Entry)]) -> String {
             Entry::Assistant { blocks, .. } => {
                 for block in blocks {
                     match block {
-                        AssistantBlock::Text { text } => {
+                        AssistantBlock::Text { text, .. } => {
                             rendered.push_str(&format!("\n[assistant]\n{text}\n"));
                         }
                         AssistantBlock::ToolCall {

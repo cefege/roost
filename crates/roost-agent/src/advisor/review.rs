@@ -29,6 +29,8 @@ const MAX_RETRIES: usize = 3;
 pub(crate) struct ReviewState {
     pub transcript: Vec<Message>,
     pub cursor: u64,
+    #[serde(default)]
+    pub deferred_sequences: Vec<u64>,
     pub seeded: bool,
     pub immune_turns_left: u32,
     pub failed_cycles: u32,
@@ -54,12 +56,21 @@ pub(crate) async fn review_with_retries(
     delta: &str,
     state: &mut ReviewState,
     ended_with_tool_calls: bool,
+    terminal_output: bool,
 ) {
     if state.halted || delta.trim().is_empty() {
         return;
     }
     for attempt in 0..=MAX_RETRIES {
-        let result = review_once(runtime, record, delta, state, ended_with_tool_calls).await;
+        let result = review_once(
+            runtime,
+            record,
+            delta,
+            state,
+            ended_with_tool_calls,
+            terminal_output,
+        )
+        .await;
         match result {
             Ok(quarantined) => {
                 state.failed_cycles = 0;
@@ -112,6 +123,7 @@ async fn review_once(
     delta: &str,
     state: &mut ReviewState,
     ended_with_tool_calls: bool,
+    terminal_output: bool,
 ) -> Result<bool, AgentError> {
     let settings = runtime.settings_for(record).await?;
     let chain = role_chain(runtime.inner.llm.as_ref(), &settings, Role::Advisor).await;
@@ -158,6 +170,7 @@ async fn review_once(
                 thinking: thinking_level(candidate),
                 session_id: session_id.clone(),
                 max_tokens: None,
+                cache_retention: None,
             })
             .collect();
         let (used, result) =
@@ -178,6 +191,7 @@ async fn review_once(
         generated.push(output.text());
         transcript.push(Message::Assistant {
             blocks: output.blocks.clone(),
+            provider_data: None,
         });
         if calls.is_empty() {
             state.transcript = transcript;
@@ -188,7 +202,8 @@ async fn review_once(
                 &notes,
                 &generated.join("\n"),
                 delta,
-                primary_needs_more_work,
+                ended_with_tool_calls,
+                terminal_output,
             )
             .await;
         }
@@ -221,6 +236,8 @@ async fn review_once(
                 tool_name: name,
                 text,
                 is_error,
+                content: None,
+                provider_data: None,
             });
         }
         transcript.extend(results);
@@ -234,6 +251,7 @@ async fn review_once(
         &generated.join("\n"),
         delta,
         primary_needs_more_work,
+        terminal_output,
     )
     .await
 }
@@ -324,6 +342,7 @@ async fn worker_call(
     outcome
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn deliver_review(
     runtime: &AgentRuntime,
     record: &ConversationRecord,
@@ -332,6 +351,7 @@ async fn deliver_review(
     generated: &str,
     delta: &str,
     ended_with_tool_calls: bool,
+    terminal_output: bool,
 ) -> Result<bool, AgentError> {
     let current = runtime.record(&record.id).await?;
     let settings = runtime.inner.store.settings().await?;
@@ -347,6 +367,14 @@ async fn deliver_review(
     }
     state.quarantine_streak = 0;
     state.accepted += notes.len() as u64;
-    delivery::deliver(runtime, &current, state, notes, ended_with_tool_calls).await?;
+    delivery::deliver(
+        runtime,
+        &current,
+        state,
+        notes,
+        ended_with_tool_calls,
+        terminal_output,
+    )
+    .await?;
     Ok(false)
 }

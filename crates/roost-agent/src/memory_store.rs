@@ -3,6 +3,7 @@
 //! database store, including cascading deletes of child conversations.
 
 mod command_admission;
+mod durable;
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -29,6 +30,8 @@ struct MemoryState {
     advisor_states: BTreeMap<String, String>,
     commands: BTreeMap<(String, String), Option<String>>,
     leases: BTreeMap<String, LeaseRow>,
+    durable_batches: BTreeMap<String, Vec<crate::durable::DurableBatch>>,
+    durable_ids: BTreeMap<String, u64>,
 }
 
 impl MemoryState {
@@ -64,6 +67,32 @@ impl InMemoryAgentStore {
 }
 
 impl AgentStore for InMemoryAgentStore {
+    fn durable_batches<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<crate::durable::DurableBatch>, AgentError>> {
+        Box::pin(async move { self.read_durable_batches(id) })
+    }
+
+    fn mint_durable_id<'a>(
+        &'a self,
+        id: &'a str,
+        fence: &'a LeaseFence,
+    ) -> BoxFuture<'a, Result<u64, AgentError>> {
+        Box::pin(async move { self.reserve_durable_id(id, fence) })
+    }
+
+    fn append_durable_batch<'a>(
+        &'a self,
+        id: &'a str,
+        expected_sequence: u64,
+        writes: &'a [crate::durable::StorageWrite],
+        entries: &'a [Entry],
+        fence: &'a LeaseFence,
+    ) -> BoxFuture<'a, Result<crate::durable::DurableCommit, AgentError>> {
+        Box::pin(async move { self.commit_durable(id, expected_sequence, writes, entries, fence) })
+    }
+
     fn conversations(&self) -> BoxFuture<'_, Result<Vec<ConversationRecord>, AgentError>> {
         Box::pin(
             async move { self.with_state(|state| state.conversations.values().cloned().collect()) },
@@ -119,6 +148,8 @@ impl AgentStore for InMemoryAgentStore {
                     state.conversations.remove(&conversation_id);
                     state.entries.remove(&conversation_id);
                     state.advisor_states.remove(&conversation_id);
+                    state.durable_batches.remove(&conversation_id);
+                    state.durable_ids.remove(&conversation_id);
                     state.leases.remove(&conversation_id);
                     state
                         .commands
