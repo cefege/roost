@@ -225,6 +225,10 @@ impl WorkerOwners {
             data_dir.to_path_buf(),
             uplink.clone(),
         )) as Arc<dyn AgentToolsPort>;
+        let live_metrics = Arc::new(crate::runtime::live_metrics::LiveMetricsOwner::new(
+            worker_fingerprint,
+            uplink.clone(),
+        ));
         register_session_closed(&stack, &routes, &view);
 
         let downstream = DownstreamOwners {
@@ -241,6 +245,9 @@ impl WorkerOwners {
                 Arc::new(agents.clone()) as Arc<dyn LinkLifecyclePort>,
                 Arc::new(crate::runtime::agent_tools::AgentToolsLinkLifecycle(
                     Arc::clone(&agent_tools),
+                )) as Arc<dyn LinkLifecyclePort>,
+                Arc::new(crate::runtime::live_metrics::LiveMetricsLinkLifecycle(
+                    Arc::clone(&live_metrics),
                 )) as Arc<dyn LinkLifecyclePort>,
             ])) as Arc<dyn LinkLifecyclePort>,
             // v2 `wiring.revokeDevice`: the door's routes and grants, then the
@@ -260,6 +267,7 @@ impl WorkerOwners {
             ),
             keeper_update: Arc::new(keeper_update) as Arc<dyn KeeperUpdatePort>,
             agent_tools: Some(Arc::clone(&agent_tools)),
+            live_metrics: Some(live_metrics as Arc<dyn crate::link_ports::LiveMetricsPort>),
         };
         tracing::info!(
             "the downstream owners are built: input, stream, pipeline, view and the cell cadence"

@@ -246,6 +246,11 @@ pub trait AgentToolsPort: Send + Sync + std::fmt::Debug {
     fn close_all(&self);
 }
 
+/// Coordinator-driven live host metrics: a subscription starts or stops sampling.
+pub trait LiveMetricsPort: Send + Sync + std::fmt::Debug {
+    fn subscription(&self, request: roost_proto::DLiveMetricsSubscription);
+}
+
 /// Every owner a downstream frame can route to.
 #[derive(Clone, Debug)]
 pub struct DownstreamOwners {
@@ -261,4 +266,5 @@ pub struct DownstreamOwners {
     pub attachments: Arc<dyn AttachmentLinkPort>,
     pub keeper_update: Arc<dyn KeeperUpdatePort>,
     pub agent_tools: Option<Arc<dyn AgentToolsPort>>,
+    pub live_metrics: Option<Arc<dyn LiveMetricsPort>>,
 }

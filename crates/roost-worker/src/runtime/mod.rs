@@ -53,6 +53,7 @@ pub mod link_drain;
 pub mod link_loop;
 pub mod link_serve;
 pub mod link_wire;
+pub mod live_metrics;
 pub mod owners;
 pub mod reachable_addr;
 pub mod reconcile;
