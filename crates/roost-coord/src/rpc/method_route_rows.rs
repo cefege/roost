@@ -210,6 +210,13 @@ pub const ROWS_CLIPBOARD: &[MethodRoute] = &[
     route("ClipboardClear", "clipboard", AuthRequirement::Device, PortStatus::Implemented),
 ];
 
+/// Account-scoped browser state that follows the operator across devices.
+#[rustfmt::skip]
+pub const ROWS_CLIENT_STATE: &[MethodRoute] = &[
+    route("ClientStateList", "client_state", AuthRequirement::Device, PortStatus::Implemented),
+    route("ClientStateSet", "client_state", AuthRequirement::Device, PortStatus::Implemented),
+];
+
 #[rustfmt::skip]
 pub const ROWS_AUTH: &[MethodRoute] = &[
     route("AuthCoordIdentity", "auth", AuthRequirement::Public, PortStatus::Implemented),
@@ -323,6 +330,7 @@ pub const ALL_TABLES: &[&[MethodRoute]] = &[
     ROWS_SEARCH,
     ROWS_ATTACHMENTS,
     ROWS_CLIPBOARD,
+    ROWS_CLIENT_STATE,
     ROWS_AUTH,
     ROWS_RPC,
     ROWS_UI_STATE,
