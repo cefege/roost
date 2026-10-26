@@ -15,6 +15,7 @@ use super::loop_controls::LoopControls;
 use super::message_actions::EditTarget;
 use super::model_controls::{ModelSetup, ModelSetupCard};
 use super::model_hub::ModelHub;
+use super::peek_tile::{PeekColumn, peek_conversations};
 use super::queued_band::QueuedBand;
 use super::surface_dom::copy_code_block;
 #[cfg(target_arch = "wasm32")]
@@ -29,7 +30,8 @@ use crate::pump::use_store;
 
 const ROOT_CLASS: &str =
     "relative flex h-full w-full min-h-0 min-w-0 flex-col bg-background text-foreground";
-const TRANSCRIPT_CLASS: &str = "min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 py-5";
+const TRANSCRIPT_CLASS: &str =
+    "min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain px-4 py-5";
 const COLUMN_CLASS: &str = "mx-auto w-full max-w-reading";
 
 #[cfg(target_arch = "wasm32")]
@@ -188,6 +190,7 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
         return rsx! { div { class: ROOT_CLASS, {header} LoadingTranscript {} } };
     };
     let running = transcript.run_state == AgentRunState::Running;
+    let peers = peek_conversations(&pump, &conversation_id);
     let setup = ModelSetup::from_catalog(catalog.read().as_ref(), catalog_failed());
     let retry_catalog = move |()| catalog_attempt += 1;
     let composer = rsx! {
@@ -224,29 +227,32 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
             pump: pump.clone(),
             active,
             header,
-            div {
-                class: TRANSCRIPT_CLASS,
-                role: "log",
-                "aria-live": "polite",
-                "aria-relevant": "additions text",
-                "aria-label": "Conversation transcript",
-                onmounted: move |event| scroll_node.set(Some(event.data())),
-                onscroll: move |_| {
-                    #[cfg(target_arch = "wasm32")]
-                    if let Some(node) = scroll_node() {
-                        let near = distance_from_bottom(&node).is_some_and(|distance| distance < STICK_THRESHOLD_PX);
-                        if near != *pinned_to_bottom.peek() {
-                            pinned_to_bottom.set(near);
+            div { class: "flex min-h-0 flex-1",
+                div {
+                    class: TRANSCRIPT_CLASS,
+                    role: "log",
+                    "aria-live": "polite",
+                    "aria-relevant": "additions text",
+                    "aria-label": "Conversation transcript",
+                    onmounted: move |event| scroll_node.set(Some(event.data())),
+                    onscroll: move |_| {
+                        #[cfg(target_arch = "wasm32")]
+                        if let Some(node) = scroll_node() {
+                            let near = distance_from_bottom(&node).is_some_and(|distance| distance < STICK_THRESHOLD_PX);
+                            if near != *pinned_to_bottom.peek() {
+                                pinned_to_bottom.set(near);
+                            }
                         }
+                    },
+                    onclick: move |event: MouseEvent| copy_code_block(&event),
+                    div { class: COLUMN_CLASS,
+                        if transcript.items.is_empty() && !running {
+                            super::welcome::AgentWelcome { conversation_id: conversation_id.clone(), draft, connected: host_connected }
+                        }
+                        super::transcript::AgentTranscriptView { transcript: transcript.clone(), conversation_id: conversation_id.clone(), pump: pump.clone(), draft, edit_target }
                     }
-                },
-                onclick: move |event: MouseEvent| copy_code_block(&event),
-                div { class: COLUMN_CLASS,
-                    if transcript.items.is_empty() && !running {
-                        super::welcome::AgentWelcome { conversation_id: conversation_id.clone(), draft, connected: host_connected }
-                    }
-                    super::transcript::AgentTranscriptView { transcript: transcript.clone(), conversation_id: conversation_id.clone(), pump: pump.clone(), draft, edit_target }
                 }
+                PeekColumn { conversations: peers }
             }
             div { class: "relative mx-auto flex w-full max-w-reading shrink-0 flex-col gap-3 px-4 pt-2 pb-4",
                 if running {

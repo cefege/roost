@@ -188,6 +188,7 @@
 @theme inline {
   --spacing-bottom__nav__height: var(--bottom__nav__height);
   --breakpoint-3xl: 1600px;
+  --breakpoint-peek: 1100px;
   --breakpoint-4xl: 2000px;
   --font-sans: var(--font-sans);
   --radius-sm: calc(var(--radius) - 4px);
@@ -207,6 +208,7 @@
   --duration-hover: 140ms;
   --container-reading: clamp(min(100%, 720px), 72%, 1200px);
   --container-splash: 40rem;
+  --width-peek: clamp(260px, 21vw, 340px);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
