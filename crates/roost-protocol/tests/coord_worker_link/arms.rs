@@ -15,6 +15,9 @@ use roost_protocol::wire::coord_worker::{
 #[path = "agent_tool_arms.rs"]
 mod agent_tool_arms;
 
+#[path = "live_metrics_arms.rs"]
+mod live_metrics_arms;
+
 pub fn upstream_arms() -> Vec<(&'static str, CoordWorkerUpstream)> {
     let mut arms = vec![
         ("hello", hello()),
@@ -206,6 +209,7 @@ pub fn upstream_arms() -> Vec<(&'static str, CoordWorkerUpstream)> {
         ),
     ];
     arms.extend(agent_tool_arms::upstream_arms());
+    arms.extend(live_metrics_arms::upstream_arms());
     arms
 }
 
@@ -362,5 +366,6 @@ pub fn downstream_arms() -> Vec<(&'static str, CoordWorkerDownstream)> {
         ),
     ];
     arms.extend(agent_tool_arms::downstream_arms());
+    arms.extend(live_metrics_arms::downstream_arms());
     arms
 }

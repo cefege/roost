@@ -156,6 +156,34 @@ message Worker {
   optional HostIdentity host_identity = 12;
 }
 
+// One process in a live host snapshot. `name` is the kernel comm (no argv).
+// `cpu_pct` is per core, so one fully busy core reads 100 and a multi-threaded
+// process may exceed 100.
+message LiveProcess {
+  uint32 pid = 1;
+  uint32 ppid = 2;
+  string name = 3;
+  double cpu_pct = 4;
+  uint64 rss_bytes = 5;
+}
+
+// A point-in-time sample of one worker host. Latest-only: never persisted and
+// never replayed. `cpu_pct` is host-wide, 0 to 100. `processes` is the top 50
+// by cpu_pct united with the top 50 by rss_bytes; `process_count` is the total
+// live process count on the host, not the length of `processes`.
+message LiveHostSnapshot {
+  double cpu_pct = 1;
+  uint64 mem_used_bytes = 2;
+  uint64 mem_total_bytes = 3;
+  uint64 disk_used_bytes = 4;
+  uint64 disk_total_bytes = 5;
+  uint32 cpu_count = 6;
+  uint64 uptime_secs = 7;
+  uint32 process_count = 8;
+  repeated LiveProcess processes = 9;
+  uint64 sampled_at_ms = 10;
+}
+
 
 // ─── Session ────────────────────────────────────────────────────────────
 

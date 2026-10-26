@@ -18,6 +18,7 @@ use super::payloads::{
 use crate::validate::nonnegative;
 use crate::wire::brand::{TraceId, WorkerFp};
 use crate::wire::event::SessionEvent;
+use crate::wire::live_metrics::LiveHostSnapshot;
 use crate::{ProtocolError, ProtocolResult};
 
 /// A frame travelling from the worker to the coordinator.
@@ -145,6 +146,8 @@ pub enum CoordWorkerUpstream {
     AgentToolResult(roost_proto::WAgentToolResult),
     #[serde(rename = "agent-job-result")]
     AgentJobResult(roost_proto::WAgentJobResult),
+    #[serde(rename = "live-metrics")]
+    LiveMetrics(LiveHostSnapshot),
 }
 
 impl CoordWorkerUpstream {
@@ -178,6 +181,7 @@ impl CoordWorkerUpstream {
             Self::AgentToolOutput(_) => "agent-tool-output",
             Self::AgentToolResult(_) => "agent-tool-result",
             Self::AgentJobResult(_) => "agent-job-result",
+            Self::LiveMetrics(_) => "live-metrics",
         }
     }
 
@@ -201,6 +205,7 @@ impl CoordWorkerUpstream {
         match self {
             Self::Pong { ts, .. } => nonnegative("pong.ts", *ts),
             Self::Binary(binary) => binary.check(),
+            Self::LiveMetrics(snapshot) => snapshot.check(),
             _ => Ok(()),
         }
     }

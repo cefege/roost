@@ -157,6 +157,8 @@ pub enum CoordWorkerDownstream {
     AgentToolBackground(roost_proto::DAgentToolBackground),
     #[serde(rename = "agent-jobs-abort")]
     AgentJobsAbort(roost_proto::DAgentJobsAbort),
+    #[serde(rename = "live-metrics-subscription")]
+    LiveMetricsSubscription(roost_proto::DLiveMetricsSubscription),
 }
 
 impl CoordWorkerDownstream {
@@ -199,6 +201,7 @@ impl CoordWorkerDownstream {
             Self::AgentConversationClosed(_) => "agent-conversation-closed",
             Self::AgentToolBackground(_) => "agent-tool-background",
             Self::AgentJobsAbort(_) => "agent-jobs-abort",
+            Self::LiveMetricsSubscription(_) => "live-metrics-subscription",
         }
     }
 

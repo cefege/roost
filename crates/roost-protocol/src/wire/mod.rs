@@ -16,6 +16,7 @@ pub mod coord_worker;
 pub mod event;
 pub mod event_proto;
 pub mod headers;
+pub mod live_metrics;
 pub mod mcp;
 pub mod pairing;
 pub mod session;

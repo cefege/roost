@@ -56,6 +56,8 @@ mod layout_document_graph;
 mod layout_document_proto;
 #[path = "layout_document_proto_bounds.rs"]
 mod layout_document_proto_bounds;
+#[path = "live_metrics_proto.rs"]
+mod live_metrics_proto;
 #[path = "proto_adapters_contract.rs"]
 mod proto_adapters_contract;
 #[path = "session_event_parse.rs"]
