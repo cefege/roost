@@ -2,6 +2,8 @@
 //! slice of output visible while folded (OMP's per-tool preview windows), and
 //! the executor facts. The component is `tool_card`.
 
+use std::collections::BTreeSet;
+
 use crate::components::ui::IconType;
 
 /// Which end of the output a folded preview keeps.
@@ -104,6 +106,105 @@ fn joined_fields(parsed: &serde_json::Value, keys: &[&str]) -> String {
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// One summary clause: the calls that share a verb, and what they count as.
+struct SummaryClause {
+    verb: String,
+    noun: &'static str,
+    by_target: bool,
+    targets: BTreeSet<String>,
+    untargeted: usize,
+    calls: usize,
+}
+
+impl SummaryClause {
+    fn new(verb: String, tool_name: &str) -> Self {
+        Self {
+            verb,
+            noun: noun_for(tool_name),
+            by_target: matches!(tool_name, "read" | "edit" | "write"),
+            targets: BTreeSet::new(),
+            untargeted: 0,
+            calls: 0,
+        }
+    }
+
+    fn record(&mut self, target: String) {
+        self.calls += 1;
+        if target.is_empty() {
+            self.untargeted += 1;
+        } else {
+            self.targets.insert(target);
+        }
+    }
+
+    /// File verbs count distinct paths, so re-editing one file reads as one file.
+    fn count(&self) -> usize {
+        if self.by_target {
+            self.targets.len() + self.untargeted
+        } else {
+            self.calls
+        }
+    }
+}
+
+/// The group header's summary, one clause per verb in first-seen order:
+/// "Edited 1 file, read 1 file, ran 1 command".
+pub(super) fn group_summary<'a>(calls: impl IntoIterator<Item = (&'a str, &'a str)>) -> String {
+    let mut clauses: Vec<SummaryClause> = Vec::new();
+    for (tool_name, args_json) in calls {
+        let (_, verb) = presentation(tool_name, false);
+        let target = argument_summary(tool_name, args_json);
+        match clauses.iter_mut().find(|clause| clause.verb == verb) {
+            Some(clause) => clause.record(target),
+            None => {
+                let mut clause = SummaryClause::new(verb, tool_name);
+                clause.record(target);
+                clauses.push(clause);
+            }
+        }
+    }
+    clauses
+        .iter()
+        .enumerate()
+        .map(|(index, clause)| {
+            let count = clause.count();
+            let verb = if index == 0 {
+                clause.verb.clone()
+            } else {
+                clause.verb.to_lowercase()
+            };
+            format!("{verb} {count} {}", plural(clause.noun, count))
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn noun_for(tool_name: &str) -> &'static str {
+    match tool_name {
+        "read" | "edit" | "write" => "file",
+        "bash" => "command",
+        "grep" | "find" | "glob" => "pattern",
+        "task" => "agent",
+        _ => "call",
+    }
+}
+
+fn plural(noun: &str, count: usize) -> String {
+    if count == 1 {
+        noun.to_owned()
+    } else {
+        format!("{noun}s")
+    }
+}
+
+/// The call's wall time, when its executor reported one.
+pub(super) fn duration_ms(details_json: &str) -> Option<u64> {
+    serde_json::from_str::<serde_json::Value>(details_json)
+        .ok()?
+        .get("duration_ms")?
+        .as_u64()
 }
 
 /// The executor facts worth a line each: exit code, time, truncation, artifact.
@@ -261,5 +362,18 @@ mod tests {
         );
         assert_eq!(state_label("background"), "Backgrounded");
         assert_eq!(status_name("timeout"), "warn");
+    }
+
+    #[test]
+    fn group_summary_counts_distinct_files_and_calls() {
+        assert_eq!(
+            group_summary([
+                ("edit", r#"{"path":"a.ts"}"#),
+                ("edit", r#"{"path":"a.ts"}"#),
+                ("read", r#"{"path":"b.ts"}"#),
+                ("bash", r#"{"command":"npm test"}"#),
+            ]),
+            "Edited 1 file, read 1 file, ran 1 command"
+        );
     }
 }

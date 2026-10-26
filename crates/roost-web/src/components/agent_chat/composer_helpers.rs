@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{
-    GoalState, Transcript, TranscriptItem, parse_slash_command,
+    AgentRunState, GoalState, Transcript, TranscriptItem, parse_slash_command,
 };
 
 use crate::pump::Pump;
@@ -17,6 +17,39 @@ use super::message_actions::EditTarget;
 
 pub(super) fn composer_input_id(conversation_id: &str) -> String {
     format!("agent-chat-input-{conversation_id}")
+}
+
+/// The input placeholder for the current composer state, in the wording the composer
+/// has always used; `busy_mode` picks the copy while a turn is running.
+pub(super) fn composer_placeholder(
+    disabled: bool,
+    send_available: bool,
+    running: bool,
+    busy_mode: &str,
+) -> &'static str {
+    if disabled {
+        "The agent host is offline"
+    } else if !send_available {
+        "Listening…"
+    } else if running {
+        match busy_mode {
+            "follow_up" => "Add a follow-up…",
+            "reject" => "This message will be rejected while busy",
+            _ => "Steer the agent…",
+        }
+    } else {
+        "Ask the agent, or type / for commands…"
+    }
+}
+
+/// The goal, whether the run failed, and the session cost, read before the
+/// submit closure takes the transcript.
+pub(super) fn composer_run_facts(transcript: &Transcript) -> (Option<GoalState>, bool, f64) {
+    (
+        latest_goal(transcript),
+        transcript.run_state == AgentRunState::Failed,
+        transcript.usage.cost_usd,
+    )
 }
 
 /// The transcript's most recent `/goal` state, if one was ever set.
