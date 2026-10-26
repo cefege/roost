@@ -76,6 +76,8 @@ mod cf_access_identity;
 mod cf_access_keyring;
 #[path = "client_seq_cursor.rs"]
 mod client_seq_cursor;
+#[path = "client_state_rpc.rs"]
+mod client_state_rpc;
 #[path = "clipboard_history.rs"]
 mod clipboard_history;
 #[path = "cluster_link_owner.rs"]

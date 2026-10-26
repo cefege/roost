@@ -23,6 +23,7 @@ pub mod agent;
 pub mod agents;
 pub mod attachments;
 pub mod auth;
+pub mod client_state;
 pub mod clipboard;
 pub mod cluster;
 pub mod coord_core;

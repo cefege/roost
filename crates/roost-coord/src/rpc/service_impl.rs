@@ -56,6 +56,7 @@ use crate::auth::rpc_pairing::{
     handle_pair_approval_status, handle_pair_approve, handle_pair_confirm, handle_pair_create,
     handle_pair_deny, handle_pair_list, handle_pair_poll,
 };
+use crate::client_state::{handle_client_state_list, handle_client_state_set};
 use crate::clipboard::{
     handle_clipboard_add, handle_clipboard_clear, handle_clipboard_delete, handle_clipboard_list,
 };
@@ -1095,6 +1096,31 @@ impl CoordinatorService for CoordinatorServiceImpl {
         async move {
             let caller = caller_of(&ctx, "ClipboardClear")?;
             handle_clipboard_clear(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn client_state_list<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, ClientStateListRequest>,
+    ) -> impl Future<
+        Output = ServiceResult<impl Encodable<ClientStateListResponse> + Send + use<'a>>,
+    > + Send {
+        async move {
+            let caller = caller_of(&ctx, "ClientStateList")?;
+            handle_client_state_list(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn client_state_set<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, ClientStateSetRequest>,
+    ) -> impl Future<Output = ServiceResult<impl Encodable<ClientStateSetResponse> + Send + use<'a>>>
+    + Send {
+        async move {
+            let caller = caller_of(&ctx, "ClientStateSet")?;
+            handle_client_state_set(&self.core, caller, r.to_owned_message()).await
         }
     }
 
