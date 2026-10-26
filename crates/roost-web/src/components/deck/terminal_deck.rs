@@ -256,20 +256,28 @@ pub fn TerminalDeck(active_session_id: Option<String>, surface_visible: bool) ->
             if frame.open_session_ids.is_empty() {
                 div { class: "absolute inset-0 flex items-center justify-center text-muted-foreground", "No session selected." }
             }
-            for terminal in terminals {
-                TerminalSlot {
-                    key: "{terminal.session.id.as_str()}",
-                    terminal,
-                    surface_visible,
-                    spotlight_active,
+            // Each keyed slot list sits in its own `contents` box. As bare
+            // siblings, an empty terminal list left the first agent slot of a
+            // cold `/a/<id>` load with no anchor, and dioxus-core 0.8.0-alpha.3
+            // panicked in `Mount::anchor_slot` (mount.rs:242).
+            div { class: "contents",
+                for terminal in terminals {
+                    TerminalSlot {
+                        key: "{terminal.session.id.as_str()}",
+                        terminal,
+                        surface_visible,
+                        spotlight_active,
+                    }
                 }
             }
-            for agent in agents {
-                AgentSlot {
-                    key: "{agent.tab_id}",
-                    agent,
-                    surface_visible,
-                    spotlight_active,
+            div { class: "contents",
+                for agent in agents {
+                    AgentSlot {
+                        key: "{agent.tab_id}",
+                        agent,
+                        surface_visible,
+                        spotlight_active,
+                    }
                 }
             }
             if compact {
