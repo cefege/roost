@@ -50,7 +50,7 @@ pub fn ActivityBar(on_toggle_sidebar: EventHandler<()>) -> Element {
     ];
     let bottom = [Destination::Settings, Destination::Help];
     rsx! {
-        SidenavInner { class: "min-h-0 [grid-area:activity]",
+        SidenavInner { class: "min-h-0 [grid-area:activity]", variant: "Floating",
         nav { class: "flex min-h-0 flex-1 flex-col", "aria-label": "Workbench navigation",
             SidenavGroup {
                 SidenavMenu {
