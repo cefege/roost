@@ -18,6 +18,7 @@ use super::peer_message_card::PeerMessageCard;
 use super::plan_card::PlanCard;
 use super::streaming_reveal::StreamingText;
 use super::thinking_block::ThinkingBlock;
+use super::timeline_rail::{StepMark, TimelineRail, TimelineStep};
 use super::tool_card::ToolCard;
 use crate::components::ui::{
     Avatar, AvatarFallback, Bubble, BubbleContent, BubbleGroup, BubbleVariant, Button,
@@ -105,20 +106,21 @@ pub fn AgentTranscriptView(
                     },
                     Segment::Steps(_) if !show_tools() => rsx! {},
                     Segment::Steps(steps) => rsx! {
-                        div { key: "{step_group_key(&steps)}", class: "flex flex-col gap-2",
+                        TimelineRail { key: "{step_group_key(&steps)}",
                             for step in steps {
                                 if let TranscriptItem::Tool { id, tool_name, args_json, output, is_error, running, queued, details_json, children, .. } = step {
-                                    ToolCard {
-                                        key: "{id}",
-                                        tool_name: tool_name.clone(),
-                                        args_json: args_json.clone(),
-                                        output: output.clone(),
-                                        is_error: *is_error,
-                                        running: *running,
-                                        queued: *queued,
-                                        details_json: details_json.clone(),
-                                        child_ids: children.clone(),
-                                        expanded: expand_tools(),
+                                    TimelineStep { key: "{id}", mark: StepMark::from_tool(*is_error, *running, *queued),
+                                        ToolCard {
+                                            tool_name: tool_name.clone(),
+                                            args_json: args_json.clone(),
+                                            output: output.clone(),
+                                            is_error: *is_error,
+                                            running: *running,
+                                            queued: *queued,
+                                            details_json: details_json.clone(),
+                                            child_ids: children.clone(),
+                                            expanded: expand_tools(),
+                                        }
                                     }
                                 }
                             }
