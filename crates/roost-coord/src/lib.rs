@@ -33,6 +33,7 @@ pub mod diagnostics;
 pub mod events;
 pub mod http;
 pub mod http_admission;
+pub mod live_metrics;
 pub mod maintenance;
 pub mod middleware;
 pub mod push;

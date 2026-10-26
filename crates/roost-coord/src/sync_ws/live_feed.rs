@@ -9,7 +9,7 @@
 //! `sync_ws::session_replay`; the durable rows and retained seeds themselves
 //! are `sync_ws::backfill` and `sync_ws::seed`.
 //!
-//! SIXTEEN eager subscriptions, one per bus in `Buses` except `audit_bus`,
+//! TWENTY eager subscriptions, one per bus in `Buses` except `audit_bus`,
 //! which is on demand -- eagerly for a v1 socket, which has no domain
 //! commands, and only on `domainSubscribe` for a v2 one.
 use std::any::Any;
@@ -65,7 +65,7 @@ impl LiveFeed {
         viewer: UiViewer,
         viewer_key: Option<String>,
     ) -> Self {
-        let mut subscriptions: Vec<Box<dyn Any + Send + Sync>> = Vec::with_capacity(16);
+        let mut subscriptions: Vec<Box<dyn Any + Send + Sync>> = Vec::with_capacity(20);
         let sink = Arc::clone(link);
         subscriptions.push(Box::new(buses.session_bus.subscribe(move |message| {
             sink.deliver_with(|state| route_session(state, message));
@@ -197,6 +197,9 @@ impl LiveFeed {
         subscriptions.push(Box::new(buses.ui_bus.subscribe(move |message| {
             sink.deliver_with(|_| ui_bus_frame(message, &viewer));
         })));
+        subscriptions.push(Box::new(crate::sync_ws::live_metrics_feed::subscribe(
+            link, buses,
+        )));
         Self {
             subscriptions,
             audit: None,
@@ -380,7 +383,7 @@ fn route_workspace(state: &mut LinkState, delta: &WorkspaceDelta) -> Option<Feed
 
 /// An adapter's refusal, logged and dropped: one unencodable message must not
 /// cost the socket the rest of its feed.
-fn refused_as_none(
+pub(super) fn refused_as_none(
     bus: &'static str,
     frame: Result<FeedFrame, crate::sync_ws::feed::FeedRefusal>,
 ) -> Option<FeedFrame> {

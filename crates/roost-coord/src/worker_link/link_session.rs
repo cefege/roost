@@ -148,6 +148,7 @@ impl LinkSession {
             tracing::warn!(%worker_fp, "worker link: send_failed for hello_ack");
         }
         services.worker_lifecycle.hello_acknowledged(&handle);
+        crate::live_metrics::rearm_worker(services, &handle);
         tracing::info!(
             %worker_fp,
             connection_generation = %handle.connection_generation,

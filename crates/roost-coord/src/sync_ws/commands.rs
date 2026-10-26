@@ -29,6 +29,7 @@ use roost_proto::{
     SyncDomainSubscriptionCommand, TerminalInputRouteClaim, TerminalResyncCommand,
     TerminalTransportProbe, TerminalViewCommand, UiApplyLayoutResult,
 };
+use roost_protocol::wire::WorkerFp;
 
 use crate::sync_ws::admission::EnqueueOutcome;
 use crate::sync_ws::control_frames::ResetNotice;
@@ -138,6 +139,13 @@ pub enum CommandOutcome {
     /// them would leave the client waiting for an answer to a frame the
     /// coordinator never understood.
     Invalid(InvalidFrame),
+    /// The socket's live-metrics subscription as the complete set of workers it
+    /// now wants. Replace-whole-set: an empty set ends every subscription this
+    /// socket held.
+    WorkerLiveSubscription {
+        /// The workers whose live host snapshots this socket wants.
+        worker_fps: BTreeSet<WorkerFp>,
+    },
 }
 
 /// Whether a decoded client frame is byte-for-byte the canonical encoding of
@@ -258,6 +266,9 @@ pub fn handle_client_frame(
             set_lazy_domain_subscription(session, context, unsubscribe, false)
         }
         Some(Command::UiApplyLayoutResult(result)) => layout_result(context, result),
+        Some(Command::WorkerLiveSubscription(subscription)) => {
+            super::worker_live_command::worker_live_subscription(subscription)
+        }
         Some(other) => super::terminal_command::terminal_command_gate(session, context, other),
     }
 }

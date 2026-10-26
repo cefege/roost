@@ -22,10 +22,12 @@ use roost_proto::{
     FirehoseFrame, HostMetrics as PbHostMetrics, Worker as PbWorker, WorkerHeartbeat,
     WorkerPresenceProto, WorkerRoutableFrame,
 };
+use roost_protocol::proto_adapters::live_metrics_proto::worker_live_metrics_frame_to_proto;
 use roost_protocol::proto_adapters::{
     host_identity_to_proto, keeper_runtime_observation_to_proto,
     terminal_core_capacity_report_to_proto,
 };
+use roost_protocol::wire::live_metrics::WorkerLiveMetricsFrame;
 use roost_protocol::wire::{HostMetrics, Worker as WireWorker, WorkerFp, WorkerPresenceEvent};
 
 use crate::events::bus_messages::WorkerRoutableSet;
@@ -66,6 +68,17 @@ pub fn worker_presence_frame(event: &WorkerPresenceEvent) -> Result<FeedFrame, F
             kind: Some(kind),
             ..WorkerPresenceProto::default()
         }))),
+        ..FirehoseFrame::default()
+    }))
+}
+
+/// One worker's live host snapshot as its frame. An unsequenced control on the
+/// wire: it is never stamped or charged to the ack window.
+pub fn worker_live_metrics_frame(frame: &WorkerLiveMetricsFrame) -> Result<FeedFrame, FeedRefusal> {
+    Ok(FeedFrame::of(FirehoseFrame {
+        frame: Some(Frame::WorkerLiveMetrics(Box::new(
+            worker_live_metrics_frame_to_proto(frame)?,
+        ))),
         ..FirehoseFrame::default()
     }))
 }

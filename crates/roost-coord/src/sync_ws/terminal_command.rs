@@ -52,7 +52,8 @@ pub(in crate::sync_ws) fn terminal_command_gate(
         Command::DomainReady(_)
         | Command::DomainSubscribe(_)
         | Command::DomainUnsubscribe(_)
-        | Command::UiApplyLayoutResult(_) => {
+        | Command::UiApplyLayoutResult(_)
+        | Command::WorkerLiveSubscription(_) => {
             return CommandOutcome::Nothing;
         }
     };
@@ -105,7 +106,8 @@ fn terminal_command_of(command: &Command) -> Option<TerminalCommand> {
         Command::DomainReady(_)
         | Command::DomainSubscribe(_)
         | Command::DomainUnsubscribe(_)
-        | Command::UiApplyLayoutResult(_) => None,
+        | Command::UiApplyLayoutResult(_)
+        | Command::WorkerLiveSubscription(_) => None,
     }
 }
 
@@ -133,6 +135,7 @@ fn refusal_frame(command: &Command, reason: &str) -> Option<FirehoseFrame> {
         Command::DomainReady(_)
         | Command::DomainSubscribe(_)
         | Command::DomainUnsubscribe(_)
-        | Command::UiApplyLayoutResult(_) => None,
+        | Command::UiApplyLayoutResult(_)
+        | Command::WorkerLiveSubscription(_) => None,
     }
 }

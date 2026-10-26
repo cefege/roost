@@ -169,7 +169,8 @@ pub fn frame_meta_for(frame: &Frame) -> SyncFrameMeta {
         | Frame::InputRejected(_)
         | Frame::InputAmbiguous(_)
         | Frame::InputRouteResult(_)
-        | Frame::TerminalTransportProbeResult(_) => SyncFrameMeta::control(),
+        | Frame::TerminalTransportProbeResult(_)
+        | Frame::WorkerLiveMetrics(_) => SyncFrameMeta::control(),
     }
 }
 
