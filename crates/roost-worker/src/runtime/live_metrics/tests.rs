@@ -114,8 +114,7 @@ fn owner_with(cpu_pct: f64) -> (LiveMetricsOwner, Arc<Probe>) {
         uplink: Uplink::detached(),
         probe: Arc::clone(&probe),
     });
-    let owner =
-        LiveMetricsOwner::with_parts("worker-a".to_owned(), sink, make_sampler, TICK);
+    let owner = LiveMetricsOwner::with_parts("worker-a".to_owned(), sink, make_sampler, TICK);
     (owner, probe)
 }
 
@@ -158,7 +157,10 @@ async fn a_published_sample_carries_the_sampled_figures() {
     assert_eq!(first.cpu_count, 4);
     assert_eq!(first.processes.len(), 1);
     assert_eq!(first.processes[0].name, "sshd");
-    assert!(first.check().is_ok(), "a published sample passes the wire rules");
+    assert!(
+        first.check().is_ok(),
+        "a published sample passes the wire rules"
+    );
 }
 
 #[tokio::test]
@@ -166,7 +168,11 @@ async fn starting_a_running_owner_builds_one_sampler() {
     let (owner, probe) = owner_with(1.0);
     owner.start();
     owner.start();
-    assert_eq!(probe.built(), 1, "a second start while running keeps the sampler");
+    assert_eq!(
+        probe.built(),
+        1,
+        "a second start while running keeps the sampler"
+    );
     settle_until(|| probe.published_count() >= 1).await;
     owner.stop();
 }
