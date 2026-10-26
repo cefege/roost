@@ -1,6 +1,6 @@
-//! The stock Sidenav footer's machine picker and launch actions.
-//! Existing target selection chooses the active folder when possible and the
-//! target machine's browser otherwise; keyboard focus remains menu-owned.
+//! The stock Sidenav footer's launch actions. "New agent" and "Terminal" each
+//! ask which machine to start on when more than one is online; a single online
+//! machine launches directly. The active folder is reused on its own machine.
 
 use dioxus::prelude::*;
 
@@ -10,60 +10,58 @@ use crate::components::browse::browse_mode_href;
 use crate::components::browse::listing;
 use crate::components::context_menu::MenuFocusEdge;
 use crate::components::ui::dropdown_menu::{
-    DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+    DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 };
 use crate::components::ui::menu_overlay::{
-    MenuContext, MenuSide, anchored_placement, request_close, request_open,
+    MenuContext, MenuSide, anchored_placement, request_open,
 };
 use crate::components::ui::{
     Button, ButtonSize, ButtonVariant, Icon, IconType, SidenavFooter, StatusDot,
 };
-use crate::new_terminal_target::{
-    default_new_terminal_worker_fp, effective_new_terminal_target, online_workers_by_label,
-};
+use crate::new_terminal_target::{default_new_terminal_worker_fp, online_workers_by_label};
 use crate::platform::BrowserWorkerPaths;
-use crate::pump::use_store;
+use crate::pump::{Pump, use_store};
 use crate::route_session::active_session_for_path;
 use crate::router_state::{use_location, use_navigate};
 use crate::routes::Route;
 
-/// The machine trigger's id; the ui root focuses it when the picker closes.
-pub const MACHINE_TRIGGER_ID: &str = "sidebar-new-terminal-machine";
-/// The machine menu's id.
-pub const MACHINE_MENU_ID: &str = "sidebar-new-terminal-machine-menu";
-
-/// The machine menu opens UPWARD, its bottom edge above the trigger, so the
+/// The machine menus open UPWARD, their bottom edge above the button, so the
 /// picker never covers the sidebar rows below it. `tests/sidebar_logic.rs` reads
 /// this constant, so a change to the side fails that test rather than passing silently.
 pub const MACHINE_MENU_SIDE: MenuSide = MenuSide::Above;
 
-/// What a key pressed on the machine trigger does.
+/// What a launch button starts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MachineTriggerKeyAction {
-    /// Open the menu with this edge focused; the event is consumed.
-    Open(MenuFocusEdge),
-    /// The menu is open but focus is still on the trigger: focus this edge;
-    /// the event is consumed.
-    FocusEdge(MenuFocusEdge),
-    /// Close the menu, focus staying on the trigger; the event is consumed.
-    Close,
-    /// Not the trigger's key.
-    Ignore,
+pub enum LaunchKind {
+    Agent,
+    Terminal,
 }
 
-/// The trigger's keys. Home/End only reach the trigger while the menu is open
-/// when they beat the menu's first focus there, and they still pick their
-/// edge, as they would have from inside the menu: the reader pressed them
-/// after opening it, so dropping them on the render's timing loses a key.
-pub fn machine_trigger_key_action(key: &str, menu_open: bool) -> MachineTriggerKeyAction {
-    match (key, menu_open) {
-        ("ArrowDown", _) => MachineTriggerKeyAction::Open(MenuFocusEdge::First),
-        ("ArrowUp", _) => MachineTriggerKeyAction::Open(MenuFocusEdge::Last),
-        ("Home", true) => MachineTriggerKeyAction::FocusEdge(MenuFocusEdge::First),
-        ("End", true) => MachineTriggerKeyAction::FocusEdge(MenuFocusEdge::Last),
-        ("Escape", true) => MachineTriggerKeyAction::Close,
-        _ => MachineTriggerKeyAction::Ignore,
+impl LaunchKind {
+    fn button_id(self) -> &'static str {
+        match self {
+            Self::Agent => "sidebar-new-agent-button",
+            Self::Terminal => "sidebar-new-terminal-button",
+        }
     }
+
+    fn menu_id(self) -> &'static str {
+        match self {
+            Self::Agent => "sidebar-new-agent-machine-menu",
+            Self::Terminal => "sidebar-new-terminal-machine-menu",
+        }
+    }
+}
+
+/// The launch context read from the store once per render.
+#[derive(Clone, PartialEq)]
+struct LaunchTargets {
+    /// Online machines as `(fingerprint, label)`, in menu order.
+    online: Vec<(String, String)>,
+    /// The machine the current route points at, marked in the menu.
+    suggested_fp: Option<String>,
+    /// The active session's or conversation's `(machine, folder)`.
+    context_folder: Option<(String, String)>,
 }
 
 /// The action bar.
@@ -71,10 +69,7 @@ pub fn machine_trigger_key_action(key: &str, menu_open: bool) -> MachineTriggerK
 pub fn SidebarNewTerminal() -> Element {
     let pump = use_store();
     let path = use_location();
-    let navigate = use_navigate();
-    let mut selected_fp = use_signal(|| None::<String>);
-    let mut menu_open = use_signal(|| false);
-    let (online, target_fp, context_folder) = {
+    let targets = {
         let core = pump.core();
         let core = core.borrow();
         let store = core.store();
@@ -87,130 +82,55 @@ pub fn SidebarNewTerminal() -> Element {
             }
             _ => None,
         };
-        let contextual_worker = session
-            .map(|session| session.worker_fp.to_string())
-            .or_else(|| agent.map(|conversation| conversation.worker_fp.clone()));
         let context_folder = session
             .map(|session| (session.worker_fp.to_string(), session.cwd.clone()))
             .or_else(|| {
                 agent.map(|conversation| (conversation.worker_fp.clone(), conversation.cwd.clone()))
-            })
-            .filter(|(worker_fp, _)| workers.iter().any(|worker| worker.fp.as_str() == worker_fp));
-        let default = default_new_terminal_worker_fp(store, now_ms, contextual_worker.as_deref());
-        let target =
-            effective_new_terminal_target(selected_fp.read().as_deref(), &workers, default);
-        let online: Vec<(String, String)> = workers
-            .iter()
-            .map(|worker| (worker.fp.to_string(), worker.label.clone()))
-            .collect();
-        let context_folder =
-            context_folder.filter(|(worker_fp, _)| target.as_deref() == Some(worker_fp.as_str()));
-        (online, target, context_folder)
+            });
+        let contextual_worker = context_folder.as_ref().map(|(fp, _)| fp.as_str());
+        LaunchTargets {
+            online: workers
+                .iter()
+                .map(|worker| (worker.fp.to_string(), worker.label.clone()))
+                .collect(),
+            suggested_fp: default_new_terminal_worker_fp(store, now_ms, contextual_worker),
+            context_folder,
+        }
     };
-    let target_label = target_fp.as_ref().map_or_else(String::new, |fp| {
-        online
-            .iter()
-            .find(|(online_fp, _)| online_fp == fp)
-            .map_or_else(|| fp.chars().take(8).collect(), |(_, label)| label.clone())
-    });
-    let selected_gone = selected_fp
-        .peek()
-        .as_ref()
-        .is_some_and(|fp| !online.iter().any(|(online_fp, _)| online_fp == fp));
-    if selected_gone {
-        selected_fp.set(None);
-    }
-    // With the trigger gone the picker has nothing to anchor to, so it closes
-    // rather than floating on its own.
-    if online.len() < 2 && *menu_open.peek() {
-        menu_open.set(false);
-    }
-    let agent_target = target_fp.clone();
-    let terminal_target = target_fp.clone();
-    let agent_pump = pump.clone();
-    let agent_navigate = navigate;
-    let agent_context = context_folder.clone();
-    let terminal_pump = pump.clone();
-    let terminal_navigate = navigate;
-    let terminal_context = context_folder.clone();
     rsx! {
-        DropdownMenu {
-            open: menu_open(),
-            on_open_change: move |open: bool| menu_open.set(open),
-            side: MACHINE_MENU_SIDE,
-            trigger_id: MACHINE_TRIGGER_ID,
-            menu_id: MACHINE_MENU_ID,
-            test_id: "sidebar-new-terminal-machine-menu",
-            SidenavFooter { "data-testid": "sidebar-new-terminal",
-                if online.len() > 1 {
-                    MachineTrigger { target_label: target_label.clone() }
-                } else if !target_label.is_empty() {
-                    span {
-                        class: "flex min-w-0 items-center gap-2 px-2 text-sm",
-                        "data-testid": "sidebar-new-terminal-machine-label",
-                        title: target_label.clone(),
-                        StatusDot { status: "ok".to_owned() }
-                        span { class: "min-w-0 truncate", {target_label.clone()} }
-                    }
-                }
-                div { class: "flex items-center gap-2",
-                Button {
-                    class: "flex-1",
-                    variant: ButtonVariant::Default,
-                    size: ButtonSize::Sm,
-                    icon: IconType::Bot,
-                    "data-testid": "sidebar-new-agent-button",
-                    "aria-label": "New agent",
-                    title: "New agent in this workspace",
-                    disabled: target_fp.is_none(),
-                    onclick: move |_| {
-                        if let Some((worker_fp, folder)) = agent_context.clone() {
-                            launch_agent(agent_pump.clone(), worker_fp, folder, agent_navigate);
-                        } else if let Some(worker_fp) = agent_target.clone() {
-                            agent_navigate.call(browse_mode_href(&worker_fp, BrowseLaunchMode::Agent));
-                        }
-                    },
-                    "New agent"
-                }
-                Button {
-                    variant: ButtonVariant::Outline,
-                    size: ButtonSize::Sm,
-                    class: "flex-1",
-                    icon: IconType::Terminal,
-                    "aria-label": "Open terminal",
-                    "data-testid": "sidebar-new-terminal-button",
-                    title: "Open a terminal in this workspace",
-                    disabled: target_fp.is_none(),
-                    onclick: move |_| {
-                        if let Some((worker_fp, folder)) = terminal_context.clone() {
-                            listing::launch_terminal(terminal_pump.clone(), worker_fp, folder, terminal_navigate);
-                        } else if let Some(worker_fp) = terminal_target.clone() {
-                            terminal_navigate.call(Route::Browse { worker_fp: Some(worker_fp) }.to_path());
-                        }
-                    },
-                    "Terminal"
-                }
-                }
-                DropdownMenuContent { class: "min-w-40",
-                    for (fp, label) in online.iter().cloned() {
-                        DropdownMenuItem {
+        SidenavFooter { "data-testid": "sidebar-new-terminal",
+            div { class: "flex items-center gap-2",
+                LaunchMenu { kind: LaunchKind::Agent, targets: targets.clone() }
+                LaunchMenu { kind: LaunchKind::Terminal, targets }
+            }
+        }
+    }
+}
+
+/// One launch button and the machine menu it opens.
+#[component]
+fn LaunchMenu(kind: LaunchKind, targets: LaunchTargets) -> Element {
+    let mut open = use_signal(|| false);
+    rsx! {
+        div { class: "flex-1",
+            DropdownMenu {
+                open: open(),
+                on_open_change: move |next: bool| open.set(next),
+                side: MACHINE_MENU_SIDE,
+                trigger_id: kind.button_id(),
+                menu_id: kind.menu_id(),
+                test_id: kind.menu_id(),
+                LaunchButton { kind, targets: targets.clone() }
+                DropdownMenuContent { class: "min-w-48",
+                    DropdownMenuLabel { "Start on which machine?" }
+                    for (fp, label) in targets.online.iter().cloned() {
+                        MachineOption {
                             key: "{fp}",
-                            class: "gap-2",
-                            test_id: "sidebar-new-terminal-machine-option",
-                            title: label.clone(),
-                            onclick: {
-                                let from = target_fp.clone();
-                                let fp = fp.clone();
-                                move |_: MouseEvent| {
-                                    tracing::info!(target: "sidebar", from = ?from, to = %fp, "new terminal target changed");
-                                    selected_fp.set(Some(fp.clone()));
-                                }
-                            },
-                            StatusDot { status: "ok".to_owned() }
-                            span { class: "min-w-0 flex-1 truncate", {label.clone()} }
-                            if target_fp.as_deref() == Some(fp.as_str()) {
-                                Icon { icon: IconType::Check, class: "size-4 shrink-0" }
-                            }
+                            kind,
+                            fp: fp.clone(),
+                            label,
+                            suggested: targets.suggested_fp.as_deref() == Some(fp.as_str()),
+                            context_folder: targets.context_folder.clone(),
                         }
                     }
                 }
@@ -219,42 +139,119 @@ pub fn SidebarNewTerminal() -> Element {
     }
 }
 
-/// The picker's trigger. It sits inside the ui root so its keys can drive the
-/// root's open state and focus edge; `on_key` consumes the keys it owns.
+/// The button. With several machines online it opens the menu; with one it
+/// launches there; with none it is disabled.
 #[component]
-fn MachineTrigger(target_label: String) -> Element {
+fn LaunchButton(kind: LaunchKind, targets: LaunchTargets) -> Element {
+    let pump = use_store();
+    let navigate = use_navigate();
     let context = try_use_context::<MenuContext>();
-    let on_key = Callback::new(move |event: KeyboardEvent| {
-        let Some(context) = context else {
-            return false;
-        };
-        let open = context.root.peek().open;
-        let action = machine_trigger_key_action(&event.key().to_string(), open);
-        if action == MachineTriggerKeyAction::Ignore {
-            return false;
-        }
-        event.prevent_default();
-        event.stop_propagation();
-        match action {
-            MachineTriggerKeyAction::Open(edge) => request_open(
-                context,
-                Some(anchored_placement(MACHINE_TRIGGER_ID, MACHINE_MENU_SIDE)),
-                Some(edge),
-            ),
-            MachineTriggerKeyAction::FocusEdge(edge) => request_open(context, None, Some(edge)),
-            MachineTriggerKeyAction::Close => request_close(context, true),
-            MachineTriggerKeyAction::Ignore => {}
-        }
-        true
-    });
+    let (variant, icon, label, aria, title) = match kind {
+        LaunchKind::Agent => (
+            ButtonVariant::Default,
+            IconType::Bot,
+            "New agent",
+            "New agent",
+            "Start a new agent",
+        ),
+        LaunchKind::Terminal => (
+            ButtonVariant::Outline,
+            IconType::Terminal,
+            "Terminal",
+            "Open terminal",
+            "Open a new terminal",
+        ),
+    };
+    let only_machine = match targets.online.as_slice() {
+        [(fp, _)] => Some(fp.clone()),
+        _ => None,
+    };
     rsx! {
-        DropdownMenuTrigger {
-            class: "w-full justify-between",
-            test_id: "sidebar-new-terminal-machine",
-            on_key,
+        Button {
+            class: "w-full",
+            variant,
+            size: ButtonSize::Sm,
+            icon,
+            id: kind.button_id(),
+            "data-testid": kind.button_id(),
+            "aria-label": aria,
+            "aria-haspopup": if only_machine.is_none() { "menu" } else { "false" },
+            title,
+            disabled: targets.online.is_empty(),
+            onclick: move |_| {
+                if let Some(fp) = only_machine.clone() {
+                    launch_on_machine(kind, fp, targets.context_folder.clone(), pump.clone(), navigate);
+                } else if let Some(context) = context {
+                    tracing::debug!(target: "sidebar", ?kind, "machine picker opened");
+                    request_open(
+                        context,
+                        Some(anchored_placement(kind.button_id(), MACHINE_MENU_SIDE)),
+                        Some(MenuFocusEdge::First),
+                    );
+                }
+            },
+            {label}
+        }
+    }
+}
+
+/// One machine row in a launch menu.
+#[component]
+fn MachineOption(
+    kind: LaunchKind,
+    fp: String,
+    label: String,
+    suggested: bool,
+    context_folder: Option<(String, String)>,
+) -> Element {
+    let pump = use_store();
+    let navigate = use_navigate();
+    let target = fp.clone();
+    rsx! {
+        DropdownMenuItem {
+            class: "gap-2",
+            test_id: "sidebar-launch-machine-option",
+            title: label.clone(),
+            onclick: move |_: MouseEvent| {
+                launch_on_machine(kind, target.clone(), context_folder.clone(), pump.clone(), navigate);
+            },
             StatusDot { status: "ok".to_owned() }
-            span { class: "min-w-0 truncate text-sm text-foreground", {target_label.clone()} }
-            Icon { icon: IconType::ChevronDown, class: "size-4 shrink-0 text-muted-foreground" }
+            span { class: "min-w-0 flex-1 truncate", {label.clone()} }
+            if suggested {
+                Icon { icon: IconType::Check, class: "size-4 shrink-0" }
+            }
+        }
+    }
+}
+
+/// Starts `kind` on `worker_fp`: in the active folder when it lives on that
+/// machine, else through the machine's folder browser.
+fn launch_on_machine(
+    kind: LaunchKind,
+    worker_fp: String,
+    context_folder: Option<(String, String)>,
+    pump: Pump,
+    navigate: EventHandler<String>,
+) {
+    tracing::info!(target: "sidebar", ?kind, worker_fp = %worker_fp, "launch machine chosen");
+    let folder = context_folder
+        .filter(|(fp, _)| *fp == worker_fp)
+        .map(|(_, folder)| folder);
+    match (kind, folder) {
+        (LaunchKind::Agent, Some(folder)) => launch_agent(pump, worker_fp, folder, navigate),
+        (LaunchKind::Agent, None) => {
+            navigate.call(browse_mode_href(&worker_fp, BrowseLaunchMode::Agent));
+        }
+        (LaunchKind::Terminal, Some(folder)) => {
+            listing::launch_terminal(pump, worker_fp, folder, navigate);
+        }
+        (LaunchKind::Terminal, None) => {
+            navigate.call(
+                Route::Browse {
+                    worker_fp: Some(worker_fp),
+                }
+                .to_path(),
+            );
         }
     }
 }
