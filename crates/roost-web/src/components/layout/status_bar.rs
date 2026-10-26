@@ -116,7 +116,7 @@ pub fn StatusBar() -> Element {
     .map(|session| session.id.as_str().to_owned());
     rsx! {
         footer {
-            class: "flex min-w-0 items-center gap-3 overflow-hidden border-t border-border bg-card px-2 font-medium text-xs text-muted-foreground [grid-area:statusbar]",
+            class: "flex h-6 min-w-0 items-center gap-3 overflow-hidden border-t border-border bg-background px-3 font-medium text-xs text-muted-foreground [grid-area:statusbar]",
             "data-testid": "workbench-status-bar",
             "aria-label": "Workbench status",
             div { class: "contents",

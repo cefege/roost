@@ -191,7 +191,7 @@
   --breakpoint-4xl: 2000px;
   --font-sans: var(--font-sans);
   --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  --radius-md: var(--radius-control);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
   --radius-row: 6px;
@@ -206,6 +206,7 @@
   --duration-in: 410ms;
   --duration-hover: 140ms;
   --container-reading: clamp(720px, 72%, 1200px);
+  --container-splash: 40rem;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
