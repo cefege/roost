@@ -154,6 +154,9 @@ pub(super) fn to_proto(frame: &CoordWorkerDownstream) -> ProtocolResult<CoordWor
         CoordWorkerDownstream::AgentJobsAbort(abort) => {
             Frame::AgentJobsAbort(Box::new((*abort).clone()))
         }
+        CoordWorkerDownstream::LiveMetricsSubscription(subscription) => {
+            Frame::LiveMetrics(Box::new((*subscription).clone()))
+        }
     };
     Ok(CoordWorkerDown {
         frame: Some(arm),
@@ -284,6 +287,9 @@ pub(super) fn from_proto(message: &CoordWorkerDown) -> ProtocolResult<CoordWorke
             CoordWorkerDownstream::AgentToolBackground((**background).clone())
         }
         Frame::AgentJobsAbort(abort) => CoordWorkerDownstream::AgentJobsAbort((**abort).clone()),
+        Frame::LiveMetrics(subscription) => {
+            CoordWorkerDownstream::LiveMetricsSubscription((**subscription).clone())
+        }
     };
     frame.check()?;
     Ok(frame)

@@ -43,6 +43,7 @@ const UPSTREAM_FIELD_NUMBERS: &[(&str, u32)] = &[
     ("update-progress", 30),
     ("agent-tool-output", 33),
     ("agent-tool-result", 34),
+    ("live-metrics", 36),
 ];
 
 /// `CoordWorkerDown`'s oneof arms. Field 11 is `reserved`, so a peer that
@@ -82,6 +83,7 @@ const DOWNSTREAM_FIELD_NUMBERS: &[(&str, u32)] = &[
     ("agent-tool-call", 37),
     ("agent-tool-cancel", 38),
     ("agent-conversation-closed", 39),
+    ("live-metrics-subscription", 42),
 ];
 
 /// The field number of a length-delimited protobuf field, read off the wire.

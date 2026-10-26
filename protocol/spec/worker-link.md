@@ -25,6 +25,7 @@ Each worker dials one long-lived, full-duplex binary WebSocket to the coordinato
 | `WAgentJobResult` | `protocol/proto/roost/v1/worker_transport.proto` | Settled background `bash` job (`Completed`, `Failed` or `Cancelled`) for one conversation; a running state is refused. Not replayed after link loss: the coordinator records the job as lost. |
 | `DAgentToolCall`, `WAgentToolResult` | `protocol/proto/roost/v1/worker_transport.proto` | Native tool execution correlated by `call_id`; the call names its conversation, working directory and file-restore checkpoint. |
 | `DAgentToolBackground`, `DAgentJobsAbort` | `protocol/proto/roost/v1/worker_transport.proto` | Coordinator asks a worker to detach a running `bash` call into a job, or to cancel a conversation's running jobs. |
+| `WLiveMetrics`, `DLiveMetricsSubscription` | `protocol/proto/roost/v1/worker_transport.proto` | Live host snapshot a worker sends while a coordinator holds a subscription (`CoordWorkerUp` field 36), and the coordinator's subscription toggle (`CoordWorkerDown` field 42). Socket-bound and latest-only: no ACK or replay, dropped under backpressure, never persisted. The coordinator refcounts subscribers per worker on the replica holding the link: first subscriber sends `active: true`, last unsubscribe sends `active: false`, and a reconnect with subscribers re-sends `active: true`. The worker samples only while active, every 2 seconds. |
 
 ## State machine
 

@@ -20,13 +20,17 @@ use super::records::{
     update_progress_to_proto, widen_u64,
 };
 use super::{UPSTREAM, empty_arm, unknown_arm};
+use crate::proto_adapters::live_metrics_proto::{
+    live_host_snapshot_from_proto, live_host_snapshot_to_proto,
+};
 use crate::wire::brand::WorkerFp;
 use crate::wire::coord_worker::CoordWorkerUpstream;
 use crate::wire::coord_worker::{Binary, RefreshJwt};
 use crate::wire::event_proto::{event_to_proto, proto_to_event};
 use crate::{ProtocolError, ProtocolResult};
 use roost_proto::{
-    CoordWorkerUp, WBinary, WHello, WPong, WRefreshJwt, WRpcError, WRpcOk, WSessionEvent,
+    CoordWorkerUp, WBinary, WHello, WLiveMetrics, WPong, WRefreshJwt, WRpcError, WRpcOk,
+    WSessionEvent,
 };
 
 /// Map one union frame onto the generated oneof. The event and the status
@@ -143,6 +147,10 @@ pub(super) fn to_proto(frame: &CoordWorkerUpstream) -> ProtocolResult<CoordWorke
         CoordWorkerUpstream::AgentJobResult(result) => {
             Frame::AgentJobResult(Box::new((*result).clone()))
         }
+        CoordWorkerUpstream::LiveMetrics(snapshot) => Frame::LiveMetrics(Box::new(WLiveMetrics {
+            snapshot: MessageField::some(live_host_snapshot_to_proto(snapshot)?),
+            ..Default::default()
+        })),
     };
     Ok(CoordWorkerUp {
         frame: Some(arm),
@@ -256,6 +264,15 @@ pub(super) fn from_proto(message: &CoordWorkerUp) -> ProtocolResult<CoordWorkerU
         Frame::AgentToolOutput(output) => CoordWorkerUpstream::AgentToolOutput((**output).clone()),
         Frame::AgentToolResult(result) => CoordWorkerUpstream::AgentToolResult((**result).clone()),
         Frame::AgentJobResult(result) => CoordWorkerUpstream::AgentJobResult((**result).clone()),
+        Frame::LiveMetrics(metrics) => {
+            let snapshot = metrics.snapshot.as_option().ok_or_else(|| {
+                ProtocolError::new(
+                    "live_metrics.snapshot",
+                    "live metrics frame is missing its snapshot",
+                )
+            })?;
+            CoordWorkerUpstream::LiveMetrics(live_host_snapshot_from_proto(snapshot)?)
+        }
     };
     frame.check()?;
     Ok(frame)
