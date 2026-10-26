@@ -105,11 +105,12 @@ impl LiveSampler {
             }
         }
         let (disk_used_bytes, disk_total_bytes) = self.disk.sample();
-        let (processes, process_count) =
-            select_top_processes(host.processes, TOP_PROCESS_COUNT);
+        let (processes, process_count) = select_top_processes(host.processes, TOP_PROCESS_COUNT);
         LiveSnapshot {
             cpu_pct: host.cpu_pct,
-            mem_used_bytes: host.mem_total_bytes.saturating_sub(host.mem_available_bytes),
+            mem_used_bytes: host
+                .mem_total_bytes
+                .saturating_sub(host.mem_available_bytes),
             mem_total_bytes: host.mem_total_bytes,
             disk_used_bytes,
             disk_total_bytes,
@@ -177,7 +178,9 @@ fn cpu_count() -> u32 {
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
+        .map_or(0, |elapsed| {
+            u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
+        })
 }
 
 #[cfg(test)]

@@ -296,11 +296,20 @@ mod tests {
 
     #[test]
     fn host_cpu_is_busy_share_of_the_aggregate_delta() {
-        let previous = CpuJiffies { idle: 100, total: 200 };
-        let now = CpuJiffies { idle: 150, total: 400 };
+        let previous = CpuJiffies {
+            idle: 100,
+            total: 200,
+        };
+        let now = CpuJiffies {
+            idle: 150,
+            total: 400,
+        };
         assert!((host_cpu_pct(previous, now) - 75.0).abs() < 1e-9);
         assert_eq!(host_cpu_pct(now, now), 0.0);
-        let backwards = CpuJiffies { idle: 0, total: 100 };
+        let backwards = CpuJiffies {
+            idle: 0,
+            total: 100,
+        };
         assert_eq!(host_cpu_pct(now, backwards), 0.0);
     }
 
