@@ -1,8 +1,7 @@
 //! The `/design` gallery's scale catalogs: the type, radius, spacing,
 //! elevation, status and grid specimens it draws (the colour roles are
 //! `color_roles.rs`). Every class is a complete utility literal so Tailwind
-//! scans it; `tests/design_catalog.rs` pins the radius names against the
-//! `@theme inline` block in `tailwind.css`.
+//! scans it. The radius names mirror the `@theme inline` block in `tailwind.css`.
 
 /// One specimen: the caption shown beside it and the classes that paint it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

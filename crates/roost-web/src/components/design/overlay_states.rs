@@ -8,7 +8,7 @@ use crate::components::ui::{
     Button, ButtonVariant, Dialog, DialogAction, DialogBody, DialogContent, DialogDescription,
     DialogFooter, DialogHeader, DialogTitle, DropdownMenu, DropdownMenuContent, DropdownMenuSub,
     DropdownMenuSubContent, DropdownMenuSubItem, DropdownMenuSubTrigger, DropdownMenuTrigger,
-    IconType, Sheet, SheetContent, SheetHeader, SheetSide, SheetTitle,
+    IconType, PhoneSheetContent, Sheet, SheetContent, SheetHeader, SheetSide, SheetTitle,
 };
 
 const BODY_TEXT_CLASS: &str = "m-0 text-sm text-muted-foreground";
@@ -20,6 +20,7 @@ pub fn DesignOverlayStates() -> Element {
     let mut fullscreen_dialog_open = use_signal(|| false);
     let mut sheet_open = use_signal(|| false);
     let mut bottom_sheet_open = use_signal(|| false);
+    let mut phone_sheet_open = use_signal(|| false);
     let mut menu_open = use_signal(|| false);
     let mut submenu_open = use_signal(|| false);
 
@@ -48,6 +49,12 @@ pub fn DesignOverlayStates() -> Element {
                 icon: IconType::Maximize2,
                 onclick: move |_| bottom_sheet_open.set(true),
                 "Open bottom sheet"
+            }
+            Button {
+                variant: ButtonVariant::Secondary,
+                icon: IconType::Smartphone,
+                onclick: move |_| phone_sheet_open.set(true),
+                "Open phone sheet"
             }
             DropdownMenu {
                 open: menu_open(),
@@ -143,6 +150,20 @@ pub fn DesignOverlayStates() -> Element {
                     div { class: SHEET_BODY_CLASS,
                         p { class: BODY_TEXT_CLASS,
                             "Bottom sheets enter from the lower edge with the same dismissal owner as the other sheets."
+                        }
+                    }
+                }
+            }
+            Sheet {
+                open: phone_sheet_open(),
+                on_open_change: move |open: bool| phone_sheet_open.set(open),
+                PhoneSheetContent {
+                    SheetHeader {
+                        SheetTitle { "Phone sheet" }
+                    }
+                    div { class: SHEET_BODY_CLASS,
+                        p { class: BODY_TEXT_CLASS,
+                            "Phone sheets rise from the lower edge with a top-only radius and a scrim, the pi-pocket look chosen for phones."
                         }
                     }
                 }
