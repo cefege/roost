@@ -18,6 +18,7 @@ mod attachment_peer;
 mod attachments;
 mod direct;
 mod keeper_update;
+mod live_metrics;
 mod local_grants;
 mod owner_task;
 mod replies;
@@ -183,6 +184,9 @@ impl Dispatcher {
             CoordWorkerDownstream::AgentJobsAbort(request) => self.agent_jobs_abort(request),
             CoordWorkerDownstream::AgentConversationClosed(request) => {
                 self.agent_conversation_closed(request)
+            }
+            CoordWorkerDownstream::LiveMetricsSubscription(request) => {
+                self.live_metrics_subscription(request)
             }
         }
     }

@@ -53,10 +53,8 @@ regex.workspace = true
 roost-term.workspace = true
 sqlx = { workspace = true, features = ["sqlite", "runtime-tokio", "macros", "migrate"] }
 str0m.workspace = true
-unicode-normalization.workspace = true
-
-[target.'cfg(windows)'.dependencies]
 sysinfo.workspace = true
+unicode-normalization.workspace = true
 
 [dev-dependencies]
 # The enrollment round trip needs a Connect SERVER to redeem against: the
