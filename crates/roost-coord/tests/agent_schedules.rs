@@ -138,14 +138,26 @@ async fn a_due_schedule_delivers_exactly_once_across_two_racing_replicas() {
     };
     store(&a).set_schedule(&id, &row).await.unwrap();
 
-    let (fired_a, fired_b) = tokio::join!(
-        roost_agent::schedules::deliver_due(&a.service.runtime),
-        roost_agent::schedules::deliver_due(&b.service.runtime),
-    );
-    assert_eq!(
-        fired_a.unwrap() + fired_b.unwrap(),
-        1,
-        "exactly one replica's sweep wins the advance; the other's submit is a duplicate no-op"
+    // Three sweepers race here: these two explicit calls and each replica's own
+    // background loop, whose first tick fires at startup and can land after the
+    // row is written. Any round can also lose to write contention and leave the
+    // row due for the next one. The contract is the user turn and the model
+    // request below: exactly one, whichever sweeper won.
+    let mut fired = 0;
+    for _ in 0..20 {
+        let (fired_a, fired_b) = tokio::join!(
+            roost_agent::schedules::deliver_due(&a.service.runtime),
+            roost_agent::schedules::deliver_due(&b.service.runtime),
+        );
+        fired += fired_a.unwrap_or(0) + fired_b.unwrap_or(0);
+        if store(&a).schedules(&id).await.unwrap().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(
+        fired <= 1,
+        "at most one explicit sweep wins the advance, got {fired}"
     );
 
     settled(&a, &id, Duration::from_secs(10)).await;
