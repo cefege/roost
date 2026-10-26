@@ -27,7 +27,7 @@ use roost_client_core::store::prefs::PrefDefaults;
 use roost_client_core::store::{
     ChannelId, Session, SessionId, SessionKind, SessionMap, SessionStatus, WorkerFp,
 };
-use roost_client_core::{ClientCore, ClientEvent, MemoryClock, MemoryKeyValueStore, SyncFrame};
+use roost_client_core::{ClientCore, ClientEvent, ClientStateStore, MemoryClock, SyncFrame};
 use roost_protocol::layout::document::LayoutNodeKind;
 use roost_protocol::layout::{
     LayoutDocumentBinding, LayoutDocumentLeaf, LayoutDocumentNode, LayoutDocumentV1,
@@ -120,7 +120,7 @@ fn session(id: &str, created_at: i64) -> Session {
 pub fn seeded_core(clock: Rc<MemoryClock>, tab_id: &str) -> ClientCore {
     let mut core = ClientCore::new(
         clock,
-        Rc::new(MemoryKeyValueStore::new()),
+        Rc::new(ClientStateStore::in_memory()),
         tab_id,
         &PrefDefaults::default(),
     );

@@ -21,6 +21,7 @@ use super::composer_placement::ComposerPlacement;
 use super::dom;
 use super::pane_geometry_dom::PaneDockHandle;
 use crate::components::deck::deck_dom;
+use crate::pump::use_pump;
 use crate::voice::keyterms::ContextReader;
 use crate::voice::send_gate::SendGate;
 
@@ -80,7 +81,12 @@ pub fn TerminalComposer(
     #[props(default)]
     key_tray: Option<KeyTray>,
 ) -> Element {
-    let mut draft = use_signal(|| get_composer_draft(&session_id));
+    let pump = use_pump();
+    let mut draft = use_signal(|| {
+        let core = pump.core();
+        let core = core.borrow();
+        get_composer_draft(core.storage(), &session_id)
+    });
     let mut status = use_signal(SubmissionStatus::default);
     let mut voice_error = use_signal(|| Option::<String>::None);
     let mut field = use_signal(|| Option::<Rc<MountedData>>::None);
@@ -122,9 +128,11 @@ pub fn TerminalComposer(
     // text, and a guess is not the operator's unfinished work.
     let draft_key = session_id.clone();
     let saved = dictation.clone();
+    let core = pump.core();
     use_effect(move || {
         let text = saved.persisted();
-        save_composer_draft(&draft_key, &text);
+        let core = core.borrow();
+        save_composer_draft(core.storage(), &draft_key, &text);
     });
 
     // The portaled dock publishes its height to the shell; the pane dock does

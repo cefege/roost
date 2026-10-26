@@ -23,6 +23,7 @@ mod header;
 mod inspector;
 mod inspector_panels;
 mod interaction_cards;
+pub(crate) mod last_conversation;
 mod launch;
 mod loop_controls;
 mod markdown;

@@ -8,10 +8,13 @@
 //! Windows reader is shown the Ctrl+Shift chord they actually press and a Mac
 //! reader the ⌘ one, from the same source the shortcut handler matches on.
 use crate::platform::browser_platform::{BrowserPlatform, PlatformShortcut};
+use crate::platform::worker_paths::BrowserWorkerPaths;
 use dioxus::prelude::*;
-use roost_client_core::ClientEvent;
 use roost_client_core::store::sidebar::SidebarIntent;
+use roost_client_core::store::sidebar::memory::last_terminal_path;
+use roost_client_core::{ClientEvent, KeyValueStore, Store};
 
+use crate::components::agent_chat::last_conversation::LAST_CONVERSATION_KEY;
 use crate::components::brand_mark::{BrandMark, HOME_MARK_SIZE};
 use crate::components::layout::title_bar::PRODUCT;
 use crate::components::layout::window_size::{use_is_compact, use_tv_layout};
@@ -20,7 +23,10 @@ use crate::components::ui::{
     Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyMediaVariant, EmptyTitle, Icon,
     IconButton, IconType, Kbd,
 };
-use crate::pump::use_store;
+use crate::pump::{use_pump, use_store};
+use crate::route_session::active_open_session_for_route;
+use crate::router_state::use_navigate;
+use crate::routes::{Route, agent_href};
 
 /// A shortcut the landing advertises. The Windows binding comes from
 /// `PlatformShortcut::windows_label` — the map the key handler matches, so the
@@ -84,6 +90,59 @@ pub const SHORTCUTS: [Shortcut; 3] = [
         linux_label: "Shift ?",
     },
 ];
+
+/// Once per boot, when the synced store settles, a bare `/` opens the terminal
+/// or agent conversation the operator left. The latch lives in the authorized
+/// shell, which outlives every route: a boot at `/s/...` consumes it too, so a
+/// later visit to `/` is never bounced.
+pub fn use_boot_landing(path: Signal<String>) {
+    let pump = use_pump();
+    let navigate = use_navigate();
+    let mut consumed = use_signal(|| false);
+    use_effect(move || {
+        // Settling flips on a sweep with no user event; the revision bump is
+        // what re-runs this effect.
+        let _revision = pump.revision()();
+        if *consumed.peek() {
+            return;
+        }
+        let landing = {
+            let core = pump.core();
+            let core = core.borrow();
+            if !core.client_state_settled() {
+                return;
+            }
+            consumed.set(true);
+            if path.peek().as_str() != "/" {
+                tracing::debug!(target: "landing", "boot landing skipped off the root path");
+                return;
+            }
+            landing_href(core.store(), core.storage())
+        };
+        let Some(href) = landing else {
+            tracing::debug!(target: "landing", "boot landing has no open terminal or conversation");
+            return;
+        };
+        tracing::info!(target: "landing", to = %href, "boot landing restored");
+        navigate.call(href);
+    });
+}
+
+/// The href a boot at `/` opens: the last terminal while its session is still
+/// open, else the last agent conversation while it still exists.
+fn landing_href(store: &Store, storage: &dyn KeyValueStore) -> Option<String> {
+    let terminal = last_terminal_path(storage).filter(|path| {
+        active_open_session_for_route(store, &BrowserWorkerPaths, &Route::parse(path)).is_some()
+    });
+    terminal.or_else(|| {
+        let conversation_id = storage.get(LAST_CONVERSATION_KEY)?;
+        store
+            .agent_chat
+            .conversations
+            .contains_key(&conversation_id)
+            .then(|| agent_href(&conversation_id))
+    })
+}
 
 /// The landing page.
 #[component]

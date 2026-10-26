@@ -313,6 +313,7 @@ fn AuthorizedOverlays() -> Element {
 /// The surface the current path names, inside the shell when it belongs there.
 #[component]
 fn AuthorizedShell(path: Signal<String>) -> Element {
+    crate::components::home::use_boot_landing(path);
     let route = Route::parse(&path());
     let surface = surface_for(&route);
     let in_shell = !matches!(surface, Surface::Served(served) if !served.in_shell());

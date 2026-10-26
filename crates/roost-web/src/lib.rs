@@ -171,9 +171,13 @@ fn build_core() -> ClientCore {
             crate::input_nav::device_tv_mode_active(&storage),
         ),
     };
+    let client_state = roost_client_core::ClientStateStore::new(
+        Rc::new(storage),
+        Rc::new(platform::BrowserEpochClock),
+    );
     ClientCore::new(
         Rc::new(platform::BrowserClock::new()),
-        Rc::new(storage),
+        Rc::new(client_state),
         "",
         &defaults,
     )
