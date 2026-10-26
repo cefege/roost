@@ -19,7 +19,7 @@ use crate::components::settings::agent_connect_dialog::AgentConnectDialog;
 use crate::components::terminal_chrome::composer_dictation::{
     SharedBinding, VoiceControl, use_dictation, use_dictation_context,
 };
-use crate::components::ui::{FieldError, InputPrompt, InputPromptTextarea};
+use crate::components::ui::{FieldError, InputPromptPill, InputPromptTextarea};
 use crate::pump::Pump;
 use crate::router_state::use_navigate;
 use crate::voice::send_gate::SendGate;
@@ -303,7 +303,7 @@ pub fn AgentComposer(
                 }
             }
             EditBanner { edit_target, draft }
-            InputPrompt {
+            InputPromptPill {
                 class: "min-w-0 flex-col",
                 InputPromptTextarea {
                     id: super::composer_helpers::composer_input_id(&conversation_id),

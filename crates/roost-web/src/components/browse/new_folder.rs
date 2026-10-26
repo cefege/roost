@@ -13,7 +13,7 @@ use dioxus::prelude::*;
 use crate::components::browse::dom::NEW_FOLDER_ID;
 use crate::components::ui::{
     Button, ButtonVariant, Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader,
-    DialogTitle, Sheet, SheetContent, SheetSide, TextField,
+    DialogTitle, PhoneSheetContent, Sheet, TextField,
 };
 
 /// The dialog's headline.
@@ -61,7 +61,7 @@ pub fn NewFolderDialog(
     if compact {
         return rsx! {
             Sheet { open: true, on_open_change,
-                SheetContent { side: SheetSide::Bottom, test_id: "newfolder-dialog",
+                PhoneSheetContent { test_id: "newfolder-dialog",
                     {body}
                 }
             }
