@@ -27,7 +27,9 @@ use roost_client_core::store::prefs::PrefDefaults;
 use roost_client_core::store::{
     ChannelId, Session, SessionId, SessionKind, SessionMap, SessionStatus, WorkerFp,
 };
-use roost_client_core::{ClientCore, ClientEvent, ClientStateStore, MemoryClock, SyncFrame};
+use roost_client_core::{
+    ClientCore, ClientEvent, ClientStateStore, Effect, MemoryClock, RpcCall, RpcResult, SyncFrame,
+};
 use roost_protocol::layout::document::LayoutNodeKind;
 use roost_protocol::layout::{
     LayoutDocumentBinding, LayoutDocumentLeaf, LayoutDocumentNode, LayoutDocumentV1,
@@ -220,14 +222,33 @@ pub fn mounted_bridge_claiming(tab_id: &str) -> Bridge {
 impl Bridge {
     /// Put the tab on a Sync link whose socket id is `socket_id`.
     pub fn open_link(&self, socket_id: &str) {
-        self.pump.dispatch(ClientEvent::SyncLinkOpened {
-            // Generation 0 is the FIRST dial: `SyncState::open_link` refuses a
-            // generation it was not expecting, and a refused link is a tab
-            // with no socket id — which is exactly what the apply fence reads.
-            generation: 0,
-            socket_id: socket_id.to_owned(),
-            process_epoch: String::new(),
-        });
+        // The handshake runs on the core, as `pump_frame_listeners` does: the
+        // pump's own `perform` spawns the client-state pull on
+        // `wasm_bindgen_futures`, which only exists on wasm. The pull is answered
+        // here with an empty account, which is what a fresh coordinator returns.
+        let core = self.pump.core();
+        {
+            let mut core = core.borrow_mut();
+            let effects = core.handle(ClientEvent::SyncLinkOpened {
+                // Generation 0 is the FIRST dial: `SyncState::open_link` refuses a
+                // generation it was not expecting, and a refused link is a tab
+                // with no socket id — which is exactly what the apply fence reads.
+                generation: 0,
+                socket_id: socket_id.to_owned(),
+                process_epoch: String::new(),
+            });
+            for effect in effects {
+                if let Effect::Rpc(RpcCall::ClientStateList { call_id }) = effect {
+                    core.handle(ClientEvent::RpcResultReceived(
+                        RpcResult::ClientStateListed {
+                            call_id,
+                            entries: Vec::new(),
+                        },
+                    ));
+                }
+            }
+        }
+        self.pump.repaint();
     }
 
     /// The clock this bridge reads.
