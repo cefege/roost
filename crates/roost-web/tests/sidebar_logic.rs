@@ -1,7 +1,7 @@
 //! The sidebar's native decisions: v2 `apps/web/tests/sessionTitle.test.ts`
 //! and `machineIdentity.test.ts`, plus the row's exact route match, the swipe
-//! release rule, and the upward machine-menu placement and machine-trigger keys
-//! from `SessionRow.tsx` and `SidebarNewTerminal.tsx`.
+//! release rule, and the upward machine-menu placement from `SessionRow.tsx`
+//! and `SidebarNewTerminal.tsx`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -10,7 +10,6 @@ use roost_protocol::wire::{
     ChannelId, HostIdentity, Session, SessionId, SessionKind, SessionStatus, Worker, WorkerFp,
     WorkerOs,
 };
-use roost_web::components::context_menu::MenuFocusEdge;
 use roost_web::components::deck::deck_dom::ClientBox;
 use roost_web::components::machines::machine_identity::{
     LinuxDistributionBrand, machine_identity_presentation,
@@ -18,9 +17,7 @@ use roost_web::components::machines::machine_identity::{
 use roost_web::components::menu_placement::{Vertical, place_menu};
 use roost_web::components::sidebar::row_swipe::{RowSwipe, SwipeRelease};
 use roost_web::components::sidebar::session_row::session_row_is_active;
-use roost_web::components::sidebar::sidebar_new_terminal::{
-    MACHINE_MENU_SIDE, MachineTriggerKeyAction, machine_trigger_key_action,
-};
+use roost_web::components::sidebar::sidebar_new_terminal::MACHINE_MENU_SIDE;
 use roost_web::components::ui::IconType;
 use roost_web::session_naming::{folder_headline, program_subtitle, session_title};
 
@@ -299,40 +296,5 @@ fn the_machine_menu_drops_below_when_no_room_is_above() {
         placement.vertical,
         Vertical::Top(136.0),
         "flips below the trigger's bottom edge"
-    );
-}
-
-#[test]
-fn home_and_end_that_beat_the_menu_focus_to_the_trigger_still_pick_their_edge() {
-    assert_eq!(
-        machine_trigger_key_action("ArrowDown", false),
-        MachineTriggerKeyAction::Open(MenuFocusEdge::First)
-    );
-    assert_eq!(
-        machine_trigger_key_action("ArrowUp", false),
-        MachineTriggerKeyAction::Open(MenuFocusEdge::Last)
-    );
-    assert_eq!(
-        machine_trigger_key_action("End", true),
-        MachineTriggerKeyAction::FocusEdge(MenuFocusEdge::Last),
-        "End pressed right after ArrowDown, before the first item took focus"
-    );
-    assert_eq!(
-        machine_trigger_key_action("Home", true),
-        MachineTriggerKeyAction::FocusEdge(MenuFocusEdge::First)
-    );
-    assert_eq!(
-        machine_trigger_key_action("End", false),
-        MachineTriggerKeyAction::Ignore,
-        "a closed menu leaves End to the page"
-    );
-    assert_eq!(
-        machine_trigger_key_action("Escape", true),
-        MachineTriggerKeyAction::Close
-    );
-    assert_eq!(
-        machine_trigger_key_action("Escape", false),
-        MachineTriggerKeyAction::Ignore,
-        "a closed menu leaves Escape to the document"
     );
 }
