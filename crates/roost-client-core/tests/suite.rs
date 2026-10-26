@@ -260,3 +260,5 @@ mod ui_command_layout_map;
 mod ui_state_apply_result;
 #[path = "ui_state_report.rs"]
 mod ui_state_report;
+#[path = "worker_live_metrics.rs"]
+mod worker_live_metrics;

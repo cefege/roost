@@ -165,6 +165,15 @@ pub fn encode_sync_command(command: &SyncCommand, socket_id: &str) -> Vec<u8> {
                 },
             ))),
         ),
+        SyncCommand::WorkerLiveSubscription { worker_fps } => (
+            None,
+            Some(Command::WorkerLiveSubscription(Box::new(
+                roost_proto::WorkerLiveSubscription {
+                    worker_fps: worker_fps.iter().map(|fp| fp.as_str().to_owned()).collect(),
+                    ..Default::default()
+                },
+            ))),
+        ),
     };
     // The coordinator's canonical order is FIELD-NUMBER order, and buffa writes
     // declaration order: `socket_id` (10) is declared after the oneof, so a
@@ -172,7 +181,11 @@ pub fn encode_sync_command(command: &SyncCommand, socket_id: &str) -> Vec<u8> {
     // of one message. Without this every route claim closed the socket `1008`.
     let follows_socket_id = matches!(
         command,
-        Some(Command::InputRouteClaim(_) | Command::TerminalTransportProbe(_))
+        Some(
+            Command::InputRouteClaim(_)
+                | Command::TerminalTransportProbe(_)
+                | Command::WorkerLiveSubscription(_)
+        )
     );
     if !follows_socket_id {
         return SyncClientFrame {
@@ -279,6 +292,16 @@ mod tests {
         assert_eq!(
             field_numbers(&encode_sync_command(&ack, "socket-a")),
             [1, 10]
+        );
+        let subscription = SyncCommand::WorkerLiveSubscription {
+            worker_fps: vec![
+                roost_protocol::wire::brand::WorkerFp::try_from("a".repeat(64).as_str())
+                    .expect("a valid fingerprint"),
+            ],
+        };
+        assert_eq!(
+            field_numbers(&encode_sync_command(&subscription, "socket-a")),
+            [10, 13]
         );
     }
 }

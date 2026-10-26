@@ -23,7 +23,7 @@ use crate::handle_sync::lifecycle::{
 };
 use crate::handle_sync::{
     close_failed_sync_link, handle_direct_frame, handle_rpc_result, handle_sync_frame,
-    reject_sync_claims,
+    handle_worker_live_subscribe, reject_sync_claims, resend_worker_live_subscription,
 };
 use crate::handle_terminal::{
     MintedViewId, ViewOpen, handle_carrier_authenticated, handle_carrier_lost, handle_grant_minted,
@@ -81,6 +81,7 @@ pub fn handle_event(
                     "sync link open"
                 );
                 crate::client::client_state::request_list(store, out);
+                resend_worker_live_subscription(store, out);
             }
         }
         ClientEvent::SyncLinkClosed {
@@ -96,6 +97,9 @@ pub fn handle_event(
             delivery_seq,
             frame,
         } => handle_sync_frame(store, *generation, *delivery_seq, frame, host_now_ms, out),
+        ClientEvent::WorkerLiveSubscribe { worker_fps } => {
+            handle_worker_live_subscribe(store, worker_fps, out);
+        }
         ClientEvent::SyncFrameRefused { generation, reason } => {
             close_failed_sync_link(store, *generation, reason.clone(), out);
         }

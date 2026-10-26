@@ -33,6 +33,7 @@ mod hydration;
 pub mod lifecycle;
 mod promotion;
 mod transport_probe;
+mod worker_live;
 
 use self::apply_frame::apply_frame;
 pub(crate) use self::close_failed::close_failed_sync_link;
@@ -43,6 +44,7 @@ pub(crate) use self::promotion::{
     claim_due_fallbacks, reject_sync_claims, resume_held_promotion, sweep_route_claims,
 };
 pub(crate) use self::transport_probe::request_transport_probe;
+pub(crate) use self::worker_live::{handle_worker_live_subscribe, resend_worker_live_subscription};
 use crate::store::Store;
 use crate::sync::SyncFrame;
 use crate::sync::link::RetainedFrame;
@@ -66,6 +68,7 @@ pub fn is_control(frame: &SyncFrame) -> bool {
             | SyncFrame::UiState
             | SyncFrame::UiCommand { .. }
             | SyncFrame::CoordinatorRelocation { .. }
+            | SyncFrame::WorkerLiveMetrics { .. }
             | SyncFrame::Keepalive
     )
 }

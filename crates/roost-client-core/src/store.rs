@@ -43,6 +43,7 @@ pub mod toasts;
 pub mod transfers;
 pub mod ui;
 pub mod view_rotation;
+pub mod worker_live;
 
 pub use mutations::{PairRequest, delete_pair_request, delete_worker, replace_workers};
 pub use navigation::{
@@ -239,6 +240,8 @@ pub struct Store {
     pub terminal_bells: terminal_bells::TerminalBells,
     /// Program progress, user variables and pending desktop notifications.
     pub terminal_signals: terminal_signals::TerminalSignals,
+    /// Live host metrics for the workers this client subscribed to, latest-only.
+    pub worker_live: worker_live::WorkerLiveMetrics,
     /// The coordinator's bounded clipboard history and snapshot readiness.
     pub clipboard_history: clipboard_history::ClipboardHistory,
     /// Pending terminal clipboard writes, drained by the host.
@@ -348,6 +351,7 @@ impl Store {
             ),
             terminal_bells: terminal_bells::TerminalBells::default(),
             terminal_signals: terminal_signals::TerminalSignals::default(),
+            worker_live: worker_live::WorkerLiveMetrics::default(),
             transport_probes: BTreeMap::new(),
             pending_transport_probes: BTreeMap::new(),
             announced_pairings: VecDeque::new(),

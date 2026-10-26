@@ -17,6 +17,7 @@ use crate::terminal::input::InputOutcome;
 use crate::terminal::routes::DirectCarrier;
 use crate::terminal::token::TerminalToken;
 use crate::terminal::view::ViewStateResult;
+use roost_protocol::wire::brand::WorkerFp;
 
 /// One thing that happened, or one thing that was asked for.
 /// Only `PartialEq`: it carries wire types, which are `PartialEq` and not `Eq`.
@@ -53,6 +54,12 @@ pub enum ClientEvent {
         /// means two opposite things and only this separates them
         /// (`client::sync::classify_close`).
         close_reason: String,
+    },
+    /// Replace the set of workers whose live host metrics this client wants.
+    /// Replace semantics: the list is the whole set, and an empty list cancels.
+    WorkerLiveSubscribe {
+        /// The workers to sample. Duplicates are dropped, keeping the first.
+        worker_fps: Vec<WorkerFp>,
     },
     /// One frame arrived on the Sync socket, already decoded.
     SyncFrameReceived {
@@ -324,6 +331,7 @@ impl ClientEvent {
             Self::BootstrapRequested => "bootstrap_requested",
             Self::SyncLinkOpened { .. } => "sync_link_opened",
             Self::SyncLinkClosed { .. } => "sync_link_closed",
+            Self::WorkerLiveSubscribe { .. } => "worker_live_subscribe",
             Self::SyncFrameReceived { .. } => "sync_frame_received",
             Self::SyncFrameRefused { .. } => "sync_frame_refused",
             Self::PageVisibilityChanged { .. } => "page_visibility_changed",

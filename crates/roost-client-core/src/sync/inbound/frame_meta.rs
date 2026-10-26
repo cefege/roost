@@ -59,6 +59,7 @@ impl SyncFrame {
             | Self::UiCommand { .. }
             | Self::CoordinatorRelocation { .. }
             | Self::TransportProbeResult { .. }
+            | Self::WorkerLiveMetrics { .. }
             | Self::Keepalive => None,
         }
     }
@@ -101,6 +102,7 @@ impl SyncFrame {
             Self::AgentConversation { .. } => "agent_conversation",
             Self::AgentChatEvents { .. } => "agent_chat_events",
             Self::Keepalive => "keepalive",
+            Self::WorkerLiveMetrics { .. } => "worker_live_metrics",
         }
     }
 

@@ -13,6 +13,7 @@
 use crate::sync::link::{SyncDial, SyncDomain};
 use crate::terminal::token::TerminalToken;
 use crate::terminal::view::ViewIntent;
+use roost_protocol::wire::brand::WorkerFp;
 
 /// One thing the host should do, now.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -256,6 +257,13 @@ pub enum SyncCommand {
     },
     /// Answer an acknowledged layout apply on the exact socket it named.
     UiApplyLayoutResult(crate::client::ui_state::LayoutApplyResult),
+    /// Replace this socket's live-metrics subscription with exactly this set.
+    /// Always the whole set: an empty list cancels, and the coordinator keeps
+    /// nothing from an earlier command on the same socket.
+    WorkerLiveSubscription {
+        /// The workers to sample, deduplicated, in the order first asked.
+        worker_fps: Vec<WorkerFp>,
+    },
 }
 
 /// One typed command for a direct carrier.

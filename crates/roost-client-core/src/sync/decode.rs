@@ -251,6 +251,13 @@ fn map_arm(frame: Frame, domain_generation: u64) -> Result<SyncFrame, String> {
                 events,
             })
         }
+        Frame::WorkerLiveMetrics(value) => {
+            roost_protocol::proto_adapters::live_metrics_proto::worker_live_metrics_frame_from_proto(
+                &value,
+            )
+            .map(|frame| SyncFrame::WorkerLiveMetrics { frame })
+            .map_err(|error| error.to_string())
+        }
     }
 }
 
