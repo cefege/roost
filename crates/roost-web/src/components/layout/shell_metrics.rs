@@ -32,6 +32,7 @@ pub enum Destination {
     Folders,
     Search,
     Files,
+    Fleet,
     Settings,
     Help,
 }
@@ -41,10 +42,11 @@ impl Destination {
     ///
     /// The list is the rail's only source: a destination not in it cannot be
     /// drawn, so adding one is adding a row here and nowhere else.
-    pub const ALL: [Destination; 5] = [
+    pub const ALL: [Destination; 6] = [
         Destination::Folders,
         Destination::Search,
         Destination::Files,
+        Destination::Fleet,
         Destination::Settings,
         Destination::Help,
     ];
@@ -55,6 +57,7 @@ impl Destination {
             Self::Folders => IconType::Folder,
             Self::Search => IconType::Search,
             Self::Files => IconType::FolderOpen,
+            Self::Fleet => IconType::Gauge,
             Self::Settings => IconType::Settings,
             Self::Help => IconType::CircleHelp,
         }
@@ -66,6 +69,7 @@ impl Destination {
             Self::Folders => "Folders",
             Self::Search => "Search",
             Self::Files => "Files",
+            Self::Fleet => "Fleet",
             Self::Settings => "Settings",
             Self::Help => "Help",
         }
@@ -81,6 +85,7 @@ impl Destination {
             Self::Folders => "/".to_string(),
             Self::Search => "/search".to_string(),
             Self::Files => "/browse".to_string(),
+            Self::Fleet => "/fleet".to_string(),
             Self::Settings => "/settings/machines".to_string(),
             Self::Help => "/help".to_string(),
         }
@@ -94,6 +99,7 @@ impl Destination {
             Self::Files => "workbench-activity-files",
             Self::Settings => "workbench-activity-settings",
             Self::Help => "workbench-activity-help",
+            Self::Fleet => "workbench-activity-fleet",
         }
     }
 
@@ -114,6 +120,7 @@ impl Destination {
             Self::Files => pathname.starts_with("/file/") || pathname.starts_with("/browse"),
             Self::Settings => pathname.starts_with("/settings"),
             Self::Help => pathname.starts_with("/help"),
+            Self::Fleet => pathname.starts_with("/fleet"),
         }
     }
 }

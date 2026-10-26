@@ -58,6 +58,8 @@ pub enum ServedSurface {
     Help,
     /// `/design` — the design-system gallery, outside the workbench.
     Design,
+    /// `/fleet` — the live metrics page: one card per registered machine.
+    Fleet,
 }
 
 impl ServedSurface {
@@ -83,6 +85,7 @@ pub fn surface_for(route: &Route) -> Surface {
         Route::Pair => Surface::Served(ServedSurface::Pair),
         Route::Browse { .. } => Surface::Served(ServedSurface::Browse),
         Route::Help => Surface::Served(ServedSurface::Help),
+        Route::Fleet => Surface::Served(ServedSurface::Fleet),
         Route::Unknown { path } => Surface::NotFound { path: path.clone() },
     }
 }
@@ -347,6 +350,7 @@ fn RouteContent(surface: Surface, route: Route) -> Element {
             rsx! { crate::components::browse::BrowseSurface { route } }
         }
         Surface::Served(ServedSurface::Help) => rsx! { crate::components::help::HelpSurface {} },
+        Surface::Served(ServedSurface::Fleet) => rsx! { crate::components::fleet::FleetPage {} },
         Surface::NotServed { path } => rsx! { crate::components::not_served::NotServed { path } },
         Surface::NotFound { path } => {
             rsx! { crate::components::not_served::NotFound { path, on_navigate: navigate } }

@@ -8,6 +8,7 @@
 //! `/t/:workerFp/*folderPath`, the legacy `/w/:workspaceId` and
 //! `/w/:workspaceId/t/:channelId`, `/a/:conversationId`, `/settings/:pane?`,
 //! `/pair`, `/help`, `/design`, `/file/:workerFp/*path`, `/browse[/:workerFp]`,
+//! `/fleet`,
 //! `/search` — and
 //! their rules are exercised through the public surface in
 //! `crates/roost-web/tests/routes.rs`.
@@ -74,6 +75,9 @@ pub enum Route {
     },
     /// `/search` — global search.
     Search,
+    /// `/fleet` — the live metrics page: one card per registered machine, with
+    /// its CPU, memory, disk and process list sampled only while the page is open.
+    Fleet,
     /// A path that matches no route. Named rather than `None` so a caller has to
     /// decide what an unknown URL is instead of falling through to the home route
     /// and pretending the link worked.
@@ -115,6 +119,7 @@ impl Route {
         },
         Route::Browse { worker_fp: None },
         Route::Search,
+        Route::Fleet,
     ];
 
     /// Read a path, with or without its query and fragment.
@@ -184,6 +189,7 @@ impl Route {
                 },
             },
             Some("search") if decoded.len() == 1 => Route::Search,
+            Some("fleet") if decoded.len() == 1 => Route::Fleet,
             _ => Route::Unknown {
                 path: path.to_string(),
             },
@@ -224,6 +230,7 @@ impl Route {
                 None => "/browse".to_string(),
             },
             Self::Search => "/search".to_string(),
+            Self::Fleet => "/fleet".to_string(),
             Self::Unknown { path } => path.clone(),
         }
     }
