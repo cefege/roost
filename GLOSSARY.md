@@ -48,6 +48,13 @@ wins.
   Source: `crates/roost-web/src/components/sidebar/`,
   `crates/roost-coord/src/sessions/workspaces.rs`.
 
+- **client state** — the allowlisted browser keys (pane layout, last terminal,
+  sidebar recents, composer and agent drafts) stored per account on the
+  coordinator and merged into each browser on boot and reconnect by
+  last-writer-wins on `updated_ms`. Device-local keys are never part of it.
+  Source: `crates/roost-protocol/src/client_state.rs`,
+  `crates/roost-coord/src/client_state/`, `crates/roost-client-core/src/client/client_state/`.
+
 - **SessionEvent** — the unit of event sourcing: `opened`, `closed`, `attached`,
   `detached`, `cwd`, `workspace_assigned`, `snapshot`, `respawned`, `renamed`,
   `git`, `pr`, and `ports`. Workers emit them; the coordinator appends +
