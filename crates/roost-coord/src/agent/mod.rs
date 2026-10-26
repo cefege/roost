@@ -38,6 +38,8 @@ use tool_calls::ToolCallRegistry;
 
 /// How often a replica looks for runs whose owner stopped renewing.
 const ORPHAN_SWEEP: Duration = Duration::from_secs(15);
+/// How often a replica looks for scheduled messages whose `due_ms` has passed.
+const SCHEDULE_SWEEP: Duration = Duration::from_secs(5);
 
 /// This replica's identity among coordinators sharing one database.
 #[derive(Debug, Clone)]
@@ -275,6 +277,16 @@ impl AgentService {
                 sweep.tick().await;
                 if let Err(error) = runtime.recover_orphaned_runs().await {
                     tracing::warn!(%error, "orphaned agent run sweep failed");
+                }
+            }
+        });
+        let runtime = self.runtime.clone();
+        self.spawn_background(async move {
+            let mut sweep = tokio::time::interval(SCHEDULE_SWEEP);
+            loop {
+                sweep.tick().await;
+                if let Err(error) = roost_agent::schedules::deliver_due(&runtime).await {
+                    tracing::warn!(%error, "scheduled message sweep failed");
                 }
             }
         });

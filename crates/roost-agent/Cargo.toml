@@ -17,6 +17,7 @@ roost-protocol = { workspace = true }
 rpi-durable = { workspace = true }
 rpi-ai = { workspace = true }
 async-trait = { workspace = true }
+chrono = { workspace = true }
 futures = { workspace = true }
 getrandom = { workspace = true }
 hex = { workspace = true }

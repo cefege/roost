@@ -63,6 +63,7 @@ async fn snapshot_does_not_restore_input_withdrawn_before_its_removal_event() {
                         text: "withdraw this steer".to_owned(),
                         mode: String::new(),
                     }],
+                    schedules: Vec::new(),
                 },
             }],
         )

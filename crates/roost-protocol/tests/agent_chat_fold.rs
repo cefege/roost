@@ -34,6 +34,7 @@ fn transcript() -> Transcript {
         usage: UsageTotals::default(),
         mode: None,
         queued: Vec::new(),
+        schedules: Vec::new(),
     }
 }
 
@@ -149,6 +150,7 @@ fn every_chat_event_round_trips_spec_json() {
                     mode: None,
                     usage: UsageTotals::default(),
                     queued: Vec::new(),
+                    schedules: Vec::new(),
                 },
             },
         ),

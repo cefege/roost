@@ -176,6 +176,37 @@ pub trait AgentStore: Send + Sync {
         id: &'a str,
         state_json: &'a str,
     ) -> BoxFuture<'a, Result<(), AgentError>>;
+    /// Creates or replaces a schedule row by `(conversation_id, row.id)`.
+    fn set_schedule<'a>(
+        &'a self,
+        conversation_id: &'a str,
+        row: &'a crate::schedules::ScheduleRow,
+    ) -> BoxFuture<'a, Result<(), AgentError>>;
+    /// A conversation's schedules, `due_ms` ascending.
+    fn schedules<'a>(
+        &'a self,
+        conversation_id: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<crate::schedules::ScheduleRow>, AgentError>>;
+    /// Every schedule across every conversation whose `due_ms <= now_ms`.
+    fn due_schedules(
+        &self,
+        now_ms: i64,
+    ) -> BoxFuture<'_, Result<Vec<(String, crate::schedules::ScheduleRow)>, AgentError>>;
+    /// Advances a one-shot's removal or a recurring row's next `due_ms`,
+    /// guarded by the `due_ms` it fired at: `false` when another replica
+    /// already advanced (or the row was cancelled) first.
+    fn advance_schedule<'a>(
+        &'a self,
+        conversation_id: &'a str,
+        id: &'a str,
+        from_due_ms: i64,
+    ) -> BoxFuture<'a, Result<bool, AgentError>>;
+    /// Cancels a schedule; `false` when no such row exists.
+    fn remove_schedule<'a>(
+        &'a self,
+        conversation_id: &'a str,
+        id: &'a str,
+    ) -> BoxFuture<'a, Result<bool, AgentError>>;
 }
 
 /// Identifies the persisted agent conversation that owns policy and lifecycle.

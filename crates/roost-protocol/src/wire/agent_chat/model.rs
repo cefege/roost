@@ -94,6 +94,10 @@ pub struct Transcript {
     /// agent took it, never inside the reply it interrupted.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub queued: Vec<QueuedMessage>,
+    /// Messages scheduled to send later, once or on a repeat. Ordered by
+    /// `due_ms` ascending by the projector.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub schedules: Vec<ScheduledMessage>,
 }
 
 /// A user message accepted but not yet read by the running agent.
@@ -104,6 +108,16 @@ pub struct QueuedMessage {
     pub text: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub mode: String,
+}
+
+/// A message scheduled to send to the agent later, once or on a repeat.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScheduledMessage {
+    pub id: String,
+    pub text: String,
+    pub due_ms: i64,
+    pub every_ms: Option<i64>,
+    pub fired: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -329,6 +343,14 @@ pub enum ChatEvent {
     /// Queued inputs crossed the durable model-dispatch boundary.
     QueueDelivered {
         submission_ids: Vec<String>,
+    },
+    /// A schedule was created or advanced; upserts by `schedule.id`.
+    ScheduleSet {
+        schedule: ScheduledMessage,
+    },
+    /// A schedule was cancelled or its last one-shot fired.
+    ScheduleRemoved {
+        id: String,
     },
 }
 

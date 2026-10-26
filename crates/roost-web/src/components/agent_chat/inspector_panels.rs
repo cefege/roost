@@ -5,7 +5,10 @@
 use std::rc::Rc;
 
 use dioxus::prelude::*;
-use roost_protocol::wire::agent_chat::{AgentInspection, AgentRunState, ModelsCatalog};
+use roost_client_core::client::rpc::calls::agent_chat::SubmitAgentChat;
+use roost_protocol::wire::agent_chat::{
+    AgentInspection, AgentRunState, ModelsCatalog, ScheduledMessage,
+};
 
 use super::model_controls::current_model_label;
 use super::role_switcher::RoleSwitcher;
@@ -13,7 +16,8 @@ use crate::components::ui::field::scoped_element_id;
 
 use crate::components::ui::{
     Button, ButtonSize, ButtonVariant, Card, CardContent, CardHeader, CardTitle, Collapsible,
-    CollapsibleContent, CollapsibleTrigger, Icon, IconType, Select, SelectOption, SwitchRow,
+    CollapsibleContent, CollapsibleTrigger, FieldError, Icon, IconButton, IconType, Progress,
+    Select, SelectOption, SwitchRow,
 };
 use crate::pump::Pump;
 
@@ -52,7 +56,7 @@ pub(super) fn SessionPanel(
                         trigger_title: "Change the models for this chat and its subagents".to_owned(),
                         conversation: data.conversation.clone(),
                         catalog: catalog.clone(),
-                        pump,
+                        pump: pump.clone(),
                     }
                     Select {
                         label: "Thinking",
@@ -70,8 +74,19 @@ pub(super) fn SessionPanel(
                         span { "Input {data.usage.input_tokens} · output {data.usage.output_tokens}" }
                         span { "Cost ${data.usage.cost_usd:.4}" }
                     }
+                    if !data.schedules.is_empty() {
+                        ScheduledGroup {
+                            schedules: data.schedules.clone(),
+                            conversation_id: data.conversation.id.clone(),
+                            pump,
+                        }
+                    }
                     if let Some(window) = context.context_window_tokens.filter(|window| *window > 0) {
-                        progress { class: "h-2 w-full accent-primary", max: "{window}", value: "{context.context_tokens}", "aria-label": "Model context usage" }
+                        Progress {
+                            value: Some(context.context_tokens as f64 / window as f64),
+                            label: "Model context usage",
+                            meter: true,
+                        }
                     }
                     if let Some(trigger) = context.compaction_trigger_tokens {
                         p { class: "text-xs text-muted-foreground",
@@ -222,4 +237,96 @@ pub(super) fn ConfigurationPanel(data: Rc<AgentInspection>) -> Element {
             p { "Model selection and conversation routing use the workspace controls. Tool availability follows this conversation's mode." }
         }
     } }
+}
+
+#[component]
+fn ScheduledGroup(
+    schedules: Vec<ScheduledMessage>,
+    conversation_id: String,
+    pump: Pump,
+) -> Element {
+    let mut pending = use_signal(|| None::<String>);
+    let mut error = use_signal(|| None::<String>);
+    let cancel = EventHandler::new(move |id: String| {
+        if pending.peek().is_some() {
+            return;
+        }
+        pending.set(Some(id.clone()));
+        error.set(None);
+        let pump = pump.clone();
+        let conversation_id = conversation_id.clone();
+        spawn(async move {
+            let result = pump
+                .rpc()
+                .call(&SubmitAgentChat {
+                    conversation_id,
+                    text: format!("/schedule cancel {id}"),
+                    request_id: super::request_ids::new_request_id(),
+                    when_busy: String::new(),
+                })
+                .await;
+            pending.set(None);
+            if let Err(problem) = result {
+                error.set(Some(format!("Could not cancel schedule: {problem}")));
+            }
+        });
+    });
+    rsx! {
+        div { class: "flex flex-col gap-1", "aria-label": "Scheduled messages",
+            p { class: "text-xs text-muted-foreground", "Scheduled · {schedules.len()}" }
+            ul { class: "m-0 flex list-none flex-col gap-1 p-0",
+                for schedule in schedules {
+                    ScheduledRow {
+                        key: "{schedule.id}",
+                        schedule,
+                        disabled: pending().is_some(),
+                        on_cancel: cancel,
+                    }
+                }
+            }
+            if let Some(message) = error() {
+                FieldError { "{message}" }
+            }
+        }
+    }
+}
+
+#[component]
+fn ScheduledRow(
+    schedule: ScheduledMessage,
+    disabled: bool,
+    on_cancel: EventHandler<String>,
+) -> Element {
+    let now = crate::components::terminal::dom::now_ms();
+    let remaining = schedule
+        .due_ms
+        .saturating_sub(i64::try_from(now).unwrap_or(0))
+        .max(0);
+    let next_line = match schedule.every_ms {
+        Some(every_ms) => format!(
+            "next in {} · every {}",
+            super::working_row::format_duration(remaining as u64),
+            super::working_row::format_duration(every_ms.max(0) as u64),
+        ),
+        None => format!(
+            "next in {}",
+            super::working_row::format_duration(remaining as u64)
+        ),
+    };
+    rsx! {
+        li { class: "flex min-w-0 flex-col gap-0.5 rounded border border-border px-2 py-1 text-muted-foreground",
+            div { class: "flex min-w-0 items-center gap-2",
+                span { class: "min-w-0 flex-1 truncate", title: schedule.text.clone(), "{schedule.text}" }
+                IconButton {
+                    icon: IconType::X,
+                    label: format!("Cancel schedule {}", schedule.id),
+                    title: "Cancel schedule",
+                    variant: ButtonVariant::Ghost,
+                    disabled,
+                    onclick: move |_| on_cancel.call(schedule.id.clone()),
+                }
+            }
+            span { class: "text-xs", "{next_line}" }
+        }
+    }
 }

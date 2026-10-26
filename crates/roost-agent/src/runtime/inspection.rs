@@ -107,6 +107,7 @@ impl AgentRuntime {
             read_only: record.read_only,
             goal,
             inbox: transcript.queued.clone(),
+            schedules: transcript.schedules.clone(),
             usage: transcript.usage,
         })
     }

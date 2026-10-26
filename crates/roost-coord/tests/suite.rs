@@ -20,6 +20,8 @@ mod agent_prompt_handlers;
 mod agent_prompt_status_wait;
 #[path = "agent_read_only_cluster.rs"]
 mod agent_read_only_cluster;
+#[path = "agent_schedules.rs"]
+mod agent_schedules;
 #[path = "agent_status_ordering.rs"]
 mod agent_status_ordering;
 #[path = "agent_status_push.rs"]

@@ -174,6 +174,7 @@ mod tests {
             mode: None,
             usage: UsageTotals::default(),
             queued: Vec::new(),
+            schedules: Vec::new(),
         };
         assert_eq!(
             transcript_to_markdown("Research", &transcript),

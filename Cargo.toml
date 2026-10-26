@@ -184,6 +184,8 @@ windows-sys = "0.61"
 # OS entropy on every platform: /dev/urandom does not exist on Windows.
 getrandom = "0.4"
 
+# RFC 3339 instant parsing for `/schedule at`.
+chrono = { version = "0.4", default-features = false, features = ["std"] }
 # The agent harness. The hashline TAG is xxh32 over the normalised file text,
 # the same digest OMP renders, so a header the model saw in one tool matches
 # the header the edit checks.

@@ -364,6 +364,9 @@ pub fn transcript(
         usage,
         mode: Some(record.mode.as_str().to_owned()),
         queued,
+        // The runtime overwrites this from the store after projection;
+        // schedules are not journal-derived like `queued` is.
+        schedules: Vec::new(),
     }
 }
 
