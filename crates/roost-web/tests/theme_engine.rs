@@ -9,8 +9,8 @@ use std::cell::{Cell, RefCell};
 use roost_client_core::{KeyValueStore, MemoryKeyValueStore};
 use roost_web::theme::choice::{
     ACCENT_STORAGE_KEY, BASE_STORAGE_KEY, MODE_STORAGE_KEY, ThemeApplication, ThemeChoice,
-    ThemeMode, load_theme, managed_properties, persist_theme, resolve_appearance,
-    theme_application,
+    ThemeMode, effective_choice, load_theme, managed_properties, persist_theme,
+    resolve_appearance, theme_application,
 };
 use roost_web::theme::tokens::ThemeAppearance;
 use roost_web::theme::{ThemeDocument, apply_theme_with, reapply_for_system_flip};
@@ -49,20 +49,20 @@ fn choice(base: &str, accent: &str, mode: ThemeMode) -> ThemeChoice {
 }
 
 #[test]
-fn an_empty_store_loads_the_default_neutral_dark_choice() {
+fn an_empty_store_loads_the_default_tokyo_night_dark_choice() {
     let store = MemoryKeyValueStore::default();
     let loaded = load_theme(&store);
     assert_eq!(loaded, ThemeChoice::default());
-    assert_eq!(loaded.base, "neutral");
+    assert_eq!(loaded.base, "tokyo-night");
     assert_eq!(loaded.accent, "default");
     assert_eq!(loaded.mode, ThemeMode::Dark);
 }
 
 #[test]
-fn an_unknown_stored_base_falls_back_to_neutral() {
+fn an_unknown_stored_base_falls_back_to_the_default() {
     let store = MemoryKeyValueStore::default();
     store.set(BASE_STORAGE_KEY, "solarized-next");
-    assert_eq!(load_theme(&store).base, "neutral");
+    assert_eq!(load_theme(&store).base, "tokyo-night");
 }
 
 #[test]
@@ -130,6 +130,35 @@ fn every_written_property_is_one_the_engine_manages() {
     for (key, _) in &application.properties {
         assert!(managed.contains(key), "{key} is written but not managed");
     }
+}
+
+#[test]
+fn an_omarchy_base_fixes_its_appearance_and_ignores_the_stored_accent() {
+    let application = theme_application(
+        &choice("tokyo-night", "violet", ThemeMode::Light),
+        Some(ThemeAppearance::Light),
+    );
+    assert_eq!(application.base_id, "tokyo-night");
+    assert_eq!(application.accent_id, "default");
+    assert_eq!(application.appearance, ThemeAppearance::Dark);
+    assert!(
+        application
+            .properties
+            .iter()
+            .any(|(name, _)| *name == "--background")
+    );
+}
+
+#[test]
+fn the_settings_pane_shows_an_omarchy_base_with_its_fixed_accent_and_mode() {
+    assert_eq!(
+        effective_choice(&choice("nord", "violet", ThemeMode::Light)),
+        choice("nord", "default", ThemeMode::Dark)
+    );
+    assert_eq!(
+        effective_choice(&choice("neutral", "violet", ThemeMode::Light)),
+        choice("neutral", "violet", ThemeMode::Light)
+    );
 }
 
 #[test]

@@ -4,4 +4,6 @@
 pub mod accent_a;
 pub mod accent_b;
 pub mod base;
+pub mod omarchy_a;
+pub mod omarchy_b;
 pub mod roost;

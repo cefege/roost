@@ -9,6 +9,7 @@ pub const BASE_THEMES: [ThemeSpec; 7] = [
         id: "neutral",
         label: "Neutral",
         swatch: "#737373",
+        omarchy: None,
         light: &[
             ("--background", "oklch(1 0 0)"),
             ("--foreground", "oklch(0.145 0 0)"),
@@ -52,6 +53,7 @@ pub const BASE_THEMES: [ThemeSpec; 7] = [
         id: "stone",
         label: "Stone",
         swatch: "#79716b",
+        omarchy: None,
         light: &[
             ("--background", "oklch(1 0 0)"),
             ("--foreground", "oklch(0.147 0.004 49.25)"),
@@ -95,6 +97,7 @@ pub const BASE_THEMES: [ThemeSpec; 7] = [
         id: "zinc",
         label: "Zinc",
         swatch: "#71717a",
+        omarchy: None,
         light: &[
             ("--background", "oklch(1 0 0)"),
             ("--foreground", "oklch(0.141 0.005 285.823)"),
@@ -138,6 +141,7 @@ pub const BASE_THEMES: [ThemeSpec; 7] = [
         id: "mauve",
         label: "Mauve",
         swatch: "#7c6e7c",
+        omarchy: None,
         light: &[
             ("--background", "oklch(1 0 0)"),
             ("--foreground", "oklch(0.145 0.008 326)"),
@@ -181,6 +185,7 @@ pub const BASE_THEMES: [ThemeSpec; 7] = [
         id: "olive",
         label: "Olive",
         swatch: "#6b7045",
+        omarchy: None,
         light: &[
             ("--background", "oklch(1 0 0)"),
             ("--foreground", "oklch(0.153 0.006 107.1)"),
@@ -224,6 +229,7 @@ pub const BASE_THEMES: [ThemeSpec; 7] = [
         id: "mist",
         label: "Mist",
         swatch: "#5f7070",
+        omarchy: None,
         light: &[
             ("--background", "oklch(1 0 0)"),
             ("--foreground", "oklch(0.148 0.004 228.8)"),
@@ -267,6 +273,7 @@ pub const BASE_THEMES: [ThemeSpec; 7] = [
         id: "taupe",
         label: "Taupe",
         swatch: "#736050",
+        omarchy: None,
         light: &[
             ("--background", "oklch(1 0 0)"),
             ("--foreground", "oklch(0.147 0.004 49.3)"),

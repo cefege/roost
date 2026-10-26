@@ -9,6 +9,7 @@ pub const ACCENT_THEMES_A: [ThemeSpec; 10] = [
         id: "default",
         label: "Default",
         swatch: "#d4d4d4",
+        omarchy: None,
         light: &[],
         dark: &[],
     },
@@ -16,6 +17,7 @@ pub const ACCENT_THEMES_A: [ThemeSpec; 10] = [
         id: "amber",
         label: "Amber",
         swatch: "#f59e0b",
+        omarchy: None,
         light: &[
             ("--primary", "oklch(0.555 0.163 48.998)"),
             ("--primary-foreground", "oklch(0.987 0.022 95.277)"),
@@ -47,6 +49,7 @@ pub const ACCENT_THEMES_A: [ThemeSpec; 10] = [
         id: "blue",
         label: "Blue",
         swatch: "#3b82f6",
+        omarchy: None,
         light: &[
             ("--primary", "oklch(0.488 0.243 264.376)"),
             ("--primary-foreground", "oklch(0.97 0.014 254.604)"),
@@ -78,6 +81,7 @@ pub const ACCENT_THEMES_A: [ThemeSpec; 10] = [
         id: "cyan",
         label: "Cyan",
         swatch: "#06b6d4",
+        omarchy: None,
         light: &[
             ("--primary", "oklch(0.52 0.105 223.128)"),
             ("--primary-foreground", "oklch(0.984 0.019 200.873)"),
@@ -109,6 +113,7 @@ pub const ACCENT_THEMES_A: [ThemeSpec; 10] = [
         id: "emerald",
         label: "Emerald",
         swatch: "#10b981",
+        omarchy: None,
         light: &[
             ("--primary", "oklch(0.508 0.118 165.612)"),
             ("--primary-foreground", "oklch(0.979 0.021 166.113)"),
@@ -140,6 +145,7 @@ pub const ACCENT_THEMES_A: [ThemeSpec; 10] = [
         id: "fuchsia",
         label: "Fuchsia",
         swatch: "#d946ef",
+        omarchy: None,
         light: &[
             ("--primary", "oklch(0.518 0.253 323.949)"),
             ("--primary-foreground", "oklch(0.977 0.017 320.058)"),
@@ -171,6 +177,7 @@ pub const ACCENT_THEMES_A: [ThemeSpec; 10] = [
         id: "green",
         label: "Green",
         swatch: "#22c55e",
+        omarchy: None,
         light: &[
             ("--primary", "oklch(0.532 0.157 131.589)"),
             ("--primary-foreground", "oklch(0.986 0.031 120.757)"),
@@ -202,6 +209,7 @@ pub const ACCENT_THEMES_A: [ThemeSpec; 10] = [
         id: "indigo",
         label: "Indigo",
         swatch: "#6366f1",
+        omarchy: None,
         light: &[
             ("--primary", "oklch(0.457 0.24 277.023)"),
             ("--primary-foreground", "oklch(0.962 0.018 272.314)"),
@@ -233,6 +241,7 @@ pub const ACCENT_THEMES_A: [ThemeSpec; 10] = [
         id: "lime",
         label: "Lime",
         swatch: "#84cc16",
+        omarchy: None,
         light: &[
             ("--primary", "oklch(0.532 0.157 131.589)"),
             ("--primary-foreground", "oklch(0.986 0.031 120.757)"),
@@ -264,6 +273,7 @@ pub const ACCENT_THEMES_A: [ThemeSpec; 10] = [
         id: "orange",
         label: "Orange",
         swatch: "#f97316",
+        omarchy: None,
         light: &[
             ("--primary", "oklch(0.553 0.195 38.402)"),
             ("--primary-foreground", "oklch(0.98 0.016 73.684)"),

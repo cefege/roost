@@ -13,6 +13,7 @@
 
 pub mod catalog;
 pub mod choice;
+pub mod omarchy;
 pub mod palettes;
 pub mod tokens;
 

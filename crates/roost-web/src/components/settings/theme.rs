@@ -20,8 +20,8 @@ use crate::input_nav::{set_pad_mode_choice, set_tv_mode_choice};
 use crate::platform::storage::LocalStorageKeyValueStore;
 use crate::pump::{Pump, use_store};
 use crate::theme::apply_theme;
-use crate::theme::catalog::{accent_themes, base_themes};
-use crate::theme::choice::{ThemeChoice, ThemeMode, load_theme};
+use crate::theme::catalog::{accent_themes, base_theme, base_themes};
+use crate::theme::choice::{ThemeChoice, ThemeMode, effective_choice, load_theme};
 
 /// Persist a changed theme choice and apply it. `change` edits the stored
 /// choice; the result is written through the engine, which persists it too.
@@ -141,6 +141,8 @@ pub fn ThemePane() -> Element {
             });
         }
     };
+    let shown = effective_choice(&stored);
+    let fixed = base_theme(&stored.base).is_some_and(|base| base.omarchy.is_some());
     rsx! {
         div {
             class: "flex max-w-xl flex-col gap-5",
@@ -175,7 +177,6 @@ pub fn ThemePane() -> Element {
                 label: "Base",
                 value: stored.base.clone(),
                 options: base_themes()
-                    .iter()
                     .map(|theme| SelectOption::new(theme.id, theme.label))
                     .collect::<Vec<_>>(),
                 on_change: on_base_change,
@@ -183,7 +184,8 @@ pub fn ThemePane() -> Element {
             Select {
                 test_id: "theme-accent-select",
                 label: "Accent",
-                value: stored.accent.clone(),
+                value: shown.accent.clone(),
+                disabled: fixed,
                 options: accent_themes()
                     .map(|theme| SelectOption::new(theme.id, theme.label))
                     .collect::<Vec<_>>(),
@@ -192,7 +194,8 @@ pub fn ThemePane() -> Element {
             Select {
                 test_id: "theme-mode-select",
                 label: "Mode",
-                value: stored.mode.as_stored().to_owned(),
+                value: shown.mode.as_stored().to_owned(),
+                disabled: fixed,
                 options: ThemeMode::ALL
                     .into_iter()
                     .map(|mode| SelectOption::new(mode.as_stored(), mode.label()))

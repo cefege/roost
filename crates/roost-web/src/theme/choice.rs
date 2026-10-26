@@ -5,9 +5,10 @@
 use roost_client_core::KeyValueStore;
 
 use super::catalog::{
-    DEFAULT_ACCENT_ID, DEFAULT_BASE_ID, accent_theme, accent_themes, base_theme, base_themes,
-    default_accent, default_base,
+    DEFAULT_ACCENT_ID, DEFAULT_BASE_ID, ThemeSpec, accent_theme, accent_themes, base_theme,
+    base_themes, default_accent, default_base,
 };
+use super::omarchy::derive_roles;
 use super::palettes::roost::{ROOST_DARK, ROOST_LIGHT};
 use super::tokens::ThemeAppearance;
 
@@ -73,7 +74,7 @@ pub struct ThemeApplication {
     pub base_id: &'static str,
     pub accent_id: &'static str,
     pub appearance: ThemeAppearance,
-    pub properties: Vec<(&'static str, &'static str)>,
+    pub properties: Vec<(&'static str, String)>,
 }
 
 /// Read the persisted choice. A missing or unrecognised value is the default.
@@ -111,14 +112,24 @@ pub fn resolve_appearance(mode: ThemeMode, system: Option<ThemeAppearance>) -> T
     }
 }
 
-/// Resolve `choice` against the OS preference. Base values first, then accent
-/// values (which override base keys they share), then Roost's own roles.
+/// Resolve `choice` against the OS preference. An Omarchy base ignores the
+/// stored accent and mode: its palette fixes both and derives every role.
+/// Otherwise base values come first, then accent values (which override base
+/// keys they share), then Roost's own roles.
 pub fn theme_application(
     choice: &ThemeChoice,
     system: Option<ThemeAppearance>,
 ) -> ThemeApplication {
-    let appearance = resolve_appearance(choice.mode, system);
     let base = base_theme(&choice.base).unwrap_or_else(default_base);
+    if let Some(palette) = base.omarchy {
+        return ThemeApplication {
+            base_id: base.id,
+            accent_id: default_accent().id,
+            appearance: palette.appearance,
+            properties: derive_roles(palette),
+        };
+    }
+    let appearance = resolve_appearance(choice.mode, system);
     let accent = accent_theme(&choice.accent).unwrap_or_else(default_accent);
     let (base_vars, accent_vars, roost_vars) = match appearance {
         ThemeAppearance::Light => (base.light, accent.light, ROOST_LIGHT),
@@ -132,8 +143,26 @@ pub fn theme_application(
             .iter()
             .chain(accent_vars)
             .chain(roost_vars)
-            .copied()
+            .map(|(name, value)| (*name, (*value).to_owned()))
             .collect(),
+    }
+}
+
+/// The choice the settings pane shows. An Omarchy base fixes its accent and
+/// mode, so the controls display those rather than the stored values, which
+/// stay persisted for when the reader returns to a rust-ui base.
+pub fn effective_choice(choice: &ThemeChoice) -> ThemeChoice {
+    let fixed_palette = base_theme(&choice.base).and_then(|base: &ThemeSpec| base.omarchy);
+    match fixed_palette {
+        Some(palette) => ThemeChoice {
+            base: choice.base.clone(),
+            accent: DEFAULT_ACCENT_ID.to_owned(),
+            mode: match palette.appearance {
+                ThemeAppearance::Light => ThemeMode::Light,
+                ThemeAppearance::Dark => ThemeMode::Dark,
+            },
+        },
+        None => choice.clone(),
     }
 }
 
@@ -141,12 +170,14 @@ pub fn theme_application(
 /// before writing a choice, so a value left by a previous palette cannot leak.
 pub fn managed_properties() -> Vec<&'static str> {
     let mut names: Vec<&'static str> = base_themes()
-        .iter()
         .chain(accent_themes())
         .flat_map(|theme| theme.light.iter().chain(theme.dark))
         .chain(ROOST_LIGHT.iter().chain(ROOST_DARK))
         .map(|(name, _)| *name)
         .collect();
+    if let Some(palette) = base_themes().find_map(|theme| theme.omarchy) {
+        names.extend(derive_roles(palette).into_iter().map(|(name, _)| name));
+    }
     names.sort_unstable();
     names.dedup();
     names
