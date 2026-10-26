@@ -12,7 +12,7 @@ use super::advisory_card::AdvisoryCard;
 use super::agent_alert::AgentAlert;
 use super::background_job_box::BackgroundJobBox;
 use super::interaction_cards::{AskCard, BtwCard};
-use super::message_actions::UserMessageActions;
+use super::message_actions::{EditTarget, UserMessageActions};
 use super::notice_card::NoticeCard;
 use super::peer_message_card::PeerMessageCard;
 use super::plan_card::PlanCard;
@@ -45,6 +45,7 @@ pub fn AgentTranscriptView(
     conversation_id: String,
     pump: Pump,
     draft: Signal<String>,
+    edit_target: Signal<Option<EditTarget>>,
 ) -> Element {
     let segments = segments(&transcript);
     let has_tools = transcript
@@ -59,6 +60,7 @@ pub fn AgentTranscriptView(
     let mut show_tools = use_signal(|| true);
     let mut show_thinking = use_signal(|| true);
     let mut expand_tools = use_signal(|| false);
+    let running = transcript.run_state == AgentRunState::Running;
     rsx! {
         div { class: "flex flex-col gap-6",
             if has_tools || has_thinking {
@@ -96,7 +98,7 @@ pub fn AgentTranscriptView(
             for segment in segments {
                 match segment {
                     Segment::User(TranscriptItem::User { id, text }) => rsx! {
-                        UserMessage { key: "{id}", id: id.clone(), text: text.clone(), conversation_id: conversation_id.clone(), draft, pump: pump.clone() }
+                        UserMessage { key: "{id}", id: id.clone(), text: text.clone(), conversation_id: conversation_id.clone(), draft, edit_target, running, pump: pump.clone() }
                     },
                     Segment::Assistant(TranscriptItem::Assistant { id, blocks, streaming, error }) => rsx! {
                         AssistantMessage { key: "{id}", blocks: blocks.clone(), streaming: *streaming, error: error.clone(), show_thinking: show_thinking() }
@@ -161,6 +163,8 @@ fn UserMessage(
     text: String,
     conversation_id: String,
     draft: Signal<String>,
+    edit_target: Signal<Option<EditTarget>>,
+    running: bool,
     pump: Pump,
 ) -> Element {
     rsx! {
@@ -175,7 +179,7 @@ fn UserMessage(
                     BubbleContent { class: "whitespace-pre-wrap", "{text}" }
                 }
                 MessageFooter {
-                    UserMessageActions { conversation_id, item_id: id, text, draft, pump }
+                    UserMessageActions { conversation_id, item_id: id, text, draft, edit_target, running, pump }
                 }
             }
         }
