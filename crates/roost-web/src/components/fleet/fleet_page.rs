@@ -13,7 +13,9 @@ use super::machine_card::MachineCard;
 use super::readings::{ReadingState, reading_state};
 use super::subscription::plan_subscription;
 use crate::components::terminal::dom::sleep_ms;
-use crate::components::ui::{Card, CardContent};
+use crate::components::ui::{
+    Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyState, IconType,
+};
 use crate::pump::{Pump, use_store};
 
 /// How often the page re-checks staleness and reachability, so a machine whose
@@ -67,18 +69,31 @@ pub fn FleetPage() -> Element {
 
     let now_ms = clock_now_ms(&pump);
     let rows = fleet_rows(&pump, now_ms);
+    let count = rows.len();
     rsx! {
         div {
             class: "flex flex-col gap-5",
             "data-testid": "fleet-page",
+            Card {
+                CardHeader {
+                    CardTitle { "Fleet" }
+                    CardDescription {
+                        {if count == 1 { "1 machine".to_owned() } else { format!("{count} machines") }}
+                    }
+                }
+            }
             if rows.is_empty() {
                 Card {
                     CardContent {
-                        p { class: "text-sm text-muted-foreground", "No machines are registered yet." }
+                        EmptyState {
+                            icon: IconType::Monitor,
+                            title: "No machines registered yet",
+                            supporting: "Register a machine to see its live readings here.",
+                        }
                     }
                 }
             } else {
-                div { class: "grid gap-4 md:grid-cols-2 xl:grid-cols-3",
+                div { class: "grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-4",
                     for row in rows {
                         MachineCard {
                             key: "{row.fingerprint}",
