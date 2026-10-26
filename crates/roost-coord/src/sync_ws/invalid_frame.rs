@@ -21,6 +21,8 @@ pub enum InvalidFrame {
     UnknownDomain,
     /// A terminal-domain reset could not be announced to the client.
     TerminalResetRefused,
+    /// A live-metrics subscription whose worker list does not decode.
+    WorkerLiveSubscriptionMalformed,
 }
 
 impl InvalidFrame {
@@ -34,6 +36,9 @@ impl InvalidFrame {
             Self::NeitherAckNorCommand => "invalid_client_frame_no_ack_no_command",
             Self::UnknownDomain => "invalid_client_frame_unknown_domain",
             Self::TerminalResetRefused => "invalid_client_frame_terminal_reset_refused",
+            Self::WorkerLiveSubscriptionMalformed => {
+                "invalid_client_frame_worker_live_subscription_malformed"
+            }
         }
     }
 }

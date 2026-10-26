@@ -44,6 +44,7 @@ pub mod ingress;
 pub mod invalid_frame;
 mod link;
 pub mod live_feed;
+mod live_metrics_feed;
 pub mod open_sockets;
 mod recovery_delivery;
 pub mod resource_index;
@@ -60,6 +61,7 @@ pub mod terminal_command;
 pub mod upgrade_admission;
 pub mod v1_delivery;
 pub mod v1_seed;
+mod worker_live_command;
 
 pub use admission::EnqueueOutcome;
 pub use control_frames::ResetNotice;

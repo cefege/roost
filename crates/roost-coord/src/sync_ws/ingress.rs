@@ -24,6 +24,7 @@ use std::collections::BTreeSet;
 
 use roost_proto::buffa::DecodeOptions;
 use roost_proto::{SyncClientFrame, SyncDomain};
+use roost_protocol::wire::WorkerFp;
 
 use crate::sync_ws::commands::{
     CommandOutcome, TerminalCommand, handle_client_frame, is_canonical_client_frame,
@@ -56,6 +57,10 @@ pub enum IngressEffect {
     /// Carry out a terminal command that passed the gate: view commands reach
     /// the view hub, which answers through this socket's own sink.
     Terminal(TerminalCommand),
+    /// Replace this socket's live-metrics subscriptions with the given workers.
+    /// The socket task updates its index and the hub, both with the link
+    /// unlocked.
+    WorkerLiveSubscription(BTreeSet<WorkerFp>),
 }
 
 /// Apply one binary client frame to `link`.
@@ -174,6 +179,9 @@ fn apply_outcome(
         }
         outcome @ CommandOutcome::LayoutResult { .. } => IngressEffect::LayoutResult(outcome),
         CommandOutcome::Terminal(command) => IngressEffect::Terminal(command),
+        CommandOutcome::WorkerLiveSubscription { worker_fps } => {
+            IngressEffect::WorkerLiveSubscription(worker_fps)
+        }
         CommandOutcome::Refusal(frame) => {
             state.send_control(&frame, now_ms);
             IngressEffect::Nothing

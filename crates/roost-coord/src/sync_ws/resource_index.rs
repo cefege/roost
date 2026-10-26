@@ -34,6 +34,9 @@ pub struct SyncResourceIndex {
     pub worker_fps: BTreeSet<WorkerFp>,
     /// Workspaces whose deletes and membership changes this socket receives.
     pub workspace_ids: BTreeSet<String>,
+    /// Workers whose live host snapshots this socket receives. Set by the
+    /// socket's own `worker_live_subscription` command, never by a reload.
+    pub live_metric_fps: BTreeSet<WorkerFp>,
 }
 
 impl SyncResourceIndex {
@@ -151,6 +154,7 @@ pub async fn load_sync_resource_index(
         session_ids: sessions.into_iter().collect(),
         worker_fps,
         workspace_ids: workspaces.into_iter().collect(),
+        live_metric_fps: BTreeSet::new(),
     })
 }
 

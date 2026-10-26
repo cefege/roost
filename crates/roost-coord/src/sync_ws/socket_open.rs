@@ -302,6 +302,7 @@ pub(in crate::sync_ws) fn release_socket(opened: OpenedSocket, services: &Arc<Co
     drop(backfill);
     drop(feed);
     link.lock().retire();
+    crate::live_metrics::release_socket(services, &socket_id);
     services.feed.open_sockets().unregister(open_handle);
     if let Some(registration) = registration {
         services

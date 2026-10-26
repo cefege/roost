@@ -114,6 +114,15 @@ impl WorkerFrameDispatcher {
                     .accept_worker_status(&self.core, &worker, value);
                 DispatchOutcome::Handled
             }
+            CoordWorkerUpstream::LiveMetrics(snapshot) => {
+                self.core.services.buses.live_metrics_bus.publish(
+                    roost_protocol::wire::live_metrics::WorkerLiveMetricsFrame {
+                        worker_fp: worker.clone(),
+                        snapshot,
+                    },
+                );
+                DispatchOutcome::Handled
+            }
             _ => self.refuse(channel, "live_arm_has_no_destination"),
         }
     }

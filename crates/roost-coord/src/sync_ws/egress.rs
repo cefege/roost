@@ -318,6 +318,7 @@ pub fn frame_kind(frame: &FirehoseFrame) -> &'static str {
         Some(Frame::TerminalViewState(_)) => "terminal_view_state",
         Some(Frame::InputRouteResult(_)) => "input_route_result",
         Some(Frame::TerminalTransportProbeResult(_)) => "terminal_transport_probe_result",
+        Some(Frame::WorkerLiveMetrics(_)) => "worker_live_metrics",
         None => "application",
     }
 }

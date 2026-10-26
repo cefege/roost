@@ -1,4 +1,4 @@
-//! The one table of buses: twenty domains, twenty bounds, one owner.
+//! The one table of buses: twenty-one domains, twenty-one bounds, one owner.
 //!
 //! Ported from the singleton block of `apps/coord/src/events/buses.ts:114-180`.
 //! v2 exports thirteen module-level `const` buses and every publisher,
@@ -23,6 +23,7 @@
 
 use std::sync::Arc;
 
+use roost_protocol::wire::live_metrics::WorkerLiveMetricsFrame;
 use roost_protocol::wire::{
     AgentStatusUpdate, McpStreamMessage, WorkerPresenceEvent, WorkspaceDelta,
 };
@@ -92,10 +93,14 @@ pub struct Buses {
     pub agent_conversation_bus: BoundedBus<AgentConversationUpdate>,
     /// Ordered transcript event batches. 256.
     pub agent_chat_bus: BoundedBus<AgentChatEventsUpdate>,
+    /// Live worker host snapshots, relayed to the Sync sockets that subscribed
+    /// to that worker. Zero: a snapshot is latest-only and is never replayed, so
+    /// a bus that retained one would hand a late socket a stale reading.
+    pub live_metrics_bus: BoundedBus<WorkerLiveMetricsFrame>,
 }
 
 impl Buses {
-    /// The twenty buses, each at its established bound.
+    /// The twenty-one buses, each at its established bound.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -119,10 +124,11 @@ impl Buses {
             ui_bus: BoundedBus::new(0),
             agent_conversation_bus: BoundedBus::new(256),
             agent_chat_bus: BoundedBus::new(256),
+            live_metrics_bus: BoundedBus::new(0),
         }
     }
 
-    /// The twenty buses behind one shared handle.
+    /// The twenty-one buses behind one shared handle.
     #[must_use]
     pub fn shared() -> Arc<Self> {
         Arc::new(Self::new())

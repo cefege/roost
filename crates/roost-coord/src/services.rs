@@ -44,6 +44,7 @@ use crate::events::append::LiveEffects;
 use crate::events::bus_domains::Buses;
 use crate::events::event_log::EventLog;
 use crate::events::pending_publications::PendingPublicationStore;
+use crate::live_metrics::LiveMetricsHub;
 use crate::middleware::rate_limit::RateLimiter;
 use crate::search::GlobalSearchRuntime;
 use crate::sessions::SessionsRuntime;
@@ -93,6 +94,11 @@ pub struct CoordServices {
     /// await, and `tokio` is not a dependency of this crate's sync surface.
     /// Every critical section is synchronous, so nothing is held across one.
     pub pending_publications: Arc<std::sync::Mutex<PendingPublicationStore>>,
+    /// Which Sync socket wants which worker's live host snapshots, reference-
+    /// counted per worker. Process-local like the worker links it drives: the
+    /// replica holding a worker's link is the one that serves its Sync sockets,
+    /// so a second process would hold a count nobody can act on.
+    pub live_metrics: std::sync::Mutex<LiveMetricsHub>,
     /// The thirteen in-process broadcast buses, built once so every transport
     /// and handler publishes into the same set.
     ///
@@ -331,6 +337,7 @@ impl CoordServices {
             jwt_keys: JwtKeyCache::new(),
             buses,
             pending_publications,
+            live_metrics: std::sync::Mutex::new(LiveMetricsHub::default()),
             worker_lifecycle,
             agent,
             agent_tools,

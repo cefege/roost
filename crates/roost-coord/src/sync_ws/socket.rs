@@ -185,6 +185,19 @@ fn carry_out(effect: IngressEffect, opened: &mut OpenedSocket, services: &Arc<Co
                 command,
             );
         }
+        IngressEffect::WorkerLiveSubscription(worker_fps) => {
+            opened
+                .link
+                .lock()
+                .index
+                .live_metric_fps
+                .clone_from(&worker_fps);
+            crate::live_metrics::replace_socket_subscriptions(
+                services,
+                &opened.socket_id,
+                worker_fps,
+            );
+        }
     }
 }
 
