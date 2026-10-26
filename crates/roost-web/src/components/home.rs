@@ -158,6 +158,7 @@ pub fn HomeLanding(reader_platform: BrowserPlatform) -> Element {
     let drawer_open = pump.core().borrow().store().ui.sidebar_open;
     rsx! {
         div { class: "box-border flex h-full flex-col overflow-y-auto pt-7 pr-[max(1.5rem,env(safe-area-inset-right,0px))] pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] pl-[max(1.5rem,env(safe-area-inset-left,0px))]", "data-testid": "home-landing",
+            div { class: "mx-auto my-auto flex w-full max-w-splash flex-col",
             div { class: "mb-8 flex items-center gap-3",
                 if compact && !drawer_open {
                     IconButton {
@@ -194,6 +195,7 @@ pub fn HomeLanding(reader_platform: BrowserPlatform) -> Element {
                         }
                     }
                 }
+            }
             }
         }
     }

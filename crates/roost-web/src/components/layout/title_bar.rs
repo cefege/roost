@@ -26,7 +26,7 @@ pub fn TitleBar(
     let home_path = Route::Home.to_path();
     let context = workbench_title(&path, session_title.as_deref(), session_folder.as_deref());
     rsx! {
-        header { class: "flex min-w-0 items-center border-b border-border bg-card px-2 [grid-area:titlebar]",
+        header { class: "flex h-10 min-w-0 items-center border-b border-border bg-background px-3 [grid-area:titlebar]",
             div { class: "min-w-0",
                 a {
                     class: "inline-flex min-w-0 items-center gap-2 overflow-hidden text-foreground no-underline focus-visible:outline focus-visible:outline-ring focus-visible:-outline-offset-px",
