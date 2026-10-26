@@ -13,10 +13,10 @@ use crate::components::ui::{
     ToolbarButton,
 };
 
-/// The specimen's grid: rail, sidebar and editor between the title and status
-/// bars. Track sizes come from the shell's tokens so the specimen cannot drift
-/// from the live shell's geometry.
-const SPECIMEN_GRID_CLASS: &str = "grid min-h-[18rem] overflow-hidden \
+/// The specimen's grid: title bar, then rail, sidebar and editor on a floating
+/// `gap-2 p-2` frame, then the status bar. Track sizes come from the shell's
+/// tokens so the specimen cannot drift from the live shell's geometry.
+const SPECIMEN_GRID_CLASS: &str = "grid min-h-[18rem] gap-2 overflow-hidden p-2 \
     grid-cols-[var(--workbench-activity-width)_minmax(3rem,1fr)_minmax(3rem,2fr)] \
     grid-rows-[var(--workbench-titlebar-height)_minmax(12rem,1fr)_var(--workbench-statusbar-height)] \
     bg-background";
@@ -27,14 +27,14 @@ pub fn WorkbenchShellSpecimen() -> Element {
     rsx! {
         div { class: SPECIMEN_GRID_CLASS,
             header {
-                class: "col-span-full flex items-center bg-card px-3",
+                class: "col-span-full flex items-center bg-background px-3",
                 div { class: "flex items-center gap-3",
                     Icon { icon: IconType::Terminal, class: "size-4" }
                     span { class: "text-base font-semibold", "Roost" }
                     span { class: "text-sm text-muted-foreground", "Sessions" }
                 }
             }
-            SidenavInner { class: "min-h-0 col-start-1 row-start-2",
+            SidenavInner { variant: "Floating", class: "min-h-0 col-start-1 row-start-2",
                 nav { class: "flex min-h-0 flex-col", "aria-label": "Workbench activity",
                     SidenavGroup {
                     SidenavMenu {
@@ -71,7 +71,7 @@ pub fn WorkbenchShellSpecimen() -> Element {
                     }
                 }
             }
-            SidenavInner { class: "min-h-0 col-start-2 row-start-2",
+            SidenavInner { variant: "Floating", class: "min-h-0 col-start-2 row-start-2",
                 SidenavContent {
                     SidenavGroup {
                         SidenavGroupLabel { "Folders" }
@@ -105,7 +105,7 @@ pub fn WorkbenchShellSpecimen() -> Element {
                     }
                 }
             }
-            main { class: "col-start-3 row-start-2 grid min-w-0 grid-rows-[var(--workbench-tab-strip-height)_minmax(0,1fr)]",
+            main { class: "col-start-3 row-start-2 grid min-w-0 grid-rows-[var(--workbench-tab-strip-height)_minmax(0,1fr)] overflow-hidden rounded-window border border-border bg-card",
                 Tabs {
                     class: "contents",
                     value: "main".to_owned(),
