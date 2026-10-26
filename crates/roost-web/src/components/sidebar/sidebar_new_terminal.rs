@@ -1,6 +1,7 @@
-//! The stock Sidenav footer's launch actions. "New agent" and "Terminal" each
-//! ask which machine to start on when more than one is online; a single online
-//! machine launches directly. The active folder is reused on its own machine.
+//! The sidebar's launchers. "New" (agent) sits in the sidebar heading and
+//! "Terminal" sits in the footer. Each asks which machine to start on when more
+//! than one is online; a single online machine launches directly. The active
+//! folder is reused on its own machine.
 
 use dioxus::prelude::*;
 
@@ -64,55 +65,66 @@ struct LaunchTargets {
     context_folder: Option<(String, String)>,
 }
 
-/// The action bar.
+/// The footer's terminal launcher.
 #[component]
 pub fn SidebarNewTerminal() -> Element {
     let pump = use_store();
     let path = use_location();
-    let targets = {
-        let core = pump.core();
-        let core = core.borrow();
-        let store = core.store();
-        let now_ms = i64::try_from(core.clock().now_ms()).unwrap_or(i64::MAX);
-        let workers = online_workers_by_label(store, now_ms);
-        let session = active_session_for_path(store, &BrowserWorkerPaths, &path.read());
-        let agent = match Route::parse(&path.read()) {
-            Route::Agent { conversation_id } => {
-                store.agent_chat.conversations.get(&conversation_id)
-            }
-            _ => None,
-        };
-        let context_folder = session
-            .map(|session| (session.worker_fp.to_string(), session.cwd.clone()))
-            .or_else(|| {
-                agent.map(|conversation| (conversation.worker_fp.clone(), conversation.cwd.clone()))
-            });
-        let contextual_worker = context_folder.as_ref().map(|(fp, _)| fp.as_str());
-        LaunchTargets {
-            online: workers
-                .iter()
-                .map(|worker| (worker.fp.to_string(), worker.label.clone()))
-                .collect(),
-            suggested_fp: default_new_terminal_worker_fp(store, now_ms, contextual_worker),
-            context_folder,
-        }
-    };
+    let targets = launch_targets(&pump, &path.read());
     rsx! {
         SidenavFooter { "data-testid": "sidebar-new-terminal",
             div { class: "flex items-center gap-2",
-                LaunchMenu { kind: LaunchKind::Agent, targets: targets.clone() }
                 LaunchMenu { kind: LaunchKind::Terminal, targets }
             }
         }
     }
 }
 
+/// The heading's agent launcher.
+#[component]
+pub fn SidebarNewAgent() -> Element {
+    let pump = use_store();
+    let path = use_location();
+    let targets = launch_targets(&pump, &path.read());
+    rsx! {
+        LaunchMenu { kind: LaunchKind::Agent, targets, header: true }
+    }
+}
+
+/// Reads the launch context for the route at `location`.
+fn launch_targets(pump: &Pump, location: &str) -> LaunchTargets {
+    let core = pump.core();
+    let core = core.borrow();
+    let store = core.store();
+    let now_ms = i64::try_from(core.clock().now_ms()).unwrap_or(i64::MAX);
+    let workers = online_workers_by_label(store, now_ms);
+    let session = active_session_for_path(store, &BrowserWorkerPaths, location);
+    let agent = match Route::parse(location) {
+        Route::Agent { conversation_id } => store.agent_chat.conversations.get(&conversation_id),
+        _ => None,
+    };
+    let context_folder = session
+        .map(|session| (session.worker_fp.to_string(), session.cwd.clone()))
+        .or_else(|| {
+            agent.map(|conversation| (conversation.worker_fp.clone(), conversation.cwd.clone()))
+        });
+    let contextual_worker = context_folder.as_ref().map(|(fp, _)| fp.as_str());
+    LaunchTargets {
+        online: workers
+            .iter()
+            .map(|worker| (worker.fp.to_string(), worker.label.clone()))
+            .collect(),
+        suggested_fp: default_new_terminal_worker_fp(store, now_ms, contextual_worker),
+        context_folder,
+    }
+}
+
 /// One launch button and the machine menu it opens.
 #[component]
-fn LaunchMenu(kind: LaunchKind, targets: LaunchTargets) -> Element {
+fn LaunchMenu(kind: LaunchKind, targets: LaunchTargets, #[props(default)] header: bool) -> Element {
     let mut open = use_signal(|| false);
     rsx! {
-        div { class: "flex-1",
+        div { class: if header { "shrink-0" } else { "flex-1" },
             DropdownMenu {
                 open: open(),
                 on_open_change: move |next: bool| open.set(next),
@@ -120,7 +132,7 @@ fn LaunchMenu(kind: LaunchKind, targets: LaunchTargets) -> Element {
                 trigger_id: kind.button_id(),
                 menu_id: kind.menu_id(),
                 test_id: kind.menu_id(),
-                LaunchButton { kind, targets: targets.clone() }
+                LaunchButton { kind, targets: targets.clone(), header }
                 DropdownMenuContent { class: "min-w-48",
                     DropdownMenuLabel { "Start on which machine?" }
                     for (fp, label) in targets.online.iter().cloned() {
@@ -142,15 +154,19 @@ fn LaunchMenu(kind: LaunchKind, targets: LaunchTargets) -> Element {
 /// The button. With several machines online it opens the menu; with one it
 /// launches there; with none it is disabled.
 #[component]
-fn LaunchButton(kind: LaunchKind, targets: LaunchTargets) -> Element {
+fn LaunchButton(kind: LaunchKind, targets: LaunchTargets, header: bool) -> Element {
     let pump = use_store();
     let navigate = use_navigate();
     let context = try_use_context::<MenuContext>();
     let (variant, icon, label, aria, title) = match kind {
         LaunchKind::Agent => (
             ButtonVariant::Default,
-            IconType::Bot,
-            "New agent",
+            if header {
+                IconType::Plus
+            } else {
+                IconType::Bot
+            },
+            if header { "New" } else { "New agent" },
             "New agent",
             "Start a new agent",
         ),
@@ -168,7 +184,7 @@ fn LaunchButton(kind: LaunchKind, targets: LaunchTargets) -> Element {
     };
     rsx! {
         Button {
-            class: "w-full",
+            class: if header { "shrink-0" } else { "w-full" },
             variant,
             size: ButtonSize::Sm,
             icon,
