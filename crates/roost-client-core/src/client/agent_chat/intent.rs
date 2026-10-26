@@ -12,7 +12,7 @@ pub enum AgentChatIntent {
         conversation_id: String,
         generation: u64,
         seq: u64,
-        transcript: Transcript,
+        transcript: Box<Transcript>,
     },
     EventsLoaded {
         conversation_id: String,

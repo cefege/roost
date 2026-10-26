@@ -170,6 +170,46 @@ impl AgentStore for FailAppendStore {
     ) -> BoxFuture<'a, Result<(), AgentError>> {
         self.inner.save_advisor_state(id, state_json)
     }
+
+    fn set_schedule<'a>(
+        &'a self,
+        conversation_id: &'a str,
+        row: &'a roost_agent::schedules::ScheduleRow,
+    ) -> BoxFuture<'a, Result<(), AgentError>> {
+        self.inner.set_schedule(conversation_id, row)
+    }
+
+    fn schedules<'a>(
+        &'a self,
+        conversation_id: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<roost_agent::schedules::ScheduleRow>, AgentError>> {
+        self.inner.schedules(conversation_id)
+    }
+
+    fn due_schedules(
+        &self,
+        now_ms: i64,
+    ) -> BoxFuture<'_, Result<Vec<(String, roost_agent::schedules::ScheduleRow)>, AgentError>> {
+        self.inner.due_schedules(now_ms)
+    }
+
+    fn advance_schedule<'a>(
+        &'a self,
+        conversation_id: &'a str,
+        id: &'a str,
+        from_due_ms: i64,
+    ) -> BoxFuture<'a, Result<bool, AgentError>> {
+        self.inner
+            .advance_schedule(conversation_id, id, from_due_ms)
+    }
+
+    fn remove_schedule<'a>(
+        &'a self,
+        conversation_id: &'a str,
+        id: &'a str,
+    ) -> BoxFuture<'a, Result<bool, AgentError>> {
+        self.inner.remove_schedule(conversation_id, id)
+    }
 }
 
 fn spend_failure(remaining: &AtomicUsize) -> bool {

@@ -61,6 +61,20 @@ pub fn fold_chat_event(transcript: &mut Transcript, event: &ChatEvent) {
                 }
             }
         }
+        ChatEvent::ScheduleSet { schedule } => {
+            if let Some(existing) = transcript
+                .schedules
+                .iter_mut()
+                .find(|row| row.id == schedule.id)
+            {
+                *existing = schedule.clone();
+            } else {
+                transcript.schedules.push(schedule.clone());
+            }
+        }
+        ChatEvent::ScheduleRemoved { id } => {
+            transcript.schedules.retain(|row| row.id != *id);
+        }
         ChatEvent::TextDelta {
             item_id,
             block,
@@ -191,3 +205,105 @@ impl TranscriptItem {
 }
 #[allow(dead_code)]
 fn _assert_closed_run_state(_: AgentRunState) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::wire::agent_chat::ScheduledMessage;
+
+    fn transcript() -> Transcript {
+        Transcript {
+            items: Vec::new(),
+            run_state: AgentRunState::Idle,
+            error: None,
+            model: None,
+            thinking_level: None,
+            mode: None,
+            usage: Default::default(),
+            queued: Vec::new(),
+            schedules: Vec::new(),
+        }
+    }
+
+    fn schedule(id: &str, due_ms: i64) -> ScheduledMessage {
+        ScheduledMessage {
+            id: id.to_owned(),
+            text: "ping".to_owned(),
+            due_ms,
+            every_ms: None,
+            fired: 0,
+        }
+    }
+
+    #[test]
+    fn schedule_set_inserts_a_new_row() {
+        let mut transcript = transcript();
+        fold_chat_event(
+            &mut transcript,
+            &ChatEvent::ScheduleSet {
+                schedule: schedule("s-1", 100),
+            },
+        );
+        assert_eq!(transcript.schedules, vec![schedule("s-1", 100)]);
+    }
+
+    #[test]
+    fn schedule_set_upserts_in_place_by_id() {
+        let mut transcript = transcript();
+        fold_chat_event(
+            &mut transcript,
+            &ChatEvent::ScheduleSet {
+                schedule: schedule("s-1", 100),
+            },
+        );
+        fold_chat_event(
+            &mut transcript,
+            &ChatEvent::ScheduleSet {
+                schedule: schedule("s-1", 200),
+            },
+        );
+        assert_eq!(transcript.schedules, vec![schedule("s-1", 200)]);
+    }
+
+    #[test]
+    fn schedule_removed_drops_the_row() {
+        let mut transcript = transcript();
+        fold_chat_event(
+            &mut transcript,
+            &ChatEvent::ScheduleSet {
+                schedule: schedule("s-1", 100),
+            },
+        );
+        fold_chat_event(
+            &mut transcript,
+            &ChatEvent::ScheduleRemoved {
+                id: "s-1".to_owned(),
+            },
+        );
+        assert!(transcript.schedules.is_empty());
+    }
+
+    #[test]
+    fn schedule_removed_leaves_other_rows_untouched() {
+        let mut transcript = transcript();
+        fold_chat_event(
+            &mut transcript,
+            &ChatEvent::ScheduleSet {
+                schedule: schedule("s-1", 100),
+            },
+        );
+        fold_chat_event(
+            &mut transcript,
+            &ChatEvent::ScheduleSet {
+                schedule: schedule("s-2", 200),
+            },
+        );
+        fold_chat_event(
+            &mut transcript,
+            &ChatEvent::ScheduleRemoved {
+                id: "s-1".to_owned(),
+            },
+        );
+        assert_eq!(transcript.schedules, vec![schedule("s-2", 200)]);
+    }
+}

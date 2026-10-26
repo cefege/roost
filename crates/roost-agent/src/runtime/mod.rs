@@ -5,6 +5,7 @@
 mod abort;
 mod advisory_delivery;
 mod api;
+mod api_settings;
 mod dedup;
 mod durable_commands;
 mod inspection;

@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{ConversationSummary, GoalState, QueuedMessage, UsageTotals};
+use super::{ConversationSummary, GoalState, QueuedMessage, ScheduledMessage, UsageTotals};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentInspection {
@@ -18,6 +18,8 @@ pub struct AgentInspection {
     pub goal: Option<GoalState>,
     #[serde(default)]
     pub inbox: Vec<QueuedMessage>,
+    #[serde(default)]
+    pub schedules: Vec<ScheduledMessage>,
     pub usage: UsageTotals,
 }
 

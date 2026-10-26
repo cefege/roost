@@ -133,7 +133,7 @@ pub fn handle_event(
                     conversation_id.clone(),
                     *generation,
                     *seq,
-                    transcript.clone(),
+                    (**transcript).clone(),
                 );
                 store.note_change();
             }

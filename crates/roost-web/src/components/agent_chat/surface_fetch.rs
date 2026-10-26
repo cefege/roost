@@ -41,7 +41,7 @@ pub(super) fn fetch_snapshot(
                     conversation_id,
                     generation,
                     seq,
-                    transcript,
+                    transcript: Box::new(transcript),
                 }))
             }
             Err(error) if error.code() == Some(&ConnectCode::NotFound) => {

@@ -6,7 +6,7 @@
 mod capture;
 mod condition;
 mod iteration;
-mod parse;
+pub(crate) mod parse;
 mod persistence;
 mod state;
 

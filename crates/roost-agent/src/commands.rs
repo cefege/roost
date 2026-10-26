@@ -38,6 +38,7 @@ pub(crate) async fn execute(
         "goal" => runtime.goal_command(record, args).await,
         "advisor" => advisor::command(runtime, record, args).await,
         "loop" => runtime.run_loop_command(&record.id, args).await,
+        "schedule" => crate::schedules::command(runtime, record, args).await,
         other => Err(AgentError::InvalidArgument(format!(
             "/{other} runs in the browser"
         ))),
@@ -292,7 +293,7 @@ fn help_table() -> String {
 }
 
 /// UTC `YYYY-MM-DD HH:MM` for a millisecond timestamp.
-fn format_time(at_ms: i64) -> String {
+pub(crate) fn format_time(at_ms: i64) -> String {
     let seconds = at_ms.div_euclid(1000);
     let days = seconds.div_euclid(86_400);
     let minute_of_day = seconds.rem_euclid(86_400) / 60;

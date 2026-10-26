@@ -42,6 +42,7 @@ mod rewind;
 pub mod roles;
 mod run_loop;
 mod runtime;
+pub mod schedules;
 mod subagents;
 mod todo;
 mod todo_notice;

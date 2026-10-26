@@ -4,6 +4,7 @@
 
 mod command_admission;
 mod durable;
+mod schedules;
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -32,6 +33,7 @@ struct MemoryState {
     leases: BTreeMap<String, LeaseRow>,
     durable_batches: BTreeMap<String, Vec<crate::durable::DurableBatch>>,
     durable_ids: BTreeMap<String, u64>,
+    schedules: BTreeMap<String, Vec<crate::schedules::ScheduleRow>>,
 }
 
 impl MemoryState {
@@ -151,6 +153,7 @@ impl AgentStore for InMemoryAgentStore {
                     state.durable_batches.remove(&conversation_id);
                     state.durable_ids.remove(&conversation_id);
                     state.leases.remove(&conversation_id);
+                    state.schedules.remove(&conversation_id);
                     state
                         .commands
                         .retain(|(conversation, _), _| *conversation != conversation_id);
@@ -326,5 +329,44 @@ impl AgentStore for InMemoryAgentStore {
                     .insert(id.to_owned(), state_json.to_owned());
             })
         })
+    }
+
+    fn set_schedule<'a>(
+        &'a self,
+        conversation_id: &'a str,
+        row: &'a crate::schedules::ScheduleRow,
+    ) -> BoxFuture<'a, Result<(), AgentError>> {
+        Box::pin(async move { self.put_schedule(conversation_id, row) })
+    }
+
+    fn schedules<'a>(
+        &'a self,
+        conversation_id: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<crate::schedules::ScheduleRow>, AgentError>> {
+        Box::pin(async move { self.list_schedules(conversation_id) })
+    }
+
+    fn due_schedules(
+        &self,
+        now_ms: i64,
+    ) -> BoxFuture<'_, Result<Vec<(String, crate::schedules::ScheduleRow)>, AgentError>> {
+        Box::pin(async move { self.list_due_schedules(now_ms) })
+    }
+
+    fn advance_schedule<'a>(
+        &'a self,
+        conversation_id: &'a str,
+        id: &'a str,
+        from_due_ms: i64,
+    ) -> BoxFuture<'a, Result<bool, AgentError>> {
+        Box::pin(async move { self.advance_schedule_row(conversation_id, id, from_due_ms) })
+    }
+
+    fn remove_schedule<'a>(
+        &'a self,
+        conversation_id: &'a str,
+        id: &'a str,
+    ) -> BoxFuture<'a, Result<bool, AgentError>> {
+        Box::pin(async move { self.remove_schedule_row(conversation_id, id) })
     }
 }

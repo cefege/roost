@@ -35,6 +35,7 @@ fn transcript() -> Transcript {
         mode: None,
         usage: UsageTotals::default(),
         queued: Vec::new(),
+        schedules: Vec::new(),
     }
 }
 

@@ -141,6 +141,28 @@ Snapshot replay filters queued/user membership against the newer authoritative
 journal, including membership inside cached `Reset` payloads. A withdrawal
 committed before its removal event was persisted cannot reappear on reconnect.
 
+## Scheduled messages
+
+`/schedule in|every <duration> <text>`, `/schedule at <RFC3339> <text>` and
+`/schedule cancel <id>` are coordinator-run commands; bare `/schedule` lists.
+Rows live in `agent_schedules` (migration `0014`), keyed by conversation and an
+`s-`-prefixed id; `Transcript.schedules` projects them and `ScheduleSet` /
+`ScheduleRemoved` events keep clients current. Limits: text 1–4000 characters,
+`every` at least 10 minutes, one-shots at most 366 days ahead and not in the
+past, 50 rows per conversation. Forks copy no schedules; deleting a
+conversation deletes them.
+
+Every replica sweeps due rows every 5 seconds. A sweep submits first, with the
+request id `sched-<id>-<due_ms>`, then advances the row with a compare on its
+old `due_ms`; request-id dedup makes a replayed submit a duplicate, so each due
+instant is delivered exactly once across restarts and replicas. A recurring
+row advances by whole steps to the first future instant, never bursting after
+downtime. A failed submit leaves the row due for the next sweep.
+
+Editing an earlier user message is a client composition: `AgentChatRewind` to
+that message without restoring files, then `AgentChatSubmit` with the edited
+text.
+
 ## Agent scope and storage compatibility
 
 The native Rust agent's behavioral baseline is `d5cf3bda`, immediately before
