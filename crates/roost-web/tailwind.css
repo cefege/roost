@@ -205,7 +205,7 @@
   --ease-pocket: cubic-bezier(0.23, 1, 0.32, 1);
   --duration-in: 410ms;
   --duration-hover: 140ms;
-  --container-reading: clamp(720px, 72%, 1200px);
+  --container-reading: clamp(min(100%, 720px), 72%, 1200px);
   --container-splash: 40rem;
   --color-background: var(--background);
   --color-foreground: var(--foreground);

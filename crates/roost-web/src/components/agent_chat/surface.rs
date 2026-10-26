@@ -30,7 +30,7 @@ use crate::pump::use_store;
 const ROOT_CLASS: &str =
     "relative flex h-full w-full min-h-0 min-w-0 flex-col bg-background text-foreground";
 const TRANSCRIPT_CLASS: &str = "min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 py-5";
-const COLUMN_CLASS: &str = "mx-auto w-full max-w-3xl";
+const COLUMN_CLASS: &str = "mx-auto w-full max-w-reading";
 
 #[cfg(target_arch = "wasm32")]
 use super::surface_fetch::{fetch_events_or_snapshot, fetch_snapshot};
@@ -248,7 +248,7 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
                     super::transcript::AgentTranscriptView { transcript: transcript.clone(), conversation_id: conversation_id.clone(), pump: pump.clone(), draft, edit_target }
                 }
             }
-            div { class: "relative mx-auto flex w-full max-w-3xl shrink-0 flex-col gap-3 px-4 pt-2 pb-4",
+            div { class: "relative mx-auto flex w-full max-w-reading shrink-0 flex-col gap-3 px-4 pt-2 pb-4",
                 if running {
                     WorkingRow {
                         label: if assistant_is_streaming(&transcript) { "Writing…".to_string() } else { working_label(&transcript.items) },
@@ -284,7 +284,7 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
 fn LoadingTranscript() -> Element {
     rsx! {
         div { class: TRANSCRIPT_CLASS, "aria-busy": "true",
-            div { class: "mx-auto flex w-full max-w-3xl flex-col gap-3",
+            div { class: "mx-auto flex w-full max-w-reading flex-col gap-3",
                 Skeleton { class: "ml-auto h-8 w-2/5" }
                 Skeleton { class: "h-4 w-full" }
                 Skeleton { class: "h-4 w-full" }
