@@ -265,10 +265,12 @@ operator retired it; `/fork` and the `AgentChatFork` RPC still fork a
 conversation, surfaced through the "Conversation forked" notice's "Open
 fork" link).
 
-The alternate Workspaces/Agents sidebar mode is retired (`SidebarView`,
-`roost.sidebarView`, `sidebar_agents.rs`, `agents_projection.rs`). Folders is
-the only sidebar view and includes terminal sessions and agent conversations;
-old stored view keys are ignored. The custom `ui::Surface`/`SurfaceLevel` skin
+The alternate Workspaces/Agents sidebar mode is retired (`sidebar_agents.rs`,
+`agents_projection.rs`, and the old `roost.sidebarView` Workspaces/Agents values,
+which fall back to Recent). The sidebar has two views: Recent, the agent
+conversations grouped Today and Earlier, and Folders, which holds terminal
+sessions and agent conversations. No archived view exists: the store has no
+archive concept. The custom `ui::Surface`/`SurfaceLevel` skin
 and `List.contained` border option are removed; panels use stock Rust/UI `Card`
 recipes and lists compose stock `Item` rows.
 
