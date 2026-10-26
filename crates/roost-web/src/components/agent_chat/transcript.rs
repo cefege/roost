@@ -18,12 +18,10 @@ use super::peer_message_card::PeerMessageCard;
 use super::plan_card::PlanCard;
 use super::streaming_reveal::StreamingText;
 use super::thinking_block::ThinkingBlock;
-use super::timeline_rail::{StepMark, TimelineRail, TimelineStep};
-use super::tool_card::ToolCard;
+use super::timeline_rail::StepGroup;
 use crate::components::ui::{
-    Avatar, AvatarFallback, Bubble, BubbleContent, BubbleGroup, BubbleVariant, Button,
-    ButtonVariant, IconButton, IconType, Marker, Message, MessageAlign, MessageAvatar,
-    MessageContent, MessageFooter, StatusDot,
+    Avatar, AvatarFallback, Bubble, BubbleContent, Button, ButtonSize, ButtonVariant, IconType,
+    Marker, Message, MessageAlign, MessageAvatar, MessageContent, MessageFooter, StatusDot,
 };
 use crate::pump::Pump;
 
@@ -105,27 +103,13 @@ pub fn AgentTranscriptView(
                         AssistantMessage { key: "{id}", blocks: blocks.clone(), streaming: *streaming, error: error.clone(), show_thinking: show_thinking() }
                     },
                     Segment::Steps(_) if !show_tools() => rsx! {},
-                    Segment::Steps(steps) => rsx! {
-                        TimelineRail { key: "{step_group_key(&steps)}",
-                            for step in steps {
-                                if let TranscriptItem::Tool { id, tool_name, args_json, output, is_error, running, queued, details_json, children, .. } = step {
-                                    TimelineStep { key: "{id}", mark: StepMark::from_tool(*is_error, *running, *queued),
-                                        ToolCard {
-                                            tool_name: tool_name.clone(),
-                                            args_json: args_json.clone(),
-                                            output: output.clone(),
-                                            is_error: *is_error,
-                                            running: *running,
-                                            queued: *queued,
-                                            details_json: details_json.clone(),
-                                            child_ids: children.clone(),
-                                            expanded: expand_tools(),
-                                        }
-                                    }
-                                }
-                            }
+                    Segment::Steps(steps) => {
+                        let key = step_group_key(&steps);
+                        let steps = steps.into_iter().cloned().collect::<Vec<_>>();
+                        rsx! {
+                            StepGroup { key: "{key}", steps: steps, expanded: expand_tools() }
                         }
-                    },
+                    }
                     Segment::Notice(TranscriptItem::Notice { id, level, title, body }) => rsx! {
                         NoticeCard { key: "{id}", id: id.clone(), level: level.clone(), title: title.clone(), body: body.clone() }
                     },
@@ -188,6 +172,8 @@ fn UserMessage(
     }
 }
 
+/// An assistant reply sits on the page, not in a bubble: prose at reading width,
+/// thinking blocks inline, and one quiet copy action beneath.
 #[component]
 fn AssistantMessage(
     blocks: Vec<TranscriptBlock>,
@@ -210,60 +196,39 @@ fn AssistantMessage(
         crate::components::hooks::use_copy_clipboard::use_copy_clipboard(None);
     let has_text = !copy_text.trim().is_empty();
     rsx! {
-        div { class: "group/assistant flex flex-col gap-3", "data-streaming": streaming.then_some("true"),
-            Message {
-                MessageAvatar {
-                    Avatar {
-                        AvatarFallback { "A" }
+        div { class: "group/assistant flex min-w-0 max-w-reading flex-col gap-3 text-sm text-foreground", "data-streaming": streaming.then_some("true"),
+            for (index, block) in blocks.iter().enumerate() {
+                match block {
+                    // Every text block goes through StreamingText under one key,
+                    // so a block that stops streaming keeps revealing its backlog.
+                    TranscriptBlock::Text { text } if !text.is_empty() => rsx! {
+                        StreamingText { key: "text-{index}", text: text.clone(), live: streaming && index + 1 == blocks.len() }
+                    },
+                    TranscriptBlock::Thinking { text } if !text.is_empty() => {
+                        let live = streaming && Some(index) == last_thinking && index + 1 == blocks.len();
+                        rsx! {
+                            ThinkingBlock { key: "thinking-{index}", text: text.clone(), live, globally_visible: show_thinking }
+                        }
                     }
+                    _ => rsx! {},
                 }
-                MessageContent {
-                    BubbleGroup {
-                        for (index, block) in blocks.iter().enumerate() {
-                            match block {
-                                // Every text block goes through StreamingText under one key,
-                                // so a block that stops streaming keeps revealing its backlog.
-                                TranscriptBlock::Text { text } if !text.is_empty() => rsx! {
-                                    Bubble { variant: BubbleVariant::Muted,
-                                        BubbleContent {
-                                            StreamingText { key: "text-{index}", text: text.clone(), live: streaming && index + 1 == blocks.len() }
-                                        }
-                                    }
-                                },
-                                TranscriptBlock::Thinking { text } if !text.is_empty() => {
-                                    let live = streaming && Some(index) == last_thinking && index + 1 == blocks.len();
-                                    rsx! {
-                                        Bubble { variant: BubbleVariant::Ghost,
-                                            BubbleContent {
-                                                ThinkingBlock { key: "thinking-{index}", text: text.clone(), live, globally_visible: show_thinking }
-                                            }
-                                        }
-                                    }
-                                }
-                                _ => rsx! {},
-                            }
-                        }
-                        if streaming {
-                            Marker { role: "status",
-                                StatusDot { status: "running".to_string() }
-                                "Generating response"
-                            }
-                        }
-                        if let Some(error) = error {
-                            AgentAlert { p { "{error}" } }
-                        }
-                    }
-                    if !streaming && has_text {
-                        MessageFooter {
-                            IconButton {
-                                icon: if response_copied() { IconType::Check } else { IconType::Copy },
-                                label: "Copy response",
-                                title: if response_copied() { "Copied" } else { "Copy" },
-                                size: crate::components::ui::ButtonSize::IconXs,
-                                variant: ButtonVariant::Ghost,
-                                onclick: move |_| copy_response(&copy_text),
-                            }
-                        }
+            }
+            if streaming {
+                Marker { role: "status",
+                    StatusDot { status: "running".to_string() }
+                    "Generating response"
+                }
+            }
+            if let Some(error) = error {
+                AgentAlert { p { "{error}" } }
+            }
+            if !streaming && has_text {
+                div { class: "flex items-center text-muted-foreground",
+                    Button {
+                        variant: ButtonVariant::Ghost,
+                        size: ButtonSize::Sm,
+                        onclick: move |_| copy_response(&copy_text),
+                        if response_copied() { "Copied" } else { "Copy" }
                     }
                 }
             }

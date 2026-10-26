@@ -1,7 +1,8 @@
-//! A compact tool disclosure with its execution state and argument summary.
-//! Expanding reveals native output, diffs, child agents and executor details;
-//! the transcript-wide expand action opens every disclosure. Tool content is
-//! text, never trusted markup. Called by the semantic transcript renderer.
+//! One tool call as a compact row inside its step group. Its trigger shows the
+//! verb, target, diff counts and execution state; expanding reveals native
+//! output, diffs, child agents and executor details. The transcript-wide expand
+//! action opens every row. Tool content is text, never trusted markup. Called by
+//! the step group in `timeline_rail`.
 
 use dioxus::prelude::*;
 
@@ -18,8 +19,8 @@ use super::tool_view::{
 };
 use super::write_view::WriteBody;
 use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Card, CardContent, CardSize, Collapsible,
-    CollapsibleContent, CollapsibleTrigger, Icon, IconType, Spinner, StatusDot,
+    Button, ButtonSize, ButtonVariant, Collapsible, CollapsibleContent, CollapsibleTrigger, Icon,
+    IconType, Spinner, StatusDot,
 };
 
 #[component]
@@ -144,151 +145,148 @@ pub fn ToolCard(
     let (copy_output_to_clipboard, output_copied) =
         crate::components::hooks::use_copy_clipboard::use_copy_clipboard(None);
     rsx! {
-        Card {
-            size: CardSize::Sm,
-            class: Some("min-w-0 data-[state=error]:border-destructive/40".to_owned()),
+        div {
+            class: "min-w-0",
             "data-state": state,
             "data-tool": tool_name.clone(),
-            CardContent { class: "min-w-0",
-                Collapsible {
-                    open: expanded || disclosure_open(),
-                    on_open_change: move |next| disclosure_open.set(next),
-                    CollapsibleTrigger {
-                        variant: ButtonVariant::Ghost,
-                        size: ButtonSize::Sm,
-                        class: "w-full min-w-0 justify-start gap-2 text-left",
-                        span { class: "inline-flex flex-none items-center gap-1",
-                            Icon { icon, class: "size-4" }
-                        }
-                        span { class: "flex-none font-medium text-foreground", "{verb}" }
-                        if !target.is_empty() {
-                            code {
-                                class: target_class(&tool_name),
-                                title: target.clone(),
-                                "{target}"
-                            }
-                        }
-                        if diff_stats.added > 0 || diff_stats.removed > 0 {
-                            span { class: "flex-none font-mono text-xs text-muted-foreground",
-                                "["
-                                span { class: "text-success", "+{diff_stats.added}" }
-                                "/"
-                                span { class: "text-destructive", "−{diff_stats.removed}" }
-                                "]"
-                            }
-                        }
-                        span { class: state_text_class(state),
-                            if state == "running" {
-                                span {
-                                    class: "inline-flex",
-                                    role: "status",
-                                    "aria-label": "Running",
-                                    Spinner { class: "size-3" }
-                                }
-                            } else {
-                                StatusDot {
-                                    status: status_name(state).to_string(),
-                                    title: Some(state_text.to_string()),
-                                }
-                                span { "{state_text}" }
-                            }
-                        }
-                        Icon {
-                            icon: if expanded || disclosure_open() { IconType::ChevronUp } else { IconType::ChevronDown },
-                            class: "size-4 text-muted-foreground",
+            Collapsible {
+                open: expanded || disclosure_open(),
+                on_open_change: move |next| disclosure_open.set(next),
+                CollapsibleTrigger {
+                    variant: ButtonVariant::Ghost,
+                    size: ButtonSize::Sm,
+                    class: "w-full min-w-0 justify-start gap-2 text-left",
+                    span { class: "inline-flex flex-none items-center gap-1",
+                        Icon { icon, class: "size-4" }
+                    }
+                    span { class: "flex-none font-medium text-foreground", "{verb}" }
+                    if !target.is_empty() {
+                        code {
+                            class: target_class(&tool_name),
+                            title: target.clone(),
+                            "{target}"
                         }
                     }
-                    CollapsibleContent { class: "flex min-w-0 flex-col gap-2 pt-2",
-                        if disclosure_visible {
-                            if !args_json.is_empty() && args_json != "{}" {
-                                span { class: "text-xs font-medium text-muted-foreground",
-                                    "Input"
-                                }
-                                pre { class: "m-0 max-h-48 overflow-auto overscroll-y-auto whitespace-pre-wrap break-words font-mono text-xs",
-                                    "{args_json}"
-                                }
+                    if diff_stats.added > 0 || diff_stats.removed > 0 {
+                        span { class: "flex-none font-mono text-xs text-muted-foreground",
+                            "["
+                            span { class: "text-success", "+{diff_stats.added}" }
+                            "/"
+                            span { class: "text-destructive", "−{diff_stats.removed}" }
+                            "]"
+                        }
+                    }
+                    span { class: state_text_class(state),
+                        if state == "running" {
+                            span {
+                                class: "inline-flex",
+                                role: "status",
+                                "aria-label": "Running",
+                                Spinner { class: "size-3" }
                             }
-                            if let Some(text) = intent {
-                                p { class: "m-0 break-words text-xs italic text-muted-foreground",
-                                    "{text}"
-                                }
+                        } else {
+                            StatusDot {
+                                status: status_name(state).to_string(),
+                                title: Some(state_text.to_string()),
                             }
+                            span { "{state_text}" }
+                        }
+                    }
+                    Icon {
+                        icon: if expanded || disclosure_open() { IconType::ChevronUp } else { IconType::ChevronDown },
+                        class: "size-4 text-muted-foreground",
+                    }
+                }
+                CollapsibleContent { class: "flex min-w-0 flex-col gap-2 pt-2",
+                    if disclosure_visible {
+                        if !args_json.is_empty() && args_json != "{}" {
                             span { class: "text-xs font-medium text-muted-foreground",
-                                if running {
-                                    "Live output"
-                                } else {
-                                    "Result"
+                                "Input"
+                            }
+                            pre { class: "m-0 max-h-48 overflow-auto overscroll-y-auto whitespace-pre-wrap break-words font-mono text-xs",
+                                "{args_json}"
+                            }
+                        }
+                        if let Some(text) = intent {
+                            p { class: "m-0 break-words text-xs italic text-muted-foreground",
+                                "{text}"
+                            }
+                        }
+                        span { class: "text-xs font-medium text-muted-foreground",
+                            if running {
+                                "Live output"
+                            } else {
+                                "Result"
+                            }
+                        }
+                        {body}
+                        if tool_name == "edit" && !diff_text.is_empty() && !notes.is_empty() {
+                            pre { class: "m-0 whitespace-pre-wrap break-words py-1 font-mono text-xs text-muted-foreground",
+                                "{notes}"
+                            }
+                        }
+                        if timed_out {
+                            AgentAlert { tone: AlertTone::Warning,
+                                p { "Execution timed out." }
+                            }
+                        }
+                        if outcome_unknown {
+                            AgentAlert { tone: AlertTone::Warning,
+                                p {
+                                    "Final outcome unknown. Inspect current state before repeating the call."
                                 }
                             }
-                            {body}
-                            if tool_name == "edit" && !diff_text.is_empty() && !notes.is_empty() {
-                                pre { class: "m-0 whitespace-pre-wrap break-words py-1 font-mono text-xs text-muted-foreground",
-                                    "{notes}"
-                                }
+                        }
+                        if !child_ids.is_empty() {
+                            TaskRows {
+                                child_ids: child_ids.clone(),
+                                open: agents_expanded,
+                                on_expand: on_agents_expand,
                             }
-                            if timed_out {
-                                AgentAlert { tone: AlertTone::Warning,
-                                    p { "Execution timed out." }
+                        }
+                        if has_details {
+                            Collapsible {
+                                open: details_open(),
+                                on_open_change: move |next: bool| details_open.set(next),
+                                CollapsibleTrigger {
+                                    variant: ButtonVariant::Ghost,
+                                    size: ButtonSize::Sm,
+                                    class: "justify-start",
+                                    "Details"
                                 }
-                            }
-                            if outcome_unknown {
-                                AgentAlert { tone: AlertTone::Warning,
-                                    p {
-                                        "Final outcome unknown. Inspect current state before repeating the call."
+                                CollapsibleContent { class: "flex flex-col gap-2 pb-2",
+                                    if !facts.is_empty() {
+                                        ul { class: "m-0 flex list-none flex-wrap gap-x-4 gap-y-2 p-0 text-xs text-muted-foreground",
+                                            for fact in facts {
+                                                li { "{fact}" }
+                                            }
+                                        }
                                     }
-                                }
-                            }
-                            if !child_ids.is_empty() {
-                                TaskRows {
-                                    child_ids: child_ids.clone(),
-                                    open: agents_expanded,
-                                    on_expand: on_agents_expand,
-                                }
-                            }
-                            if has_details {
-                                Collapsible {
-                                    open: details_open(),
-                                    on_open_change: move |next: bool| details_open.set(next),
-                                    CollapsibleTrigger {
-                                        variant: ButtonVariant::Ghost,
-                                        size: ButtonSize::Sm,
-                                        class: "justify-start",
-                                        "Details"
+                                    if !details_json.is_empty() && details_json != "{}" {
+                                        pre { class: "m-0 whitespace-pre-wrap break-words font-mono text-xs",
+                                            "{details_json}"
+                                        }
                                     }
-                                    CollapsibleContent { class: "flex flex-col gap-2 pb-2",
-                                        if !facts.is_empty() {
-                                            ul { class: "m-0 flex list-none flex-wrap gap-x-4 gap-y-2 p-0 text-xs text-muted-foreground",
-                                                for fact in facts {
-                                                    li { "{fact}" }
+                                    div { class: "flex flex-wrap gap-2",
+                                        if copy_command {
+                                            Button {
+                                                variant: ButtonVariant::Link,
+                                                onclick: move |_| copy_command_to_clipboard(&command_text),
+                                                if command_copied() {
+                                                    "Copied"
+                                                } else {
+                                                    "Copy command"
                                                 }
                                             }
                                         }
-                                        if !details_json.is_empty() && details_json != "{}" {
-                                            pre { class: "m-0 whitespace-pre-wrap break-words font-mono text-xs",
-                                                "{details_json}"
-                                            }
-                                        }
-                                        div { class: "flex flex-wrap gap-2",
-                                            if copy_command {
-                                                Button {
-                                                    variant: ButtonVariant::Link,
-                                                    onclick: move |_| copy_command_to_clipboard(&command_text),
-                                                    if command_copied() {
-                                                        "Copied"
-                                                    } else {
-                                                        "Copy command"
-                                                    }
-                                                }
-                                            }
-                                            if !output.is_empty() {
-                                                Button {
-                                                    variant: ButtonVariant::Link,
-                                                    onclick: move |_| copy_output_to_clipboard(&output_text),
-                                                    if output_copied() {
-                                                        "Copied"
-                                                    } else {
-                                                        "Copy output"
-                                                    }
+                                        if !output.is_empty() {
+                                            Button {
+                                                variant: ButtonVariant::Link,
+                                                onclick: move |_| copy_output_to_clipboard(&output_text),
+                                                if output_copied() {
+                                                    "Copied"
+                                                } else {
+                                                    "Copy output"
                                                 }
                                             }
                                         }

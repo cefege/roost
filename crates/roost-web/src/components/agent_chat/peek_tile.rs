@@ -40,9 +40,9 @@ pub fn peek_conversations(pump: &Pump, current_id: &str) -> Vec<ConversationSumm
 /// The dot's status name and the word a tile prints beside it.
 pub fn peek_status(state: AgentRunState) -> (&'static str, &'static str) {
     match state {
-        AgentRunState::Running => ("running", "working"),
-        AgentRunState::Failed => ("error", "failed"),
-        AgentRunState::Idle => ("idle", "idle"),
+        AgentRunState::Running => ("running", "Working"),
+        AgentRunState::Failed => ("error", "Failed"),
+        AgentRunState::Idle => ("idle", "Idle"),
     }
 }
 
@@ -96,19 +96,28 @@ pub fn PeekCard(
     word: String,
     on_open: EventHandler<()>,
 ) -> Element {
+    let word_class = match status.as_str() {
+        "running" => "text-xs text-primary",
+        "error" => "text-xs text-destructive",
+        _ => "text-xs text-muted-foreground",
+    };
+    let detail_class = match status.as_str() {
+        "error" => "truncate text-xs text-destructive",
+        _ => "truncate font-mono text-xs text-muted-foreground",
+    };
     rsx! {
         CardWindow {
             size: CardSize::Sm,
             CardContent { class: "flex min-w-0 flex-col gap-2",
-                span { class: "truncate text-sm font-medium text-foreground", "{title}" }
-                span { class: "truncate text-xs text-muted-foreground", "{detail}" }
+                div { class: "flex min-w-0 items-center gap-2",
+                    StatusDot { status: status.clone(), size: 6 }
+                    span { class: "truncate text-sm font-medium text-foreground", "{title}" }
+                }
+                span { class: detail_class, "{detail}" }
                 div { class: "flex items-center justify-between gap-2",
-                    span { class: "flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground",
-                        StatusDot { status, size: 6 }
-                        "{word}"
-                    }
+                    span { class: word_class, "{word}" }
                     Button {
-                        variant: ButtonVariant::Default,
+                        variant: ButtonVariant::Outline,
                         size: ButtonSize::Sm,
                         onclick: move |_| on_open.call(()),
                         "Open"

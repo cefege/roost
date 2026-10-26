@@ -1,14 +1,16 @@
 //! The agent composer keeps the draft, slash commands and voice input together.
-//! Its footer exposes models, busy submission modes and foreground interruption.
-//! Submissions reuse their request ID until the outcome is known.
+//! Its footer carries model, plan, voice and send; the status line beneath it carries
+//! usage, advisor and goal. Submissions reuse their request ID until the outcome is known.
 use super::composer_commands::{
     LocalCommandScope, report_command, run_local_command, submit_message,
 };
 use super::composer_footer::ComposerFooter;
 #[cfg(target_arch = "wasm32")]
 use super::composer_helpers::abort_run;
-use super::composer_helpers::{EditBanner, fill_draft, focus_field, latest_goal, try_submit_edit};
-use super::composer_status::ComposerErrorBanner;
+use super::composer_helpers::{
+    EditBanner, composer_placeholder, composer_run_facts, fill_draft, focus_field, try_submit_edit,
+};
+use super::composer_status::{ComposerErrorBanner, ComposerStatusLine, composer_usage};
 use super::goal_controls::GoalControls;
 use super::message_actions::EditTarget;
 use super::slash_menu::{
@@ -19,7 +21,7 @@ use crate::components::settings::agent_connect_dialog::AgentConnectDialog;
 use crate::components::terminal_chrome::composer_dictation::{
     SharedBinding, VoiceControl, use_dictation, use_dictation_context,
 };
-use crate::components::ui::{FieldError, InputPromptPill, InputPromptTextarea};
+use crate::components::ui::{FieldError, InputPromptSheet, InputPromptTextarea};
 use crate::pump::Pump;
 use crate::router_state::use_navigate;
 use crate::voice::send_gate::SendGate;
@@ -84,7 +86,8 @@ pub fn AgentComposer(
         .map(|option| option.text.clone());
     let listbox = listbox_id(&conversation_id);
     let run_error = transcript.error.clone();
-    let goal = latest_goal(&transcript);
+    let (goal, failed, cost_usd) = composer_run_facts(&transcript);
+    let usage = composer_usage(&transcript, catalog.as_ref(), &conversation);
     let submit = EventHandler::new({
         let pump = pump.clone();
         let conversation_id = conversation_id.clone();
@@ -212,19 +215,7 @@ pub fn AgentComposer(
     });
     let empty = draft().trim().is_empty();
     let send_available = dictation.send_gate().offers_send();
-    let placeholder = if disabled {
-        "The agent host is offline"
-    } else if !send_available {
-        "Listening…"
-    } else if running {
-        match busy_mode().as_str() {
-            "follow_up" => "Add a follow-up…",
-            "reject" => "This message will be rejected while busy",
-            _ => "Steer the agent…",
-        }
-    } else {
-        "Ask the agent, or type / for commands…"
-    };
+    let placeholder = composer_placeholder(disabled, send_available, running, &busy_mode());
     let sources_for_input = sources.clone();
     let key_conversation = conversation_id.clone();
     // A tap or click on a row does what Enter does on it: runs a command that
@@ -303,7 +294,7 @@ pub fn AgentComposer(
                 }
             }
             EditBanner { edit_target, draft }
-            InputPromptPill {
+            InputPromptSheet {
                 class: "min-w-0 flex-col",
                 InputPromptTextarea {
                     id: super::composer_helpers::composer_input_id(&conversation_id),
@@ -330,9 +321,6 @@ pub fn AgentComposer(
                     catalog,
                     catalog_failed,
                     pump: pump.clone(),
-                    goal: goal.clone(),
-                    goal_view_request,
-                    on_goal_open: move |_| goal_open.set(true),
                     command_error,
                     commands_open: options_open,
                     listbox: listbox.clone(),
@@ -365,6 +353,18 @@ pub fn AgentComposer(
                     on_send: send,
                     on_stop: stop,
                 }
+            }
+            ComposerStatusLine {
+                conversation: conversation.clone(),
+                pump: pump.clone(),
+                goal: goal.clone(),
+                goal_view_request,
+                on_goal_open: move |_| goal_open.set(true),
+                command_error,
+                usage,
+                cost_usd,
+                running,
+                failed,
             }
             ComposerErrorBanner {
                 error: run_error,

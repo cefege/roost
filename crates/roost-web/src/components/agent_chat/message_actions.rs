@@ -4,8 +4,8 @@
 use dioxus::prelude::*;
 
 use crate::components::ui::{
-    Button, ButtonVariant, Checkbox, Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader,
-    DialogTitle, IconType, Label,
+    Button, ButtonSize, ButtonVariant, Checkbox, Dialog, DialogBody, DialogContent, DialogFooter,
+    DialogHeader, DialogTitle, Label,
 };
 use crate::pump::Pump;
 
@@ -42,10 +42,10 @@ pub fn UserMessageActions(
     let edit_item = item_id.clone();
     let edit_text = text.clone();
     rsx! {
-        div { class: "flex items-center gap-1",
+        div { class: "flex items-center gap-1 text-muted-foreground",
             Button {
                 variant: ButtonVariant::Ghost,
-                icon: Some(IconType::Pencil),
+                size: ButtonSize::Sm,
                 disabled: running,
                 onclick: move |_| {
                     edit_draft.set(edit_text.clone());
@@ -53,8 +53,8 @@ pub fn UserMessageActions(
                 },
                 "Edit"
             }
-            Button { variant: ButtonVariant::Ghost, icon: Some(IconType::RotateCcw), onclick: move |_| rewind_and_submit(retry_pump.clone(), retry_id.clone(), retry_item.clone(), retry_text.clone()), "Retry" }
-            Button { variant: ButtonVariant::Ghost, icon: Some(IconType::History), onclick: move |_| confirm.set(true), "Rewind to here" }
+            Button { variant: ButtonVariant::Ghost, size: ButtonSize::Sm, onclick: move |_| rewind_and_submit(retry_pump.clone(), retry_id.clone(), retry_item.clone(), retry_text.clone()), "Retry" }
+            Button { variant: ButtonVariant::Ghost, size: ButtonSize::Sm, onclick: move |_| confirm.set(true), "Rewind to here" }
         }
         Dialog { open: confirm(), on_open_change: move |open: bool| confirm.set(open),
             DialogContent {
