@@ -18,6 +18,7 @@
 //! `apps/web/src/store/sync-inbound.ts:50-90`. Contract: `protocol/spec/sync.md`;
 //! the reasons are in `docs/phase4-client-contract.md` §7 and §11.
 
+use crate::client::client_state::ClientStateStore;
 use crate::effect::{Effect, RpcResult, SyncCommand};
 use crate::store::root::CoordIdentity;
 
@@ -268,10 +269,14 @@ pub(crate) fn hydrate(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
 /// first; what is left is an answer some other surface asked for.
 pub fn handle_rpc_result(
     store: &mut Store,
+    storage: &ClientStateStore,
     result: &RpcResult,
     now_ms: u64,
     out: &mut Vec<Effect>,
 ) {
+    if crate::client::client_state::settle_result(store, storage, result) {
+        return;
+    }
     if hydration::settle_hydration_result(store, result, now_ms, out) {
         return;
     }

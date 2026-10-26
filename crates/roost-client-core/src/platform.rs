@@ -26,6 +26,16 @@ pub trait Clock {
     fn now_ms(&self) -> u64;
 }
 
+/// The wall clock, read only to stamp last-writer-wins client state.
+///
+/// The monotonic `Clock` cannot order writes across devices, so synced state
+/// carries epoch milliseconds instead. A host implements this over its system
+/// time; nothing else in the core reads wall time.
+pub trait EpochClock {
+    /// The current Unix time in milliseconds.
+    fn epoch_ms(&self) -> i64;
+}
+
 /// The `localStorage`/`IndexedDB` equivalent: three operations, no more.
 ///
 /// The Sync recovery watermark is the one piece of client state that must
@@ -85,6 +95,38 @@ impl MemoryClock {
 impl Clock for MemoryClock {
     fn now_ms(&self) -> u64 {
         *self.now_ms.borrow()
+    }
+}
+
+/// An epoch clock a test sets directly. Unlike `MemoryClock` it may move
+/// backwards, because a wall clock can be stepped and merge must cope.
+#[derive(Debug, Default)]
+pub struct MemoryEpochClock {
+    epoch_ms: RefCell<i64>,
+}
+
+impl MemoryEpochClock {
+    /// A clock reading zero.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// A clock reading `epoch_ms`.
+    pub fn starting_at(epoch_ms: i64) -> Self {
+        Self {
+            epoch_ms: RefCell::new(epoch_ms),
+        }
+    }
+
+    /// Set the clock to an absolute value.
+    pub fn set(&self, epoch_ms: i64) {
+        *self.epoch_ms.borrow_mut() = epoch_ms;
+    }
+}
+
+impl EpochClock for MemoryEpochClock {
+    fn epoch_ms(&self) -> i64 {
+        *self.epoch_ms.borrow()
     }
 }
 

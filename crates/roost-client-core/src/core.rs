@@ -12,19 +12,22 @@
 use std::rc::Rc;
 
 use crate::client::agents::{AGENT_SEEN_STORAGE_KEY, AgentSeenLedger};
+use crate::client::client_state::ClientStateStore;
 use crate::effect::Effect;
 use crate::event::ClientEvent;
 use crate::handle_event::handle_event;
-use crate::platform::{Clock, KeyValueStore, MemoryClock, MemoryKeyValueStore};
+use crate::platform::{Clock, KeyValueStore, MemoryClock};
 use crate::store::Store;
+use crate::store::layout::LayoutRecords;
 use crate::store::prefs::PrefDefaults;
+use crate::store::sidebar::SidebarMemory;
 use crate::sync::SyncState;
 
 /// The client, as a host holds it.
 pub struct ClientCore {
     store: Store,
     clock: Rc<dyn Clock>,
-    storage: Rc<dyn KeyValueStore>,
+    storage: Rc<ClientStateStore>,
 }
 
 /// A HAND-WRITTEN `Debug`, and deliberately so.
@@ -68,19 +71,20 @@ impl ClientCore {
     /// records it; the host decides it.
     pub fn new(
         clock: Rc<dyn Clock>,
-        storage: Rc<dyn KeyValueStore>,
+        storage: Rc<ClientStateStore>,
         tab_id: &str,
         defaults: &PrefDefaults,
     ) -> Self {
         let sync = SyncState::new(storage.as_ref());
         let mut store = Store::new(sync, tab_id);
+        store.client_state.begin(clock.now_ms());
         // Loaded here for the same reason the recovery cursor is: a ledger this
         // tab does not read at boot is a ledger that starts empty on every
         // reload, and a released occupant whose completion was already
         // delivered then stays on screen until the profile is closed.
         store.agent_seen = AgentSeenLedger::decode(storage.get(AGENT_SEEN_STORAGE_KEY).as_deref());
-        store.sidebar = crate::store::sidebar::SidebarState::load(storage.as_ref());
-        store.deck = crate::deck::DeckState::restore(storage.as_ref(), clock.now_ms());
+        store.deck = crate::deck::DeckState::new(clock.now_ms());
+        hydrate_from_local(&mut store, storage.as_ref());
         crate::store::ui::load_ui(&mut store, storage.as_ref());
         crate::store::terminal_nav_pad::load_terminal_nav_pad(&mut store, storage.as_ref());
         // Preferences are a WRITE-ONLY path without this. `set_term_font_px`
@@ -105,7 +109,7 @@ impl ClientCore {
     pub fn in_memory(tab_id: &str) -> Self {
         Self::new(
             Rc::new(MemoryClock::new()),
-            Rc::new(MemoryKeyValueStore::new()),
+            Rc::new(ClientStateStore::in_memory()),
             tab_id,
             &PrefDefaults::default(),
         )
@@ -169,4 +173,26 @@ impl ClientCore {
     pub fn storage(&self) -> &dyn KeyValueStore {
         self.storage.as_ref()
     }
+
+    /// Whether the account's synced client state is ready to draw: the pull has
+    /// merged, or the settle deadline passed so an offline boot is not held.
+    pub fn client_state_settled(&self) -> bool {
+        self.store.client_state.is_settled()
+    }
+}
+
+/// Reload the store fields that a synced key backs from `storage`. Boot runs it,
+/// and so does a merge that wrote a remote value, so a remote layout or visit
+/// shows without a reload. Only the persisted halves are replaced: the keyboard
+/// cursor, close undo, and pending navigation are runtime state a merge must not
+/// reset.
+pub(crate) fn hydrate_from_local(store: &mut Store, storage: &dyn KeyValueStore) {
+    store.sidebar.memory = SidebarMemory::load(storage);
+    // An absent key is an empty record set, so a remote removal clears the
+    // arrangement in memory too; a refused payload leaves it empty, as a boot does.
+    let mut records = LayoutRecords::new();
+    if let Err(error) = records.restore_from(storage) {
+        tracing::warn!(target: "deck", %error, "stored pane layouts refused");
+    }
+    store.deck.records = records;
 }

@@ -77,6 +77,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use roost_protocol::wire::{Task, Workspace};
 
+use crate::client::client_state::ClientStateSync;
 use crate::search::FindMatch;
 use crate::sessions::SessionPlane;
 use crate::store::optimistic_spawn::SpawnLedger;
@@ -101,6 +102,8 @@ pub struct Store {
     pub sessions: SessionPlane,
     /// The Sync socket, its domains, and the recovery cursor.
     pub sync: SyncState,
+    /// Account-scoped client state: the pull, the debounce and the landing gate.
+    pub(crate) client_state: ClientStateSync,
     /// The tab this client presents. A v2 socket without one is READ-ONLY
     /// (`protocol/spec/sync.md:25`), so an empty tab is a real state the host has
     /// to resolve, not a placeholder to paper over.
@@ -289,6 +292,7 @@ impl Store {
             frames_revision: 0,
             sessions: SessionPlane::new(),
             sync,
+            client_state: ClientStateSync::default(),
             tab_id: tab_id.into(),
             hydrated: false,
             account_id: None,

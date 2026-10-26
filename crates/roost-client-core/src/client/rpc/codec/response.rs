@@ -23,6 +23,7 @@ use super::wire_rows::{
     workspace_from_proto,
 };
 use super::{RpcCodecError, decode_message as decode};
+use crate::client::client_state::ClientStateEntry;
 use crate::client::rpc::calls::sessions::KillSession;
 use crate::client::rpc::methods::connect_method;
 use crate::client::rpc::unary::UnaryMethod;
@@ -203,7 +204,32 @@ pub fn decode_rpc_response(call: &RpcCall, body: &[u8]) -> Result<RpcResult, Rpc
                 conversation_id: conversation_id.clone(),
             }
         }
+        RpcCall::ClientStateList { call_id } => {
+            let answer: roost_proto::ClientStateListResponse = decode(method, body)?;
+            RpcResult::ClientStateListed {
+                call_id: *call_id,
+                entries: client_state_entries(&answer.entries),
+            }
+        }
+        RpcCall::ClientStateSet { call_id, .. } => {
+            let answer: roost_proto::ClientStateSetResponse = decode(method, body)?;
+            RpcResult::ClientStateSetAnswered {
+                call_id: *call_id,
+                entries: client_state_entries(&answer.entries),
+            }
+        }
     })
+}
+
+/// The synced entries an answer carries, off the wire into the core's own type.
+fn client_state_entries(rows: &[roost_proto::ClientStateEntry]) -> Vec<ClientStateEntry> {
+    rows.iter()
+        .map(|row| ClientStateEntry {
+            key: row.key.clone(),
+            value: row.value.clone(),
+            updated_ms: row.updated_ms,
+        })
+        .collect()
 }
 
 /// Convert every row, keyed by its id; a later duplicate replaces an earlier

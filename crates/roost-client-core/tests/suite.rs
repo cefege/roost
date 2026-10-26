@@ -48,6 +48,8 @@ mod carriers_grantless_open;
 mod carriers_phase_timing;
 #[path = "carriers_prewarm.rs"]
 mod carriers_prewarm;
+#[path = "client_state_sync.rs"]
+mod client_state_sync;
 #[path = "connect_interceptor.rs"]
 mod connect_interceptor;
 #[path = "core_without_a_browser.rs"]

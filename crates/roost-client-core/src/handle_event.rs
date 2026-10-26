@@ -13,6 +13,7 @@
 //! Contract: `docs/phase4-client-contract.md` §3. Called only by
 //! `ClientCore::handle`.
 
+use crate::client::client_state::ClientStateStore;
 use crate::effect::{Effect, RpcCall};
 use crate::event::ClientEvent;
 use crate::handle_input::handle_terminal_input;
@@ -29,7 +30,7 @@ use crate::handle_terminal::{
     handle_search_page, handle_view_closed, handle_view_hidden, handle_view_id_minted,
     handle_view_opened, handle_view_resized, handle_view_state, handle_worker_retired,
 };
-use crate::platform::{Clock, KeyValueStore};
+use crate::platform::Clock;
 use crate::store::Store;
 
 /// Apply one event to the store and collect what the host should now do.
@@ -40,7 +41,7 @@ pub fn handle_event(
     store: &mut Store,
     event: &ClientEvent,
     clock: &dyn Clock,
-    storage: &dyn KeyValueStore,
+    storage: &ClientStateStore,
     out: &mut Vec<Effect>,
 ) {
     // The one clock read. Every deadline below is a pure function of this number,
@@ -79,6 +80,7 @@ pub fn handle_event(
                     socket_id = %socket_id,
                     "sync link open"
                 );
+                crate::client::client_state::request_list(store, out);
             }
         }
         ClientEvent::SyncLinkClosed {
@@ -112,7 +114,7 @@ pub fn handle_event(
 
         // ---- Connect and the pairing ceremony ----------------------------------
         ClientEvent::RpcResultReceived(result) => {
-            handle_rpc_result(store, result, host_now_ms, out)
+            handle_rpc_result(store, storage, result, host_now_ms, out)
         }
         ClientEvent::AgentChat(intent) => match intent {
             crate::client::agent_chat::AgentChatIntent::SnapshotRequested {
@@ -335,7 +337,7 @@ pub fn handle_event(
             // would be a heartbeat in the past.
             let now_ms = (*now_ms).max(host_now_ms);
             sweep_sync(store, now_ms, out);
-            handle_sweep(store, now_ms, out);
+            handle_sweep(store, storage, now_ms, out);
         }
     }
 }

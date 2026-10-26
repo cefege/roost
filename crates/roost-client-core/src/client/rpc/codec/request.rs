@@ -12,6 +12,7 @@ use roost_proto::{
 };
 
 use super::{RpcCodecError, encode_message as encode};
+use crate::client::client_state::ClientStateEntry;
 use crate::client::rpc::calls::sessions::KillSession;
 use crate::client::rpc::methods::connect_method;
 use crate::client::rpc::unary::UnaryMethod;
@@ -117,5 +118,25 @@ pub fn encode_rpc_request(call: &RpcCall) -> Result<Vec<u8>, RpcCodecError> {
             }
             .encode_request()
         }
+        RpcCall::ClientStateList { .. } => {
+            encode(method, &roost_proto::ClientStateListRequest::default())
+        }
+        RpcCall::ClientStateSet { entries, .. } => encode(
+            method,
+            &roost_proto::ClientStateSetRequest {
+                entries: entries.iter().map(client_state_entry_to_proto).collect(),
+                __buffa_unknown_fields: Default::default(),
+            },
+        ),
+    }
+}
+
+/// The synced entry off the core's type and onto the wire.
+fn client_state_entry_to_proto(entry: &ClientStateEntry) -> roost_proto::ClientStateEntry {
+    roost_proto::ClientStateEntry {
+        key: entry.key.clone(),
+        value: entry.value.clone(),
+        updated_ms: entry.updated_ms,
+        __buffa_unknown_fields: Default::default(),
     }
 }

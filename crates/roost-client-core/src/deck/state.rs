@@ -91,17 +91,6 @@ impl DeckState {
         }
     }
 
-    /// The arrangements this browser persisted, or none when the stored record
-    /// is absent or refused. A refused record is logged and left in storage
-    /// untouched; the next commit overwrites it.
-    pub fn restore(storage: &dyn KeyValueStore, epoch_ms: u64) -> Self {
-        let mut state = Self::new(epoch_ms);
-        if let Err(error) = state.records.restore_from(storage) {
-            tracing::warn!(target: "deck", %error, "stored pane layouts refused");
-        }
-        state
-    }
-
     /// The stored arrangements.
     pub fn records(&self) -> &LayoutRecords {
         &self.records

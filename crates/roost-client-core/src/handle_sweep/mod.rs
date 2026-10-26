@@ -37,6 +37,7 @@
 mod liveness;
 mod repair;
 
+use crate::client::client_state::ClientStateStore;
 use crate::effect::{DirectCommand, Effect, SyncCommand};
 use crate::store::Store;
 use crate::store::view_rotation;
@@ -49,7 +50,12 @@ pub(crate) use repair::request_candidate_repair_if_due;
 pub use repair::request_repair_if_due;
 
 /// One pass over every deadline.
-pub fn handle_sweep(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
+pub fn handle_sweep(
+    store: &mut Store,
+    storage: &ClientStateStore,
+    now_ms: u64,
+    out: &mut Vec<Effect>,
+) {
     // The cursor first: it is the one deadline whose work is a single write, and
     // doing it here rather than per event is what makes a burst cheap.
     if let Some(event_id) = store.sync.watermark.take_pending() {
@@ -138,6 +144,7 @@ pub fn handle_sweep(store: &mut Store, now_ms: u64, out: &mut Vec<Effect>) {
     // pass is reported as expired and its retry is armed from the same instant
     // the rest of the client used.
     store.direct.sweep(now_ms, out);
+    crate::client::client_state::sweep(store, storage, now_ms, out);
 }
 
 /// Republish every view whose heartbeat is due.

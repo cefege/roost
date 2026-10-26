@@ -37,11 +37,14 @@ pub mod store;
 pub mod sync;
 pub mod terminal;
 
+pub use client::client_state::ClientStateStore;
 pub use core::ClientCore;
 pub use effect::{DirectCommand, Effect, RpcCall, RpcResult, SyncCommand, ViewIdTarget};
 pub use event::ClientEvent;
 pub use handle_sync::lifecycle::TransportControl;
-pub use platform::{Clock, KeyValueStore, MemoryClock, MemoryKeyValueStore};
+pub use platform::{
+    Clock, EpochClock, KeyValueStore, MemoryClock, MemoryEpochClock, MemoryKeyValueStore,
+};
 pub use search::{FindMatch, PageRefusal, RawMatch, SearchPage};
 pub use sessions::{SessionPlane, WireEvent, WireSession};
 pub use store::Store;
