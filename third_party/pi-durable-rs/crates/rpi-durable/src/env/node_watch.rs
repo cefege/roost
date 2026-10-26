@@ -890,12 +890,11 @@ fn dev_of(metadata: &std::fs::Metadata) -> u64 {
     metadata.dev()
 }
 
-#[cfg(windows)]
-fn dev_of(_metadata: &std::fs::Metadata) -> u64 {
-    0
-}
-
-#[cfg(not(any(unix, windows)))]
+// ROOST PATCH: stable Rust has no Windows volume/file-index accessor
+// (`windows_by_handle` is unstable), so Windows reports no device or inode
+// identity, like other non-Unix targets; change detection falls back to
+// kind, size and mtime.
+#[cfg(not(unix))]
 fn dev_of(_metadata: &std::fs::Metadata) -> u64 {
     0
 }
@@ -906,13 +905,7 @@ fn ino_of(metadata: &std::fs::Metadata) -> u64 {
     metadata.ino()
 }
 
-#[cfg(windows)]
-fn ino_of(metadata: &std::fs::Metadata) -> u64 {
-    use std::os::windows::fs::MetadataExt;
-    metadata.file_index().unwrap_or(0)
-}
-
-#[cfg(not(any(unix, windows)))]
+#[cfg(not(unix))]
 fn ino_of(_metadata: &std::fs::Metadata) -> u64 {
     0
 }

@@ -16,6 +16,7 @@ This is a maintained local fork, not an unmodified upstream dependency. Roost ow
 - Roost's native provider adapter resolves availability through its credential-aware API-key auth handler; actual requests remain on Roost's account pool, OAuth, transport and failover.
 - Internal request origins distinguish generation and compaction for native policy, usage and streaming. Rich messages retain image order, signed thinking, text/tool signatures and structured results.
 - `ToolHooks::on_interrupted` decorates an unsafe tool's recorded recovery failure without replaying the effect or invoking normal completion hooks.
+- `env/node_watch.rs` reports no device/inode identity on Windows: stable Rust's file-index accessor (`windows_by_handle`) is unstable, so Windows matches the other non-Unix targets and change detection uses kind, size and mtime.
 
 ## Durable behavior patches
 
