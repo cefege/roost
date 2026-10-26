@@ -120,13 +120,13 @@ pub fn StatusBar() -> Element {
             "data-testid": "workbench-status-bar",
             "aria-label": "Workbench status",
             div { class: "contents",
-            span {
-                class: "inline-flex min-w-0 shrink-0 items-center gap-1 whitespace-nowrap tabular-nums",
-                "data-testid": "workbench-status-sync",
-                "data-status": coordinator.status(),
-                StatusDot { status: coordinator.status().to_string() }
-                span { {coordinator.label()} }
-            }
+                span {
+                    class: "inline-flex min-w-0 shrink-0 items-center gap-1 whitespace-nowrap tabular-nums",
+                    "data-testid": "workbench-status-sync",
+                    "data-status": coordinator.status(),
+                    StatusDot { status: coordinator.status().to_string() }
+                    span { {coordinator.label()} }
+                }
                 if let Some(reading) = machine {
                     span {
                         class: "inline-flex min-w-0 shrink-0 items-center gap-1 whitespace-nowrap tabular-nums max-[960px]:hidden",

@@ -151,51 +151,59 @@ pub fn HomeLanding(reader_platform: BrowserPlatform) -> Element {
     let compact = use_is_compact();
     let tv = use_tv_layout();
     if tv {
-        return rsx! { TvHomeBoard {} };
+        return rsx! {
+            TvHomeBoard {}
+        };
     }
     // Only while the drawer is shut: an open drawer already shows the list, and
     // a second "Open sidebar" under it would be a D-pad stop the reader cannot see.
     let drawer_open = pump.core().borrow().store().ui.sidebar_open;
     rsx! {
-        div { class: "box-border flex h-full flex-col overflow-y-auto pt-7 pr-[max(1.5rem,env(safe-area-inset-right,0px))] pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] pl-[max(1.5rem,env(safe-area-inset-left,0px))]", "data-testid": "home-landing",
+        div {
+            class: "box-border flex h-full flex-col overflow-y-auto pt-7 pr-[max(1.5rem,env(safe-area-inset-right,0px))] pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] pl-[max(1.5rem,env(safe-area-inset-left,0px))]",
+            "data-testid": "home-landing",
             div { class: "mx-auto my-auto flex w-full max-w-splash flex-col",
-            div { class: "mb-8 flex items-center gap-3",
-                if compact && !drawer_open {
-                    IconButton {
-                        icon: IconType::Menu,
-                        label: "Open sidebar",
-                        "data-testid": "home-open-sidebar",
-                        onclick: move |_| pump.dispatch(ClientEvent::Sidebar(SidebarIntent::OpenDrawer)),
-                    }
-                }
-                BrandMark { size: HOME_MARK_SIZE }
-                span { class: "text-lg font-semibold text-foreground", {PRODUCT} }
-            }
-            p { class: "-mt-4 mb-8 text-xs text-muted-foreground", "data-testid": "home-tagline",
-                "Press "
-                for (index, shortcut) in SHORTCUTS.iter().enumerate() {
-                    if index > 0 {
-                        " · "
-                    }
-                    Kbd { class: "whitespace-nowrap", {shortcut.glyph(reader_platform)} }
-                    " {shortcut.action}"
-                }
-            }
-            div { class: "px-6 py-9", "data-testid": "home-empty",
-                Empty {
-                    EmptyHeader {
-                        EmptyMedia { variant: EmptyMediaVariant::Icon,
-                            Icon { icon: IconType::Bot }
-                        }
-                        EmptyTitle { "Open an agent workspace" }
-                        EmptyDescription { class: "max-w-[42ch]",
-                            "Select a conversation or start a new agent from the sidebar, or press "
-                            Kbd { class: "whitespace-nowrap", {SHORTCUTS[0].glyph(reader_platform)} }
-                            " to open the Command palette."
+                div { class: "mb-8 flex items-center gap-3",
+                    if compact && !drawer_open {
+                        IconButton {
+                            icon: IconType::Menu,
+                            label: "Open sidebar",
+                            "data-testid": "home-open-sidebar",
+                            onclick: move |_| pump.dispatch(ClientEvent::Sidebar(SidebarIntent::OpenDrawer)),
                         }
                     }
+                    BrandMark { size: HOME_MARK_SIZE }
+                    span { class: "text-lg font-semibold text-foreground", {PRODUCT} }
                 }
-            }
+                p {
+                    class: "-mt-4 mb-8 text-xs text-muted-foreground",
+                    "data-testid": "home-tagline",
+                    "Press "
+                    for (index, shortcut) in SHORTCUTS.iter().enumerate() {
+                        if index > 0 {
+                            " · "
+                        }
+                        Kbd { class: "whitespace-nowrap", {shortcut.glyph(reader_platform)} }
+                        " {shortcut.action}"
+                    }
+                }
+                div { class: "px-6 py-9", "data-testid": "home-empty",
+                    Empty {
+                        EmptyHeader {
+                            EmptyMedia { variant: EmptyMediaVariant::Icon,
+                                Icon { icon: IconType::Bot }
+                            }
+                            EmptyTitle { "Open an agent workspace" }
+                            EmptyDescription { class: "max-w-[42ch]",
+                                "Select a conversation or start a new agent from the sidebar, or press "
+                                Kbd { class: "whitespace-nowrap",
+                                    {SHORTCUTS[0].glyph(reader_platform)}
+                                }
+                                " to open the Command palette."
+                            }
+                        }
+                    }
+                }
             }
         }
     }
