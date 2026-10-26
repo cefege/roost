@@ -9,8 +9,8 @@ use std::cell::{Cell, RefCell};
 use roost_client_core::{KeyValueStore, MemoryKeyValueStore};
 use roost_web::theme::choice::{
     ACCENT_STORAGE_KEY, BASE_STORAGE_KEY, MODE_STORAGE_KEY, ThemeApplication, ThemeChoice,
-    ThemeMode, effective_choice, load_theme, managed_properties, persist_theme,
-    resolve_appearance, theme_application,
+    ThemeMode, effective_choice, load_theme, managed_properties, persist_theme, resolve_appearance,
+    theme_application,
 };
 use roost_web::theme::tokens::ThemeAppearance;
 use roost_web::theme::{ThemeDocument, apply_theme_with, reapply_for_system_flip};
