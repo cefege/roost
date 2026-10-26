@@ -16,6 +16,7 @@ pub mod git_branch;
 pub mod identity;
 pub mod install;
 pub mod jwt;
+pub mod live;
 pub mod local_endpoint;
 pub mod openssh_key;
 pub mod ports;
