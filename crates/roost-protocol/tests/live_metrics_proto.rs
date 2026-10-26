@@ -1,14 +1,26 @@
-//! The live host snapshot on the worker link: a valid sample survives the round
-//! trip byte for byte, and a sample the rules reject is refused on both the
-//! encode and the decode side, with the field named in the error.
+//! The live metrics models on the worker link and the sync socket: a valid
+//! sample or subscription survives the round trip byte for byte, and one the
+//! rules reject is refused on both the encode and the decode side, with the
+//! field named in the error.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use roost_proto::CoordWorkerUp;
 use roost_proto::buffa::Message;
 use roost_proto::coord_worker_up::Frame;
+use roost_proto::{
+    CoordWorkerUp, WorkerLiveMetricsFrame as PbWorkerLiveMetricsFrame,
+    WorkerLiveSubscription as PbWorkerLiveSubscription,
+};
 use roost_protocol::proto_adapters::coord_worker_proto::{decode_upstream, encode_upstream};
+use roost_protocol::proto_adapters::live_metrics_proto::{
+    worker_live_metrics_frame_from_proto, worker_live_metrics_frame_to_proto,
+    worker_live_subscription_from_proto, worker_live_subscription_to_proto,
+};
+use roost_protocol::wire::brand::WorkerFp;
 use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
-use roost_protocol::wire::live_metrics::{LIVE_PROCESS_LIST_MAX, LiveHostSnapshot, LiveProcess};
+use roost_protocol::wire::live_metrics::{
+    LIVE_PROCESS_LIST_MAX, LiveHostSnapshot, LiveProcess, WorkerLiveMetricsFrame,
+    WorkerLiveSubscription,
+};
 
 fn process(pid: u32, cpu_pct: f64) -> LiveProcess {
     LiveProcess {
@@ -127,4 +139,117 @@ fn live_metrics_frame_without_a_snapshot_is_refused() {
     .encode_to_vec();
     let error = decode_upstream(&bytes).unwrap_err();
     assert_eq!(error.field, "live_metrics.snapshot");
+}
+
+fn fingerprint(digit: char) -> WorkerFp {
+    WorkerFp::try_from(digit.to_string().repeat(64)).unwrap()
+}
+
+fn metrics_frame() -> WorkerLiveMetricsFrame {
+    WorkerLiveMetricsFrame {
+        worker_fp: fingerprint('a'),
+        snapshot: snapshot(),
+    }
+}
+
+fn subscription(worker_fps: Vec<WorkerFp>) -> WorkerLiveSubscription {
+    WorkerLiveSubscription { worker_fps }
+}
+
+#[test]
+fn sync_subscription_round_trips_to_the_same_bytes() {
+    let model = subscription(vec![fingerprint('a'), fingerprint('b')]);
+    let first = worker_live_subscription_to_proto(&model)
+        .unwrap()
+        .encode_to_vec();
+    let decoded_proto = PbWorkerLiveSubscription::decode_from_slice(&first).unwrap();
+    let decoded = worker_live_subscription_from_proto(&decoded_proto).unwrap();
+    assert_eq!(decoded, model);
+    let second = worker_live_subscription_to_proto(&decoded)
+        .unwrap()
+        .encode_to_vec();
+    assert_eq!(second, first);
+}
+
+#[test]
+fn empty_sync_subscription_is_a_cancel_and_round_trips() {
+    let model = subscription(Vec::new());
+    let bytes = worker_live_subscription_to_proto(&model)
+        .unwrap()
+        .encode_to_vec();
+    let proto = PbWorkerLiveSubscription::decode_from_slice(&bytes).unwrap();
+    let decoded = worker_live_subscription_from_proto(&proto).unwrap();
+    assert!(decoded.worker_fps.is_empty());
+}
+
+#[test]
+fn sync_subscription_listing_a_worker_twice_is_refused() {
+    let model = subscription(vec![fingerprint('a'), fingerprint('a')]);
+    let error = worker_live_subscription_to_proto(&model).unwrap_err();
+    assert_eq!(error.field, "worker_live_subscription.worker_fps");
+}
+
+#[test]
+fn sync_subscription_listing_a_worker_twice_is_refused_on_decode() {
+    let fp = "a".repeat(64);
+    let proto = PbWorkerLiveSubscription {
+        worker_fps: vec![fp.clone(), fp],
+        ..Default::default()
+    };
+    let error = worker_live_subscription_from_proto(&proto).unwrap_err();
+    assert_eq!(error.field, "worker_live_subscription.worker_fps");
+}
+
+#[test]
+fn sync_subscription_with_a_malformed_fingerprint_is_refused_on_decode() {
+    let proto = PbWorkerLiveSubscription {
+        worker_fps: vec!["NOT-HEX".to_owned()],
+        ..Default::default()
+    };
+    let error = worker_live_subscription_from_proto(&proto).unwrap_err();
+    assert_eq!(error.field, "worker_fp");
+}
+
+#[test]
+fn sync_metrics_frame_round_trips_to_the_same_bytes() {
+    let model = metrics_frame();
+    let first = worker_live_metrics_frame_to_proto(&model)
+        .unwrap()
+        .encode_to_vec();
+    let decoded_proto = PbWorkerLiveMetricsFrame::decode_from_slice(&first).unwrap();
+    let decoded = worker_live_metrics_frame_from_proto(&decoded_proto).unwrap();
+    assert_eq!(decoded, model);
+    let second = worker_live_metrics_frame_to_proto(&decoded)
+        .unwrap()
+        .encode_to_vec();
+    assert_eq!(second, first);
+}
+
+#[test]
+fn sync_metrics_frame_with_a_rejected_snapshot_is_refused() {
+    let mut model = metrics_frame();
+    model.snapshot.cpu_pct = 100.5;
+    let error = worker_live_metrics_frame_to_proto(&model).unwrap_err();
+    assert_eq!(error.field, "live_metrics.cpu_pct");
+}
+
+#[test]
+fn sync_metrics_frame_without_a_snapshot_is_refused_on_decode() {
+    let proto = PbWorkerLiveMetricsFrame {
+        worker_fp: "a".repeat(64),
+        ..Default::default()
+    };
+    let error = worker_live_metrics_frame_from_proto(&proto).unwrap_err();
+    assert_eq!(error.field, "worker_live_metrics.snapshot");
+}
+
+#[test]
+fn sync_metrics_frame_with_a_malformed_fingerprint_is_refused_on_decode() {
+    let valid = worker_live_metrics_frame_to_proto(&metrics_frame()).unwrap();
+    let proto = PbWorkerLiveMetricsFrame {
+        worker_fp: "NOT-HEX".to_owned(),
+        ..valid
+    };
+    let error = worker_live_metrics_frame_from_proto(&proto).unwrap_err();
+    assert_eq!(error.field, "worker_fp");
 }
