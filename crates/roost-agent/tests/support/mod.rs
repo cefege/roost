@@ -255,8 +255,12 @@ impl Harness {
         self.settle_runtime(&self.runtime, id).await
     }
 
+    /// Polls until the run leaves `Running`. The budget is a deadline, not an
+    /// iteration count: code-mode tests boot a JS sandbox, which takes seconds
+    /// on a loaded CI runner running every crate's suite at once.
     pub async fn settle_runtime(&self, runtime: &AgentRuntime, id: &str) -> Transcript {
-        for _ in 0..500 {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        while tokio::time::Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(10)).await;
             let transcript = runtime.transcript(id).await.unwrap();
             if transcript.run_state != AgentRunState::Running {
@@ -267,7 +271,7 @@ impl Harness {
                 }
             }
         }
-        panic!("conversation {id} did not settle");
+        panic!("conversation {id} did not settle within 30s");
     }
 
     pub async fn submit(&self, id: &str, text: &str) {
