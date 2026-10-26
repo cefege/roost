@@ -19,6 +19,9 @@ wins.
   Source: `crates/roost-worker/src/runtime/boot.rs`,
   `crates/roost-worker/src/session/`, `crates/roost-worker/src/local_terminal/`.
 
+- **live metrics** — a worker's CPU, memory, disk and top-process snapshot, sampled every 2 s only while a browser holds a subscription for it (the Fleet page). The coordinator replica holding the worker link keeps the latest snapshot in memory, never in the database.
+  Source: `crates/roost-worker/src/host/live/`, `crates/roost-coord/src/live_metrics/`, `crates/roost-client-core/src/store/worker_live.rs`.
+
 - **coordinator** (coord) — the control-plane `roost coord` process, one per cluster. Auth,
   the event log, the `sessions` projection, and fan-out to browsers. Holds no
   PTY state of its own. Also serves the Dioxus web bundle as static files.
