@@ -61,7 +61,7 @@ impl ThemeDocument for BrowserThemeDocument {
         if let Some(background) = application
             .properties
             .iter()
-            .find_map(|(property, value)| (*property == "--background").then_some(*value))
+            .find_map(|(property, value)| (*property == "--background").then_some(value.as_str()))
         {
             if let Ok(Some(theme_color)) = document.query_selector("meta[name='theme-color']") {
                 let _ = theme_color.set_attribute("content", background);

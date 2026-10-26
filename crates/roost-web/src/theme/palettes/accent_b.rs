@@ -9,6 +9,7 @@ pub const ACCENT_THEMES_B: [ThemeSpec; 8] = [
         id: "pink",
         label: "Pink",
         swatch: "#ec4899",
+        omarchy: None,
         light: &[
             ("--primary", "oklch(0.525 0.223 3.958)"),
             ("--primary-foreground", "oklch(0.971 0.014 343.198)"),
@@ -40,6 +41,7 @@ pub const ACCENT_THEMES_B: [ThemeSpec; 8] = [
         id: "purple",
         label: "Purple",
         swatch: "#a855f7",
+        omarchy: None,
         light: &[
             ("--primary", "oklch(0.496 0.265 301.924)"),
             ("--primary-foreground", "oklch(0.977 0.014 308.299)"),
@@ -71,6 +73,7 @@ pub const ACCENT_THEMES_B: [ThemeSpec; 8] = [
         id: "red",
         label: "Red",
         swatch: "#ef4444",
+        omarchy: None,
         light: &[
             ("--primary", "oklch(0.505 0.213 27.518)"),
             ("--primary-foreground", "oklch(0.971 0.013 17.38)"),
@@ -102,6 +105,7 @@ pub const ACCENT_THEMES_B: [ThemeSpec; 8] = [
         id: "rose",
         label: "Rose",
         swatch: "#f43f5e",
+        omarchy: None,
         light: &[
             ("--primary", "oklch(0.514 0.222 16.935)"),
             ("--primary-foreground", "oklch(0.969 0.015 12.422)"),
@@ -133,6 +137,7 @@ pub const ACCENT_THEMES_B: [ThemeSpec; 8] = [
         id: "sky",
         label: "Sky",
         swatch: "#0ea5e9",
+        omarchy: None,
         light: &[
             ("--primary", "oklch(0.5 0.134 242.749)"),
             ("--primary-foreground", "oklch(0.977 0.013 236.62)"),
@@ -164,6 +169,7 @@ pub const ACCENT_THEMES_B: [ThemeSpec; 8] = [
         id: "teal",
         label: "Teal",
         swatch: "#14b8a6",
+        omarchy: None,
         light: &[
             ("--primary", "oklch(0.511 0.096 186.391)"),
             ("--primary-foreground", "oklch(0.984 0.014 180.72)"),
@@ -195,6 +201,7 @@ pub const ACCENT_THEMES_B: [ThemeSpec; 8] = [
         id: "violet",
         label: "Violet",
         swatch: "#8b5cf6",
+        omarchy: None,
         light: &[
             ("--primary", "oklch(0.491 0.27 292.581)"),
             ("--primary-foreground", "oklch(0.969 0.016 293.756)"),
@@ -226,6 +233,7 @@ pub const ACCENT_THEMES_B: [ThemeSpec; 8] = [
         id: "yellow",
         label: "Yellow",
         swatch: "#eab308",
+        omarchy: None,
         light: &[
             ("--primary", "oklch(0.852 0.199 91.936)"),
             ("--primary-foreground", "oklch(0.421 0.095 57.708)"),
