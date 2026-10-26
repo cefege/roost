@@ -11,11 +11,12 @@
 //! step.
 //!
 //! The epoch is the navigation, not the Unix epoch, because every deadline in
-//! the client core is a DELTA from the moment it was armed. The one wall-clock
-//! reading is `WallClock`: a coordinator JWT's `iat`/`exp` are Unix times the
-//! coordinator compares with its own clock (v2 `signCoordinatorJwt`, `Date.now()`).
+//! the client core is a DELTA from the moment it was armed. The wall-clock
+//! readings are `WallClock` (a coordinator JWT's `iat`/`exp` are Unix times the
+//! coordinator compares with its own clock, v2 `signCoordinatorJwt`, `Date.now()`)
+//! and `BrowserEpochClock` (client-state stamps, compared across laptops).
 
-use roost_client_core::Clock;
+use roost_client_core::{Clock, EpochClock};
 use web_sys::Performance;
 
 /// The browser's monotonic clock, in milliseconds since navigation start.
@@ -66,5 +67,17 @@ impl WallClock {
             return 0;
         }
         reading as u64
+    }
+}
+
+/// The wall clock that stamps the synced client-state store. Stamps are compared
+/// across laptops, so they must be Unix time: a navigation-relative reading would
+/// order one laptop's writes against another's by how long each tab had been open.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BrowserEpochClock;
+
+impl EpochClock for BrowserEpochClock {
+    fn epoch_ms(&self) -> i64 {
+        js_sys::Date::now() as i64
     }
 }

@@ -45,12 +45,8 @@ pub(super) fn prepare(
     pending
 }
 
-pub(super) fn settle(conversation_id: &str, clear_draft: bool) {
-    let storage = SessionStorageKeyValueStore::new();
-    if clear_draft {
-        storage.remove(&format!("roost.agent.draft.{conversation_id}"));
-    }
-    storage.remove(&format!("roost.agent.pending.{conversation_id}"));
+pub(super) fn settle(conversation_id: &str) {
+    SessionStorageKeyValueStore::new().remove(&format!("roost.agent.pending.{conversation_id}"));
 }
 
 pub(super) fn completion_callback(
@@ -67,7 +63,7 @@ pub(super) fn completion_callback(
                 .peek()
                 .as_ref()
                 .is_some_and(|submission| draft.peek().trim() == submission.text.as_str());
-            settle(&conversation_id, clear_draft);
+            settle(&conversation_id);
             if clear_draft {
                 draft.set(String::new());
             }

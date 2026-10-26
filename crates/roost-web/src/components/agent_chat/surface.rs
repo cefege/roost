@@ -10,6 +10,7 @@ use super::composer::AgentComposer;
 use super::draft::use_conversation_draft;
 use super::header::{AgentChatHeader, current_context_window, header_usage};
 use super::interaction_cards::TodoCard;
+use super::last_conversation::use_remember_conversation;
 use super::loop_controls::LoopControls;
 use super::message_actions::EditTarget;
 use super::model_controls::{ModelSetup, ModelSetupCard};
@@ -63,6 +64,7 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
     let mut catalog_failed = use_signal(|| false);
     let mut catalog_attempt = use_signal(|| 0_u32);
     let draft = use_conversation_draft(&conversation_id);
+    use_remember_conversation(&conversation_id, active);
     let mut edit_target = use_signal(|| None::<EditTarget>);
     let mut edit_target_owner = use_signal(|| conversation_id.clone());
     if *edit_target_owner.peek() != conversation_id {

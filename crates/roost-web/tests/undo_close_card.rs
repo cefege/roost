@@ -28,7 +28,9 @@ use roost_client_core::store::selectors::{
     live_session_ids_for_folder, session_by_id, session_folder_key,
 };
 use roost_client_core::store::{Session, SessionMap};
-use roost_client_core::{ClientCore, ClientEvent, MemoryClock, MemoryKeyValueStore};
+use roost_client_core::{
+    ClientCore, ClientEvent, ClientStateStore, MemoryClock, MemoryEpochClock, MemoryKeyValueStore,
+};
 use roost_web::platform::worker_paths::BrowserWorkerPaths;
 
 /// The rail: one pane, four tabs, closed from the middle — the shape a pane
@@ -61,7 +63,10 @@ fn folder(core: &ClientCore) -> DeckFolder {
 fn core_over(storage: &Rc<MemoryKeyValueStore>) -> ClientCore {
     ClientCore::new(
         Rc::new(MemoryClock::new()),
-        Rc::clone(storage) as Rc<dyn roost_client_core::KeyValueStore>,
+        Rc::new(ClientStateStore::new(
+            Rc::clone(storage) as Rc<dyn roost_client_core::KeyValueStore>,
+            Rc::new(MemoryEpochClock::new()),
+        )),
         "undo-card",
         &roost_client_core::store::prefs::PrefDefaults::default(),
     )

@@ -49,7 +49,7 @@ pub mod visibility;
 pub mod worker_paths;
 
 pub use carrier::{CarrierIdentity, mint_connection_id};
-pub use clock::BrowserClock;
+pub use clock::{BrowserClock, BrowserEpochClock};
 pub use fragment_credential::{FragmentCredential, capture_and_scrub, parse_fragment_credential};
 pub use rpc::{ConnectTransport, FetchConnectTransport, UnaryRequest, UnaryResponse};
 pub use storage::{LocalStorageKeyValueStore, SessionStorageKeyValueStore};

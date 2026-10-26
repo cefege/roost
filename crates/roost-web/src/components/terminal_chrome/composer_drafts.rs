@@ -1,12 +1,12 @@
-//! The per-session composer draft, kept on THIS device and never on a server:
-//! a typed line that must survive a pane switch, a compact/desktop instance
-//! swap and a reload is the user's unfinished work, and losing it to a
-//! navigation is the one composer failure that loses keystrokes.
-//! Ports `apps/web/src/lib/composerDrafts.ts`, including its storage key and its
-//! `{ sessionId: text }` shape, so a draft written by either build is read by
-//! the other.
+//! The per-session composer draft, synced across this operator's laptops. A
+//! typed line that must survive a pane switch, a compact/desktop instance swap,
+//! a reload, or a move to another laptop is the user's unfinished work, and
+//! losing it to a navigation is the one composer failure that loses keystrokes.
+//! The map sits under `DRAFTS_KEY`, an allowlisted client-state key, so the
+//! account carries it between laptops: an operator switching laptops keeps
+//! unsent text. Keeps v2's key and `{ sessionId: text }` shape, so a draft
+//! written by either build is read by the other.
 
-use crate::platform::LocalStorageKeyValueStore;
 use roost_client_core::KeyValueStore;
 
 /// The one key every draft shares, and the exact name v2 wrote.
@@ -15,9 +15,8 @@ pub const DRAFTS_KEY: &str = "roost.composerDrafts.v1";
 /// The stored map, or an empty one when storage is unreadable. A private-mode
 /// tab throws on the read; a draft store that panicked there would take the
 /// composer with it, and a missing draft is a smaller loss than a dead page.
-fn read_map() -> Vec<(String, String)> {
-    let store = LocalStorageKeyValueStore::new();
-    let Some(raw) = store.get(DRAFTS_KEY) else {
+fn read_map(storage: &dyn KeyValueStore) -> Vec<(String, String)> {
+    let Some(raw) = storage.get(DRAFTS_KEY) else {
         return Vec::new();
     };
     parse_map(&raw)
@@ -149,8 +148,8 @@ fn quote(value: &str) -> String {
 }
 
 /// The draft for `session_id`, or the empty string.
-pub fn get_composer_draft(session_id: &str) -> String {
-    read_map()
+pub fn get_composer_draft(storage: &dyn KeyValueStore, session_id: &str) -> String {
+    read_map(storage)
         .into_iter()
         .find(|(key, _)| key == session_id)
         .map(|(_, value)| value)
@@ -164,8 +163,8 @@ pub fn get_composer_draft(session_id: &str) -> String {
 /// line is not unfinished work, and a member left behind is a draft that comes
 /// back on the next session restore with nothing in it. Every other session's
 /// member is left exactly where it was.
-pub fn save_composer_draft(session_id: &str, text: &str) {
-    let mut drafts = read_map();
+pub fn save_composer_draft(storage: &dyn KeyValueStore, session_id: &str, text: &str) {
+    let mut drafts = read_map(storage);
     if text.is_empty() {
         drafts.retain(|(key, _)| key != session_id);
     } else if let Some(entry) = drafts.iter_mut().find(|(key, _)| key == session_id) {
@@ -173,8 +172,7 @@ pub fn save_composer_draft(session_id: &str, text: &str) {
     } else {
         drafts.push((session_id.to_owned(), text.to_owned()));
     }
-    let store = LocalStorageKeyValueStore::new();
-    store.set(DRAFTS_KEY, &render_map(&drafts));
+    storage.set(DRAFTS_KEY, &render_map(&drafts));
 }
 
 /// The serialized map, in insertion order so a stored draft never moves.
