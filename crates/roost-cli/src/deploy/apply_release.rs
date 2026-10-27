@@ -81,20 +81,30 @@ pub fn install_release(staged_bin: &Path, bin_dir: &Path) -> Result<(), String> 
         std::fs::create_dir_all(parent)
             .map_err(|error| format!("cannot create {}: {error}", parent.display()))?;
     }
+    // The release lands beside its destination before anything is swapped, so
+    // the swap itself is two renames inside one directory. A self-update stages
+    // in the system temp directory, which is a separate tmpfs on some Linux
+    // hosts; renaming straight from there fails with EXDEV, and that failure
+    // kept such a worker on its old release forever.
+    let incoming = bin_dir.with_extension("roost-incoming");
+    let _ = std::fs::remove_dir_all(&incoming);
+    move_onto_destination_filesystem(staged_bin, &incoming)?;
     let retired = bin_dir.with_extension("roost-retired");
     let _ = std::fs::remove_dir_all(&retired);
     if bin_dir.exists() {
         std::fs::rename(bin_dir, &retired).map_err(|error| {
+            let _ = std::fs::remove_dir_all(&incoming);
             format!(
                 "cannot move the previous {} aside: {error}",
                 bin_dir.display()
             )
         })?;
     }
-    if let Err(error) = std::fs::rename(staged_bin, bin_dir) {
+    if let Err(error) = std::fs::rename(&incoming, bin_dir) {
         // Put the previous release back before reporting, so a failed install
         // leaves the machine on the release it was already running.
         let _ = std::fs::rename(&retired, bin_dir);
+        let _ = std::fs::remove_dir_all(&incoming);
         return Err(format!(
             "cannot install the staged release into {}: {error}",
             bin_dir.display()
@@ -113,6 +123,49 @@ pub fn install_release(staged_bin: &Path, bin_dir: &Path) -> Result<(), String> 
     // account.
     if let Some(scratch) = bin_dir.parent() {
         let _ = std::fs::remove_dir(scratch);
+    }
+    Ok(())
+}
+
+/// Move `staged` to `incoming`, copying when the two sit on different
+/// filesystems. `incoming` is only ever a sibling of the install, so after this
+/// the tree is on the destination's filesystem either way.
+fn move_onto_destination_filesystem(staged: &Path, incoming: &Path) -> Result<(), String> {
+    match std::fs::rename(staged, incoming) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::CrossesDevices => {
+            tracing::info!(
+                staged = %staged.display(),
+                incoming = %incoming.display(),
+                "the staged release is on another filesystem; copying it beside the install"
+            );
+            copy_release_tree(staged, incoming).map_err(|error| {
+                let _ = std::fs::remove_dir_all(incoming);
+                format!(
+                    "cannot copy the staged release to {}: {error}",
+                    incoming.display()
+                )
+            })?;
+            let _ = std::fs::remove_dir_all(staged);
+            Ok(())
+        }
+        Err(error) => Err(format!(
+            "cannot move the staged release to {}: {error}",
+            incoming.display()
+        )),
+    }
+}
+
+fn copy_release_tree(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_release_tree(&entry.path(), &target)?;
+        } else {
+            std::fs::copy(entry.path(), &target)?;
+        }
     }
     Ok(())
 }
