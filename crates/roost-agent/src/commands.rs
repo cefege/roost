@@ -284,10 +284,19 @@ fn help_table() -> String {
         } else {
             format!(" (also /{})", command.aliases.join(", /"))
         };
-        table.push_str(&format!(
-            "| /{}{aliases} | {} | {} |\n",
-            command.name, command.args, command.summary
-        ));
+        table.push_str("| /");
+        table.push_str(command.name);
+        table.push_str(&aliases);
+        table.push_str(" | ");
+        for character in command.args.chars() {
+            if character == '|' {
+                table.push('\\');
+            }
+            table.push(character);
+        }
+        table.push_str(" | ");
+        table.push_str(command.summary);
+        table.push_str(" |\n");
     }
     table
 }

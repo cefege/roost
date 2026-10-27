@@ -4596,3 +4596,33 @@ before removing their shared scratch directory.
 `agent_read_only_cluster::read_only_update_reaches_peer_summary_without_waking_a_run`
 checks persisted peer visibility without model calls and requires scratch removal
 to succeed; the Windows CI job exercises the file-sharing constraint.
+
+### An unset subagent role ignores the parent's model pin
+
+**Symptom** — a scout or reviewer uses Main model despite inheriting a different
+explicit model from its parent chat.
+
+**Wrong** — resolve an unset role through its generic default before considering
+the inherited pin.
+
+**Right** — use the role chain only when configured. Otherwise preserve the
+inherited pin before falling back to Main model.
+
+**Guard** — `roost-agent`
+`model_scope::subagents::an_unset_subagent_role_keeps_the_pin_it_inherited_until_its_role_is_configured`
+checks actual scout and reviewer requests with unset and configured roles.
+
+### A classifier replaces a conversation's chat model
+
+**Symptom** — direct model configuration accepts a classifier that cannot answer
+a chat turn.
+
+**Wrong** — rely on picker filtering while allowing every catalog entry through
+the native set-model API.
+
+**Right** — reject non-chat models before changing the conversation record.
+Classifier selection belongs in the Judge role.
+
+**Guard** — `roost-agent`
+`model_scope::model_kinds::a_classifier_cannot_replace_a_conversations_chat_model`
+checks rejection and preservation of the previous pin.

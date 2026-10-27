@@ -4,7 +4,7 @@
 
 mod read_only;
 
-use roost_llm::{Catalog, THINKING_LEVELS};
+use roost_llm::{Catalog, ModelKind, THINKING_LEVELS};
 use roost_protocol::wire::agent_chat::{
     AgentRunState, ChatEvent, ConversationSummary, ModelRef, Transcript, parse_slash_command,
 };
@@ -271,15 +271,17 @@ impl AgentRuntime {
     }
 
     pub async fn set_model(&self, id: &str, model: ModelRef) -> Result<(), AgentError> {
-        if self
-            .catalog()
-            .get(&model.provider, &model.model_id)
-            .is_none()
-        {
+        let catalog = self.catalog();
+        let Some(info) = catalog.get(&model.provider, &model.model_id) else {
             return Err(AgentError::InvalidArgument(format!(
                 "unknown model {}/{}",
                 model.provider, model.model_id
             )));
+        };
+        if info.kind != ModelKind::Chat {
+            return Err(AgentError::InvalidArgument(
+                "A classifier cannot answer in chat; assign it to the Judge role instead.".into(),
+            ));
         }
         let record = self
             .update_record(id, |row| row.model = Some(model.clone()))

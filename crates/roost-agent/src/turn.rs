@@ -81,7 +81,7 @@ pub(crate) async fn side_task_models(
 }
 
 /// The candidates a turn tries in order. In plan mode an explicit session model
-/// answers alone, then the Architect chain, then the model saved when plan mode
+/// answers alone, then the Plan mode chain, then the model saved when plan mode
 /// began. A subagent's configured role chain beats the parent pin it inherited.
 /// Otherwise an explicit session model answers alone, then the folder's
 /// `default` chain. Chains come from the conversation's folder-merged settings.
@@ -110,7 +110,9 @@ pub(crate) async fn conversation_chain_with_settings(
         if let Some(reference) = &record.pre_plan_model {
             return Ok(vec![session_candidate(runtime, reference).await?]);
         }
-    } else if let Some(role) = subagent_role(record) {
+    } else if let Some(role) = subagent_role(record)
+        && settings.model_roles.contains_key(&role)
+    {
         let chain = roles::role_chain(llm, settings, role).await;
         if !chain.is_empty() {
             return Ok(chain);

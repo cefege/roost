@@ -2,6 +2,10 @@
 //! role chains, failover that never replays visible output, and clearing the
 //! session model back to the inherited selection.
 
+#[path = "model_scope/model_kinds.rs"]
+mod model_kinds;
+#[path = "model_scope/subagents.rs"]
+mod subagents;
 #[path = "support/mod.rs"]
 mod support;
 

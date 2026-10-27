@@ -163,6 +163,27 @@ Editing an earlier user message is a client composition: `AgentChatRewind` to
 that message without restoring files, then `AgentChatSubmit` with the edited
 text.
 
+## Model roles
+
+`AgentSettingsView.model_roles`, each preset in `model_presets`, and each
+`folder_model_roles` row key roles by these names: `default`, `smol`, `slow`,
+`plan`, `task`, `tiny`, `judge`, `advisor`, `web`. A value is a comma-separated
+selector chain; the first entry that resolves is used. The UI names are Default
+model (`default`), Fast model (`smol`), Plan mode (`plan`), General helpers
+(`task`), Reviewer helpers (`slow`), Side questions & summaries (`tiny`), Judge
+(`judge`), Advisor model (`advisor`) and Search engine order (`web`). The UI
+shows Default and Fast first; the rest are advanced overrides.
+
+Native fallbacks (`roost-agent`):
+
+- A subagent role uses its own chain only when that chain is set. Otherwise it
+  uses the parent's explicit model pin, then `default`.
+- `tiny` uses `smol` when set, else the conversation chain.
+- `advisor` uses `slow` when set, else `default`.
+- `judge` accepts classifier or chat models; `web` chains name search engines.
+  The role picker offers classifiers only for Judge. The native set-model path
+  rejects a classifier as a conversation's model.
+
 ## Agent scope and storage compatibility
 
 The native Rust agent's behavioral baseline is `d5cf3bda`, immediately before
