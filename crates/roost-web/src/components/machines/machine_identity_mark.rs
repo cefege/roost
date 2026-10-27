@@ -1,14 +1,14 @@
 //! A folder row's leading machine mark: the Linux distribution logo when one is
-//! recognized, otherwise the platform's Lucide glyph, plus the Apple chip
-//! badge. Ports `apps/web/src/components/machines/MachineIdentityMark.tsx`;
-//! `FolderList` renders it from the worker record.
+//! recognized, otherwise the platform's Lucide glyph. The mark is 16px, too
+//! small for an overlay, so the Apple chip appears in the hover title only.
+//! `FolderList` and the Machines settings row render it from the worker record.
 
 use dioxus::prelude::*;
 use roost_protocol::wire::Worker;
 
 use super::linux_distribution_mark::LinuxDistributionMark;
 use super::machine_identity::machine_identity_presentation;
-use crate::components::ui::{Badge, BadgeVariant, Icon};
+use crate::components::ui::Icon;
 
 /// The mark for `worker`; `context_title` is appended to the hover text.
 #[component]
@@ -20,7 +20,7 @@ pub fn MachineIdentityMark(worker: Option<Worker>, context_title: Option<String>
     };
     rsx! {
         span {
-            class: "relative inline-flex items-center justify-center",
+            class: "inline-flex items-center justify-center",
             "data-linux-brand": presentation.linux_brand.map(|brand| brand.as_str()),
             role: "img",
             "aria-label": presentation.title.clone(),
@@ -29,9 +29,6 @@ pub fn MachineIdentityMark(worker: Option<Worker>, context_title: Option<String>
                 LinuxDistributionMark { brand }
             } else {
                 Icon { icon: presentation.icon, class: "size-4" }
-            }
-            if let Some(badge) = presentation.apple_chip_badge {
-                Badge { variant: BadgeVariant::Outline, class: Some("absolute -bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap".to_owned()), {badge} }
             }
         }
     }

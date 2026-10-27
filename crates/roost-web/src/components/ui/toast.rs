@@ -1,6 +1,7 @@
-//! Toast markup, matching rust-ui's `toast.rs` classes and `data-*` hooks.
-//! Owns the enums and components; the queue and its timers live in
-//! `toast_queue.rs`. Depends on `icon` for glyphs and `tw_merge` for class merging.
+//! Toast markup with rust-ui's `data-*` hooks. Cards use the popover surface
+//! for every severity and carry severity in the icon colour alone, so they sit
+//! in the app's theme instead of tinting the whole card. Owns the enums and
+//! components; the queue and its timers live in `toast_queue.rs`.
 
 use dioxus::prelude::*;
 use icons::common::IconType;
@@ -20,12 +21,11 @@ const TOAST_CSS_VARS: &str = "--max-toasts: 5; --dismiss-delay: 5000ms; --enter-
 
 const TRIGGER_BASE: &str = "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] w-fit cursor-pointer h-9 px-4 py-2";
 const LIST_CLASS: &str = "flex relative flex-col opacity-100 gap-[15px] h-[100px] w-[400px] pointer-events-none [&>*]:pointer-events-auto";
-const ITEM_BASE: &str = "p-5 shadow-lg border rounded-lg cursor-grab absolute w-full max-w-96 touch-none flex items-start gap-3";
-const ICON_CLASS: &str = "flex items-center justify-center w-5 h-5 shrink-0 mr-3";
-const CLOSE_CLASS: &str = "w-5 h-5 flex items-center justify-center border-none bg-transparent text-muted-foreground cursor-pointer transition-colors duration-150 shrink-0 p-0 ml-auto hover:text-foreground";
-const TRACK_CLASS: &str =
-    "absolute bottom-0 inset-x-0 h-[3px] bg-black/10 overflow-hidden rounded-b-lg";
-const PROGRESS_CLASS: &str = "h-full w-full bg-current opacity-30 origin-left";
+const ITEM_BASE: &str = "px-3 py-2.5 shadow-md border border-border rounded-lg bg-popover text-popover-foreground cursor-grab absolute w-full max-w-96 touch-none flex items-start gap-2.5";
+const ICON_CLASS: &str = "flex items-center justify-center size-5 shrink-0";
+const CLOSE_CLASS: &str = "size-5 flex items-center justify-center rounded-sm border-none bg-transparent text-muted-foreground cursor-pointer transition-colors duration-150 shrink-0 p-0 ml-auto hover:text-foreground";
+const TRACK_CLASS: &str = "absolute bottom-0 inset-x-0 h-px bg-border overflow-hidden";
+const PROGRESS_CLASS: &str = "h-full w-full bg-muted-foreground opacity-50 origin-left";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ToastType {
@@ -65,13 +65,14 @@ impl ToastType {
         }
     }
 
-    const fn item_class(self) -> &'static str {
+    /// The icon's colour: the only place severity shows.
+    const fn icon_tone(self) -> &'static str {
         match self {
-            Self::Default | Self::Loading => "bg-background text-foreground border-border",
-            Self::Success => "bg-success-light text-success-dark border-success",
-            Self::Error => "bg-destructive-light text-destructive-dark border-destructive",
-            Self::Warning => "bg-warning-light text-warning-dark border-warning",
-            Self::Info => "bg-info-light text-info-dark border-info",
+            Self::Default | Self::Loading => "text-muted-foreground",
+            Self::Success => "text-success",
+            Self::Error => "text-destructive",
+            Self::Warning => "text-warning",
+            Self::Info => "text-info",
         }
     }
 
@@ -275,16 +276,12 @@ pub fn ToastPresentation(
     #[props(into, optional)] progress_style: Option<String>,
     children: Element,
 ) -> Element {
-    let merged = tw_merge!(
-        ITEM_BASE,
-        variant.item_class(),
-        class.as_deref().unwrap_or("")
-    );
+    let merged = tw_merge!(ITEM_BASE, class.as_deref().unwrap_or(""));
     let loading = variant == ToastType::Loading;
     let icon_class = if loading {
-        format!("{ICON_CLASS} [&>svg]:animate-spin")
+        format!("{ICON_CLASS} {} [&>svg]:animate-spin", variant.icon_tone())
     } else {
-        ICON_CLASS.to_owned()
+        format!("{ICON_CLASS} {}", variant.icon_tone())
     };
     let title_id = close_label.as_deref().unwrap_or("Close toast");
     let close = on_close;
@@ -302,7 +299,7 @@ pub fn ToastPresentation(
             }
             div { class: "flex-1 min-w-0",
                 div { class: "flex items-center gap-2",
-                    h3 { class: "font-semibold text-base leading-[1.4] min-w-0 flex-1", title: "{title}", "{title}" }
+                    h3 { class: "font-medium text-sm leading-5 min-w-0 flex-1", title: "{title}", "{title}" }
                     if let Some(on_close) = close {
                         button {
                             r#type: "button",
@@ -315,7 +312,7 @@ pub fn ToastPresentation(
                     }
                 }
                 if let Some(description) = description {
-                    p { class: "text-sm leading-[1.5] opacity-90 mt-1", "{description}" }
+                    p { class: "text-sm leading-5 text-muted-foreground mt-0.5", "{description}" }
                 }
                 {children}
             }

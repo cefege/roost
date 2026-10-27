@@ -299,7 +299,10 @@ for Dioxus 0.7 + Tailwind v4. Roost adapts those components under the web crate'
    Token files (`theme-vars.css`, `tailwind.css`,
    `agents.rs`, `src/theme/palettes/`, vendored rust-ui CSS under
    `crates/roost-web/vendor/`) DECLARE values and are exempt. Components copy
-   rust-ui's class recipes byte for byte; caller classes place components,
+   rust-ui's class recipes byte for byte, except `ui/toast.rs`, whose cards use
+   the popover surface and show severity in the icon colour only (operator
+   decision: rust-ui's tinted, heavy-bordered cards clashed with the theme);
+   caller classes place components,
    not recolor, reshape, or reskin them. The few raw values rust-ui itself
    ships are baselined. Enforced by `cargo xtask lint`'s design ratchet against
    `xtask/design-raw-baseline.json`: a NEW raw value fails the build. After

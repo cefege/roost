@@ -220,7 +220,7 @@ pub fn ToastCard(toast_id: ToastId) -> Element {
                 )),
                 if let Some(detail) = details.as_ref() {
                     pre {
-                        class: "m-0 mt-2 max-h-36 overflow-auto select-text bg-muted text-muted-foreground whitespace-pre-wrap [word-break:break-word] [font-family:var(--term-font-family)]",
+                        class: "m-0 mt-2 max-h-36 overflow-auto select-text rounded-md bg-muted p-2 text-xs text-muted-foreground whitespace-pre-wrap [word-break:break-word] [font-family:var(--term-font-family)]",
                         "{detail}"
                     }
                 }
