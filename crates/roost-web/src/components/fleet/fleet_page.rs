@@ -13,9 +13,7 @@ use super::machine_card::MachineCard;
 use super::readings::{ReadingState, reading_state};
 use super::subscription::plan_subscription;
 use crate::components::terminal::dom::sleep_ms;
-use crate::components::ui::{
-    Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyState, IconType,
-};
+use crate::components::ui::{Card, CardContent, EmptyState, IconType};
 use crate::pump::{Pump, use_store};
 
 /// How often the page re-checks staleness and reachability, so a machine whose
@@ -72,16 +70,18 @@ pub fn FleetPage() -> Element {
     let count = rows.len();
     rsx! {
         div {
-            class: "flex flex-col gap-5",
+            class: "h-full min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain",
             "data-testid": "fleet-page",
-            Card {
-                CardHeader {
-                    CardTitle { "Fleet" }
-                    CardDescription {
+            role: "region",
+            "aria-label": "Fleet performance",
+            tabindex: "0",
+            div { class: "mx-auto flex w-full max-w-7xl flex-col gap-4 p-4",
+                div { class: "flex items-baseline justify-between gap-3",
+                    h1 { class: "text-lg font-semibold", "Fleet" }
+                    span { class: "text-sm text-muted-foreground",
                         {if count == 1 { "1 machine".to_owned() } else { format!("{count} machines") }}
                     }
                 }
-            }
             if rows.is_empty() {
                 Card {
                     CardContent {
@@ -93,7 +93,7 @@ pub fn FleetPage() -> Element {
                     }
                 }
             } else {
-                div { class: "grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-4",
+                div { class: "grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-2",
                     for row in rows {
                         MachineCard {
                             key: "{row.fingerprint}",
@@ -104,6 +104,7 @@ pub fn FleetPage() -> Element {
                         }
                     }
                 }
+            }
             }
         }
     }

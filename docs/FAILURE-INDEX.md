@@ -60,6 +60,26 @@ the route the deck asks for although no prop changed, and
 `use_store` reader repaints on a mutation while a `use_pump` reader beside it
 does not.
 
+### A notification for one terminal opens its newer folder sibling
+
+**Symptom** — "a notification for session A opens terminal B" when both
+terminals share a worker and spawn folder; the toast and OS notification both
+carry A's session id, but the click opens `/t/:worker/:folder`.
+
+**Wrong** — pass the notification's exact session through `terminal_href`.
+That URL is intentionally a stable folder bookmark, and folder resolution
+selects the newest open sibling.
+
+**Right** — notification destinations use `/s/:sessionId`, which preserves the
+event's identity. Keep `terminal_href` for stable folder links. If the exact
+session has closed, its route stays exact and renders no open sibling as a
+substitute.
+
+**Guard** — `crates/roost-web/tests/route_session.rs` —
+`notification_destination_keeps_the_originating_session_after_view_changes`
+proves that `/s/A` continues to resolve A while the stable folder URL resolves
+newer sibling B, and that a closed A does not resolve as B.
+
 ### The notification dock's bottom edge lands BELOW the compact composer's top edge
 
 **Symptom** — "a toast covers the phone's chat input" / "the notification dock sits on top of the composer
@@ -355,15 +375,16 @@ under the drawer) and handles the soft keyboard only by translation —
 `--term-chat-dock-rest-offset` excludes `--kb-offset`. Only a real pane/window
 resize (or the explicit `keyboardResize` preference) may resize the PTY.
 
-The shared Rust/UI `InputPrompt` stacks the field above a bordered toolbar.
-Subtract only field height above its CSS minimum: the entire footer, including
-wrapped controls in a narrow pane, remains in the resting baseline. Voice errors
-and staged attachments stay outside the measured frame. TV keys mount above it
-as a sibling, not inside the prompt's `overflow-hidden` boundary. The field and
-dictation mirror use the same short-side mobile typography policy.
+The shared Rust/UI `InputPrompt` stacks staged thumbnails, the field and a bordered
+toolbar. Subtract staged-strip height and field height above its CSS minimum:
+the entire footer, including wrapped controls in a narrow pane, remains in the
+resting baseline. Voice errors stay outside the measured frame. TV keys mount
+above it as a sibling, not inside the prompt's `overflow-hidden` boundary. The
+field and dictation mirror use the same short-side mobile typography policy.
 
 **Guard** — `components::terminal_chrome::pane_geometry::tests::the_field_growth_is_removed_without_subtracting_the_stacked_footer`
-and `stacked_field_and_footer_baseline_is_stable_at_standard_and_tv_metrics`.
+and `stacked_field_and_footer_baseline_is_stable_at_standard_and_tv_metrics`,
+plus `staged_thumbnails_do_not_resize_the_terminal_baseline`.
 Browser smoke must also prove unchanged live PTY rows and columns with a pasted
 multiline draft and a microphone error, visible TV keys, and a 16px field on
 portrait and landscape phones.
@@ -2675,8 +2696,8 @@ summary reads as the stream's end.
 
 ### A finished upload's card never leaves the dock
 
-**Symptom** — "the Transfers popup keeps every 'Uploaded' card until I click ×" / a `running` card that
-stopped advancing never reads as stalled / blob preview URLs outlive their cards.
+**Symptom** — "the Transfers popup keeps every 'Uploaded' card until I click ×" / a
+`running` card that stopped advancing never reads as stalled.
 
 **Wrong** — dismiss the card from a component timer, or stamp a fresh wall-clock deadline in the row. The
 deadlines already exist as data (`dismiss_at_ms`, `last_progress_ms`); a second timer is a second clock that
@@ -2685,8 +2706,9 @@ disagrees with them.
 **Right** — **run `store::transfers::sweep_transfers` from `handle_sweep`, on the same monotonic timeline
 the cards are stamped with.** The sweep is the only way time reaches the client core, and nothing called the
 transfer sweep, so neither deadline ever fired. The cards were also stamped with `Date.now()` while the sweep
-carries `performance.now()`; `terminal_chrome::upload_id::now_ms` now reads the core's `BrowserClock`. The
-pump drains `TransferStack::take_removed` on every sweep and revokes each departed card's preview URL.
+carries `performance.now()`; `terminal_chrome::upload_id::now_ms` now reads the core's `BrowserClock`.
+Preview URLs belong only to staging, which releases them on removal or upload
+handoff; the transfer ledger and its compact receipt carry no image.
 
 **Guard** — `crates/roost-client-core/tests/store_transfers.rs`
 `the_client_sweep_dismisses_a_finished_upload_card`.

@@ -146,7 +146,7 @@ pub fn ToolCard(
         crate::components::hooks::use_copy_clipboard::use_copy_clipboard(None);
     rsx! {
         div {
-            class: "min-w-0",
+            class: "group/tool min-w-0 border-b border-border last:border-0",
             "data-state": state,
             "data-tool": tool_name.clone(),
             Collapsible {
@@ -197,16 +197,8 @@ pub fn ToolCard(
                         class: "size-4 text-muted-foreground",
                     }
                 }
-                CollapsibleContent { class: "flex min-w-0 flex-col gap-2 pt-2",
+                CollapsibleContent { class: "flex min-w-0 flex-col gap-2 px-2 pb-2",
                     if disclosure_visible {
-                        if !args_json.is_empty() && args_json != "{}" {
-                            span { class: "text-xs font-medium text-muted-foreground",
-                                "Input"
-                            }
-                            pre { class: "m-0 max-h-48 overflow-auto overscroll-y-auto whitespace-pre-wrap break-words font-mono text-xs",
-                                "{args_json}"
-                            }
-                        }
                         if let Some(text) = intent {
                             p { class: "m-0 break-words text-xs italic text-muted-foreground",
                                 "{text}"
@@ -255,6 +247,14 @@ pub fn ToolCard(
                                     "Details"
                                 }
                                 CollapsibleContent { class: "flex flex-col gap-2 pb-2",
+                                    if !args_json.is_empty() && args_json != "{}" {
+                                        span { class: "text-xs font-medium text-muted-foreground",
+                                            "Input"
+                                        }
+                                        pre { class: "m-0 max-h-48 overflow-auto overscroll-y-auto whitespace-pre-wrap break-words font-mono text-xs",
+                                            "{args_json}"
+                                        }
+                                    }
                                     if !facts.is_empty() {
                                         ul { class: "m-0 flex list-none flex-wrap gap-x-4 gap-y-2 p-0 text-xs text-muted-foreground",
                                             for fact in facts {

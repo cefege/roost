@@ -52,7 +52,8 @@ struct MountedAgent {
     slot: Option<TerminalSessionSlot>,
     style: String,
 }
-
+#[derive(Clone, Copy)]
+pub(crate) struct AgentInspectorRequest(pub Signal<Option<String>>);
 type DeckRenderSnapshot = (
     DeckFrame,
     Option<DeckNavigation>,
@@ -70,6 +71,7 @@ pub fn TerminalDeck(active_session_id: Option<String>, surface_visible: bool) ->
     let resize = use_resize_drag();
     let measure = use_deck_measure();
     use_context_provider(|| DeckContainer(measure.element));
+    use_context_provider(|| AgentInspectorRequest(Signal::new(None)));
     let mut retained = use_signal(|| active_session_id.clone());
     use_effect(use_reactive((&active_session_id,), move |(active,)| {
         if active.is_some() && *retained.peek() != active {
@@ -338,6 +340,9 @@ fn TerminalSlot(
 
 #[component]
 fn AgentSlot(agent: MountedAgent, surface_visible: bool, spotlight_active: bool) -> Element {
+    let pump = use_store();
+    let inspector_request = try_consume_context::<AgentInspectorRequest>();
+    let conversation_id = agent.conversation.id.clone();
     let slot = agent.slot.as_ref();
     let pane_id = slot.map_or_else(String::new, |slot| slot.pane_id.clone());
     let focused = slot.is_some_and(|slot| slot.focused);
@@ -355,9 +360,30 @@ fn AgentSlot(agent: MountedAgent, surface_visible: bool, spotlight_active: bool)
             "data-spotlit": spotlit.then_some("true"),
             style: agent.style,
             aria_hidden: hidden,
-            crate::components::agent_chat::AgentChatSurface {
-                conversation_id: agent.conversation.id.clone(),
-                active: !hidden,
+            div { class: "flex h-full min-h-0 flex-col",
+                if spotlit {
+                    div { class: "flex shrink-0 items-center gap-2 border-b border-border bg-card px-4",
+                        span { class: "min-w-0 flex-1 truncate text-sm font-medium",
+                            "{crate::components::agent_chat::display_conversation_title(&agent.conversation.title)}"
+                        }
+                        crate::components::agent_chat::AgentChatHeader {
+                            conversation: agent.conversation.clone(),
+                            online: None,
+                            pump: pump.clone(),
+                            on_inspector: move |_| {
+                                if let Some(mut request) = inspector_request {
+                                    request.0.set(Some(conversation_id.clone()));
+                                }
+                            },
+                        }
+                    }
+                }
+                div { class: "min-h-0 flex-1",
+                    crate::components::agent_chat::AgentChatSurface {
+                        conversation_id: agent.conversation.id.clone(),
+                        active: !hidden,
+                    }
+                }
             }
         }
     }

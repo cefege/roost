@@ -13,7 +13,7 @@ pub mod deploy_calls;
 pub mod deploy_dialog;
 pub mod deploy_state;
 pub mod enrollment_origin;
-pub mod host_usage_tiles;
+pub mod host_usage;
 pub mod linux_distribution_mark;
 pub mod local_access_guide;
 pub mod machine_identity;

@@ -84,11 +84,9 @@ struct ProgressUpdate {
 ///
 /// A replacement resets the card completely: a second upload of the same
 /// attachment id starts from zero, and a card that had already settled gets its
-/// own dismissal window. Returns the card it displaced, so a host can release
-/// the preview it minted for that one.
-pub fn add_transfer(store: &mut Store, new: NewTransfer) -> Option<Transfer> {
+/// own dismissal window.
+pub fn add_transfer(store: &mut Store, new: NewTransfer) {
     let id = new.id;
-    let previous = store.transfers.transfers.get(&id).cloned();
     let transfer = Transfer {
         id: id.clone(),
         name: new.name,
@@ -99,7 +97,6 @@ pub fn add_transfer(store: &mut Store, new: NewTransfer) -> Option<Transfer> {
         eta_s: None,
         state: new.state,
         err: None,
-        preview_url: new.preview_url,
         route: None,
         dismiss_at_ms: if new.state.self_dismisses() {
             Some(new.now_ms.saturating_add(TRANSFER_DISMISS_AFTER_MS))
@@ -112,13 +109,11 @@ pub fn add_transfer(store: &mut Store, new: NewTransfer) -> Option<Transfer> {
             Some(new.now_ms)
         },
     };
-    if previous.is_some() {
-        // The displaced card's samples describe a run that is over.
+    if store.transfers.transfers.contains_key(&id) {
         store.transfers.samples.remove(&id);
     }
     store.transfers.transfers.insert(id, transfer);
     store.note_change();
-    previous
 }
 
 /// Live progress for one card.

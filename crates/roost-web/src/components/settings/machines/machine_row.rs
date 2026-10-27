@@ -21,7 +21,7 @@ use roost_protocol::fleet_update::{
 };
 use roost_protocol::wire::Worker;
 
-use crate::components::machines::host_usage_tiles::{HostUsage, HostUsageTiles, NetworkRates};
+use crate::components::machines::host_usage::{HostUsage, HostUsageMeters, NetworkRates};
 use crate::components::machines::machine_identity_mark::MachineIdentityMark;
 use crate::components::ui::{
     Button, ButtonVariant, Chip, FieldError, IconType, ListRow, StatusDot, TextField,
@@ -75,6 +75,7 @@ pub fn MachineRowView(
     rsx! {
         div { class: "flex flex-col", "data-testid": format!("machines-worker-row-{fingerprint}"),
             ListRow {
+                class: "grid grid-cols-[auto_minmax(0,1fr)] gap-3 [&>div:last-child]:col-span-2 md:flex",
                 leading: Some(rsx! { MachineIdentityMark { worker: Some(identity), context_title: None } }),
                 headline: rsx! { {worker.label.clone()} },
                 support: Some(rsx! { {support_line(&worker, online, now_ms)} }),
@@ -90,14 +91,6 @@ pub fn MachineRowView(
                         title: Some(format!("Coordinator release {}", short_identifier(
                             coord_sha.as_deref().unwrap_or("unknown"), 8
                         ))),
-                    }
-                    Button {
-                        variant: ButtonVariant::Destructive,
-                        icon: Some(IconType::Trash2),
-                        "aria-label": format!("Remove {}", worker.label),
-                        "data-testid": format!("machines-delete-quick-btn-{fingerprint}"),
-                        disabled: state.busy,
-                        onclick: move |_| row.write().confirming = true,
                     }
                     Button {
                         variant: ButtonVariant::Ghost,
@@ -130,7 +123,7 @@ pub fn MachineRowView(
                     }
                     if online {
                         if let Some(metrics) = worker.host_metrics.clone() {
-                            HostUsageTiles {
+                            HostUsageMeters {
                                 usage: HostUsage::from_host_metrics(&metrics),
                                 network: Some(NetworkRates::from_host_metrics(&metrics)),
                             }

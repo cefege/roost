@@ -34,7 +34,7 @@ pub(super) fn preview_window(tool_name: &str) -> (usize, PreviewEdge) {
 pub(super) const ERROR_ROWS: usize = 8;
 
 /// The Lucide icon and verb for a call in its current state.
-pub(super) fn presentation(tool_name: &str, active: bool) -> (IconType, String) {
+pub(super) fn presentation(tool_name: &str, active: bool) -> (IconType, &str) {
     let (icon, running_verb, finished_verb) = match tool_name {
         "bash" => (IconType::Terminal, "Running", "Ran"),
         "read" => (IconType::FileText, "Reading", "Read"),
@@ -47,10 +47,7 @@ pub(super) fn presentation(tool_name: &str, active: bool) -> (IconType, String) 
         "job" => (IconType::Briefcase, "Job", "Job"),
         _ => (IconType::Hammer, tool_name, tool_name),
     };
-    (
-        icon,
-        if active { running_verb } else { finished_verb }.into(),
-    )
+    (icon, if active { running_verb } else { finished_verb })
 }
 
 /// The one-line target a call names: its command, path or pattern.
@@ -65,9 +62,18 @@ pub(super) fn argument_summary(tool_name: &str, args_json: &str) -> String {
             .map_or(0, Vec::len);
         return format!("{count} task{}", if count == 1 { "" } else { "s" });
     }
+    if tool_name == "edit" {
+        return parsed
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+            .filter(|path| !path.is_empty())
+            .map(str::to_owned)
+            .or_else(|| patch_target(&parsed))
+            .unwrap_or_default();
+    }
     let value = match tool_name {
         "bash" => parsed.get("command"),
-        "read" | "write" | "edit" | "ls" => parsed.get("path"),
+        "read" | "write" | "ls" => parsed.get("path"),
         "grep" | "glob" => parsed.get("pattern"),
         "find" => parsed.get("query").or_else(|| parsed.get("pattern")),
         "lsp" => return joined_fields(&parsed, &["action", "file"]),
@@ -81,6 +87,22 @@ pub(super) fn argument_summary(tool_name: &str, args_json: &str) -> String {
         .unwrap_or_else(|| compact_arguments(&parsed))
 }
 
+fn patch_target(arguments: &serde_json::Value) -> Option<String> {
+    arguments
+        .as_object()?
+        .values()
+        .filter_map(serde_json::Value::as_str)
+        .find_map(|value| {
+            value.lines().find_map(|line| {
+                let header = line.strip_prefix('[')?.strip_suffix(']')?;
+                let (path, tag) = header.rsplit_once('#')?;
+                (!path.is_empty()
+                    && tag.len() == 4
+                    && tag.bytes().all(|byte| byte.is_ascii_hexdigit()))
+                .then(|| path.to_owned())
+            })
+        })
+}
 fn compact_arguments(arguments: &serde_json::Value) -> String {
     arguments
         .as_object()
@@ -159,7 +181,7 @@ pub(super) fn group_summary<'a>(calls: impl IntoIterator<Item = (&'a str, &'a st
         match clauses.iter_mut().find(|clause| clause.verb == verb) {
             Some(clause) => clause.record(target),
             None => {
-                let mut clause = SummaryClause::new(verb, tool_name);
+                let mut clause = SummaryClause::new(verb.to_owned(), tool_name);
                 clause.record(target);
                 clauses.push(clause);
             }
@@ -315,20 +337,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_intent_is_read_from_args_and_never_summarised() {
+    fn edit_argument_summary_extracts_only_a_tagged_patch_filename() {
+        let tag = "A1B2";
+        let arguments = serde_json::json!({
+            "input": format!("[src/main.rs#{tag}]\nPUT 1.=1:\n+replacement")
+        });
         assert_eq!(
-            intent_for(r#"{"i":"Run the suite","command":"cargo test"}"#).as_deref(),
-            Some("Run the suite")
+            argument_summary("edit", &arguments.to_string()),
+            "src/main.rs"
         );
-        assert_eq!(intent_for(r#"{"command":"cargo test"}"#), None);
         assert_eq!(
-            argument_summary("bash", r#"{"i":"Run","command":"cargo test"}"#),
-            "cargo test"
-        );
-        assert_eq!(argument_summary("wait", r#"{"i":"Wait for jobs"}"#), "");
-        assert_eq!(
-            argument_summary("job", r#"{"i":"Check","op":"output","id":"bg_1"}"#),
-            "output bg_1"
+            argument_summary("edit", r#"{"patch":"[src/main.rs#wrong]\n-raw patch"}"#),
+            ""
         );
     }
 

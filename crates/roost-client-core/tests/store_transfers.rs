@@ -36,7 +36,6 @@ fn a_transfer_may_decrease_without_failing() {
             direction: TransferDirection::Up,
             bytes_total: 1_000,
             state: TransferState::Running,
-            preview_url: None,
             now_ms: 0,
         },
     );
@@ -90,7 +89,6 @@ fn a_late_tick_cannot_move_a_settled_card_or_resurrect_a_dismissed_one() {
             direction: TransferDirection::Up,
             bytes_total: 1_000,
             state: TransferState::Running,
-            preview_url: None,
             now_ms: 0,
         },
     );
@@ -163,7 +161,6 @@ fn a_transfer_may_not_come_back_from_the_dead() {
             direction: TransferDirection::Down,
             bytes_total: 0,
             state: TransferState::Running,
-            preview_url: None,
             now_ms: 0,
         },
     );
@@ -201,7 +198,6 @@ fn a_stalled_card_is_revived_by_the_next_tick() {
             direction: TransferDirection::Up,
             bytes_total: 1_000,
             state: TransferState::Running,
-            preview_url: None,
             now_ms: 0,
         },
     );
@@ -240,7 +236,6 @@ fn the_client_sweep_dismisses_a_finished_upload_card() {
             direction: TransferDirection::Up,
             bytes_total: 10,
             state: TransferState::Running,
-            preview_url: Some("blob:preview".to_owned()),
             now_ms: 0,
         },
     );
@@ -255,12 +250,4 @@ fn the_client_sweep_dismisses_a_finished_upload_card() {
         now_ms: 500 + TRANSFER_DISMISS_AFTER_MS,
     });
     assert!(core.store().transfers.transfer("upload-1").is_none());
-    let released: Vec<_> = core
-        .store_mut()
-        .transfers
-        .take_removed()
-        .into_iter()
-        .filter_map(|card| card.preview_url)
-        .collect();
-    assert_eq!(released, vec!["blob:preview".to_owned()]);
 }

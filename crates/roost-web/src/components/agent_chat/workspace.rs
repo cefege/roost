@@ -1,7 +1,7 @@
 //! The agent workspace's inspector/chat split and compact inspector sheet.
-//! Mounted by `surface`; observes its own pane rather than the window so split
-//! panes never squeeze the chat behind a desktop-width inspector. State and
-//! actions remain in the native client store and the controlled inspector.
+//! Mounted by `surface`; measures its own pane so splits never squeeze the
+//! chat behind a desktop-width inspector. The deck routes inspector requests
+//! here by conversation ID.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -13,14 +13,10 @@ use roost_protocol::wire::agent_chat::{ConversationSummary, ModelsCatalog, Trans
 use super::inspector::{AgentInspector, INSPECTOR_TABS};
 use crate::components::deck::deck_dom::{SizeWatch, client_size};
 use crate::components::layout::portal::Portal;
-use crate::components::ui::{
-    ButtonSize, ButtonVariant, IconButton, IconType, Sheet, SheetContent, SheetDescription,
-    SheetHeader, SheetTitle,
-};
+use crate::components::ui::{Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle};
 use crate::platform::LocalStorageKeyValueStore;
 use crate::pump::Pump;
 
-const INSPECTOR_PREFERENCE: &str = "roost.agent.inspector.expanded";
 const INSPECTOR_TAB_PREFERENCE: &str = "roost.agent.inspector.tab";
 const INLINE_INSPECTOR_MIN_WIDTH: f64 = 960.0;
 
@@ -31,11 +27,10 @@ pub(super) fn AgentWorkspace(
     catalog: Option<ModelsCatalog>,
     pump: Pump,
     active: bool,
-    header: Element,
     children: Element,
 ) -> Element {
     let storage = use_hook(|| Rc::new(LocalStorageKeyValueStore::new()));
-    let mut expanded = use_signal(|| storage.get(INSPECTOR_PREFERENCE).as_deref() != Some("false"));
+    let mut expanded = use_signal(|| false);
     let mut selected_tab = use_signal(|| {
         storage
             .get(INSPECTOR_TAB_PREFERENCE)
@@ -49,28 +44,30 @@ pub(super) fn AgentWorkspace(
     let mut overlay = use_signal(|| false);
     let mut inline = use_signal(|| false);
     let observer: Rc<RefCell<Option<SizeWatch>>> = use_hook(Rc::default);
-    let save_storage = Rc::clone(&storage);
-    use_effect(move || {
-        save_storage.set(
-            INSPECTOR_PREFERENCE,
-            if expanded() { "true" } else { "false" },
-        )
-    });
     let tab_storage = Rc::clone(&storage);
     use_effect(move || tab_storage.set(INSPECTOR_TAB_PREFERENCE, &selected_tab()));
     let on_tab_change = EventHandler::new(move |tab: String| selected_tab.set(tab));
+    let inspector_request =
+        try_consume_context::<crate::components::deck::terminal_deck::AgentInspectorRequest>();
+    let requested_conversation_id = conversation.id.clone();
+    use_effect(move || {
+        let Some(mut request) = inspector_request else {
+            return;
+        };
+        if request.0.read().as_deref() == Some(requested_conversation_id.as_str()) {
+            if inline() {
+                expanded.set(!expanded());
+            } else {
+                overlay.set(!overlay());
+            }
+            request.0.set(None);
+        }
+    });
     use_effect(use_reactive((&active,), move |(active,)| {
         if inline() || !active {
             overlay.set(false);
         }
     }));
-    let show = move |_| {
-        if inline() {
-            expanded.set(!expanded());
-        } else {
-            overlay.set(true);
-        }
-    };
     let close = EventHandler::new(move |()| {
         if inline() {
             expanded.set(false);
@@ -111,32 +108,8 @@ pub(super) fn AgentWorkspace(
                         selected_tab: selected_tab(), on_tab_change,
                     }
                 }
-            } else if inline() {
-                aside { class: "flex shrink-0 flex-col items-center gap-1 border-r border-border bg-card px-1 py-3", "aria-label": "Inspector navigation",
-                    IconButton {
-                        icon: IconType::PanelLeft, label: "Expand agent inspector", title: "Expand inspector",
-                        variant: ButtonVariant::Ghost, size: ButtonSize::IconSm,
-                        onclick: show,
-                    }
-                    for (key, label, icon) in INSPECTOR_TABS {
-                        IconButton { icon, label: format!("Open {label} inspector"), title: label,
-                            variant: ButtonVariant::Ghost, size: ButtonSize::IconSm,
-                            onclick: move |_| { selected_tab.set(key.to_owned()); expanded.set(true); } }
-                    }
-                }
             }
             div { class: "flex min-h-0 min-w-0 flex-1 flex-col",
-                div { class: "flex min-w-0 items-center gap-2 border-b border-border px-4 py-3",
-                    div { class: "min-w-0 flex-1", {header} }
-                    if !inline() {
-                        IconButton {
-                            icon: IconType::PanelLeft, label: "Open agent inspector", title: "Inspector",
-                            variant: ButtonVariant::Ghost, size: ButtonSize::IconSm,
-                            "data-testid": "agent-inspector-toggle",
-                            onclick: show,
-                        }
-                    }
-                }
                 {children}
             }
             // The deck's pane stacking context must not trap the mobile modal.

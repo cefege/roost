@@ -155,10 +155,6 @@ impl TransferState {
     }
 }
 
-/// The bound on the uncollected removals. A host that never drains loses the
-/// OLDEST card's release obligation rather than growing without limit.
-const MAX_RETAINED_REMOVED: usize = 64;
-
 /// Everything one card needs in order to exist.
 ///
 /// A struct rather than eight positional parameters, because six of the eight
@@ -173,7 +169,6 @@ pub struct NewTransfer {
     pub direction: TransferDirection,
     pub bytes_total: u64,
     pub state: TransferState,
-    pub preview_url: Option<String>,
     pub now_ms: u64,
 }
 
@@ -199,10 +194,6 @@ pub struct Transfer {
     pub state: TransferState,
     /// The failure text, when it failed.
     pub err: Option<String>,
-    /// The preview the host minted for this card. The HOST owns the underlying
-    /// object URL and revokes it when the card leaves the map — see
-    /// [`TransferStack::take_removed`].
-    pub preview_url: Option<String>,
     /// The path the bytes are taking, once a carrier is chosen.
     pub route: Option<TransferRoute>,
     /// When a settled card removes itself, or `None` while it is unsettled.
@@ -238,21 +229,14 @@ pub(super) struct RateSample {
     pub(super) speed_bps: f64,
 }
 
-/// The live cards, and the bookkeeping beside them.
+/// The live cards and the rate samples beside them.
 ///
-/// Deliberately NOT `PartialEq`, and the reason is the two fields that are not
-/// cards. The samples are arithmetic a host never renders, and the uncollected
-/// removals are an obligation the host has not discharged yet, so two stacks
-/// differing only in those are the same stack to every reader that exists.
-/// There is also no comparison to make: nothing compares two stacks, and a
-/// `PartialEq` nothing calls is a promise the code does not keep. Compare the
-/// cards through [`TransferStack::transfers`] when a caller appears.
-
+/// Samples are arithmetic a host never renders. Compare cards through
+/// [`TransferStack::transfers`] when a caller appears.
 #[derive(Debug, Default, Clone)]
 pub struct TransferStack {
     pub(super) transfers: BTreeMap<String, Transfer>,
     pub(super) samples: BTreeMap<String, RateSample>,
-    removed: Vec<Transfer>,
 }
 
 impl TransferStack {
@@ -281,22 +265,8 @@ impl TransferStack {
         self.transfers.is_empty()
     }
 
-    /// Take the cards that have left the map, for the host to release whatever
-    /// it minted for them.
-    ///
-    /// This is bookkeeping rather than rendered state: it changes without a
-    /// `revision`, and it is why removal needs no new `Effect` variant for a
-    /// host to learn. A host drains it after each `handle`.
-    pub fn take_removed(&mut self) -> Vec<Transfer> {
-        std::mem::take(&mut self.removed)
-    }
-
     pub(super) fn drop_card(&mut self, id: &str) {
-        if let Some(transfer) = self.transfers.remove(id) {
-            self.samples.remove(id);
-            if self.removed.len() < MAX_RETAINED_REMOVED {
-                self.removed.push(transfer);
-            }
-        }
+        self.transfers.remove(id);
+        self.samples.remove(id);
     }
 }

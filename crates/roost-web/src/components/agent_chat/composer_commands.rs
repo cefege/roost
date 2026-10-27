@@ -21,16 +21,6 @@ pub(super) fn report_command(
     EventHandler::new(move |result: Result<(), String>| command_error.set(result.err()))
 }
 
-/// The advisor chip's reader-facing state; a pending change says so instead of
-/// reporting the old state.
-pub(super) fn advisor_title(enabled: bool, pending: bool) -> &'static str {
-    match (pending, enabled) {
-        (true, _) => "Updating the advisor…",
-        (false, true) => "Advisor is on. Select to turn it off.",
-        (false, false) => "Advisor is off. Select to turn it on.",
-    }
-}
-
 #[cfg(target_arch = "wasm32")]
 pub(super) fn submit_direct_command(
     pump: Pump,

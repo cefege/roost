@@ -27,10 +27,12 @@ pub struct PaneGrowth {
 /// supplies these numbers from a live dock.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PaneMeasurement {
-    /// `box.offsetHeight`: the InputPrompt frame's field-plus-footer height.
+    /// `box.offsetHeight`: the prompt's attachments, field and footer.
     pub box_height: f64,
     /// The field's growth above its upstream one-line minimum.
     pub field_growth: f64,
+    /// The staged-attachment strip, which floats above the reserved baseline.
+    pub attachment_height: f64,
     /// How far the dock's top edge sits above the box's top edge. Positive
     /// only when the box has overflowed upward.
     pub overflow_above: f64,
@@ -49,11 +51,13 @@ pub struct PaneMeasurement {
 impl PaneMeasurement {
     /// The resting height the dock keeps in flex flow.
     ///
-    /// `box.offsetHeight` minus field growth gives the shared field and footer
-    /// at their one-line baseline, which the pane keeps in flex flow.
+    /// Excluding staged attachments and field growth keeps the PTY geometry
+    /// unchanged when a file is staged, removed or handed to the upload queue.
     #[must_use]
     pub fn resting_height(&self) -> f64 {
-        (self.box_height - self.field_growth).round().max(0.0)
+        (self.box_height - self.field_growth - self.attachment_height)
+            .round()
+            .max(0.0)
     }
 
     /// Whether the dock has to stop floating and scroll instead.
@@ -115,6 +119,7 @@ mod tests {
         PaneMeasurement {
             box_height: 107.0,
             field_growth: 0.0,
+            attachment_height: 0.0,
             overflow_above: 0.0,
             content_overflows: false,
             content_height: 107.0,
@@ -136,6 +141,26 @@ mod tests {
             ..resting()
         };
         assert_eq!(measured.resting_height(), 107.0);
+    }
+
+    #[test]
+    fn staged_thumbnails_do_not_resize_the_terminal_baseline() {
+        for attachment_height in [0.0, 116.0, 140.0] {
+            let measured = PaneMeasurement {
+                box_height: 107.0 + attachment_height + 48.0,
+                field_growth: 48.0,
+                attachment_height,
+                overflow_above: attachment_height + 48.0,
+                content_height: 107.0 + attachment_height + 48.0,
+                ..resting()
+            };
+            assert_eq!(measured.resting_height(), 107.0);
+            assert!(!measured.constrained());
+            assert_eq!(
+                measured.publish().growth_px,
+                (attachment_height + 48.0) as u32
+            );
+        }
     }
 
     #[test]

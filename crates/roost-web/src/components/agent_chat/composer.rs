@@ -21,7 +21,7 @@ use crate::components::settings::agent_connect_dialog::AgentConnectDialog;
 use crate::components::terminal_chrome::composer_dictation::{
     SharedBinding, VoiceControl, use_dictation, use_dictation_context,
 };
-use crate::components::ui::{FieldError, InputPromptSheet, InputPromptTextarea};
+use crate::components::ui::{FieldError, InputPrompt, InputPromptTextarea};
 use crate::pump::Pump;
 use crate::router_state::use_navigate;
 use crate::voice::send_gate::SendGate;
@@ -294,7 +294,7 @@ pub fn AgentComposer(
                 }
             }
             EditBanner { edit_target, draft }
-            InputPromptSheet {
+            InputPrompt {
                 class: "min-w-0 flex-col",
                 InputPromptTextarea {
                     id: super::composer_helpers::composer_input_id(&conversation_id),
@@ -321,6 +321,9 @@ pub fn AgentComposer(
                     catalog,
                     catalog_failed,
                     pump: pump.clone(),
+                    goal: goal.clone(),
+                    goal_view_request,
+                    on_goal_open: move |_| goal_open.set(true),
                     command_error,
                     commands_open: options_open,
                     listbox: listbox.clone(),
@@ -356,11 +359,6 @@ pub fn AgentComposer(
             }
             ComposerStatusLine {
                 conversation: conversation.clone(),
-                pump: pump.clone(),
-                goal: goal.clone(),
-                goal_view_request,
-                on_goal_open: move |_| goal_open.set(true),
-                command_error,
                 usage,
                 cost_usd,
                 running,

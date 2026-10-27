@@ -290,6 +290,9 @@ fn measure(
     Some(PaneMeasurement {
         box_height,
         field_growth: field_growth(input_height, computed_px(&input, "min-height")),
+        attachment_height: query(&box_element, "[data-composer-part=attachments]")
+            .and_then(|element| offset_height(&element))
+            .unwrap_or(0.0),
         overflow_above: dock_rect.top() - box_rect.top(),
         // The dock scrolls sideways, or its content is taller than the room it
         // has above the pane's top edge. Whether the resting row still fits

@@ -8,9 +8,9 @@ use super::dom;
 use super::upload_tray::{extension_label, format_file_size};
 use crate::components::ui::field::scoped_element_id;
 use crate::components::ui::{
-    Attachment, AttachmentActions, AttachmentContent, AttachmentDescription, AttachmentMedia,
-    AttachmentMediaVariant, AttachmentSize, AttachmentTitle, ButtonSize, ButtonVariant, Card,
-    CardContent, Icon, IconButton, IconType,
+    Attachment, AttachmentActions, AttachmentContent, AttachmentDescription, AttachmentGroup,
+    AttachmentMedia, AttachmentMediaVariant, AttachmentOrientation, AttachmentSize,
+    AttachmentTitle, ButtonSize, ButtonVariant, Icon, IconButton, IconType,
 };
 
 /// One chosen file: its name, length and the browser's handle to it. The
@@ -24,9 +24,8 @@ pub struct ChosenFile {
     pub size_bytes: u64,
     /// The browser's handle, read through `dom::read_file_range`.
     pub file: web_sys::File,
-    /// A local object URL for this file's image preview, when available. The
-    /// staged tray or transfer row releases it with
-    /// [`crate::components::terminal_chrome::dom::revoke_preview`].
+    /// A local image URL owned by staging. Removal or upload handoff releases it
+    /// through [`crate::components::terminal_chrome::dom::revoke_preview`].
     pub preview_url: Option<String>,
 }
 
@@ -100,7 +99,7 @@ pub(super) async fn read_chosen(files: Vec<web_sys::File>) -> Vec<ChosenFile> {
     chosen
 }
 
-/// The staged attachments and their keyboard-accessible removal controls.
+/// A single scrolling row of attachments inside the prompt, above its field.
 #[component]
 pub fn AttachmentPreview(files: Vec<ChosenFile>, on_remove: EventHandler<usize>) -> Element {
     let label_id = use_hook(|| scoped_element_id("attachment-preview-strip"));
@@ -108,17 +107,16 @@ pub fn AttachmentPreview(files: Vec<ChosenFile>, on_remove: EventHandler<usize>)
         return rsx! {};
     }
     rsx! {
-        Card {
-            size: crate::components::ui::CardSize::Sm,
+        div {
+            class: "w-full min-w-0 px-3 pt-3",
             "data-testid": "attachment-preview-strip",
+            "data-composer-part": "attachments",
             role: "list",
             "aria-labelledby": label_id.clone(),
-            CardContent {
-                span { id: label_id, class: "sr-only", "Attachments staged for sending" }
-                div { class: "flex flex-col gap-1",
-                    for (index, file) in files.into_iter().enumerate() {
-                        StagedAttachmentRow { key: "{index}-{file.name}", file, index, on_remove }
-                    }
+            span { id: label_id, class: "sr-only", "Attachments staged for sending" }
+            AttachmentGroup {
+                for (index, file) in files.into_iter().enumerate() {
+                    StagedAttachmentRow { key: "{index}-{file.name}", file, index, on_remove }
                 }
             }
         }
@@ -130,20 +128,25 @@ fn StagedAttachmentRow(file: ChosenFile, index: usize, on_remove: EventHandler<u
     let name = file.name.clone();
     let size_label = format_file_size(file.size_bytes);
     let is_video = video_file(&file);
+    let has_preview = file.preview_url.is_some();
     rsx! {
         Attachment {
-            size: AttachmentSize::Sm,
-            class: "w-full min-w-0",
+            size: if has_preview { AttachmentSize::Default } else { AttachmentSize::Sm },
+            orientation: if has_preview { AttachmentOrientation::Vertical } else { AttachmentOrientation::Horizontal },
+            class: if has_preview { "" } else { "w-48" },
             "tabindex": "0",
             "role": "listitem",
             "data-testid": "staged-attachment",
             "aria-label": "{name}, {size_label}",
+            title: "{name}, {size_label}",
             if let Some(source) = file.preview_url.as_ref() {
                 AttachmentMedia { variant: AttachmentMediaVariant::Image,
+                    contain: true,
                     img {
                         "data-testid": "attachment-preview",
                         src: source,
-                        alt: "",
+                        alt: name.clone(),
+                        class: "size-full",
                     }
                 }
             } else {
@@ -155,18 +158,19 @@ fn StagedAttachmentRow(file: ChosenFile, index: usize, on_remove: EventHandler<u
                     }
                 }
             }
-            AttachmentContent {
-                AttachmentTitle { "title": name.clone(), "{name}" }
-                AttachmentDescription { "{size_label}" }
+            if !has_preview {
+                AttachmentContent {
+                    AttachmentTitle { "title": name.clone(), "{name}" }
+                    AttachmentDescription { "{size_label}" }
+                }
             }
             AttachmentActions {
                 IconButton {
                     icon: IconType::X,
                     label: "Remove {name}",
                     title: "Remove {name}",
-                    variant: ButtonVariant::Ghost,
-                    size: ButtonSize::IconSm,
-                    class: None,
+                    variant: if has_preview { ButtonVariant::Secondary } else { ButtonVariant::Ghost },
+                    size: ButtonSize::IconXs,
                     onclick: move |_| on_remove.call(index),
                 }
             }

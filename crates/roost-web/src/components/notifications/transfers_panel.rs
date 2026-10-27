@@ -1,7 +1,6 @@
 //! The one surface that aggregates every upload and download. It is a dock
 //! child, so jobs survive pane switches without claiming a corner of their
 //! own; each per-file progress row reads the shared transfer ledger.
-//! Upload previews are released when their keyed row leaves the list.
 //! Ports `apps/web/src/components/notifications/TransferCard.tsx`.
 
 use dioxus::prelude::*;
@@ -34,7 +33,7 @@ pub fn TransfersPanel() -> Element {
             "aria-labelledby": "transfer-popup-title",
             CardHeader {
                 CardTitle { id: "transfer-popup-title", "Transfers" }
-                CardAction { span { class: "text-muted-foreground", "{count}" } }
+                CardAction { span { "{count}" } }
             }
             CardContent {
                 List {

@@ -199,10 +199,9 @@ pub fn file_size(_file: &web_sys::File) -> u64 {
     0
 }
 
-/// A blob URL for a chosen image, which is what the transfer card's local
-/// preview paints while the dedup probe is still in flight. `None` for any
-/// other type: an `<img>` of a video or an archive is a broken-image glyph.
-/// The caller owns the URL and revokes it with [`revoke_preview`].
+/// A blob URL for a chosen image shown in the staged attachment tray.
+/// `None` for any other type. The caller owns the URL and revokes it with
+/// [`revoke_preview`].
 #[cfg(target_arch = "wasm32")]
 pub async fn preview_url(file: &web_sys::File) -> Option<String> {
     let mime = file.type_();
@@ -223,7 +222,7 @@ pub async fn preview_url(_file: &web_sys::File) -> Option<String> {
     None
 }
 
-/// Release a preview the transfer card no longer shows.
+/// Release a staged attachment preview when it is removed or handed off.
 pub fn revoke_preview(url: &str) {
     #[cfg(target_arch = "wasm32")]
     {

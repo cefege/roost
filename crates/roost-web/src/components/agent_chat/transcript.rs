@@ -19,9 +19,10 @@ use super::plan_card::PlanCard;
 use super::streaming_reveal::StreamingText;
 use super::thinking_block::ThinkingBlock;
 use super::timeline_rail::StepGroup;
+use super::toolbar_menu::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
 use crate::components::ui::{
-    Avatar, AvatarFallback, Bubble, BubbleContent, Button, ButtonSize, ButtonVariant, IconType,
-    Marker, Message, MessageAlign, MessageAvatar, MessageContent, MessageFooter, StatusDot,
+    Bubble, BubbleContent, BubbleVariant, Button, ButtonSize, ButtonVariant, IconType, Marker,
+    Message, MessageAlign, MessageContent, MessageFooter, StatusDot,
 };
 use crate::pump::Pump;
 
@@ -56,48 +57,36 @@ pub fn AgentTranscriptView(
         TranscriptItem::Assistant { blocks, .. }
             if blocks.iter().any(|block| matches!(block, TranscriptBlock::Thinking { text } if !text.is_empty()))
     ));
-    let mut show_tools = use_signal(|| true);
-    let mut show_thinking = use_signal(|| true);
-    let mut expand_tools = use_signal(|| false);
+    let show_tools = use_signal(|| true);
+    let show_thinking = use_signal(|| true);
+    let expand_tools = use_signal(|| false);
     let running = transcript.run_state == AgentRunState::Running;
+    let mut filters_placed = false;
     rsx! {
-        div { class: "flex flex-col gap-6",
-            if has_tools || has_thinking {
-                div { class: "flex flex-wrap items-center justify-end gap-2",
-                    if has_thinking {
-                        Button {
-                            variant: ButtonVariant::Link,
-                            aria_expanded: show_thinking().to_string(),
-                            onclick: move |_| show_thinking.set(!show_thinking()),
-                            icon: Some(if show_thinking() { IconType::Eye } else { IconType::EyeOff }),
-                            if show_thinking() { "Hide thinking" } else { "Show thinking" }
-                        }
-                    }
-                    if has_tools {
-                        Button {
-                            variant: ButtonVariant::Link,
-                            aria_expanded: show_tools().to_string(),
-                            onclick: move |_| show_tools.set(!show_tools()),
-                            icon: Some(if show_tools() { IconType::Eye } else { IconType::EyeOff }),
-                            if show_tools() { "Hide tool activity" } else { "Show tool activity" }
-                        }
-                        if show_tools() {
-                            Button {
-                                variant: ButtonVariant::Link,
-                                aria_pressed: expand_tools().to_string(),
-                                "data-testid": "agent-chat-expand-tools",
-                                onclick: move |_| expand_tools.set(!expand_tools()),
-                                icon: Some(if expand_tools() { IconType::FoldVertical } else { IconType::UnfoldVertical }),
-                                if expand_tools() { "Fold tool output" } else { "Expand tool output" }
-                            }
-                        }
-                    }
-                }
-            }
+        div { class: "flex w-full max-w-full flex-col gap-6",
             for segment in segments {
                 match segment {
-                    Segment::User(TranscriptItem::User { id, text }) => rsx! {
-                        UserMessage { key: "{id}", id: id.clone(), text: text.clone(), conversation_id: conversation_id.clone(), draft, edit_target, running, pump: pump.clone() }
+                    Segment::User(TranscriptItem::User { id, text }) => {
+                        let show_filters = !filters_placed && (has_tools || has_thinking);
+                        filters_placed |= show_filters;
+                        rsx! {
+                            UserMessage {
+                                key: "{id}",
+                                id: id.clone(),
+                                text: text.clone(),
+                                conversation_id: conversation_id.clone(),
+                                draft,
+                                edit_target,
+                                running,
+                                pump: pump.clone(),
+                                show_filters,
+                                has_tools,
+                                has_thinking,
+                                show_tools,
+                                show_thinking,
+                                expand_tools,
+                            }
+                        }
                     },
                     Segment::Assistant(TranscriptItem::Assistant { id, blocks, streaming, error }) => rsx! {
                         AssistantMessage { key: "{id}", blocks: blocks.clone(), streaming: *streaming, error: error.clone(), show_thinking: show_thinking() }
@@ -107,7 +96,7 @@ pub fn AgentTranscriptView(
                         let key = step_group_key(&steps);
                         let steps = steps.into_iter().cloned().collect::<Vec<_>>();
                         rsx! {
-                            StepGroup { key: "{key}", steps: steps, expanded: expand_tools() }
+                            StepGroup { key: "{key}", steps, expanded: expand_tools() }
                         }
                     }
                     Segment::Notice(TranscriptItem::Notice { id, level, title, body }) => rsx! {
@@ -152,19 +141,44 @@ fn UserMessage(
     edit_target: Signal<Option<EditTarget>>,
     running: bool,
     pump: Pump,
+    show_filters: bool,
+    has_tools: bool,
+    has_thinking: bool,
+    mut show_tools: Signal<bool>,
+    mut show_thinking: Signal<bool>,
+    mut expand_tools: Signal<bool>,
 ) -> Element {
     rsx! {
-        Message { align: MessageAlign::End,
-            MessageAvatar {
-                Avatar {
-                    AvatarFallback { "ME" }
-                }
-            }
+        Message { align: MessageAlign::Start, class: "w-full max-w-full",
             MessageContent {
-                Bubble {
-                    BubbleContent { class: "whitespace-pre-wrap", "{text}" }
+                Bubble { variant: BubbleVariant::Muted, class: "w-full max-w-full",
+                    BubbleContent { class: "w-full max-w-full whitespace-pre-wrap", "{text}" }
                 }
                 MessageFooter {
+                    if show_filters {
+                        ToolbarMenu {
+                            menu_key: "transcript",
+                            trigger: ToolbarTrigger::Icon { icon: IconType::ListFilter },
+                            aria_label: "Transcript display",
+                            items: {
+                                let mut items = Vec::new();
+                                if has_thinking {
+                                    items.push(ToolbarMenuItem::choice("thinking", "Show thinking", show_thinking()));
+                                }
+                                if has_tools {
+                                    items.push(ToolbarMenuItem::choice("tools", "Show tool activity", show_tools()));
+                                    items.push(ToolbarMenuItem::choice("expand", "Expand tool output", expand_tools()));
+                                }
+                                items
+                            },
+                            on_choose: move |choice: String| match choice.as_str() {
+                                "thinking" => show_thinking.set(!show_thinking()),
+                                "tools" => show_tools.set(!show_tools()),
+                                "expand" => expand_tools.set(!expand_tools()),
+                                _ => {}
+                            },
+                        }
+                    }
                     UserMessageActions { conversation_id, item_id: id, text, draft, edit_target, running, pump }
                 }
             }

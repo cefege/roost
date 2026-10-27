@@ -1,9 +1,8 @@
-//! The phone workspace bar, one 48px row: menu, the painted terminal's title,
-//! its carrier chip, + (a sibling in the focused pane) and the count square
-//! that opens the terminal grid. Rendered by `TerminalDeck` on a compact
-//! host, twice while a swipe slides the neighbour's bar in. Ports
-//! `apps/web/src/components/deck/MobileDeckBar.tsx` (the grid sheet it opens
-//! is `workspace_tabs_sheet`).
+//! The phone workspace bar: drawer, selected tab title, active agent actions,
+//! a new-terminal button, and the count square that opens the terminal grid.
+//! Rendered by `TerminalDeck`, twice while a swipe slides the neighbour's bar
+//! in. Ports the chrome half of
+//! `apps/web/src/components/deck/MobileDeckBar.tsx`.
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
@@ -11,23 +10,26 @@ use roost_client_core::deck::deck_tab_badge;
 use roost_client_core::store::selectors::session_by_id;
 use roost_client_core::store::sidebar::SidebarIntent;
 use roost_client_core::store::terminal_transport::session_terminal_transport_kind;
+use roost_protocol::wire::agent_chat::ConversationSummary;
 
 use super::pane_tab::direct_transport_label;
 use super::workspace_tabs_sheet::WorkspaceTabsSheet;
+use crate::components::agent_chat::AgentChatHeader;
+use crate::components::deck::terminal_deck::AgentInspectorRequest;
 use crate::components::terminal::terminal_transport_indicator::TerminalTransportIndicator;
 use crate::components::ui::{
     Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, StatusDot,
 };
 use crate::pump::use_store;
 use crate::session_naming::session_title;
-
 /// The bar's title for the painted terminal, and its tooltip.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 struct BarReading {
     title: String,
     native_title: String,
     active: bool,
     agent_status: Option<&'static str>,
+    agent_conversation: Option<ConversationSummary>,
 }
 
 /// One bar.
@@ -35,12 +37,14 @@ struct BarReading {
 pub fn MobileDeckBar(
     tab_ids: Vec<String>,
     selected_tab: String,
+    show_agent_actions: bool,
     on_select: EventHandler<String>,
     on_close: EventHandler<String>,
     on_new_tab: EventHandler<()>,
 ) -> Element {
     let pump = use_store();
     let mut sheet_open = use_signal(|| false);
+    let inspector_request = try_consume_context::<AgentInspectorRequest>();
     let reading = {
         let core = pump.core();
         let core = core.borrow();
@@ -77,6 +81,7 @@ pub fn MobileDeckBar(
                 roost_protocol::wire::agent_chat::AgentRunState::Failed => "warn",
                 roost_protocol::wire::agent_chat::AgentRunState::Idle => "idle",
             }),
+            agent_conversation: agent.cloned(),
         }
     };
     let badge = deck_tab_badge(
@@ -102,27 +107,49 @@ pub fn MobileDeckBar(
                 onclick: move |_| open_drawer.dispatch(ClientEvent::Sidebar(SidebarIntent::OpenDrawer)),
             }
             div { class: "flex-1 basis-0 min-w-0 relative overflow-hidden h-12",
-                span {
+                div {
                     title: "{reading.native_title}",
                     class: "flex items-center gap-2 w-full min-w-0",
                     if reading.agent_status.is_some() {
                         Icon { icon: IconType::Bot, class: "size-4 shrink-0" }
                     }
                     span { class: "shrink min-w-0 truncate", "{reading.title}" }
-                    if let Some(status) = reading.agent_status.filter(|status| *status != "idle") {
+                    // A stable status node anchors the adjacent overflow subtree across run-state changes.
+                    if let Some(status) = reading.agent_status {
                         StatusDot { status: status.to_owned() }
+                    }
+                    if show_agent_actions {
+                        if let Some(conversation) = reading.agent_conversation.clone() {
+                            {
+                                let conversation_id = conversation.id.clone();
+                                rsx! {
+                                    AgentChatHeader {
+                                        conversation,
+                                        online: None,
+                                        pump: pump.clone(),
+                                        on_inspector: move |_| {
+                                            if let Some(mut request) = inspector_request {
+                                                request.0.set(Some(conversation_id.clone()));
+                                            }
+                                        },
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
             if reading.active {
                 TerminalTransportIndicator { session_id: selected_tab.clone() }
             }
-            IconButton {
-                icon: IconType::Plus,
-                label: "New terminal — same folder & server",
-                title: "New terminal in this folder",
-                "data-testid": "tab-new",
-                onclick: move |_| on_new_tab.call(()),
+            if reading.active {
+                IconButton {
+                    icon: IconType::Plus,
+                    label: "New terminal — same folder & server",
+                    title: "New terminal in this folder",
+                    "data-testid": "tab-new",
+                    onclick: move |_| on_new_tab.call(()),
+                }
             }
             Button {
                 variant: ButtonVariant::Outline,

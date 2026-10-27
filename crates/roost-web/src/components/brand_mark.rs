@@ -1,6 +1,6 @@
-//! The shared Roost silhouette used by the title bar and home heading.
+//! The shared Roost silhouette used by the activity rail and home heading.
 //! The mark inherits currentColor so it follows the surrounding Rust/UI
-//! foreground role in both themes; its geometry is independent of the palette.
+//! foreground role; its geometry is independent of the palette.
 
 use dioxus::prelude::*;
 
@@ -27,12 +27,11 @@ pub fn BrandMark(size: &'static str) -> Element {
     }
 }
 
-/// The size the title bar's brand mark draws at.
-///
-/// A token, because the rule is "the mark matches the word beside it". v2 passed
-/// `18` here and `28` on the home landing; expressing it as a token means the
-/// wordmark and the word it sits beside cannot disagree after a type-ramp change.
-pub const TITLE_BAR_MARK_SIZE: &str = "1.125rem";
+/// The size the activity rail brand mark draws at.
+pub const ACTIVITY_MARK_SIZE: &str = "1.125rem";
 
 /// The size the home landing's brand mark draws at, and the one its hero uses.
 pub const HOME_MARK_SIZE: &str = "1.75rem";
+
+/// The product name displayed on the home landing.
+pub const PRODUCT: &str = "Roost";

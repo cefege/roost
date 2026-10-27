@@ -69,11 +69,25 @@ impl StepMark {
     }
 }
 
-/// A run of consecutive tool calls as one bordered card. Its header summarises
-/// the calls and folds the rail of steps; it starts open so a run reads at once.
+/// Consecutive tool calls in one disclosure. Active and failed work starts open;
+/// completed work folds away unless the reader chooses otherwise.
 #[component]
 pub fn StepGroup(steps: Vec<TranscriptItem>, expanded: bool) -> Element {
-    let mut open = use_signal(|| true);
+    let mut open = use_signal(|| None::<bool>);
+    let (active, failures) = steps
+        .iter()
+        .fold((false, 0), |(active, failures), step| match step {
+            TranscriptItem::Tool {
+                running,
+                queued,
+                is_error,
+                ..
+            } => (
+                active || *running || *queued,
+                failures + usize::from(*is_error),
+            ),
+            _ => (active, failures),
+        });
     let summary = group_summary(steps.iter().filter_map(|step| match step {
         TranscriptItem::Tool {
             tool_name,
@@ -83,7 +97,7 @@ pub fn StepGroup(steps: Vec<TranscriptItem>, expanded: bool) -> Element {
         _ => None,
     }));
     let duration = group_duration(&steps).map(format_duration);
-    let is_open = expanded || open();
+    let is_open = expanded || open().unwrap_or(active || failures > 0);
     let chevron = if is_open {
         IconType::ChevronUp
     } else {
@@ -95,12 +109,15 @@ pub fn StepGroup(steps: Vec<TranscriptItem>, expanded: bool) -> Element {
                 Collapsible {
                     class: "flex min-w-0 flex-col gap-2",
                     open: is_open,
-                    on_open_change: move |next: bool| open.set(next),
+                    on_open_change: move |next: bool| open.set(Some(next)),
                     CollapsibleTrigger {
                         variant: ButtonVariant::Ghost,
                         size: ButtonSize::Sm,
                         class: "w-full min-w-0 justify-start gap-2 text-left",
-                        span { class: "min-w-0 flex-1 truncate font-medium text-foreground", "{summary}" }
+                        span { class: "min-w-0 flex-1 truncate font-medium text-foreground", title: "{summary}", "{summary}" }
+                        if failures > 0 {
+                            span { class: "shrink-0 text-xs text-destructive", "{failures} failed" }
+                        }
                         if let Some(duration) = duration {
                             span { class: "flex-none font-mono text-xs text-muted-foreground", "{duration}" }
                         }

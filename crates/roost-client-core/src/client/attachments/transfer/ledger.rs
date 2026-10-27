@@ -24,7 +24,6 @@ pub fn begin_upload_card(store: &mut Store, id: &str, name: &str, total_bytes: u
             direction: TransferDirection::Up,
             bytes_total: total_bytes,
             state: TransferState::Running,
-            preview_url: None,
             now_ms,
         },
     );

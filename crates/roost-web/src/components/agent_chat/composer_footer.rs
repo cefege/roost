@@ -1,17 +1,16 @@
-//! The composer footer: the controls that act on the next message, kept to one
-//! non-wrapping row so it fits a 390px phone. Commands, model, plan, voice, the
-//! busy-send choice, interrupt and send live here; advisor, goal and usage sit in
-//! the status line beneath the composer. Commands continue through `composer_commands`.
+//! The Rust/UI prompt footer keeps commands and model on the left, voice and
+//! submit on the right. Planning, advisor, goal and busy-send policy live in
+//! one options menu so they never wrap the writing surface into more toolbars.
 
 use dioxus::prelude::*;
-use roost_protocol::wire::agent_chat::{ConversationSummary, ModelsCatalog};
+use roost_protocol::wire::agent_chat::{ConversationSummary, GoalState, ModelsCatalog};
 
 use super::composer_commands::{report_command, submit_direct_command};
 use super::model_controls::AgentModelControls;
 use super::toolbar_menu::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
+use crate::components::ui::input_group::{InputGroupAddon, InputGroupAddonAlign};
 use crate::components::ui::{
-    ButtonVariant, Chip, Icon, IconButton, IconType, InputPromptFooter, InputPromptSubmit,
-    InputPromptTools,
+    ButtonSize, ButtonVariant, Icon, IconButton, IconType, InputPromptSubmit, InputPromptTools,
 };
 use crate::pump::Pump;
 
@@ -21,6 +20,9 @@ pub(super) fn ComposerFooter(
     catalog: Option<ModelsCatalog>,
     catalog_failed: bool,
     pump: Pump,
+    goal: Option<GoalState>,
+    mut goal_view_request: Signal<String>,
+    on_goal_open: EventHandler<()>,
     command_error: Signal<Option<String>>,
     commands_open: bool,
     listbox: String,
@@ -35,80 +37,84 @@ pub(super) fn ComposerFooter(
     on_send: EventHandler<()>,
     on_stop: EventHandler<()>,
 ) -> Element {
+    let mut advisor_pending = use_signal(|| false);
+    let mut command_error = command_error;
+    let advisor_done = EventHandler::new(move |result: Result<(), String>| {
+        advisor_pending.set(false);
+        command_error.set(result.err());
+    });
     let report = report_command(command_error);
-    let plan_on = conversation.mode == "plan";
-    let plan_title = if plan_on {
-        "Plan mode is on. Select to turn it off."
-    } else {
-        "Plan mode is off. Select to turn it on."
-    };
-    let plan_pump = pump.clone();
-    let plan_conversation = conversation.id.clone();
+    let options_pump = pump.clone();
+    let options_conversation = conversation.id.clone();
+    let mode = busy_mode();
+    let mut options = vec![
+        ToolbarMenuItem::choice("plan", "Plan mode", conversation.mode == "plan"),
+        ToolbarMenuItem::choice("advisor", "Advisor", conversation.advisor),
+    ];
+    if let Some(goal) = goal.filter(|goal| !matches!(goal.status.as_str(), "complete" | "dropped"))
+    {
+        options.push(ToolbarMenuItem {
+            detail: Some(goal.status.as_str().to_owned()),
+            ..ToolbarMenuItem::choice("goal", "Manage goal", false)
+        });
+    }
+    for (value, label, detail) in [
+        ("follow_up", "Follow-up", "Queue when busy"),
+        ("steer", "Steer", "Interrupt when busy"),
+        ("reject", "Reject if busy", "Do not queue"),
+    ] {
+        options.push(ToolbarMenuItem {
+            detail: Some(detail.to_owned()),
+            ..ToolbarMenuItem::choice(value, label, mode == value)
+        });
+    }
     let ready = !(disabled || !has_draft || submit_pending);
     rsx! {
-        InputPromptFooter {
-            InputPromptTools { class: "min-w-0 flex-1 flex-nowrap overflow-hidden",
+        InputGroupAddon {
+            align: InputGroupAddonAlign::BlockEnd,
+            class: "border-t-0 px-2 pb-2 pt-0",
+            InputPromptTools { class: "min-w-0 flex-1",
                 IconButton {
                     class: "shrink-0",
                     icon: IconType::Plus,
                     label: "Show agent commands",
                     title: "Commands",
                     variant: ButtonVariant::Ghost,
+                    size: ButtonSize::IconSm,
                     "data-testid": "agent-chat-commands",
                     expanded: Some(commands_open),
                     controls_id: Some(listbox),
                     onclick: move |_| on_commands.call(()),
                 }
-                div { class: "min-w-0 flex-1 overflow-hidden",
-                    AgentModelControls { conversation: conversation.clone(), catalog, catalog_failed, pump }
-                }
-                Chip {
-                    label: "Plan".to_string(),
-                    icon: Some(IconType::ClipboardList),
-                    selected: Some(plan_on),
-                    class: "shrink-0",
-                    title: Some(plan_title.to_string()),
-                    onclick: Some(EventHandler::new(move |_| {
-                        submit_direct_command(plan_pump.clone(), plan_conversation.clone(), "/plan".to_string(), report)
-                    })),
-                }
+                AgentModelControls { conversation: conversation.clone(), catalog, catalog_failed, pump }
             }
-            InputPromptTools { class: "shrink-0 flex-nowrap justify-end",
-                {voice_controls}
-                if running {
-                    {
-                        let mode = busy_mode();
-                        let label = match mode.as_str() {
-                            "steer" => "Steer",
-                            "reject" => "Reject if busy",
-                            _ => "Follow-up",
-                        };
-                        let mut items = vec![
-                            ToolbarMenuItem::choice("follow_up", "Follow-up", mode == "follow_up"),
-                            ToolbarMenuItem::choice("steer", "Steer", mode == "steer"),
-                            ToolbarMenuItem::choice("reject", "Reject if busy", mode == "reject"),
-                        ];
-                        for item in &mut items {
-                            item.detail = Some(match item.value.as_str() {
-                                "steer" => "Interrupt current turn".to_owned(),
-                                "reject" => "Do not queue".to_owned(),
-                                _ => "Queue after current turn".to_owned(),
-                            });
-                        }
-                        rsx! {
-                            ToolbarMenu {
-                                menu_key: "when-busy",
-                                trigger: ToolbarTrigger::Picker { label: label.to_owned() },
-                                aria_label: "When busy",
-                                items,
-                                on_choose: move |mode| busy_mode.set(mode),
-                                opens_up: true,
+            InputPromptTools { class: "shrink-0",
+                ToolbarMenu {
+                    menu_key: "options",
+                    trigger: ToolbarTrigger::Icon { icon: IconType::Ellipsis },
+                    aria_label: "Chat options",
+                    items: options,
+                    opens_up: true,
+                    on_choose: move |choice: String| match choice.as_str() {
+                        "plan" => submit_direct_command(options_pump.clone(), options_conversation.clone(), "/plan".to_owned(), report),
+                        "advisor" => {
+                            if !advisor_pending() {
+                                advisor_pending.set(true);
+                                submit_direct_command(options_pump.clone(), options_conversation.clone(), "/advisor".to_owned(), advisor_done);
                             }
                         }
-                    }
+                        "goal" => {
+                            goal_view_request.set(String::new());
+                            on_goal_open.call(());
+                        }
+                        _ => busy_mode.set(choice),
+                    },
+                }
+                {voice_controls}
+                if running {
                     IconButton {
-                        class: "shrink-0",
                         icon: IconType::Square,
+                        size: ButtonSize::IconSm,
                         label: "Interrupt foreground work",
                         title: "Interrupt foreground work. Background jobs continue.",
                         variant: ButtonVariant::Destructive,

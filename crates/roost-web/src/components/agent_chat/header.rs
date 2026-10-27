@@ -1,6 +1,6 @@
-//! The chat header traces the machine, working directory and conversation
-//! lineage. It owns conversation picking, renaming and the context usage ring;
-//! deletion stays behind its overflow menu. Mounted by `agent_chat::surface`.
+//! Conversation actions rendered beside the selected agent tab's title.
+//! Rename, browsing and deletion live behind its overflow menu.
+//! Mounted by desktop and compact deck chrome.
 
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{ConversationSummary, ModelsCatalog};
@@ -8,7 +8,7 @@ use roost_protocol::wire::agent_chat::{ConversationSummary, ModelsCatalog};
 use super::toolbar_menu::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
 use crate::components::ui::{
     Button, ButtonVariant, Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter,
-    DialogHeader, DialogTitle, IconType, ListRow, StatusDot, TextField, UsageRing,
+    DialogHeader, DialogTitle, IconType, ListRow, StatusDot, TextField,
 };
 use crate::pump::{Pump, use_store};
 use crate::router_state::use_navigate;
@@ -35,18 +35,18 @@ pub fn current_context_window(
         .map(|model| model.context_window)
 }
 
-/// The header's usage ring: a fraction of the model's context window, when
-/// it's known, and the tooltip naming the exact tokens and cost.
+/// The composer's usage indicator: a fraction of the model's context window,
+/// when it's known, and a tooltip naming the exact tokens and cost.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HeaderUsage {
     pub fraction: Option<f64>,
     pub title: String,
 }
 
-/// `None` while nothing has been spent yet, so a fresh chat's header stays
-/// bare. `context_window` is the current model's, from the catalog; without
-/// it the ring still draws (an empty track), since the tooltip's numbers are
-/// worth having even with no limit to fill the ring against.
+/// `None` while nothing has been spent yet, so a fresh chat stays quiet.
+/// `context_window` is the current model's, from the catalog; without it the
+/// ring still draws an empty track while its tooltip retains token and cost
+/// details.
 pub fn header_usage(
     context_tokens: u64,
     total_tokens: u64,
@@ -71,9 +71,9 @@ pub fn header_usage(
 #[component]
 pub fn AgentChatHeader(
     conversation: ConversationSummary,
-    online: bool,
-    usage: Option<HeaderUsage>,
+    online: Option<bool>,
     pump: Pump,
+    on_inspector: EventHandler<()>,
 ) -> Element {
     let store = use_store();
     let _revision = store.revision()();
@@ -105,79 +105,44 @@ pub fn AgentChatHeader(
         display_title.set(title.clone())
     }));
     let conversation_id = conversation.id.clone();
-    let lineage = conversation_lineage(&conversation, &conversations);
-    let lineage_len = lineage.len();
     let rename_pump = pump.clone();
     let rename_conversation_id = conversation_id.clone();
     let navigate = use_navigate();
     rsx! {
-        header { class: "flex min-w-0 flex-wrap items-center gap-2 text-sm",
-            nav { class: "flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1", aria_label: "Conversation lineage",
-                span { class: "flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground",
-                    StatusDot {
-                        status: if online { "ok".to_string() } else { "offline".to_string() },
-                        title: Some(if online { "Machine online" } else { "Machine offline" }.to_string()),
-                    }
-                    span { class: "truncate", title: "{conversation.worker_label}", "{conversation.worker_label}" }
-                    span { aria_hidden: "true", "›" }
-                    span { class: "truncate", title: conversation.cwd.clone(), "{short_path(&conversation.cwd)}" }
+        header { class: "flex shrink-0 min-w-0 items-center gap-1 text-sm",
+            if let Some(online) = online {
+                StatusDot {
+                    status: if online { "ok".to_string() } else { "offline".to_string() },
+                    title: Some(if online { "Machine online" } else { "Machine offline" }.to_string()),
                 }
-                for (index, ancestor) in lineage.into_iter().enumerate() {
-                    span { class: "text-muted-foreground", aria_hidden: "true", "›" }
-                    if index + 1 == lineage_len {
-                        span { class: "min-w-0 truncate font-medium text-foreground",
-                            title: super::display_conversation_title(&display_title.read()),
-                            "{super::display_conversation_title(&display_title.read())}"
-                        }
-                    } else {
-                        a {
-                            class: "min-w-0 truncate text-muted-foreground hover:text-foreground",
-                            href: crate::routes::agent_href(&ancestor.id),
-                            onclick: move |event| { event.prevent_default(); navigate.call(crate::routes::agent_href(&ancestor.id)); },
-                            title: super::display_conversation_title(&ancestor.title),
-                            "{super::display_conversation_title(&ancestor.title)}"
-                        }
-                    }
-                }
-                if !online { span { class: "shrink-0 text-destructive", "Offline" } }
-            }
-            if let Some(usage) = usage {
-                span {
-                    class: "flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground",
-                    "data-testid": "agent-chat-usage",
-                    UsageRing { fraction: usage.fraction, title: Some(usage.title.clone()) }
-                    if let Some(fraction) = usage.fraction { span { "{(fraction * 100.0).round() as i64}%" } }
+                if !online {
+                    span { class: "shrink-0 text-xs text-destructive", "Offline" }
                 }
             }
-            span { class: "ml-auto flex shrink-0 items-center gap-1",
-                Button {
-                    variant: ButtonVariant::Ghost,
-                    "aria-label": "Rename conversation",
-                    title: "Rename conversation",
-                    onclick: move |_| {
+            ToolbarMenu {
+                menu_key: "actions",
+                trigger: ToolbarTrigger::Icon { icon: IconType::Ellipsis },
+                aria_label: "Conversation actions",
+                items: vec![
+                    ToolbarMenuItem::choice("inspect", "Inspector", false),
+                    ToolbarMenuItem::choice("rename", "Rename conversation", false),
+                    ToolbarMenuItem::choice("browse", "Browse conversations", false),
+                    ToolbarMenuItem {
+                        danger: true,
+                        ..ToolbarMenuItem::choice("delete", "Delete conversation", false)
+                    },
+                ],
+                on_choose: move |action: String| match action.as_str() {
+                    "inspect" => on_inspector.call(()),
+                    "rename" => {
                         rename_title.set(display_title());
                         rename_error.set(None);
                         rename_open.set(true);
-                    },
-                    crate::components::ui::Icon { icon: IconType::Pencil, class: "size-4" }
-                }
-                Button {
-                    variant: ButtonVariant::Ghost,
-                    "aria-label": "Browse conversations",
-                    title: "Browse conversations",
-                    onclick: move |_| picker_open.set(true),
-                    crate::components::ui::Icon { icon: IconType::ChevronDown, class: "size-4" }
-                }
-                ToolbarMenu {
-                    menu_key: "actions",
-                    trigger: ToolbarTrigger::Icon { icon: IconType::Ellipsis },
-                    aria_label: "Conversation actions",
-                    items: vec![ToolbarMenuItem {
-                        danger: true,
-                        ..ToolbarMenuItem::choice("delete", "Delete conversation", false)
-                    }],
-                    on_choose: move |_| confirm_delete.set(true),
-                }
+                    }
+                    "browse" => picker_open.set(true),
+                    "delete" => confirm_delete.set(true),
+                    _ => {}
+                },
             }
             Dialog {
                 open: picker_open(),
@@ -354,7 +319,7 @@ mod tests {
     use super::header_usage;
 
     #[test]
-    fn nothing_spent_yet_leaves_the_header_bare() {
+    fn nothing_spent_yet_hides_the_usage_indicator() {
         assert_eq!(header_usage(0, 0, 0.0, Some(200_000)), None);
     }
 

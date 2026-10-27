@@ -190,11 +190,17 @@ pub fn Attachment(
 #[component]
 pub fn AttachmentMedia(
     #[props(default = AttachmentMediaVariant::default())] variant: AttachmentMediaVariant,
+    /// Show the full image inside its thumbnail instead of cropping its edges.
+    #[props(default)]
+    contain: bool,
     #[props(into, optional)] class: Option<String>,
     children: Element,
 ) -> Element {
     let variant_class = match variant {
         AttachmentMediaVariant::Icon => "",
+        AttachmentMediaVariant::Image if contain => {
+            "opacity-60 group-data-[state=Done]/attachment:opacity-100 group-data-[state=Idle]/attachment:opacity-100 *:[img]:aspect-square *:[img]:w-full *:[img]:object-contain"
+        }
         AttachmentMediaVariant::Image => {
             "opacity-60 group-data-[state=Done]/attachment:opacity-100 group-data-[state=Idle]/attachment:opacity-100 *:[img]:aspect-square *:[img]:w-full *:[img]:object-cover"
         }

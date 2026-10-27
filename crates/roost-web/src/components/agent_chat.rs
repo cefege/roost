@@ -18,7 +18,6 @@ mod diff_model;
 mod diff_view;
 mod draft;
 mod goal_controls;
-mod goal_dock;
 mod header;
 mod inspector;
 mod inspector_panels;
@@ -65,6 +64,7 @@ pub(crate) mod working_row;
 mod workspace;
 mod write_view;
 
+pub(crate) use header::AgentChatHeader;
 pub use launch::launch_agent;
 pub use surface::AgentChatSurface;
 pub use toolbar_menu::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};

@@ -24,7 +24,6 @@ html[data-tv="true"] {
   --term-nav-label-size: 1.375rem;
   --term-nav-label-line: 1.875rem;
   --control-touch-target: 56px;
-  --workbench-titlebar-height: 56px;
   --workbench-activity-width: 72px;
   --workbench-statusbar-height: 36px;
   --workbench-tab-strip-height: 56px;
@@ -61,7 +60,7 @@ html[data-tv="true"] {
 }
 [data-tv="true"] .workbench-shell[data-compact="false"] .workbench-sidebar-region {
   grid-column: 2 / 4;
-  grid-row: 2;
+  grid-row: 1;
   justify-self: start;
   width: min(var(--workbench-sidebar-expanded-width), 80%);
   z-index: 2;

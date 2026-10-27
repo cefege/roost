@@ -292,10 +292,6 @@ pub fn TerminalComposer(
                     slot.attach(event.data());
                 }
             },
-            StagedAttachments {
-                staged_files,
-                on_send_uploads,
-            }
             div { class: "relative min-w-0",
                 if let Some(tray) = key_tray.as_ref().filter(|tray| tray.open) {
                     {tray.keys.clone()}
@@ -304,6 +300,7 @@ pub fn TerminalComposer(
                 class: "pointer-events-auto relative animate-voice-dock-enter motion-reduce:animate-none @container/term-chat-pane",
                 "data-testid": "chat-box",
                 "data-composer-part": "box",
+                StagedAttachments { staged_files }
                 div {
                     class: "relative flex w-full min-w-0",
                     "data-testid": "chat-field",

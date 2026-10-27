@@ -1,4 +1,4 @@
-//! The composer's model selector and setup card. The model menu owns this-chat
+//! The composer's model selector and catalog-error notice. The model menu owns this-chat
 //! model pins and thinking level; the inspector's role editor owns shared role
 //! settings. Mounted by `agent_chat::composer` and `agent_chat::surface`.
 
@@ -7,9 +7,7 @@ use roost_protocol::wire::agent_chat::{ConversationSummary, ModelsCatalog};
 
 use super::composer_commands::model_picker_trigger_id;
 use super::model_reference_menu::ModelReferenceMenu;
-use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Card, CardContent, CardHeader, CardTitle, IconType,
-};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, FieldError, IconType};
 use crate::pump::Pump;
 use crate::router_state::use_navigate;
 #[cfg(target_arch = "wasm32")]
@@ -67,13 +65,13 @@ pub fn AgentModelControls(
     };
     if let Some((label, icon, waiting)) = placeholder {
         return rsx! {
-            div { class: "flex flex-wrap items-center gap-1",
+            div { class: "flex min-w-0 max-w-full items-center",
                 Button {
                     variant: ButtonVariant::Ghost,
                     size: ButtonSize::Sm,
-                class: "min-w-0 max-w-full justify-start",
+                    class: "min-w-0 max-w-full shrink justify-start",
                     id: "{trigger_id}",
-                icon: Some(icon),
+                    icon: Some(icon),
                     disabled: waiting,
                     "aria-busy": waiting.then_some("true"),
                     "data-testid": "agent-chat-model-setup",
@@ -97,48 +95,22 @@ pub fn AgentModelControls(
     }
 }
 
-/// Shown above the composer while no model can run: what is wrong and the
-/// one button that fixes it.
+/// Catalog errors retain an explicit retry. Provider setup is already available
+/// from the model selector, so it does not need a second call to action.
 #[component]
-pub fn ModelSetupCard(setup: ModelSetup, on_retry: EventHandler<()>) -> Element {
-    let navigate = use_navigate();
-    let open_settings = move |_| navigate.call(crate::routes::settings_pane_href("models"));
-    let (title, body) = match setup {
-        ModelSetup::Ready => return rsx! {},
-        ModelSetup::NoProvider => (
-            "Connect a model to get started",
-            "The agent needs a model provider. Sign in with a subscription or add an API key, then pick a model here.",
-        ),
-        ModelSetup::CatalogFailed => (
-            "Couldn't load the model list",
-            "Roost didn't answer with the models it can use. Try again, or check your providers in settings.",
-        ),
-    };
+pub fn ModelSetupNotice(setup: ModelSetup, on_retry: EventHandler<()>) -> Element {
+    if setup != ModelSetup::CatalogFailed {
+        return rsx! {};
+    }
     rsx! {
-        Card {
-            class: Some("gap-3".to_string()),
-            "data-testid": "agent-chat-model-setup-card",
-            CardHeader {
-                CardTitle { "{title}" }
-            }
-            CardContent {
-                p { class: "text-sm text-muted-foreground", "{body}" }
-                div { class: "flex flex-wrap gap-2",
-                    if setup == ModelSetup::CatalogFailed {
-                        Button {
-                            variant: ButtonVariant::Outline,
-                            icon: Some(IconType::RefreshCw),
-                            onclick: move |_| on_retry.call(()),
-                            "Try again"
-                        }
-                    }
-                    Button {
-                        icon: Some(IconType::Link),
-                        onclick: open_settings,
-                        "data-testid": "agent-chat-model-setup-open",
-                        if setup == ModelSetup::NoProvider { "Connect a model" } else { "Open model settings" }
-                    }
-                }
+        div { class: "flex flex-wrap items-center gap-2",
+            FieldError { "Couldn't load the model list." }
+            Button {
+                variant: ButtonVariant::Ghost,
+                size: ButtonSize::Sm,
+                icon: Some(IconType::RefreshCw),
+                onclick: move |_| on_retry.call(()),
+                "Try again"
             }
         }
     }

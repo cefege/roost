@@ -8,7 +8,7 @@ use roost_protocol::wire::live_metrics::LiveHostSnapshot;
 
 use super::process_table::ProcessTable;
 use super::readings::{ReadingState, format_uptime};
-use crate::components::machines::host_usage_tiles::{HostUsage, HostUsageTiles};
+use crate::components::machines::host_usage::{HostUsage, HostUsageMeters};
 use crate::components::ui::{
     Badge, BadgeVariant, Card, CardAction, CardContent, CardDescription, CardHeader, CardSize,
     CardTitle, Collapsible, CollapsibleContent, CollapsibleTrigger, Skeleton, StatusDot,
@@ -86,7 +86,7 @@ fn LiveReadings(sample: LiveHostSnapshot) -> Element {
     rsx! {
         CardContent {
             div { class: "flex flex-col gap-4",
-                HostUsageTiles { usage, network: None }
+                HostUsageMeters { usage, network: None }
                 div { class: "flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground",
                     span { "Up {uptime}" }
                     span { "{sample.process_count} processes" }

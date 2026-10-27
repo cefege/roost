@@ -106,7 +106,7 @@ fn SettingsEditor(active: Option<SettingsPaneSpec>) -> Element {
     rsx! {
         div { class: "flex h-full min-h-0 w-full bg-background",
             aside {
-                class: "flex w-72 shrink-0 flex-col gap-4 overflow-y-auto border-r border-sidenav-border bg-sidenav p-4",
+                class: "flex w-72 min-h-0 shrink-0 flex-col gap-4 overflow-y-auto border-r border-sidenav-border bg-sidenav p-4",
                 "aria-label": "Settings sections",
                 h1 { class: "px-2 text-lg font-semibold text-foreground", "Settings" }
                 TextField {
@@ -154,7 +154,7 @@ fn SettingsEditor(active: Option<SettingsPaneSpec>) -> Element {
                     p { class: "px-3 text-sm text-muted-foreground", role: "status", "No matching settings" }
                 }
             }
-            main { class: "flex min-w-0 flex-1 flex-col",
+            main { class: "flex min-h-0 min-w-0 flex-1 flex-col",
                 header { class: "flex h-14 shrink-0 items-center gap-2 border-b border-border px-4",
                     IconButton {
                         icon: IconType::ArrowLeft,
@@ -164,7 +164,9 @@ fn SettingsEditor(active: Option<SettingsPaneSpec>) -> Element {
                     }
                     h1 { class: "truncate text-base font-semibold text-foreground", {active.title} }
                 }
-                div { class: "min-h-0 flex-1 overflow-y-auto",
+                div {
+                    class: "min-h-0 flex-1 overflow-y-auto",
+                    "data-testid": "settings-pane-scroll",
                     div { class: "mx-auto flex w-full max-w-3xl flex-col gap-6 p-6",
                         p { class: "text-sm text-muted-foreground", {active.description} }
                         pane::SettingsPane { id: active.id }
@@ -202,7 +204,7 @@ fn MobileSettingsList() -> Element {
                     test_id: "settings-search",
                 }
             }
-            List { class: "gap-4 overflow-y-auto p-2",
+            List { class: "min-h-0 flex-1 gap-4 overflow-y-auto p-2",
                 for (label, panes) in &groups {
                     SidenavGroup {
                         SidenavGroupLabel { "{label}" }
@@ -272,7 +274,9 @@ fn MobileSettingsDetail(spec: Option<SettingsPaneSpec>) -> Element {
                 }
                 h1 { class: "truncate text-base font-semibold text-foreground", {spec.title} }
             }
-            div { class: "min-h-0 flex-1 overflow-y-auto",
+            div {
+                class: "min-h-0 flex-1 overflow-y-auto",
+                "data-testid": "settings-pane-scroll",
                 div { class: "mx-auto flex w-full max-w-3xl flex-col gap-6 p-6",
                     p { class: "text-sm text-muted-foreground", {spec.description} }
                     pane::SettingsPane { id: spec.id }

@@ -146,17 +146,22 @@ pub fn compact_chrome(
     let bar_style = |session_id: &str| mobile_bar_style(swipe, session_id, width).css();
     rsx! {
         div { "data-testid": "mobile-strip-wrap", style: bar_style(active_session_id),
-            {mobile_bar(frame, operations.clone(), active_session_id.to_owned())}
+            {mobile_bar(frame, operations.clone(), active_session_id.to_owned(), true)}
         }
         if let Some(neighbor) = neighbor {
             div { "data-testid": "mobile-strip-wrap-neighbor", style: bar_style(&neighbor),
-                {mobile_bar(frame, operations.clone(), neighbor.clone())}
+                {mobile_bar(frame, operations.clone(), neighbor.clone(), false)}
             }
         }
     }
 }
 
-fn mobile_bar(frame: &DeckFrame, operations: DeckOperations, selected_tab: String) -> Element {
+fn mobile_bar(
+    frame: &DeckFrame,
+    operations: DeckOperations,
+    selected_tab: String,
+    show_agent_actions: bool,
+) -> Element {
     let focused_pane_id = frame
         .layout
         .as_ref()
@@ -168,6 +173,7 @@ fn mobile_bar(frame: &DeckFrame, operations: DeckOperations, selected_tab: Strin
         MobileDeckBar {
             tab_ids: frame.mobile_tabs.clone(),
             selected_tab,
+            show_agent_actions,
             on_select: move |session_id| select_ops.select(session_id),
             on_close: move |session_id| close_ops.close(session_id),
             on_new_tab: move |()| operations.new_tab(focused_pane_id.clone()),

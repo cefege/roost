@@ -15,8 +15,7 @@ use roost_client_core::store::sidebar::memory::last_terminal_path;
 use roost_client_core::{ClientEvent, KeyValueStore, Store};
 
 use crate::components::agent_chat::last_conversation::LAST_CONVERSATION_KEY;
-use crate::components::brand_mark::{BrandMark, HOME_MARK_SIZE};
-use crate::components::layout::title_bar::PRODUCT;
+use crate::components::brand_mark::{BrandMark, HOME_MARK_SIZE, PRODUCT};
 use crate::components::layout::window_size::{use_is_compact, use_tv_layout};
 use crate::components::tv_home_board::TvHomeBoard;
 use crate::components::ui::{

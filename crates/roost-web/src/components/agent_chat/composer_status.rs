@@ -1,20 +1,16 @@
-//! Composer chrome beneath the input: the status line (usage, run state, worker,
-//! advisor, goal) and the pinned banner for request failures that remain durable in
-//! history. Dismissing the banner never removes transcript items or failure records;
-//! the active error clears only when the next transcript attempt clears it.
+//! Composer status beneath the input and pinned request-failure banners.
+//! Usage and run state come from the conversation store; advisor and goal
+//! controls live in the composer's options menu. Dismissal never removes
+//! transcript history or durable failure records.
 
 use dioxus::prelude::*;
-use roost_protocol::wire::agent_chat::{ConversationSummary, GoalState, ModelsCatalog, Transcript};
+use roost_protocol::wire::agent_chat::{ConversationSummary, ModelsCatalog, Transcript};
 
 use super::agent_alert::AgentAlert;
-use super::composer_commands::{advisor_title, submit_direct_command};
-use super::goal_dock::GoalDock;
 use super::header::{HeaderUsage, current_context_window, header_usage};
 use crate::components::ui::{
-    Button, ButtonVariant, Chip, Collapsible, CollapsibleContent, CollapsibleTrigger, IconType,
-    Progress,
+    Button, ButtonVariant, Collapsible, CollapsibleContent, CollapsibleTrigger, Progress,
 };
-use crate::pump::Pump;
 
 #[component]
 pub(super) fn ComposerErrorBanner(
@@ -124,26 +120,11 @@ pub(super) fn composer_usage(
 #[component]
 pub(super) fn ComposerStatusLine(
     conversation: ConversationSummary,
-    pump: Pump,
-    goal: Option<GoalState>,
-    goal_view_request: Signal<String>,
-    on_goal_open: EventHandler<()>,
-    command_error: Signal<Option<String>>,
     usage: Option<HeaderUsage>,
     cost_usd: f64,
     running: bool,
     failed: bool,
 ) -> Element {
-    let mut advisor_pending = use_signal(|| false);
-    let mut command_error = command_error;
-    let advisor_done = EventHandler::new(move |result: Result<(), String>| {
-        advisor_pending.set(false);
-        command_error.set(result.err());
-    });
-    let advisor_pump = pump.clone();
-    let advisor_conversation = conversation.id.clone();
-    let advisor_on = conversation.advisor;
-    let advisor_busy = advisor_pending();
     let fraction = usage.as_ref().and_then(|usage| usage.fraction);
     let usage_title = usage.as_ref().map(|usage| usage.title.clone());
     let percent = fraction.map(|fraction| format!("{:.0}%", fraction * 100.0));
@@ -177,22 +158,6 @@ pub(super) fn ComposerStatusLine(
             if !conversation.worker_label.is_empty() {
                 span { class: "min-w-0 truncate", "{worker}" }
             }
-            if conversation.advisor || advisor_busy {
-                Chip { label: "Advisor".to_string(), icon: Some(IconType::Brain), selected: Some(advisor_on),
-                    title: Some(advisor_title(advisor_on, advisor_busy).to_string()),
-                    test_id: Some("agent-advisor-toggle".to_string()),
-                    disabled: advisor_busy,
-                    busy: advisor_busy,
-                    onclick: Some(EventHandler::new(move |_| {
-                        if advisor_pending() {
-                            return;
-                        }
-                        advisor_pending.set(true);
-                        submit_direct_command(advisor_pump.clone(), advisor_conversation.clone(), "/advisor".to_string(), advisor_done);
-                    })),
-                }
-            }
-            GoalDock { goal, view_request: goal_view_request, on_open: on_goal_open }
         }
     }
 }

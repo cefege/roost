@@ -177,7 +177,6 @@ fn transfer_mutations_each_bump_the_revision_exactly_once() {
                 direction: TransferDirection::Up,
                 bytes_total: 1_000,
                 state: TransferState::Queued,
-                preview_url: Some("blob:one".to_owned()),
                 now_ms: 0,
             },
         );
@@ -310,7 +309,6 @@ fn the_credential_boundary_is_one_mutation_and_one_bump() {
             direction: TransferDirection::Up,
             bytes_total: 10,
             state: TransferState::Running,
-            preview_url: None,
             now_ms: 0,
         },
     );

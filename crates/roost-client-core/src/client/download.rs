@@ -106,7 +106,6 @@ impl DownloadRun {
                 direction: TransferDirection::Down,
                 bytes_total: 0,
                 state: TransferState::Queued,
-                preview_url: None,
                 now_ms,
             },
         );

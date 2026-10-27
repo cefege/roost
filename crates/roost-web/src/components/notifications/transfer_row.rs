@@ -19,19 +19,11 @@ pub fn TransferRow(transfer: Transfer) -> Element {
     let pump = use_store();
     let id = transfer.id.clone();
     let name = transfer.name.clone();
-    let preview = transfer.preview_url.clone();
-    let release_preview = preview.clone();
-    use_drop(move || {
-        if let Some(url) = release_preview.as_deref() {
-            crate::components::terminal_chrome::dom::revoke_preview(url);
-        }
-    });
     let glyph = transfer_glyph(transfer.direction, &transfer.name);
     let outcome = transfer_outcome(&transfer);
     let settled = transfer.state.is_terminal();
     let progress_value = progress_fraction(&transfer);
     let meta = meta_line(&transfer, outcome);
-    let meta_color = meta_color(&transfer, outcome);
     let outcome_name = outcome.map(TransferOutcome::as_str);
     let route = transfer.route.map(|route| route.label());
     let route_verb = match transfer.direction {
@@ -45,17 +37,7 @@ pub fn TransferRow(transfer: Transfer) -> Element {
         });
     };
 
-    let leading = preview.map(|source| {
-        rsx! {
-            img {
-                "data-testid": "transfer-preview",
-                src: source,
-                alt: "",
-                class: "h-full w-full rounded object-cover",
-            }
-        }
-    });
-    let leading_icon = leading.is_none().then_some(glyph);
+    let leading_icon = Some(glyph);
     let headline = rsx! {
         span {
             class: "flex min-w-0 items-center gap-2",
@@ -81,7 +63,6 @@ pub fn TransferRow(transfer: Transfer) -> Element {
                 Progress { value: progress_value, label: format!("{name} progress") }
             }
             span {
-                class: meta_color,
                 "data-outcome": outcome_name,
                 "{meta}"
             }
@@ -101,7 +82,6 @@ pub fn TransferRow(transfer: Transfer) -> Element {
         ListRow {
             test_id: Some("transfer-row".to_owned()),
             leading_icon,
-            leading,
             headline,
             support: Some(support),
             trailing: Some(trailing),
@@ -109,8 +89,7 @@ pub fn TransferRow(transfer: Transfer) -> Element {
     }
 }
 
-/// The glyph a row without an image preview shows, read from the file name so
-/// a video never paints a broken image.
+/// File-type glyphs keep every transfer row compact, including images and video.
 fn transfer_glyph(direction: TransferDirection, name: &str) -> IconType {
     let extension = name
         .rsplit_once('.')
@@ -227,17 +206,5 @@ fn progress_line(transfer: &Transfer) -> String {
             }
         }
         None => base,
-    }
-}
-
-/// The settled line's text colour class and the ambiguous row's warning class.
-/// A write whose fate is unknown is neither a success nor a clean failure.
-fn meta_color(transfer: &Transfer, outcome: Option<TransferOutcome>) -> &'static str {
-    match outcome {
-        Some(TransferOutcome::Rejected) => "text-destructive",
-        Some(TransferOutcome::Ambiguous) => "text-warning",
-        Some(TransferOutcome::Accepted) | Some(TransferOutcome::Deduplicated) => "text-info",
-        None if transfer.state == TransferState::Stalled => "text-warning",
-        None => "text-muted-foreground",
     }
 }

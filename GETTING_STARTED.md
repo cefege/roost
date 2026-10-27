@@ -218,7 +218,7 @@ parent blocked inside a `task` call receives its messages after the whole batch
 finishes. Not in this version: OMP's parked-agent lifecycle and broadcast
 de-duplication (`suppressRelay`).
 
-In the agent composer, the model button opens **Models**: every model role
+In agent chat, `/model` opens **Models**: every model role
 this chat runs, under OMP's role names (Default, Fast, Thinking, Architect,
 Subtask, Tiny, Judge, Advisor), with the model leading each; the **ⓘ** button
 shows what each role is for. Pick a role to change its model in place and
@@ -242,7 +242,24 @@ command that needs nothing more and fills one that needs an argument. Bare
 `/model` (also `/models`) and `/settings` open HTML controls without sending a
 message. Settings have searchable groups and mobile list/detail navigation.
 
-The **Goal** chip, shown while a goal is live, opens an HTML objective, status and budget dialog.
+Chat follows [Pi Pocket's conversation layout](https://tannermidd.github.io/pi-pocket/):
+one title in the deck/mobile navigation, left-aligned user blocks, unboxed
+assistant prose, and consecutive tools folded into one activity disclosure.
+Expand the activity, then a tool row, for its output or diff; raw arguments
+and execution facts live under **Details**. Transcript display options sit
+behind one filter menu.
+
+Chat opens without the inspector or a second recent-conversation list. The
+title-band **…** menu opens Inspector, Rename, Browse conversations and Delete,
+including while a pane is in spotlight. Message **…** holds Edit, Retry and
+Rewind. The composer shares the transcript column, with commands and the model
+selector on the left, voice
+and Send on the right; context usage sits below it. The model selector changes
+this chat's model and exposes its thinking level inside the menu.
+**Chat options** (**…**) holds Plan mode, Advisor, goal management and the
+Follow-up / Steer / Reject-if-busy policy.
+
+**Chat options → Manage goal**, available while a goal is live, opens the objective, status and budget dialog.
 `/goal <objective>` (or `/goal set <objective>`) starts the same workflow.
 `/goal show`, `pause`, `resume`, `drop`, and `budget <positive integer|off>`
 manage it; those words are commands only on their own (`budget` with one

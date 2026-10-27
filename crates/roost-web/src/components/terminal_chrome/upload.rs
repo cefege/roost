@@ -11,7 +11,7 @@ use roost_client_core::client::attachments::direct::upload_attachment_direct;
 use roost_client_core::client::attachments::insertion::safe_attachment_insertion;
 
 use super::attachment_picker::ChosenFile;
-use super::upload_card::{self, UploadPreview};
+use super::upload_card;
 use super::upload_host::{self, BrowserDirectEnvironment, DirectIdentity};
 use super::upload_id::{content_digest, mint_upload_id};
 use super::upload_plan::{CarrierChoice, PlanRefusal, UploadOutcome, UploadPlan};
@@ -77,11 +77,11 @@ pub fn enqueue_attachments(
     }
     PENDING.with(|pending| {
         let mut queue = pending.borrow_mut();
-        for file in files {
+        for mut file in files {
+            if let Some(preview) = file.preview_url.take() {
+                super::dom::revoke_preview(&preview);
+            }
             let Some(upload_id) = mint_upload_id() else {
-                if let Some(preview) = file.preview_url.as_deref() {
-                    super::dom::revoke_preview(preview);
-                }
                 tracing::warn!(
                     target: "attachments",
                     session = %context.session_id,
@@ -90,9 +90,8 @@ pub fn enqueue_attachments(
                 continue;
             };
             let id = upload_id.clone();
-            let preview = UploadPreview(file.preview_url.clone());
             write_store(pump, |store| {
-                upload_card::begin_card(store, &id, &file.name, file.size_bytes, &preview);
+                upload_card::begin_card(store, &id, &file.name, file.size_bytes);
             });
             tracing::debug!(
                 target: "attachments",

@@ -1,8 +1,8 @@
-//! One pane's terminal tab strip: the tabs (drag to reorder or tile), the new
-//! terminal button, the double-click filler, the carrier chip, the overflow
-//! list and the dwell hover card. `TerminalDeck` supplies the layout
-//! callbacks; this owns the strip's transient state. Ports
-//! `apps/web/src/components/deck/PaneStrip.tsx` and `paneTabRailScroll.ts`.
+//! One pane's terminal tab strip: tabs (drag to reorder or tile), the selected
+//! agent's actions, the new terminal button, the carrier chip and the overflow
+//! list. `TerminalDeck` supplies layout callbacks; this owns strip gestures.
+//! Ports `apps/web/src/components/deck/PaneStrip.tsx` and
+//! `paneTabRailScroll.ts`.
 
 use std::cell::RefCell;
 use std::collections::BTreeSet;
@@ -18,12 +18,15 @@ use super::pane_tab::PaneTab;
 use super::pane_tab_hover_card::PaneTabHoverCard;
 use super::pane_tab_list::{PaneTabList, TAB_LIST_MENU_ID};
 use super::pane_tab_new_menu::PaneTabNewMenu;
+use crate::components::agent_chat::AgentChatHeader;
+use crate::components::deck::terminal_deck::AgentInspectorRequest;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::terminal::terminal_transport_indicator::TerminalTransportIndicator;
 use crate::components::ui::{
     DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, Icon, IconType, Tabs, TabsList,
     TabsVariant, Toolbar,
 };
+use crate::pump::use_store;
 /// How long a pointer rests on a tab before its hover card opens, ms.
 const HOVER_DWELL_MS: u32 = 450;
 /// How long a closing tab animates out before the close lands, ms.
@@ -57,6 +60,30 @@ pub fn PaneStrip(
     let hover_timer: Rc<RefCell<Option<Timeout>>> = use_hook(Rc::default);
     let rail_watch = use_rail_scroll(gesture, pane_id.clone(), overflowing);
     let hover_card_available = !compact && !deck_dom::is_touch_device();
+    let pump = use_store();
+    let (selected_agent, online) = {
+        let core = pump.core();
+        let core = core.borrow();
+        let store = core.store();
+        let agent = selected_tab
+            .strip_prefix("agent:")
+            .and_then(|id| store.agent_chat.conversations.get(id))
+            .cloned();
+        let online = agent.as_ref().is_some_and(|conversation| {
+            store
+                .workers
+                .get(&conversation.worker_fp)
+                .is_some_and(|worker| {
+                    roost_client_core::store::navigation::worker_online(
+                        worker,
+                        store.routable_worker_fps.as_ref(),
+                        i64::try_from(core.clock().now_ms()).unwrap_or(i64::MAX),
+                    )
+                })
+        });
+        (agent, online)
+    };
+    let inspector_request = try_consume_context::<AgentInspectorRequest>();
     let drag = gesture.drag.read().clone();
 
     use_effect(use_reactive((&selected_tab, &tab_ids), move |_| {
@@ -189,6 +216,23 @@ pub fn PaneStrip(
                                     }
                                 },
                             }
+                        }
+                    }
+                }
+            }
+            if let Some(conversation) = selected_agent {
+                {
+                    let conversation_id = conversation.id.clone();
+                    rsx! {
+                        AgentChatHeader {
+                            conversation,
+                            online: Some(online),
+                            pump: pump.clone(),
+                            on_inspector: move |_| {
+                                if let Some(mut request) = inspector_request {
+                                    request.0.set(Some(conversation_id.clone()));
+                                }
+                            },
                         }
                     }
                 }

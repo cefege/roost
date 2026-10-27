@@ -1,19 +1,15 @@
-//! Staged file rows and their Send/Cancel actions for a terminal composer.
-//! The owning pane supplies its shared staged-file signal and upload callback.
-//! Removal revokes each object URL; confirmation transfers ownership to the upload queue.
+//! Staged thumbnails inside the terminal composer.
+//! The owning pane supplies its shared staged-file signal; the composer's
+//! existing Send and Escape controls own confirmation and cancellation.
 
 use dioxus::prelude::*;
 
 use super::attachment_picker::{AttachmentPreview, ChosenFile};
 use super::dom;
-use crate::components::ui::{Button, ButtonSize, ButtonVariant, IconType};
 
-/// Show staged files and actions above the composer's field.
+/// Show staged files inside the prompt, without a second Send/Cancel toolbar.
 #[component]
-pub fn StagedAttachments(
-    staged_files: Signal<Vec<ChosenFile>>,
-    on_send_uploads: EventHandler<Vec<ChosenFile>>,
-) -> Element {
+pub fn StagedAttachments(staged_files: Signal<Vec<ChosenFile>>) -> Element {
     let staged = staged_files();
     if staged.is_empty() {
         return rsx! {};
@@ -28,33 +24,8 @@ pub fn StagedAttachments(
             }
         });
     };
-    // The composer dock is `pointer-events: none` so the terminal behind its
-    // empty area stays clickable; everything it shows must opt back in, or the
-    // staged rows' remove buttons and Cancel/Send never receive a click.
     rsx! {
-        div { class: "contents pointer-events-auto",
-            AttachmentPreview {
-                files: staged.clone(),
-                on_remove: remove,
-            }
-            div { class: "flex justify-end gap-2",
-                Button {
-                    variant: ButtonVariant::Outline,
-                    size: ButtonSize::Sm,
-                    class: None,
-                    onclick: move |_| clear_staged_files(staged_files),
-                    "Cancel"
-                }
-                Button {
-                    variant: ButtonVariant::Default,
-                    size: ButtonSize::Sm,
-                    class: None,
-                    icon: Some(IconType::Send),
-                    onclick: move |_| send_staged_files(staged_files, on_send_uploads),
-                    if staged.len() == 1 { "Send 1 file" } else { "Send {staged.len()} files" }
-                }
-            }
-        }
+        AttachmentPreview { files: staged, on_remove: remove }
     }
 }
 

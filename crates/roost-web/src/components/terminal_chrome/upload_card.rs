@@ -22,25 +22,8 @@ use roost_client_core::store::transfers::{
 use super::upload_id::now_ms;
 use super::upload_plan::UploadOutcome;
 
-/// The one preview URL an upload may mint, released when its card leaves.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UploadPreview(pub Option<String>);
-
-impl UploadPreview {
-    /// The URL to hand the card, when the browser could mint one.
-    pub fn url(&self) -> Option<String> {
-        self.0.clone()
-    }
-}
-
 /// Put a card on the stack, in the state that means "chosen, not started".
-pub fn begin_card(
-    store: &mut Store,
-    upload_id: &str,
-    file_name: &str,
-    total_bytes: u64,
-    preview: &UploadPreview,
-) {
+pub fn begin_card(store: &mut Store, upload_id: &str, file_name: &str, total_bytes: u64) {
     add_transfer(
         store,
         roost_client_core::store::transfers::NewTransfer {
@@ -49,7 +32,6 @@ pub fn begin_card(
             direction: roost_client_core::store::transfers::TransferDirection::Up,
             bytes_total: total_bytes,
             state: TransferState::Queued,
-            preview_url: preview.url(),
             now_ms: now_ms(),
         },
     );

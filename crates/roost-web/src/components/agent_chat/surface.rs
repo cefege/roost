@@ -8,12 +8,11 @@ use roost_protocol::wire::agent_chat::{AgentRunState, ModelsCatalog, ProviderEnt
 
 use super::composer::AgentComposer;
 use super::draft::use_conversation_draft;
-use super::header::{AgentChatHeader, current_context_window, header_usage};
 use super::interaction_cards::TodoCard;
 use super::last_conversation::use_remember_conversation;
 use super::loop_controls::LoopControls;
 use super::message_actions::EditTarget;
-use super::model_controls::{ModelSetup, ModelSetupCard};
+use super::model_controls::{ModelSetup, ModelSetupNotice};
 use super::model_hub::ModelHub;
 use super::peek_tile::{PeekColumn, peek_conversations};
 use super::queued_band::QueuedBand;
@@ -30,9 +29,8 @@ use crate::pump::use_store;
 
 const ROOT_CLASS: &str =
     "relative flex h-full w-full min-h-0 min-w-0 flex-col bg-background text-foreground";
-const TRANSCRIPT_CLASS: &str =
-    "min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain px-4 py-5";
-const COLUMN_CLASS: &str = "mx-auto w-full max-w-reading";
+const TRANSCRIPT_CLASS: &str = "min-h-0 flex-1 overflow-y-auto overscroll-y-contain py-5";
+const COLUMN_CLASS: &str = "mx-auto w-full max-w-reading px-4";
 
 #[cfg(target_arch = "wasm32")]
 use super::surface_fetch::{fetch_events_or_snapshot, fetch_snapshot};
@@ -53,7 +51,7 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
     let pump = use_store();
     let _revision = pump.revision()();
     #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
-    let (conversation, transcript, _stale, loaded_seq, host_connected, online) =
+    let (conversation, transcript, _stale, loaded_seq, host_connected) =
         read_store(&pump, &conversation_id);
     let not_found = use_signal(|| false);
     #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
@@ -174,20 +172,8 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
     let Some(conversation) = conversation else {
         return rsx! { LoadingTranscript {} };
     };
-    let usage = transcript.as_ref().and_then(|transcript| {
-        let window = current_context_window(catalog.read().as_ref(), &conversation);
-        header_usage(
-            transcript.usage.context_tokens,
-            transcript.usage.input_tokens + transcript.usage.output_tokens,
-            transcript.usage.cost_usd,
-            window,
-        )
-    });
-    let header = rsx! {
-        AgentChatHeader { conversation: conversation.clone(), online, usage, pump: pump.clone() }
-    };
     let Some(transcript) = transcript else {
-        return rsx! { div { class: ROOT_CLASS, {header} LoadingTranscript {} } };
+        return rsx! { div { class: ROOT_CLASS, LoadingTranscript {} } };
     };
     let running = transcript.run_state == AgentRunState::Running;
     let peers = peek_conversations(&pump, &conversation_id);
@@ -226,61 +212,62 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
             catalog: catalog(),
             pump: pump.clone(),
             active,
-            header,
             div { class: "flex min-h-0 flex-1",
-                div {
-                    class: TRANSCRIPT_CLASS,
-                    role: "log",
-                    "aria-live": "polite",
-                    "aria-relevant": "additions text",
-                    "aria-label": "Conversation transcript",
-                    onmounted: move |event| scroll_node.set(Some(event.data())),
-                    onscroll: move |_| {
-                        #[cfg(target_arch = "wasm32")]
-                        if let Some(node) = scroll_node() {
-                            let near = distance_from_bottom(&node).is_some_and(|distance| distance < STICK_THRESHOLD_PX);
-                            if near != *pinned_to_bottom.peek() {
-                                pinned_to_bottom.set(near);
+                div { class: "flex min-h-0 min-w-0 flex-1 flex-col",
+                    div {
+                        class: TRANSCRIPT_CLASS,
+                        role: "log",
+                        "aria-live": "polite",
+                        "aria-relevant": "additions text",
+                        "aria-label": "Conversation transcript",
+                        onmounted: move |event| scroll_node.set(Some(event.data())),
+                        onscroll: move |_| {
+                            #[cfg(target_arch = "wasm32")]
+                            if let Some(node) = scroll_node() {
+                                let near = distance_from_bottom(&node).is_some_and(|distance| distance < STICK_THRESHOLD_PX);
+                                if near != *pinned_to_bottom.peek() {
+                                    pinned_to_bottom.set(near);
+                                }
+                            }
+                        },
+                        onclick: move |event: MouseEvent| copy_code_block(&event),
+                        div { class: COLUMN_CLASS,
+                            if transcript.items.is_empty() && !running {
+                                super::welcome::AgentWelcome {}
+                            }
+                            super::transcript::AgentTranscriptView { transcript: transcript.clone(), conversation_id: conversation_id.clone(), pump: pump.clone(), draft, edit_target }
+                        }
+                    }
+                    div { class: "relative mx-auto flex w-full max-w-reading shrink-0 flex-col gap-3 px-4 pt-2 pb-4",
+                        if running {
+                            WorkingRow {
+                                label: if assistant_is_streaming(&transcript) { "Writing…".to_string() } else { working_label(&transcript.items) },
                             }
                         }
-                    },
-                    onclick: move |event: MouseEvent| copy_code_block(&event),
-                    div { class: COLUMN_CLASS,
-                        if transcript.items.is_empty() && !running {
-                            super::welcome::AgentWelcome { conversation_id: conversation_id.clone(), draft, connected: host_connected }
+                        if !pinned_to_bottom() {
+                            IconButton {
+                                icon: IconType::ArrowDown,
+                                label: "Jump to the latest message",
+                                title: "Jump to latest",
+                                variant: ButtonVariant::Secondary,
+                                size: ButtonSize::IconSm,
+                                class: "absolute bottom-full left-1/2 z-10 mb-2 -translate-x-1/2",
+                                onclick: move |_| {
+                                    pinned_to_bottom.set(true);
+                                    #[cfg(target_arch = "wasm32")]
+                                    if let Some(node) = scroll_node() {
+                                        scroll_to_bottom(&node);
+                                    }
+                                },
+                            }
                         }
-                        super::transcript::AgentTranscriptView { transcript: transcript.clone(), conversation_id: conversation_id.clone(), pump: pump.clone(), draft, edit_target }
+                        if let Some(phases) = latest_todo(&transcript) { TodoCard { phases } }
+                        QueuedBand { messages: transcript.queued.clone(), conversation_id: conversation_id.clone(), pump: pump.clone() }
+                        ModelSetupNotice { setup, on_retry: retry_catalog }
+                        {composer}
                     }
                 }
                 PeekColumn { conversations: peers }
-            }
-            div { class: "relative mx-auto flex w-full max-w-reading shrink-0 flex-col gap-3 px-4 pt-2 pb-4",
-                if running {
-                    WorkingRow {
-                        label: if assistant_is_streaming(&transcript) { "Writing…".to_string() } else { working_label(&transcript.items) },
-                    }
-                }
-                if !pinned_to_bottom() {
-                    IconButton {
-                        icon: IconType::ArrowDown,
-                        label: "Jump to the latest message",
-                        title: "Jump to latest",
-                        variant: ButtonVariant::Secondary,
-                        size: ButtonSize::IconSm,
-                        class: "absolute bottom-full left-1/2 z-10 mb-2 -translate-x-1/2",
-                        onclick: move |_| {
-                            pinned_to_bottom.set(true);
-                            #[cfg(target_arch = "wasm32")]
-                            if let Some(node) = scroll_node() {
-                                scroll_to_bottom(&node);
-                            }
-                        },
-                    }
-                }
-                if let Some(phases) = latest_todo(&transcript) { TodoCard { phases } }
-                QueuedBand { messages: transcript.queued.clone(), conversation_id: conversation_id.clone(), pump: pump.clone() }
-                ModelSetupCard { setup, on_retry: retry_catalog }
-                {composer}
             }
         }
     }
@@ -306,7 +293,6 @@ type StoreReading = (
     bool,
     u64,
     bool,
-    bool,
 );
 
 fn read_store(pump: &crate::pump::Pump, conversation_id: &str) -> StoreReading {
@@ -314,18 +300,6 @@ fn read_store(pump: &crate::pump::Pump, conversation_id: &str) -> StoreReading {
     let core = core.borrow();
     let store = core.store();
     let conversation = store.agent_chat.conversations.get(conversation_id).cloned();
-    let online = conversation.as_ref().is_some_and(|conversation| {
-        store
-            .workers
-            .get(&conversation.worker_fp)
-            .is_some_and(|worker| {
-                roost_client_core::store::navigation::worker_online(
-                    worker,
-                    store.routable_worker_fps.as_ref(),
-                    i64::try_from(core.clock().now_ms()).unwrap_or(i64::MAX),
-                )
-            })
-    });
     let loaded = store.agent_chat.transcripts.get(conversation_id);
     (
         conversation,
@@ -333,6 +307,5 @@ fn read_store(pump: &crate::pump::Pump, conversation_id: &str) -> StoreReading {
         loaded.is_some_and(|loaded| loaded.stale),
         loaded.map(|loaded| loaded.seq).unwrap_or_default(),
         store.agent_chat.host_connected,
-        online,
     )
 }

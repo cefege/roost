@@ -1,14 +1,6 @@
-//! The canonical application shell: the desktop workbench grid (title, rail,
-//! sidebar region, editor, status bar) and the compact layout (top bar,
-//! drawer). Ported from `apps/web/src/components/layout/AppShell.tsx`; mounted
-//! by `app::AuthorizedShell` around every route inside the shell. The route
-//! content (MainPane, HomeLanding, …) arrives as `children` in the editor slot;
-//! the sidebar surface mounts ONCE — in the desktop region or in the compact
-//! drawer, never both.
+//! The canonical application shell: the desktop workbench grid (rail, sidebar region, editor, status bar) and the compact layout (top bar, drawer). Ported from `apps/web/src/components/layout/AppShell.tsx`; mounted by `app::AuthorizedShell` around every route inside the shell. The route content (MainPane, HomeLanding, …) arrives as `children` in the editor slot; the sidebar surface mounts ONCE — in the desktop region or in the compact drawer, never both.
 //!
-//! Geometry decisions are `shell_style` and `shell_metrics`; the listeners
-//! (sidebar-toggle chord, page-show reset, `--roost-main-left`) are
-//! `app_shell_dom`.
+//! Geometry decisions are `shell_style` and `shell_metrics`; the listeners (sidebar-toggle chord, page-show reset, `--roost-main-left`) are `app_shell_dom`.
 
 use dioxus::prelude::*;
 use roost_client_core::ClientEvent;
@@ -26,7 +18,6 @@ use super::shell_style::{
 };
 use super::sidebar_region::SidebarRegion;
 use super::status_bar::StatusBar;
-use super::title_bar::TitleBar;
 use super::window_size::use_is_compact;
 use crate::components::sidebar::sidebar_root::SidebarRoot;
 use crate::components::terminal_chrome::composer_geometry::published_geometry;
@@ -150,11 +141,10 @@ pub fn AppShell(children: Element) -> Element {
 
     rsx! {
         div {
-            class: "workbench-shell relative overflow-hidden bg-background font-sans text-foreground data-[compact=false]:grid data-[compact=false]:gap-2 data-[compact=false]:p-2 data-[compact=false]:[grid-template-columns:var(--workbench-activity-width)_calc(var(--workbench-sidebar-width)_+_var(--workbench-sidebar-resizer-active-width))_minmax(0,1fr)] data-[compact=false]:[grid-template-rows:var(--workbench-titlebar-height)_minmax(0,1fr)_var(--workbench-statusbar-height)] data-[compact=false]:[grid-template-areas:'titlebar_titlebar_titlebar'_'activity_sidebar_editor'_'statusbar_statusbar_statusbar'] data-[compact=true]:flex data-[compact=true]:flex-col",
+            class: "workbench-shell relative overflow-hidden bg-background font-sans text-foreground data-[compact=false]:grid data-[compact=false]:gap-2 data-[compact=false]:p-2 data-[compact=false]:[grid-template-columns:var(--workbench-activity-width)_calc(var(--workbench-sidebar-width)_+_var(--workbench-sidebar-resizer-active-width))_minmax(0,1fr)] data-[compact=false]:[grid-template-rows:minmax(0,1fr)_var(--workbench-statusbar-height)] data-[compact=false]:[grid-template-areas:'activity_sidebar_editor'_'statusbar_statusbar_statusbar'] data-[compact=true]:flex data-[compact=true]:flex-col",
             "data-compact": if compact { "true" } else { "false" },
             style: shell_style(reading.keyboard_resize, composer.active, reading.sidebar_width, sidebar_collapsed),
             if !compact {
-                TitleBar { path: path.clone(), session_title: title.clone(), session_folder: folder.clone() }
                 ActivityBar { on_toggle_sidebar }
                 SidebarRegion { collapsed: sidebar_collapsed, SidebarRoot {} }
             }

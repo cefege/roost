@@ -9,12 +9,14 @@
 use dioxus::prelude::*;
 
 use super::shell_metrics::{Destination, active_destination};
+use crate::components::brand_mark::{ACTIVITY_MARK_SIZE, BrandMark};
 use crate::components::term_font_stepper::TermFontStepper;
 use crate::components::ui::{
     ButtonSize, Icon, SidenavFooter, SidenavGroup, SidenavInner, SidenavMenu, SidenavMenuButton,
     SidenavMenuItem, Tooltip, TooltipContent, TooltipPosition,
 };
 use crate::router_state::{use_location, use_navigate};
+use crate::routes::Route;
 
 /// The DOM id of the Folders item, where focus goes before a collapse.
 pub const FOLDERS_ITEM_ID: &str = "workbench-activity-folders";
@@ -35,6 +37,9 @@ pub fn click_toggles_sidebar(
 #[component]
 pub fn ActivityBar(on_toggle_sidebar: EventHandler<()>) -> Element {
     let path = use_location();
+    let navigate = use_navigate();
+    let home_path = Route::Home.to_path();
+    let mut home_tooltip_open = use_signal(|| false);
     let active = active_destination(&path());
     let terminal_route = matches!(
         crate::routes::Route::parse(&path()),
@@ -52,6 +57,33 @@ pub fn ActivityBar(on_toggle_sidebar: EventHandler<()>) -> Element {
     rsx! {
         SidenavInner { class: "min-h-0 [grid-area:activity]", variant: "Floating",
         nav { class: "flex min-h-0 flex-1 flex-col", "aria-label": "Workbench navigation",
+            SidenavGroup {
+                SidenavMenu {
+                    SidenavMenuItem {
+                        Tooltip {
+                            open: home_tooltip_open(),
+                            on_open_change: move |open| home_tooltip_open.set(open),
+                            class: "my-0 block",
+                            SidenavMenuButton {
+                                href: Some(home_path.clone()),
+                                aria_current: (if path() == home_path { "page" } else { "false" }).to_owned(),
+                                onclick: move |event: MouseEvent| {
+                                    if event.modifiers().is_empty()
+                                        && event.trigger_button()
+                                            == Some(dioxus::html::input_data::MouseButton::Primary)
+                                    {
+                                        event.prevent_default();
+                                        navigate.call(home_path.clone());
+                                    }
+                                },
+                                BrandMark { size: ACTIVITY_MARK_SIZE }
+                                span { class: "sr-only", "Roost home" }
+                            }
+                            TooltipContent { position: TooltipPosition::Right, "Roost home" }
+                        }
+                    }
+                }
+            }
             SidenavGroup {
                 SidenavMenu {
                     for destination in top {

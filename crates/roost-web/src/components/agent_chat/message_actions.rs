@@ -1,11 +1,12 @@
 //! Retry and rewind controls attached to transcript messages.
 //! Rewind changes the transcript before any draft is restored to the composer.
 
+use super::toolbar_menu::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
 use dioxus::prelude::*;
 
 use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Checkbox, Dialog, DialogBody, DialogContent, DialogFooter,
-    DialogHeader, DialogTitle, Label,
+    Button, ButtonVariant, Checkbox, Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader,
+    DialogTitle, IconType, Label,
 };
 use crate::pump::Pump;
 
@@ -41,20 +42,27 @@ pub fn UserMessageActions(
     let mut edit_draft = draft;
     let edit_item = item_id.clone();
     let edit_text = text.clone();
+    let mut items = Vec::with_capacity(3);
+    if !running {
+        items.push(ToolbarMenuItem::choice("edit", "Edit", false));
+    }
+    items.push(ToolbarMenuItem::choice("retry", "Retry", false));
+    items.push(ToolbarMenuItem::choice("rewind", "Rewind to here", false));
     rsx! {
-        div { class: "flex items-center gap-1 text-muted-foreground",
-            Button {
-                variant: ButtonVariant::Ghost,
-                size: ButtonSize::Sm,
-                disabled: running,
-                onclick: move |_| {
+        ToolbarMenu {
+            menu_key: format!("message-{item_id}"),
+            trigger: ToolbarTrigger::Icon { icon: IconType::Ellipsis },
+            aria_label: "Message actions",
+            items,
+            on_choose: move |action: String| match action.as_str() {
+                "edit" if !running => {
                     edit_draft.set(edit_text.clone());
                     edit_target.set(Some(EditTarget { item_id: edit_item.clone() }));
-                },
-                "Edit"
-            }
-            Button { variant: ButtonVariant::Ghost, size: ButtonSize::Sm, onclick: move |_| rewind_and_submit(retry_pump.clone(), retry_id.clone(), retry_item.clone(), retry_text.clone()), "Retry" }
-            Button { variant: ButtonVariant::Ghost, size: ButtonSize::Sm, onclick: move |_| confirm.set(true), "Rewind to here" }
+                }
+                "retry" => rewind_and_submit(retry_pump.clone(), retry_id.clone(), retry_item.clone(), retry_text.clone()),
+                "rewind" => confirm.set(true),
+                _ => {}
+            },
         }
         Dialog { open: confirm(), on_open_change: move |open: bool| confirm.set(open),
             DialogContent {
