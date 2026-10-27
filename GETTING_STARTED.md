@@ -218,29 +218,36 @@ parent blocked inside a `task` call receives its messages after the whole batch
 finishes. Not in this version: OMP's parked-agent lifecycle and broadcast
 de-duplication (`suppressRelay`).
 
-In agent chat, `/model` opens **Models**: every model role
-this chat runs, under OMP's role names (Default, Fast, Thinking, Architect,
-Subtask, Tiny, Judge, Advisor), with the model leading each; the **ⓘ** button
-shows what each role is for. Pick a role to change its model in place and
-its **Thinking** level (Chat's level follows `/effort`; Auto picks a level per
-request; or a fixed level the model accepts, saved as the model's `:level`
-suffix); the change saves for all folders, or choose
-**This folder** to override it for this chat's folder only. The row marked
-**This chat** is the role this chat runs on (Architect in plan mode, a
-subagent's own role), and changing it moves the chat onto the new model even
-after `/switch`. Across the top, **presets** set the main roles in one tap:
-the starter **Anthropic** (Opus 5.5 for Default and Architect, Fable 5.1 for
-Thinking, Sonnet 5.5 for Subtask, Haiku 5.5 for Fast and Tiny) and
-**OpenAI** (GPT-6.1 Sol for Default, Architect and Subtask, GPT-6 Astra for
-Thinking, GPT-6 Luna for Fast and Tiny), then any you saved. A preset sets only the roles it
-names. **Save as…** stores the current roles under a name; saving under a
-starter's name replaces that starter, and deleting the saved copy (or
-`/modelpreset delete <name>`) brings the starter back. **Settings** in that
-panel opens the fallback chains, presets and accounts. The **+** button opens
-the command menu; tapping or clicking a command does what Enter does: it runs a
-command that needs nothing more and fills one that needs an argument. Bare
-`/model` (also `/models`) and `/settings` open HTML controls without sending a
-message. Settings have searchable groups and mobile list/detail navigation.
+In agent chat, `/model` (also `/models`) opens **Models** on **This chat**.
+Click a model once, or select it and press Enter, to use it in this chat.
+That explicit choice is the chat's model pin. The **Default** and **Fast**
+shortcuts open those saved pickers directly.
+
+Most people set two models. **Default model** is what new chats use.
+**Fast model** is optional: a cheaper model for code searches, `/btw` side
+questions and conversation summaries. Unset, that work uses the chat's model.
+**Advanced overrides** (closed by default) hold separate models for Plan mode,
+general and reviewer helpers, side questions & summaries, and the Judge that
+makes background decisions such as auto thinking effort; an unset helper uses
+its parent chat's model. The advisor's model sits beside the Advisor switch,
+and search engine order lives in Settings → Web search. The
+[native role contract](protocol/spec/agent-chat.md#model-roles) lists every
+role and fallback. Classifier models appear only in the Judge picker.
+
+Saved defaults apply to all folders unless you choose a folder. Editing them
+never clears an explicit chat pin, and folder overrides take precedence.
+
+A role's **Thinking** control can follow the chat's `/effort`, choose Auto per
+request, or save a fixed level as the model's `:level` suffix. **Presets** apply
+the roles they name without resetting the others. Anthropic and OpenAI are
+starter presets. **Save as…** stores the current roles; saving under a starter's
+name replaces it, and deleting that saved copy restores the starter.
+**Settings** opens fallback chains, presets and accounts.
+
+The command button opens the command menu. Selecting a command runs it if no
+argument is needed, or fills the composer so you can add its argument.
+Bare `/model`, `/models` and `/settings` open controls without sending a message.
+Settings have searchable groups and mobile list/detail navigation.
 
 Chat follows [Pi Pocket's conversation layout](https://tannermidd.github.io/pi-pocket/):
 one title in the deck/mobile navigation, left-aligned user blocks, unboxed

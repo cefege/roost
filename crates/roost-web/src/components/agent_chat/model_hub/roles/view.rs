@@ -4,26 +4,21 @@
 //! `model_hub` as the all-folders role editor.
 
 use dioxus::prelude::*;
-use roost_protocol::wire::agent_chat::{AgentSettingsView, ConversationSummary, ModelsCatalog};
+use roost_protocol::wire::agent_chat::{AgentSettingsView, ModelsCatalog};
 
 use super::actions::{NAME_FIELD_ID, PickTarget, ROOT_ID, RoleAction, RoleContext, handle_key};
 use super::edits::{active_preset_name, preset_names, split_entry};
-use super::rows::{
-    LeaderValue, RoleTab, RoleTone, RolesRow, build_rows, leader_value, role_inherits, role_tag,
-};
+use super::rows::{LeaderValue, RoleTab, RolesRow, build_rows, leader_value, role_inherits};
 use crate::components::agent_chat::agent_alert::ERROR_TEXT_CLASS;
 use crate::components::agent_chat::model_controls::thinking_label;
 use crate::components::agent_chat::model_picker::ModelPicker;
 use crate::components::file_viewer::dom::focus_by_id;
-use crate::components::settings::agent_roles::role_options;
+use crate::components::settings::agent_roles::{ROLES, role_options};
 use crate::components::ui::{
-    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Chip, IconType, List, ListRow,
-    Separator, Tabs, TabsList, TabsTrigger, TextField,
+    Button, ButtonSize, ButtonVariant, Chip, IconType, List, ListRow, Tabs, TabsList, TabsTrigger,
+    TextField,
 };
 use crate::pump::Pump;
-
-/// The footer's key legend: the keys this view runs.
-const KEY_LEGEND: &str = "↑↓ rows · ⏎ pick · f fallback · x clear · t thinking · [ ] reorder · s save preset · p/P preset · alt+←/→ tab";
 
 #[component]
 pub fn HubRolesView(
@@ -31,13 +26,22 @@ pub fn HubRolesView(
     settings: Signal<AgentSettingsView>,
     error: Signal<String>,
     pump: Pump,
-    conversation: ConversationSummary,
     focused: bool,
+    initial_role: Option<&'static str>,
 ) -> Element {
-    let tab = use_signal(|| RoleTab::All);
-    let cursor = use_signal(|| 0_usize);
-    let anchor = use_signal(|| "default".to_owned());
-    let picking = use_signal(|| None::<PickTarget>);
+    let start_tab = initial_role.map_or(RoleTab::Main, RoleTab::of);
+    let tab = use_signal(move || start_tab);
+    let cursor = use_signal(move || {
+        initial_role
+            .and_then(|target| {
+                build_rows(&settings.peek(), start_tab)
+                    .iter()
+                    .position(|row| matches!(row, RolesRow::Role { role } if *role == target))
+            })
+            .unwrap_or(0)
+    });
+    let anchor = use_signal(move || initial_role.unwrap_or("default").to_owned());
+    let picking = use_signal(move || initial_role.map(|role| PickTarget::Leader(role.to_owned())));
     let naming = use_signal(|| false);
     let preset_name = use_signal(String::new);
 
@@ -57,9 +61,6 @@ pub fn HubRolesView(
         settings,
         error,
         pump,
-        conversation_id: conversation.id.clone(),
-        running: conversation.running_role(),
-        pinned: conversation.model.is_some(),
         tab,
         cursor,
         anchor,
@@ -95,7 +96,7 @@ pub fn HubRolesView(
             role: "region",
             "aria-label": "Model roles",
             onkeydown: move |event: KeyboardEvent| handle_key(&key_context, &event),
-            p { class: "text-sm text-muted-foreground", "Model roles — f adds a fallback, x clears a role" }
+            p { class: "text-sm text-muted-foreground", "Saved for all folders. Folder overrides take precedence; a model you picked for a chat stays." }
             if !error_text.is_empty() {
                 p { class: ERROR_TEXT_CLASS, "{error_text}" }
             }
@@ -200,6 +201,7 @@ pub fn HubRolesView(
             }
             if let Some(target) = picker_target {
                 div { class: "shrink-0",
+                    p { class: "text-sm font-medium", "Model for {super::rows::role_title(target.role())} · All folders" }
                     ModelPicker {
                         options: role_options(&catalog, target.role()),
                         selected: picker_selected,
@@ -214,7 +216,6 @@ pub fn HubRolesView(
                     }
                 }
             }
-            p { class: "shrink-0 border-t border-border pt-2 text-xs text-muted-foreground", "{KEY_LEGEND}" }
         }
     }
 }
@@ -236,7 +237,7 @@ fn PresetChip(is_active: bool, name: String, on_apply: EventHandler<String>) -> 
     }
 }
 
-/// One row of the list: a role's tag and leader, a fallback, the separator, or
+/// One row of the list: a role's title, purpose and leader, a fallback, or
 /// the add row. Clicks forward to `on_activate`.
 #[component]
 fn RoleRowLine(
@@ -250,9 +251,6 @@ fn RoleRowLine(
     let option_id = format!("agent-hub-roles-option-{position}");
     let aria_selected = if selected { "true" } else { "false" };
     match row {
-        RolesRow::Separator => rsx! {
-            Separator { class: "my-1", decorative: true }
-        },
         RolesRow::NewFallback => rsx! {
             ListRow {
                 id: "{option_id}",
@@ -266,7 +264,10 @@ fn RoleRowLine(
             }
         },
         RolesRow::Role { role } => {
-            let (tag, tone) = role_tag(role);
+            let (tag, purpose) = ROLES
+                .iter()
+                .find(|(id, ..)| *id == role)
+                .map_or(("", ""), |(_, title, purpose, _)| (*title, *purpose));
             let value = leader_row_value(&catalog, &settings, role);
             rsx! {
                 ListRow {
@@ -276,11 +277,12 @@ fn RoleRowLine(
                     selected,
                     dense: true,
                     class: "px-2",
-                    leading: rsx! {
-                        Badge { variant: tone_variant(tone), class: Some("font-mono".to_owned()), "{tag}" }
-                    },
                     headline: rsx! {
-                        div { class: "flex flex-wrap items-center gap-2", {value} }
+                        div { class: "flex min-w-0 flex-col gap-1",
+                            span { class: "font-medium", "{tag}" }
+                            span { class: "text-xs text-muted-foreground whitespace-normal", "{purpose}" }
+                            div { class: "flex flex-wrap items-center gap-x-2 gap-y-1 text-sm", {value} }
+                        }
                     },
                     onclick: move |_| on_activate.call(()),
                 }
@@ -348,16 +350,4 @@ fn leader_row_value(catalog: &ModelsCatalog, settings: &AgentSettingsView, role:
 /// `provider/id` split at the first slash; a bare id has no provider.
 fn split_provider(selector: &str) -> (&str, &str) {
     selector.split_once('/').unwrap_or(("", selector))
-}
-
-/// Badge variant for each role tone; the variants draw from the theme roles so the
-/// tags follow the active scheme.
-fn tone_variant(tone: RoleTone) -> BadgeVariant {
-    match tone {
-        RoleTone::Ok => BadgeVariant::Success,
-        RoleTone::Warn => BadgeVariant::Warning,
-        RoleTone::Accent => BadgeVariant::Info,
-        RoleTone::Muted => BadgeVariant::Muted,
-        RoleTone::Dim => BadgeVariant::Outline,
-    }
 }

@@ -19,64 +19,72 @@ mod rows;
 use roost_client_core::client::rpc::calls::agent_chat::{GetAgentSettings, SetAgentSettings};
 use rows::{RoleContext, RoleRow, role_row};
 
-/// (role id, title as OMP's `MODEL_ROLES` names it, what it is for, what an unset
-/// role inherits). Stored keys in `model_roles`; the composer lists them too.
+/// (role id, title, what it is for, what an unset role inherits). Stored keys in
+/// `model_roles`; the composer lists them too. Titles name the native consumer, so
+/// the label says where the model is used. `"automatic selection"` is matched by
+/// `leader_value`, so keep that text for roles that pick their own model.
 pub const ROLES: [(&str, &str, &str, &str); 9] = [
     (
         "default",
-        "Default",
-        "The main model. New chats run on it, and every role you leave unset uses it.",
+        "Default model",
+        "New chats start on it. Every role you leave unset uses it too.",
         "automatic selection",
     ),
     (
         "smol",
-        "Fast",
-        "Quick, cheap work: scout subagents that search and read code. Tiny falls back to it.",
-        "Default",
-    ),
-    (
-        "slow",
-        "Thinking",
-        "Hard reasoning: reviewer subagents, and the advisor when Advisor is unset.",
-        "Default",
+        "Fast model",
+        "Code searches, /btw side questions and conversation summaries. Pick a cheaper model to save cost.",
+        "the chat's model, else Default model",
     ),
     (
         "plan",
-        "Architect",
-        "Plan mode: the model that writes the plan before any code changes.",
-        "the conversation's model",
+        "Plan mode",
+        "Writes the plan in plan mode, before any code changes.",
+        "the chat's model, else Default model",
     ),
     (
         "task",
-        "Subtask",
-        "General subagents the agent hands work to with its task tool.",
-        "the conversation's model",
+        "General helpers",
+        "Work the agent hands to a helper.",
+        "the chat's model, else Default model",
+    ),
+    (
+        "slow",
+        "Reviewer helpers",
+        "Helpers that review work. The advisor uses this model when it is set.",
+        "the chat's model, else Default model",
     ),
     (
         "tiny",
-        "Tiny",
-        "Housekeeping: /btw side questions and shrinking long chats (compaction).",
-        "Fast",
+        "Side questions & summaries",
+        "/btw and conversation summaries, when they should differ from the fast model.",
+        "Fast model when set, else the chat's model",
     ),
     (
         "judge",
         "Judge",
-        "Yes/no calls the agent makes itself, such as choosing the auto thinking level. Classifier models are offered only here.",
+        "Background yes/no decisions, such as choosing thinking effort. Leave unset to pick automatically.",
         "automatic selection",
     ),
     (
         "advisor",
-        "Advisor",
-        "Reviews each turn and suggests corrections while the advisor is on.",
-        "Thinking",
+        "Advisor model",
+        "Reviews each turn while the advisor is on.",
+        "Reviewer helpers, else Default model",
     ),
     (
         "web",
-        "Web search",
-        "Engines the web tools try in order. Separate from chat models.",
+        "Search engine order",
+        "Engines the web tools try in order.",
         "the default search chain",
     ),
 ];
+
+/// The roles every user sees; the rest sit behind Advanced overrides.
+pub(crate) const BASIC_ROLES: [&str; 2] = ["default", "smol"];
+/// Optional per-task overrides. The advisor model sits by its switch and web
+/// search in the Web search tab, so neither is listed here.
+pub(crate) const ADVANCED_ROLES: [&str; 5] = ["plan", "task", "slow", "tiny", "judge"];
 
 pub(crate) const WEB_ENGINES: [(&str, &str); 16] = [
     ("web/hosted", "Hosted search"),
@@ -106,7 +114,7 @@ pub fn AgentRoles(
 ) -> Element {
     let pump = use_store();
     let mut scope = use_signal(|| ModelScope::Global);
-    let mut specialized = use_signal(|| false);
+    let mut advanced = use_signal(|| false);
     let current = settings();
     let folders = known_folders_in_store(&pump, &current);
     let active = scope();
@@ -129,7 +137,7 @@ pub fn AgentRoles(
                 on_choose: move |choice: String| scope.set(scope_from_id(&choice)),
             }
             p { class: "basis-full text-sm text-muted-foreground",
-                "A folder's chain replaces the all-folders chain for that role only. A role with no chain inherits."
+                "A folder's choice replaces the all-folders choice for that setting only."
             }
             if folders.is_empty() {
                 p { class: "basis-full text-sm text-muted-foreground",
@@ -137,27 +145,24 @@ pub fn AgentRoles(
                 }
             }
         }
-        {role_row(RoleRow {
-            role: ROLES[0].0,
-            title: ROLES[0].1,
-            purpose: ROLES[0].2,
-            inherits: ROLES[0].3,
-        }, &context)}
+        for role in BASIC_ROLES {
+            {role_row(role_spec(role), &context)}
+        }
         Button {
             variant: ButtonVariant::Ghost,
             size: ButtonSize::Sm,
-            icon: Some(if specialized() { IconType::ChevronUp } else { IconType::ChevronDown }),
-            "aria-expanded": specialized().to_string(),
-            "aria-controls": "agent-work-role-models",
+            icon: Some(if advanced() { IconType::ChevronUp } else { IconType::ChevronDown }),
+            "aria-expanded": advanced().to_string(),
+            "aria-controls": "agent-advanced-role-models",
             "data-testid": "agent-work-role-expand",
-            title: "Optional overrides for planning, delegated work, quick tasks, review and search.",
-            onclick: move |_| specialized.toggle(),
-            if specialized() { "Hide work-role overrides" } else { "Customize by task" }
+            title: "Separate models for planning, helpers, side questions and background decisions.",
+            onclick: move |_| advanced.toggle(),
+            if advanced() { "Hide advanced overrides" } else { "Advanced overrides" }
         }
-        if specialized() {
-            div { id: "agent-work-role-models", class: "flex flex-col gap-3",
-                for (role, title, purpose, inherits) in ROLES.into_iter().skip(1) {
-                    {role_row(RoleRow { role, title, purpose, inherits }, &context)}
+        if advanced() {
+            div { id: "agent-advanced-role-models", class: "flex flex-col gap-3",
+                for role in ADVANCED_ROLES {
+                    {role_row(role_spec(role), &context)}
                 }
             }
         }
@@ -166,12 +171,49 @@ pub fn AgentRoles(
             headline: "Advisor reviews every turn by default".to_owned(),
             support: Some("Conversations use the advisor unless individually overridden.".to_owned()),
             checked: current.advisor_enabled,
-            on_checked_change: move |enabled| {
-                let mut updated = current.clone();
+            on_checked_change: {
+                let advisor_current = current.clone();
+                move |enabled| {
+                let mut updated = advisor_current.clone();
                 updated.advisor_enabled = enabled;
                 save_settings(pump.clone(), updated, settings, error);
+                }
             },
         }
+        {role_row(role_spec("advisor"), &context)}
+    }
+}
+
+/// The web tools' engine order, for all folders. Lives in the Web search tab
+/// because engines are search services, not chat models.
+#[component]
+pub fn WebSearchOrder(
+    catalog: ModelsCatalog,
+    settings: Signal<AgentSettingsView>,
+    error: Signal<String>,
+) -> Element {
+    let current = settings();
+    let context = RoleContext {
+        current: &current,
+        scope: &ModelScope::Global,
+        catalog: &catalog,
+        pump: use_store(),
+        settings,
+        error,
+    };
+    role_row(role_spec("web"), &context)
+}
+
+fn role_spec(role: &str) -> RoleRow {
+    let (role, title, purpose, inherits) = ROLES
+        .into_iter()
+        .find(|(id, ..)| *id == role)
+        .unwrap_or(ROLES[0]);
+    RoleRow {
+        role,
+        title,
+        purpose,
+        inherits,
     }
 }
 

@@ -5,8 +5,8 @@ use roost_protocol::wire::agent_chat::{
     AgentSettingsView, ModelEntry, ModelRef, ModelsCatalog, ProviderEntry,
 };
 use roost_web::components::agent_chat::model_hub::hub_logic::{
-    HubSection, HubView, assigned_roles, format_cost_pair, format_tokens, hub_options,
-    hub_sections, model_argument_values, model_facts,
+    HubView, assigned_roles, format_cost_pair, format_tokens, hub_options, hub_sections,
+    model_argument_values, model_facts,
 };
 use roost_web::components::agent_chat::model_picker::{PickerOption, filter_options, superseded};
 
@@ -76,44 +76,58 @@ fn catalog() -> ModelsCatalog {
     }
 }
 
-fn section(view: HubView, label: &str, count: Option<usize>, locked: bool) -> HubSection {
-    HubSection {
-        view,
-        label: label.into(),
-        count,
-        locked,
-    }
+#[test]
+fn provider_sections_keep_locked_accounts_but_exclude_non_chat_providers() {
+    let mut catalog = catalog();
+    catalog.providers.swap(0, 1);
+    let sections = hub_sections(&catalog);
+    let providers: Vec<_> = sections
+        .iter()
+        .filter_map(|section| match &section.view {
+            HubView::Provider(id) => Some((id.as_str(), section.count, section.locked)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        providers,
+        [
+            ("anthropic", Some(3), false),
+            ("openai-codex", Some(1), true)
+        ]
+    );
+    assert_eq!(
+        sections
+            .iter()
+            .find(|section| section.view == HubView::All)
+            .unwrap()
+            .count,
+        Some(3)
+    );
 }
 
 #[test]
-fn sections_list_roles_recent_all_then_signed_in_and_locked_providers() {
-    let catalog = catalog();
+fn recent_section_omits_history_without_reachable_chat_models() {
+    let mut catalog = catalog();
     assert_eq!(
-        hub_sections(&catalog),
-        [
-            section(HubView::Roles, "Roles", None, false),
-            section(HubView::Recent, "Recent", Some(1), false),
-            section(HubView::All, "All models", Some(3), false),
-            section(
-                HubView::Provider("anthropic".into()),
-                "Anthropic",
-                Some(3),
-                false
-            ),
-            section(
-                HubView::Provider("openai-codex".into()),
-                "OpenAI Codex",
-                Some(1),
-                true
-            ),
-        ]
+        hub_sections(&catalog)
+            .iter()
+            .find(|section| section.view == HubView::Recent)
+            .unwrap()
+            .count,
+        Some(1)
     );
-    let fresh = ModelsCatalog {
-        recent_models: Vec::new(),
-        ..catalog
-    };
-    assert_eq!(hub_sections(&fresh)[0].view, HubView::Roles);
-    assert_eq!(hub_sections(&fresh)[1].view, HubView::All);
+    catalog.recent_models = vec![model_ref("openai-codex", "gpt-5")];
+    assert!(
+        !hub_sections(&catalog)
+            .iter()
+            .any(|section| section.view == HubView::Recent)
+    );
+    catalog.recent_models.clear();
+    assert!(
+        !hub_sections(&catalog)
+            .iter()
+            .any(|section| section.view == HubView::Recent)
+    );
 }
 
 #[test]

@@ -21,6 +21,7 @@ const ROLE_ALIASES: [&str; 8] = [
 /// One sidebar entry of the hub.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HubView {
+    ThisChat,
     Recent,
     Roles,
     All,
@@ -31,6 +32,7 @@ impl HubView {
     /// A stable id for keys and test ids.
     pub fn id(&self) -> String {
         match self {
+            Self::ThisChat => "this-chat".to_owned(),
             Self::Recent => "recent".to_owned(),
             Self::Roles => "roles".to_owned(),
             Self::All => "all".to_owned(),
@@ -70,16 +72,24 @@ fn recent_entries(catalog: &ModelsCatalog) -> Vec<&ModelEntry> {
         .collect()
 }
 
-/// Roles, Recent (when any), All models, signed-in providers, then providers
-/// still to sign in to, each in catalog order. Providers without chat models
-/// are left out.
+/// This chat (always first), Saved defaults, Recent (when any), All models,
+/// signed-in providers, then providers still to sign in to, each in catalog
+/// order. Providers without chat models are left out.
 pub fn hub_sections(catalog: &ModelsCatalog) -> Vec<HubSection> {
-    let mut sections = vec![HubSection {
-        view: HubView::Roles,
-        label: "Roles".to_owned(),
-        count: None,
-        locked: false,
-    }];
+    let mut sections = vec![
+        HubSection {
+            view: HubView::ThisChat,
+            label: "This chat".to_owned(),
+            count: None,
+            locked: false,
+        },
+        HubSection {
+            view: HubView::Roles,
+            label: "Saved defaults".to_owned(),
+            count: None,
+            locked: false,
+        },
+    ];
     let recent = recent_entries(catalog).len();
     if recent > 0 {
         sections.push(HubSection {
@@ -135,9 +145,10 @@ pub fn hub_sections(catalog: &ModelsCatalog) -> Vec<HubSection> {
     sections
 }
 
-/// The picker rows of a view; Roles has none (it shows the role editor). Only
-/// All models groups rows under provider names; Recent and a provider's view
-/// already name their one group, so their rows carry none.
+/// The picker rows of a view; Roles has none (it shows the role editor). This
+/// chat and All models list every available chat model, and All models groups
+/// them under provider names; Recent and a provider's view already name their
+/// one group, so their rows carry none.
 pub fn hub_options(
     catalog: &ModelsCatalog,
     view: &HubView,
@@ -146,7 +157,7 @@ pub fn hub_options(
     let entries: Vec<&ModelEntry> = match view {
         HubView::Roles => Vec::new(),
         HubView::Recent => recent_entries(catalog),
-        HubView::All => catalog
+        HubView::All | HubView::ThisChat => catalog
             .models
             .iter()
             .filter(|entry| is_available_chat(entry))
@@ -167,7 +178,7 @@ pub fn hub_options(
                 detail.push_str(&format!(" · roles: {}", roles.join(", ")));
             }
             PickerOption {
-                group: if *view == HubView::All {
+                group: if matches!(view, HubView::All | HubView::ThisChat) {
                     provider_display_name(catalog, &entry.provider)
                 } else {
                     String::new()

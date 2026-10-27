@@ -7,6 +7,7 @@ use dioxus::prelude::*;
 
 use super::hub_browse::{BrowseRow, MODEL_KIND_TABS};
 use super::hub_logic::{HubSection, HubView};
+use crate::components::agent_chat::toolbar_menu::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
 use crate::components::ui::{
     Command, CommandItem, CommandList, Icon, IconType, Tabs, TabsList, TabsTrigger,
 };
@@ -18,10 +19,41 @@ pub fn HubSidebar(
     sections: Vec<HubSection>,
     current: HubView,
     focused: bool,
+    compact: bool,
     roles_assigned: usize,
     roles_total: usize,
     on_select: EventHandler<HubView>,
 ) -> Element {
+    if compact {
+        let label = sections
+            .iter()
+            .find(|section| section.view == current)
+            .map(|section| section.label.clone())
+            .unwrap_or_else(|| "Models".into());
+        let items = sections
+            .iter()
+            .map(|section| {
+                ToolbarMenuItem::choice(
+                    section.view.id(),
+                    section.label.clone(),
+                    section.view == current,
+                )
+            })
+            .collect();
+        return rsx! {
+            ToolbarMenu {
+                menu_key: "model-hub-view",
+                trigger: ToolbarTrigger::Picker { label },
+                aria_label: "Model view",
+                items,
+                on_choose: move |id: String| {
+                    if let Some(section) = sections.iter().find(|section| section.view.id() == id) {
+                        on_select.call(section.view.clone());
+                    }
+                },
+            }
+        };
+    }
     rsx! {
         Command {
             class: "h-auto",
@@ -83,6 +115,7 @@ pub fn HubSidebar(
 /// still to sign in to.
 fn view_icon(view: &HubView, locked: bool) -> IconType {
     match view {
+        HubView::ThisChat => IconType::Check,
         HubView::Roles => IconType::Sparkles,
         HubView::Recent => IconType::Clock,
         HubView::All => IconType::Layers,
@@ -128,13 +161,14 @@ pub fn ModelRows(
     rows: Vec<BrowseRow>,
     selected: usize,
     current: Option<String>,
+    #[props(default)] this_chat: bool,
     on_select: EventHandler<usize>,
     on_activate: EventHandler<usize>,
 ) -> Element {
-    let has_intel = rows.iter().any(|row| !row.intelligence.is_empty());
-    let has_speed = rows.iter().any(|row| !row.speed.is_empty());
-    let has_context = rows.iter().any(|row| !row.context.is_empty());
-    let has_cost = rows.iter().any(|row| !row.cost.is_empty());
+    let has_intel = !this_chat && rows.iter().any(|row| !row.intelligence.is_empty());
+    let has_speed = !this_chat && rows.iter().any(|row| !row.speed.is_empty());
+    let has_context = !this_chat && rows.iter().any(|row| !row.context.is_empty());
+    let has_cost = !this_chat && rows.iter().any(|row| !row.cost.is_empty());
     let active_option = rows.get(selected).map(|row| row_option_id(&row.selector));
     rsx! {
         Command {
@@ -166,42 +200,51 @@ pub fn ModelRows(
                                 selected: is_selected,
                                 class: "min-h-10 gap-4 px-4 py-1 whitespace-nowrap",
                                 on_select: Some(EventHandler::new(move |_| {
-                                    if is_selected { on_activate.call(index) } else { on_select.call(index) }
+                                    if this_chat || is_selected { on_activate.call(index) } else { on_select.call(index) }
                                 })),
-                                div { class: "flex shrink-0 items-center justify-center gap-2 text-muted-foreground",
-                                    span { class: "inline-flex size-4 items-center justify-center text-primary", "aria-hidden": "true",
-                                        if is_selected {
-                                            Icon { icon: IconType::ChevronRight, class: "size-4" }
+                                if !this_chat {
+                                    div { class: "flex shrink-0 items-center justify-center gap-2 text-muted-foreground",
+                                        span { class: "inline-flex size-4 items-center justify-center text-primary", "aria-hidden": "true",
+                                            if is_selected {
+                                                Icon { icon: IconType::ChevronRight, class: "size-4" }
+                                            }
                                         }
                                     }
                                 }
                                 div { class: "flex min-w-0 flex-1 flex-col",
                                     div { class: "truncate text-sm font-medium text-foreground",
                                         span { class: "truncate",
-                                            span { class: "text-muted-foreground", "{row.provider}/" }
-                                            span { "{row.model_id}" }
-                                            if !row.name.is_empty() && row.name != row.model_id {
-                                                span { class: "text-muted-foreground", " {row.name}" }
+                                            if this_chat {
+                                                if row.name.is_empty() { "{row.model_id}" } else { "{row.name}" }
+                                            } else {
+                                                span { class: "text-muted-foreground", "{row.provider}/" }
+                                                span { "{row.model_id}" }
+                                                if !row.name.is_empty() && row.name != row.model_id {
+                                                    span { class: "text-muted-foreground", " {row.name}" }
+                                                }
                                             }
                                             if is_current {
-                                                span { class: "ml-1 inline-flex text-success", role: "img", "aria-label": "Current model", Icon { icon: IconType::Check, class: "size-4" } }
+                                                span { class: "ml-1 inline-flex text-primary", role: "img", "aria-label": "Current model", Icon { icon: IconType::Check, class: "size-4" } }
                                             }
                                         }
                                     }
+                                    if this_chat { span { class: "truncate text-xs text-muted-foreground", "{row.provider}" } }
                                 }
-                                div { class: "flex shrink-0 items-center gap-2",
-                                    span { class: "flex gap-3 tabular-nums text-muted-foreground",
-                                        if has_intel {
-                                            span { class: "min-w-[4ch] text-right", "{row.intelligence}" }
-                                        }
-                                        if has_speed {
-                                            span { class: "hidden min-w-[7ch] text-right @[38rem]/rows:inline", "{row.speed}" }
-                                        }
-                                        if has_context {
-                                            span { class: "hidden min-w-[7ch] text-right @[24rem]/rows:inline", "{row.context}" }
-                                        }
-                                        if has_cost {
-                                            span { class: "hidden min-w-[10ch] text-right @[30rem]/rows:inline", "{row.cost}" }
+                                if !this_chat {
+                                    div { class: "flex shrink-0 items-center gap-2",
+                                        span { class: "flex gap-3 tabular-nums text-muted-foreground",
+                                            if has_intel {
+                                                span { class: "min-w-[4ch] text-right", "{row.intelligence}" }
+                                            }
+                                            if has_speed {
+                                                span { class: "hidden min-w-[7ch] text-right @[38rem]/rows:inline", "{row.speed}" }
+                                            }
+                                            if has_context {
+                                                span { class: "hidden min-w-[7ch] text-right @[24rem]/rows:inline", "{row.context}" }
+                                            }
+                                            if has_cost {
+                                                span { class: "hidden min-w-[10ch] text-right @[30rem]/rows:inline", "{row.cost}" }
+                                            }
                                         }
                                     }
                                 }

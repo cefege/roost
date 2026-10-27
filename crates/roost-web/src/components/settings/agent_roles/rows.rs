@@ -40,11 +40,11 @@ fn source_chip(source: RoleSource, is_folder: bool) -> (String, String) {
     match (source, is_folder) {
         (RoleSource::Folder, _) => (
             "This folder".to_owned(),
-            "This folder's own chain runs".to_owned(),
+            "This folder's own choice runs".to_owned(),
         ),
         (RoleSource::Global, true) => (
             "All folders".to_owned(),
-            "Inherited from the all-folders chain".to_owned(),
+            "Inherited from the all-folders choice".to_owned(),
         ),
         (RoleSource::Global, false) => ("Set".to_owned(), "Saved for all folders".to_owned()),
         (RoleSource::Unset, _) => (
@@ -99,7 +99,7 @@ pub(super) fn role_row(row: RoleRow, context: &RoleContext<'_>) -> Element {
                                     let updated = with_role_value(&reset_current, &reset_scope, role, None);
                                     save_settings(reset_pump.clone(), updated, settings, error);
                                 },
-                                "Use all-folders chain"
+                                "Use all-folders choice"
                             }
                         }
                     }
@@ -113,6 +113,7 @@ pub(super) fn role_row(row: RoleRow, context: &RoleContext<'_>) -> Element {
                     thinking_levels,
                     inherited_label: inherits.to_owned(),
                     test_id: format!("agent-role-{role}-chain"),
+                    engines: role == "web",
                     on_change: move |next: Vec<String>| {
                         let updated = with_role_value(&edit_current, &edit_scope, role, Some(join_chain(&next)));
                         save_settings(edit_pump.clone(), updated, settings, error);

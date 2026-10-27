@@ -77,17 +77,10 @@ pub(super) fn role_lines(
 }
 
 /// Whether a session pin hides an edit to `role` from this chat. The agent
-/// tries the pin before the Architect and Default chains, so moving this chat
-/// onto either means clearing it; a subagent's role chain already beats it.
+/// tries the pin before the plan and Default chains, so moving this chat
+/// onto either means clearing it; a subagent's configured role chain beats it.
 pub(super) fn pin_hides(role: &str, running: &str) -> bool {
     role == running && matches!(role, "plan" | "default")
-}
-
-/// Whether an edit that touches `touched` clears the chat's model pin. Only a
-/// pinned chat has a pin to clear, and only an edit to the role it runs (Default
-/// or Plan) changes what the chat runs.
-pub(super) fn pin_clears_for(pinned: bool, running: &str, touched: &[&str]) -> bool {
-    pinned && touched.iter().any(|role| pin_hides(role, running))
 }
 
 /// Where a role edit lands first: this folder when it already overrides the

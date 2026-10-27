@@ -1,6 +1,6 @@
-//! Pure tests for the Roles view: row building, each edit operation, the
-//! thinking cycle, the preset cycle and the pin rule. They call the edit
-//! functions directly, because `save_settings` is a no-op off wasm.
+//! Pure role-editor tests cover chains, fallback edits and presets.
+//! The settings transformations are exercised independently of the wasm writer.
+//! Session pin preservation is verified through the actual model hub.
 
 use roost_protocol::wire::agent_chat::{AgentSettingsView, ModelsCatalog};
 
@@ -9,7 +9,6 @@ use super::edits::{
     preset_names, remove_fallback, split_entry,
 };
 use super::rows::{LeaderValue, RoleTab, RolesRow, build_rows, chain_of, leader_value};
-use crate::components::agent_chat::role_switch::pin_clears_for;
 
 fn settings_with(roles: &[(&str, &str)]) -> AgentSettingsView {
     let mut settings = AgentSettingsView::default();
@@ -32,43 +31,42 @@ fn empty_catalog() -> ModelsCatalog {
 }
 
 #[test]
-fn all_tab_lists_chat_roles_then_kind_roles_with_separator_and_add_row() {
-    let settings = settings_with(&[("default", "a/x,b/y"), ("web", "w/s")]);
-    let rows = build_rows(&settings, RoleTab::All);
+fn main_tab_shows_only_default_and_fast_with_their_fallbacks() {
+    let settings = settings_with(&[("default", "a/x,b/y"), ("task", "t/m"), ("web", "w/s")]);
+    let rows = build_rows(&settings, RoleTab::Main);
+    let roles: Vec<&str> = rows
+        .iter()
+        .filter_map(|row| match row {
+            RolesRow::Role { role } => Some(*role),
+            _ => None,
+        })
+        .collect();
 
+    assert_eq!(roles, ["default", "smol"]);
     assert!(rows.contains(&RolesRow::Fallback {
         role: "default",
         index: 1,
         selector: "b/y".to_owned(),
     }));
-    let separator = rows.iter().position(|row| *row == RolesRow::Separator);
-    let web = rows
-        .iter()
-        .position(|row| *row == RolesRow::Role { role: "web" });
-    assert!(separator.is_some());
-    assert!(separator < web);
     assert_eq!(rows.last(), Some(&RolesRow::NewFallback));
 }
 
 #[test]
-fn chat_tab_has_no_kind_role_and_no_separator() {
-    let rows = build_rows(&AgentSettingsView::default(), RoleTab::Chat);
+fn advanced_tab_holds_every_other_model_role_but_never_search_engines() {
+    let rows = build_rows(&AgentSettingsView::default(), RoleTab::Advanced);
 
-    assert!(!rows.contains(&RolesRow::Separator));
-    assert!(!rows.contains(&RolesRow::Role { role: "web" }));
-    assert!(rows.contains(&RolesRow::Role { role: "default" }));
+    for role in ["plan", "task", "slow", "tiny", "judge", "advisor"] {
+        assert!(rows.contains(&RolesRow::Role { role }), "{role}");
+    }
+    for role in ["default", "smol", "web"] {
+        assert!(!rows.contains(&RolesRow::Role { role }), "{role}");
+    }
 }
 
 #[test]
-fn kinds_tab_shows_only_web_search() {
-    let rows = build_rows(&AgentSettingsView::default(), RoleTab::Kinds);
-
-    assert_eq!(rows.first(), Some(&RolesRow::Role { role: "web" }));
-    assert!(rows.iter().all(|row| match row {
-        RolesRow::Role { role } => *role == "web",
-        RolesRow::NewFallback => true,
-        _ => false,
-    }));
+fn a_shortcut_opens_the_tab_that_lists_its_role() {
+    assert_eq!(RoleTab::of("smol"), RoleTab::Main);
+    assert_eq!(RoleTab::of("task"), RoleTab::Advanced);
 }
 
 #[test]
@@ -195,17 +193,4 @@ fn preset_names_follow_the_map_key_order_sorted_by_name() {
 
     assert!(!names.is_empty());
     assert_eq!(names, sorted);
-}
-
-#[test]
-fn edit_to_a_non_running_role_leaves_the_pin_alone() {
-    assert!(!pin_clears_for(true, "plan", &["smol"]));
-    assert!(!pin_clears_for(true, "default", &["web"]));
-}
-
-#[test]
-fn edit_to_the_running_role_clears_only_a_pin() {
-    assert!(pin_clears_for(true, "plan", &["plan"]));
-    assert!(!pin_clears_for(false, "plan", &["plan"]));
-    assert!(!pin_clears_for(true, "task", &["task"]));
 }

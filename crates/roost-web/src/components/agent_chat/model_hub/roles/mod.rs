@@ -6,11 +6,14 @@
 mod actions;
 mod edits;
 mod rows;
+mod saved_line;
 mod view;
+
+pub(super) use saved_line::SavedRolesLine;
 
 #[cfg(test)]
 mod tests;
 
 pub(super) use edits::{clear_role_in, split_entry};
-pub(super) use rows::{chain_in, chat_role_ids, role_title};
+pub(super) use rows::{chain_in, chat_role_ids, role_title, saved_leader_label};
 pub(super) use view::HubRolesView;

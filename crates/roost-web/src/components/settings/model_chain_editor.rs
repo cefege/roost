@@ -24,6 +24,9 @@ pub fn ModelChainEditor(
     inherited_label: String,
     on_change: EventHandler<Vec<String>>,
     test_id: String,
+    /// The chain names search engines, not models.
+    #[props(default)]
+    engines: bool,
 ) -> Element {
     let compact = use_is_compact();
     // A phone gets the picker as a bottom sheet, within a thumb's reach.
@@ -150,7 +153,7 @@ pub fn ModelChainEditor(
                 title: if options.is_empty() { "Connect a provider to choose a model" } else if addable.is_empty() { "Every available model is already in this chain" } else { "Search and choose the next model" },
                 "data-testid": format!("{test_id}-add"),
                 onclick: move |_| { editing.set(None); adding.set(true); },
-                if entry_count == 0 { "Choose model" } else { "Add fallback" }
+                if entry_count > 0 { "Add fallback" } else if engines { "Choose engine" } else { "Choose model" }
             }
             Dialog {
                 open: adding(),

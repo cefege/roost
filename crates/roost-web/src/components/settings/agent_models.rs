@@ -11,7 +11,7 @@ use super::agent_accounts::{ConnectedProviderCard, plural};
 use super::agent_connect_dialog::AgentConnectDialog;
 use super::agent_provider_list::AvailableProviders;
 use super::agent_provider_status::{ProviderSummary, provider_summaries};
-use super::agent_roles::{AgentRoles, load_settings, save_settings};
+use super::agent_roles::{AgentRoles, WebSearchOrder, load_settings, save_settings};
 use crate::components::ui::{
     Button, ButtonSize, ButtonVariant, EmptyState, FieldError, Icon, IconButton, IconType,
     Skeleton, Tabs, TabsContent, TabsList, TabsTrigger, TextField,
@@ -112,7 +112,7 @@ pub fn AgentModelsPane() -> Element {
                     TabsContent { value: "models",
                     section { class: "flex flex-col gap-4", "data-testid": "agent-model-roles",
                         p { class: "text-sm text-muted-foreground",
-                            "Choose a default once. Override a task or folder only when you need to. The chat picker changes one session."
+                            "Pick a default model and, optionally, a cheaper fast model for searches and side questions. The chat's model button changes one conversation."
                         }
                         if signed_in.is_empty() {
                             Button {
@@ -174,7 +174,10 @@ pub fn AgentModelsPane() -> Element {
                     TabsContent { value: "search",
                     section { class: "flex flex-col gap-4", "data-testid": "agent-web-search",
                         h2 { class: "text-base font-semibold", "Search services" }
-                        p { class: "text-sm text-muted-foreground", "Keyless engines work out of the box. Connect a service below to use its search API; engine order lives under Models → Customize by task." }
+                        p { class: "text-sm text-muted-foreground", "Keyless engines work out of the box. Connect a service below to use its search API." }
+                        if settings_loaded() {
+                            WebSearchOrder { catalog: catalog_value.clone(), settings, error }
+                        }
                         for summary in web_search.iter().filter(|summary| summary.provider.configured).cloned() {
                             ConnectedProviderCard {
                                 key: "{summary.provider.id}",

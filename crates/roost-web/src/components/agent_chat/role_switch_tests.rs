@@ -39,18 +39,13 @@ fn settings(global: &[(&str, &str)], folder_roles: &[(&str, &str)]) -> AgentSett
 }
 
 #[test]
-fn rows_show_the_folder_override_over_all_folders_and_what_unset_roles_inherit() {
+fn folder_override_leads_the_role_row_without_exposing_search_roles() {
     let current = settings(&[("smol", "a/fast")], &[("smol", "b/faster,a/fast")]);
     let lines = role_lines(&current, &folder(), None, "default");
     let smol = lines.iter().find(|line| line.role == "smol");
     assert_eq!(
         smol.map(|line| (line.model.as_str(), line.folder_override)),
         Some(("b/faster", true))
-    );
-    let slow = lines.iter().find(|line| line.role == "slow");
-    assert_eq!(
-        slow.map(|line| line.model.as_str()),
-        Some("Same as Default")
     );
     assert!(lines.iter().all(|line| line.role != "web"));
 }

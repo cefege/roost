@@ -1,9 +1,7 @@
-//! The models hub that `/model` and `/models` open, ported from OMP's
-//! `model-hub.ts`: a sidebar of views (Roles, Recent, All models, providers)
-//! beside the content in a dialog. Roles mounts the role editor; the model views
-//! browse rows filtered by kind and search. Enter on a model opens its role strip to
-//! assign it to a role or switch this chat's model. A provider not signed in offers
-//! its sign-in. Mounted by `agent_chat::surface`.
+//! Native model selection: This chat applies a session pin with one selection.
+//! Saved defaults edit folder/global chains; provider views retain catalog browsing.
+//! Other model views expose role assignment and thinking controls.
+//! Based on OMP's model-hub UI; mounted by `agent_chat::surface`.
 
 mod hub_browse;
 mod hub_catalog;
@@ -13,6 +11,7 @@ mod hub_list;
 pub mod hub_logic;
 mod hub_order;
 mod hub_text;
+mod loading;
 mod locked_provider;
 mod model_hub_actions;
 mod model_hub_keys;
@@ -22,10 +21,11 @@ mod strip_chips;
 mod strip_thinking;
 
 use hub_text::{footer_hints, status_text};
+use loading::ModelHubLoading;
 use locked_provider::LockedProvider;
 use model_hub_actions::{
     HUB_ROOT_ID, HubKeySignals, StripCommit, activate_row, activate_strip_chip, apply_key_effect,
-    conversation_folder, opened_strip, refocus_frame, rescope_strip,
+    conversation_folder, opened_strip, refocus_frame, rescope_strip, switch_this_chat_row,
 };
 use model_role_strip::{ModelRoleStrip, OpenStrip, STRIP_FOOTER, run_strip_key};
 use strip_chips::{strip_key, strip_view_chips};
@@ -36,24 +36,23 @@ use roost_protocol::wire::agent_chat::{
 };
 
 use self::hub_browse::{BrowseRow, browse_rows};
-use self::hub_catalog::{kinds_present, provider_configured, roles_progress};
+use self::hub_catalog::{kinds_for_view, provider_configured, roles_progress};
 use self::hub_keys::{HubFocus, HubKeyContext, HubKeyEffect, hub_key_effect};
 use self::hub_list::{HubSidebar, KindTabs, ModelDetail, ModelRows};
 use self::hub_logic::{HubView, hub_sections};
 use self::model_hub_keys::to_hub_key;
-use self::roles::HubRolesView;
+use self::roles::{HubRolesView, SavedRolesLine, saved_leader_label};
 use super::agent_alert::ERROR_TEXT_CLASS;
+use crate::components::layout::window_size::use_is_compact;
 use crate::components::settings::agent_roles::load_settings;
 use crate::components::ui::{
-    Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle, FieldError,
-    Skeleton, TextField,
+    Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle, TextField,
 };
 use crate::pump::Pump;
 
 /// The hub's dialog is wider and taller than a standard dialog so the sidebar,
 /// the rows and the role editor each keep their own scroll region.
-const HUB_DIALOG_CLASS: &str =
-    "w-[min(calc(100vw-2rem),64rem)] h-[min(85dvh,56rem)] max-w-none sm:max-w-none";
+const HUB_DIALOG_CLASS: &str = "flex min-h-0 flex-col w-[min(calc(100vw-2rem),64rem)] h-[min(85dvh,56rem)] max-w-none sm:max-w-none";
 
 #[component]
 pub fn ModelHub(
@@ -63,8 +62,9 @@ pub fn ModelHub(
     pump: Pump,
     mut connect_provider: Signal<Option<ProviderEntry>>,
 ) -> Element {
+    let compact = use_is_compact();
     let mut open = open;
-    let mut view = use_signal(|| HubView::Roles);
+    let mut view = use_signal(|| HubView::ThisChat);
     let mut kind = use_signal(|| "chat".to_owned());
     let mut query = use_signal(String::new);
     let mut selected = use_signal(|| 0_usize);
@@ -73,14 +73,17 @@ pub fn ModelHub(
     let settings_loaded = use_signal(|| false);
     let mut error = use_signal(String::new);
     let mut strip = use_signal(|| None::<OpenStrip>);
+    let mut role_target = use_signal(|| None::<&'static str>);
     let load_pump = pump.clone();
     use_effect(move || {
         if open() {
-            view.set(HubView::Roles);
+            view.set(HubView::ThisChat);
+            kind.set("chat".to_owned());
             query.set(String::new());
             selected.set(0);
             error.set(String::new());
             strip.set(None);
+            role_target.set(None);
             load_settings(load_pump.clone(), settings, error, settings_loaded);
             refocus_frame();
         }
@@ -94,24 +97,7 @@ pub fn ModelHub(
         }
     };
     let Some(catalog) = catalog.filter(|_| settings_loaded()) else {
-        return rsx! {
-            Dialog { open: true, on_open_change: close,
-                DialogContent { class: HUB_DIALOG_CLASS, test_id: "agent-model-hub",
-                    DialogHeader {
-                        DialogTitle { "Models" }
-                    }
-                    DialogBody { class: "min-h-0 flex-1 gap-0 p-5",
-                        if !error().is_empty() {
-                            FieldError { {error()} }
-                        } else {
-                            div { class: "flex flex-col gap-2", role: "status", "aria-label": "Loading models",
-                                for index in 0..4 { Skeleton { key: "{index}", class: "h-8" } }
-                            }
-                        }
-                    }
-                }
-            }
-        };
+        return rsx! { ModelHubLoading { error: error(), on_open_change: close } };
     };
 
     let sections = hub_sections(&catalog);
@@ -129,7 +115,7 @@ pub fn ModelHub(
     let selected_row = rows.get(index).cloned();
     let (roles_assigned, roles_total) = roles_progress(&settings_now);
     let locked = matches!(&current, HubView::Provider(id) if !provider_configured(&catalog, id));
-    let kinds = kinds_present(&catalog);
+    let kinds = kinds_for_view(&catalog, &current);
     let focus = focus_pane();
     let footer = footer_hints(&current, locked, focus);
     let status = status_text(&current, &catalog);
@@ -160,14 +146,13 @@ pub fn ModelHub(
     let strip_commit = StripCommit {
         pump: pump.clone(),
         conversation_id: conversation.id.clone(),
-        pinned: conversation.model.is_some(),
-        running: conversation.running_role(),
         settings,
         error,
         open,
         strip,
     };
     let click_commit = strip_commit.clone();
+    let this_chat_commit = strip_commit.clone();
     let footer = if strip_view.is_some() {
         STRIP_FOOTER.to_owned()
     } else {
@@ -220,10 +205,15 @@ pub fn ModelHub(
         }
         event.prevent_default();
         event.stop_propagation();
+        if effect == HubKeyEffect::ActivateRow && matches!(view(), HubView::ThisChat) {
+            switch_this_chat_row(&strip_commit, &key_rows, index);
+            return;
+        }
         let mut signals = HubKeySignals {
             view,
             kind,
             query,
+            role_target,
             selected,
             focus_pane,
             open,
@@ -250,23 +240,29 @@ pub fn ModelHub(
             DialogContent { class: HUB_DIALOG_CLASS, test_id: "agent-model-hub",
                 DialogHeader {
                     DialogTitle { "Models" }
-                    DialogDescription { "Set the roles every chat starts from, or pick this chat's model." }
+                    DialogDescription { "Choose this chat's model, or the defaults new chats use." }
                 }
                 DialogBody { class: "min-h-0 flex-1 gap-0 overflow-hidden p-0",
                     div {
                         id: HUB_ROOT_ID,
-                        class: "flex min-h-0 flex-1 flex-col gap-2 p-5 outline-none",
+                        class: "flex min-h-0 flex-1 flex-col gap-2 outline-none",
                         tabindex: "-1",
                         onkeydown: on_key,
-                        div { class: "grid min-h-0 flex-1 grid-cols-[minmax(10rem,14rem)_minmax(0,1fr)] gap-4 max-[40rem]:grid-cols-[minmax(0,1fr)] max-[40rem]:grid-rows-[auto_minmax(0,1fr)]",
-                            nav { class: "min-h-0 overflow-y-auto overscroll-contain max-[40rem]:max-h-36", "aria-label": "Model views",
+                        div { class: if compact {
+                            "grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-4"
+                        } else {
+                            "grid min-h-0 flex-1 grid-cols-[minmax(10rem,14rem)_minmax(0,1fr)] gap-4"
+                        },
+                            nav { class: "min-h-0 overflow-y-auto overscroll-contain", "aria-label": "Model views",
                                 HubSidebar {
+                                    compact,
                                     sections: sidebar_sections,
                                     current: current.clone(),
                                     focused: focus == HubFocus::Scope,
                                     roles_assigned,
                                     roles_total,
                                     on_select: move |target: HubView| {
+                                        role_target.set(None);
                                         view.set(target);
                                         selected.set(0);
                                         focus_pane.set(HubFocus::List);
@@ -286,20 +282,34 @@ pub fn ModelHub(
                                         settings,
                                         error,
                                         pump: pump.clone(),
-                                        conversation: conversation.clone(),
+                                        initial_role: role_target(),
                                         focused: focus == HubFocus::List,
                                     }
                                 } else if locked {
                                     LockedProvider { catalog: catalog.clone(), view: current.clone(), connect_provider, open }
                                 } else {
+                                    if matches!(current, HubView::ThisChat) {
+                                        SavedRolesLine {
+                                            default_model: saved_leader_label(&settings_now, &catalog, "default"),
+                                            fast_model: saved_leader_label(&settings_now, &catalog, "smol"),
+                                            on_open: move |role: &'static str| {
+                                                role_target.set(Some(role));
+                                                view.set(HubView::Roles);
+                                                selected.set(0);
+                                                refocus_frame();
+                                            },
+                                        }
+                                    }
                                     p { class: "shrink-0 text-sm text-muted-foreground", "{status}" }
-                                    KindTabs {
-                                        kinds: kinds.clone(),
-                                        active: current_kind.clone(),
-                                        on_select: move |next: String| {
-                                            kind.set(next);
-                                            selected.set(0);
-                                        },
+                                    if !matches!(current, HubView::ThisChat) {
+                                        KindTabs {
+                                            kinds: kinds.clone(),
+                                            active: current_kind.clone(),
+                                            on_select: move |next: String| {
+                                                kind.set(next);
+                                                selected.set(0);
+                                            },
+                                        }
                                     }
                                     div { class: "shrink-0",
                                         TextField {
@@ -327,6 +337,7 @@ pub fn ModelHub(
                                         rows: rows.clone(),
                                         selected: index,
                                         current: current_selector.clone(),
+                                        this_chat: matches!(current, HubView::ThisChat),
                                         on_select: move |next: usize| {
                                             selected.set(next);
                                             refocus_frame();
@@ -335,6 +346,10 @@ pub fn ModelHub(
                                             selected.set(next);
                                             focus_pane.set(HubFocus::List);
                                             refocus_frame();
+                                            if matches!(view(), HubView::ThisChat) {
+                                                switch_this_chat_row(&this_chat_commit, &click_rows, next);
+                                                return;
+                                            }
                                             if let Some(selector) = activate_row(
                                                 &view(),
                                                 &click_catalog,
@@ -364,7 +379,9 @@ pub fn ModelHub(
                                             on_scope: move |next_scope| rescope_strip(strip, next_scope),
                                         }
                                     }
-                                    ModelDetail { row: selected_row }
+                                    if !matches!(current, HubView::ThisChat) {
+                                        ModelDetail { row: selected_row }
+                                    }
                                 }
                             }
                         }

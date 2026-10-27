@@ -1,5 +1,5 @@
 //! The model panel the composer's model button opens: every model role this
-//! chat runs (Default, Fast, Thinking, Architect…) with the model leading it,
+//! chat runs (Default, Fast, Plan mode, helpers…) with the model leading it,
 //! what each role is for, and an editor to change a role's model and thinking
 //! level in place. An edit saves to all folders, or to this chat's folder
 //! only; a role this folder already overrides opens on the folder. Mounted by

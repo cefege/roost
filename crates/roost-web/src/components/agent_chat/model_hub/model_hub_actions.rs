@@ -1,8 +1,6 @@
-//! What the hub does with a model row and its role strip. Enter and a click on
-//! a row both call `activate_row`, which reports the row whose strip opens. A
-//! chip saves one chat role in the strip's scope, or for "This chat" switches
-//! this chat's model and closes the hub. Locked providers still hand off to
-//! sign-in, and web rows have no strip.
+//! Model-row actions distinguish immediate chat selection from role assignment.
+//! This chat writes a session pin; other views open a scoped assignment strip.
+//! Locked providers hand off to sign-in, and search engines have no chat pin.
 
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{
@@ -17,7 +15,7 @@ use super::model_role_strip::OpenStrip;
 use super::strip_chips::{StripAction, StripChip, apply_settings, strip_view_chips};
 use super::strip_thinking::thinking_step_after_assign;
 use crate::components::agent_chat::model_controls::configure_model_pin;
-use crate::components::agent_chat::role_switch::{initial_scope, pin_clears_for};
+use crate::components::agent_chat::role_switch::initial_scope;
 use crate::components::settings::agent_roles::save_settings;
 use crate::components::settings::model_scope::ModelScope;
 use crate::pump::Pump;
@@ -44,6 +42,7 @@ pub(super) struct HubKeySignals {
     pub open: Signal<bool>,
     pub connect_provider: Signal<Option<ProviderEntry>>,
     pub strip: Signal<Option<OpenStrip>>,
+    pub role_target: Signal<Option<&'static str>>,
 }
 
 /// The read-only state `apply_key_effect` needs: the sections and kinds a
@@ -89,6 +88,7 @@ pub(super) fn apply_key_effect(
                 .unwrap_or(0);
             let next = super::hub_catalog::wrap_index(position, step, sections.len());
             signals.view.set(sections[next].view.clone());
+            signals.role_target.set(None);
             signals.selected.set(0);
             refocus_frame();
         }
@@ -158,14 +158,11 @@ pub(super) fn apply_key_effect(
     }
 }
 
-/// Everything a strip chip needs to save and close: the chat, its pin, and the
-/// signals the hub reads.
+/// Shared model writes: session pins are separate from saved role settings.
 #[derive(Clone)]
 pub(super) struct StripCommit {
     pub pump: Pump,
     pub conversation_id: String,
-    pub pinned: bool,
-    pub running: &'static str,
     pub settings: Signal<AgentSettingsView>,
     pub error: Signal<String>,
     pub open: Signal<bool>,
@@ -206,6 +203,25 @@ pub fn activate_row(
     Some(row.selector.clone())
 }
 
+/// Applies a chat-model row using the same pin write as the This-chat strip chip.
+pub(super) fn switch_this_chat_row(commit: &StripCommit, rows: &[BrowseRow], index: usize) {
+    let Some(row) = rows.get(index) else {
+        return;
+    };
+    if row.kind != "chat" {
+        return;
+    }
+    let mut strip = commit.strip;
+    strip.set(None);
+    let mut open = commit.open;
+    configure_model_pin(
+        commit.pump.clone(),
+        commit.conversation_id.clone(),
+        Some(row.selector.clone()),
+    );
+    open.set(false);
+}
+
 /// The folder a conversation runs in: the scope the strip's "This folder" chip writes.
 pub(super) fn conversation_folder(conversation: &ConversationSummary) -> ModelScope {
     ModelScope::Folder {
@@ -239,10 +255,9 @@ pub(super) fn rescope_strip(mut strip: Signal<Option<OpenStrip>>, scope: ModelSc
     }
 }
 
-/// Applies a strip chip to the row's model. A role chip saves that role in the
-/// strip's scope; assigning a model that takes thinking levels then opens the
-/// thinking step, and an edit to the running role clears a pin it hides. The
-/// strip closes unless a thinking step replaces it.
+/// Saves role chips only in the strip's scope, leaving the chat pin unchanged.
+/// Assignments with thinking levels open their thinking step.
+/// Other assignments close the strip.
 pub(super) fn apply_strip_chip(
     commit: &StripCommit,
     catalog: &ModelsCatalog,
@@ -268,11 +283,6 @@ pub(super) fn apply_strip_chip(
         return;
     };
     save_settings(commit.pump.clone(), updated, commit.settings, commit.error);
-    if !matches!(chip.action, StripAction::Think { .. })
-        && pin_clears_for(commit.pinned, commit.running, &[role])
-    {
-        configure_model_pin(commit.pump.clone(), commit.conversation_id.clone(), None);
-    }
     if matches!(chip.action, StripAction::Assign(_))
         && let Some(step) =
             thinking_step_after_assign(&before, catalog, selector, &open_strip.scope, role)

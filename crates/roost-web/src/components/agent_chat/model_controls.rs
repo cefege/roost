@@ -139,7 +139,7 @@ pub(super) fn current_model_label(
         .or(conversation.model.as_ref())
     else {
         return if conversation.mode == "plan" {
-            "Architect default"
+            "Plan mode default"
         } else {
             "Folder default"
         }

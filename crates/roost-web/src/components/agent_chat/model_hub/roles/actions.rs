@@ -11,9 +11,8 @@ use super::edits::{
     move_fallback, next_thinking, remove_fallback, set_entry_thinking, split_entry,
 };
 use super::rows::{RoleTab, RolesRow, build_rows, chain_of};
-use crate::components::agent_chat::model_controls::configure_model_pin;
 use crate::components::agent_chat::role_switch::{
-    pin_clears_for, thinking_choices, with_applied_preset, with_saved_preset,
+    thinking_choices, with_applied_preset, with_saved_preset,
 };
 use crate::components::file_viewer::dom::focus_by_id;
 use crate::components::settings::agent_roles::save_settings;
@@ -84,10 +83,6 @@ pub(super) struct RoleContext {
     pub settings: Signal<AgentSettingsView>,
     pub error: Signal<String>,
     pub pump: Pump,
-    pub conversation_id: String,
-    pub running: &'static str,
-    /// Whether the chat pins its own model; only a pin needs clearing.
-    pub pinned: bool,
     pub tab: Signal<RoleTab>,
     pub cursor: Signal<usize>,
     pub anchor: Signal<String>,
@@ -169,18 +164,16 @@ impl RoleContext {
                 }
             }
             RoleAction::Clear => match rows.get(cursor) {
-                Some(RolesRow::Role { role }) => {
-                    self.commit(Some(clear_role(&settings, role)), &[*role])
-                }
+                Some(RolesRow::Role { role }) => self.commit(Some(clear_role(&settings, role))),
                 Some(RolesRow::Fallback { role, index, .. }) => {
-                    self.commit(remove_fallback(&settings, role, *index), &[*role]);
+                    self.commit(remove_fallback(&settings, role, *index));
                 }
                 _ => {}
             },
             RoleAction::Thinking => self.cycle_thinking(&settings, rows.get(cursor)),
             RoleAction::Move(step) => {
                 if let Some(RolesRow::Fallback { role, index, .. }) = rows.get(cursor) {
-                    self.commit(move_fallback(&settings, role, *index, step), &[*role]);
+                    self.commit(move_fallback(&settings, role, *index, step));
                 }
             }
             RoleAction::Preset(delta) => {
@@ -210,8 +203,7 @@ impl RoleContext {
         let Some(roles) = presets_with_builtins(&settings.model_presets).remove(name) else {
             return;
         };
-        let touched: Vec<&str> = roles.keys().map(String::as_str).collect();
-        self.commit(Some(with_applied_preset(&settings, &roles)), &touched);
+        self.commit(Some(with_applied_preset(&settings, &roles)));
     }
 
     /// Picks a model for `target` and saves it, closing the picker.
@@ -222,7 +214,7 @@ impl RoleContext {
             PickTarget::Entry { role, index } => assign_entry(&settings, role, *index, selector),
             PickTarget::Add(role) => Some(add_fallback(&settings, role, selector)),
         };
-        self.commit(next, &[target.role()]);
+        self.commit(next);
         self.close_picker();
     }
 
@@ -231,7 +223,7 @@ impl RoleContext {
         let settings = self.settings.peek().clone();
         match with_saved_preset(&settings, name) {
             Ok(next) => {
-                self.commit(Some(next), &[]);
+                self.commit(Some(next));
                 self.cancel_naming();
             }
             Err(message) => {
@@ -267,7 +259,6 @@ impl RoleContext {
                 let anchor = self.anchor.peek().clone();
                 self.open_picker(PickTarget::Add(anchor));
             }
-            RolesRow::Separator => {}
         }
     }
 
@@ -314,40 +305,27 @@ impl RoleContext {
             return;
         }
         let next = next_thinking(level, &choices);
-        self.commit(
-            set_entry_thinking(settings, &self.catalog, role, index, next.as_deref()),
-            &[role],
-        );
+        self.commit(set_entry_thinking(
+            settings,
+            &self.catalog,
+            role,
+            index,
+            next.as_deref(),
+        ));
     }
 
-    /// A session pin holds this chat to its own model, so an edit to the role the
-    /// chat runs clears it, as the composer does.
-    fn clear_pin_if_hidden(&self, touched: &[&str]) {
-        if pin_clears_for(self.pinned, self.running, touched) {
-            configure_model_pin(self.pump.clone(), self.conversation_id.clone(), None);
-        }
-    }
-
-    fn commit(&self, next: Option<AgentSettingsView>, touched: &[&str]) {
+    fn commit(&self, next: Option<AgentSettingsView>) {
         if let Some(next) = next {
             save_settings(self.pump.clone(), next, self.settings, self.error);
-            self.clear_pin_if_hidden(touched);
         }
     }
 }
 
-/// The next row `delta` steps from `cursor` that is not a separator, wrapping.
+/// The row `delta` steps from `cursor`, wrapping.
 fn step_cursor(rows: &[RolesRow], cursor: usize, delta: isize) -> usize {
     let count = rows.len() as isize;
     if count == 0 {
         return 0;
     }
-    let mut position = cursor as isize;
-    for _ in 0..rows.len() {
-        position = (position + delta).rem_euclid(count);
-        if !matches!(rows[position as usize], RolesRow::Separator) {
-            break;
-        }
-    }
-    position as usize
+    (cursor as isize + delta).rem_euclid(count) as usize
 }

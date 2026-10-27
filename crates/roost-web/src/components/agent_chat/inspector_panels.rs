@@ -53,7 +53,7 @@ pub(super) fn SessionPanel(
                     RoleSwitcher {
                         trigger_id: format!("agent-inspector-model-{}", data.conversation.id),
                         trigger_label: model_label,
-                        trigger_title: "Change the models for this chat and its subagents".to_owned(),
+                        trigger_title: "Change the models for this chat and its helpers".to_owned(),
                         conversation: data.conversation.clone(),
                         catalog: catalog.clone(),
                         pump: pump.clone(),

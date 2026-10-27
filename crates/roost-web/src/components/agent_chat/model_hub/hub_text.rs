@@ -13,14 +13,28 @@ pub(super) fn footer_hints(view: &HubView, locked: bool, focus: HubFocus) -> Str
     if matches!(view, HubView::Roles) {
         return "⏎ pick · f fallback · x clear · t thinking · [ ] reorder · s save preset · ⎋ close".to_owned();
     }
+    if matches!(view, HubView::ThisChat) {
+        return if focus == HubFocus::List {
+            "⏎ use for this chat · ↑↓ models · ⎋ close"
+        } else {
+            "⏎ models · ↑↓ views · ⎋ close"
+        }
+        .to_owned();
+    }
     match focus {
-        HubFocus::Scope => "⏎/→ models · ↑↓ providers · type to search · ⌥←/⌥→ kind · F5 refresh · ⎋ close".to_owned(),
-        HubFocus::List => "⏎ assign roles · ↑↓ models · ← providers · type to search · ⌥←/⌥→ kind · F5 refresh · ⎋ close".to_owned(),
+        HubFocus::Scope => {
+            "⏎/→ models · ↑↓ providers · type to search · ⌥←/⌥→ kind · ⎋ close".to_owned()
+        }
+        HubFocus::List => {
+            "⏎ assign roles · ↑↓ models · ← providers · type to search · ⌥←/⌥→ kind · ⎋ close"
+                .to_owned()
+        }
     }
 }
 
 pub(super) fn status_text(view: &HubView, catalog: &ModelsCatalog) -> String {
     match view {
+        HubView::ThisChat => "Enter switches only this chat".to_owned(),
         HubView::Recent => "Recently used models".to_owned(),
         HubView::Provider(id) => match catalog.providers.iter().find(|provider| provider.id == *id)
         {

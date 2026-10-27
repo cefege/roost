@@ -95,6 +95,11 @@ pub fn browse_rows(
     kind: &str,
     query: &str,
 ) -> Vec<BrowseRow> {
+    let kind = if matches!(view, HubView::ThisChat) {
+        "chat"
+    } else {
+        kind
+    };
     let led = roles_led_by(settings);
     let recent: Vec<String> = catalog
         .recent_models
@@ -110,7 +115,7 @@ pub fn browse_rows(
                 .iter()
                 .any(|selector| *selector == format!("{}/{}", entry.provider, entry.model_id)),
             HubView::Provider(provider) => entry.provider == *provider,
-            HubView::All | HubView::Roles => true,
+            HubView::All | HubView::ThisChat | HubView::Roles => true,
         })
         .map(|entry| row_from_entry(entry, &led))
         .collect();
@@ -230,6 +235,60 @@ mod tests {
         };
         assert_eq!(kind_of(&chat), "chat");
         assert_eq!(kind_of(&judge), "judge");
+    }
+
+    #[test]
+    fn this_chat_ignores_non_chat_kinds_left_by_other_views() {
+        let catalog = ModelsCatalog {
+            models: vec![
+                ModelEntry {
+                    provider: "p".into(),
+                    model_id: "chat".into(),
+                    available: true,
+                    ..Default::default()
+                },
+                ModelEntry {
+                    provider: "p".into(),
+                    model_id: "judge".into(),
+                    available: true,
+                    classifier: true,
+                    ..Default::default()
+                },
+            ],
+            providers: Vec::new(),
+            thinking_levels: Vec::new(),
+            default_model: None,
+            recent_models: Vec::new(),
+        };
+        for previous_kind in ["judge", "search"] {
+            let rows = browse_rows(
+                &catalog,
+                &AgentSettingsView::default(),
+                &HubView::ThisChat,
+                previous_kind,
+                "",
+            );
+            assert_eq!(
+                rows.iter()
+                    .map(|row| row.selector.as_str())
+                    .collect::<Vec<_>>(),
+                ["p/chat"]
+            );
+        }
+        let judges = browse_rows(
+            &catalog,
+            &AgentSettingsView::default(),
+            &HubView::All,
+            "judge",
+            "",
+        );
+        assert_eq!(
+            judges
+                .iter()
+                .map(|row| row.selector.as_str())
+                .collect::<Vec<_>>(),
+            ["p/judge"]
+        );
     }
 
     #[test]

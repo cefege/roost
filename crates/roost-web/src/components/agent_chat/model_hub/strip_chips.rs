@@ -47,10 +47,9 @@ pub(super) struct StripChip {
     pub action: StripAction,
 }
 
-/// The strip's chips: "This chat" first, so Enter on a row and Enter again
-/// still switches the chat as it did before the strip, then one per chat role
-/// that accepts the model. A role is assigned when `scope` leads it with the
-/// model; the chip clears the role only where `scope` holds that leader itself.
+/// Chat models offer "This chat" first, followed by roles that accept them.
+/// Classifiers can fill the judge role but cannot answer in this chat.
+/// An assigned role clears only where the selected scope owns its leader.
 pub(super) fn strip_chips(
     settings: &AgentSettingsView,
     catalog: &ModelsCatalog,
@@ -58,13 +57,22 @@ pub(super) fn strip_chips(
     current: Option<&str>,
     scope: &ModelScope,
 ) -> Vec<StripChip> {
-    let mut chips = vec![StripChip {
-        label: "This chat".to_owned(),
-        assigned: current == Some(selector),
-        action: StripAction::ThisChat,
-    }];
+    let role_ids = chat_role_ids();
+    let mut chips = Vec::with_capacity(role_ids.len() + 1);
+    let reference = selector.split_once('/');
+    if catalog.models.iter().any(|model| {
+        model.available
+            && !model.classifier
+            && reference == Some((model.provider.as_str(), model.model_id.as_str()))
+    }) {
+        chips.push(StripChip {
+            label: "This chat".to_owned(),
+            assigned: current == Some(selector),
+            action: StripAction::ThisChat,
+        });
+    }
     chips.extend(
-        chat_role_ids()
+        role_ids
             .into_iter()
             .filter(|role| {
                 role_options(catalog, role)
@@ -240,16 +248,23 @@ mod tests {
     }
 
     #[test]
-    fn a_model_no_chat_role_takes_gets_only_this_chat() {
-        let catalog = catalog_with(&["p/a"]);
+    fn a_classifier_can_fill_judge_but_cannot_switch_the_chat() {
+        let mut catalog = catalog_with(&["p/classifier"]);
+        catalog.models[0].classifier = true;
         let chips = strip_chips(
             &AgentSettingsView::default(),
             &catalog,
-            "p/unknown",
+            "p/classifier",
             None,
             &ModelScope::Global,
         );
-        assert_eq!(chips.len(), 1);
+        assert_eq!(
+            chips
+                .into_iter()
+                .map(|chip| chip.action)
+                .collect::<Vec<_>>(),
+            vec![StripAction::Assign("judge")]
+        );
     }
 
     #[test]

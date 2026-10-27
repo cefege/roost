@@ -6,20 +6,21 @@
 use roost_protocol::wire::agent_chat::{AgentSettingsView, ModelsCatalog};
 
 use super::hub_browse;
-use crate::components::settings::agent_roles::ROLES;
+use super::hub_logic::HubView;
+use crate::components::settings::agent_roles::BASIC_ROLES;
 
-/// The roles with a non-empty saved value, and the total number of roles.
+/// How many of the main defaults (Default, Fast) are saved, out of both.
 pub(super) fn roles_progress(settings: &AgentSettingsView) -> (usize, usize) {
-    let assigned = ROLES
+    let assigned = BASIC_ROLES
         .iter()
-        .filter(|(role, _, _, _)| {
+        .filter(|role| {
             settings
                 .model_roles
-                .get(*role)
+                .get(**role)
                 .is_some_and(|value| !value.is_empty())
         })
         .count();
-    (assigned, ROLES.len())
+    (assigned, BASIC_ROLES.len())
 }
 
 pub(super) fn provider_configured(catalog: &ModelsCatalog, provider_id: &str) -> bool {
@@ -44,6 +45,14 @@ pub(super) fn kinds_present(catalog: &ModelsCatalog) -> Vec<String> {
         })
         .map(|kind| (*kind).to_owned())
         .collect()
+}
+
+pub(super) fn kinds_for_view(catalog: &ModelsCatalog, view: &HubView) -> Vec<String> {
+    if matches!(view, HubView::ThisChat) {
+        Vec::new()
+    } else {
+        kinds_present(catalog)
+    }
 }
 
 pub(super) fn wrap_index(position: usize, step: i32, len: usize) -> usize {
