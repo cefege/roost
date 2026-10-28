@@ -5,13 +5,6 @@
 use dioxus::prelude::*;
 
 use super::dom;
-use super::upload_tray::{extension_label, format_file_size};
-use crate::components::ui::field::scoped_element_id;
-use crate::components::ui::{
-    Attachment, AttachmentActions, AttachmentContent, AttachmentDescription, AttachmentGroup,
-    AttachmentMedia, AttachmentMediaVariant, AttachmentOrientation, AttachmentSize,
-    AttachmentTitle, ButtonSize, ButtonVariant, Icon, IconButton, IconType,
-};
 
 /// One chosen file: its name, length and the browser's handle to it. The
 /// bytes are read a chunk at a time while the upload runs, so a large video is
@@ -24,9 +17,83 @@ pub struct ChosenFile {
     pub size_bytes: u64,
     /// The browser's handle, read through `dom::read_file_range`.
     pub file: web_sys::File,
-    /// A local image URL owned by staging. Removal or upload handoff releases it
+    /// A local image URL owned by staging and released on removal or Send,
     /// through [`crate::components::terminal_chrome::dom::revoke_preview`].
     pub preview_url: Option<String>,
+    /// Upload identity shared with the transfer ledger.
+    pub upload_id: Option<String>,
+    /// The status shown by the shared staged attachment component.
+    pub upload_state: StagedUploadState,
+    /// Worker path returned by the upload, held until Send.
+    pub uploaded_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum StagedUploadState {
+    #[default]
+    Staged,
+    Queued,
+    Hashing,
+    Uploading {
+        bytes_sent: u64,
+    },
+    Done,
+    Failed {
+        reason: String,
+        retryable: bool,
+    },
+}
+
+impl StagedUploadState {
+    #[must_use]
+    pub fn is_in_flight(&self) -> bool {
+        matches!(self, Self::Queued | Self::Hashing | Self::Uploading { .. })
+    }
+
+    #[must_use]
+    pub fn blocks_send(&self) -> bool {
+        self.is_in_flight() || matches!(self, Self::Failed { .. })
+    }
+}
+
+/// Apply one upload event to the staged-file lifecycle.
+pub fn transition_staged_upload(state: &mut StagedUploadState, next: StagedUploadState) -> bool {
+    let allowed = matches!(
+        (&*state, &next),
+        (StagedUploadState::Staged, StagedUploadState::Queued)
+            | (StagedUploadState::Queued, StagedUploadState::Hashing)
+            | (
+                StagedUploadState::Queued,
+                StagedUploadState::Uploading { .. }
+            )
+            | (StagedUploadState::Queued, StagedUploadState::Failed { .. })
+            | (
+                StagedUploadState::Hashing,
+                StagedUploadState::Uploading { .. }
+            )
+            | (StagedUploadState::Hashing, StagedUploadState::Done)
+            | (StagedUploadState::Hashing, StagedUploadState::Failed { .. })
+            | (
+                StagedUploadState::Uploading { .. },
+                StagedUploadState::Uploading { .. }
+            )
+            | (StagedUploadState::Uploading { .. }, StagedUploadState::Done)
+            | (
+                StagedUploadState::Uploading { .. },
+                StagedUploadState::Failed { .. }
+            )
+            | (
+                StagedUploadState::Failed {
+                    retryable: true,
+                    ..
+                },
+                StagedUploadState::Queued
+            )
+    );
+    if allowed {
+        *state = next;
+    }
+    allowed
 }
 
 /// The `multiple` file input the composer's attach button clicks.
@@ -94,96 +161,62 @@ pub(super) async fn read_chosen(files: Vec<web_sys::File>) -> Vec<ChosenFile> {
             size_bytes: dom::file_size(&file),
             preview_url: dom::preview_url(&file).await,
             file,
+            upload_id: None,
+            upload_state: StagedUploadState::Staged,
+            uploaded_path: None,
         });
     }
     chosen
 }
 
-/// A single scrolling row of attachments inside the prompt, above its field.
-#[component]
-pub fn AttachmentPreview(files: Vec<ChosenFile>, on_remove: EventHandler<usize>) -> Element {
-    let label_id = use_hook(|| scoped_element_id("attachment-preview-strip"));
-    if files.is_empty() {
-        return rsx! {};
-    }
-    rsx! {
-        div {
-            class: "w-full min-w-0 px-3 pt-3",
-            "data-testid": "attachment-preview-strip",
-            "data-composer-part": "attachments",
-            role: "list",
-            "aria-labelledby": label_id.clone(),
-            span { id: label_id, class: "sr-only", "Attachments staged for sending" }
-            AttachmentGroup {
-                for (index, file) in files.into_iter().enumerate() {
-                    StagedAttachmentRow { key: "{index}-{file.name}", file, index, on_remove }
-                }
-            }
-        }
-    }
-}
+#[cfg(test)]
+mod tests {
+    use super::{StagedUploadState, transition_staged_upload};
 
-#[component]
-fn StagedAttachmentRow(file: ChosenFile, index: usize, on_remove: EventHandler<usize>) -> Element {
-    let name = file.name.clone();
-    let size_label = format_file_size(file.size_bytes);
-    let is_video = video_file(&file);
-    let has_preview = file.preview_url.is_some();
-    rsx! {
-        Attachment {
-            size: if has_preview { AttachmentSize::Default } else { AttachmentSize::Sm },
-            orientation: if has_preview { AttachmentOrientation::Vertical } else { AttachmentOrientation::Horizontal },
-            class: if has_preview { "" } else { "w-48" },
-            "tabindex": "0",
-            "role": "listitem",
-            "data-testid": "staged-attachment",
-            "aria-label": "{name}, {size_label}",
-            title: "{name}, {size_label}",
-            if let Some(source) = file.preview_url.as_ref() {
-                AttachmentMedia { variant: AttachmentMediaVariant::Image,
-                    contain: true,
-                    img {
-                        "data-testid": "attachment-preview",
-                        src: source,
-                        alt: name.clone(),
-                        class: "size-full",
-                    }
-                }
-            } else {
-                AttachmentMedia { variant: AttachmentMediaVariant::Icon, class: "text-muted-foreground",
-                    if is_video {
-                        Icon { icon: IconType::Film }
-                    } else {
-                        "{extension_label(&file.name)}"
-                    }
-                }
-            }
-            if !has_preview {
-                AttachmentContent {
-                    AttachmentTitle { "title": name.clone(), "{name}" }
-                    AttachmentDescription { "{size_label}" }
-                }
-            }
-            AttachmentActions {
-                IconButton {
-                    icon: IconType::X,
-                    label: "Remove {name}",
-                    title: "Remove {name}",
-                    variant: if has_preview { ButtonVariant::Secondary } else { ButtonVariant::Ghost },
-                    size: ButtonSize::IconXs,
-                    onclick: move |_| on_remove.call(index),
-                }
-            }
-        }
+    #[test]
+    fn staged_upload_progress_and_send_gate_follow_lifecycle() {
+        let mut state = StagedUploadState::Staged;
+        assert!(!state.blocks_send());
+        assert!(transition_staged_upload(
+            &mut state,
+            StagedUploadState::Queued
+        ));
+        assert!(state.blocks_send());
+        assert!(transition_staged_upload(
+            &mut state,
+            StagedUploadState::Hashing
+        ));
+        assert!(transition_staged_upload(
+            &mut state,
+            StagedUploadState::Uploading { bytes_sent: 12 }
+        ));
+        assert!(state.blocks_send());
+        assert!(transition_staged_upload(
+            &mut state,
+            StagedUploadState::Done
+        ));
+        assert!(!state.blocks_send());
+        assert!(!transition_staged_upload(
+            &mut state,
+            StagedUploadState::Uploading { bytes_sent: 13 }
+        ));
     }
-}
 
-fn video_file(file: &ChosenFile) -> bool {
-    file.file.type_().starts_with("video/")
-        || file.name.rsplit_once('.').is_some_and(|(_, extension)| {
-            matches!(
-                extension.to_ascii_lowercase().as_str(),
-                "mp4" | "mov" | "webm" | "mkv" | "avi" | "m4v"
-            )
-        })
+    #[test]
+    fn failed_upload_blocks_send_until_removed_or_retried() {
+        let mut state = StagedUploadState::Uploading { bytes_sent: 4 };
+        assert!(transition_staged_upload(
+            &mut state,
+            StagedUploadState::Failed {
+                reason: "carrier refused".to_owned(),
+                retryable: true,
+            }
+        ));
+        assert!(state.blocks_send());
+        assert!(transition_staged_upload(
+            &mut state,
+            StagedUploadState::Queued
+        ));
+        assert!(state.blocks_send());
+    }
 }

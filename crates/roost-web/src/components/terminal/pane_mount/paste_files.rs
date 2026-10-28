@@ -1,5 +1,5 @@
-//! File paste into a terminal pane: clipboard files are staged in the pane's
-//! composer rather than uploaded immediately.
+//! File paste into a terminal pane: clipboard files start uploads and remain
+//! in the pane's composer until Send submits their paths.
 //! Called by `pane_mount::input`; the picker supplies file previews.
 
 use super::PaneShared;
@@ -23,6 +23,9 @@ pub(super) fn upload_pasted_files(shared: &PaneShared, event: &web_sys::Clipboar
         "clipboard attachments staged"
     );
     crate::components::terminal_chrome::terminal_upload::stage_pasted_files(
+        shared.pump.clone(),
+        shared.session_id.clone(),
+        shared.worker_fp.clone(),
         shared.staged_files,
         files,
     );

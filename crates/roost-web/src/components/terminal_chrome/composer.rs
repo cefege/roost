@@ -10,7 +10,10 @@ use dioxus::html::ModifiersInteraction as _;
 use dioxus::prelude::*;
 
 use super::attachment_picker::{AttachmentInput, ChosenFile};
-use super::composer_attachments::{StagedAttachments, clear_staged_files, send_staged_files};
+use super::composer_attachments::{
+    StagedAttachments, clear_staged_files, compose_terminal_submission, send_button_state,
+    staged_files_block_send, upload_send_state,
+};
 use super::composer_claim::use_viewport_claim;
 use super::composer_dictation::{
     GhostMirror, SharedBinding, VoiceControl, use_dictation, use_dictation_context,
@@ -62,8 +65,7 @@ pub fn TerminalComposer(
     #[props(default)] pending: bool,
     on_attach: EventHandler<Vec<ChosenFile>>,
     staged_files: Signal<Vec<ChosenFile>>,
-    on_send_uploads: EventHandler<Vec<ChosenFile>>,
-    /// Where the dock's measured growth above its resting row is reported, in
+    on_retry_upload: EventHandler<usize>,
     /// pixels: the pane translates its display by it so a growing draft never
     /// takes rows from the grid. Only the pane placement has a flow to push.
     #[props(default)]
@@ -161,7 +163,7 @@ pub fn TerminalComposer(
     let read_context = use_dictation_context(read_context, draft);
     let ghost = dictation.ghost();
     let status_message = status().message.clone();
-
+    let (upload_pending, upload_failed) = upload_send_state(&staged_files());
     // The submission is one piece of work; the button and the Enter key differ
     // only in which event carried it.
     let mut send = {
@@ -171,8 +173,13 @@ pub fn TerminalComposer(
             if !active || pending {
                 return;
             }
-            let text = draft();
-            handle.send_text(&text, true);
+            let staged = staged_files();
+            if staged_files_block_send(&staged) {
+                return;
+            }
+            let submission = compose_terminal_submission(&staged, &draft());
+            handle.send_text(&submission, true);
+            clear_staged_files(staged_files);
             hold_height.set(true);
             draft.set(String::new());
             status.set(SubmissionStatus::default());
@@ -189,20 +196,18 @@ pub fn TerminalComposer(
             });
             tracing::debug!(
                 target: "terminal",
-                bytes = text.len(),
+                bytes = submission.len(),
                 "composer submitted"
             );
         }
     };
     // While a stopped recording waits for its last words the press is queued
     // with the mic, which submits through `submit_queued` once they land.
-    // Staged attachments take priority over the draft, whichever event sent.
     let mut press_send = {
         let dictation = dictation.clone();
         let mut send = send.clone();
         move || {
-            if !staged_files().is_empty() {
-                send_staged_files(staged_files, on_send_uploads);
+            if staged_files_block_send(&staged_files()) {
                 return;
             }
             match dictation.send_gate() {
@@ -236,12 +241,16 @@ pub fn TerminalComposer(
     let dictation_for_send = dictation.clone();
     let mic_active = dictation.clone();
     let dictation_for_mic_control = mic_active.clone();
+    let (send_disabled, send_title) = send_button_state(
+        !dictation_for_send.send_gate().offers_send() || !active || pending,
+        upload_pending,
+        upload_failed,
+    );
     let on_key_down = move |event: KeyboardEvent| {
         // A live recording owns the field: an Enter then would send a
         // half-heard sentence, so it stays the newline the key is for. A
         // stopped one takes it as Send, as the button does.
-        // A staged attachment send takes priority over the draft submit
-        // (`press_send` checks it).
+        // Uploaded paths are prefixed to the draft once every transfer settles.
         if event.key() == Key::Named(NamedKey::Enter)
             && !event.modifiers().contains(Modifiers::SHIFT)
             && dictation_for_keys.send_gate().offers_send()
@@ -252,7 +261,7 @@ pub fn TerminalComposer(
             press_send();
             return;
         }
-        // Escape cancels staged files; otherwise focus returns to the terminal.
+        // Escape removes staged files; otherwise focus returns to the terminal.
         if event.key() == Key::Named(NamedKey::Escape) {
             event.prevent_default();
             if !staged_files().is_empty() {
@@ -300,7 +309,7 @@ pub fn TerminalComposer(
                 class: "pointer-events-auto relative animate-voice-dock-enter motion-reduce:animate-none @container/term-chat-pane",
                 "data-testid": "chat-box",
                 "data-composer-part": "box",
-                StagedAttachments { staged_files }
+                StagedAttachments { staged_files, on_retry: on_retry_upload }
                 div {
                     class: "relative flex w-full min-w-0",
                     "data-testid": "chat-field",
@@ -354,9 +363,9 @@ pub fn TerminalComposer(
                             }
                         }
                         InputPromptSubmit {
-                            disabled: !dictation_for_send.send_gate().offers_send() || !active || pending,
+                            disabled: send_disabled,
                             aria_label: "Send to terminal",
-                            title: "Send to terminal",
+                            title: send_title,
                             test_id: "chat-send",
                             onmousedown: keep_keyboard,
                             onclick: submit,

@@ -9,6 +9,7 @@ pub mod alert;
 pub mod alert_dialog;
 pub mod anchored_panel;
 pub mod attachment;
+pub mod attachment_upload;
 pub mod avatar;
 pub mod badge;
 pub mod breadcrumb;

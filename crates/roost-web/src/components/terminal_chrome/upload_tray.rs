@@ -1,13 +1,13 @@
 //! Pure upload-tray labels and lifecycle state.
-//! The composer uses these helpers to describe staged files without coupling
-//! their display rules to browser APIs or the transfer store.
+//! The composer uses these helpers to describe staged files and transfer state
+//! without coupling display rules to browser APIs or the transfer store.
 
-/// The user-visible upload lifecycle before and after Send.
+/// The visible upload lifecycle from attach through completion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UploadRowState {
     /// File is waiting in the composer's attachment tray.
     Staged,
-    /// User sent the staged set; the serial upload queue has not started it.
+    /// File is waiting its turn in the upload queue.
     Queued,
     /// Bytes are being sent.
     Sending,
@@ -39,17 +39,6 @@ impl UploadRowState {
     }
 }
 
-/// Derive a compact uppercase thumbnail label from a file name.
-pub fn extension_label(name: &str) -> String {
-    let Some((_, extension)) = name.rsplit_once('.') else {
-        return "FILE".to_owned();
-    };
-    if extension.is_empty() {
-        return "FILE".to_owned();
-    }
-    extension.to_uppercase().chars().take(4).collect()
-}
-
 /// Format a byte count for a staged attachment row.
 pub fn format_file_size(bytes: u64) -> String {
     crate::display_format::format_bytes(bytes as f64)
@@ -57,17 +46,8 @@ pub fn format_file_size(bytes: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{UploadRowState, extension_label, format_file_size};
 
-    #[test]
-    fn extension_labels_cover_dotfiles_and_compound_names() {
-        assert_eq!(extension_label(".env"), "ENV");
-        assert_eq!(extension_label("README"), "FILE");
-        assert_eq!(extension_label("archive.tar.gz"), "GZ");
-        assert_eq!(extension_label("long.extension"), "EXTE");
-        assert_eq!(extension_label("notes."), "FILE");
-    }
-
+    use super::{UploadRowState, format_file_size};
     #[test]
     fn upload_rows_only_follow_valid_lifecycle_edges() {
         assert_eq!(

@@ -16,11 +16,6 @@ impl PaneMount {
         input::send_text(&self.shared, text, submit);
     }
 
-    /// Send text as typed bytes, never framed as a paste.
-    pub fn send_raw_text(&self, text: &str) {
-        input::send_bytes(&self.shared, text.as_bytes().to_vec(), false);
-    }
-
     /// Type text as the keyboard would, spending a latched Ctrl on it.
     pub fn type_text(&self, text: &str) {
         input::on_controller_data(&self.shared, text);

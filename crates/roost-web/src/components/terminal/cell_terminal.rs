@@ -39,7 +39,9 @@ use crate::components::terminal_chrome::composer::TerminalComposer;
 use crate::components::terminal_chrome::composer_key_tray::KeyTray;
 use crate::components::terminal_chrome::composer_placement::ComposerPlacement;
 use crate::components::terminal_chrome::pane_geometry_dom::PaneDockHandle;
-use crate::components::terminal_chrome::terminal_upload::{send_attachments, stage_attachments};
+use crate::components::terminal_chrome::terminal_upload::{
+    retry_staged_upload_handler, stage_attachments,
+};
 use crate::input_nav::modality::NavModality;
 use crate::platform::worker_paths::BrowserWorkerPaths;
 use crate::pump::use_pump;
@@ -242,13 +244,17 @@ pub fn CellTerminal(
             }),
         }
     });
-    // All entry points share this pane's tray; Send targets this pane's PTY.
-    let on_attach = stage_attachments(staged_files, session_id.clone());
-    let on_send_uploads = send_attachments(
+    let on_attach = stage_attachments(
+        pump.clone(),
+        staged_files,
+        session_id.clone(),
+        session.worker_fp.as_str().to_owned(),
+    );
+    let on_retry_upload = retry_staged_upload_handler(
         pump.clone(),
         session_id.clone(),
         session.worker_fp.as_str().to_owned(),
-        handle.clone(),
+        staged_files,
     );
     let drop_hover =
         use_terminal_file_drop(&session_id, drop_flags, handle.clone(), move |chosen| {
@@ -320,7 +326,7 @@ pub fn CellTerminal(
                     active: surface_active,
                     placement: ComposerPlacement::Viewport,
                     staged_files,
-                    on_send_uploads,
+                    on_retry_upload,
                     on_attach,
                     read_context: Some(
                         crate::components::terminal::cell_terminal_dictation::dictation_context(
@@ -340,7 +346,7 @@ pub fn CellTerminal(
                     active: in_layout == Some(true) && surface_active,
                     placement: ComposerPlacement::Pane,
                     staged_files,
-                    on_send_uploads,
+                    on_retry_upload,
                     on_attach,
                     read_context: Some(
                         crate::components::terminal::cell_terminal_dictation::dictation_context(

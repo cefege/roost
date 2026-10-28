@@ -18,9 +18,20 @@ use super::upload_plan::{CarrierChoice, PlanRefusal, UploadOutcome, UploadPlan};
 use crate::components::notifications::store_write::write_store;
 use crate::pump::Pump;
 
-/// Where a committed path goes once the worker holds it. The composer hands the
-/// pane's own input controller in; the context menu hands the same one.
-pub type InsertionSink = Rc<dyn Fn(&str)>;
+/// Where a committed path goes once the worker holds it.
+pub type InsertionSink = Rc<dyn Fn(&str, &str)>;
+
+/// One observable change in the staged attachment's upload lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UploadUpdate {
+    Queued,
+    Hashing,
+    Uploading { bytes_sent: u64 },
+    Done,
+    Failed { reason: String, retryable: bool },
+}
+
+pub type UploadObserver = Rc<dyn Fn(&str, UploadUpdate)>;
 
 thread_local! {
     /// The uploads waiting for their turn, in the order they were picked.
@@ -45,6 +56,7 @@ struct QueuedUpload {
     short_path: bool,
     identity: DirectIdentity,
     sink: InsertionSink,
+    observer: Option<UploadObserver>,
 }
 
 /// What the driver needs from the pane that owns the composer.
@@ -71,17 +83,15 @@ pub fn enqueue_attachments(
     context: &UploadContext,
     files: Vec<ChosenFile>,
     sink: InsertionSink,
+    observer: Option<UploadObserver>,
 ) {
     if files.is_empty() {
         return;
     }
     PENDING.with(|pending| {
         let mut queue = pending.borrow_mut();
-        for mut file in files {
-            if let Some(preview) = file.preview_url.take() {
-                super::dom::revoke_preview(&preview);
-            }
-            let Some(upload_id) = mint_upload_id() else {
+        for file in files {
+            let Some(upload_id) = file.upload_id.clone().or_else(mint_upload_id) else {
                 tracing::warn!(
                     target: "attachments",
                     session = %context.session_id,
@@ -93,6 +103,9 @@ pub fn enqueue_attachments(
             write_store(pump, |store| {
                 upload_card::begin_card(store, &id, &file.name, file.size_bytes);
             });
+            if let Some(observer) = &observer {
+                observer(&id, UploadUpdate::Queued);
+            }
             tracing::debug!(
                 target: "attachments",
                 session = %context.session_id,
@@ -108,6 +121,7 @@ pub fn enqueue_attachments(
                 short_path: context.short_path,
                 identity: context.identity.clone(),
                 sink: sink.clone(),
+                observer: observer.clone(),
             });
         }
     });
@@ -157,25 +171,37 @@ async fn run_one(job: QueuedUpload) {
 
     let pump = job.pump.clone();
     let id = upload_id.clone();
-    write_store(&pump, |store| {
-        upload_card::mark_hashing(store, &id);
-    });
-
-    if plan.probe_first
-        && let Some(path) = deduplicated_path(&job, &plan).await
-    {
-        write_store(&pump, |store| upload_card::mark_deduplicated(store, &id));
-        insert_path(&job, &path);
-        return;
+    if plan.probe_first {
+        write_store(&pump, |store| {
+            upload_card::mark_hashing(store, &id);
+        });
+        notify(&job, UploadUpdate::Hashing);
+        if let Some(path) = deduplicated_path(&job, &plan).await {
+            write_store(&pump, |store| upload_card::mark_deduplicated(store, &id));
+            insert_path(&job, &path);
+            notify(&job, UploadUpdate::Done);
+            return;
+        }
     }
 
-    write_store(&pump, |store| upload_card::mark_running(store, &id));
+    write_store(&pump, |store| {
+        upload_card::mark_running(store, &id);
+    });
+    notify(&job, UploadUpdate::Uploading { bytes_sent: 0 });
     let outcome = upload_on_a_carrier(&job, &plan).await;
     let committed = write_store(&pump, |store| {
         upload_card::settle_card(store, &id, &outcome)
     });
     if let Some(path) = committed {
         insert_path(&job, &path);
+        notify(&job, UploadUpdate::Done);
+    } else {
+        let (reason, retryable) = match &outcome {
+            UploadOutcome::Rejected { reason } => (reason.clone(), true),
+            UploadOutcome::Ambiguous { reason } => (reason.clone(), false),
+            UploadOutcome::Accepted(_) | UploadOutcome::Deduplicated { .. } => return,
+        };
+        notify(&job, UploadUpdate::Failed { reason, retryable });
     }
     tracing::info!(
         target: "attachments",
@@ -184,6 +210,12 @@ async fn run_one(job: QueuedUpload) {
         settled = ?outcome,
         "attachment upload settled"
     );
+}
+
+fn notify(job: &QueuedUpload, update: UploadUpdate) {
+    if let Some(observer) = &job.observer {
+        observer(&job.upload_id, update);
+    }
 }
 
 /// A file the size of which no peer could read exactly, refused before a
@@ -202,6 +234,13 @@ fn refuse(job: &QueuedUpload, upload_id: &str, refusal: PlanRefusal) {
     write_store(&job.pump, |store| {
         upload_card::refuse_card(store, &id, &job.file.name, &message);
     });
+    notify(
+        job,
+        UploadUpdate::Failed {
+            reason: reason.to_owned(),
+            retryable: true,
+        },
+    );
 }
 
 /// Hash the file and ask the worker whether it already holds these exact
@@ -244,6 +283,12 @@ async fn upload_on_a_carrier(job: &QueuedUpload, plan: &UploadPlan) -> UploadOut
         write_store(&pump, |store| {
             upload_card::record_progress(store, &upload_id, settled);
         });
+        notify(
+            job,
+            UploadUpdate::Uploading {
+                bytes_sent: settled,
+            },
+        );
     };
     let mut environment = BrowserDirectEnvironment {
         pump: &job.pump,
@@ -298,6 +343,12 @@ async fn relay(job: &QueuedUpload, plan: &UploadPlan) -> UploadOutcome {
         write_store(&pump, |store| {
             upload_card::record_progress(store, &upload_id, settled);
         });
+        notify(
+            job,
+            UploadUpdate::Uploading {
+                bytes_sent: settled,
+            },
+        );
     })
     .await;
     match result {
@@ -322,7 +373,7 @@ fn insert_path(job: &QueuedUpload, abs_path: &str) {
         return;
     };
     match safe_attachment_insertion(&worker_os, abs_path) {
-        Some(quoted) => (job.sink)(&quoted),
+        Some(quoted) => (job.sink)(&job.upload_id, &quoted),
         None => tracing::warn!(
             target: "attachments",
             session = %job.session_id,
