@@ -1,7 +1,7 @@
 //! A session's program signals beside its tab title and sidebar row: the
 //! OSC 9;4 progress report as a compact bar, and the shell's OSC 1337 user
 //! variables as small badges. Reads `Store::terminal_signals`; rendered by
-//! `PaneTab` and `SessionRowFlat`.
+//! `PaneTab`.
 
 use dioxus::prelude::*;
 use roost_protocol::terminal_signals::{TerminalProgress, TerminalUserVar};

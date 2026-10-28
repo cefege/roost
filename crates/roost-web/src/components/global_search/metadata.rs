@@ -23,8 +23,8 @@ use roost_client_core::store::sidebar::documents::store_navigation_documents;
 use crate::components::global_search::query::{SearchRouteQuery, SearchScope};
 use crate::components::settings::format::relative_time;
 use crate::components::ui::{
-    Card, CardContent, CardHeader, CardTitle, CommandItem, CommandList, EmptyState, Icon, IconType,
-    StatusDot,
+    Card, CardContent, CardHeader, CardTitle, CommandGroup, CommandGroupLabel, CommandItem,
+    CommandList, EmptyState, Icon, IconType, StatusDot,
 };
 use crate::platform::worker_paths::BrowserWorkerPaths;
 use crate::pump::use_store;
@@ -86,16 +86,22 @@ pub fn MetadataResults(route_query: SearchRouteQuery) -> Element {
                         }
                     } else {
                         div { "data-testid": "global-search-results",
-                            class: "flex flex-col gap-2",
-                            CommandList { class: "flex flex-col gap-2 max-h-none min-h-0 overflow-visible",
-                                for document in rows.iter() {
-                                    MetadataRow {
-                                        document: document.clone(),
-                                        now_ms,
-                                        on_open: {
-                                            let href = document.href.clone();
-                                            move |_| navigate.call(href.clone())
-                                        },
+                            class: "flex flex-col gap-3",
+                            CommandList { class: "flex flex-col gap-3 max-h-none min-h-0 overflow-visible",
+                                for group in group_documents(&rows) {
+                                    CommandGroup {
+                                        CommandGroupLabel { "{group.folder} · {group.machine}" }
+                                        for document in group.documents {
+                                            MetadataRow {
+                                                document: (*document).clone(),
+                                                now_ms,
+                                                query: route_query.text.clone(),
+                                                on_open: {
+                                                    let href = document.href.clone();
+                                                    move |_| navigate.call(href.clone())
+                                                },
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -107,35 +113,18 @@ pub fn MetadataResults(route_query: SearchRouteQuery) -> Element {
     }
 }
 
-/// One session: its title, its folder, the machine it is on, and whether an
-/// operator could get to it right now.
+/// One session row beneath its folder and machine heading.
 #[component]
 fn MetadataRow(
     document: NavigationSearchDocument,
     now_ms: i64,
+    query: String,
     on_open: EventHandler<()>,
 ) -> Element {
-    let metadata = [
-        document.workspace_name.clone(),
-        Some(document.worker_label.clone()),
-        document
-            .git_branch
-            .clone()
-            .map(|branch| format!("branch {branch}")),
-        document.git_remote.clone(),
-        document
-            .pull_request_number
-            .map(|number| format!("PR #{number}")),
-        document.port_label.clone(),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<String>>()
-    .join(" · ");
     let session_id = document.session_id.clone();
     let activity_ms = u64::try_from(document.activity_at).unwrap_or(0);
     let now = u64::try_from(now_ms).unwrap_or(0);
-    let availability = if document.available {
+    let activity = if document.available {
         relative_time(now, activity_ms)
     } else {
         "Unavailable".to_owned()
@@ -143,40 +132,118 @@ fn MetadataRow(
     rsx! {
         CommandItem {
             value: session_id.clone(),
-            class: "flex items-start gap-3",
+            class: "flex items-center gap-3",
             test_id: format!("global-search-result-{session_id}"),
             show_check: false,
             on_select: move |()| on_open.call(()),
-            Icon { icon: IconType::Terminal, class: "mt-0.5 size-4 shrink-0 text-muted-foreground" }
-            span { class: "flex min-w-0 flex-1 flex-col gap-1",
-                span { class: "text-sm font-medium text-foreground", "data-testid": format!("global-search-title-{session_id}"),
-                    {document.display_title.clone()}
-                }
-                span { class: "flex flex-col gap-1 text-xs text-muted-foreground",
-                    span { {document.cwd.clone()} }
-                    if !metadata.is_empty() {
-                        span { {metadata} }
-                    }
-                    if let Some(message) = document.agent_message.clone() {
-                        span { {message} }
-                    }
-                }
+            Icon {
+                icon: if document.agent_id.is_some() { IconType::Bot } else { IconType::Terminal },
+                class: "size-4 shrink-0 text-muted-foreground",
+            }
+            span { class: "min-w-0 flex-1 truncate text-sm font-medium text-foreground",
+                "data-testid": format!("global-search-title-{session_id}"),
+                HighlightedText { text: document.display_title.clone(), query }
             }
             span { class: "flex shrink-0 items-center gap-2 whitespace-nowrap text-xs text-muted-foreground",
                 if let Some(label) = attention_label(document.agent_attention) {
-                    span { "data-testid": format!("global-search-attention-{session_id}"),
-                        {label}
-                    }
+                    span { "data-testid": format!("global-search-attention-{session_id}"), {label} }
                 }
                 StatusDot {
                     status: (if document.available { "ok" } else { "offline" }).to_owned(),
                     title: (if document.available { "Available" } else { "Machine unavailable" }).to_owned(),
                 }
-                span { "data-testid": format!("global-search-availability-{session_id}"),
-                    {availability}
-                }
+                span { "data-testid": format!("global-search-availability-{session_id}"), {activity} }
             }
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GroupedDocuments<'a> {
+    folder: String,
+    machine: String,
+    folder_key: String,
+    documents: Vec<&'a NavigationSearchDocument>,
+}
+
+fn group_documents(documents: &[NavigationSearchDocument]) -> Vec<GroupedDocuments<'_>> {
+    let mut groups: Vec<GroupedDocuments<'_>> = Vec::new();
+    for document in documents {
+        if let Some(group) = groups
+            .iter_mut()
+            .find(|group| group.folder_key == document.folder_key)
+        {
+            group.documents.push(document);
+        } else {
+            groups.push(GroupedDocuments {
+                folder: folder_label(document),
+                machine: document.worker_label.clone(),
+                folder_key: document.folder_key.clone(),
+                documents: vec![document],
+            });
+        }
+    }
+    groups
+}
+
+fn folder_label(document: &NavigationSearchDocument) -> String {
+    document.workspace_name.clone().unwrap_or_else(|| {
+        document
+            .cwd
+            .rsplit(['/', '\\'])
+            .find(|part| !part.is_empty())
+            .unwrap_or(&document.cwd)
+            .to_owned()
+    })
+}
+
+#[component]
+pub fn HighlightedText(text: String, query: String) -> Element {
+    let spans = highlighted_spans(&text, &query);
+    rsx! {
+        for (part, matched) in spans {
+            if matched {
+                span { class: "rounded-sm bg-accent text-accent-foreground", {part} }
+            } else {
+                span { {part} }
+            }
+        }
+    }
+}
+
+fn highlighted_spans(text: &str, query: &str) -> Vec<(String, bool)> {
+    let lower_text = text.to_lowercase();
+    let mut ranges = query
+        .split_whitespace()
+        .filter_map(|term| {
+            let needle = term.to_lowercase();
+            let start = lower_text.find(&needle)?;
+            Some((start, start + needle.len()))
+        })
+        .collect::<Vec<_>>();
+    ranges.sort_unstable();
+    let mut spans = Vec::new();
+    let mut cursor = 0;
+    for (start, end) in ranges {
+        if start < cursor {
+            continue;
+        }
+        let (Some(before), Some(matched)) = (text.get(cursor..start), text.get(start..end)) else {
+            continue;
+        };
+        if !before.is_empty() {
+            spans.push((before.to_owned(), false));
+        }
+        spans.push((matched.to_owned(), true));
+        cursor = end;
+    }
+    if cursor < text.len() {
+        spans.push((text[cursor..].to_owned(), false));
+    }
+    if spans.is_empty() {
+        vec![(text.to_owned(), false)]
+    } else {
+        spans
     }
 }
 
@@ -246,6 +313,85 @@ mod tests {
         assert_eq!(
             metadata_summary(SearchScope::Attention, 0, "blocked"),
             "0 sessions. No matching session metadata"
+        );
+    }
+
+    fn document(folder_key: &str, title: &str, cwd: &str) -> NavigationSearchDocument {
+        NavigationSearchDocument {
+            session_id: title.to_owned(),
+            href: String::new(),
+            display_title: title.to_owned(),
+            custom_title: None,
+            terminal_title: None,
+            cwd: cwd.to_owned(),
+            spawn_cwd: None,
+            workspace_id: None,
+            workspace_name: None,
+            folder_key: folder_key.to_owned(),
+            worker_label: "m1".to_owned(),
+            worker_fp: String::new(),
+            git_branch: None,
+            git_remote: None,
+            pull_request_number: None,
+            pull_request_state: None,
+            pull_request_checks: None,
+            pull_request_url: None,
+            port_label: None,
+            search_text: String::new(),
+            activity_at: 0,
+            available: true,
+            agent_status: None,
+            agent_attention: None,
+            agent_unseen: false,
+            agent_id: None,
+            agent_message: None,
+            agent_updated_at_ms: None,
+            agent_arrival: 0,
+            client_only: false,
+        }
+    }
+
+    #[test]
+    fn search_results_group_by_folder_without_reordering_siblings_or_groups() {
+        let documents = [
+            document("folder-a", "alpha", "/work/alpha"),
+            document("folder-b", "beta", "/work/beta"),
+            document("folder-a", "alpha-two", "/work/alpha"),
+        ];
+
+        let groups = group_documents(&documents);
+
+        assert_eq!(
+            groups
+                .iter()
+                .map(|group| group.folder.as_str())
+                .collect::<Vec<_>>(),
+            ["alpha", "beta"]
+        );
+        assert_eq!(
+            groups[0]
+                .documents
+                .iter()
+                .map(|document| document.display_title.as_str())
+                .collect::<Vec<_>>(),
+            ["alpha", "alpha-two"]
+        );
+        assert_eq!(groups[0].machine, "m1");
+    }
+
+    #[test]
+    fn matching_title_highlight_is_case_insensitive_and_preserves_unmatched_text() {
+        assert_eq!(
+            highlighted_spans("Terminal Alpha", "alpha TERMINAL"),
+            [
+                ("Terminal".to_owned(), true),
+                (" ".to_owned(), false),
+                ("Alpha".to_owned(), true),
+            ]
+        );
+        assert_eq!(
+            folder_label(&document("f", "title", "/work/folder")),
+            "folder"
         );
     }
 }

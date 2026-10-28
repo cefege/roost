@@ -1,6 +1,5 @@
-//! The supporting-line chips a sidebar row shows: the machine (with its
-//! reachability tint), the git branch, the pull request badge, and a listening
-//! port. `folder_row.rs` and `session_row_flat.rs` render them.
+//! The supporting-line chips a folder row shows: the git branch, the pull
+//! request badge, and a listening port.
 
 use dioxus::prelude::*;
 use roost_client_core::store::sidebar::folder_groups::PrBadge;
@@ -11,31 +10,6 @@ use crate::components::ui::{Badge, BadgeSize, BadgeVariant, Icon, IconType};
 /// The link chips lift above the row's full-width primary link (`z-10`), so
 /// their own clicks land on them and not on the row.
 const CHIP_LINK_CLASS: &str = "relative z-20 pointer-events-auto";
-
-/// The machine chip.
-#[component]
-pub fn ServerChip(
-    online: bool,
-    label: String,
-    title: Option<String>,
-    test_id: Option<String>,
-) -> Element {
-    rsx! {
-        span {
-            class: "inline-flex min-w-0",
-            "data-testid": test_id,
-            "data-online": if online { "true" } else { "false" },
-            title,
-            Badge {
-                size: BadgeSize::Sm,
-                variant: if online { BadgeVariant::Outline } else { BadgeVariant::Destructive },
-                class: "min-w-0 gap-1",
-                Icon { icon: IconType::Server, class: "size-3 shrink-0" }
-                span { class: "min-w-0 truncate", {label} }
-            }
-        }
-    }
-}
 
 /// The branch chip.
 #[component]

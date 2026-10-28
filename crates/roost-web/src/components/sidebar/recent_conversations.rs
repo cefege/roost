@@ -62,6 +62,8 @@ pub fn RecentConversations(query: String) -> Element {
                                     AgentConversationRow {
                                         selected: selected_id.as_deref() == Some(conversation_id.as_str()),
                                         conversation_id,
+                                        search_result: false,
+                                        query: String::new(),
                                     }
                                 }
                             }

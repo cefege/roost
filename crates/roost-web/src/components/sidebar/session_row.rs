@@ -10,26 +10,23 @@ use roost_client_core::store::selectors::{
     deck_tab_ids_for_folder, session_by_id, session_folder_key,
 };
 use roost_client_core::store::sidebar::SidebarIntent;
-use roost_client_core::store::sidebar::format::short_server_label;
 use roost_protocol::wire::SessionStatus;
 
 use super::rel_time_tick::use_rel_time_now;
 use super::row_swipe::{RowSwipe, SwipeRelease};
-use super::session_program_mark::SessionProgramMark;
 use super::session_row_context_menu::SessionRowContextMenu;
-use super::session_row_flat::{SessionRowFacts, SessionRowFlat};
 use crate::components::notifications::notify_target::{ring_attribute, use_notify_target};
 use crate::components::ui::list::is_in_app_navigation_click;
 use crate::components::ui::{
     Icon, IconType, SidenavMenuAction, SidenavMenuButton, SidenavMenuButtonSize, SidenavMenuItem,
+    StatusDot,
 };
 use crate::platform::BrowserWorkerPaths;
-use crate::platform::worker_paths::short_worker_path;
 use crate::pump::{Pump, use_store};
 use crate::route_session::active_session_for_path;
 use crate::router_state::{use_location, use_navigate};
 use crate::session_actions::close_labels_for;
-use crate::session_naming::{folder_headline, program_subtitle, rel_time_since, session_title};
+use crate::session_naming::{rel_time_since, session_title};
 
 /// Whether `path` shows this session: `/s/<id>` exactly or beneath it, or the
 /// legacy `/…/t/<channel>` form with this channel. Exact, never a substring:
@@ -50,7 +47,7 @@ pub fn session_row_is_active(path: &str, session_id: &str, channel: u32) -> bool
 
 /// A session row.
 #[component]
-pub fn SessionRow(session_id: String, cursor: bool) -> Element {
+pub fn SessionRow(session_id: String, cursor: bool, query: String) -> Element {
     let pump = use_store();
     let path = use_location();
     let notify_target = use_notify_target();
@@ -69,7 +66,6 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
             return rsx! {};
         };
         let worker = store.workers.get(session.worker_fp.as_str());
-        let fallback: String = session.worker_fp.as_str().chars().take(6).collect();
         let server_online = worker.is_some_and(|worker| {
             worker_online(worker, store.routable_worker_fps.as_ref(), now_ms)
         });
@@ -89,19 +85,8 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
             workspace_id: session.workspace_id.as_ref().map(ToString::to_string),
             status: session.status.as_str(),
             active: session_row_is_active(&path.read(), &session_id, session.channel.as_u32()),
-            flat: SessionRowFacts {
-                session_id: session_id.clone(),
-                headline: folder_headline(store, session),
-                subtitle: program_subtitle(store, session),
-                rel_time: rel_time_since(now_ms, since),
-                open,
-                cwd: session.cwd.clone(),
-                short_cwd: short_worker_path(worker.map(|w| w.os.as_str()), &session.cwd),
-                server_label: short_server_label(
-                    worker.map_or(fallback.as_str(), |w| w.label.as_str()),
-                ),
-                server_online,
-            },
+            available: server_online,
+            activity: rel_time_since(now_ms, since),
         }
     };
     let href = format!("/s/{session_id}");
@@ -153,7 +138,7 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
                 "data-swiping": tracking.then_some("1"),
                 "data-notify-target": ringing,
                 style: "transform: translateX({offset}px);",
-                title: "{facts.title} — {facts.flat.cwd} — right-click for actions",
+                title: "{facts.title} — right-click for actions",
                 oncontextmenu: move |event: MouseEvent| {
                     event.prevent_default();
                     event.stop_propagation();
@@ -205,24 +190,22 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
                         navigate.call(href.clone());
                     },
                     Icon { icon: IconType::Terminal }
-                    span { class: "grid min-w-0 flex-1 text-left text-sm leading-tight",
-                        span { class: "truncate font-medium",
+                    span { class: "min-w-0 flex-1",
+                        span { class: "block truncate text-sm font-medium",
                             "data-testid": "session-headline-{session_id}",
-                            {facts.flat.headline.clone()}
-                        }
-                        if let Some(subtitle) = facts.flat.subtitle.clone() {
-                            span { class: "truncate text-xs",
-                                "data-testid": "session-subtitle-{session_id}",
-                                title: subtitle.clone(),
-                                "{subtitle}"
+                            crate::components::global_search::metadata::HighlightedText {
+                                text: facts.title.clone(),
+                                query,
                             }
                         }
+                        span { class: "block truncate text-xs text-muted-foreground",
+                            "data-testid": "session-reltime-{session_id}",
+                            {facts.activity.clone()}
+                        }
                     }
-                    SessionProgramMark { session_id: session_id.clone() }
-                    span { class: "shrink-0 text-xs tabular-nums",
-                        "data-testid": "session-reltime-{session_id}",
-                        title: if facts.flat.open { "Opened" } else { "Closed" },
-                        {facts.flat.rel_time.clone()}
+                    StatusDot {
+                        status: (if facts.available { "ok" } else { "offline" }).to_owned(),
+                        title: (if facts.available { "Available" } else { "Machine unavailable" }).to_owned(),
                     }
                 }
                 SidenavMenuAction {
@@ -236,9 +219,6 @@ pub fn SessionRow(session_id: String, cursor: bool) -> Element {
                         close();
                     },
                     Icon { icon: IconType::X }
-                }
-                div { class: "px-2 pb-2",
-                    SessionRowFlat { facts: facts.flat.clone() }
                 }
             }
             // A sibling of the row, not a child: the row's swipe `transform`
@@ -264,9 +244,9 @@ struct RowFacts {
     workspace_id: Option<String>,
     status: &'static str,
     active: bool,
-    flat: SessionRowFacts,
+    available: bool,
+    activity: String,
 }
-
 /// Soft-close through the deck's close, which hides the row now, owes the kill
 /// after the undo window, and moves a viewer of it to a sibling or home.
 fn close_session(pump: &Pump, session_id: &str, path: &str) {

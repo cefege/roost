@@ -100,71 +100,83 @@ pub fn FolderList(active: bool, query: String) -> Element {
     publish_cursor_targets(&pump, active, visible_ids);
 
     rsx! {
-        SidenavContent { "data-testid": "folder-list",
-            SidenavGroup {
-                SidenavGroupLabel { if filtering { "Matches" } else { "Folders" } }
-                SidenavGroupContent {
-            if !filtering {
-                if groups.is_empty() {
+            SidenavContent { "data-testid": "folder-list",
+                SidenavGroup {
+                    SidenavGroupLabel { if filtering { "Matches" } else { "Folders" } }
+                    SidenavGroupContent {
+                if !filtering {
+                    if groups.is_empty() {
+                        EmptyState {
+                            icon: IconType::FolderX,
+                            title: "No folders yet",
+                            supporting: "Open a terminal to add your first folder.",
+                        }
+                    } else {
+                        SidenavMenu {
+                            for group in groups {
+                                FolderRow {
+                                    key: "{group.key}",
+                                    selected: active_folder_key.as_deref() == Some(group.key.as_str())
+                                        || active_agent_id.as_ref().is_some_and(|id| group.agent_conversation_ids.contains(id)),
+                                    cursor: !group.lead_id.is_empty()
+                                        && cursor_id.as_deref() == Some(group.lead_id.as_str()),
+                                    group: group.clone(),
+                                    FolderConversationRows {
+                                        conversation_ids: group.agent_conversation_ids.clone(),
+                                        active_agent_id: active_agent_id.clone(),
+                                        nested: true,
+                                        search_result: false,
+                                        query: String::new(),
+                                }
+                            }
+                        }
+                    }
+                    }
+                } else if filtered_ids.is_empty() && !has_filtered_agents {
                     EmptyState {
-                        icon: IconType::FolderX,
-                        title: "No folders yet",
-                        supporting: "Open a terminal to add your first folder.",
+                        icon: IconType::SearchX,
+                        title: "No matches",
+                        supporting: format!("Nothing matches \"{query}\". Esc clears the search."),
                     }
                 } else {
                     SidenavMenu {
                         for group in groups {
-                            FolderRow {
-                                key: "{group.key}",
-                                selected: active_folder_key.as_deref() == Some(group.key.as_str())
-                                    || active_agent_id.as_ref().is_some_and(|id| group.agent_conversation_ids.contains(id)),
-                                cursor: !group.lead_id.is_empty()
-                                    && cursor_id.as_deref() == Some(group.lead_id.as_str()),
-                                group: group.clone(),
+                            div { class: "flex min-w-0 flex-col gap-1",
+                                SidenavGroupLabel {
+                                    class: "flex min-w-0 items-center justify-between gap-2",
+                                    {folder_group_heading(&group.name, &group.server)}
+                                }
                                 FolderConversationRows {
-                                    conversation_ids: group.agent_conversation_ids.clone(),
+                                    conversation_ids: group.agent_conversation_ids,
                                     active_agent_id: active_agent_id.clone(),
-                                    nested: true,
+                                    nested: false,
+                                    search_result: true,
+                                    query: query.clone(),
+                                }
+                                for session_id in group.session_ids.iter().filter(|id| filtered_ids.contains(id)) {
+                                    SessionRow {
+                                        key: "{session_id}",
+                                        cursor: cursor_id.as_deref() == Some(session_id.as_str()),
+                                        session_id: session_id.clone(),
+                                        query: query.clone(),
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            } else if filtered_ids.is_empty() && !has_filtered_agents {
-                EmptyState {
-                    icon: IconType::SearchX,
-                    title: "No matches",
-                    supporting: format!("Nothing matches \"{query}\". Esc clears the search."),
-                }
-            } else {
-                SidenavMenu {
-                    for group in groups {
-                        FolderConversationRows {
-                            conversation_ids: group.agent_conversation_ids,
-                            active_agent_id: active_agent_id.clone(),
-                            nested: false,
-                        }
-                    }
-                    for session_id in filtered_ids {
-                        SessionRow {
-                            key: "{session_id}",
-                            cursor: cursor_id.as_deref() == Some(session_id.as_str()),
-                            session_id,
-                        }
-                    }
-
-                }
-            }
-                }
             }
         }
     }
+        }
 }
 #[component]
 fn FolderConversationRows(
     conversation_ids: Vec<String>,
     active_agent_id: Option<String>,
     nested: bool,
+    search_result: bool,
+    query: String,
 ) -> Element {
     let pump = use_store();
     let conversation_id_set: std::collections::BTreeSet<&str> =
@@ -215,6 +227,8 @@ fn FolderConversationRows(
                 conversation_id,
                 children_by_parent: children_by_parent.clone(),
                 active_agent_id: active_agent_id.clone(),
+                search_result,
+                query: query.clone(),
             }
         }
     };
@@ -230,6 +244,8 @@ fn FolderConversationBranch(
     conversation_id: String,
     children_by_parent: std::rc::Rc<std::collections::BTreeMap<String, Vec<String>>>,
     active_agent_id: Option<std::rc::Rc<String>>,
+    search_result: bool,
+    query: String,
 ) -> Element {
     let children = children_by_parent
         .get(&conversation_id)
@@ -241,6 +257,8 @@ fn FolderConversationBranch(
                 conversation_id: conversation_id.clone(),
                 selected: active_agent_id.as_deref().map(String::as_str)
                     == Some(conversation_id.as_str()),
+                search_result,
+                query: query.clone(),
             }
             if !children.is_empty() {
                 SidenavMenuSub {
@@ -250,6 +268,8 @@ fn FolderConversationBranch(
                             conversation_id: child_id.clone(),
                             children_by_parent: children_by_parent.clone(),
                             active_agent_id: active_agent_id.clone(),
+                            search_result,
+                            query: query.clone(),
                         }
                     }
                 }
@@ -276,6 +296,10 @@ fn publish_cursor_targets(pump: &Pump, active: bool, visible_ids: Vec<String>) {
     });
 }
 
+fn folder_group_heading(name: &str, machine: &str) -> String {
+    format!("{name} · {machine}")
+}
+
 fn has_active_filter(query: &str) -> bool {
     !normalize_navigation_search_query(query).is_empty()
 }
@@ -288,4 +312,13 @@ fn is_visible_space_session(store: &Store, session_id: &str) -> bool {
             && !is_pending_close(store, session_id)
             && !is_chat_folder(&session.cwd)
     })
+}
+#[cfg(test)]
+mod tests {
+    use super::folder_group_heading;
+
+    #[test]
+    fn folder_search_heading_names_the_folder_and_machine_once() {
+        assert_eq!(folder_group_heading("roost", "m1"), "roost · m1");
+    }
 }

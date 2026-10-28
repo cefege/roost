@@ -1,7 +1,7 @@
 //! The unseen-bell mark: a small bell beside a session's tab title and sidebar
 //! row while that session has rung since it was last on screen. Reads
 //! `Store::terminal_bells`; `notifications::terminal_bell` clears the mark once
-//! the session is visible. Rendered by `PaneTab` and `SessionRowFlat`.
+//! the session is visible. Rendered by `PaneTab`.
 
 use dioxus::prelude::*;
 
