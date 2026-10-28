@@ -6508,6 +6508,7 @@ dependencies = [
  "sqlx",
  "str0m",
  "sysinfo",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tokio-tungstenite 0.30.0",

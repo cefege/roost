@@ -62,6 +62,7 @@ unicode-normalization.workspace = true
 # stubs them proves only that the worker called something. `server` is a
 # dev-only feature — the worker itself only ever dials.
 connectrpc = { workspace = true, features = ["client", "server"] }
+tempfile.workspace = true
 tokio = { workspace = true, features = ["net", "rt", "rt-multi-thread", "macros", "time", "test-util"] }
 tokio-tungstenite = { workspace = true, features = ["handshake"] }
 # The cgroup throttle trail is only observable as log events, so the test that
