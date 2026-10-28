@@ -2,9 +2,9 @@
 //! the worker and outlive it.
 //!
 //! Linux runs the updater as a transient user unit (`systemd-run --user`), which
-//! the worker's unit does not own. macOS runs it as a detached child in its own
-//! process group, with stdio on the log file. A `launchctl submit` job would be
-//! kept alive and relaunched when it exits, so it is not used here.
+//! the worker's unit does not own. macOS and Windows run it as a detached child
+//! with stdio on the log file. On Windows it first breaks out of the Scheduled
+//! Task job, if that job permits breakaway.
 //!
 //! The command lines are built by pure functions so their argv can be tested
 //! without a service manager.
@@ -94,10 +94,8 @@ pub(super) fn systemd_run_command(
     command
 }
 
-/// The macOS launch: the updater as a child in its own process group, so the
-/// worker's LaunchAgent (`AbandonProcessGroup`) does not take it down when the
-/// worker is restarted. Stdin is empty and both output streams go to `out`, so
-/// nothing is left holding a pipe to the worker.
+/// Build a detached updater command with stdio redirected to its log, so the
+/// worker can exit without holding the updater's pipes open.
 pub(super) fn detached_command(
     exe: &Path,
     tag: &str,
@@ -111,21 +109,64 @@ pub(super) fn detached_command(
         // Cleared first: `envs` alone would leave the whole worker environment in place.
         .env_clear()
         .envs(forwarded.iter().map(|(key, value)| (key, value)))
-        // Not the worker's directory: that is the release this update retires.
-        .current_dir("/")
         .stdin(Stdio::null())
         .stdout(Stdio::from(out))
         .stderr(Stdio::from(err));
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
-        command.process_group(0);
+        // Not the worker's directory: that is the release this update retires.
+        command.current_dir("/").process_group(0);
     }
+    #[cfg(windows)]
+    command.current_dir(std::env::temp_dir());
     Ok(command)
 }
 
-/// Start the updater for `tag`. Returns the transient unit name on Linux and an
-/// empty string on macOS, where the detached child has no unit name.
+#[cfg(unix)]
+fn spawn_detached(command: &mut Command) -> std::io::Result<std::process::Child> {
+    command.spawn()
+}
+
+#[cfg(windows)]
+fn spawn_detached(command: &mut Command) -> std::io::Result<std::process::Child> {
+    use std::os::windows::process::CommandExt;
+
+    const BREAKAWAY_DENIED: i32 = 5;
+
+    command.creation_flags(windows_updater_creation_flags(true));
+    match command.spawn() {
+        Err(error) if error.raw_os_error() == Some(BREAKAWAY_DENIED) => {
+            tracing::info!(
+                "the service job refuses breakaway: the updater starts inside the task's job"
+            );
+            command.creation_flags(windows_updater_creation_flags(false));
+            command.spawn()
+        }
+        spawned => spawned,
+    }
+}
+
+#[cfg(any(windows, test))]
+const DETACHED_PROCESS: u32 = 0x0000_0008;
+#[cfg(any(windows, test))]
+const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+#[cfg(any(windows, test))]
+const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+
+#[cfg(any(windows, test))]
+fn windows_updater_creation_flags(breakaway: bool) -> u32 {
+    DETACHED_PROCESS
+        | CREATE_NEW_PROCESS_GROUP
+        | if breakaway {
+            CREATE_BREAKAWAY_FROM_JOB
+        } else {
+            0
+        }
+}
+
+/// Start the updater for `tag`. Returns the transient systemd unit name on Linux
+/// and an empty string for detached processes on macOS and Windows.
 pub(super) fn spawn_updater(
     platform: HostPlatform,
     exe: &Path,
@@ -149,7 +190,7 @@ pub(super) fn spawn_updater(
                 Err(error) => Err(format!("could not run systemd-run: {error}")),
             }
         }
-        HostPlatform::MacOs => {
+        HostPlatform::MacOs | HostPlatform::Windows => {
             let out = OpenOptions::new()
                 .create(true)
                 .append(true)
@@ -157,13 +198,11 @@ pub(super) fn spawn_updater(
                 .map_err(|error| format!("cannot open {}: {error}", log.display()))?;
             let mut command = detached_command(exe, tag, forwarded, out)
                 .map_err(|error| format!("cannot prepare the updater: {error}"))?;
-            let child = command
-                .spawn()
+            let child = spawn_detached(&mut command)
                 .map_err(|error| format!("could not start the updater: {error}"))?;
             reap_when_done(child);
             Ok(String::new())
         }
-        HostPlatform::Windows => Err("worker self-update is for Linux and macOS".to_owned()),
     }
 }
 
@@ -268,6 +307,17 @@ mod tests {
         assert_eq!(
             unit_name("v3.0.0-rc.37", 99),
             "roost-self-update-v3.0.0-rc.37-99"
+        );
+    }
+    #[test]
+    fn windows_updater_uses_detached_process_flags_and_can_fall_back_from_job_breakaway() {
+        assert_eq!(
+            windows_updater_creation_flags(true),
+            0x0000_0008 | 0x0000_0200 | 0x0100_0000
+        );
+        assert_eq!(
+            windows_updater_creation_flags(false),
+            0x0000_0008 | 0x0000_0200
         );
     }
 }

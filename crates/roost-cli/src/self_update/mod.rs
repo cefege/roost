@@ -45,11 +45,6 @@ pub struct SelfUpdateArgs {
 /// Fetch, verify and activate `args.to`, then print the apply report.
 pub async fn run(args: &SelfUpdateArgs) -> Result<ExitCode, CommandFailure> {
     let platform = roost_host::supported_host_platform()?;
-    if matches!(platform, HostPlatform::Windows) {
-        return Err(CommandFailure::usage(
-            "self-update is for Linux and macOS workers",
-        ));
-    }
     gate::check_tag(&args.to).map_err(CommandFailure::usage)?;
     let identity = roost_host::build_identity(&ProcessEnv::new());
     if !identity.is_compiled {
