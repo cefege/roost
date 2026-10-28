@@ -26,7 +26,7 @@ use crate::pump::{Pump, use_store};
 use crate::route_session::active_session_for_path;
 use crate::router_state::{use_location, use_navigate};
 use crate::session_actions::close_labels_for;
-use crate::session_naming::{rel_time_since, session_title};
+use crate::session_naming::{program_subtitle, rel_time_since, session_title};
 
 /// Whether `path` shows this session: `/s/<id>` exactly or beneath it, or the
 /// legacy `/…/t/<channel>` form with this channel. Exact, never a substring:
@@ -47,7 +47,13 @@ pub fn session_row_is_active(path: &str, session_id: &str, channel: u32) -> bool
 
 /// A session row.
 #[component]
-pub fn SessionRow(session_id: String, cursor: bool, query: String) -> Element {
+pub fn SessionRow(
+    session_id: String,
+    cursor: bool,
+    query: String,
+    disambiguator: Option<String>,
+) -> Element {
+    let compact = crate::components::layout::window_size::use_is_compact();
     let pump = use_store();
     let path = use_location();
     let notify_target = use_notify_target();
@@ -79,8 +85,15 @@ pub fn SessionRow(session_id: String, cursor: bool, query: String) -> Element {
         } else {
             session.closed_at.unwrap_or(session.created_at)
         };
+        let title = session_title(store, session);
+        let subtitle = if compact {
+            program_subtitle(store, session).filter(|subtitle| subtitle != &title)
+        } else {
+            None
+        };
         RowFacts {
-            title: session_title(store, session),
+            title,
+            subtitle,
             worker_fp: session.worker_fp.to_string(),
             workspace_id: session.workspace_id.as_ref().map(ToString::to_string),
             status: session.status.as_str(),
@@ -172,8 +185,15 @@ pub fn SessionRow(session_id: String, cursor: bool, query: String) -> Element {
                 SidenavMenuButton {
                     href: href.clone(),
                     size: SidenavMenuButtonSize::Lg,
-                    aria_current: if facts.active { "page" } else { "false" },
-                    class: if cursor { "ring-2 ring-sidenav-ring" } else { "" },
+                    class: if compact && cursor {
+                        "h-auto min-h-12 py-1.5 ring-2 ring-sidenav-ring"
+                    } else if compact {
+                        "h-auto min-h-12 py-1.5"
+                    } else if cursor {
+                        "ring-2 ring-sidenav-ring"
+                    } else {
+                        ""
+                    },
                     "aria-label": "Open {facts.title}",
                     onclick: move |event: MouseEvent| {
                         if swipe.write().take_swiped() {
@@ -189,37 +209,74 @@ pub fn SessionRow(session_id: String, cursor: bool, query: String) -> Element {
                         record();
                         navigate.call(href.clone());
                     },
-                    Icon { icon: IconType::Terminal }
-                    span { class: "min-w-0 flex-1",
-                        span { class: "block truncate text-sm font-medium",
-                            "data-testid": "session-headline-{session_id}",
-                            crate::components::global_search::metadata::HighlightedText {
-                                text: facts.title.clone(),
-                                query,
+                    if compact {
+                        Icon { icon: IconType::Terminal }
+                        span { class: "flex min-w-0 flex-1 flex-col gap-0.5 text-left",
+                            span { class: "flex min-w-0 items-center gap-2",
+                                span { class: "min-w-0 flex-1 truncate text-sm font-medium",
+                                    "data-testid": "session-headline-{session_id}",
+                                    crate::components::global_search::metadata::HighlightedText {
+                                        text: facts.title.clone(),
+                                        query: query.clone(),
+                                    }
+                                    if let Some(disambiguator) = disambiguator {
+                                        span { class: "ml-1 shrink-0 text-xs text-muted-foreground",
+                                            "{disambiguator}"
+                                        }
+                                    }
+                                }
+                                StatusDot {
+                                    status: (if facts.available { "ok" } else { "offline" }).to_owned(),
+                                    title: (if facts.available { "Available" } else { "Machine unavailable" }).to_owned(),
+                                }
+                                span { class: "shrink-0 text-xs tabular-nums text-muted-foreground",
+                                    "data-testid": "session-reltime-{session_id}",
+                                    title: if facts.status == "open" { "Opened" } else { "Closed" },
+                                    {facts.activity.clone()}
+                                }
+                            }
+                            if let Some(subtitle) = facts.subtitle.clone() {
+                                span { class: "truncate text-xs text-muted-foreground",
+                                    "data-testid": "session-subtitle-{session_id}",
+                                    title: subtitle.clone(),
+                                    "{subtitle}"
+                                }
                             }
                         }
-                        span { class: "block truncate text-xs text-muted-foreground",
-                            "data-testid": "session-reltime-{session_id}",
-                            {facts.activity.clone()}
+                    } else {
+                        span { class: "min-w-0 flex-1",
+                            span { class: "block truncate text-sm font-medium",
+                                "data-testid": "session-headline-{session_id}",
+                                crate::components::global_search::metadata::HighlightedText {
+                                    text: facts.title.clone(),
+                                    query,
+                                }
+                            }
+                            span { class: "block truncate text-xs text-muted-foreground",
+                                "data-testid": "session-reltime-{session_id}",
+                                {facts.activity.clone()}
+                            }
+                        }
+                        StatusDot {
+                            status: (if facts.available { "ok" } else { "offline" }).to_owned(),
+                            title: (if facts.available { "Available" } else { "Machine unavailable" }).to_owned(),
                         }
                     }
-                    StatusDot {
-                        status: (if facts.available { "ok" } else { "offline" }).to_owned(),
-                        title: (if facts.available { "Available" } else { "Machine unavailable" }).to_owned(),
+                }
+                    if !compact {
+                        SidenavMenuAction {
+                            show_on_hover: true,
+                            "aria-label": "Close pane",
+                            "data-testid": "session-close-{session_id}",
+                            title: "Close pane",
+                            onclick: move |event: MouseEvent| {
+                                event.stop_propagation();
+                                event.prevent_default();
+                                close();
+                            },
+                            Icon { icon: IconType::X }
+                        }
                     }
-                }
-                SidenavMenuAction {
-                    show_on_hover: true,
-                    "aria-label": "Close pane",
-                    "data-testid": "session-close-{session_id}",
-                    title: "Close pane",
-                    onclick: move |event: MouseEvent| {
-                        event.stop_propagation();
-                        event.prevent_default();
-                        close();
-                    },
-                    Icon { icon: IconType::X }
-                }
             }
             // A sibling of the row, not a child: the row's swipe `transform`
             // makes it the containing block of a `position: fixed` menu, and
@@ -240,6 +297,7 @@ pub fn SessionRow(session_id: String, cursor: bool, query: String) -> Element {
 
 struct RowFacts {
     title: String,
+    subtitle: Option<String>,
     worker_fp: String,
     workspace_id: Option<String>,
     status: &'static str,

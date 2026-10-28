@@ -8,6 +8,7 @@ pub mod all_view;
 pub mod context_menu_frame;
 #[cfg(target_arch = "wasm32")]
 mod dom;
+pub mod folder_conversations;
 pub mod folder_list;
 pub mod folder_row;
 pub mod folder_row_context_menu;

@@ -175,7 +175,9 @@ pub fn FolderRow(group: FolderGroup, selected: bool, cursor: bool, children: Ele
                 Icon { icon: IconType::Ellipsis }
             }
             div { class: "flex min-w-0 flex-wrap items-center gap-1 px-2 pb-2",
-                MachineIdentityMark { worker, context_title: group.spawn_cwd.clone() }
+                if !compact {
+                    MachineIdentityMark { worker, context_title: group.spawn_cwd.clone() }
+                }
                 if !compact {
                     span { title: panes_title,
                         Badge { variant: BadgeVariant::Outline, size: BadgeSize::Sm,
