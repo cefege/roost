@@ -234,6 +234,12 @@ and search engine order lives in Settings → Web search. The
 [native role contract](protocol/spec/agent-chat.md#model-roles) lists every
 role and fallback. Classifier models appear only in the Judge picker.
 
+Settings → **Models & accounts** shows each role as a priority table. Drag a
+row by its grip to change the default and fallback order. Click a model to
+replace it, or **Add fallback** to append another. The row menu also moves or
+removes candidates. Changes save automatically in order. Removing the default
+promotes the next candidate; removing the last restores the inherited choice.
+
 Saved defaults apply to all folders unless you choose a folder. Editing them
 never clears an explicit chat pin, and folder overrides take precedence.
 

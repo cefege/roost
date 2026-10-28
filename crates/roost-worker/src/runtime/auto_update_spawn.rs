@@ -313,39 +313,45 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn the_detached_environment_keeps_a_writable_user_temporary_directory() {
-        let expected = std::env::temp_dir();
-        let script = r#"
-            $temporary = [System.IO.Path]::GetTempPath()
-            $scratch = Join-Path $temporary ('roost-updater-temp-' + [guid]::NewGuid().ToString('N'))
-            [System.IO.Directory]::CreateDirectory($scratch) | Out-Null
-            try {
-                [System.IO.File]::WriteAllText((Join-Path $scratch 'probe'), 'ok')
-                [Console]::Write($temporary)
-            } finally {
-                Remove-Item -LiteralPath $scratch -Recurse -Force
-            }
-        "#;
+        let staging = tempfile::Builder::new()
+            .prefix("roost-updater-temp-")
+            .tempdir()
+            .expect("create the worker's staging probe");
+        let directory_name = staging
+            .path()
+            .file_name()
+            .expect("the probe has a directory name")
+            .to_string_lossy();
+        let script = format!(
+            r#"
+            $ErrorActionPreference = 'Stop'
+            $scratch = Join-Path ([System.IO.Path]::GetTempPath()) '{directory_name}'
+            $release = Join-Path $scratch 'release'
+            [System.IO.Directory]::CreateDirectory($release) | Out-Null
+            [System.IO.File]::WriteAllText((Join-Path $release 'probe'), 'ok')
+            [Console]::Write($scratch)
+        "#
+        );
         let output = Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-Command", script])
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
             .env_clear()
             .envs(forwarded_environment())
             .output()
             .expect("start the updater-environment staging probe");
+        let staged = std::fs::read(staging.path().join("release").join("probe"));
+        let printed = String::from_utf8_lossy(&output.stdout);
+        let actual = Path::new(printed.trim());
+        if actual.file_name() == staging.path().file_name() {
+            let _ = std::fs::remove_dir_all(actual);
+        }
         assert!(
             output.status.success(),
             "staging probe failed: {}",
             String::from_utf8_lossy(&output.stderr)
         );
         assert_eq!(
-            String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .trim_end_matches('\\')
-                .to_ascii_lowercase(),
-            expected
-                .to_string_lossy()
-                .trim_end_matches('\\')
-                .to_ascii_lowercase(),
-            "the updater must stage under the same user temp directory as its worker"
+            staged.expect("the updater stages inside its worker's user temp directory"),
+            b"ok"
         );
     }
 

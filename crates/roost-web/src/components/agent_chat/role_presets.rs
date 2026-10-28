@@ -11,7 +11,6 @@ use roost_protocol::wire::agent_chat::{
 
 use super::model_controls::configure_model_pin;
 use super::role_switch::{pin_hides, with_applied_preset, with_saved_preset};
-use crate::components::settings::agent_roles::save_settings;
 use crate::components::ui::{Button, ButtonSize, ButtonVariant, Chip, IconType, TextField};
 use crate::pump::Pump;
 
@@ -41,7 +40,7 @@ pub(super) fn RolePresets(
         let typed = name.peek().trim().to_owned();
         match with_saved_preset(&settings.peek(), &typed) {
             Ok(updated) => {
-                save_settings(save_pump.clone(), updated, settings, error);
+                save_pump.save_agent_settings(updated, settings, error);
                 name.set(String::new());
                 naming.set(false);
             }
@@ -74,7 +73,7 @@ pub(super) fn RolePresets(
                                     return;
                                 }
                                 let updated = with_applied_preset(&settings.peek(), &roles);
-                                save_settings(apply_pump.clone(), updated, settings, error);
+                                apply_pump.save_agent_settings(updated, settings, error);
                                 if clear_pin {
                                     configure_model_pin(apply_pump.clone(), conversation_id.clone(), None);
                                 }

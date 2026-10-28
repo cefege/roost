@@ -27,16 +27,26 @@ pub fn push_entry(chain: &mut Vec<String>, entry: &str) -> bool {
     true
 }
 
+/// Moves the entry at `source` to `target`, shifting intervening entries.
+/// Returns false when either index is outside the chain or both are equal.
+pub fn move_entry_to_position(chain: &mut [String], source: usize, target: usize) -> bool {
+    if source >= chain.len() || target >= chain.len() || source == target {
+        return false;
+    }
+    if source < target {
+        chain[source..=target].rotate_left(1);
+    } else {
+        chain[target..=source].rotate_right(1);
+    }
+    true
+}
+
 /// Moves the entry at `index` by `step` places. Returns false at either edge.
 pub fn move_entry(chain: &mut [String], index: usize, step: isize) -> bool {
     let Some(target) = index.checked_add_signed(step) else {
         return false;
     };
-    if index >= chain.len() || target >= chain.len() {
-        return false;
-    }
-    chain.swap(index, target);
-    true
+    move_entry_to_position(chain, index, target)
 }
 
 /// Splits a trailing `:thinking` level off a candidate. Only a suffix the
@@ -83,13 +93,38 @@ mod tests {
     }
 
     #[test]
-    fn move_swaps_neighbours_and_refuses_edges() {
+    fn moving_to_position_shifts_intervening_entries_and_preserves_tokens() {
+        let mut chain = chain_of(&["a/x:high", "b/y:auto", "@role:low", "d/z"]);
+        assert!(move_entry_to_position(&mut chain, 2, 0));
+        assert_eq!(
+            chain,
+            chain_of(&["@role:low", "a/x:high", "b/y:auto", "d/z"])
+        );
+        assert!(move_entry_to_position(&mut chain, 0, 2));
+        assert_eq!(
+            chain,
+            chain_of(&["a/x:high", "b/y:auto", "@role:low", "d/z"])
+        );
+    }
+
+    #[test]
+    fn moving_to_same_or_outside_position_is_a_no_op() {
         let mut chain = chain_of(&["a", "b", "c"]);
-        assert!(move_entry(&mut chain, 1, -1));
+        assert!(!move_entry_to_position(&mut chain, 1, 1));
+        assert!(!move_entry_to_position(&mut chain, 3, 0));
+        assert!(!move_entry_to_position(&mut chain, 0, 3));
+        assert_eq!(chain, chain_of(&["a", "b", "c"]));
+    }
+
+    #[test]
+    fn neighbor_moves_shift_instead_of_swapping() {
+        let mut chain = chain_of(&["a", "b", "c"]);
+        assert!(move_entry(&mut chain, 0, 1));
         assert_eq!(chain, chain_of(&["b", "a", "c"]));
+        assert!(move_entry(&mut chain, 2, -1));
+        assert_eq!(chain, chain_of(&["b", "c", "a"]));
         assert!(!move_entry(&mut chain, 0, -1));
         assert!(!move_entry(&mut chain, 2, 1));
-        assert_eq!(chain, chain_of(&["b", "a", "c"]));
     }
 
     #[test]

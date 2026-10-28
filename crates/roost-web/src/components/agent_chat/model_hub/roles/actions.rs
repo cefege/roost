@@ -15,7 +15,6 @@ use crate::components::agent_chat::role_switch::{
     thinking_choices, with_applied_preset, with_saved_preset,
 };
 use crate::components::file_viewer::dom::focus_by_id;
-use crate::components::settings::agent_roles::save_settings;
 use crate::pump::Pump;
 
 /// The root element's id, focused so the keys reach the view.
@@ -316,7 +315,8 @@ impl RoleContext {
 
     fn commit(&self, next: Option<AgentSettingsView>) {
         if let Some(next) = next {
-            save_settings(self.pump.clone(), next, self.settings, self.error);
+            self.pump
+                .save_agent_settings(next, self.settings, self.error);
         }
     }
 }

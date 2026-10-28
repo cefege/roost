@@ -17,6 +17,7 @@
 //! through a direct listener ([`Pump::on_frames`]), not a signal, so a flood of
 //! frames neither re-renders the chrome nor waits on a reactive effect.
 
+mod agent_settings;
 mod attachment_door;
 mod boot;
 #[cfg(target_arch = "wasm32")]
@@ -59,6 +60,8 @@ struct PumpInner {
     core: Rc<RefCell<ClientCore>>,
     revision: Signal<u64>,
     rpc: Rc<CoordRpc>,
+    #[cfg(target_arch = "wasm32")]
+    agent_settings_writes: RefCell<agent_settings::SettingsWrites>,
     socket: RefCell<Option<LiveSocket>>,
     /// Set while `dispatch` runs, so a re-entrant call is queued, not nested.
     dispatching: Cell<bool>,
@@ -137,6 +140,8 @@ impl Pump {
                 core,
                 revision,
                 rpc,
+                #[cfg(target_arch = "wasm32")]
+                agent_settings_writes: RefCell::new(agent_settings::SettingsWrites::default()),
                 socket: RefCell::new(None),
                 carriers: RefCell::new(carriers::Carriers::default()),
                 #[cfg(target_arch = "wasm32")]

@@ -50,6 +50,7 @@ pub fn ToolbarMenu(
     aria_label: String,
     items: Vec<ToolbarMenuItem>,
     on_choose: EventHandler<String>,
+    #[props(into, optional)] trigger_id: Option<String>,
     /// Prefer opening above the trigger, for a trigger at the bottom of the
     /// pane; the menu still drops when there is more room below.
     #[props(default)]
@@ -81,6 +82,7 @@ pub fn ToolbarMenu(
             open: open(),
             on_open_change: move |next: bool| open.set(next),
             test_id: format!("agent-chat-{menu_key}-menu"),
+            trigger_id,
             side,
             {trigger_element}
             DropdownMenuContent { class: "w-auto min-w-48 max-h-[60vh] flex select-none flex-col overflow-y-auto",

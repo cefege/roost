@@ -8,7 +8,6 @@ use roost_protocol::wire::agent_chat::{AgentSettingsView, ModelsCatalog};
 
 use super::model_controls::thinking_label;
 use super::role_switch::{RoleLine, thinking_choices, with_role_thinking};
-use crate::components::settings::agent_roles::save_settings;
 use crate::components::settings::model_scope::ModelScope;
 use crate::components::ui::{Chip, IconType};
 use crate::pump::Pump;
@@ -61,7 +60,7 @@ pub(super) fn RoleThinking(
                             title: Some(title),
                             onclick: Some(EventHandler::new(move |_| {
                                 let updated = with_role_thinking(&settings.peek(), &scope, role, level.as_deref(), &levels);
-                                save_settings(pump.clone(), updated, settings, error);
+                                pump.save_agent_settings(updated, settings, error);
                             })),
                         }
                     }

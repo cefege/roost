@@ -1,20 +1,17 @@
-//! One role's row in the Models pane: its source chip, the reset action for a
-//! folder override, and the chain editor. `agent_roles` renders the all-folders
-//! role and each task-override role through `role_row`.
+//! One role's compact heading, source chip and ordered model table.
+//! `agent_roles` renders the global and folder-scoped choices through `role_row`;
+//! this file saves each complete chain and resets folder overrides.
 
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{AgentSettingsView, ModelsCatalog};
 
-use super::{role_options, save_settings};
+use super::role_options;
 use crate::components::settings::model_chain::{join_chain, parse_chain};
 use crate::components::settings::model_chain_editor::ModelChainEditor;
 use crate::components::settings::model_scope::{
     ModelScope, RoleSource, role_source, role_value, with_role_value,
 };
-use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Card, CardAction, CardContent, CardDescription, CardHeader,
-    CardTitle, Chip,
-};
+use crate::components::ui::{Button, ButtonSize, ButtonVariant, Chip};
 use crate::pump::Pump;
 
 pub(super) struct RoleRow {
@@ -69,56 +66,50 @@ pub(super) fn role_row(row: RoleRow, context: &RoleContext<'_>) -> Element {
     let thinking_levels = context.catalog.thinking_levels.clone();
     let settings = context.settings;
     let error = context.error;
-    let edit_current = context.current.clone();
     let edit_scope = context.scope.clone();
     let edit_pump = context.pump.clone();
-    let reset_current = context.current.clone();
     let reset_scope = context.scope.clone();
     let reset_pump = context.pump.clone();
     let show_reset = is_folder && source == RoleSource::Folder;
     rsx! {
-        Card {
+        div {
             key: "{role}",
+            class: "flex max-w-2xl flex-col gap-2",
             "data-testid": format!("agent-role-{role}"),
-            CardHeader {
-                CardTitle { {title} }
-                CardDescription { {purpose} }
-                CardAction {
-                    div { class: "flex flex-wrap items-center gap-2",
-                        Chip {
-                            label: source_text,
-                            title: Some(source_title),
-                            test_id: Some(format!("agent-role-{role}-source")),
-                        }
-                        if show_reset {
-                            Button {
-                                variant: ButtonVariant::Ghost,
-                                size: ButtonSize::Sm,
-                                "data-testid": "agent-role-{role}-use-all-folders",
-                                onclick: move |_| {
-                                    let updated = with_role_value(&reset_current, &reset_scope, role, None);
-                                    save_settings(reset_pump.clone(), updated, settings, error);
-                                },
-                                "Use all-folders choice"
-                            }
-                        }
+            div { class: "flex flex-wrap items-center gap-2",
+                h3 { class: "text-sm font-medium", {title} }
+                Chip {
+                    label: source_text,
+                    title: Some(source_title),
+                    test_id: Some(format!("agent-role-{role}-source")),
+                }
+                if show_reset {
+                    Button {
+                        class: "ml-auto",
+                        variant: ButtonVariant::Ghost,
+                        size: ButtonSize::Sm,
+                        "data-testid": "agent-role-{role}-use-all-folders",
+                        onclick: move |_| {
+                            let updated = with_role_value(&settings.peek(), &reset_scope, role, None);
+                            reset_pump.save_agent_settings(updated, settings, error);
+                        },
+                        "Use all-folders choice"
                     }
                 }
             }
-            CardContent {
-                ModelChainEditor {
-                    role_title: title.to_owned(),
-                    chain,
-                    options,
-                    thinking_levels,
-                    inherited_label: inherits.to_owned(),
-                    test_id: format!("agent-role-{role}-chain"),
-                    engines: role == "web",
-                    on_change: move |next: Vec<String>| {
-                        let updated = with_role_value(&edit_current, &edit_scope, role, Some(join_chain(&next)));
-                        save_settings(edit_pump.clone(), updated, settings, error);
-                    },
-                }
+            p { class: "text-xs text-muted-foreground", {purpose} }
+            ModelChainEditor {
+                role_title: title.to_owned(),
+                chain,
+                options,
+                thinking_levels,
+                inherited_label: inherits.to_owned(),
+                test_id: format!("agent-role-{role}-chain"),
+                engines: role == "web",
+                on_change: move |next: Vec<String>| {
+                    let updated = with_role_value(&settings.peek(), &edit_scope, role, Some(join_chain(&next)));
+                    edit_pump.save_agent_settings(updated, settings, error);
+                },
             }
         }
     }

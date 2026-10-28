@@ -6132,6 +6132,7 @@ name = "roost-agent"
 version = "3.0.0"
 dependencies = [
  "async-trait",
+ "base64 0.23.1",
  "chrono",
  "futures",
  "getrandom 0.4.3",

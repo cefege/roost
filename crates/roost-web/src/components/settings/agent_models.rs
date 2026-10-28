@@ -11,7 +11,7 @@ use super::agent_accounts::{ConnectedProviderCard, plural};
 use super::agent_connect_dialog::AgentConnectDialog;
 use super::agent_provider_list::AvailableProviders;
 use super::agent_provider_status::{ProviderSummary, provider_summaries};
-use super::agent_roles::{AgentRoles, WebSearchOrder, load_settings, save_settings};
+use super::agent_roles::{AgentRoles, WebSearchOrder, load_settings};
 use crate::components::ui::{
     Button, ButtonSize, ButtonVariant, EmptyState, FieldError, Icon, IconButton, IconType,
     Skeleton, Tabs, TabsContent, TabsList, TabsTrigger, TextField,
@@ -96,15 +96,17 @@ pub fn AgentModelsPane() -> Element {
                         section.set(key);
                     }
                 },
-                TabsList { aria_label: "Model settings",
-                    for (key, label, icon) in [
-                        ("models", "Models", IconType::Bot),
-                        ("accounts", "Provider accounts", IconType::Key),
-                        ("search", "Web search", IconType::Globe),
-                    ] {
-                        TabsTrigger { value: key, test_id: format!("agent-settings-tab-{key}"),
-                            Icon { icon }
-                            "{label}"
+                div { class: "min-w-0 max-w-full overflow-x-auto",
+                    TabsList { aria_label: "Model settings",
+                        for (key, label, icon) in [
+                            ("models", "Models", IconType::Bot),
+                            ("accounts", "Provider accounts", IconType::Key),
+                            ("search", "Web search", IconType::Globe),
+                        ] {
+                            TabsTrigger { value: key, test_id: format!("agent-settings-tab-{key}"),
+                                Icon { icon }
+                                "{label}"
+                            }
                         }
                     }
                 }
@@ -112,7 +114,7 @@ pub fn AgentModelsPane() -> Element {
                     TabsContent { value: "models",
                     section { class: "flex flex-col gap-4", "data-testid": "agent-model-roles",
                         p { class: "text-sm text-muted-foreground",
-                            "Pick a default model and, optionally, a cheaper fast model for searches and side questions. The chat's model button changes one conversation."
+                            "Drag models to set priority: the first runs by default, then its fallbacks. The fast model handles searches and side questions."
                         }
                         if signed_in.is_empty() {
                             Button {
@@ -202,7 +204,7 @@ pub fn AgentModelsPane() -> Element {
                                 let mut updated = settings();
                                 let value = search_url().trim().to_owned();
                                 updated.searxng_url = (!value.is_empty()).then_some(value);
-                                save_settings(pump.clone(), updated, settings, error);
+                                pump.save_agent_settings(updated, settings, error);
                             },
                             TextField {
                                 value: search_url(),

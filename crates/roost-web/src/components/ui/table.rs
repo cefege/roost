@@ -43,13 +43,32 @@ pub fn TableRow(
     #[props(into, optional)] class: Option<String>,
     #[props(into, optional)] data_state: Option<String>,
     #[props(into, optional)] test_id: Option<String>,
+    #[props(into, optional)] aria_grabbed: Option<String>,
+    #[props(default)] draggable: bool,
+    ondragstart: Option<EventHandler<DragEvent>>,
+    ondragend: Option<EventHandler<DragEvent>>,
+    ondragover: Option<EventHandler<DragEvent>>,
+    ondrop: Option<EventHandler<DragEvent>>,
     children: Element,
 ) -> Element {
     let merged = tw_merge!(
         "border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50",
         class.as_deref().unwrap_or("")
     );
-    rsx! { tr { class: "{merged}", "data-state": data_state.as_deref(), "data-testid": test_id.as_deref(), {children} } }
+    rsx! {
+        tr {
+            class: "{merged}",
+            "data-state": data_state.as_deref(),
+            "data-testid": test_id.as_deref(),
+            "aria-grabbed": aria_grabbed.as_deref(),
+            draggable,
+            ondragstart: move |event| if let Some(handler) = ondragstart { handler.call(event) },
+            ondragend: move |event| if let Some(handler) = ondragend { handler.call(event) },
+            ondragover: move |event| if let Some(handler) = ondragover { handler.call(event) },
+            ondrop: move |event| if let Some(handler) = ondrop { handler.call(event) },
+            {children}
+        }
+    }
 }
 
 #[component]

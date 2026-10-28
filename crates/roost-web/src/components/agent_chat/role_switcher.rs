@@ -18,7 +18,7 @@ use super::role_switch::{
 };
 use super::role_thinking::RoleThinking;
 use crate::components::layout::window_size::use_is_compact;
-use crate::components::settings::agent_roles::{load_settings, role_options, save_settings};
+use crate::components::settings::agent_roles::{load_settings, role_options};
 use crate::components::settings::model_scope::{ModelScope, with_role_value};
 use crate::components::ui::anchored_panel::focus_element_by_id;
 use crate::components::ui::{
@@ -181,7 +181,7 @@ fn RolePanel(
                             "data-testid": "agent-roles-use-all-folders",
                             onclick: move |_| {
                                 let updated = with_role_value(&reset_current, &reset_scope, role, None);
-                                save_settings(reset_pump.clone(), updated, settings, error);
+                                reset_pump.save_agent_settings(updated, settings, error);
                                 editing.set(None);
                             },
                             "Use all-folders model"
@@ -210,7 +210,7 @@ fn RolePanel(
                         {
                             updated = with_role_thinking(&updated, &active, role, Some(level), &levels);
                         }
-                        save_settings(choose_pump.clone(), updated, settings, error);
+                        choose_pump.save_agent_settings(updated, settings, error);
                         // A session pin runs ahead of this role; clear it so this chat follows.
                         if clear_pin {
                             configure_model_pin(choose_pump.clone(), conversation_id.clone(), None);

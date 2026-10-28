@@ -16,7 +16,6 @@ use super::strip_chips::{StripAction, StripChip, apply_settings, strip_view_chip
 use super::strip_thinking::thinking_step_after_assign;
 use crate::components::agent_chat::model_controls::configure_model_pin;
 use crate::components::agent_chat::role_switch::initial_scope;
-use crate::components::settings::agent_roles::save_settings;
 use crate::components::settings::model_scope::ModelScope;
 use crate::pump::Pump;
 
@@ -282,7 +281,9 @@ pub(super) fn apply_strip_chip(
     else {
         return;
     };
-    save_settings(commit.pump.clone(), updated, commit.settings, commit.error);
+    commit
+        .pump
+        .save_agent_settings(updated, commit.settings, commit.error);
     if matches!(chip.action, StripAction::Assign(_))
         && let Some(step) =
             thinking_step_after_assign(&before, catalog, selector, &open_strip.scope, role)

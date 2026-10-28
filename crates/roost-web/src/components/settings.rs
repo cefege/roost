@@ -22,6 +22,7 @@ pub mod mcp;
 pub mod metrics;
 pub mod model_chain;
 pub mod model_chain_editor;
+pub mod model_chain_table;
 pub mod model_scope;
 pub mod notifications;
 pub mod terminal;
@@ -264,7 +265,7 @@ fn MobileSettingsDetail(spec: Option<SettingsPaneSpec>) -> Element {
         return rsx! {};
     };
     rsx! {
-        div { class: "flex h-full min-h-0 flex-col bg-background",
+        div { class: "flex h-full min-h-0 min-w-0 w-full flex-col bg-background",
             header { class: "flex h-14 shrink-0 items-center gap-2 border-b border-border px-4",
                 IconButton {
                     icon: IconType::ArrowLeft,

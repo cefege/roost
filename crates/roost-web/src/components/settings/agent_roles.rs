@@ -1,7 +1,6 @@
-//! Models pane → "Model roles": for each role, the ordered model chain it tries,
-//! scoped to all folders or one known folder, plus the default advisor switch.
-//! Owns the `AgentSettingsGet`/`Set` calls the pane shares, so the settings
-//! document has one loader and one writer. Rendered by `agent_models`.
+//! Model-role editors for all folders or one known folder, plus the advisor switch.
+//! `agent_models` supplies catalog and account data; this module loads the shared
+//! settings document. The document pump owns ordered, optimistic writes.
 
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{AgentSettingsView, ModelsCatalog};
@@ -16,7 +15,7 @@ use crate::pump::{Pump, use_store};
 
 mod rows;
 #[cfg(target_arch = "wasm32")]
-use roost_client_core::client::rpc::calls::agent_chat::{GetAgentSettings, SetAgentSettings};
+use roost_client_core::client::rpc::calls::agent_chat::GetAgentSettings;
 use rows::{RoleContext, RoleRow, role_row};
 
 /// (role id, title, what it is for, what an unset role inherits). Stored keys in
@@ -176,7 +175,7 @@ pub fn AgentRoles(
                 move |enabled| {
                 let mut updated = advisor_current.clone();
                 updated.advisor_enabled = enabled;
-                save_settings(pump.clone(), updated, settings, error);
+                pump.save_agent_settings(updated, settings, error);
                 }
             },
         }
@@ -307,9 +306,10 @@ pub fn load_settings(
 ) {
     loaded.set(false);
     #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_futures::spawn_local(async move {
+    spawn(async move {
         let mut settings = settings;
         let mut error = error;
+        pump.wait_for_agent_settings_writes().await;
         match pump.rpc().call(&GetAgentSettings {}).await {
             Ok(json) => match serde_json::from_str(&json) {
                 Ok(value) => {
@@ -324,29 +324,4 @@ pub fn load_settings(
     });
     #[cfg(not(target_arch = "wasm32"))]
     let _ = (pump, settings, error, loaded);
-}
-
-pub fn save_settings(
-    pump: Pump,
-    updated: AgentSettingsView,
-    state: Signal<AgentSettingsView>,
-    error: Signal<String>,
-) {
-    #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_futures::spawn_local(async move {
-        let mut state = state;
-        let mut error = error;
-        match serde_json::to_string(&updated) {
-            Ok(settings_json) => match pump.rpc().call(&SetAgentSettings { settings_json }).await {
-                Ok(()) => {
-                    state.set(updated);
-                    error.set(String::new());
-                }
-                Err(failure) => error.set(format!("Could not save agent settings: {failure}")),
-            },
-            Err(failure) => error.set(format!("Could not encode agent settings: {failure}")),
-        }
-    });
-    #[cfg(not(target_arch = "wasm32"))]
-    let _ = (pump, updated, state, error);
 }

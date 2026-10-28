@@ -1,5 +1,5 @@
 //! The Roles view's edits. Each takes the saved settings and returns the settings
-//! to save, all-folders scope only; the view hands the result to `save_settings`.
+//! to save; the document pump writes complete snapshots in order.
 //! Chain indexes are positions in a role's stored chain: 0 is the leader, 1.. the
 //! fallbacks. Pure, so every rule is tested without the RPC.
 
