@@ -15,8 +15,9 @@ name: promote
 # so it can never set it) must not force production backward if someone
 # clicks it after a newer tag already promoted.
 #
-# The job runs in the `production` environment, so it waits for an approval
-# in GitHub before it changes anything. It never touches the cluster: it
+# The job runs in the `production` environment (branch policy only, no
+# reviewer), so it promotes as soon as the release publishes. It never touches
+# the cluster: it
 # points the `production` branch at the tag's commit plus one commit pinning
 # the coordinator image, and Flux on ovh1 (deploy/flux/) pulls that branch and
 # upgrades the Helm release. Workers follow the coordinator's `/version` on

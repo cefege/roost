@@ -350,8 +350,8 @@ jobs:
           fi
           echo "published $TAG with ${notes[*]}"
 
-  # The release is published; putting it in production waits for an approval
-  # in the `production` environment (promote.yml).
+  # The release is published; promote.yml puts it in production at once
+  # (the `production` environment has no required reviewer).
   promote:
     needs: [publish]
     uses: ./.github/workflows/promote.yml

@@ -498,19 +498,18 @@ and the incremental workspace crates recompile per worktree.
 
 ### Release to the fleet
 
-Releasing is a tag and an approval; no machine of ours runs a deploy.
+Releasing is a tag; no machine of ours runs a deploy and nobody approves it.
 
 ```
-git tag <tag> && git push origin <tag>   # release.yml + container.yml build everything
-# then approve the `production` deployment on the release run in GitHub
+git tag <tag> && git push origin <tag>   # release.yml + container.yml build and promote
 gh workflow run promote.yml -f tag=<older tag>   # roll back (see below)
 ```
 
 1. **Build.** `release.yml` gates and publishes the tag's assets;
    `container.yml` publishes the coordinator image to ghcr.
-2. **Promote.** `release.yml` ends with `promote.yml`, which waits for an
-   approval in the `production` environment (required reviewer: cefege;
-   allowed refs: `v3.*` tags and the `v3` branch), waits for the image, then
+2. **Promote.** `release.yml` ends with `promote.yml`, which runs in the
+   `production` environment (no required reviewer; allowed refs: `v3.*` tags
+   and the `v3` branch), waits for the image, then
    force-pushes the `production` branch to the tag's commit plus one commit
    writing `deploy/helm/production.values.yaml` (`image.tag`). It finishes when
    `https://mike.roosttt.com/version` reports the tag.
@@ -518,7 +517,7 @@ gh workflow run promote.yml -f tag=<older tag>   # roll back (see below)
    repository contents and workflow write access. The built-in `GITHUB_TOKEN`
    cannot move the branch across changes to `.github/workflows/`.
    `release.yml` passes that named secret across the reusable-workflow boundary;
-   the `production` environment supplies its value after approval.
+   the `production` environment supplies its value.
 3. **Coordinator.** Flux on ovh1 (`deploy/flux/`: a GitRepository on
    `production`, a Kustomization applying `deploy/flux/production/`, whose
    HelmRelease upgrades `roost-coordinator` with the chart and

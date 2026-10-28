@@ -876,7 +876,7 @@ deploying to a host that has no prior install refuses the deploy rather than
 registering that host under this machine's name.
 
 Our own fleet's maintainer flow is: push a `v3.*` tag, let `release.yml` build
-it, and approve its promotion; Flux deploys the coordinator and the workers
+it, and it promotes itself; Flux deploys the coordinator and the workers
 follow it. See `CLAUDE.md` § Release to the fleet.
 
 ## Automatic terminal transport
