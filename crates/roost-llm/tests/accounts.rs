@@ -100,6 +100,49 @@ async fn pool_skips_blocked_credential_and_returns_earliest_unblock() {
     assert!(reset_at_ms.is_some_and(|until| until < reset));
 }
 
+#[tokio::test]
+async fn an_account_the_provider_forbids_is_disabled_and_the_next_one_serves() {
+    let store = Arc::new(InMemoryCredentialStore::default());
+    let forbidden = store
+        .upsert(
+            "typesafe",
+            CredentialKind::ApiKey { key: "team".into() },
+            "team",
+            "team",
+        )
+        .await
+        .expect("forbidden credential");
+    let allowed = store
+        .upsert(
+            "typesafe",
+            CredentialKind::ApiKey { key: "personal".into() },
+            "personal",
+            "personal",
+        )
+        .await
+        .expect("allowed credential");
+    let pool = AccountPool::new(store.clone(), reqwest::Client::new(), Endpoints::production());
+    let refusal = roost_llm::LlmError::Auth(
+        r#"{"type":"error","error":{"type":"permission_error","details":{"error_code":"oauth_not_allowed_for_organization"}}}"#.into(),
+    );
+    let (next, auth) = pool
+        .rotate_after_error(forbidden, "typesafe", "conversation", &refusal)
+        .await
+        .expect("the other account serves");
+    assert_eq!((next, auth.secret()), (allowed, "personal"));
+    let rows = store.list("typesafe").await.expect("credentials");
+    let cause = rows
+        .iter()
+        .find(|row| row.id == forbidden)
+        .and_then(|row| row.disabled_cause.as_deref());
+    assert_eq!(cause, Some("oauth_not_allowed_for_organization"));
+    let error = pool
+        .rotate_after_error(allowed, "typesafe", "conversation", &refusal)
+        .await
+        .expect_err("no account is left");
+    assert_eq!(error, refusal, "the caller learns the refusal, not a generic failure");
+}
+
 #[test]
 fn anthropic_paste_parser_accepts_bare_and_redirect_values() {
     assert_eq!(

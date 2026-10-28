@@ -126,6 +126,29 @@ async fn a_rate_limited_call_rotates_to_another_account_and_succeeds() {
 }
 
 #[tokio::test]
+async fn an_account_the_provider_refuses_rotates_to_another_account_and_succeeds() {
+    let harness = Harness::new();
+    let id = harness.conversation().await;
+    harness.llm.script(
+        &id,
+        Err(LlmError::Auth(
+            r#"{"type":"error","error":{"type":"permission_error","message":"OAuth authentication is currently not allowed for this organization.","details":{"error_code":"oauth_not_allowed_for_organization"}}}"#.into(),
+        )),
+    );
+    harness
+        .llm
+        .script(&id, text_reply("served by the second account"));
+    harness.submit(&id, "hi").await;
+    let transcript = harness.settle(&id).await;
+    assert_eq!(transcript.run_state, AgentRunState::Idle);
+    assert_eq!(*harness.llm.rotations.lock().unwrap(), vec![1]);
+    assert_eq!(
+        support::texts(&transcript).last().map(String::as_str),
+        Some("served by the second account")
+    );
+}
+
+#[tokio::test]
 async fn a_hard_provider_error_is_supervised_until_a_retry_succeeds() {
     let harness = Harness::new();
     let id = harness.conversation().await;

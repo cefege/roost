@@ -107,14 +107,15 @@ pub(crate) async fn call_chain(
     }
 }
 
-/// Errors another model may answer where this one could not: a rate limit that
-/// rotation did not clear, or a transport failure that retries did not.
+/// Errors another model may answer where this one could not: a rate limit or
+/// account refusal that rotation did not clear, or a transport failure that
+/// retries did not.
 pub(crate) fn falls_over(error: &LlmError) -> bool {
-    matches!(error, LlmError::RateLimited { .. }) || error.is_transient()
+    matches!(error, LlmError::RateLimited { .. } | LlmError::Auth(_)) || error.is_transient()
 }
 
-/// One candidate's call: resolves its account, rotates on rate limits and
-/// retries transient failures.
+/// One candidate's call: resolves its account, rotates past rate-limited or
+/// refused accounts and retries transient failures.
 async fn call_candidate(
     runtime: &AgentRuntime,
     account_key: &str,
@@ -134,13 +135,16 @@ async fn call_candidate(
         let stream = llm.stream(credential_id, request.clone(), auth.clone(), cancel.clone());
         match collect(stream, cancel, observer).await {
             Ok(output) => return Ok(output),
-            Err(error @ LlmError::RateLimited { .. }) if rotations < MAX_ROTATIONS => {
+            Err(error @ (LlmError::RateLimited { .. } | LlmError::Auth(_)))
+                if rotations < MAX_ROTATIONS =>
+            {
                 rotations += 1;
                 tracing::info!(
                     account_key,
                     provider,
                     rotations,
-                    "rotating account after rate limit"
+                    %error,
+                    "rotating account after the provider refused it"
                 );
                 observer.restart();
                 (credential_id, auth) = llm

@@ -82,7 +82,7 @@ impl Llm for RoostLlm {
     ) -> BoxFuture<'a, Result<(i64, ResolvedAuth), LlmError>> {
         Box::pin(
             self.pool
-                .rotate_after_rate_limit(credential_id, provider, conversation_id, error),
+                .rotate_after_error(credential_id, provider, conversation_id, error),
         )
     }
 
