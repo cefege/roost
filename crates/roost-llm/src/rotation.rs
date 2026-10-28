@@ -42,12 +42,21 @@ impl AccountPool {
                 "permission_error"
             };
             self.store().disable(credential_id, cause).await?;
-            tracing::warn!(credential_id, provider, cause, "provider forbids this account; disabled it");
+            tracing::warn!(
+                credential_id,
+                provider,
+                cause,
+                "provider forbids this account; disabled it"
+            );
         } else {
             self.store()
                 .set_block(credential_id, now_ms().saturating_add(REJECTED_BLOCK_MS))
                 .await?;
-            tracing::warn!(credential_id, provider, "provider rejected this account's credential; blocked it");
+            tracing::warn!(
+                credential_id,
+                provider,
+                "provider rejected this account's credential; blocked it"
+            );
         }
         self.store().clear_sticky(conversation_id, provider).await?;
         self.resolve(provider, conversation_id)

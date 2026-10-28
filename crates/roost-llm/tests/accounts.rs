@@ -115,13 +115,19 @@ async fn an_account_the_provider_forbids_is_disabled_and_the_next_one_serves() {
     let allowed = store
         .upsert(
             "typesafe",
-            CredentialKind::ApiKey { key: "personal".into() },
+            CredentialKind::ApiKey {
+                key: "personal".into(),
+            },
             "personal",
             "personal",
         )
         .await
         .expect("allowed credential");
-    let pool = AccountPool::new(store.clone(), reqwest::Client::new(), Endpoints::production());
+    let pool = AccountPool::new(
+        store.clone(),
+        reqwest::Client::new(),
+        Endpoints::production(),
+    );
     let refusal = roost_llm::LlmError::Auth(
         r#"{"type":"error","error":{"type":"permission_error","details":{"error_code":"oauth_not_allowed_for_organization"}}}"#.into(),
     );
@@ -140,7 +146,10 @@ async fn an_account_the_provider_forbids_is_disabled_and_the_next_one_serves() {
         .rotate_after_error(allowed, "typesafe", "conversation", &refusal)
         .await
         .expect_err("no account is left");
-    assert_eq!(error, refusal, "the caller learns the refusal, not a generic failure");
+    assert_eq!(
+        error, refusal,
+        "the caller learns the refusal, not a generic failure"
+    );
 }
 
 #[test]
