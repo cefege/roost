@@ -104,7 +104,11 @@ fn unpack_web(archive: &Path, out: &Path) -> Result<(), String> {
         }
     }
     let mut tar = Command::new("tar");
-    tar.arg("-xzf").arg(archive).arg("-C").arg(out);
+    tar.env("COPYFILE_DISABLE", "1")
+        .args(["-xzf"])
+        .arg(archive)
+        .arg("-C")
+        .arg(out);
     run_with_stdin(&mut tar, "")?;
     if !public.join("index.html").is_file() {
         return Err(format!("{} holds no public/index.html", archive.display()));

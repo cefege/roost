@@ -241,9 +241,9 @@ going on in 30 seconds?"** If no, refactor before commit.
 
 **Name every dropped path in the commit body.** Only paths unreachable in an
 all-v3 fleet are dropped, plus features the operator retired. The list so
-far: the v2 Windows update broker (Windows workers are supported through the
-Scheduled Task service path and upgrade through `install.ps1` or
-`cargo xtask fleet install`, never a broker), the legacy unimplemented `Sync`
+far: the v2 Windows update broker (Windows workers use the Scheduled Task
+service path and the v3 coordinator-following updater; initial installation uses
+`install.ps1` or `cargo xtask fleet install`), the legacy unimplemented `Sync`
 server-streaming RPC, the legacy `/w/:workspaceId[/t/:channelId]` routes,
 `client-seq.txt`, the keeper "Bun ABI" identity field, the Bun-specific zlib
 workaround, capability fallbacks for peers lacking a capability every v3 peer
@@ -529,18 +529,20 @@ gh workflow run promote.yml -f tag=<older tag>   # roll back (see below)
    upgrade can migrate the database and re-encrypt credentials. Flux's own
    manifests were installed once from its release `install.yaml`
    (`kubectl apply --server-side`), then `deploy/flux/bootstrap.yaml`.
-4. **Workers.** Linux and macOS workers poll the coordinator's `/version` and
-   install exactly that release themselves (`roost __self-update`, log
-   `self-update-<tag>.log` in the worker's log directory), so they follow a
+4. **Workers.** Linux, macOS and Windows workers poll the coordinator's
+   `/version` and install exactly that release themselves (`roost __self-update`,
+   log `self-update-<tag>.log` in the worker's log directory), so they follow a
    promotion and a rollback alike. The first poll is 60 seconds after startup,
    then every 15 minutes; persisted attempt state enforces an hour between
    updater starts, even across tags or restarts
-   (`crates/roost-worker/src/runtime/auto_update.rs`). ovh1, m5, m1-new and m1-old
-   follow since rc.39 (rc.37's and rc.38's updater restarted the old unit on Linux
-   and failed launchd's bootstrap on macOS). desktop-pc (offline) and roost-win
-   (Windows, never self-updates) still need
-   `cargo xtask fleet install --version <tag> --host <name>`; desktop-pc only
-   once, roost-win every release.
+   (`crates/roost-worker/src/runtime/auto_update.rs`). Windows installs into a
+   versioned directory and restarts its Scheduled Task from a detached updater,
+   leaving the keeper running. ovh1, m5, m1-new and m1-old follow since rc.39
+   (rc.37's and rc.38's updater restarted the old unit on Linux and failed
+   launchd's bootstrap on macOS). desktop-pc (offline) still needs
+   `cargo xtask fleet install --version <tag> --host desktop-pc` once; roost-win
+   follows the coordinator after its first install of a release carrying the
+   Windows updater.
 
 **Rolling back** is promoting an older tag. Going back past a migration or
 the credential encryption also needs the database restored from a

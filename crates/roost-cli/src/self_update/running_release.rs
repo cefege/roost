@@ -37,12 +37,11 @@ pub fn check(label: &str, platform: HostPlatform, tag: &str) -> Result<(), Strin
     })
 }
 
-/// The main pid in a `systemctl --user show` or `launchctl print` report.
+/// The main pid in a service manager's state report.
 pub fn report_pid(report: &str, platform: HostPlatform) -> Option<String> {
     let key = match platform {
-        HostPlatform::Linux => "MainPID",
+        HostPlatform::Linux | HostPlatform::Windows => "MainPID",
         HostPlatform::MacOs => "pid",
-        HostPlatform::Windows => return None,
     };
     report
         .lines()
@@ -82,7 +81,19 @@ fn program_of(pid: &str, platform: HostPlatform) -> Option<PathBuf> {
             let text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
             (!text.is_empty()).then(|| PathBuf::from(text))
         }
-        HostPlatform::Windows => None,
+        HostPlatform::Windows => {
+            let script =
+                format!("(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').ExecutablePath");
+            let output = Command::new("powershell.exe")
+                .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+                .output()
+                .ok()?;
+            if !output.status.success() {
+                return None;
+            }
+            let text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            (!text.is_empty()).then(|| PathBuf::from(text))
+        }
     }
 }
 
@@ -114,6 +125,22 @@ mod tests {
             tag
         ));
     }
+    #[cfg(windows)]
+    #[test]
+    fn the_windows_worker_executable_is_proved_under_its_release_tag() {
+        assert!(runs_release(
+            Path::new(
+                r"C:\Users\roost\AppData\Local\RoostWorkerV3\versions\v3.0.0-rc.39\bin\roost.exe"
+            ),
+            "v3.0.0-rc.39"
+        ));
+        assert!(!runs_release(
+            Path::new(
+                r"C:\Users\roost\AppData\Local\RoostWorkerV3\versions\v3.0.0-rc.38\bin\roost.exe"
+            ),
+            "v3.0.0-rc.39"
+        ));
+    }
 
     #[test]
     fn the_main_pid_is_read_from_either_manager_and_zero_is_none() {
@@ -127,6 +154,10 @@ mod tests {
         assert_eq!(
             report_pid(launchd, HostPlatform::MacOs).as_deref(),
             Some("15687")
+        );
+        assert_eq!(
+            report_pid("State=Running\nMainPID=42\n", HostPlatform::Windows).as_deref(),
+            Some("42")
         );
         assert_eq!(
             report_pid("\tstate = not running\n", HostPlatform::MacOs),

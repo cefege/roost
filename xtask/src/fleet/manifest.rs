@@ -142,6 +142,7 @@ impl FleetHost {
             )
         };
         let mut pack = Command::new("tar")
+            .env("COPYFILE_DISABLE", "1")
             .arg("-C")
             .arg(source_dir)
             .args(["-cf", "-", "."])

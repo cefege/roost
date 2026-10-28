@@ -3,9 +3,9 @@
 //! The coordinator's `GET /version` names the release it is running; the
 //! fleet's desired release is that exact tag, never GitHub's "latest", so a
 //! rolled-back coordinator pulls its workers back too. When the names differ,
-//! the poller starts `roost __self-update --to <tag>` in its own service unit
-//! (see [`super::auto_update_spawn`]) and leaves the rest to that process: the
-//! updater restarts this worker, and nothing here may be a child of it.
+//! the poller starts `roost __self-update --to <tag>` in a process outside its
+//! service task (see [`super::auto_update_spawn`]) and leaves the rest to that
+//! process: the updater restarts this worker, and nothing here may be its child.
 //!
 //! [`decide`] is a pure function so the policy is testable without a
 //! coordinator, a service manager, or a clock.
@@ -38,8 +38,8 @@ const OPT_OUT_VARIABLE: &str = "ROOST_AUTO_UPDATE";
 pub struct Attempt {
     pub tag: String,
     pub at_ms: u64,
-    /// The transient systemd unit that ran it (Linux); empty on macOS, where the
-    /// detached child has no unit name.
+    /// The transient systemd unit that ran it (Linux); empty for detached
+    /// updater processes on macOS and Windows.
     pub unit: String,
 }
 
@@ -110,14 +110,13 @@ struct Site {
     running: String,
 }
 
-/// Start the poller, or `None` when this worker never updates itself: a
-/// Windows host, a source build, an opt-out, or nothing to compare against.
+/// Start the poller, or `None` when this worker is a source build or opted out.
 /// Those checks run here so a dev build never starts a background task.
 pub fn spawn_poller(boot: &WorkerBoot) -> Option<JoinHandle<()>> {
     let platform = match supported_host_platform() {
-        Ok(platform @ (HostPlatform::Linux | HostPlatform::MacOs)) => platform,
-        _ => {
-            tracing::info!("worker self-update is for Linux and macOS workers; not polling");
+        Ok(platform) => platform,
+        Err(error) => {
+            tracing::info!(%error, "worker self-update is unavailable; not polling");
             return None;
         }
     };
