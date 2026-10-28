@@ -56,6 +56,8 @@ mod render_append;
 mod render_append_frames;
 #[path = "render_append_holds.rs"]
 mod render_append_holds;
+#[path = "render_detached_rows.rs"]
+mod render_detached_rows;
 #[path = "render_find_park.rs"]
 mod render_find_park;
 #[path = "render_geometry.rs"]

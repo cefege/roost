@@ -8,7 +8,7 @@
 use roost_protocol::cell::{CellGridFrame, CellRow};
 
 use crate::cell_renderer::CellGridRenderer;
-use crate::cell_renderer_dom::DomResult;
+use crate::cell_renderer_dom::{DomResult, is_placed_in};
 use crate::presentation::{RendererEpochSeq, RendererIncidentPhase, RendererTerminalModeSnapshot};
 use crate::render_element::RenderElement;
 
@@ -30,6 +30,7 @@ impl<E: RenderElement> CellGridRenderer<E> {
         let same_grid = self.reconciled_grid_epoch.as_deref() == Some(frame.grid_epoch.as_str())
             && self.painted_cols == Some(frame.cols)
             && self.row_elements.len() == frame.rows as usize
+            && self.viewport_rows_are_placed()
             && self.painted_alt_screen == Some(frame.alt_screen);
         let should_pin = force_pin || (follow_tail && self.at_bottom_or_owned_placement());
         if !same_grid || frame.scrollback_total < self.scrollback_layout_end {
@@ -108,6 +109,7 @@ impl<E: RenderElement> CellGridRenderer<E> {
             && !self.reader.holding()
             && !self.pending_render
             && self.row_elements.len() == frame.rows as usize
+            && self.viewport_rows_are_placed()
             && self.painted_cols == Some(frame.cols)
             && self.painted_alt_screen == Some(frame.alt_screen)
             && self.painted_cursor_visible == Some(frame.cursor_visible);
@@ -140,6 +142,13 @@ impl<E: RenderElement> CellGridRenderer<E> {
         if let Some(callback) = self.on_reconcile.as_ref() {
             callback();
         }
+    }
+    /// Cached row handles are a valid sparse baseline only while each remains
+    /// physically attached to the viewport.
+    pub(crate) fn viewport_rows_are_placed(&self) -> bool {
+        self.row_elements
+            .iter()
+            .all(|row| is_placed_in(row, &self.viewport))
     }
 
     /// The newest frame, which is the reader-pending one while a park holds it.

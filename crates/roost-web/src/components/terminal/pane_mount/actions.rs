@@ -197,6 +197,7 @@ pub(super) fn flags_changed(shared: &PaneShared, previous: PaneFlags, flags: Pan
     super::paint::refresh_presentation(shared);
     super::interactions::sync_foreground(shared);
     super::input::focus_if_owner(shared, previous, flags);
+    super::paint::request_owed_paint(shared);
 }
 
 /// Publish now, superseding a trailing publish.

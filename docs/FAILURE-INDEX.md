@@ -990,18 +990,15 @@ frames, or use a renderer watermark or zero-byte reveal witness to guess that
 its old DOM is still authoritative. Component, socket, coordinator membership
 and worker stream lifecycles do not expire together.
 
-**Right** — `terminal-stream.ts` owns one canonical replica per session while
-any view handle exists. Renderer detach does not delete it. Explicitly inactive
-views stop constraining SCD and receiving cells; reactivation starts an
-independent per-socket snapshot cursor from the coordinator cache, or waits for
-the worker's full when the stream/geometry changed. New-stream cells share the
-same scheduler lane as their state predecessor and cannot overtake it. A
-same-epoch/same-width repair updates the live tail without deleting already
-painted immutable history or the reader's global anchor.
+**Right** — v3 has one canonical terminal replica in `roost-client-core`,
+per-pane delivery parking and full fallback in `roost-web`, and DOM
+reconciliation in `roost-web-terminal`. Three boundaries must hold: promotion
+advances delivery monotonically and breaks the old delta base; sparse painting
+requires every cached row to remain attached to the viewport; layout reveal
+requests an already-owed paint after publishing the view.
 
-**Guard** — `crates/roost-client-core/tests/terminal_full_before_delta.rs`;
-`crates/roost-web-terminal/tests/render_history_repair.rs` —
-`a_live_viewport_only_full_preserves_painted_history_and_inserts_only_the_missing_tail_gap`.
+**Guard** — `crates/roost-client-core/tests/direct_carrier_promotion.rs`;
+`crates/roost-web-terminal/tests/render_reconcile_diff.rs`; `crates/roost-web/tests/terminal_pane_rules.rs`.
 
 ### Reveal lands in history instead of the present
 

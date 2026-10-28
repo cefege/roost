@@ -46,6 +46,13 @@ impl RendererDeliveries {
         self.clear();
     }
 
+    /// A promoted replica starts a new delivery route and cannot share the
+    /// replaced route's renderer delta base.
+    pub(crate) fn begin_promotion_after(&mut self, previous_revision: u64) {
+        self.revision = self.revision.max(previous_revision) + 1;
+        self.clear();
+    }
+
     /// A delta extended the replica. The oldest deltas leave once the suffix
     /// outgrows one batch: a renderer that far behind takes the full anyway.
     pub fn note_delta(&mut self, delta: CellGridFrame) {

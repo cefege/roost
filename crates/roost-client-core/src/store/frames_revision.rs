@@ -9,7 +9,7 @@ use super::Store;
 use crate::terminal::session::TerminalSession;
 
 /// What one replica fold can move that a host repaints for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct PaintedMark {
     frame_revision: u64,
     baseline_ready: bool,

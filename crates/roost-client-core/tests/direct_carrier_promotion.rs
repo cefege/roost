@@ -18,6 +18,40 @@ use direct_carrier_support::*;
 #[test]
 fn a_view_answer_then_a_full_elects_the_route_and_retires_the_sync_view_afterwards() {
     let mut core = core_with_a_pane();
+    let sync_token = core
+        .store()
+        .sync_terminal_token()
+        .expect("the Sync route is open");
+    let sync_generation = sync_token.socket_generation;
+    let sync_view_generation = sync_token.view_answer_generation();
+    let _ = core.handle(ClientEvent::SyncFrameReceived {
+        generation: sync_generation,
+        delivery_seq: 0,
+        frame: SyncFrame::ViewState {
+            session_id: SESSION.to_owned(),
+            view_id: VIEW.to_owned(),
+            generation: sync_view_generation,
+            revision: 1,
+            accepted: true,
+            stream_id: STREAM.to_owned(),
+            effective_cols: COLS,
+            effective_rows: ROWS,
+        },
+    });
+    let SyncFrame::CellGrid {
+        mut frame,
+        session_id,
+        ..
+    } = baseline()
+    else {
+        unreachable!();
+    };
+    frame.stream_id = STREAM.to_owned();
+    let _ = core.handle(ClientEvent::SyncFrameReceived {
+        generation: sync_generation,
+        delivery_seq: 1,
+        frame: SyncFrame::CellGrid { session_id, frame },
+    });
     let _ = core.handle(ClientEvent::CarrierReady(carrier(&[SESSION])));
     let _ = minted(&mut core, 1, Some(WIRE));
 
@@ -36,8 +70,34 @@ fn a_view_answer_then_a_full_elects_the_route_and_retires_the_sync_view_afterwar
         "an answer installs the stream; the baseline still has to arrive"
     );
 
+    let previous_frames_revision = core.store().frames_revision();
+    let previous_delivery_revision = core
+        .store()
+        .terminal(SESSION)
+        .map(|replica| replica.frame_revision())
+        .unwrap_or_default();
+    assert_eq!(
+        previous_delivery_revision, 1,
+        "the replaced Sync full is at the candidate's first-full revision"
+    );
     let effects = core.handle(direct_frame(baseline()));
 
+    let replica = core
+        .store()
+        .terminal(SESSION)
+        .expect("the promoted replica");
+    assert!(
+        core.store().frames_revision() > previous_frames_revision,
+        "promotion advances the frame-listener revision"
+    );
+    assert!(
+        replica.frame_revision() > previous_delivery_revision,
+        "promotion establishes a delivery boundary above the replaced replica"
+    );
+    assert!(
+        replica.deltas_since(previous_delivery_revision).is_none(),
+        "promotion must not bridge the replaced route's delta base"
+    );
     let route = core
         .store()
         .routes

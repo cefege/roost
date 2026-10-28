@@ -103,6 +103,10 @@ impl TerminalSession {
     pub fn deltas_since(&self, painted_revision: u64) -> Option<&[CellGridFrame]> {
         self.deliveries.deltas_since(painted_revision)
     }
+    /// Start a renderer-delivery boundary after replacing another route.
+    pub(crate) fn begin_promotion_after(&mut self, previous_revision: u64) {
+        self.deliveries.begin_promotion_after(previous_revision);
+    }
 
     /// The pane geometry the replica is fenced to.
     pub fn effective_geometry(&self) -> (u32, u32) {

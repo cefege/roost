@@ -134,7 +134,11 @@ impl<E: RenderElement> CellGridRenderer<E> {
             reader_reason: self.reader.reason(),
             reader_anchor: self.reader_anchor,
             hold_mask: self.reader.hold_mask(),
-            dom_rows: self.row_elements.len(),
+            dom_rows: self
+                .row_elements
+                .iter()
+                .filter(|row| is_placed_in(*row, &self.viewport))
+                .count(),
             reconciled_mode: self.reconciled_mode,
             painted_cursor_visible: self.painted_cursor_visible,
             painted_cursor_row: self.painted_cursor_row,

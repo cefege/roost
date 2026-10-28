@@ -172,6 +172,10 @@ impl FakeEl {
         child.0.borrow_mut().parent = Some(Rc::downgrade(&self.0));
         self.0.borrow_mut().children.insert(index, child.clone());
     }
+    /// Remove a child from its current parent without notifying the renderer.
+    pub fn detach(&self) {
+        self.detach_from_parent();
+    }
 
     /// Rows this element contributes to scroll space: a spacer or gap by its
     /// reserved height, a row as one, anything else by its children.

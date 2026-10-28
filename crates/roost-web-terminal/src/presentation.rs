@@ -112,7 +112,7 @@ pub struct RendererProjection {
     pub reader_anchor: Option<ReaderAnchor>,
     /// The composed hold mask.
     pub hold_mask: u32,
-    /// Row elements currently in the viewport.
+    /// Cached viewport row elements still placed in the viewport.
     pub dom_rows: usize,
     /// The terminal modes the DOM has been reconciled to, or `None` before the
     /// first reconcile.

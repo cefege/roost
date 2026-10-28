@@ -294,8 +294,10 @@ pub(super) fn commit_promotion(
     now_ms: u64,
     out: &mut Vec<Effect>,
 ) {
-    // Read BEFORE the replica is replaced: these are the identities the previous
-    // route was serving, and they are gone the moment `insert` runs.
+    let before = store
+        .terminal(session_id)
+        .map(crate::store::frames_revision::PaintedMark::of)
+        .unwrap_or_default();
     let previous = store.terminal(session_id).map(|replica| {
         (
             replica.generation().cloned(),
@@ -307,8 +309,13 @@ pub(super) fn commit_promotion(
                 .collect::<Vec<_>>(),
         )
     });
+    if let Some(replica) = store.terminal(session_id) {
+        promoted.begin_promotion_after(replica.frame_revision());
+    }
     promoted.inherit_wire_record(store.terminal(session_id));
+    let after = crate::store::frames_revision::PaintedMark::of(&promoted);
     store.terminal.insert(session_id.to_string(), promoted);
+    store.note_fold(before, after);
     store.note_change();
     tracing::info!(
         target: "route",

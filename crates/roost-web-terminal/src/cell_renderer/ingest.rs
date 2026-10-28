@@ -94,7 +94,8 @@ impl<E: RenderElement> CellGridRenderer<E> {
         if base.viewport_rows.len() != base.rows as usize
             || (self.reader.intent() == ReaderIntent::Live
                 && !self.reader.holding()
-                && self.row_elements.len() != base.rows as usize)
+                && (self.row_elements.len() != base.rows as usize
+                    || !self.viewport_rows_are_placed()))
         {
             return false;
         }
@@ -170,6 +171,7 @@ impl<E: RenderElement> CellGridRenderer<E> {
         if reconciled != frame.grid_epoch
             || self.painted_cols != Some(frame.cols)
             || self.row_elements.len() != frame.rows as usize
+            || !self.viewport_rows_are_placed()
             || self.painted_alt_screen != Some(frame.alt_screen)
         {
             return false;
