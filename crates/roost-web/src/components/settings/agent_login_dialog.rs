@@ -12,7 +12,7 @@ use roost_client_core::client::rpc::calls::agent_chat::{
 use crate::components::ui::{
     Alert, AlertDescription, AlertTitle, AlertVariant, Button, ButtonSize, ButtonVariant, Card,
     CardContent, CardSize, Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle,
-    FieldError, IconButton, IconType, TextField,
+    FieldError, Icon, IconButton, IconType, TextField,
 };
 use crate::pump::{Pump, use_store};
 use roost_protocol::wire::agent_chat::{LoginPromptType, LoginState, LoginStatus};
@@ -119,7 +119,7 @@ pub fn AgentLoginDialog(
                     cancel_login(cancel_pump.clone(), close_id.clone(), on_close, error);
                 }
             },
-            DialogContent { test_id: "agent-login-dialog",
+            DialogContent { test_id: "agent-login-dialog", class: "sm:max-w-md",
                 DialogHeader {
                     DialogTitle { "Sign in to provider" }
                 }
@@ -130,14 +130,17 @@ pub fn AgentLoginDialog(
                                 Card { key: "{notice.notice_type:?}-{notice.message}", size: CardSize::Sm,
                                     CardContent { class: "flex flex-col gap-3",
                                         p { "{notice.message}" }
-                                        if notice.notice_type == roost_protocol::wire::agent_chat::LoginNoticeType::AuthUrl {
-                                            if let Some(url) = notice.url {
-                                                SignInUrl { url }
-                                            }
+                                        if let Some(code) = notice.code.clone() {
+                                            DeviceCode { code }
                                         }
-                                        if notice.notice_type == roost_protocol::wire::agent_chat::LoginNoticeType::DeviceCode {
-                                            if let Some(code) = notice.code {
-                                                code { class: "font-mono", "{code}" }
+                                        if let Some(url) = notice.url {
+                                            SignInUrl {
+                                                url,
+                                                label: if notice.notice_type == roost_protocol::wire::agent_chat::LoginNoticeType::DeviceCode {
+                                                    "Open the code page"
+                                                } else {
+                                                    "Open the sign-in page"
+                                                },
                                             }
                                         }
                                     }
@@ -221,33 +224,57 @@ pub fn AgentLoginDialog(
     }
 }
 
-/// The provider's sign-in address in full, as a link, with a copy button for
-/// opening it in another browser or on another device.
+/// The provider's page as a short link, with a copy button for opening it in
+/// another browser or on another device. The full address stays in the
+/// tooltip and the clipboard; it is too long to read.
 #[component]
-fn SignInUrl(url: String) -> Element {
+fn SignInUrl(url: String, label: String) -> Element {
     let (copy_url, copied) = crate::components::hooks::use_copy_clipboard::use_copy_clipboard(None);
     rsx! {
-        Card { size: CardSize::Sm,
-            CardContent { class: "flex items-center gap-2 break-all",
-                a {
-                    class: "min-w-0 flex-1 text-primary underline",
-                    href: "{url}",
-                    target: "_blank",
-                    rel: "noopener noreferrer",
-                    "data-testid": "agent-login-url",
-                    "{url}"
-                }
-                IconButton {
-                    icon: if copied() { IconType::Check } else { IconType::Copy },
-                    label: "Copy sign-in link",
-                    title: if copied() { "Copied" } else { "Copy link" },
-                    size: ButtonSize::IconSm,
-                    "data-testid": "agent-login-url-copy",
-                    onclick: {
-                        let url = url.clone();
-                        move |_| copy_url(&url)
-                    },
-                }
+        div { class: "flex items-center gap-2",
+            a {
+                class: "inline-flex items-center gap-1 text-sm font-medium text-primary underline-offset-4 hover:underline",
+                href: "{url}",
+                title: "{url}",
+                target: "_blank",
+                rel: "noopener noreferrer",
+                "data-testid": "agent-login-url",
+                "{label}"
+                Icon { icon: IconType::ExternalLink, class: "size-4" }
+            }
+            IconButton {
+                icon: if copied() { IconType::Check } else { IconType::Copy },
+                label: "Copy link",
+                title: if copied() { "Copied" } else { "Copy link" },
+                size: ButtonSize::IconSm,
+                "data-testid": "agent-login-url-copy",
+                onclick: {
+                    let url = url.clone();
+                    move |_| copy_url(&url)
+                },
+            }
+        }
+    }
+}
+
+/// A device code to type on the provider's page, large enough to read and
+/// copyable in one click.
+#[component]
+fn DeviceCode(code: String) -> Element {
+    let (copy_code, copied) =
+        crate::components::hooks::use_copy_clipboard::use_copy_clipboard(None);
+    rsx! {
+        div { class: "flex items-center gap-2",
+            code { class: "font-mono text-lg font-semibold tracking-widest", "data-testid": "agent-login-device-code", "{code}" }
+            IconButton {
+                icon: if copied() { IconType::Check } else { IconType::Copy },
+                label: "Copy code",
+                title: if copied() { "Copied" } else { "Copy code" },
+                size: ButtonSize::IconSm,
+                onclick: {
+                    let code = code.clone();
+                    move |_| copy_code(&code)
+                },
             }
         }
     }

@@ -69,7 +69,7 @@ pub fn AgentConnectDialog(
                     on_close.call(false);
                 }
             },
-            DialogContent { test_id: "agent-connect-dialog",
+            DialogContent { test_id: "agent-connect-dialog", class: "sm:max-w-md",
                 DialogHeader {
                     DialogTitle { "{title}" }
                 }
