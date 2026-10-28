@@ -114,11 +114,21 @@ pub fn PaneTab(
             onmouseleave: move |_| on_hover_end.call(()),
             TabsTrigger {
                 value: session_id.clone(),
-                class: "h-full min-w-0 flex-1 justify-start text-start after:bottom-0",
+                class: "h-full min-w-0 flex-1 justify-start text-start",
                 aria_label: title.clone(),
                 has_panel: false,
                 title: native_tooltip,
                 onpointerdown: move |event| on_pointer_down.call(event),
+                trailing_action: rsx! {
+                    IconButton {
+                        icon: IconType::X,
+                        label: if agent_status.is_some() { "Close agent" } else { "Close terminal" },
+                        size: ButtonSize::IconXs,
+                        class: "shrink-0 opacity-0 pointer-events-none transition-opacity duration-150 group-hover/tab:opacity-100 group-hover/tab:pointer-events-auto group-focus-within/tab:opacity-100 group-data-[active=true]/tab:opacity-100 group-data-[active=true]/tab:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto tv:opacity-100 tv:pointer-events-auto pad:opacity-100 pad:pointer-events-auto group-data-[packed=true]/strip:hidden group-data-[packed=true]/strip:group-data-[active=true]/tab:inline-flex",
+                        "data-testid": "tab-close-{session_id}",
+                        onclick: move |event| on_close.call(event),
+                    }
+                },
                 "data-tab-select": "true",
                 Icon {
                     icon: if agent_status.is_some() { IconType::Bot } else { IconType::Terminal },
@@ -127,7 +137,7 @@ pub fn PaneTab(
                 if direct.is_some() {
                     Icon { icon: IconType::Zap, class: "size-4 shrink-0 text-warning @max-[120px]/pane-tab:hidden" }
                 }
-                span { class: "flex-1 min-w-0 truncate group-data-[packed=true]/strip:hidden", "{title}" }
+                span { class: "flex-1 min-w-0 truncate [font-family:var(--term-font-family)] group-data-[packed=true]/strip:hidden", "{title}" }
                 if let Some(status) = agent_status {
                     StatusDot { status: status.to_owned() }
                 } else {
@@ -139,14 +149,6 @@ pub fn PaneTab(
                     crate::components::terminal_bell_mark::TerminalBellMark { session_id: session_id.clone() }
                     crate::components::terminal_signal_marks::TerminalProgressMark { session_id: session_id.clone() }
                 }
-            }
-            IconButton {
-                icon: IconType::X,
-                label: if agent_status.is_some() { "Close agent" } else { "Close terminal" },
-                size: ButtonSize::IconXs,
-                class: "shrink-0 opacity-0 pointer-events-none transition-opacity duration-150 group-hover/tab:opacity-100 group-hover/tab:pointer-events-auto group-focus-within/tab:opacity-100 group-data-[active=true]/tab:opacity-100 group-data-[active=true]/tab:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto tv:opacity-100 tv:pointer-events-auto pad:opacity-100 pad:pointer-events-auto group-data-[packed=true]/strip:hidden group-data-[packed=true]/strip:group-data-[active=true]/tab:inline-flex",
-                "data-testid": "tab-close-{session_id}",
-                onclick: move |event| on_close.call(event),
             }
         }
     }

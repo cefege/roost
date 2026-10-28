@@ -4,23 +4,19 @@
 
 use dioxus::prelude::*;
 use roost_client_core::store::selectors::session_by_id;
-use roost_client_core::store::terminal_transport::session_terminal_transport_kind;
 
 use super::deck_dom::{ClientBox, DeckContainer};
 use super::inline_style::px;
-use super::pane_tab::direct_transport_label;
 use crate::components::agents::agent_status_indicator::AgentStatusIndicator;
 use crate::components::ui::{HoverCardPresentation, Icon, IconType};
 use crate::platform::worker_paths::short_worker_path;
 use crate::pump::use_store;
-use crate::session_naming::{program_subtitle, session_title};
+use crate::session_naming::session_title;
 
 /// What the card shows, read in one borrow.
 #[derive(Debug, Clone, PartialEq)]
 struct HoverCardReading {
     title: String,
-    subtitle: Option<String>,
-    direct: Option<&'static str>,
     cwd: String,
 }
 
@@ -40,8 +36,6 @@ pub fn PaneTabHoverCard(session_id: String, anchor: ClientBox) -> Element {
                 .map(|worker| worker.os.as_str());
             HoverCardReading {
                 title: session_title(store, session),
-                subtitle: program_subtitle(store, session),
-                direct: direct_transport_label(session_terminal_transport_kind(store, &session_id)),
                 cwd: short_worker_path(worker_os, &session.cwd),
             }
         })
@@ -72,20 +66,11 @@ pub fn PaneTabHoverCard(session_id: String, anchor: ClientBox) -> Element {
             "data-testid": "tab-hovercard",
             role: "tooltip",
             style: format!("left: {left}; top: {top};"),
-            div { class: "flex flex-col gap-1.5 text-sm",
-                div { class: "flex items-center gap-2 min-w-0",
+            div { class: "flex flex-col gap-1",
+                div { class: "flex items-center gap-2 min-w-0 text-sm",
                     Icon { icon: IconType::Terminal, class: "size-4 shrink-0 text-muted-foreground" }
-                    span { class: "flex-1 min-w-0 truncate font-medium", "{reading.title}" }
+                    span { class: "flex-1 min-w-0 truncate font-medium [font-family:var(--term-font-family)]", "{reading.title}" }
                     AgentStatusIndicator { session_id: session_id.clone() }
-                }
-                if let Some(subtitle) = reading.subtitle {
-                    div { class: "truncate text-muted-foreground", "{subtitle}" }
-                }
-                if let Some(direct) = reading.direct {
-                    div { class: "inline-flex items-center gap-1 self-start text-warning", title: direct,
-                        Icon { icon: IconType::Zap, class: "size-4 shrink-0" }
-                        "{direct}"
-                    }
                 }
                 div { class: "truncate text-xs font-mono text-muted-foreground", "{reading.cwd}" }
             }

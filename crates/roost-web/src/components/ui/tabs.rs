@@ -189,6 +189,7 @@ pub fn TabsTrigger(
     /// Pointer-down for draggable tab lists.
     #[props(optional)]
     onpointerdown: Option<EventHandler<PointerEvent>>,
+    #[props(optional)] trailing_action: Option<Element>,
     #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
@@ -233,12 +234,13 @@ pub fn TabsTrigger(
         } else {
             "after:opacity-0"
         },
+        trailing_action.is_some().then_some("after:hidden"),
         class.as_deref().unwrap_or("")
     );
 
     let key_tab_id = tab_id.clone();
     let click_value = value.clone();
-    rsx! {
+    let trigger = rsx! {
         button {
             r#type: "button",
             role: "tab",
@@ -259,8 +261,8 @@ pub fn TabsTrigger(
             },
             onclick: move |_| {
                 active.set(click_value.clone());
-                if let Some(handler) = &on_value_change {
-                    handler.call(click_value.clone());
+                if let Some(on_value_change) = &on_value_change {
+                    on_value_change.call(click_value.clone());
                 }
             },
             onkeydown: move |event| {
@@ -276,6 +278,23 @@ pub fn TabsTrigger(
             ..attributes,
             {children}
         }
+    };
+    if let Some(trailing_action) = trailing_action {
+        let wrapper_class = if is_line && is_active {
+            "relative inline-flex h-full min-w-0 flex-1 items-center gap-1 after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-foreground after:pointer-events-none after:transition-opacity after:opacity-100"
+        } else {
+            "relative inline-flex h-full min-w-0 flex-1 items-center gap-1 after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-foreground after:pointer-events-none after:transition-opacity after:opacity-0"
+        };
+        rsx! {
+            div {
+                class: "{wrapper_class}",
+                "data-active": if is_active { "true" } else { "false" },
+                {trigger}
+                {trailing_action}
+            }
+        }
+    } else {
+        trigger
     }
 }
 

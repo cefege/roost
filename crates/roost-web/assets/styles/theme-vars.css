@@ -41,7 +41,7 @@
 
   /* ── 3. Layout tokens ── */
   /* Terminal and path roles keep their monospace stacks independent of UI text. */
-  --term-font-family: Menlo, Consolas, "DejaVu Sans Mono", "Courier New", monospace;
+  --term-font-family: "JBM Nerd", Menlo, Consolas, "DejaVu Sans Mono", "Courier New", monospace;
   --term-font-size: 14px;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, "Cascadia Code", "Courier New", monospace;
 
