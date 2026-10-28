@@ -7,6 +7,7 @@
 
 use roost_proto::DLocalAttachmentGrant;
 use roost_protocol::attachment_transfer::{GRANT_TTL_MS, is_chunk_sha256};
+use roost_protocol::wire::AttachmentTargetId;
 use sha2::{Digest, Sha256};
 
 use super::file_hash::sha256_hex;
@@ -58,7 +59,7 @@ pub(super) fn valid_grant_frame(frame: &DLocalAttachmentGrant, worker_epoch: &st
     valid_opaque_id(&frame.request_id)
         && valid_opaque_id(&frame.grant_id)
         && is_chunk_sha256(&frame.secret_sha256)
-        && valid_opaque_id(&frame.session_id)
+        && AttachmentTargetId::try_from(frame.session_id.as_str()).is_ok()
         && valid_opaque_id(&frame.upload_id)
         && (1..=MAX_FILENAME_BYTES).contains(&frame.filename.len())
         && !frame.filename.contains('\0')

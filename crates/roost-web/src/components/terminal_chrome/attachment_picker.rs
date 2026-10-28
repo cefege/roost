@@ -133,7 +133,7 @@ pub fn AttachmentInput(
 ///
 /// The desktop contract attaches several files in one gesture and the worker
 /// stores them in that order, so the order is the payload and not an accident.
-pub(super) fn spawn_read_chosen(
+pub(crate) fn spawn_read_chosen(
     files: Vec<web_sys::File>,
     on_chosen: EventHandler<Vec<ChosenFile>>,
 ) {

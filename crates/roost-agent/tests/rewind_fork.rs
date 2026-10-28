@@ -5,6 +5,8 @@
 #[path = "support/mod.rs"]
 mod support;
 
+#[path = "rewind_fork/live_projection.rs"]
+mod live_projection;
 #[path = "rewind_fork/queued_inputs.rs"]
 mod queued_inputs;
 #[path = "rewind_fork/recovery.rs"]
@@ -154,6 +156,7 @@ async fn recovery_resumes_current_and_legacy_interrupted_work_once() {
     let entries = [
         Entry::User {
             text: "prior request".into(),
+            attachments: Vec::new(),
             loop_repeat: false,
             item_id: None,
         },
@@ -211,6 +214,7 @@ async fn recovery_resumes_current_and_legacy_interrupted_work_once() {
         },
         Entry::User {
             text: "unfinished request".into(),
+            attachments: Vec::new(),
             loop_repeat: false,
             item_id: None,
         },
@@ -232,6 +236,7 @@ async fn recovery_resumes_current_and_legacy_interrupted_work_once() {
     let legacy_entries = [
         Entry::User {
             text: "legacy unfinished request".into(),
+            attachments: Vec::new(),
             loop_repeat: false,
             item_id: None,
         },
@@ -283,6 +288,7 @@ async fn recovery_resumes_current_and_legacy_interrupted_work_once() {
     for entry in [
         Entry::User {
             text: "legacy failed request".into(),
+            attachments: Vec::new(),
             loop_repeat: false,
             item_id: None,
         },

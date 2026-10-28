@@ -120,10 +120,7 @@ impl DirectFixture {
             Arc::new(move || origin + *offset.lock().unwrap()),
         ));
         let secret = hex(&Sha256::digest(mint_uuid().unwrap().as_bytes()));
-        let (session_id, upload_id) = (
-            format!("test-direct-{}", mint_uuid().unwrap()),
-            mint_uuid().unwrap(),
-        );
+        let (session_id, upload_id) = (mint_uuid().unwrap(), mint_uuid().unwrap());
         let (grant_id, tab_id) = (mint_uuid().unwrap(), mint_uuid().unwrap());
         grants
             .install(&DLocalAttachmentGrant {

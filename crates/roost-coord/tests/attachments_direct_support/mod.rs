@@ -24,6 +24,7 @@ use roost_coord::coord_core::worker_handle::{WorkerHandle, WorkerRegistry};
 use roost_coord::services::CoordServices;
 use roost_proto::{SessionsNegotiateAttachmentPeerRequest, WLocalAttachmentPeerAnswer};
 use roost_protocol::versioning::CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1;
+use roost_protocol::wire::AttachmentTargetId;
 use roost_protocol::wire::WorkerFp;
 use roost_protocol::wire::coord_worker::CoordWorkerDownstream;
 use sqlx::AssertSqlSafe;
@@ -178,7 +179,7 @@ impl AttachmentGrantPort for TestAttachmentGrants {
 /// The one upload every test grants.
 pub fn descriptor(upload_id: &str) -> AttachmentGrantDescriptor {
     AttachmentGrantDescriptor {
-        session_id: SESSION_ID.to_owned(),
+        session_id: AttachmentTargetId::try_from(SESSION_ID).expect("a valid attachment target"),
         upload_id: upload_id.to_owned(),
         filename: "attachment.bin".to_owned(),
         short_path: false,

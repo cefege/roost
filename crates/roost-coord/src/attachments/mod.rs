@@ -17,6 +17,7 @@ use crate::coord_core::worker_handle::WorkerRegistry;
 use crate::coord_core::worker_lifecycle::WorkerLifecycleObserver;
 use crate::terminal_screen::pending_rpcs::PendingRpcs;
 
+mod conversation_target;
 pub mod files;
 pub mod grant;
 pub mod grant_state;

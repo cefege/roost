@@ -6,6 +6,8 @@
 //! session row is ever produced, in every component of every front end. A
 //! second fold anywhere else is the defect this module exists to prevent.
 
+pub mod attachment_target;
+pub use attachment_target::AttachmentTargetId;
 pub mod agent_chat;
 pub mod agent_status;
 pub mod brand;

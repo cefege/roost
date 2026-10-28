@@ -36,6 +36,7 @@ async fn assert_stop_blocks_stale_restart(store: &dyn AgentStore, id: &str) {
             id,
             &Entry::User {
                 text: "Accepted next input".to_owned(),
+                attachments: Vec::new(),
                 loop_repeat: false,
                 item_id: Some("next".to_owned()),
             },
@@ -103,6 +104,7 @@ async fn assert_stop_blocks_stale_restart(store: &dyn AgentStore, id: &str) {
                 kind: "submit".to_owned(),
                 entries: vec![Entry::User {
                     text: "Continue now".to_owned(),
+                    attachments: Vec::new(),
                     loop_repeat: false,
                     item_id: Some("explicit-new-input".to_owned()),
                 }],

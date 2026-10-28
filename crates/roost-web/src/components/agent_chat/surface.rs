@@ -14,7 +14,6 @@ use super::loop_controls::LoopControls;
 use super::message_actions::EditTarget;
 use super::model_controls::{ModelSetup, ModelSetupNotice};
 use super::model_hub::ModelHub;
-use super::peek_tile::{PeekColumn, peek_conversations};
 use super::queued_band::QueuedBand;
 use super::surface_dom::copy_code_block;
 #[cfg(target_arch = "wasm32")]
@@ -176,7 +175,6 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
         return rsx! { div { class: ROOT_CLASS, LoadingTranscript {} } };
     };
     let running = transcript.run_state == AgentRunState::Running;
-    let peers = peek_conversations(&pump, &conversation_id);
     let setup = ModelSetup::from_catalog(catalog.read().as_ref(), catalog_failed());
     let retry_catalog = move |()| catalog_attempt += 1;
     let composer = rsx! {
@@ -267,7 +265,6 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
                         {composer}
                     }
                 }
-                PeekColumn { conversations: peers }
             }
         }
     }

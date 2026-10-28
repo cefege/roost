@@ -16,6 +16,7 @@ roost-llm = { workspace = true }
 roost-protocol = { workspace = true }
 rpi-durable = { workspace = true }
 rpi-ai = { workspace = true }
+base64 = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true }
 futures = { workspace = true }

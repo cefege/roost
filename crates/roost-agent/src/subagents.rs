@@ -213,6 +213,7 @@ async fn create_child(
             &child.id,
             Entry::User {
                 text: task.to_owned(),
+                attachments: Vec::new(),
                 loop_repeat: false,
                 item_id: None,
             },

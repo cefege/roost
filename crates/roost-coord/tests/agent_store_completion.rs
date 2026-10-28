@@ -80,6 +80,7 @@ async fn completion_activates_follow_up_behind_a_recoverable_run_boundary() {
                 kind: "submit".into(),
                 entries: vec![Entry::User {
                     text: "first".into(),
+                    attachments: Vec::new(),
                     loop_repeat: false,
                     item_id: Some("first".into()),
                 }],
@@ -103,6 +104,7 @@ async fn completion_activates_follow_up_behind_a_recoverable_run_boundary() {
                 entries: vec![Entry::QueuedInput {
                     submission_id: "follow-up".into(),
                     text: "second".into(),
+                    attachments: Vec::new(),
                     state: roost_agent::records::QueuedInputState::Pending,
                 }],
                 intent: IntentChange::FollowUp,
@@ -209,6 +211,7 @@ async fn completion_does_not_activate_input_after_a_durable_stop() {
                 kind: "submit".into(),
                 entries: vec![Entry::User {
                     text: "first".into(),
+                    attachments: Vec::new(),
                     loop_repeat: false,
                     item_id: Some("first".into()),
                 }],
@@ -232,6 +235,7 @@ async fn completion_does_not_activate_input_after_a_durable_stop() {
                 entries: vec![Entry::QueuedInput {
                     submission_id: "follow-up".into(),
                     text: "second".into(),
+                    attachments: Vec::new(),
                     state: roost_agent::records::QueuedInputState::Pending,
                 }],
                 intent: IntentChange::FollowUp,

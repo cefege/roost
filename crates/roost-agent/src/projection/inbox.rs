@@ -21,9 +21,18 @@ pub(super) fn queued_follow_ups(entries: &[(u64, Entry)]) -> Vec<QueuedMessage> 
             Entry::QueuedInput {
                 submission_id,
                 text,
+                attachments,
                 state,
             } => {
-                queued.insert(submission_id.clone(), (*sequence, text.clone(), *state));
+                queued.insert(
+                    submission_id.clone(),
+                    (
+                        *sequence,
+                        text.clone(),
+                        attachment_names(attachments),
+                        *state,
+                    ),
+                );
                 withdrawn.remove(submission_id);
             }
             Entry::QueuedInputWithdrawn { submission_id } => {
@@ -31,10 +40,14 @@ pub(super) fn queued_follow_ups(entries: &[(u64, Entry)]) -> Vec<QueuedMessage> 
             }
             Entry::User {
                 text,
+                attachments,
                 item_id: Some(id),
                 ..
             } => {
-                users.insert(id.clone(), (*sequence, text.clone()));
+                users.insert(
+                    id.clone(),
+                    (*sequence, text.clone(), attachment_names(attachments)),
+                );
             }
             Entry::InputConsumed { through_seq } => {
                 consumed_through = consumed_through.max(*through_seq);
@@ -49,38 +62,58 @@ pub(super) fn queued_follow_ups(entries: &[(u64, Entry)]) -> Vec<QueuedMessage> 
         }
     }
     let mut messages = Vec::new();
-    for (id, (sequence, text, state)) in queued {
+    for (id, (sequence, text, attachment_names, state)) in queued {
         if withdrawn.contains(&id) {
             continue;
         }
         match state {
-            QueuedInputState::Pending => messages.push((sequence, id, text, "follow_up")),
+            QueuedInputState::Pending => {
+                messages.push((sequence, id, text, attachment_names, "follow_up"));
+            }
             QueuedInputState::Activated => {
-                if let Some((user_sequence, user_text)) = users.get(&id)
+                if let Some((user_sequence, user_text, names)) = users.get(&id)
                     && *user_sequence > consumed_through
                     && run_active
                 {
-                    messages.push((*user_sequence, id, user_text.clone(), "follow_up"));
+                    messages.push((
+                        *user_sequence,
+                        id,
+                        user_text.clone(),
+                        names.clone(),
+                        "follow_up",
+                    ));
                 }
             }
         }
     }
-    for (id, (sequence, text)) in users {
+    for (id, (sequence, text, names)) in users {
         if run_active
             && sequence > consumed_through
             && !withdrawn.contains(&id)
-            && !messages.iter().any(|(_, queued_id, _, _)| queued_id == &id)
+            && !messages
+                .iter()
+                .any(|(_, queued_id, _, _, _)| queued_id == &id)
         {
-            messages.push((sequence, id, text, ""));
+            messages.push((sequence, id, text, names, ""));
         }
     }
-    messages.sort_by_key(|(sequence, _, _, _)| *sequence);
+    messages.sort_by_key(|(sequence, _, _, _, _)| *sequence);
     messages
         .into_iter()
-        .map(|(_, id, text, mode)| QueuedMessage {
+        .map(|(_, id, text, attachment_names, mode)| QueuedMessage {
             id,
             text,
+            attachment_names,
             mode: mode.into(),
         })
+        .collect()
+}
+
+fn attachment_names(
+    attachments: &[roost_protocol::wire::agent_chat::AgentChatAttachment],
+) -> Vec<String> {
+    attachments
+        .iter()
+        .map(|attachment| attachment.filename.clone())
         .collect()
 }

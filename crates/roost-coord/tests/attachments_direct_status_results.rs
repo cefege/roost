@@ -15,8 +15,13 @@ use roost_coord::attachments::status_results::AttachmentDirectStatusResults;
 use roost_coord::coord_core::worker_handle::{WorkerHandle, WorkerRegistry};
 use roost_proto::buffa::MessageField;
 use roost_proto::{AttachmentTransferStatus, WAttachmentDirectStatus};
+use roost_protocol::wire::AttachmentTargetId;
 use roost_protocol::wire::coord_worker::CoordWorkerDownstream;
 use tokio::task::JoinHandle;
+
+fn attachment_target() -> AttachmentTargetId {
+    AttachmentTargetId::try_from(SESSION_ID).expect("a valid attachment target")
+}
 
 type StatusTask = JoinHandle<Result<AttachmentTransferStatus, ConnectError>>;
 
@@ -59,7 +64,8 @@ async fn request(
         .filter_map(status_request_id)
         .collect();
     let (owner, handle) = (Arc::clone(owner), Arc::clone(&worker.handle));
-    let task = tokio::spawn(async move { owner.request(&handle, SESSION_ID, UPLOAD_ID).await });
+    let session_id = attachment_target();
+    let task = tokio::spawn(async move { owner.request(&handle, &session_id, UPLOAD_ID).await });
     let request_id = worker
         .wait_for(|frame| status_request_id(frame).filter(|fresh| !seen.contains(fresh)))
         .await;
@@ -133,7 +139,7 @@ async fn an_unanswered_request_expires_at_the_status_deadline() {
     let worker = install_worker(&workers, WORKER_FP, "status-epoch", &[]);
     let started = tokio::time::Instant::now();
     let error = owner
-        .request(&worker.handle, SESSION_ID, UPLOAD_ID)
+        .request(&worker.handle, &attachment_target(), UPLOAD_ID)
         .await
         .unwrap_err();
 

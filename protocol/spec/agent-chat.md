@@ -21,7 +21,7 @@ The idempotent commands below carry a client-minted `request_id` (at least
 | `AgentChatWithdraw` | 3 | applied once |
 | `AgentChatAnswer` | 4 | applied once |
 | `AgentChatPlanDecide` | 5 | returns the first decision's `new_conversation_id` |
-| `AgentChatRewind` | 4 | after completion, returns the first rewind's `text`; while still applying, returns empty `text` |
+| `AgentChatRewind` | 4 | after completion, returns the first rewind's `text` and original `attachments`; while still applying, both are empty |
 | `AgentChatFork` | 3 | returns the conversation the first fork created |
 
 An empty `request_id` is `invalid_argument`. Deduplication is per
@@ -43,8 +43,9 @@ fork returns `unavailable`.
 
 Deduplication precedes the busy check, so an accepted input's retry succeeds
 even when the run state changed. The browser persists the logical submission's
-text, mode and request id before sending; response-loss retries after reload
-reuse that identity. Slash commands retain their separate command admission.
+text, busy mode, ordered attachment upload IDs and request ID before sending;
+an unchanged retry reuses that identity. Changing an attachment starts a new
+logical submission. Slash commands retain their separate command admission.
 
 Before a provider request, a fenced `InputConsumed` journal entry claims its
 input boundary. `queue_delivered` moves claimed messages from the queue into
@@ -58,6 +59,32 @@ its first attempt removed the input. A false response never claims cancellation.
 background jobs running; absent or `true` stops both. Stop is durable: fenced
 completion and conditional automatic restart cannot overtake a newer Stop.
 A newer explicit input can still start work after Stop.
+
+## Attachments
+
+`AgentChatSubmit.attachments` carries ordered `AgentChatAttachment` values:
+`filename`, `mime_type`, inline `data` bytes and a completed worker `path`.
+Images require nonempty data; other files require a nonempty worker path.
+An attachment-only submit is valid. Non-image paths are synthesized once in
+model history; image-capable models receive image blocks. Journal and transcript
+user text stays raw, with `attachment_names` displayed separately. A model
+without image input receives an explicit attached-image reference.
+
+Picker, drop and file paste use the existing worker upload queue and transfer
+receipts. The composer blocks submission until every staged upload completes.
+Failures retain the draft and files; success removes only the submitted upload
+IDs, preserving files staged while the request was pending. User and follow-up
+journal entries retain attachments through activation, recovery and rewind.
+
+Transfer authorization accepts an open terminal session or an existing agent
+conversation. Conversation resolution uses the runtime's authoritative worker
+and nonempty working directory, then requires a registered, routable worker.
+The immutable upload descriptor and exact device/tab checks are unchanged.
+Attachment-specific `AttachmentTargetId` accepts terminal UUIDs or `c-` plus
+24 lowercase hexadecimal digits; terminal `SessionId` stays UUID-strict.
+Authority: `crates/roost-coord/src/attachments/conversation_target.rs`,
+`crates/roost-agent/src/runtime/api/attachments.rs`,
+`crates/roost-web/src/components/agent_chat/composer_submit.rs`.
 
 ## Run ownership
 
@@ -161,7 +188,20 @@ downtime. A failed submit leaves the row due for the next sweep.
 
 Editing an earlier user message is a client composition: `AgentChatRewind` to
 that message without restoring files, then `AgentChatSubmit` with the edited
-text.
+text and the original attachments plus any newly staged uploads. `/retry` and UI
+Retry resend the authoritative original text and attachments. Rewind command
+receipts retain their raw-text format; attachment bytes are reloaded from the
+immutable original journal entry rather than duplicated into command receipts.
+
+Rewinding to the composer retains the authoritative original attachments. A
+later composer submission places those attachments before newly staged uploads
+and identifies each retained attachment in pending submission state by its
+immutable journal item ID and attachment index. If the submit receipt is lost,
+retrying the unchanged draft reuses the same request ID and attachment identities.
+
+A successful rewind emits a canonical `ChatEvent::Reset` before returning.
+Already-open subscribers remove hidden turns before a retry or edited
+replacement arrives; refreshing only the initiating browser is insufficient.
 
 ## Model roles
 
@@ -183,6 +223,29 @@ Native fallbacks (`roost-agent`):
 - `judge` accepts classifier or chat models; `web` chains name search engines.
   The role picker offers classifiers only for Judge. The native set-model path
   rejects a classifier as a conversation's model.
+
+## Account limits and chat usage
+
+`AgentUsageGet` returns account-wide provider quota windows and marks the pool's
+next preferred credential when `conversation_id` and `provider` are supplied.
+The selection preserves a usable sticky account and excludes disabled or blocked
+credentials; it is not attribution of this chat's previous requests.
+
+Anthropic reports `5h` and `7d` windows. Codex window durations come from
+`limit_window_seconds`: an explicit five-hour or seven-day duration uses those
+labels, while unrecognized or absent durations retain `primary`/`secondary`.
+Missing utilization is unknown, never zero. A failed refresh may retain prior
+windows with a last-known note; the UI exposes that note.
+
+The composer ring uses the selected account's explicit weekly window when one
+is known, otherwise its most-used known window. Its popover lists each account's
+windows, resets and readiness. This chat's recorded input/output tokens and
+estimated model cost come from `AgentChatInspect`; neither is presented as a
+share of the provider's quota.
+
+Authority: `crates/roost-llm/src/usage.rs`, `crates/roost-llm/src/pool/rank.rs`,
+`crates/roost-coord/src/agent/rpc_accounts.rs`,
+`crates/roost-web/src/components/agent_chat/provider_usage.rs`.
 
 ## Agent scope and storage compatibility
 

@@ -102,6 +102,8 @@ pub struct AccountEntry {
     pub disabled_cause: Option<String>,
     pub blocked_until_ms: Option<i64>,
     pub usage: Option<AccountUsage>,
+    #[serde(default)]
+    pub selected: bool,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AccountUsage {

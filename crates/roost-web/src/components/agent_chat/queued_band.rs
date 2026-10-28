@@ -6,7 +6,9 @@ use dioxus::prelude::*;
 use roost_client_core::client::rpc::calls::agent_chat::WithdrawAgentChat;
 use roost_protocol::wire::agent_chat::QueuedMessage;
 
-use crate::components::ui::{ButtonVariant, FieldError, IconButton, IconType};
+use crate::components::ui::{
+    Badge, BadgeSize, BadgeVariant, ButtonVariant, FieldError, IconButton, IconType,
+};
 use crate::pump::Pump;
 
 #[component]
@@ -85,10 +87,25 @@ fn QueuedMessageRow(
     } else {
         "Joins after the current tool round"
     };
+    let attachment_names = message.attachment_names.clone();
     rsx! {
         li { class: "flex min-w-0 items-center gap-2 text-muted-foreground",
             span { class: "shrink-0 text-xs font-medium", title: mode_hint, "{mode_label}" }
-            span { class: "min-w-0 flex-1 truncate", title: message.text.clone(), "{message.text}" }
+            div { class: "flex min-w-0 flex-1 flex-col gap-1",
+                span { class: "truncate", title: message.text.clone(), "{message.text}" }
+                if !attachment_names.is_empty() {
+                    div { class: "flex flex-wrap gap-1",
+                        for filename in attachment_names {
+                            Badge {
+                                variant: BadgeVariant::Outline,
+                                size: BadgeSize::Sm,
+                                class: Some("min-w-0 max-w-full".to_owned()),
+                                span { class: "block max-w-full truncate", title: "{filename}", "{filename}" }
+                            }
+                        }
+                    }
+                }
+            }
             IconButton { icon: IconType::X, label: format!("Withdraw queued submission {}", message.id),
                 title: "Withdraw queued input", variant: ButtonVariant::Ghost, disabled,
                 onclick: move |_| on_withdraw.call((message.id.clone(), request_id.clone())) }

@@ -13,7 +13,22 @@ pub fn transcript_to_markdown(title: &str, transcript: &Transcript) -> String {
         .rposition(|item| matches!(item, TranscriptItem::Todo { .. }));
     for (index, item) in transcript.items.iter().enumerate() {
         match item {
-            TranscriptItem::User { text, .. } => append_section(&mut markdown, "You", text),
+            TranscriptItem::User {
+                text,
+                attachment_names,
+                ..
+            } => {
+                if attachment_names.is_empty() {
+                    append_section(&mut markdown, "You", text);
+                } else {
+                    let names = attachment_names.join(", ");
+                    append_section(
+                        &mut markdown,
+                        "You",
+                        &format!("{text}\n\nAttachments: {names}"),
+                    );
+                }
+            }
             TranscriptItem::Assistant { blocks, error, .. } => {
                 let text = blocks
                     .iter()
@@ -152,6 +167,7 @@ mod tests {
                 TranscriptItem::User {
                     id: "u1".into(),
                     text: "Summarize this".into(),
+                    attachment_names: Vec::new(),
                 },
                 TranscriptItem::Assistant {
                     id: "a1".into(),

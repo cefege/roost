@@ -122,6 +122,15 @@ fn settling_commits_the_whole_transcript_and_goes_idle() {
         ]
     );
 }
+#[test]
+fn stopping_and_settling_leaves_the_transcript_for_editing() {
+    let mut machine = listening();
+    machine.apply_transcript("typed base", "dictated words");
+    assert!(machine.apply(start()).contains(&VoiceEffect::StopAndSend));
+    let effects = machine.apply(VoiceEvent::Settled);
+    assert!(effects.contains(&VoiceEffect::Commit("typed base dictated words".to_owned())));
+    assert!(!effects.contains(&VoiceEffect::SubmitDraft));
+}
 
 #[test]
 fn an_empty_transcript_discards_instead_of_committing() {
@@ -284,15 +293,42 @@ fn the_watchdog_and_a_hurried_tap_honour_a_queued_send() {
 }
 
 #[test]
-fn a_send_pressed_outside_finalizing_queues_nothing() {
+fn a_send_pressed_while_recording_stops_and_submits_once_after_transcript() {
+    let mut machine = listening();
+    assert_eq!(
+        machine.apply(VoiceEvent::SendPressed),
+        vec![VoiceEffect::ArmFinalizeWatchdog, VoiceEffect::StopAndSend]
+    );
+    assert_eq!(machine.state(), VoiceState::Finalizing);
+    machine.apply_transcript("typed base final words", "");
+    let effects = machine.apply(VoiceEvent::Settled);
+    assert_eq!(
+        effects[effects.len() - 2..],
+        [
+            VoiceEffect::Commit("typed base final words".to_owned()),
+            VoiceEffect::SubmitDraft,
+        ]
+    );
+    assert!(machine.apply(VoiceEvent::Settled).is_empty());
+}
+
+#[test]
+fn a_send_pressed_while_recording_does_not_submit_after_failure() {
+    let mut machine = listening();
+    let _ = machine.apply(VoiceEvent::SendPressed);
+    let effects = machine.apply(VoiceEvent::Failed);
+    assert!(!effects.contains(&VoiceEffect::SubmitDraft));
+    assert!(effects.contains(&VoiceEffect::DiscardRecording));
+    assert_eq!(machine.state(), VoiceState::Idle);
+}
+
+#[test]
+fn send_pressed_while_idle_or_starting_does_not_queue() {
     let mut idle = VoiceMachine::default();
     assert!(idle.apply(VoiceEvent::SendPressed).is_empty());
-    let mut machine = listening();
-    machine.apply_transcript("hello there", "");
-    let _ = machine.apply(VoiceEvent::SendPressed);
-    let _ = machine.apply(start());
-    let effects = machine.apply(VoiceEvent::Settled);
-    assert!(!effects.contains(&VoiceEffect::SubmitDraft));
+    let mut starting = VoiceMachine::default();
+    let _ = starting.apply(start());
+    assert!(starting.apply(VoiceEvent::SendPressed).is_empty());
 }
 
 #[test]

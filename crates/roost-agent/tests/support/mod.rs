@@ -26,7 +26,7 @@ mod llm;
 mod sink;
 
 pub use gated::{ArmOnCheckSink, GatedStore, PublicationKind};
-pub use llm::{ANY_SESSION, JudgeScript, Script, ScriptedLlm};
+pub use llm::{ANY_SESSION, JudgeScript, Script, ScriptedLlm, unpinned_conversation, user_content};
 pub use sink::RecordingSink;
 
 /// A worker that answers each tool with a fixed outcome and records calls.

@@ -68,17 +68,23 @@ carry A's session id, but the click opens `/t/:worker/:folder`.
 
 **Wrong** — pass the notification's exact session through `terminal_href`.
 That URL is intentionally a stable folder bookmark, and folder resolution
-selects the newest open sibling.
+selects the newest open sibling. Also, route resolution alone does not prove
+the mounted pane stays exact: the dead-route safety net can redirect a durable
+miss to the sibling of its last open session.
 
 **Right** — notification destinations use `/s/:sessionId`, which preserves the
-event's identity. Keep `terminal_href` for stable folder links. If the exact
-session has closed, its route stays exact and renders no open sibling as a
-substitute.
+event's identity. Keep `terminal_href` for stable folder links. The exact-session
+route must remain exact through route-to-pane activation and the dead-route
+safety net, including when the target is closed. Stable folder and workspace
+routes retain their recovery behavior.
 
 **Guard** — `crates/roost-web/tests/route_session.rs` —
 `notification_destination_keeps_the_originating_session_after_view_changes`
-proves that `/s/A` continues to resolve A while the stable folder URL resolves
-newer sibling B, and that a closed A does not resolve as B.
+proves that `/s/A` resolves A while the stable folder URL resolves newer sibling
+B. `crates/roost-web/tests/dead_route_safety_net.rs` —
+`an_exact_session_route_does_not_bounce_after_its_session_closes` proves the
+route safety-net transition does not substitute a sibling for a closed exact
+target.
 
 ### The notification dock's bottom edge lands BELOW the compact composer's top edge
 
@@ -2672,24 +2678,25 @@ the mic sits in `data-state="finalizing"` for ~3 s after every stop that followe
 
 **Wrong** — shorten `FINALIZE_WAIT_MS`, or enable Send as soon as the hypothesis is empty. The deadline is the
 fallback for a stream that never answers, and an empty hypothesis does not prove the service has answered
-every frame it was sent: both ship a sentence the answer was still going to change. Equally wrong: let Send
-submit the field mid-finalize — it ships an unproven tail and drops the words still in flight.
+every frame it was sent. Equally wrong: submit the field while a recording is still live, before asking the
+engine to stop; that ships a partial sentence and drops the words still in flight.
 
-**Right** — **end a stopped stream with a message the service always answers, and queue a Send pressed while
-it does.** Deepgram answers `Finalize` only while it holds unanswered audio, and with an EMPTY transcript when
-its endpointing already finalized the last phrase; `deepgram_frames::read_message` dropped that empty result
-before reading `from_finalize`, so nothing settled before the 3 s deadline. `voice/deepgram_ending.rs::end`
-stops the device at the press and sends `CloseStream`, whose last results, `Metadata` summary
-(`Frame::StreamEnded`) and close all settle the recording once. `voice/send_gate.rs::SendGate` keeps Send on
-screen while finalizing; the press reaches the mic through `components/mobile_voice_send.rs` and becomes
-`VoiceEvent::SendPressed`, and the ending that commits the words emits `VoiceEffect::SubmitDraft` after the
-commit. Walking away, a discard or a failure drop the queued press. The finalize watchdog
+**Right** — **queue Send with the recording and submit only after its final transcript lands.** Deepgram
+answers `Finalize` only while it holds unanswered audio, and with an EMPTY transcript when its endpointing
+already finalized the last phrase; `deepgram_frames::read_message` dropped that empty result before reading
+`from_finalize`, so nothing settled before the 3 s deadline. `voice/deepgram_ending.rs::end` stops the device
+at the press and sends `CloseStream`, whose last results, `Metadata` summary (`Frame::StreamEnded`) and close
+all settle the recording once. `voice/send_gate.rs::SendGate` keeps Send on screen while recording and
+finalizing; while live, the press reaches the mic through `components/mobile_voice_send.rs` and becomes
+`VoiceEvent::SendPressed`, which starts finalization. The machine emits `VoiceEffect::SubmitDraft` only after
+it commits the final words. A stop-button press uses the same finalization path but leaves the words for
+editing. A failure drops the queued press without sending. The finalize watchdog
 (`components/mobile_voice_watchdog.rs`) applies `WatchdogExpired`, so a wedged stream still ends.
 
-**Guard** — `crates/roost-web/src/voice/send_gate.rs` — a finalizing mic offers Send and queues it, a live one
-withholds it; `crates/roost-web/src/voice/state/tests.rs` — a queued Send submits once, after the commit, and
-only for an ending the operator asked for; `crates/roost-web/src/voice/deepgram_frames.rs` — the `Metadata`
-summary reads as the stream's end.
+**Guard** — `crates/roost-web/src/voice/send_gate.rs` — a live or finalizing mic offers Send, a starting mic
+withholds it; `crates/roost-web/src/voice/state/tests.rs` — stopping leaves words editable, Send while
+recording stops and submits once after the commit, and a failed recording never submits;
+`crates/roost-web/src/voice/deepgram_frames.rs` — the `Metadata` summary reads as the stream's end.
 
 ### A finished upload's card never leaves the dock
 
@@ -4633,3 +4640,52 @@ Classifier selection belongs in the Judge role.
 **Guard** — `roost-agent`
 `model_scope::model_kinds::a_classifier_cannot_replace_a_conversations_chat_model`
 checks rejection and preservation of the previous pin.
+
+### A Windows automatic update stages its release under the Windows directory
+
+**Symptom** — `self-update-<tag>.log` reports `cannot create the release tree at
+C:\WINDOWS\roost-release-…: Access is denied. (os error 5)` and the worker keeps
+running the old release.
+
+**Wrong** — clear the detached updater's environment while forwarding only
+Roost variables, `HOME` and `PATH`. A writable working directory does not change
+the child process's temporary-directory lookup.
+
+**Right** — `runtime/auto_update_spawn.rs::is_forwarded` also preserves Windows'
+temporary, profile and system directory variables, matching their names
+case-insensitively. Keep the explicit allowlist; never inherit bootstrap tokens
+or unrelated secrets. The child then stages under the worker user's temp directory.
+
+**Guard** — `runtime::auto_update_spawn::tests::the_detached_environment_keeps_a_writable_user_temporary_directory`
+launches a Windows child with the actual forwarded environment, writes a staging
+probe and verifies that its temp root matches the worker's.
+
+
+### Rewind updates model history but leaves hidden turns in the live transcript
+
+**Symptom** — Retry or Edit sends the correct replacement history to the model,
+but an already-open transcript still shows the discarded turn beside its replacement.
+
+**Wrong** — append `Entry::Rewind` without replacing the subscribed projection,
+or refresh only the browser that initiated the rewind.
+
+**Right** — after committing the rewind, rebuild the canonical runtime transcript
+and emit `ChatEvent::Reset` before file-restoration notices or replacement input.
+
+**Guard** — `crates/roost-agent/tests/rewind_fork/live_projection.rs`:
+`a_live_subscriber_drops_the_hidden_turn_before_its_replacement`.
+
+### An inset popup trigger lets a wide panel cross the opposite viewport edge
+
+**Symptom** — a usage popover clips its left border on a narrow phone even
+though its width is below the viewport width.
+
+**Wrong** — cap the panel to the whole bounds width while anchoring it inward
+from one edge. A caller's Tailwind max-width cannot override the placement's
+inline max-width.
+
+**Right** — `menu_placement::place_menu` caps width to the space from the actual
+anchored edge to the opposite bounds margin, in viewport coordinates before
+conversion to the containing block.
+
+**Guard** — `components::menu_placement::tests::inset_triggers_keep_wide_popups_inside_both_viewport_margins`.

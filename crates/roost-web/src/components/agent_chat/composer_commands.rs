@@ -34,6 +34,7 @@ pub(super) fn submit_direct_command(
         command,
         "steer".to_string(),
         super::request_ids::new_request_id(),
+        Vec::new(),
         outcome,
     );
 }
@@ -54,6 +55,7 @@ pub(super) fn submit_message(
     text: String,
     when_busy: String,
     request_id: String,
+    attachments: Vec<roost_protocol::wire::agent_chat::AgentChatAttachment>,
     outcome: EventHandler<Result<(), String>>,
 ) {
     let label = text.clone();
@@ -70,6 +72,7 @@ pub(super) fn submit_message(
                 text,
                 when_busy,
                 request_id,
+                attachments,
                 ..Default::default()
             })
             .await
@@ -96,6 +99,7 @@ pub(super) fn submit_message(
     _: String,
     _: String,
     _: String,
+    _: Vec<roost_protocol::wire::agent_chat::AgentChatAttachment>,
     _: EventHandler<Result<(), String>>,
 ) {
 }

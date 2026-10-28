@@ -4,7 +4,8 @@ use crate::client::rpc::codec::{RpcCodecError, decode_message, encode_message};
 use crate::client::rpc::unary::UnaryMethod;
 use roost_proto::*;
 use roost_protocol::wire::agent_chat::{
-    AgentInspection, ChatEvent, LoginState, ModelRef, ModelsCatalog, Transcript,
+    AgentInspection, ChatEvent, LoginState, ModelRef, ModelsCatalog, RewoundUserMessage,
+    Transcript, validate_agent_chat_image_payload,
 };
 
 macro_rules! simple_call {
@@ -29,7 +30,55 @@ fn decode_json<T: serde::de::DeserializeOwned>(
     })
 }
 
-simple_call!(SubmitAgentChat,AgentChatSubmitRequest,AgentChatSubmitResponse,(),"AgentChatSubmit",empty; conversation_id:String,text:String,request_id:String,when_busy:String);
+#[derive(Debug, Clone, Default)]
+pub struct SubmitAgentChat {
+    pub conversation_id: String,
+    pub text: String,
+    pub request_id: String,
+    pub when_busy: String,
+    pub attachments: Vec<roost_protocol::wire::agent_chat::AgentChatAttachment>,
+}
+impl UnaryMethod for SubmitAgentChat {
+    const METHOD: &'static str = "AgentChatSubmit";
+    type Response = ();
+
+    fn encode_request(&self) -> Result<Vec<u8>, RpcCodecError> {
+        validate_agent_chat_image_payload(&self.text, &self.attachments).map_err(|error| {
+            RpcCodecError::RejectedRequest {
+                method: Self::METHOD,
+                detail: error.to_string(),
+            }
+        })?;
+        encode_message(
+            Self::METHOD,
+            &AgentChatSubmitRequest {
+                conversation_id: self.conversation_id.clone(),
+                text: self.text.clone(),
+                request_id: self.request_id.clone(),
+                when_busy: self.when_busy.clone(),
+                attachments: self
+                    .attachments
+                    .iter()
+                    .map(|attachment| roost_proto::AgentChatAttachment {
+                        filename: attachment.filename.clone(),
+                        mime_type: attachment.mime_type.clone(),
+                        data: attachment.data.clone(),
+                        path: attachment.path.clone(),
+                        ..Default::default()
+                    })
+                    .collect(),
+                ..Default::default()
+            },
+        )
+    }
+
+    fn decode_response(body: &[u8]) -> Result<Self::Response, RpcCodecError> {
+        empty(decode_message::<AgentChatSubmitResponse>(
+            Self::METHOD,
+            body,
+        )?)
+    }
+}
 simple_call!(AbortAgentChat,AgentChatAbortRequest,AgentChatAbortResponse,(),"AgentChatAbort",empty; conversation_id:String,request_id:String,background:Option<bool>);
 simple_call!(WithdrawAgentChat,AgentChatWithdrawRequest,AgentChatWithdrawResponse,bool,"AgentChatWithdraw",|response:AgentChatWithdrawResponse| Ok(response.withdrawn); conversation_id:String,submission_id:String,request_id:String);
 simple_call!(InspectAgentChat,AgentChatInspectRequest,AgentChatInspectResponse,AgentInspection,"AgentChatInspect",|response:AgentChatInspectResponse| decode_json("AgentChatInspect", response.inspection_json); conversation_id:String);
@@ -40,12 +89,12 @@ simple_call!(CancelAgentLogin,AgentAuthLoginCancelRequest,AgentAuthLoginCancelRe
 simple_call!(SetAgentApiKey,AgentAuthSetApiKeyRequest,AgentAuthSetApiKeyResponse,(),"AgentAuthSetApiKey",empty; provider:String,api_key:String);
 simple_call!(RemoveAgentAccount,AgentAccountRemoveRequest,AgentAccountRemoveResponse,(),"AgentAccountRemove",empty; credential_id:i64);
 simple_call!(ListAgentAccounts,AgentAccountsListRequest,AgentAccountsListResponse,String,"AgentAccountsList",|response:AgentAccountsListResponse| Ok(response.accounts_json););
-simple_call!(GetAgentUsage,AgentUsageGetRequest,AgentUsageGetResponse,String,"AgentUsageGet",|response:AgentUsageGetResponse| Ok(response.usage_json););
+simple_call!(GetAgentUsage,AgentUsageGetRequest,AgentUsageGetResponse,String,"AgentUsageGet",|response:AgentUsageGetResponse| Ok(response.usage_json); conversation_id:String,provider:String);
 simple_call!(GetAgentSettings,AgentSettingsGetRequest,AgentSettingsGetResponse,String,"AgentSettingsGet",|response:AgentSettingsGetResponse| Ok(response.settings_json););
 simple_call!(SetAgentSettings,AgentSettingsSetRequest,AgentSettingsSetResponse,(),"AgentSettingsSet",empty; settings_json:String);
 simple_call!(DecideAgentPlan,AgentChatPlanDecideRequest,AgentChatPlanDecideResponse,String,"AgentChatPlanDecide",|response:AgentChatPlanDecideResponse| Ok(response.new_conversation_id); conversation_id:String,item_id:String,decision:String,feedback:String,request_id:String);
 simple_call!(AnswerAgentQuestion,AgentChatAnswerRequest,AgentChatAnswerResponse,(),"AgentChatAnswer",empty; conversation_id:String,item_id:String,answers_json:String,request_id:String);
-simple_call!(RewindAgentChat,AgentChatRewindRequest,AgentChatRewindResponse,String,"AgentChatRewind",|response:AgentChatRewindResponse| Ok(response.text); conversation_id:String,item_id:String,restore_files:bool,request_id:String);
+simple_call!(RewindAgentChat,AgentChatRewindRequest,AgentChatRewindResponse,RewoundUserMessage,"AgentChatRewind",|response:AgentChatRewindResponse| Ok(RewoundUserMessage { text: response.text, attachments: response.attachments.into_iter().map(|attachment| roost_protocol::wire::agent_chat::AgentChatAttachment { filename: attachment.filename, mime_type: attachment.mime_type, data: attachment.data, path: attachment.path }).collect() }); conversation_id:String,item_id:String,restore_files:bool,request_id:String);
 simple_call!(ForkAgentChat,AgentChatForkRequest,AgentConversation,AgentConversation,"AgentChatFork",|response:AgentConversation| Ok(response); conversation_id:String,item_id:String,request_id:String);
 
 #[derive(Debug, Clone, Default)]
@@ -206,5 +255,42 @@ impl UnaryMethod for PollAgentLogin {
     fn decode_response(body: &[u8]) -> Result<Self::Response, RpcCodecError> {
         let response: AgentAuthLoginPollResponse = decode_message(Self::METHOD, body)?;
         decode_json(Self::METHOD, response.state_json)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn submit_codec_rejects_aggregate_inline_image_payloads() {
+        let oversized = SubmitAgentChat {
+            attachments: vec![roost_protocol::wire::agent_chat::AgentChatAttachment {
+                filename: "large.png".to_owned(),
+                mime_type: "image/png".to_owned(),
+                data: vec![
+                    0;
+                    roost_protocol::wire::agent_chat::MAX_AGENT_CHAT_IMAGE_PAYLOAD_BYTES
+                        as usize
+                ],
+                path: String::new(),
+            }],
+            ..Default::default()
+        };
+        let error = oversized
+            .encode_request()
+            .expect_err("oversized image should fail before protobuf encoding");
+        assert!(error.to_string().contains("limit is"));
+    }
+
+    #[test]
+    fn submit_codec_keeps_text_only_requests_unrestricted_by_image_budget() {
+        let text_only = SubmitAgentChat {
+            text: "x".repeat(
+                roost_protocol::wire::agent_chat::MAX_AGENT_CHAT_IMAGE_PAYLOAD_BYTES as usize + 1,
+            ),
+            ..Default::default()
+        };
+        assert!(text_only.encode_request().is_ok());
     }
 }

@@ -82,6 +82,7 @@ async fn conversation_entries_settings_and_credentials_round_trip() {
             "child",
             &Entry::User {
                 text: "child entry".to_owned(),
+                attachments: Vec::new(),
                 loop_repeat: false,
                 item_id: None,
             },
@@ -101,6 +102,7 @@ async fn conversation_entries_settings_and_credentials_round_trip() {
 
     let first = Entry::User {
         text: "hello".to_owned(),
+        attachments: Vec::new(),
         loop_repeat: false,
         item_id: None,
     };
@@ -326,6 +328,7 @@ async fn cancelled_entry_rolls_back_without_spending_a_sequence_number() {
     cancel.cancel();
     let entry = Entry::User {
         text: "repeat".into(),
+        attachments: Vec::new(),
         loop_repeat: false,
         item_id: None,
     };

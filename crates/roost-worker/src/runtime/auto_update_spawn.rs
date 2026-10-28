@@ -21,10 +21,8 @@ use roost_platform::HostPlatform;
 
 use super::boot::{ENV_COORDINATOR_URL, ENV_KEEPER_PID_FILE};
 
-/// The names the updater inherits, and nothing else: where the worker keeps its
-/// state and logs, its service definition names, the keeper's pid file, the
-/// release origin the download reads, and the coordinator. No credential is
-/// listed; the bootstrap token and the keeper's one-shot force flag never are.
+/// Install-specific variables the updater inherits. `is_forwarded` also admits
+/// Windows' OS directories, but no credential, bootstrap token or keeper force flag.
 const FORWARDED_ENV: &[&str] = &[
     WORKER_DATA_DIR_ENV,
     WORKER_LOG_DIR_ENV,
@@ -41,15 +39,29 @@ const FORWARDED_ENV: &[&str] = &[
     "PATH",
 ];
 
-/// Whether the updater inherits this environment variable: only the names in
-/// [`FORWARDED_ENV`].
+/// Preserve the install's allowlist and Windows' OS directory variables.
 pub(super) fn is_forwarded(key: &str) -> bool {
+    #[cfg(windows)]
+    if [
+        "TEMP",
+        "TMP",
+        "SystemRoot",
+        "WINDIR",
+        "USERPROFILE",
+        "LOCALAPPDATA",
+        "APPDATA",
+    ]
+    .iter()
+    .any(|name| name.eq_ignore_ascii_case(key))
+    {
+        // Without TEMP/TMP, the cleared child stages releases under C:\Windows.
+        return true;
+    }
     FORWARDED_ENV.contains(&key)
 }
 
-/// The worker's environment the updater must see, restricted to
-/// [`FORWARDED_ENV`], so its directories, unit names and release origin match
-/// the worker's.
+/// The worker environment admitted by `is_forwarded`, preserving its directories,
+/// unit names and release origin without inheriting unrelated secrets.
 pub(super) fn forwarded_environment() -> Vec<(String, String)> {
     std::env::vars_os()
         .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
@@ -296,6 +308,45 @@ mod tests {
         assert!(!is_forwarded(KEEPER_FORCE_LIVE_RETIRE_ENV));
         assert!(!is_forwarded("ROOST_SOMETHING_NEW"));
         assert!(!is_forwarded("AWS_SECRET_ACCESS_KEY"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_detached_environment_keeps_a_writable_user_temporary_directory() {
+        let expected = std::env::temp_dir();
+        let script = r#"
+            $temporary = [System.IO.Path]::GetTempPath()
+            $scratch = Join-Path $temporary ('roost-updater-temp-' + [guid]::NewGuid().ToString('N'))
+            [System.IO.Directory]::CreateDirectory($scratch) | Out-Null
+            try {
+                [System.IO.File]::WriteAllText((Join-Path $scratch 'probe'), 'ok')
+                [Console]::Write($temporary)
+            } finally {
+                Remove-Item -LiteralPath $scratch -Recurse -Force
+            }
+        "#;
+        let output = Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", script])
+            .env_clear()
+            .envs(forwarded_environment())
+            .output()
+            .expect("start the updater-environment staging probe");
+        assert!(
+            output.status.success(),
+            "staging probe failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .trim_end_matches('\\')
+                .to_ascii_lowercase(),
+            expected
+                .to_string_lossy()
+                .trim_end_matches('\\')
+                .to_ascii_lowercase(),
+            "the updater must stage under the same user temp directory as its worker"
+        );
     }
 
     #[test]

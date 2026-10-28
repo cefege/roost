@@ -221,51 +221,24 @@ fn plural(noun: &str, count: usize) -> String {
     }
 }
 
+/// The category tint for a tool name and verb.
+pub(super) fn category_class(tool_name: &str) -> &'static str {
+    match tool_name {
+        "read" | "grep" | "glob" | "find" | "ls" | "lsp" => "text-info",
+        "edit" | "write" => "text-warning",
+        "bash" | "job" => "text-success",
+        "task" | "propose_plan" | "wait" => "text-primary",
+        "web_search" | "fetch" => "text-accent-foreground",
+        _ => "text-muted-foreground",
+    }
+}
+
 /// The call's wall time, when its executor reported one.
 pub(super) fn duration_ms(details_json: &str) -> Option<u64> {
     serde_json::from_str::<serde_json::Value>(details_json)
         .ok()?
         .get("duration_ms")?
         .as_u64()
-}
-
-/// The executor facts worth a line each: exit code, time, truncation, artifact.
-pub(super) fn detail_facts(details: Option<&serde_json::Value>) -> Vec<String> {
-    let Some(details) = details.and_then(serde_json::Value::as_object) else {
-        return Vec::new();
-    };
-    let mut facts = Vec::new();
-    if let Some(code) = details.get("exit_code").and_then(serde_json::Value::as_i64) {
-        facts.push(format!("Exit code {code}"));
-    }
-    if let Some(ms) = details
-        .get("duration_ms")
-        .and_then(serde_json::Value::as_u64)
-    {
-        facts.push(format!("Execution time: {ms} ms"));
-    }
-    if details
-        .get("truncated")
-        .and_then(serde_json::Value::as_bool)
-        == Some(true)
-    {
-        facts.push("Output was truncated; some output was not transported.".into());
-    }
-    if let Some(path) = details
-        .get("artifact_path")
-        .and_then(serde_json::Value::as_str)
-    {
-        let complete = details
-            .get("artifact_complete")
-            .and_then(serde_json::Value::as_bool)
-            == Some(true);
-        facts.push(if complete {
-            format!("Complete output artifact: {path}")
-        } else {
-            format!("Earlier output artifact: {path} (incomplete; full output was not transported)")
-        });
-    }
-    facts
 }
 
 /// The model-supplied intent every tool schema carries; it describes the call and is not an argument.
@@ -327,6 +300,19 @@ pub(super) fn status_name(state: &str) -> &'static str {
         "cancelled" | "timeout" => "warn",
         "error" => "error",
         _ => "ok",
+    }
+}
+/// The state word's ink follows the semantic status roles across tool rows.
+pub(super) fn state_text_class(state: &str) -> &'static str {
+    match state {
+        "error" => "ml-auto inline-flex flex-none items-center gap-1 text-xs text-destructive",
+        "timeout" | "cancelled" => {
+            "ml-auto inline-flex flex-none items-center gap-1 text-xs text-warning"
+        }
+        "running" | "background" => {
+            "ml-auto inline-flex flex-none items-center gap-1 text-xs text-info"
+        }
+        _ => "ml-auto inline-flex flex-none items-center gap-1 text-xs text-muted-foreground",
     }
 }
 

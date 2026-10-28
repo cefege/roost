@@ -41,7 +41,15 @@ pub fn queued_inputs_to_activate(entries: &[(u64, Entry)]) -> Vec<Entry> {
 
     use crate::records::QueuedInputState;
 
-    let mut latest: HashMap<String, (u64, String, QueuedInputState)> = HashMap::new();
+    let mut latest: HashMap<
+        String,
+        (
+            u64,
+            String,
+            Vec<roost_protocol::wire::agent_chat::AgentChatAttachment>,
+            QueuedInputState,
+        ),
+    > = HashMap::new();
     let mut withdrawn = HashSet::new();
     let mut activated_users = HashSet::new();
     for (sequence, entry) in entries {
@@ -49,9 +57,13 @@ pub fn queued_inputs_to_activate(entries: &[(u64, Entry)]) -> Vec<Entry> {
             Entry::QueuedInput {
                 submission_id,
                 text,
+                attachments,
                 state,
             } => {
-                latest.insert(submission_id.clone(), (*sequence, text.clone(), *state));
+                latest.insert(
+                    submission_id.clone(),
+                    (*sequence, text.clone(), attachments.clone(), *state),
+                );
                 withdrawn.remove(submission_id);
             }
             Entry::QueuedInputWithdrawn { submission_id } => {
@@ -68,25 +80,27 @@ pub fn queued_inputs_to_activate(entries: &[(u64, Entry)]) -> Vec<Entry> {
     }
     let mut pending: Vec<_> = latest
         .into_iter()
-        .filter_map(|(submission_id, (sequence, text, state))| {
+        .filter_map(|(submission_id, (sequence, text, attachments, state))| {
             (state == QueuedInputState::Pending
                 && !withdrawn.contains(&submission_id)
                 && !activated_users.contains(&submission_id))
-            .then_some((sequence, submission_id, text))
+            .then_some((sequence, submission_id, text, attachments))
         })
         .collect();
-    pending.sort_by_key(|(sequence, _, _)| *sequence);
+    pending.sort_by_key(|(sequence, _, _, _)| *sequence);
     pending
         .into_iter()
-        .flat_map(|(_, submission_id, text)| {
+        .flat_map(|(_, submission_id, text, attachments)| {
             [
                 Entry::QueuedInput {
                     submission_id: submission_id.clone(),
                     text: text.clone(),
+                    attachments: attachments.clone(),
                     state: QueuedInputState::Activated,
                 },
                 Entry::User {
                     text,
+                    attachments,
                     loop_repeat: false,
                     item_id: Some(submission_id),
                 },
@@ -100,6 +114,7 @@ pub fn activate_followup(entry: Entry) -> Option<[Entry; 2]> {
     let Entry::QueuedInput {
         submission_id,
         text,
+        attachments,
         ..
     } = entry
     else {
@@ -109,10 +124,12 @@ pub fn activate_followup(entry: Entry) -> Option<[Entry; 2]> {
         Entry::QueuedInput {
             submission_id: submission_id.clone(),
             text: text.clone(),
+            attachments: attachments.clone(),
             state: crate::records::QueuedInputState::Activated,
         },
         Entry::User {
             text,
+            attachments,
             loop_repeat: false,
             item_id: Some(submission_id),
         },

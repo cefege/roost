@@ -537,12 +537,12 @@ gh workflow run promote.yml -f tag=<older tag>   # roll back (see below)
    updater starts, even across tags or restarts
    (`crates/roost-worker/src/runtime/auto_update.rs`). Windows installs into a
    versioned directory and restarts its Scheduled Task from a detached updater,
-   leaving the keeper running. ovh1, m5, m1-new and m1-old follow since rc.39
-   (rc.37's and rc.38's updater restarted the old unit on Linux and failed
-   launchd's bootstrap on macOS). desktop-pc (offline) still needs
-   `cargo xtask fleet install --version <tag> --host desktop-pc` once; roost-win
-   follows the coordinator after its first install of a release carrying the
-   Windows updater.
+   leaving the keeper running. The detached Windows environment preserves its
+   temporary, profile and system directory variables; dropping `TEMP`/`TMP`
+   stages under `C:\Windows` and refuses before changing the service. A worker
+   running an affected older updater needs one
+   `cargo xtask fleet install --version <fixed tag> --host <name>` to receive
+   the correction, after which normal coordinator-following polling takes over.
 
 **Rolling back** is promoting an older tag. Going back past a migration or
 the credential encryption also needs the database restored from a
@@ -554,8 +554,8 @@ commit: a worker sent to rc.37 or rc.38 would apply the next release with
 their broken updater.
 
 **`cargo xtask fleet install --version <tag> [--host <name>]…`** remains for
-the Windows host, which cannot replace its own binary, and for moving a
-machine by hand: it fetches the tag's assets with `gh` into
+bootstrapping an affected older updater or moving any machine by hand: it
+fetches the tag's assets with `gh` into
 `target/fleet/<tag>/`, checks their `.sha256`, copies the tag into each
 `xtask/fleet.json` host's `versions/<tag>/` over ssh, repoints and restarts
 its services, and fails a host whose binary reports another commit or whose

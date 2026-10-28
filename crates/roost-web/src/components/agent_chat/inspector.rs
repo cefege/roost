@@ -202,6 +202,7 @@ async fn perform_action(
                     text: "/compact".to_owned(),
                     request_id: super::request_ids::new_request_id(),
                     when_busy: "steer".to_owned(),
+                    attachments: Vec::new(),
                 })
                 .await
         }

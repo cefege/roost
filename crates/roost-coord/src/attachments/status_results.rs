@@ -16,12 +16,12 @@ use tokio::sync::oneshot;
 use crate::attachments::transfer_limits::{
     ATTACHMENT_TRANSFER_ERROR_REASONS, ATTACHMENT_TRANSFER_MAX_PENDING_STATUS_REQUESTS,
     ATTACHMENT_TRANSFER_STATUS_DEADLINE_MS, MAX_SAFE_INTEGER, is_attachment_transfer_chunk_sha256,
-    is_bounded_identifier, is_opaque_upload_id,
+    is_opaque_upload_id,
 };
 use crate::coord_core::ids::{draw, render_v4};
 use crate::coord_core::worker_handle::{WorkerHandle, WorkerRegistry};
 use crate::workers::attachment_send::send_attachment_direct_status_request;
-
+use roost_protocol::wire::AttachmentTargetId;
 const STATUS_IDENTIFIER_MAX_UTF8_BYTES: usize = 128;
 
 type StatusOutcome = Result<AttachmentTransferStatus, ConnectError>;
@@ -68,10 +68,10 @@ impl AttachmentDirectStatusResults {
     pub async fn request(
         &self,
         worker: &Arc<WorkerHandle>,
-        session_id: &str,
+        session_id: &AttachmentTargetId,
         upload_id: &str,
     ) -> StatusOutcome {
-        assert_status_request_shape(session_id, upload_id)?;
+        assert_status_request_shape(upload_id)?;
         let current = self.workers.current_routable(&worker.worker_fp);
         if !current.is_some_and(|current| Arc::ptr_eq(&current, worker)) {
             return Err(status_unavailable(
@@ -87,7 +87,7 @@ impl AttachmentDirectStatusResults {
             &self.workers,
             worker,
             &request_id,
-            session_id,
+            session_id.as_str(),
             upload_id,
         );
         if sent {
@@ -216,10 +216,8 @@ impl AttachmentDirectStatusResults {
     }
 }
 
-fn assert_status_request_shape(session_id: &str, upload_id: &str) -> Result<(), ConnectError> {
-    if is_bounded_identifier(session_id, STATUS_IDENTIFIER_MAX_UTF8_BYTES)
-        && is_opaque_upload_id(upload_id, STATUS_IDENTIFIER_MAX_UTF8_BYTES)
-    {
+fn assert_status_request_shape(upload_id: &str) -> Result<(), ConnectError> {
+    if is_opaque_upload_id(upload_id, STATUS_IDENTIFIER_MAX_UTF8_BYTES) {
         return Ok(());
     }
     Err(ConnectError::new(

@@ -1,9 +1,8 @@
-//! How a Send pressed in the composer reaches the mic while it finalizes.
+//! How Send reaches the mic while it records or finalizes.
 //!
 //! The composer renders Send and the mic owns the recording, so a press made
-//! while a stopped recording waits for its last words has to cross from parent
-//! to child: the composer holds a door, and the mounted mic installs itself in
-//! it. Called by `super::mobile_voice_input` and the terminal composer.
+//! before the last words land has to cross from parent to child: the composer
+//! holds a door, and the mounted mic installs itself in it.
 
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
@@ -23,7 +22,7 @@ pub struct FinalizeSendDoor(Rc<RefCell<Weak<ComposerContext>>>);
 
 impl FinalizeSendDoor {
     /// Queue a Send with the mounted mic, which submits the draft once the
-    /// words its stopped recording waits for have landed in it.
+    /// recording's final words have landed in it.
     pub fn press(&self) {
         let context = self.0.borrow().upgrade();
         if let Some(context) = context {

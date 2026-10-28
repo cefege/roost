@@ -47,7 +47,7 @@ fn DiffLine(row: DiffRow) -> Element {
     let kind = kind_name(row.kind);
     if matches!(row.kind, RowKind::File | RowKind::Hunk) {
         return rsx! {
-            div { class: "flex min-w-full bg-muted py-0.5 text-muted-foreground", "data-kind": kind,
+            div { class: "flex min-w-full bg-muted py-0.5 text-primary", "data-kind": kind,
                 span { class: "min-w-0 flex-1 whitespace-pre-wrap break-all px-3", "{row.text}" }
             }
         };
@@ -66,10 +66,10 @@ fn DiffLine(row: DiffRow) -> Element {
         row.runs.clone()
     };
     rsx! {
-        div { class: "flex min-w-full data-[kind=added]:bg-primary/10 data-[kind=removed]:bg-destructive/10", "data-kind": kind,
+        div { class: "flex min-w-full data-[kind=added]:bg-success/10 data-[kind=removed]:bg-destructive/10", "data-kind": kind,
             span { class: "w-[calc(var(--diff-gutter)*1ch)] flex-none select-none pr-2 text-right text-muted-foreground", "{line_no}" }
-            span { class: "w-4 flex-none select-none text-center data-[kind=added]:text-primary data-[kind=removed]:text-destructive", "data-kind": kind, "{sign}" }
-            span { class: "min-w-0 flex-1 whitespace-pre-wrap break-all pr-3",
+            span { class: "w-4 flex-none select-none text-center data-[kind=added]:text-success data-[kind=removed]:text-destructive", "data-kind": kind, "{sign}" }
+            span { class: if row.kind == RowKind::Added { "min-w-0 flex-1 whitespace-pre-wrap break-all pr-3 text-success" } else if row.kind == RowKind::Removed { "min-w-0 flex-1 whitespace-pre-wrap break-all pr-3 text-destructive" } else { "min-w-0 flex-1 whitespace-pre-wrap break-all pr-3" },
                 for run in runs.iter() {
                     span { class: "data-[changed=true]:bg-primary/25", "data-changed": run.changed.then_some("true"),
                         for piece in visible_pieces(&run.text) {

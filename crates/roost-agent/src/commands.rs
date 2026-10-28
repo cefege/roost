@@ -47,6 +47,7 @@ pub(crate) async fn execute(
 async fn retry(runtime: &AgentRuntime, record: &ConversationRecord) -> Result<(), AgentError> {
     let (item_id, _) = latest_user(runtime, &record.id).await?;
     let text = runtime.rewind(&record.id, &item_id, false).await?;
+    let original = runtime.original_user_message(&record.id, &item_id).await?;
     runtime
         .notice(
             &record.id,
@@ -55,7 +56,15 @@ async fn retry(runtime: &AgentRuntime, record: &ConversationRecord) -> Result<()
             "Resubmitting the previous user message.",
         )
         .await;
-    Box::pin(runtime.submit(&record.id, text)).await
+    runtime
+        .deliver_user_content_with_mode(
+            record,
+            text,
+            original.attachments,
+            None,
+            crate::runtime::SubmitMode::Steer,
+        )
+        .await
 }
 
 async fn rewind_latest(

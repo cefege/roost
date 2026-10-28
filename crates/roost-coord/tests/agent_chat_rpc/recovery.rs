@@ -20,6 +20,7 @@ async fn boot_resumes_durable_progress_without_replaying_unknown_tool_effects() 
             &id,
             &Entry::User {
                 text: "Continue the existing migration".into(),
+                attachments: Vec::new(),
                 loop_repeat: false,
                 item_id: None,
             },

@@ -18,7 +18,7 @@ use super::mobile_voice_dom::{
 };
 use super::mobile_voice_send::{FinalizeSendDoor, use_finalize_send_door};
 use super::mobile_voice_shell::use_voice_shell_controls;
-use crate::components::ui::{ButtonSize, ButtonVariant, IconButton, IconType};
+use crate::components::ui::{ButtonSize, ButtonVariant, IconButton};
 use crate::pump::use_store;
 use crate::voice::engine::Engine;
 use crate::voice::keyterms::ContextReader;
@@ -137,38 +137,20 @@ pub fn MobileVoiceInput(
             "data-state": state.data_state(),
             "data-owner-active": if owns { "true" } else { "false" },
             "data-engine": (context.engine)().data_engine(),
-            div { class: "flex items-center gap-1",
-                IconButton {
-                    icon: IconType::X,
-                    label: "Discard recording",
-                    variant: ButtonVariant::Secondary,
-                    size: ButtonSize::IconSm,
-                    class: Some(if !state.is_dictating() || !owns { "invisible" } else { "" }.to_owned()),
-                    disabled: !state.is_dictating() || !owns,
-                    "aria-hidden": (!state.is_dictating() || !owns).then_some("true"),
-                    "data-testid": "voice-discard",
-                    "type": "button",
-                    onmousedown: keep_keyboard,
-                    onclick: {
-                        let context = context.clone();
-                        move |_event: MouseEvent| context.discard()
-                    },
-                }
-                IconButton {
-                    icon: mic_icon(state),
-                    label: mic_label(state),
-                    variant: if state == VoiceState::Listening { ButtonVariant::Destructive } else { ButtonVariant::Ghost },
-                    size: ButtonSize::IconSm,
-                    class: Some(VOICE_MIC_CLASS.to_owned()),
-                    "data-testid": "voice-mic",
-                    "type": "button",
-                    "data-recording": bool_attr(state == VoiceState::Listening),
-                    "data-starting": bool_attr(state == VoiceState::Starting),
-                    "data-finalizing": bool_attr(state == VoiceState::Finalizing),
-                    "aria-busy": (state == VoiceState::Starting).then_some("true"),
-                    onmousedown: keep_keyboard,
-                    onclick: toggle,
-                }
+            IconButton {
+                icon: mic_icon(state),
+                label: mic_label(state),
+                variant: if state == VoiceState::Listening { ButtonVariant::Destructive } else { ButtonVariant::Ghost },
+                size: ButtonSize::IconSm,
+                class: Some(VOICE_MIC_CLASS.to_owned()),
+                "data-testid": "voice-mic",
+                "type": "button",
+                "data-recording": bool_attr(state == VoiceState::Listening),
+                "data-starting": bool_attr(state == VoiceState::Starting),
+                "data-finalizing": bool_attr(state == VoiceState::Finalizing),
+                "aria-busy": (state == VoiceState::Starting).then_some("true"),
+                onmousedown: keep_keyboard,
+                onclick: toggle,
             }
         }
     }

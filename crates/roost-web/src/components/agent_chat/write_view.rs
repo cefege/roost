@@ -20,6 +20,7 @@ pub(super) struct WritePreview<'a> {
     pub(super) gutter: usize,
 }
 
+/// The numbered head of written content, syntax-coloured when its language is known.
 pub(super) fn write_preview(content: &str, open: bool) -> WritePreview<'_> {
     let all_lines: Vec<&str> = content.lines().collect();
     let (shown, hidden) = window(&all_lines, WRITE_PREVIEW_LINES, true, open);
@@ -38,18 +39,33 @@ pub(super) fn write_preview(content: &str, open: bool) -> WritePreview<'_> {
 }
 
 #[component]
-pub fn WriteBody(content: String, open: bool, on_expand: EventHandler<bool>) -> Element {
+pub fn WriteBody(
+    content: String,
+    open: bool,
+    on_expand: EventHandler<bool>,
+    #[props(default)] code_language: Option<String>,
+) -> Element {
     let preview = write_preview(&content, open);
+    let syntax_lines =
+        super::syntax_output::syntax_tokens(content.lines(), code_language.as_deref());
     let hint = format!("+{} more lines", preview.hidden);
     let can_collapse = open && preview.total > WRITE_PREVIEW_LINES;
     let gutter_style = format!("--write-gutter: {};", preview.gutter);
     rsx! {
         div { class: "bg-terminal py-2 text-terminal-foreground",
             pre { class: "m-0 overflow-x-auto font-mono text-xs", style: gutter_style,
-                for (number, line) in preview.lines.iter() {
+                for (index, (number, line)) in preview.lines.iter().enumerate() {
                     div { class: "flex whitespace-pre", key: "{number}",
                         span { class: "min-w-[calc(var(--write-gutter)*1ch)] select-none pr-3 text-right text-muted-foreground", "{number}" }
-                        span { class: "whitespace-pre-wrap break-words", "{line}" }
+                        span { class: "whitespace-pre-wrap break-words",
+                            if let Some(tokens) = syntax_lines.as_ref().and_then(|rows| rows.get(index)) {
+                                for token in tokens {
+                                    span { class: super::markdown::token_class(token.kind), "{token.text}" }
+                                }
+                            } else {
+                                "{line}"
+                            }
+                        }
                     }
                 }
             }

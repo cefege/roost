@@ -13,8 +13,11 @@ use rpi_ai::types::{
 mod outbound;
 pub(super) use outbound::to_durable_message;
 
-/// Convert a Pi transcript message to Roost's provider-neutral request form.
-pub(super) fn from_durable_message(message: &Message) -> Result<LlmMessage, AgentError> {
+/// Converts a Pi message for one candidate's catalog image capability.
+pub(super) fn from_durable_message(
+    message: &Message,
+    supports_images: bool,
+) -> Result<LlmMessage, AgentError> {
     match message {
         Message::User(user) => {
             let content = match &user.content {
@@ -30,10 +33,11 @@ pub(super) fn from_durable_message(message: &Message) -> Result<LlmMessage, Agen
                                 text: text.text.clone(),
                             })
                         }
-                        UserContentBlock::Image(image) => Ok(UserContent::Image {
-                            mime: image.mime_type.clone(),
-                            base64: image.data.clone(),
-                        }),
+                        UserContentBlock::Image(image) => Ok(image_content(
+                            &image.mime_type,
+                            &image.data,
+                            supports_images,
+                        )),
                     })
                     .collect::<Result<Vec<_>, _>>()?,
             };
@@ -56,10 +60,11 @@ pub(super) fn from_durable_message(message: &Message) -> Result<LlmMessage, Agen
                             text: text.text.clone(),
                         })
                     }
-                    ToolResultContent::Image(image) => Ok(UserContent::Image {
-                        mime: image.mime_type.clone(),
-                        base64: image.data.clone(),
-                    }),
+                    ToolResultContent::Image(image) => Ok(image_content(
+                        &image.mime_type,
+                        &image.data,
+                        supports_images,
+                    )),
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             let mut provider_data = serde_json::Map::new();
@@ -98,6 +103,19 @@ pub(super) fn from_durable_message(message: &Message) -> Result<LlmMessage, Agen
         Message::System(_) => Err(unsupported(
             "positional system messages (use effective-system folding)",
         )),
+    }
+}
+
+fn image_content(mime_type: &str, data: &str, supports_images: bool) -> UserContent {
+    if supports_images {
+        UserContent::Image {
+            mime: mime_type.to_owned(),
+            base64: data.to_owned(),
+        }
+    } else {
+        UserContent::Text {
+            text: "[attached image; this model does not support image input]".to_owned(),
+        }
     }
 }
 

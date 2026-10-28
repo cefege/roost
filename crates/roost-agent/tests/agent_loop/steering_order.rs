@@ -313,6 +313,7 @@ async fn activated_follow_up_survives_completion_before_next_run_start() {
                 kind: "submit".into(),
                 entries: vec![Entry::User {
                     text: "first".into(),
+                    attachments: Vec::new(),
                     loop_repeat: false,
                     item_id: Some("first".into()),
                 }],
@@ -349,6 +350,7 @@ async fn activated_follow_up_survives_completion_before_next_run_start() {
                 entries: vec![Entry::QueuedInput {
                     submission_id: "follow-up".into(),
                     text: "after completion".into(),
+                    attachments: Vec::new(),
                     state: QueuedInputState::Pending,
                 }],
                 intent: IntentChange::FollowUp,

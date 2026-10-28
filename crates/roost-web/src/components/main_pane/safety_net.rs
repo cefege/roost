@@ -33,7 +33,7 @@ pub(super) fn use_dead_route_safety_net(
     let effect_net = Rc::clone(&net);
     use_effect(use_reactive(
         (&route, &open_session_id, &on_terminal_route, &hydrated),
-        move |(_, open_session_id, on_terminal_route, hydrated)| {
+        move |(route, open_session_id, on_terminal_route, hydrated)| {
             let core = effect_pump.core();
             let step = {
                 let core = core.borrow();
@@ -42,6 +42,7 @@ pub(super) fn use_dead_route_safety_net(
                     .and_then(|session_id| session_by_id(core.store(), session_id));
                 effect_net.borrow_mut().evaluate(RouteLiveness {
                     open_session: open,
+                    preserve_exact_session: matches!(&route, Route::Session { .. }),
                     on_terminal_route,
                     hydrated,
                 })

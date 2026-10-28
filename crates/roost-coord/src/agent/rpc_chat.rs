@@ -111,13 +111,15 @@ pub async fn handle_agent_chat_submit(
     require_account_device(caller)?;
     require_request_id(&request.request_id)?;
     let mode = SubmitMode::parse(&request.when_busy).map_err(agent_status)?;
+    let attachments = super::rpc_chat_attachments::to_domain_attachments(request.attachments);
     core.services
         .agent
         .runtime
-        .submit_request_with_mode(
+        .submit_request_with_attachments(
             &request.conversation_id,
             &request.request_id,
             request.text,
+            attachments,
             mode,
         )
         .await

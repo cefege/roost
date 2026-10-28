@@ -29,7 +29,7 @@ fn grant(grant_id: &str, device: &str) -> DLocalAttachmentGrant {
         request_id: format!("req-{grant_id}"),
         grant_id: grant_id.to_owned(),
         secret_sha256: digest(SECRET.as_bytes()),
-        session_id: "session-1".to_owned(),
+        session_id: "00000000-0000-4000-8000-000000000001".to_owned(),
         upload_id: format!("upload-{grant_id}"),
         filename: "photo.png".to_owned(),
         short_path: false,
@@ -90,6 +90,10 @@ fn an_install_must_name_this_epoch_a_bounded_ttl_and_a_real_digest() {
         },
         DLocalAttachmentGrant {
             upload_id: "a/b".to_owned(),
+            ..grant("g1", "dev")
+        },
+        DLocalAttachmentGrant {
+            session_id: "arbitrary-session-id".to_owned(),
             ..grant("g1", "dev")
         },
     ];

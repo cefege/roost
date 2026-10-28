@@ -122,7 +122,7 @@ impl JournalSync {
             .find_map(|(sequence, entry)| {
                 matches!(entry, Entry::Compaction { .. }).then_some(*sequence)
             });
-        for (sequence, message) in crate::history::build_message_entries(entries, provider) {
+        for (sequence, message) in crate::history::build_message_entries(entries, provider, true) {
             let index = *indices.entry(sequence).or_insert_with(|| {
                 groups.push((sequence, Vec::new()));
                 groups.len() - 1

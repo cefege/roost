@@ -56,6 +56,7 @@ pub fn fold_chat_event(transcript: &mut Transcript, event: &ChatEvent) {
                         transcript.items.push(TranscriptItem::User {
                             id: message.id,
                             text: message.text,
+                            attachment_names: message.attachment_names,
                         });
                     }
                 }

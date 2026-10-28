@@ -180,6 +180,7 @@ async fn append_legacy_turn(harness: &Harness, conversation_id: &str, prompt: &s
             conversation_id,
             &Entry::User {
                 text: prompt.into(),
+                attachments: Vec::new(),
                 loop_repeat: false,
                 item_id: Some(prompt.into()),
             },

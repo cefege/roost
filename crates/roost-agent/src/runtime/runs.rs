@@ -26,6 +26,10 @@ use crate::run_loop;
 #[derive(Debug, Clone)]
 pub(crate) enum Steer {
     User(String),
+    UserWithAttachments(
+        String,
+        Vec<roost_protocol::wire::agent_chat::AgentChatAttachment>,
+    ),
     Advisory {
         item_id: String,
         severity: AdvisorySeverity,

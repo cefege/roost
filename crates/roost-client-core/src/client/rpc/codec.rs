@@ -45,13 +45,17 @@ pub fn decode_message<M: Message>(method: &'static str, body: &[u8]) -> Result<M
     })
 }
 
-/// A body this client could not encode, or an answer it could not read.
-///
-/// A malformed answer is an error and never an empty result: an empty session
-/// list is a real answer ("you have no sessions"), and reading garbage as one
-/// would publish an empty sidebar over the real one.
+/// A request rejected by local admission, a body this client could not encode,
+/// or an answer it could not read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RpcCodecError {
+    /// A request failed local admission before protobuf encoding.
+    RejectedRequest {
+        /// The Connect method.
+        method: &'static str,
+        /// The admission reason.
+        detail: String,
+    },
     /// The request could not be encoded (only a message past protobuf's 2 GiB
     /// limit can do this).
     UnencodableRequest {
@@ -72,6 +76,9 @@ pub enum RpcCodecError {
 impl fmt::Display for RpcCodecError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::RejectedRequest { method, detail } => {
+                write!(formatter, "{method}: request rejected: {detail}")
+            }
             Self::UnencodableRequest { method, detail } => {
                 write!(
                     formatter,

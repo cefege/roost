@@ -6,7 +6,7 @@ use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::JobState;
 
 use super::output_window::OutputWindow;
-use super::tool_view::{state_label, status_name, tool_state};
+use super::tool_view::{category_class, state_label, state_text_class, status_name, tool_state};
 use crate::components::ui::{Card, CardContent, CardSize, Icon, IconType, StatusDot};
 
 /// Output rows a finished job shows before folding; the tail is what a reader
@@ -25,6 +25,7 @@ pub fn BackgroundJobBox(
     let mut output_open = use_signal(|| false);
     let state_name = tool_state(false, false, false, false, is_error, Some(state.as_str()));
     let label = state_label(state_name);
+    let tool_tint = category_class("bash");
     rsx! {
         Card {
             size: CardSize::Sm,
@@ -33,14 +34,14 @@ pub fn BackgroundJobBox(
             "data-tool": "bash",
             CardContent { class: "flex min-w-0 flex-col gap-1",
                 div { class: "flex min-w-0 items-center gap-2 text-sm text-muted-foreground",
-                    span { class: "inline-flex flex-none items-center gap-1",
+                    span { class: "inline-flex flex-none items-center gap-1 {tool_tint}",
                         Icon { icon: IconType::Terminal, class: "size-4" }
                     }
-                    span { class: "flex-none font-medium text-foreground", "Background job" }
-                    span { class: "min-w-0 flex-1 truncate font-mono text-xs text-foreground",
+                    span { class: "flex-none font-medium {tool_tint}", "Background job" }
+                    span { class: "min-w-0 flex-1 truncate font-mono text-xs text-primary",
                         "{job_id}"
                     }
-                    span { class: "ml-auto inline-flex flex-none items-center gap-1 text-xs text-muted-foreground",
+                    span { class: state_text_class(state_name),
                         StatusDot {
                             status: status_name(state_name).to_string(),
                             title: Some(label.to_string()),
@@ -66,7 +67,7 @@ pub fn BackgroundJobBox(
                     }
                 }
                 if let Some(code) = exit_code.filter(|code| *code != 0) {
-                    p { class: "m-0 pt-1 text-xs text-muted-foreground", "Exit: {code}" }
+                    p { class: "m-0 pt-1 text-xs text-destructive", "Exit: {code}" }
                 }
             }
         }

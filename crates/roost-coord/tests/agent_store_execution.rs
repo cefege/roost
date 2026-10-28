@@ -123,6 +123,7 @@ async fn stale_revisions_conflict_superseded_leases_are_fenced_and_commands_admi
         kind: "submit".into(),
         entries: vec![Entry::User {
             text: "once".into(),
+            attachments: Vec::new(),
             loop_repeat: false,
             item_id: None,
         }],
@@ -150,6 +151,7 @@ async fn stale_revisions_conflict_superseded_leases_are_fenced_and_commands_admi
                 1,
                 Entry::User {
                     text: "once".into(),
+                    attachments: Vec::new(),
                     loop_repeat: false,
                     item_id: None,
                 }

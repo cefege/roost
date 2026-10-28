@@ -7,10 +7,11 @@ use std::sync::{Arc, Mutex};
 
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
-use roost_agent::{AccountUsage, FetchedPage, Llm};
+use roost_agent::{AccountUsage, AgentRuntime, FetchedPage, Llm, NewConversation};
 use roost_llm::web_search::{ParsedQuery, SearchQuery, SearchResponse};
 use roost_llm::{
     Answer, Catalog, ChatRequest, LlmError, ModelInfo, Question, ResolvedAuth, StreamEvent,
+    UserContent,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -140,6 +141,33 @@ impl ScriptedLlm {
     pub fn hosted(&self, reply: SearchScript) {
         self.hosted_results.lock().unwrap().push_back(reply);
     }
+}
+
+pub fn user_content(request: &ChatRequest) -> &[UserContent] {
+    request
+        .messages
+        .iter()
+        .find_map(|message| match message {
+            roost_llm::Message::User { content } => Some(content.as_slice()),
+            _ => None,
+        })
+        .expect("a model request includes user content")
+}
+
+pub async fn unpinned_conversation(runtime: &AgentRuntime) -> String {
+    runtime
+        .create_conversation(NewConversation {
+            worker_fp: "worker-fp".into(),
+            worker_label: "desktop".into(),
+            worker_os: "linux".into(),
+            cwd: "/repo".into(),
+            title: None,
+            model: None,
+            thinking_level: None,
+        })
+        .await
+        .expect("the test conversation can be created")
+        .id
 }
 
 impl Llm for ScriptedLlm {

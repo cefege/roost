@@ -225,6 +225,7 @@ async fn usage_near_the_context_window_compacts_before_the_next_call() {
                 &id,
                 Entry::User {
                     text: format!("question {turn} {}", "x".repeat(40_000)),
+                    attachments: Vec::new(),
                     loop_repeat: false,
                     item_id: None,
                 },

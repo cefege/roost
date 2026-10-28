@@ -7,6 +7,7 @@ use roost_protocol::wire::agent_chat::{ConversationSummary, ModelsCatalog};
 
 use super::composer_commands::model_picker_trigger_id;
 use super::model_reference_menu::ModelReferenceMenu;
+use super::provider_usage::ProviderUsage;
 use crate::components::ui::{Button, ButtonSize, ButtonVariant, FieldError, IconType};
 use crate::pump::Pump;
 use crate::router_state::use_navigate;
@@ -65,7 +66,7 @@ pub fn AgentModelControls(
     };
     if let Some((label, icon, waiting)) = placeholder {
         return rsx! {
-            div { class: "flex min-w-0 max-w-full items-center",
+            div { class: "flex min-w-0 max-w-full items-center gap-1",
                 Button {
                     variant: ButtonVariant::Ghost,
                     size: ButtonSize::Sm,
@@ -79,16 +80,26 @@ pub fn AgentModelControls(
                     onclick: move |_| open_settings(),
                     span { class: "truncate", "{label}" }
                 }
+                ProviderUsage {
+                    conversation: conversation.clone(),
+                    catalog: catalog.clone(),
+                    pump: pump.clone(),
+                }
             }
         };
     }
     rsx! {
-        div { class: "flex min-w-0 max-w-full items-center",
+        div { class: "flex min-w-0 max-w-full items-center gap-1",
             ModelReferenceMenu {
                 trigger_id,
+                conversation: conversation.clone(),
+                catalog: catalog.clone(),
+                catalog_failed,
+                pump: pump.clone(),
+            }
+            ProviderUsage {
                 conversation,
                 catalog,
-                catalog_failed,
                 pump,
             }
         }

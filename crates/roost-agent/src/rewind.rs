@@ -4,7 +4,9 @@
 
 use std::time::Duration;
 
-use roost_protocol::wire::agent_chat::{ConversationSummary, TOOL_REWIND_FILES};
+use roost_protocol::wire::agent_chat::{
+    ChatEvent, ConversationSummary, RewoundUserMessage, TOOL_REWIND_FILES,
+};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -16,6 +18,20 @@ use crate::runtime::{AgentRuntime, now_ms, random_id};
 use crate::traits::{OwnerConversationId, ToolCall, WorkerConversationNamespace};
 
 impl AgentRuntime {
+    /// Reads original user content from the immutable journal entry.
+    pub async fn original_user_message(
+        &self,
+        id: &str,
+        user_item_id: &str,
+    ) -> Result<RewoundUserMessage, AgentError> {
+        let entries = self.inner.store.entries(id).await?;
+        let (_, text, attachments) = lookup_user_content(&entries, user_item_id)?;
+        Ok(RewoundUserMessage {
+            text: text.to_owned(),
+            attachments: attachments.to_vec(),
+        })
+    }
+
     /// Hides a user turn and optionally restores its worker-side file changes.
     pub async fn rewind(
         &self,
@@ -24,22 +40,7 @@ impl AgentRuntime {
         restore_files: bool,
     ) -> Result<String, AgentError> {
         let entries = self.inner.store.entries(id).await?;
-        let (seq, user_text) = entries
-            .iter()
-            .find_map(|(sequence, entry)| match entry {
-                Entry::User { text, item_id, .. }
-                    if item_id.as_deref().map_or_else(
-                        || projection::user_item_id(*sequence) == user_item_id,
-                        |item_id| item_id == user_item_id,
-                    ) =>
-                {
-                    Some((*sequence, text.clone()))
-                }
-                _ => None,
-            })
-            .ok_or_else(|| {
-                AgentError::InvalidArgument(format!("user item {user_item_id} not found"))
-            })?;
+        let (seq, user_text, _) = lookup_user_content(&entries, user_item_id)?;
         if self.abort(id).await? {
             while self.is_running(id) {
                 tokio::time::sleep(Duration::from_millis(1)).await;
@@ -80,6 +81,8 @@ impl AgentRuntime {
         if has_later_user {
             self.append(id, Entry::Rewind { to_seq: seq }).await?;
         }
+        let transcript = self.transcript(id).await?;
+        self.emit(id, vec![ChatEvent::Reset { transcript }]).await;
         if let Some(files) = restored_files {
             self.notice(id, "info", "Files restored", &files).await;
         }
@@ -89,7 +92,7 @@ impl AgentRuntime {
             restore_files,
             "agent conversation rewound"
         );
-        Ok(user_text)
+        Ok(user_text.to_owned())
     }
 
     /// Creates a top-level conversation with a copy of effective journal history.
@@ -173,6 +176,37 @@ impl AgentRuntime {
         self.publish_summary(&child).await;
         Ok(self.summary(&child).await)
     }
+}
+
+fn lookup_user_content<'entries>(
+    entries: &'entries [(u64, Entry)],
+    user_item_id: &str,
+) -> Result<
+    (
+        u64,
+        &'entries str,
+        &'entries [roost_protocol::wire::agent_chat::AgentChatAttachment],
+    ),
+    AgentError,
+> {
+    entries
+        .iter()
+        .find_map(|(sequence, entry)| match entry {
+            Entry::User {
+                text,
+                attachments,
+                item_id,
+                ..
+            } if item_id.as_deref().map_or_else(
+                || projection::user_item_id(*sequence) == user_item_id,
+                |item_id| item_id == user_item_id,
+            ) =>
+            {
+                Some((*sequence, text.as_str(), attachments.as_slice()))
+            }
+            _ => None,
+        })
+        .ok_or_else(|| AgentError::InvalidArgument(format!("user item {user_item_id} not found")))
 }
 
 fn remap_sequence_fields(entry: &mut Entry, mapping: &[(u64, u64)]) {

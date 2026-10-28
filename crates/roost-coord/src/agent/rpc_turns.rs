@@ -68,8 +68,26 @@ pub async fn handle_agent_chat_rewind(
         )
         .await
         .map_err(agent_status)?;
+    let Some(text) = text else {
+        return ok_response(proto::AgentChatRewindResponse::default());
+    };
+    let original = runtime
+        .original_user_message(&request.conversation_id, &request.item_id)
+        .await
+        .map_err(agent_status)?;
     ok_response(proto::AgentChatRewindResponse {
-        text: text.unwrap_or_default(),
+        text,
+        attachments: original
+            .attachments
+            .into_iter()
+            .map(|attachment| proto::AgentChatAttachment {
+                filename: attachment.filename,
+                mime_type: attachment.mime_type,
+                data: attachment.data,
+                path: attachment.path,
+                ..Default::default()
+            })
+            .collect(),
         ..Default::default()
     })
 }

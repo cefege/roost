@@ -1,9 +1,8 @@
 //! The authenticated direct-attachment RPCs: mint one immutable grant, read one
-//! durable receipt, and negotiate one attachment peer. Each authorizes the live
-//! session route or the exact tab, then delegates to the separate grant, status
-//! and peer owners; no attachment byte crosses the coordinator here.
-//! Called by `rpc::service_impl`. Ports `apps/coord/src/attachments/handlers-attachments-direct.ts`
-//! and `apps/coord/src/attachments/handlers-attachments-peer.ts`.
+//! durable receipt, and negotiate one attachment peer. Grants bind to the
+//! authenticated terminal session or agent conversation and exact tab; no byte
+//! crosses the coordinator here. Called by `rpc::service_impl`; ports the v2
+//! direct and peer handlers.
 
 use connectrpc::{ConnectError, ErrorCode, Response, ServiceResult};
 use roost_proto::buffa::MessageField;
@@ -13,6 +12,7 @@ use roost_proto::{
     SessionsNegotiateAttachmentPeerResponse,
 };
 use roost_protocol::versioning::CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1;
+use roost_protocol::wire::AttachmentTargetId;
 
 use crate::attachments::grant_state::{
     AttachmentGrantDescriptor, AttachmentGrantRequest, attachment_grant_denied,
@@ -43,15 +43,16 @@ pub async fn handle_attachments_grant_direct(
             "attachment grant descriptor is invalid",
         ));
     }
+    let target_id = AttachmentTargetId::try_from(request.session_id.as_str())
+        .map_err(|_| attachment_grant_invalid("attachment grant descriptor is invalid"))?;
     let descriptor = AttachmentGrantDescriptor {
-        session_id: request.session_id.clone(),
+        session_id: target_id.clone(),
         upload_id: request.upload_id,
         filename: request.filename,
         short_path: request.short_path,
         total_bytes: request.total_bytes,
     };
-    let db = &core.services.db;
-    let (session_id, worker_fp) = (request.session_id, request.worker_fp.clone());
+    let worker_fp = request.worker_fp.clone();
     let granted = core
         .services
         .attachments
@@ -64,7 +65,7 @@ pub async fn handle_attachments_grant_direct(
                 worker_fp: request.worker_fp,
                 descriptor,
             },
-            || authorize_attachment_session(db, &session_id, &worker_fp),
+            || authorize_attachment_session(core, &target_id, &worker_fp),
         )
         .await?;
     let peer_supported = config.terminal_peer_enabled
@@ -88,7 +89,7 @@ pub async fn handle_attachments_grant_direct(
     })
 }
 
-/// Read one upload's durable receipt from the session's current worker.
+/// Read one upload's durable receipt from a terminal session or agent conversation.
 /// v2 `attachmentsDirectStatus`.
 pub async fn handle_attachments_direct_status(
     core: &CoordCore,
@@ -103,14 +104,30 @@ pub async fn handle_attachments_direct_status(
             "attachment status request is invalid",
         ));
     }
-    let worker_fp = attachment_session_worker(&core.services.db, &request.session_id).await?;
+    let target_id = AttachmentTargetId::try_from(request.session_id.as_str())
+        .map_err(|_| attachment_grant_invalid("attachment status request is invalid"))?;
+    let worker_fp = if target_id.is_conversation() {
+        super::conversation_target::conversation_attachment_target(core, &target_id, None)
+            .await?
+            .ok_or_else(|| {
+                ConnectError::new(ErrorCode::NotFound, "attachment session is unavailable")
+            })?
+            .worker_fp
+            .to_string()
+    } else {
+        attachment_session_worker(&core.services.db, target_id.as_str())
+            .await?
+            .ok_or_else(|| {
+                ConnectError::new(ErrorCode::NotFound, "attachment session is unavailable")
+            })?
+    };
     let worker = current_routable_by_name(&core.services.workers, &worker_fp)
         .ok_or_else(|| attachment_grant_unavailable("attachment status worker is unavailable"))?;
     let status = core
         .services
         .attachments
         .statuses()
-        .request(&worker, &request.session_id, &request.upload_id)
+        .request(&worker, &target_id, &request.upload_id)
         .await?;
     Response::ok(AttachmentsDirectStatusResponse {
         status: MessageField::some(status),
@@ -164,14 +181,30 @@ fn require_attachment_grant_tab<'a>(
     Ok(requested)
 }
 
-/// The grant's authorization, re-run after the worker acknowledged it: the
-/// session must still be open and still on the named worker.
+/// Recheck ownership after the worker acknowledges the grant.
 async fn authorize_attachment_session(
-    db: &CoordDb,
-    session_id: &str,
+    core: &CoordCore,
+    target_id: &AttachmentTargetId,
     expected_worker_fp: &str,
 ) -> Result<(), ConnectError> {
-    if attachment_session_worker(db, session_id).await? != expected_worker_fp {
+    if target_id.is_conversation() {
+        super::conversation_target::conversation_attachment_target(
+            core,
+            target_id,
+            Some(expected_worker_fp),
+        )
+        .await?
+        .ok_or_else(|| {
+            ConnectError::new(ErrorCode::NotFound, "attachment session is unavailable")
+        })?;
+        return Ok(());
+    }
+    let worker_fp = attachment_session_worker(&core.services.db, target_id.as_str())
+        .await?
+        .ok_or_else(|| {
+            ConnectError::new(ErrorCode::NotFound, "attachment session is unavailable")
+        })?;
+    if worker_fp != expected_worker_fp {
         return Err(attachment_grant_denied(
             "attachment grant worker does not own the session",
         ));
@@ -179,9 +212,11 @@ async fn authorize_attachment_session(
     Ok(())
 }
 
-/// The worker an open session lives on, refusing a closed session or one whose
-/// worker was deleted.
-async fn attachment_session_worker(db: &CoordDb, session_id: &str) -> Result<String, ConnectError> {
+/// The worker for an open terminal session, if the identifier names one.
+async fn attachment_session_worker(
+    db: &CoordDb,
+    session_id: &str,
+) -> Result<Option<String>, ConnectError> {
     let row: Option<(String, String)> = sqlx::query_as(
         "SELECT session.worker_fp, session.status FROM sessions AS session \
          INNER JOIN workers AS worker ON worker.fp = session.worker_fp \
@@ -194,11 +229,5 @@ async fn attachment_session_worker(db: &CoordDb, session_id: &str) -> Result<Str
         tracing::error!(session_id, %error, "attachments: the session worker lookup failed");
         ConnectError::new(ErrorCode::Internal, "attachment session lookup failed")
     })?;
-    match row {
-        Some((worker_fp, status)) if status == "open" => Ok(worker_fp),
-        _ => Err(ConnectError::new(
-            ErrorCode::NotFound,
-            "attachment session is unavailable",
-        )),
-    }
+    Ok(row.and_then(|(worker_fp, status)| (status == "open").then_some(worker_fp)))
 }

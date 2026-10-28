@@ -108,7 +108,7 @@ fn code_html(code: &str, highlighted: bool) -> String {
 }
 
 /// The colour of a `syntax_lite` token, from the theme's syntax palette.
-fn token_class(kind: crate::syntax_lite::TokenKind) -> &'static str {
+pub(super) fn token_class(kind: crate::syntax_lite::TokenKind) -> &'static str {
     use crate::syntax_lite::TokenKind;
     match kind {
         TokenKind::Keyword => "text-[var(--syntax-keyword)]",

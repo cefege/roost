@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 pub use super::interaction::{AskOption, AskQuestion, TodoPhase, TodoStatus, TodoTask};
 use super::jobs::JobState;
+use super::usage::UsageTotals;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelRef {
@@ -106,6 +107,8 @@ pub struct QueuedMessage {
     /// The id its user item will have.
     pub id: String,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachment_names: Vec<String>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub mode: String,
 }
@@ -124,7 +127,12 @@ pub struct ScheduledMessage {
 #[serde(tag = "kind")]
 pub enum TranscriptItem {
     #[serde(rename = "user")]
-    User { id: String, text: String },
+    User {
+        id: String,
+        text: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        attachment_names: Vec<String>,
+    },
     #[serde(rename = "assistant")]
     Assistant {
         id: String,
@@ -268,23 +276,6 @@ pub enum TranscriptBlock {
         tool_name: String,
         args_json: String,
     },
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct UsageTotals {
-    pub input_tokens: u64,
-    pub output_tokens: u64,
-    pub cost_usd: f64,
-    /// The most recent model call's own prompt size (input plus cache reads
-    /// and writes), not summed across the session: how full the context
-    /// window is right now, for the header's usage ring. `0` before the
-    /// first call, or for an entry recorded before this field existed.
-    #[serde(default, skip_serializing_if = "is_zero_u64")]
-    pub context_tokens: u64,
-}
-
-fn is_zero_u64(value: &u64) -> bool {
-    *value == 0
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

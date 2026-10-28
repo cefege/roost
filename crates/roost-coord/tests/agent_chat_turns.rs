@@ -54,6 +54,7 @@ async fn fork_returns_new_id_and_copies_transcript() {
             &created.id,
             &Entry::User {
                 text: "copied".into(),
+                attachments: Vec::new(),
                 loop_repeat: false,
                 item_id: None,
             },

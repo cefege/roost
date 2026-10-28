@@ -11,6 +11,8 @@
 //! audio still in flight, and the words must land in the composer rather than in
 //! whatever the user typed while waiting.
 
+mod finishing;
+
 /// Where one recording is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VoiceState {
@@ -171,6 +173,14 @@ impl VoiceEffect {
     }
 }
 
+/// What to do after the engine finishes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum FinishIntent {
+    #[default]
+    Edit,
+    Submit,
+}
+
 /// The whole of one mic's behaviour, minus the browser.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VoiceMachine {
@@ -178,8 +188,7 @@ pub struct VoiceMachine {
     settled: String,
     hypothesis: String,
     error: Option<&'static str>,
-    /// Send was pressed while finalizing; the ending submits the draft.
-    send_queued: bool,
+    finish_intent: FinishIntent,
 }
 
 impl VoiceMachine {
@@ -308,7 +317,7 @@ impl VoiceMachine {
             return Vec::new();
         }
         let insert = self.transcript(true);
-        let submit = self.send_queued;
+        let submit = self.finish_intent == FinishIntent::Submit;
         let mut effects = vec![
             VoiceEffect::ClearFinalizeWatchdog,
             VoiceEffect::ClearEngineText,
@@ -350,20 +359,12 @@ impl VoiceMachine {
         }
         // Taken before the reset: the words are what this effect commits.
         let insert = self.transcript(asked);
-        let submit = self.send_queued && asked;
+        let submit = self.finish_intent == FinishIntent::Submit && asked;
         let mut effects = vec![VoiceEffect::ClearFinalizeWatchdog, VoiceEffect::AbortEngine];
         self.reset(&mut effects);
         effects.push(VoiceEffect::deliver(insert));
         effects.extend(submit.then_some(VoiceEffect::SubmitDraft));
         effects
-    }
-
-    /// A Send pressed while finalizing waits for the engine's answer to the
-    /// stop, which may still revise the hypothesis and add words. Anywhere else
-    /// the composer acts on the press itself.
-    fn queue_send(&mut self) -> Vec<VoiceEffect> {
-        self.send_queued |= self.state == VoiceState::Finalizing;
-        Vec::new()
     }
 
     /// Back to idle: the state moves first, so an effect that re-enters the
@@ -372,7 +373,7 @@ impl VoiceMachine {
         self.state = VoiceState::Idle;
         self.settled.clear();
         self.hypothesis.clear();
-        self.send_queued = false;
+        self.finish_intent = FinishIntent::Edit;
         effects.push(VoiceEffect::ReleaseVoice);
     }
 }

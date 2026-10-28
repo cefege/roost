@@ -140,7 +140,7 @@ async fn a_direct_upload_over_an_in_process_str0m_pair_lands_the_file() {
         b"attachment over a str0m pair".to_vec(),
     );
     let (session_id, upload_id, grant_id, tab_id, peer_id) = (
-        format!("peer-{}", mint_uuid().unwrap()),
+        "c-0123456789abcdef01234567".to_owned(),
         mint_uuid().unwrap(),
         mint_uuid().unwrap(),
         mint_uuid().unwrap(),

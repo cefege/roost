@@ -46,8 +46,8 @@ pub fn InputPromptTextarea(
     #[props(optional)] on_input: Option<EventHandler<String>>,
     #[props(optional)] on_mounted: Option<EventHandler<MountedEvent>>,
     /// When false, a bare Enter keeps its default (a newline) and `on_submit` never
-    /// fires from the keyboard. The composer sets it false because its own keydown
-    /// owns Enter: a live recording keeps Enter as a newline.
+    /// fires from the keyboard. The terminal composer sets it false because its
+    /// own keydown applies composer-specific submission rules.
     #[props(default = true)]
     submit_on_enter: bool,
     #[props(extends = GlobalAttributes, extends = textarea)] attributes: Vec<Attribute>,

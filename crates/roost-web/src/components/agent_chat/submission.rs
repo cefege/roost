@@ -12,6 +12,8 @@ use crate::platform::SessionStorageKeyValueStore;
 pub(super) struct PendingSubmission {
     pub text: String,
     pub when_busy: String,
+    #[serde(default)]
+    pub attachment_ids: Vec<String>,
     pub request_id: String,
 }
 
@@ -26,15 +28,21 @@ pub(super) fn prepare(
     conversation_id: &str,
     text: &str,
     selection: &str,
+    attachment_ids: &[String],
     previous: Option<&PendingSubmission>,
 ) -> PendingSubmission {
     let pending = match previous {
-        Some(previous) if previous.text == text && previous.when_busy == selection => {
+        Some(previous)
+            if previous.text == text
+                && previous.when_busy == selection
+                && previous.attachment_ids == attachment_ids =>
+        {
             previous.clone()
         }
         _ => PendingSubmission {
             text: text.to_owned(),
             when_busy: selection.to_owned(),
+            attachment_ids: attachment_ids.to_vec(),
             request_id: super::request_ids::new_request_id(),
         },
     };
@@ -71,4 +79,37 @@ pub(super) fn completion_callback(
         }
         report.call(result);
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PendingSubmission, prepare};
+
+    #[test]
+    fn attachment_only_retries_reuse_identity_only_for_the_same_uploads() {
+        let previous = PendingSubmission {
+            text: String::new(),
+            when_busy: "follow_up".to_owned(),
+            attachment_ids: vec!["original-upload".to_owned()],
+            request_id: "original-request".to_owned(),
+        };
+        let retry = prepare(
+            "attachment-retry",
+            "",
+            "follow_up",
+            &previous.attachment_ids,
+            Some(&previous),
+        );
+        assert_eq!(retry.request_id, previous.request_id);
+        let replacement = prepare(
+            "attachment-retry",
+            "",
+            "follow_up",
+            &["replacement-upload".to_owned()],
+            Some(&previous),
+        );
+        assert_ne!(replacement.request_id, previous.request_id);
+        let removed = prepare("attachment-retry", "", "follow_up", &[], Some(&previous));
+        assert_ne!(removed.request_id, previous.request_id);
+    }
 }

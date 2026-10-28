@@ -11,6 +11,7 @@ mod logins;
 pub mod rpc_accounts;
 pub mod rpc_auth;
 pub mod rpc_chat;
+mod rpc_chat_attachments;
 mod rpc_errors;
 pub mod rpc_inspect;
 pub mod rpc_turns;

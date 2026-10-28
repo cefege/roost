@@ -158,7 +158,7 @@ fn request_from_context(
         .messages
         .iter()
         .filter(|message| !matches!(message, rpi_ai::types::Message::System(_)))
-        .map(from_durable_message)
+        .map(|message| from_durable_message(message, info.images))
         .collect::<Result<Vec<_>, _>>()?;
     if context
         .messages

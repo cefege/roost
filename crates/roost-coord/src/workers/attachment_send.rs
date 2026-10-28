@@ -83,7 +83,7 @@ pub fn send_local_attachment_grant_request(
         request_id: pending.request_id().to_owned(),
         grant_id: message.grant_id,
         secret_sha256: message.secret_sha256,
-        session_id: descriptor.session_id,
+        session_id: descriptor.session_id.as_str().to_owned(),
         upload_id: descriptor.upload_id,
         filename: descriptor.filename,
         short_path: descriptor.short_path,

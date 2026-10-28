@@ -1,7 +1,9 @@
 //! Credential selection, usage-aware ranking, and OAuth refresh for provider calls.
 //! `roost-agent` resolves through this pool before each request; persistence is
 //! supplied by the coordinator or the in-memory implementation.
+mod rank;
 
+use self::rank::rank;
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -109,6 +111,40 @@ impl AccountPool {
         };
         self.usage.insert(report.clone());
         Ok(Some(report))
+    }
+    /// The credential the next model call would prefer, without refreshing auth or changing sticky state.
+    pub async fn preferred_credential_id(
+        &self,
+        provider: &str,
+        conversation_id: &str,
+    ) -> Result<Option<i64>, LlmError> {
+        let rows = self.store.list(provider).await?;
+        let blocked: HashMap<i64, i64> = self.store.blocks(provider).await?.into_iter().collect();
+        let now = now_ms();
+        let candidates: Vec<_> = rows
+            .iter()
+            .filter(|row| row.disabled_cause.is_none())
+            .collect();
+        if let Some(sticky_id) = self.store.sticky(conversation_id, provider).await?
+            && candidates.iter().any(|row| {
+                row.id == sticky_id && blocked.get(&sticky_id).is_none_or(|until| *until <= now)
+            })
+        {
+            return Ok(Some(sticky_id));
+        }
+        let mut eligible: Vec<_> = candidates
+            .into_iter()
+            .filter(|row| blocked.get(&row.id).is_none_or(|until| *until <= now))
+            .collect();
+        if eligible.is_empty() {
+            return Ok(None);
+        }
+        let reports = self.usage.reports();
+        let rotation_start =
+            xxhash_rust::xxh32::xxh32(conversation_id.as_bytes(), 0) as usize % eligible.len();
+        eligible.rotate_left(rotation_start);
+        eligible.sort_by(|left, right| rank(left, right, &reports));
+        Ok(eligible.first().map(|row| row.id))
     }
 
     pub async fn resolve(
@@ -342,36 +378,6 @@ fn oauth_auth(kind: &CredentialKind) -> Result<ResolvedAuth, LlmError> {
     }
 }
 
-fn rank(
-    left: &StoredCredential,
-    right: &StoredCredential,
-    reports: &[UsageReport],
-) -> std::cmp::Ordering {
-    let report_for = |id| reports.iter().find(|report| report.credential_id == id);
-    let hot = |report: Option<&UsageReport>| {
-        report.is_some_and(|report| {
-            report
-                .windows
-                .iter()
-                .any(|window| window.used_fraction >= 0.90)
-        })
-    };
-    let primary_usage = |report: Option<&UsageReport>| {
-        report
-            .and_then(|report| {
-                report
-                    .windows
-                    .iter()
-                    .find(|window| matches!(window.name.as_str(), "5h" | "primary"))
-            })
-            .map_or(0.0, |window| window.used_fraction)
-    };
-    let left_report = report_for(left.id);
-    let right_report = report_for(right.id);
-    hot(left_report)
-        .cmp(&hot(right_report))
-        .then_with(|| primary_usage(left_report).total_cmp(&primary_usage(right_report)))
-}
 pub(crate) fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

@@ -62,10 +62,11 @@ pub fn usage_ring_offset(fraction: f64, circumference: f64) -> f64 {
     circumference * (1.0 - clamped)
 }
 
-/// The ring. `fraction` is the share of a known limit; `None` draws the bare track.
+/// A circular indicator for a known usage fraction, or a bare track when unknown.
 #[component]
 pub fn UsageRing(
     fraction: Option<f64>,
+    #[props(into, optional)] label: Option<String>,
     #[props(default = DEFAULT_USAGE_RING_SIZE_PX)] size: u32,
     title: Option<String>,
 ) -> Element {
@@ -78,7 +79,7 @@ pub fn UsageRing(
         span {
             class: "inline-flex",
             role: "meter",
-            "aria-label": "Context window used",
+            "aria-label": label.as_deref().unwrap_or("Usage"),
             "aria-valuemin": "0",
             "aria-valuemax": "100",
             "aria-valuenow": fraction.map(|fraction| format!("{:.0}", fraction.clamp(0.0, 1.0) * 100.0)),

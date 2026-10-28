@@ -8,7 +8,7 @@
 use std::path::Path;
 use std::time::UNIX_EPOCH;
 
-use roost_protocol::wire::brand::SessionId;
+use roost_protocol::wire::AttachmentTargetId;
 use roost_protocol::wire::control::ClientControlFrame;
 use serde_json::Value;
 
@@ -23,16 +23,16 @@ pub type AttachmentOutcome = Result<Value, Refusal>;
 /// The on-disk store behind one session's attachment directory.
 pub trait AttachmentStore: Send + Sync {
     /// The files a session holds, newest first, the dedup manifest excluded.
-    fn list(&self, session_id: SessionId) -> Boxed<AttachmentOutcome>;
+    fn list(&self, session_id: AttachmentTargetId) -> Boxed<AttachmentOutcome>;
 
     /// Remove one file. A file that is already gone is a success: what the
     /// caller asked for is that it is not there.
-    fn delete(&self, session_id: SessionId, filename: String) -> Boxed<AttachmentOutcome>;
+    fn delete(&self, session_id: AttachmentTargetId, filename: String) -> Boxed<AttachmentOutcome>;
 
     /// Whether this session's manifest already holds bytes with this digest.
     fn probe(
         &self,
-        session_id: SessionId,
+        session_id: AttachmentTargetId,
         sha256: String,
         short_path: bool,
     ) -> Boxed<AttachmentOutcome>;
@@ -98,7 +98,7 @@ fn check_leaf(filename: &str) -> Result<(), Refusal> {
 }
 
 impl AttachmentStore for SessionAttachments {
-    fn list(&self, session_id: SessionId) -> Boxed<AttachmentOutcome> {
+    fn list(&self, session_id: AttachmentTargetId) -> Boxed<AttachmentOutcome> {
         let base = self.base.clone();
         Box::pin(async move {
             let dir = base
@@ -110,7 +110,7 @@ impl AttachmentStore for SessionAttachments {
         })
     }
 
-    fn delete(&self, session_id: SessionId, filename: String) -> Boxed<AttachmentOutcome> {
+    fn delete(&self, session_id: AttachmentTargetId, filename: String) -> Boxed<AttachmentOutcome> {
         let base = self.base.clone();
         Box::pin(async move {
             check_leaf(&filename)?;
@@ -136,7 +136,7 @@ impl AttachmentStore for SessionAttachments {
 
     fn probe(
         &self,
-        session_id: SessionId,
+        session_id: AttachmentTargetId,
         sha256: String,
         short_path: bool,
     ) -> Boxed<AttachmentOutcome> {

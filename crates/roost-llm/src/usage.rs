@@ -71,13 +71,16 @@ pub(crate) fn header_observer(
             note: None,
             fetched_ms: now_ms(),
         });
+        let mut received_window_headers = false;
+        let mut reused_previous_fraction = false;
         for name in ["5h", "7d"] {
             let prefix = format!("anthropic-ratelimit-unified-{name}-");
             let utilization = headers
                 .iter()
                 .find(|(header, _)| header.as_str() == format!("{prefix}utilization"))
                 .and_then(|(_, value)| value.to_str().ok())
-                .and_then(|value| value.parse::<f64>().ok());
+                .and_then(|value| value.parse::<f64>().ok())
+                .filter(|fraction| fraction.is_finite());
             let reset = headers
                 .iter()
                 .find(|(header, _)| header.as_str() == format!("{prefix}reset"))
@@ -86,24 +89,21 @@ pub(crate) fn header_observer(
             if utilization.is_none() && reset.is_none() {
                 continue;
             }
+            received_window_headers = true;
+            let previous = report.windows.iter().find(|window| window.name == name);
+            let has_new_utilization = utilization.is_some();
+            let Some(used_fraction) =
+                utilization.or_else(|| previous.map(|window| window.used_fraction))
+            else {
+                continue;
+            };
+            reused_previous_fraction |= !has_new_utilization;
             let window = UsageWindow {
                 name: name.into(),
-                used_fraction: utilization.unwrap_or_else(|| {
-                    report
-                        .windows
-                        .iter()
-                        .find(|window| window.name == name)
-                        .map_or(0.0, |window| window.used_fraction)
-                }),
+                used_fraction,
                 resets_at_ms: reset
                     .map(|seconds| seconds.saturating_mul(1000))
-                    .or_else(|| {
-                        report
-                            .windows
-                            .iter()
-                            .find(|window| window.name == name)
-                            .and_then(|window| window.resets_at_ms)
-                    }),
+                    .or_else(|| previous.and_then(|window| window.resets_at_ms)),
             };
             if let Some(existing) = report.windows.iter_mut().find(|window| window.name == name) {
                 *existing = window;
@@ -111,10 +111,11 @@ pub(crate) fn header_observer(
                 report.windows.push(window);
             }
         }
-        if !report.windows.is_empty() {
+        if received_window_headers && !report.windows.is_empty() {
             report.provider = provider.clone();
             report.label = label.clone();
-            report.note = None;
+            report.note = reused_previous_fraction
+                .then(|| "provider did not report current utilization".to_owned());
             report.fetched_ms = now_ms();
             cache.insert(report);
         }
@@ -184,24 +185,29 @@ async fn fetch_anthropic(
     let mut windows = Vec::new();
     for (name, key) in [("5h", "five_hour"), ("7d", "seven_day")] {
         if let Some(bucket) = body.get(key) {
-            let fraction = bucket
+            let Some(fraction) = bucket
                 .get("utilization")
                 .and_then(serde_json::Value::as_f64)
-                .unwrap_or(0.0)
-                / 100.0;
+                .filter(|fraction| fraction.is_finite())
+            else {
+                continue;
+            };
             let resets_at_ms = bucket
                 .get("resets_at")
                 .and_then(serde_json::Value::as_str)
                 .and_then(parse_timestamp);
             windows.push(UsageWindow {
                 name: name.into(),
-                used_fraction: fraction,
+                used_fraction: fraction / 100.0,
                 resets_at_ms,
             });
         }
     }
     Ok((windows, None))
 }
+const SHORT_WINDOW_SECONDS: u64 = 5 * 60 * 60;
+const WEEKLY_WINDOW_SECONDS: u64 = 7 * 24 * 60 * 60;
+
 async fn fetch_codex(
     http: &reqwest::Client,
     endpoints: &Endpoints,
@@ -225,18 +231,28 @@ async fn fetch_codex(
         ("secondary", "secondary_window"),
     ] {
         if let Some(window) = body.get("rate_limit").and_then(|rate| rate.get(key)) {
-            let fraction = window
+            let Some(fraction) = window
                 .get("used_percent")
                 .and_then(serde_json::Value::as_f64)
-                .unwrap_or(0.0)
-                / 100.0;
+                .filter(|fraction| fraction.is_finite())
+            else {
+                continue;
+            };
+            let name = match window
+                .get("limit_window_seconds")
+                .and_then(serde_json::Value::as_u64)
+            {
+                Some(SHORT_WINDOW_SECONDS) => "5h",
+                Some(WEEKLY_WINDOW_SECONDS) => "7d",
+                _ => name,
+            };
             let reset = window
                 .get("reset_at")
                 .and_then(serde_json::Value::as_i64)
                 .map(|seconds| seconds.saturating_mul(1000));
             windows.push(UsageWindow {
                 name: name.into(),
-                used_fraction: fraction,
+                used_fraction: fraction / 100.0,
                 resets_at_ms: reset,
             });
         }

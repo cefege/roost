@@ -308,7 +308,7 @@ fn load_everything(
         }
         let usage = match pump
             .rpc()
-            .call(&GetAgentUsage {})
+            .call(&GetAgentUsage::default())
             .await
             .map(|json| serde_json::from_str::<Vec<AccountEntry>>(&json))
         {

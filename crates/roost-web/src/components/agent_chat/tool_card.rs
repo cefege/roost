@@ -1,8 +1,7 @@
-//! One tool call as a compact row inside its step group. Its trigger shows the
-//! verb, target, diff counts and execution state; expanding reveals native
-//! output, diffs, child agents and executor details. The transcript-wide expand
-//! action opens every row. Tool content is text, never trusted markup. Called by
-//! the step group in `timeline_rail`.
+//! One tool call as a compact row inside its step group. Its trigger shows its
+//! category, target, diff counts and execution state; expanding reveals output,
+//! diffs, child agents and errors. Tool content is text, never trusted markup.
+//! Called by the step group in `timeline_rail`.
 
 use dioxus::prelude::*;
 
@@ -14,13 +13,13 @@ use super::output_lines::reads_as_diff;
 use super::output_window::OutputWindow;
 use super::task_rows::TaskRows;
 use super::tool_view::{
-    ERROR_ROWS, PreviewEdge, argument_summary, detail_facts, intent_for, presentation,
-    preview_window, state_label, status_name, tool_state,
+    ERROR_ROWS, PreviewEdge, argument_summary, category_class, intent_for, presentation,
+    preview_window, state_label, state_text_class, status_name, tool_state,
 };
 use super::write_view::WriteBody;
 use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Collapsible, CollapsibleContent, CollapsibleTrigger, Icon,
-    IconType, Spinner, StatusDot,
+    ButtonSize, ButtonVariant, Collapsible, CollapsibleContent, CollapsibleTrigger, Icon, IconType,
+    Spinner, StatusDot,
 };
 
 #[component]
@@ -33,14 +32,11 @@ pub fn ToolCard(
     queued: bool,
     details_json: String,
     #[props(default)] child_ids: Vec<String>,
-    /// The transcript-wide "expand tool output" switch.
-    #[props(default)]
-    expanded: bool,
+    #[props(default)] expanded: bool,
 ) -> Element {
     let mut body_open = use_signal(|| false);
     let mut disclosure_open = use_signal(|| false);
     let mut agents_open = use_signal(|| false);
-    let mut details_open = use_signal(|| false);
     let details = serde_json::from_str::<serde_json::Value>(&details_json).ok();
     let flag = |name: &str| {
         details
@@ -64,11 +60,12 @@ pub fn ToolCard(
     let (icon, verb) = presentation(&tool_name, running);
     let target = argument_summary(&tool_name, &args_json);
     let intent = intent_for(&args_json);
-    let facts = detail_facts(details.as_ref());
     let command = string_field(&args_json, "command");
     let content = string_field(&args_json, "content");
     let diff_text = string_field(&details_json, "diff");
     let diff_stats = diff_stats(&parse_unified(&diff_text));
+    let code_language = matches!(tool_name.as_str(), "read" | "write")
+        .then(|| crate::syntax_lite::ext_from_basename(&target));
     let notes = unexplained_output(&output, &diff_text);
     let (preview_rows, preview_edge) = if failed {
         (ERROR_ROWS, PreviewEdge::Tail)
@@ -87,8 +84,6 @@ pub fn ToolCard(
             BashBody {
                 command: command.clone(),
                 output: output.clone(),
-                details_json: details_json.clone(),
-                args_json: args_json.clone(),
                 is_error: failed,
                 open,
                 on_expand: on_body_expand,
@@ -108,6 +103,7 @@ pub fn ToolCard(
                 content: content.clone(),
                 open,
                 on_expand: on_body_expand,
+                code_language: code_language.clone(),
             }
         }
     } else if failed && output.is_empty() {
@@ -124,26 +120,14 @@ pub fn ToolCard(
                 rows: preview_rows,
                 from_head,
                 open,
+                code_language: code_language.clone(),
                 failed,
                 on_expand: on_body_expand,
             }
         }
     };
 
-    let copy_command = tool_name == "bash" && !command.is_empty();
-    let has_details = !facts.is_empty()
-        || (!details_json.is_empty() && details_json != "{}")
-        || (!args_json.is_empty() && args_json != "{}")
-        || copy_command
-        || !output.is_empty();
     let state_text = state_label(state);
-
-    let command_text = command.clone();
-    let output_text = output.clone();
-    let (copy_command_to_clipboard, command_copied) =
-        crate::components::hooks::use_copy_clipboard::use_copy_clipboard(None);
-    let (copy_output_to_clipboard, output_copied) =
-        crate::components::hooks::use_copy_clipboard::use_copy_clipboard(None);
     rsx! {
         div {
             class: "group/tool min-w-0 border-b border-border last:border-0",
@@ -156,10 +140,10 @@ pub fn ToolCard(
                     variant: ButtonVariant::Ghost,
                     size: ButtonSize::Sm,
                     class: "w-full min-w-0 justify-start gap-2 text-left",
-                    span { class: "inline-flex flex-none items-center gap-1",
+                    span { class: "inline-flex flex-none items-center gap-1 {category_class(&tool_name)}",
                         Icon { icon, class: "size-4" }
                     }
-                    span { class: "flex-none font-medium text-foreground", "{verb}" }
+                    span { class: "flex-none font-medium {category_class(&tool_name)}", "{verb}" }
                     if !target.is_empty() {
                         code {
                             class: target_class(&tool_name),
@@ -205,11 +189,7 @@ pub fn ToolCard(
                             }
                         }
                         span { class: "text-xs font-medium text-muted-foreground",
-                            if running {
-                                "Live output"
-                            } else {
-                                "Result"
-                            }
+                            if running { "Live output" } else { "Result" }
                         }
                         {body}
                         if tool_name == "edit" && !diff_text.is_empty() && !notes.is_empty() {
@@ -236,64 +216,6 @@ pub fn ToolCard(
                                 on_expand: on_agents_expand,
                             }
                         }
-                        if has_details {
-                            Collapsible {
-                                open: details_open(),
-                                on_open_change: move |next: bool| details_open.set(next),
-                                CollapsibleTrigger {
-                                    variant: ButtonVariant::Ghost,
-                                    size: ButtonSize::Sm,
-                                    class: "justify-start",
-                                    "Details"
-                                }
-                                CollapsibleContent { class: "flex flex-col gap-2 pb-2",
-                                    if !args_json.is_empty() && args_json != "{}" {
-                                        span { class: "text-xs font-medium text-muted-foreground",
-                                            "Input"
-                                        }
-                                        pre { class: "m-0 max-h-48 overflow-auto overscroll-y-auto whitespace-pre-wrap break-words font-mono text-xs",
-                                            "{args_json}"
-                                        }
-                                    }
-                                    if !facts.is_empty() {
-                                        ul { class: "m-0 flex list-none flex-wrap gap-x-4 gap-y-2 p-0 text-xs text-muted-foreground",
-                                            for fact in facts {
-                                                li { "{fact}" }
-                                            }
-                                        }
-                                    }
-                                    if !details_json.is_empty() && details_json != "{}" {
-                                        pre { class: "m-0 whitespace-pre-wrap break-words font-mono text-xs",
-                                            "{details_json}"
-                                        }
-                                    }
-                                    div { class: "flex flex-wrap gap-2",
-                                        if copy_command {
-                                            Button {
-                                                variant: ButtonVariant::Link,
-                                                onclick: move |_| copy_command_to_clipboard(&command_text),
-                                                if command_copied() {
-                                                    "Copied"
-                                                } else {
-                                                    "Copy command"
-                                                }
-                                            }
-                                        }
-                                        if !output.is_empty() {
-                                            Button {
-                                                variant: ButtonVariant::Link,
-                                                onclick: move |_| copy_output_to_clipboard(&output_text),
-                                                if output_copied() {
-                                                    "Copied"
-                                                } else {
-                                                    "Copy output"
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
             }
@@ -314,19 +236,10 @@ fn string_field(json: &str, key: &str) -> String {
         .unwrap_or_default()
 }
 
-/// The target's ink: a search pattern takes the accent, a path the full foreground.
+/// Search patterns and file paths use an accent so targets scan separately from verbs.
 fn target_class(tool_name: &str) -> &'static str {
     match tool_name {
-        "grep" | "glob" | "find" => "min-w-0 flex-1 truncate font-mono text-xs text-primary",
-        _ => "min-w-0 flex-1 truncate font-mono text-xs text-foreground",
-    }
-}
-
-/// The state word's ink: errors and timeouts draw in their status colour.
-fn state_text_class(state: &str) -> &'static str {
-    match state {
-        "error" => "ml-auto inline-flex flex-none items-center gap-1 text-xs text-destructive",
-        "timeout" => "ml-auto inline-flex flex-none items-center gap-1 text-xs text-warning",
-        _ => "ml-auto inline-flex flex-none items-center gap-1 text-xs text-muted-foreground",
+        "grep" | "glob" | "find" => "min-w-0 flex-1 truncate font-mono text-xs text-info",
+        _ => "min-w-0 flex-1 truncate font-mono text-xs text-primary",
     }
 }

@@ -62,14 +62,17 @@ pub fn NoticeCard(id: String, level: String, title: String, body: String) -> Ele
         div { key: "{id}", class: "min-w-0 py-1", "data-testid": "agent-notice", "data-level": level,
             if severity.is_empty() {
                 Marker {
-                    MarkerIcon { Icon { icon: notice_icon } }
-                    MarkerContent { "{title}" }
+                    MarkerIcon { Icon { icon: notice_icon, class: "text-muted-foreground" } }
+                    MarkerContent { class: "text-muted-foreground", "{title}" }
                 }
                 div { class: "pl-6", {details} }
             } else {
                 Alert {
                     variant: if destructive { AlertVariant::Destructive } else { AlertVariant::Default },
-                    Icon { icon: notice_icon }
+                    Icon {
+                        icon: notice_icon,
+                        class: if destructive { "text-destructive" } else { "text-warning" },
+                    }
                     AlertTitle { "{severity}: {title}" }
                     div { class: "mt-1", {details} }
                 }

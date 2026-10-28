@@ -263,6 +263,7 @@ fn ScheduledGroup(
                     text: format!("/schedule cancel {id}"),
                     request_id: super::request_ids::new_request_id(),
                     when_busy: String::new(),
+                    attachments: Vec::new(),
                 })
                 .await;
             pending.set(None);

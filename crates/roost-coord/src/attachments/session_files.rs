@@ -11,7 +11,7 @@ use super::relay::{optional_str, relay_once, required, settle_within};
 use crate::terminal_screen::scrollback_relay::ScrollbackRelay;
 use crate::workers::send::SendOutcome;
 use roost_proto::{AttachFileChunkRequest, AttachmentEntry, DAttachmentChunk};
-use roost_protocol::wire::SessionId;
+use roost_protocol::wire::AttachmentTargetId;
 use roost_protocol::wire::WorkerFp;
 use roost_protocol::wire::control::ClientControlFrame;
 use roost_protocol::wire::coord_worker::CoordWorkerDownstream;
@@ -76,7 +76,7 @@ pub async fn attachment_probe(
     relay: &ScrollbackRelay,
     worker_fp: &WorkerFp,
     viewer_id: &str,
-    session_id: &SessionId,
+    session_id: &AttachmentTargetId,
     sha256: &str,
     short_path: bool,
     request_id: &str,
@@ -104,7 +104,7 @@ pub async fn list_attachments(
     relay: &ScrollbackRelay,
     worker_fp: &WorkerFp,
     viewer_id: &str,
-    session_id: &SessionId,
+    session_id: &AttachmentTargetId,
     request_id: &str,
 ) -> Result<Vec<AttachmentEntry>, ConnectError> {
     let reply = relay_once(
@@ -128,7 +128,7 @@ pub async fn delete_attachment(
     relay: &ScrollbackRelay,
     worker_fp: &WorkerFp,
     viewer_id: &str,
-    session_id: &SessionId,
+    session_id: &AttachmentTargetId,
     filename: &str,
     request_id: &str,
 ) -> Result<bool, ConnectError> {
@@ -177,7 +177,7 @@ pub async fn delete_attachment(
 pub async fn attach_file_chunk(
     relay: &ScrollbackRelay,
     worker_fp: &WorkerFp,
-    session_id: &SessionId,
+    session_id: &AttachmentTargetId,
     request: AttachFileChunkRequest,
 ) -> Result<String, ConnectError> {
     let AttachFileChunkRequest {

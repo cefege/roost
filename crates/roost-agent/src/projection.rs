@@ -89,9 +89,18 @@ pub fn user_item_id(seq: u64) -> String {
 /// The item one entry projects to, if it is user-visible.
 pub fn entry_item(seq: u64, entry: &Entry, tools: &ToolCallIndex) -> Option<TranscriptItem> {
     match entry {
-        Entry::User { text, item_id, .. } => Some(TranscriptItem::User {
+        Entry::User {
+            text,
+            attachments,
+            item_id,
+            ..
+        } => Some(TranscriptItem::User {
             id: item_id.clone().unwrap_or_else(|| user_item_id(seq)),
             text: text.clone(),
+            attachment_names: attachments
+                .iter()
+                .map(|attachment| attachment.filename.clone())
+                .collect(),
         }),
         Entry::Assistant {
             item_id, blocks, ..

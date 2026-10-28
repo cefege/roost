@@ -101,6 +101,7 @@ mod tests {
     fn user(text: &str) -> Entry {
         Entry::User {
             text: text.into(),
+            attachments: Vec::new(),
             loop_repeat: false,
             item_id: None,
         }

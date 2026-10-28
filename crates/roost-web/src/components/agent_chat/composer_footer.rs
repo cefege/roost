@@ -1,13 +1,15 @@
-//! The Rust/UI prompt footer keeps commands and model on the left, voice and
-//! submit on the right. Planning, advisor, goal and busy-send policy live in
-//! one options menu so they never wrap the writing surface into more toolbars.
+//! The Rust/UI prompt footer keeps commands and attachments on the left, model
+//! and send controls on the right. Narrow panes wrap without clipping controls;
+//! planning, advisor, goal and busy-send policy share one options menu.
 
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{ConversationSummary, GoalState, ModelsCatalog};
 
+use super::composer_attachments::AgentAttachmentControls;
 use super::composer_commands::{report_command, submit_direct_command};
 use super::model_controls::AgentModelControls;
 use super::toolbar_menu::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
+use crate::components::terminal_chrome::attachment_picker::ChosenFile;
 use crate::components::ui::input_group::{InputGroupAddon, InputGroupAddonAlign};
 use crate::components::ui::{
     ButtonSize, ButtonVariant, Icon, IconButton, IconType, InputPromptSubmit, InputPromptTools,
@@ -30,7 +32,12 @@ pub(super) fn ComposerFooter(
     running: bool,
     has_draft: bool,
     send_available: bool,
+    dictation_finishing: bool,
     voice_controls: Element,
+    staged_files: Signal<Vec<ChosenFile>>,
+    on_chosen: EventHandler<Vec<ChosenFile>>,
+    uploads_in_flight: bool,
+    attachments_block_send: bool,
     disabled: bool,
     busy_mode: Signal<String>,
     submit_pending: bool,
@@ -68,12 +75,15 @@ pub(super) fn ComposerFooter(
             ..ToolbarMenuItem::choice(value, label, mode == value)
         });
     }
-    let ready = !(disabled || !has_draft || submit_pending);
+    let ready = !(disabled
+        || submit_pending
+        || attachments_block_send
+        || (!has_draft && !dictation_finishing));
     rsx! {
         InputGroupAddon {
             align: InputGroupAddonAlign::BlockEnd,
-            class: "border-t-0 px-2 pb-2 pt-0",
-            InputPromptTools { class: "min-w-0 flex-1",
+            class: "flex-wrap gap-y-2 border-t-0 px-2 pb-2 pt-0",
+            InputPromptTools { class: "min-w-0 max-w-full flex-wrap",
                 IconButton {
                     class: "shrink-0",
                     icon: IconType::Plus,
@@ -86,9 +96,15 @@ pub(super) fn ComposerFooter(
                     controls_id: Some(listbox),
                     onclick: move |_| on_commands.call(()),
                 }
-                AgentModelControls { conversation: conversation.clone(), catalog, catalog_failed, pump }
+                AgentAttachmentControls {
+                    pump: pump.clone(),
+                    conversation: conversation.clone(),
+                    staged_files,
+                    on_chosen,
+                    disabled,
+                }
             }
-            InputPromptTools { class: "shrink-0",
+            InputPromptTools { class: "order-first ml-auto min-w-0 w-full flex-nowrap justify-end sm:order-none sm:w-auto",
                 ToolbarMenu {
                     menu_key: "options",
                     trigger: ToolbarTrigger::Icon { icon: IconType::Ellipsis },
@@ -110,6 +126,9 @@ pub(super) fn ComposerFooter(
                         _ => busy_mode.set(choice),
                     },
                 }
+                AgentModelControls { conversation: conversation.clone(), catalog, catalog_failed, pump }
+            }
+            InputPromptTools { class: "ml-auto min-w-0 flex-nowrap justify-end sm:ml-0",
                 {voice_controls}
                 if running {
                     IconButton {
@@ -133,7 +152,9 @@ pub(super) fn ComposerFooter(
                                 _ => "Steer the agent",
                             }
                         } else { "Send message" },
-                        title: if running {
+                        title: if uploads_in_flight {
+                            "Uploading…"
+                        } else if running {
                             match busy_mode().as_str() {
                                 "follow_up" => "Follow-up",
                                 "reject" => "Reject if busy",

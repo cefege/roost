@@ -121,6 +121,7 @@ pub fn provider_summaries(
                         kind: brief.kind,
                         disabled_cause: None,
                         blocked_until_ms: None,
+                        selected: false,
                         usage: None,
                     })
                     .collect();
@@ -150,6 +151,7 @@ mod tests {
             kind: AccountKind::Oauth,
             disabled_cause: None,
             blocked_until_ms: None,
+            selected: false,
             usage: None,
         }
     }

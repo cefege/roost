@@ -176,6 +176,7 @@ async fn account_entries(
                 kind: account_kind(&credential),
                 disabled_cause: credential.disabled_cause.clone(),
                 blocked_until_ms: blocks.get(&credential.id).copied(),
+                selected: false,
                 usage: report.map(|report| AccountUsage {
                     windows: report
                         .windows
@@ -233,10 +234,24 @@ pub async fn handle_agent_account_remove(
 pub async fn handle_agent_usage_get(
     core: &CoordCore,
     caller: &Caller,
-    _request: proto::AgentUsageGetRequest,
+    request: proto::AgentUsageGetRequest,
 ) -> ServiceResult<proto::AgentUsageGetResponse> {
     require_account_device(caller)?;
-    let entries = account_entries(&core.services.agent, true).await?;
+    let mut entries = account_entries(&core.services.agent, true).await?;
+    let selected = if request.provider.is_empty() || request.conversation_id.is_empty() {
+        None
+    } else {
+        core.services
+            .agent
+            .pool()
+            .preferred_credential_id(&request.provider, &request.conversation_id)
+            .await
+            .map_err(llm_status)?
+    };
+    for entry in &mut entries {
+        entry.selected =
+            entry.provider == request.provider && selected == Some(entry.credential_id);
+    }
     let usage_json =
         serde_json::to_string(&entries).map_err(|_| internal("usage did not serialize"))?;
     ok_response(proto::AgentUsageGetResponse {

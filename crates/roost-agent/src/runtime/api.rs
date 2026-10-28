@@ -2,17 +2,18 @@
 //! list, transcript, delete, submit, model and thinking changes, settings,
 //! and restart recovery.
 
+mod attachments;
 mod read_only;
 
 use roost_llm::{Catalog, ModelKind, THINKING_LEVELS};
 use roost_protocol::wire::agent_chat::{
-    AgentRunState, ChatEvent, ConversationSummary, ModelRef, Transcript, parse_slash_command,
+    AgentRunState, ChatEvent, ConversationSummary, ModelRef, Transcript,
 };
 
 use super::{AgentRuntime, CommandKey, Steer, now_ms, random_id};
 use crate::error::AgentError;
 use crate::records::{ConversationRecord, Mode, Role, model_ref};
-use crate::{commands, judging, projection, roles};
+use crate::{judging, projection, roles};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubmitMode {
     Steer,
@@ -204,22 +205,7 @@ impl AgentRuntime {
         text: String,
         mode: SubmitMode,
     ) -> Result<(), AgentError> {
-        if request_id.trim().is_empty() {
-            return Err(AgentError::InvalidArgument("request_id is required".into()));
-        }
-        let record = self.record(id).await?;
-        if let Some((command, args)) = parse_slash_command(&text) {
-            self.deduplicated(id, request_id, "command", || async {
-                commands::execute(self, &record, command, args).await?;
-                Ok(String::new())
-            })
-            .await?;
-            return Ok(());
-        }
-        if text.trim().is_empty() {
-            return Err(AgentError::InvalidArgument("message is empty".into()));
-        }
-        self.deliver_user_text_with_mode(&record, text, Some(request_id), mode)
+        self.submit_request_with_attachments(id, request_id, text, Vec::new(), mode)
             .await
     }
 
@@ -242,6 +228,18 @@ impl AgentRuntime {
         request_id: Option<&str>,
         mode: SubmitMode,
     ) -> Result<(), AgentError> {
+        self.deliver_user_content_with_mode(record, text, Vec::new(), request_id, mode)
+            .await
+    }
+
+    pub(crate) async fn deliver_user_content_with_mode(
+        &self,
+        record: &ConversationRecord,
+        text: String,
+        attachments: Vec<roost_protocol::wire::agent_chat::AgentChatAttachment>,
+        request_id: Option<&str>,
+        mode: SubmitMode,
+    ) -> Result<(), AgentError> {
         let id = record.id.as_str();
         self.note_goal_user_input(id).await?;
         if record.title.trim().is_empty() {
@@ -257,6 +255,11 @@ impl AgentRuntime {
             minted = random_id("submit-");
             &minted
         };
+        let message = if attachments.is_empty() {
+            Steer::User(text)
+        } else {
+            Steer::UserWithAttachments(text, attachments)
+        };
         self.steer_command(
             id,
             CommandKey {
@@ -264,7 +267,7 @@ impl AgentRuntime {
                 kind: "submit",
             },
             Vec::new(),
-            Steer::User(text),
+            message,
             Some(mode),
         )
         .await

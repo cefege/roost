@@ -113,6 +113,7 @@ async fn explicit_input_after_stop_restarts_a_completed_run_once() {
                 kind: "submit".into(),
                 entries: vec![Entry::User {
                     text: "new input".into(),
+                    attachments: Vec::new(),
                     loop_repeat: false,
                     item_id: Some("explicit-after-stop".into()),
                 }],

@@ -25,6 +25,9 @@ pub enum QueuedInputState {
 pub enum Entry {
     User {
         text: String,
+        /// Images and worker paths submitted with this user message.
+        #[serde(default)]
+        attachments: Vec<roost_protocol::wire::agent_chat::AgentChatAttachment>,
         /// An identical user steer must not be charged as a committed repeat.
         #[serde(default)]
         loop_repeat: bool,
@@ -36,6 +39,9 @@ pub enum Entry {
     QueuedInput {
         submission_id: String,
         text: String,
+        /// Attachments remain bound to this queued submission until activation.
+        #[serde(default)]
+        attachments: Vec<roost_protocol::wire::agent_chat::AgentChatAttachment>,
         state: QueuedInputState,
     },
     QueuedInputWithdrawn {

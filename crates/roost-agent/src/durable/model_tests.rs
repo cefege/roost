@@ -32,7 +32,45 @@ fn user_images_keep_order_and_mime_type_across_the_boundary() {
     };
     assert!(matches!(&blocks[1], UserContentBlock::Image(image)
         if image.mime_type == "image/png" && image.data == "aGVsbG8="));
-    assert_eq!(from_durable_message(&durable).expect("round trip"), message);
+    assert_eq!(
+        from_durable_message(&durable, true).expect("round trip"),
+        message
+    );
+}
+
+#[test]
+fn text_only_conversion_omits_image_bytes_and_preserves_literal_marker_text() {
+    let text = "\u{2063}[attached image: literal]\u{2063}".to_owned();
+    let original = LlmMessage::User {
+        content: vec![
+            UserContent::Text { text: text.clone() },
+            UserContent::Image {
+                mime: "image/png".to_owned(),
+                base64: "aGVsbG8=".to_owned(),
+            },
+        ],
+    };
+    let durable = to_durable_message(&original).expect("representable user message");
+    let LlmMessage::User { content } =
+        from_durable_message(&durable, false).expect("text-only projection")
+    else {
+        panic!("user role preserved")
+    };
+    assert_eq!(
+        content.first(),
+        Some(&UserContent::Text { text }),
+        "literal marker-delimited text remains untouched"
+    );
+    assert!(content.iter().any(|block| matches!(
+        block,
+        UserContent::Text { text }
+            if text.contains("this model does not support image input")
+    )));
+    assert!(
+        content
+            .iter()
+            .all(|block| !matches!(block, UserContent::Image { .. }))
+    );
 }
 
 #[test]
@@ -70,7 +108,7 @@ fn thinking_and_tool_signatures_keep_provider_data() {
         matches!(&assistant.content[2], AssistantContent::ToolCall(call)
         if call.thought_signature.as_deref() == Some("thought-sig") && call.namespace.as_deref() == Some("ns"))
     );
-    let converted = from_durable_message(&durable).expect("round trip");
+    let converted = from_durable_message(&durable, true).expect("round trip");
     let LlmMessage::Assistant { blocks, .. } = converted else {
         panic!("assistant role preserved")
     };
@@ -114,7 +152,7 @@ fn tool_result_images_and_metadata_keep_order() {
         content: Some(content),
         provider_data,
         ..
-    } = from_durable_message(&durable).expect("round trip")
+    } = from_durable_message(&durable, true).expect("round trip")
     else {
         panic!("tool result preserved")
     };
@@ -131,5 +169,35 @@ fn tool_result_images_and_metadata_keep_order() {
     assert_eq!(
         provider_data.and_then(|value| value.get("details").cloned()),
         Some(serde_json::json!({"source":"tool"}))
+    );
+}
+
+#[test]
+fn text_only_conversion_notices_image_only_tool_results() {
+    let durable = to_durable_message(&LlmMessage::ToolResult {
+        call_id: "call-image".to_owned(),
+        tool_name: "render".to_owned(),
+        text: String::new(),
+        is_error: false,
+        content: Some(vec![UserContent::Image {
+            mime: "image/png".to_owned(),
+            base64: "aGVsbG8=".to_owned(),
+        }]),
+        provider_data: None,
+    })
+    .expect("representable tool result");
+    let LlmMessage::ToolResult {
+        text,
+        content: Some(content),
+        ..
+    } = from_durable_message(&durable, false).expect("text-only projection")
+    else {
+        panic!("tool result role preserved")
+    };
+    assert!(text.contains("this model does not support image input"));
+    assert!(
+        content
+            .iter()
+            .all(|block| !matches!(block, UserContent::Image { .. }))
     );
 }

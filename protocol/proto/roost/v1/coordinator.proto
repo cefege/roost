@@ -993,12 +993,19 @@ message AgentChatCreateRequest {
   string model_provider = 3;
   string model_id = 4;
 }
+message AgentChatAttachment {
+  string filename = 1;
+  string mime_type = 2;
+  bytes data = 3;
+  string path = 4;
+}
 message AgentChatSubmitRequest {
   string conversation_id = 1;
   string text = 2;
   string request_id = 3;
   // Empty preserves the legacy steer behavior.
   string when_busy = 4;
+  repeated AgentChatAttachment attachments = 5;
 }
 message AgentChatSubmitResponse {}
 message AgentChatAbortRequest {
@@ -1072,8 +1079,11 @@ message AgentAccountsListRequest {}
 message AgentAccountsListResponse { string accounts_json = 1; }
 message AgentAccountRemoveRequest { int64 credential_id = 1; }
 message AgentAccountRemoveResponse {}
-message AgentUsageGetRequest {}
-// JSON array of AccountEntry with fresh usage reports.
+message AgentUsageGetRequest {
+  string conversation_id = 1;
+  string provider = 2;
+}
+// JSON array of AccountEntry with fresh usage reports; selected is true for the next account chat would resolve.
 message AgentUsageGetResponse { string usage_json = 1; }
 message AgentSettingsGetRequest {}
 // JSON AgentSettingsView (roost-protocol wire/agent_chat).
@@ -1106,8 +1116,11 @@ message AgentChatRewindRequest {
   bool restore_files = 3;
   string request_id = 4;
 }
-// The rewound user message, for the composer to offer again.
-message AgentChatRewindResponse { string text = 1; }
+// The original user content for a retry or edit-and-resend.
+message AgentChatRewindResponse {
+  string text = 1;
+  repeated AgentChatAttachment attachments = 2;
+}
 message AgentChatForkRequest {
   string conversation_id = 1;
   // Copy up to and including this transcript item; empty copies everything.

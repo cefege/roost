@@ -164,6 +164,7 @@ async fn finish_text_turn(
                 id,
                 crate::records::Entry::User {
                     text: reminder,
+                    attachments: Vec::new(),
                     loop_repeat: false,
                     item_id: None,
                 },
@@ -186,6 +187,7 @@ async fn finish_text_turn(
         );
         let nudge = crate::records::Entry::User {
             text: prompts::UNEXPECTED_STOP.to_owned(),
+            attachments: Vec::new(),
             loop_repeat: false,
             item_id: None,
         };

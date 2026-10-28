@@ -111,7 +111,7 @@ pub(super) fn project(entry: &EntryRecord, state: &ProjectionState) -> Result<En
                 is_error,
                 content,
                 provider_data,
-            } = super::message::from_durable_message(source)?
+            } = super::message::from_durable_message(source, true)?
             else {
                 return Err(malformed(entry, "converted tool-result message"));
             };
@@ -152,6 +152,7 @@ pub(super) fn project(entry: &EntryRecord, state: &ProjectionState) -> Result<En
         }
         rpi_durable::entries::USER_ENTRY => Ok(Entry::User {
             text: user_text(messages),
+            attachments: Vec::new(),
             loop_repeat: false,
             item_id: Some(format!("durable-entry-{}", entry.id)),
         }),

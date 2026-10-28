@@ -11,6 +11,13 @@ impl Steer {
         match self {
             Self::User(text) => Entry::User {
                 text,
+                attachments: Vec::new(),
+                loop_repeat: false,
+                item_id: None,
+            },
+            Self::UserWithAttachments(text, attachments) => Entry::User {
+                text,
+                attachments,
                 loop_repeat: false,
                 item_id: None,
             },

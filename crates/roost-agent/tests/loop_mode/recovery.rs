@@ -130,6 +130,7 @@ async fn committed_repeat_prompt_is_reconciled_once_by_journal_sequence() {
             &id,
             &Entry::User {
                 text: "bump".to_owned(),
+                attachments: Vec::new(),
                 loop_repeat: true,
                 item_id: None,
             },
@@ -197,6 +198,7 @@ async fn prompt_capture_is_spent_only_when_its_user_entry_committed() {
                     &id,
                     &Entry::User {
                         text: "accepted prompt".to_owned(),
+                        attachments: Vec::new(),
                         loop_repeat: false,
                         item_id: None,
                     },
@@ -330,6 +332,7 @@ async fn ambiguous_condition_check_is_not_replayed_after_restart() {
             &id,
             &Entry::User {
                 text: "bump".to_owned(),
+                attachments: Vec::new(),
                 loop_repeat: false,
                 item_id: None,
             },

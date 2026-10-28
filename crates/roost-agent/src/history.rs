@@ -4,17 +4,16 @@
 
 use std::collections::{HashMap, HashSet};
 
-use roost_llm::{AssistantBlock, Message};
-
 use crate::job_notice::background_job_message;
 use crate::peer_notice::peer_message_text;
 use crate::records::{AdvisorySeverity, Entry};
 use crate::todo_notice::todo_message;
+use base64::Engine as _;
+use roost_llm::{AssistantBlock, Message, UserContent};
 
 /// The text an aborted or lost tool call answers with, so the provider sees
 /// every `tool_use` paired with a result.
 const MISSING_RESULT: &str = "Tool call did not complete: the run was interrupted.";
-
 /// A compaction boundary's sequence and summary text, paired with the window after it.
 type ActiveWindow<'a> = (Option<(u64, &'a str)>, &'a [(u64, Entry)]);
 
@@ -55,9 +54,17 @@ fn active_window_with_sequence(entries: &[(u64, Entry)]) -> ActiveWindow<'_> {
 }
 
 /// Provider messages for a call to `provider`. Thinking blocks from another
-/// provider are dropped: their signatures are meaningless elsewhere.
+/// provider are dropped; old callers use the text-only path.
 pub fn build_messages(entries: &[(u64, Entry)], provider: &str) -> Vec<Message> {
-    build_message_entries(entries, provider)
+    build_messages_for_model(entries, provider, false)
+}
+
+pub(crate) fn build_messages_for_model(
+    entries: &[(u64, Entry)],
+    provider: &str,
+    supports_images: bool,
+) -> Vec<Message> {
+    build_message_entries(entries, provider, supports_images)
         .into_iter()
         .map(|(_, message)| message)
         .collect()
@@ -66,6 +73,7 @@ pub fn build_messages(entries: &[(u64, Entry)], provider: &str) -> Vec<Message> 
 pub(crate) fn build_message_entries(
     entries: &[(u64, Entry)],
     provider: &str,
+    supports_images: bool,
 ) -> Vec<(u64, Message)> {
     let entries = &crate::journal::delivery_order(crate::journal::effective_entries(entries));
     let (summary, window) = active_window_with_sequence(entries);
@@ -133,12 +141,14 @@ pub(crate) fn build_message_entries(
                     }),
                 );
             }
-            Entry::User { text, .. } => append_context_message(
+            Entry::User {
+                text, attachments, ..
+            } => append_context_message(
                 &mut messages,
                 &mut deferred_context,
                 &open_calls,
                 *sequence,
-                Message::user_text(text.clone()),
+                user_message(text, attachments, supports_images),
             ),
             Entry::Assistant { blocks, model, .. } => {
                 if !open_calls.is_empty() {
@@ -351,4 +361,40 @@ fn latest_item_copies(window: &[(u64, Entry)]) -> HashSet<usize> {
         }
     }
     latest.into_values().collect()
+}
+
+fn user_message(
+    text: &str,
+    attachments: &[roost_protocol::wire::agent_chat::AgentChatAttachment],
+    supports_images: bool,
+) -> Message {
+    let mut text = text.to_owned();
+    let mut images = Vec::with_capacity(attachments.len());
+    for attachment in attachments {
+        if !attachment.mime_type.starts_with("image/") {
+            text.push_str(&format!("\n[attachment: {}]", attachment.path));
+            continue;
+        }
+        let reference = if attachment.path.is_empty() {
+            attachment.filename.as_str()
+        } else {
+            attachment.path.as_str()
+        };
+        if supports_images {
+            images.push(UserContent::Image {
+                mime: attachment.mime_type.clone(),
+                base64: base64::engine::general_purpose::STANDARD.encode(&attachment.data),
+            });
+        }
+        let notice = if supports_images {
+            ""
+        } else {
+            "; this model does not support image input"
+        };
+        text.push_str(&format!("\n[attached image: {reference}{notice}]"));
+    }
+    let mut content = Vec::with_capacity(images.len() + 1);
+    content.push(UserContent::Text { text });
+    content.extend(images);
+    Message::User { content }
 }

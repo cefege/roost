@@ -22,7 +22,7 @@ pub struct MenuPlacement {
     pub horizontal: Horizontal,
     /// The room on the chosen side; the list scrolls past it.
     pub max_height: f64,
-    /// The bounds' width less both margins.
+    /// The room from the anchored edge to the opposite bounds margin.
     pub max_width: f64,
 }
 
@@ -84,16 +84,24 @@ pub fn place_menu(
     // A trigger in the left half opens rightward, so a picker at the start of
     // a bar never pushes its menu past the pane's left edge.
     let opens_right = trigger.left + trigger.width / 2.0 < bounds.left + bounds.width / 2.0;
-    let horizontal = if opens_right {
-        Horizontal::Left(trigger.left.max(bounds.left + EDGE_MARGIN_PX) - containing.left)
+    let (horizontal, max_width) = if opens_right {
+        let left = trigger.left.max(bounds.left + EDGE_MARGIN_PX);
+        (
+            Horizontal::Left(left - containing.left),
+            bounds.right() - EDGE_MARGIN_PX - left,
+        )
     } else {
-        Horizontal::Right(containing.right() - trigger.right().min(bounds.right() - EDGE_MARGIN_PX))
+        let right = trigger.right().min(bounds.right() - EDGE_MARGIN_PX);
+        (
+            Horizontal::Right(containing.right() - right),
+            right - bounds.left - EDGE_MARGIN_PX,
+        )
     };
     MenuPlacement {
         vertical,
         horizontal,
         max_height: if up { above } else { below },
-        max_width: (bounds.width - 2.0 * EDGE_MARGIN_PX).max(0.0),
+        max_width: max_width.max(0.0),
     }
 }
 
@@ -151,13 +159,18 @@ mod tests {
     }
 
     #[test]
-    fn the_style_names_every_edge_in_both_branches() {
-        let picker = boxed(100.0, 300.0, 60.0, 28.0);
-        for prefer_up in [true, false] {
-            let style = place_menu(picker, VIEWPORT, VIEWPORT, prefer_up).style();
-            for property in ["top:", "bottom:", "left:", "right:", "max-height:"] {
-                assert!(style.contains(property), "{style}");
-            }
+    fn inset_triggers_keep_wide_popups_inside_both_viewport_margins() {
+        let viewport = boxed(0.0, 0.0, 320.0, 740.0);
+        for trigger_left in [17.0, 271.0] {
+            let trigger = boxed(trigger_left, 620.0, 32.0, 32.0);
+            let placement = place_menu(trigger, viewport, viewport, true);
+            let popup_width = 320.0_f64.min(placement.max_width);
+            let popup_left = match placement.horizontal {
+                Horizontal::Left(left) => left,
+                Horizontal::Right(right) => viewport.right() - right - popup_width,
+            };
+            assert!(popup_left >= viewport.left + EDGE_MARGIN_PX);
+            assert!(popup_left + popup_width <= viewport.right() - EDGE_MARGIN_PX);
         }
     }
 }

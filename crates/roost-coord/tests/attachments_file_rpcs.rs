@@ -24,6 +24,8 @@ use roost_protocol::wire::coord_worker::CoordWorkerDownstream;
 use serde_json::json;
 use sqlx::AssertSqlSafe;
 use support::{Harness, WORKER_FP, frame_of};
+#[path = "attachments_file_rpcs/conversation_targets.rs"]
+mod conversation_targets;
 
 const OFFLINE_FP: &str = "cc00000000000000000000000000000000000000000000000000000000000000";
 const UNKNOWN_FP: &str = "bb00000000000000000000000000000000000000000000000000000000000000";

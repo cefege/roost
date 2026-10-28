@@ -1,8 +1,8 @@
-//! Never strand the reader on a blank pane at a terminal route that resolves to
-//! no open session — but never bounce a LIVE session whose resolution blipped
-//! to nothing for a tick. Every miss arms one grace timer; the timer re-checks
-//! and only a durably gone terminal navigates (to a sibling in its folder, else
-//! home). Ports `apps/web/src/lib/deadRouteSafetyNet.ts`; driven by `MainPane`.
+//! Recover stable terminal routes that resolve to no open session, but never
+//! bounce a LIVE session whose resolution blipped to nothing for a tick. Exact
+//! session routes stay on their named identity; stable routes can recover to a
+//! sibling or home. Ports `apps/web/src/lib/deadRouteSafetyNet.ts`, driven by
+//! `MainPane`.
 //!
 //! The machine owns no clock: `evaluate` says when to arm, the host runs the
 //! timer and hands the ticket back to `fire`.
@@ -17,6 +17,8 @@ pub const DEFAULT_GRACE_MS: u32 = 2_500;
 pub struct RouteLiveness<'a> {
     /// The URL-resolved OPEN session, if any.
     pub open_session: Option<&'a Session>,
+    /// Whether an exact `/s/:sessionId` route must remain on that identity.
+    pub preserve_exact_session: bool,
     /// Whether the path is a terminal route.
     pub on_terminal_route: bool,
     /// Whether the sessions domain has hydrated.
@@ -78,14 +80,14 @@ impl DeadRouteSafetyNet {
 
     /// One evaluation, on every change of the route or the store. Any pending
     /// timer is voided first; a live session is remembered; a miss on a
-    /// hydrated terminal route arms a fresh timer.
+    /// hydrated recoverable terminal route arms a fresh timer.
     pub fn evaluate(&mut self, liveness: RouteLiveness<'_>) -> SafetyNetStep {
         self.armed = None;
         if let Some(open) = liveness.open_session {
             self.last_open = Some(open.clone());
             return SafetyNetStep::Idle;
         }
-        if !liveness.on_terminal_route || !liveness.hydrated {
+        if !liveness.on_terminal_route || !liveness.hydrated || liveness.preserve_exact_session {
             return SafetyNetStep::Idle;
         }
         self.next_ticket += 1;

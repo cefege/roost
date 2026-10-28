@@ -181,6 +181,7 @@ impl AgentRuntime {
                 id,
                 Entry::User {
                     text: body,
+                    attachments: Vec::new(),
                     loop_repeat: true,
                     item_id: None,
                 },

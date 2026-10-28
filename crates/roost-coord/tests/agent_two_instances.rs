@@ -108,6 +108,7 @@ async fn concurrent_boot_recovery_asks_the_model_once_per_interrupted_conversati
                 &id,
                 &Entry::User {
                     text: format!("interrupted {index}"),
+                    attachments: Vec::new(),
                     loop_repeat: false,
                     item_id: None,
                 },

@@ -160,6 +160,7 @@ fn every_chat_event_round_trips_spec_json() {
                 item: TranscriptItem::User {
                     id: "u".into(),
                     text: "hi".into(),
+                    attachment_names: Vec::new(),
                 },
             },
         ),
@@ -231,6 +232,7 @@ fn every_chat_event_round_trips_spec_json() {
                 message: QueuedMessage {
                     id: "u7".into(),
                     text: "also check tests".into(),
+                    attachment_names: Vec::new(),
                     mode: String::new(),
                 },
             },
@@ -267,6 +269,7 @@ fn a_queued_message_waits_outside_the_items_and_lands_after_them_when_read() {
     let queued = QueuedMessage {
         id: "u9".into(),
         text: "steer".into(),
+        attachment_names: vec!["queued.png".into()],
         mode: String::new(),
     };
     fold_chat_event(
@@ -280,15 +283,21 @@ fn a_queued_message_waits_outside_the_items_and_lands_after_them_when_read() {
     assert_eq!(value.items.len(), 2);
     fold_chat_event(
         &mut value,
-        &ChatEvent::Item {
-            item: TranscriptItem::User {
-                id: "u9".into(),
-                text: "steer".into(),
-            },
+        &ChatEvent::QueueDelivered {
+            submission_ids: vec!["u9".into()],
         },
     );
     assert!(value.queued.is_empty());
-    assert!(matches!(value.items.last(), Some(TranscriptItem::User { id, .. }) if id == "u9"));
+    assert!(matches!(
+        value.items.last(),
+        Some(TranscriptItem::User {
+            id,
+            attachment_names,
+            ..
+        }) if id == "u9"
+            && attachment_names.len() == 1
+            && attachment_names[0] == "queued.png"
+    ));
 }
 
 #[test]
@@ -300,6 +309,7 @@ fn queue_removal_removes_the_submission_from_live_transcript_state() {
             message: QueuedMessage {
                 id: "request-1".into(),
                 text: "queued text".into(),
+                attachment_names: Vec::new(),
                 mode: String::new(),
             },
         },

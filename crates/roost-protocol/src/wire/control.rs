@@ -18,6 +18,7 @@ pub mod global_search;
 
 use serde::{Deserialize, Serialize};
 
+use crate::wire::AttachmentTargetId;
 use crate::wire::brand::{SessionId, TraceId};
 
 pub use global_search::{
@@ -128,7 +129,7 @@ pub enum ClientControlFrame {
     #[serde(rename = "attachment-probe")]
     AttachmentProbe {
         request_id: String,
-        session_id: SessionId,
+        session_id: AttachmentTargetId,
         sha256: String,
         short_path: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -265,7 +266,7 @@ pub enum ClientControlFrame {
     #[serde(rename = "list-attachments")]
     ListAttachments {
         request_id: String,
-        session_id: SessionId,
+        session_id: AttachmentTargetId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         trace_id: Option<TraceId>,
     },
@@ -274,7 +275,7 @@ pub enum ClientControlFrame {
     #[serde(rename = "delete-attachment")]
     DeleteAttachment {
         request_id: String,
-        session_id: SessionId,
+        session_id: AttachmentTargetId,
         filename: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         trace_id: Option<TraceId>,

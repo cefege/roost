@@ -1,6 +1,6 @@
 //! The dead-route safety net: a blip back to a live session inside the grace
-//! window never bounces; a durable miss bounces to a sibling in the folder or
-//! home, with the reason v2 logs. Ports
+//! window never bounces; recoverable stable-route misses bounce to a sibling or
+//! home, while an exact-session miss stays on its identity. Ports
 //! `apps/web/tests/deadRouteSafetyNet.test.ts`; the host's timer is simulated
 //! by holding the armed ticket and calling `fire` when it would expire.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -36,8 +36,16 @@ fn session(id: &str) -> Session {
 fn live(open: Option<&Session>) -> RouteLiveness<'_> {
     RouteLiveness {
         open_session: open,
+        preserve_exact_session: false,
         on_terminal_route: true,
         hydrated: true,
+    }
+}
+
+fn exact_session_route(open: Option<&Session>) -> RouteLiveness<'_> {
+    RouteLiveness {
+        preserve_exact_session: true,
+        ..live(open)
     }
 }
 
@@ -59,6 +67,18 @@ fn a_blip_that_recovers_inside_the_grace_window_never_bounces() {
     let ticket = armed(net.evaluate(live(None)));
     assert_eq!(net.evaluate(live(Some(&viewed))), SafetyNetStep::Idle);
     assert_eq!(net.fire(ticket, false), None);
+}
+
+#[test]
+fn an_exact_session_route_does_not_bounce_after_its_session_closes() {
+    let viewed = session("00000000-0000-4000-8000-000000000001");
+    let mut net = DeadRouteSafetyNet::default();
+    assert_eq!(net.evaluate(live(Some(&viewed))), SafetyNetStep::Idle);
+    assert_eq!(
+        net.evaluate(exact_session_route(None)),
+        SafetyNetStep::Idle,
+        "an exact notification destination stays on its closed identity"
+    );
 }
 
 #[test]
@@ -87,6 +107,7 @@ fn nothing_arms_before_hydration() {
     let mut net = DeadRouteSafetyNet::default();
     let before = RouteLiveness {
         open_session: None,
+        preserve_exact_session: false,
         on_terminal_route: true,
         hydrated: false,
     };
@@ -94,7 +115,7 @@ fn nothing_arms_before_hydration() {
 }
 
 #[test]
-fn a_deep_link_that_never_resolved_bounces_as_stale() {
+fn a_stable_route_that_never_resolved_bounces_as_stale() {
     let mut net = DeadRouteSafetyNet::default();
     let ticket = armed(net.evaluate(live(None)));
     let bounce = net.fire(ticket, false).unwrap();
@@ -107,6 +128,7 @@ fn off_a_terminal_route_nothing_arms() {
     let mut net = DeadRouteSafetyNet::default();
     let off = RouteLiveness {
         open_session: None,
+        preserve_exact_session: false,
         on_terminal_route: false,
         hydrated: true,
     };

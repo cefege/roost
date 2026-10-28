@@ -21,8 +21,9 @@ use super::thinking_block::ThinkingBlock;
 use super::timeline_rail::StepGroup;
 use super::toolbar_menu::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
 use crate::components::ui::{
-    Bubble, BubbleContent, BubbleVariant, Button, ButtonSize, ButtonVariant, IconType, Marker,
-    Message, MessageAlign, MessageContent, MessageFooter, StatusDot,
+    Badge, BadgeSize, BadgeVariant, Bubble, BubbleContent, BubbleVariant, Button, ButtonSize,
+    ButtonVariant, IconType, Marker, Message, MessageAlign, MessageContent, MessageFooter,
+    StatusDot,
 };
 use crate::pump::Pump;
 
@@ -66,7 +67,7 @@ pub fn AgentTranscriptView(
         div { class: "flex w-full max-w-full flex-col gap-6",
             for segment in segments {
                 match segment {
-                    Segment::User(TranscriptItem::User { id, text }) => {
+                    Segment::User(TranscriptItem::User { id, text, attachment_names }) => {
                         let show_filters = !filters_placed && (has_tools || has_thinking);
                         filters_placed |= show_filters;
                         rsx! {
@@ -74,6 +75,7 @@ pub fn AgentTranscriptView(
                                 key: "{id}",
                                 id: id.clone(),
                                 text: text.clone(),
+                                attachment_names: attachment_names.clone(),
                                 conversation_id: conversation_id.clone(),
                                 draft,
                                 edit_target,
@@ -136,6 +138,7 @@ pub fn AgentTranscriptView(
 fn UserMessage(
     id: String,
     text: String,
+    attachment_names: Vec<String>,
     conversation_id: String,
     draft: Signal<String>,
     edit_target: Signal<Option<EditTarget>>,
@@ -152,7 +155,20 @@ fn UserMessage(
         Message { align: MessageAlign::Start, class: "w-full max-w-full",
             MessageContent {
                 Bubble { variant: BubbleVariant::Muted, class: "w-full max-w-full",
-                    BubbleContent { class: "w-full max-w-full whitespace-pre-wrap", "{text}" }
+                    BubbleContent { class: "w-full max-w-full whitespace-pre-wrap", "{text}"
+                        if !attachment_names.is_empty() {
+                            div { class: "mt-2 flex flex-wrap gap-1",
+                                for filename in &attachment_names {
+                                    Badge {
+                                        variant: BadgeVariant::Outline,
+                                        size: BadgeSize::Sm,
+                                        class: Some("min-w-0 max-w-full".to_owned()),
+                                        span { class: "block max-w-full truncate", title: "{filename}", "{filename}" }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 MessageFooter {
                     if show_filters {
@@ -179,7 +195,7 @@ fn UserMessage(
                             },
                         }
                     }
-                    UserMessageActions { conversation_id, item_id: id, text, draft, edit_target, running, pump }
+                    UserMessageActions { conversation_id, item_id: id, text, attachment_names, draft, edit_target, running, pump }
                 }
             }
         }

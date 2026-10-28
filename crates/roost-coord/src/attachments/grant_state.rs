@@ -12,6 +12,7 @@ use roost_protocol::wire::WorkerFp;
 
 use crate::attachments::transfer_limits::{is_bounded_identifier, is_opaque_upload_id};
 use crate::coord_core::worker_handle::{WorkerHandle, WorkerRegistry};
+use roost_protocol::wire::AttachmentTargetId;
 
 /// The bound on every identifier a grant request names.
 pub const ATTACHMENT_GRANT_MAX_IDENTIFIER_UTF8_BYTES: usize = 128;
@@ -52,9 +53,8 @@ pub enum AttachmentGrantInvalidationKind {
 /// The one immutable upload a grant authorizes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AttachmentGrantDescriptor {
-    /// The session whose attachment directory receives the upload.
-    pub session_id: String,
-    /// The browser-minted upload identity.
+    /// The terminal session or agent conversation receiving the upload.
+    pub session_id: AttachmentTargetId,
     pub upload_id: String,
     /// The name the upload is stored under.
     pub filename: String,
@@ -176,11 +176,11 @@ pub fn assert_attachment_grant_request(
     request: &AttachmentGrantRequest,
 ) -> Result<(), ConnectError> {
     for (field, value) in [
-        ("owner", &request.owner_key),
-        ("device", &request.device_fingerprint),
-        ("tab", &request.tab_id),
-        ("worker", &request.worker_fp),
-        ("session", &request.descriptor.session_id),
+        ("owner", request.owner_key.as_str()),
+        ("device", request.device_fingerprint.as_str()),
+        ("tab", request.tab_id.as_str()),
+        ("worker", request.worker_fp.as_str()),
+        ("session", request.descriptor.session_id.as_str()),
     ] {
         if !is_bounded_identifier(value, ATTACHMENT_GRANT_MAX_IDENTIFIER_UTF8_BYTES) {
             return Err(attachment_grant_invalid(&format!(

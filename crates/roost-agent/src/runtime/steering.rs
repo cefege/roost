@@ -49,26 +49,36 @@ impl AgentRuntime {
     ) -> Result<(), AgentError> {
         let lifecycle = self.lifecycle_lock(id);
         let _guard = lifecycle.lock().await;
-        let user_submission = matches!(&message, Steer::User(_));
+        let (user_text, user_attachments) = match &message {
+            Steer::User(text) => (Some(text.as_str()), &[][..]),
+            Steer::UserWithAttachments(text, attachments) => {
+                (Some(text.as_str()), attachments.as_slice())
+            }
+            _ => (None, &[][..]),
+        };
+        let user_submission = user_text.is_some();
         let journal_delivery = matches!(
             &message,
             Steer::BackgroundJob(_) | Steer::PeerMessage { .. }
         );
         let wakes = message.wakes_idle_conversation();
-        let accepted_submission = matches!(&message, Steer::User(_) | Steer::Advisory { .. })
+        let accepted_submission = user_submission
+            || matches!(&message, Steer::Advisory { .. })
             || (journal_delivery && wakes);
-        if let Steer::User(text) = &message {
+        if let Some(text) = user_text {
             self.prepare_loop_prompt_capture(id, text).await?;
         }
-        let entry = match (&message, mode) {
-            (Steer::User(text), Some(super::SubmitMode::FollowUp)) => Entry::QueuedInput {
+        let entry = match (user_text, mode) {
+            (Some(text), Some(super::SubmitMode::FollowUp)) => Entry::QueuedInput {
                 submission_id: command.request_id.to_owned(),
-                text: text.clone(),
+                text: text.to_owned(),
+                attachments: user_attachments.to_vec(),
                 state: crate::records::QueuedInputState::Pending,
             },
-            (Steer::User(text), Some(super::SubmitMode::Steer | super::SubmitMode::Reject)) => {
+            (Some(text), Some(super::SubmitMode::Steer | super::SubmitMode::Reject)) => {
                 Entry::User {
-                    text: text.clone(),
+                    text: text.to_owned(),
+                    attachments: user_attachments.to_vec(),
                     loop_repeat: false,
                     item_id: Some(command.request_id.to_owned()),
                 }
@@ -162,6 +172,7 @@ impl AgentRuntime {
             && let Entry::QueuedInput {
                 submission_id,
                 text,
+                attachments,
                 ..
             } = &entry
         {
@@ -170,10 +181,12 @@ impl AgentRuntime {
                 Entry::QueuedInput {
                     submission_id: submission_id.clone(),
                     text: text.clone(),
+                    attachments: attachments.clone(),
                     state: crate::records::QueuedInputState::Activated,
                 },
                 Entry::User {
                     text: text.clone(),
+                    attachments: attachments.clone(),
                     loop_repeat: false,
                     item_id: Some(submission_id.clone()),
                 },
@@ -190,6 +203,7 @@ impl AgentRuntime {
                 if let Entry::QueuedInput {
                     submission_id,
                     text,
+                    attachments,
                     ..
                 } = appended_entry
                 {
@@ -199,14 +213,22 @@ impl AgentRuntime {
                             message: QueuedMessage {
                                 id: submission_id.clone(),
                                 text: text.clone(),
+                                attachment_names: attachments
+                                    .iter()
+                                    .map(|attachment| attachment.filename.clone())
+                                    .collect(),
                                 mode: "follow_up".into(),
                             },
                         }],
                     )
                     .await;
                 }
-            } else if let Entry::User { text, item_id, .. } = appended_entry
-                && *seq == sequence
+            } else if let Entry::User {
+                text,
+                attachments,
+                item_id,
+                ..
+            } = appended_entry
                 && joins_live_run
                 && mode != Some(super::SubmitMode::FollowUp)
             {
@@ -218,6 +240,10 @@ impl AgentRuntime {
                                 .clone()
                                 .unwrap_or_else(|| crate::projection::user_item_id(*seq)),
                             text: text.clone(),
+                            attachment_names: attachments
+                                .iter()
+                                .map(|attachment| attachment.filename.clone())
+                                .collect(),
                             mode: String::new(),
                         },
                     }],

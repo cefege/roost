@@ -5,6 +5,9 @@
 //! are `roost_client_core::store::toasts`, read here rather than reimplemented.
 
 use dioxus::prelude::*;
+use roost_client_core::ClientEvent;
+use roost_client_core::deck::{DeckIntent, DeckTab};
+use roost_client_core::store::SessionStatus;
 use roost_client_core::store::selectors::session_by_id;
 use roost_client_core::store::toasts::{
     ToastId, ToastIntent, ToastKind, dismiss_toast, hold_toast_dismiss, release_toast_dismiss,
@@ -14,13 +17,56 @@ use roost_client_core::store::toasts::{
 use super::notify_target::NotifyTarget;
 use super::store_write::write_store;
 use crate::components::deck::deck_dom;
+use crate::components::deck::terminal_deck_model::{deck_folder_for, deck_folder_for_agent};
 use crate::components::hooks::use_copy_clipboard::{copy_text_then, use_copy_clipboard};
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::terminal::dom::now_ms;
 use crate::components::ui::{Button, ButtonSize, ButtonVariant, ToastPresentation, ToastType};
 use crate::pump::{Pump, use_store};
 use crate::router_state::use_navigate;
-use crate::terminal_href::terminal_href;
+
+/// Select a live target through the deck so its stored pane and route move together.
+fn reveal_deck_target(pump: &Pump, target_id: &str, compact: bool, navigate: EventHandler<String>) {
+    let intent = {
+        let core = pump.core();
+        let core = core.borrow();
+        let store = core.store();
+        match DeckTab::parse(target_id) {
+            Some(DeckTab::Agent(conversation_id)) => store
+                .agent_chat
+                .conversations
+                .get(&conversation_id)
+                .map(|conversation| DeckIntent::SelectTab {
+                    folder: deck_folder_for_agent(
+                        store,
+                        &crate::platform::worker_paths::BrowserWorkerPaths,
+                        conversation,
+                    ),
+                    session_id: target_id.to_owned(),
+                    compact,
+                }),
+            Some(DeckTab::Terminal(session_id)) => session_by_id(store, session_id.as_str())
+                .filter(|session| session.status == SessionStatus::Open)
+                .map(|session| DeckIntent::SelectTab {
+                    folder: deck_folder_for(
+                        store,
+                        &crate::platform::worker_paths::BrowserWorkerPaths,
+                        session,
+                    ),
+                    session_id: target_id.to_owned(),
+                    compact,
+                }),
+            None => None,
+        }
+    };
+    if let Some(intent) = intent {
+        pump.dispatch(ClientEvent::Deck(intent));
+    } else {
+        let path = DeckTab::parse(target_id)
+            .map_or_else(|| crate::routes::session_href(target_id), |tab| tab.path());
+        navigate.call(path);
+    }
+}
 
 /// The message, its window and its actions, read from the store on every render.
 #[component]
@@ -118,13 +164,7 @@ pub fn ToastCard(toast_id: ToastId) -> Element {
             notify_target.clear(&id);
             match action.intent {
                 ToastIntent::RevealSession { session_id } => {
-                    let href = {
-                        let core = pump.core();
-                        let core = core.borrow();
-                        session_by_id(core.store(), &session_id)
-                            .map(|session| terminal_href(core.store(), session))
-                    };
-                    navigate.call(href.unwrap_or_else(|| format!("/s/{session_id}")));
+                    reveal_deck_target(&pump, &session_id, compact, navigate);
                 }
                 ToastIntent::CopyText { text } => {
                     let pump = pump.clone();

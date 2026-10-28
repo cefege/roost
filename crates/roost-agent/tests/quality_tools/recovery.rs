@@ -17,6 +17,7 @@ async fn late_run_intent_does_not_discard_already_consumed_output() {
             &id,
             &Entry::User {
                 text: "first".into(),
+                attachments: Vec::new(),
                 loop_repeat: false,
                 item_id: None,
             },
@@ -46,6 +47,7 @@ async fn late_run_intent_does_not_discard_already_consumed_output() {
             &id,
             &Entry::User {
                 text: "already consumed".into(),
+                attachments: Vec::new(),
                 loop_repeat: false,
                 item_id: None,
             },

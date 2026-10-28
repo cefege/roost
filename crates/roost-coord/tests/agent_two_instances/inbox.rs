@@ -19,6 +19,7 @@ async fn snapshot_does_not_restore_input_withdrawn_before_its_removal_event() {
             &id,
             &Entry::User {
                 text: "withdraw this steer".to_owned(),
+                attachments: Vec::new(),
                 loop_repeat: false,
                 item_id: Some("queued-request".to_owned()),
             },
@@ -51,6 +52,7 @@ async fn snapshot_does_not_restore_input_withdrawn_before_its_removal_event() {
                     items: vec![TranscriptItem::User {
                         id: "queued-request".to_owned(),
                         text: "withdraw this steer".to_owned(),
+                        attachment_names: Vec::new(),
                     }],
                     run_state: roost_protocol::wire::agent_chat::AgentRunState::Idle,
                     error: None,
@@ -61,6 +63,7 @@ async fn snapshot_does_not_restore_input_withdrawn_before_its_removal_event() {
                     queued: vec![QueuedMessage {
                         id: "queued-request".to_owned(),
                         text: "withdraw this steer".to_owned(),
+                        attachment_names: Vec::new(),
                         mode: String::new(),
                     }],
                     schedules: Vec::new(),

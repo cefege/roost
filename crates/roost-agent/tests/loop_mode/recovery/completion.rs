@@ -41,6 +41,7 @@ async fn recovered_final_output_admits_the_next_loop_iteration() {
         &id,
         Entry::User {
             text: "bump".into(),
+            attachments: Vec::new(),
             loop_repeat: false,
             item_id: None,
         },
@@ -122,6 +123,7 @@ async fn an_identical_user_steer_is_not_charged_as_a_committed_repeat() {
         &id,
         Entry::User {
             text: "bump".into(),
+            attachments: Vec::new(),
             loop_repeat: false,
             item_id: None,
         },

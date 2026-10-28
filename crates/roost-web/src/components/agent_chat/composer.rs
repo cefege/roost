@@ -1,14 +1,12 @@
 //! The agent composer keeps the draft, slash commands and voice input together.
 //! Its footer carries model, plan, voice and send; the status line beneath it carries
 //! usage, advisor and goal. Submissions reuse their request ID until the outcome is known.
-use super::composer_commands::{
-    LocalCommandScope, report_command, run_local_command, submit_message,
-};
+use super::composer_commands::report_command;
 use super::composer_footer::ComposerFooter;
 #[cfg(target_arch = "wasm32")]
 use super::composer_helpers::abort_run;
 use super::composer_helpers::{
-    EditBanner, composer_placeholder, composer_run_facts, fill_draft, focus_field, try_submit_edit,
+    EditBanner, composer_placeholder, composer_run_facts, fill_draft, focus_field,
 };
 use super::composer_status::{ComposerErrorBanner, ComposerStatusLine, composer_usage};
 use super::goal_controls::GoalControls;
@@ -18,6 +16,8 @@ use super::slash_menu::{
     scroll_option_into_view, slash_menu_state, slash_sources,
 };
 use crate::components::settings::agent_connect_dialog::AgentConnectDialog;
+use crate::components::terminal_chrome::attachment_picker::ChosenFile;
+use crate::components::terminal_chrome::attachment_picker::spawn_read_chosen;
 use crate::components::terminal_chrome::composer_dictation::{
     SharedBinding, VoiceControl, use_dictation, use_dictation_context,
 };
@@ -26,8 +26,9 @@ use crate::pump::Pump;
 use crate::router_state::use_navigate;
 use crate::voice::send_gate::SendGate;
 use dioxus::prelude::*;
+use dioxus::web::WebEventExt as _;
 use roost_protocol::wire::agent_chat::{
-    ConversationSummary, ModelsCatalog, ProviderEntry, Transcript, parse_slash_command,
+    ConversationSummary, ModelsCatalog, ProviderEntry, Transcript,
 };
 use std::rc::Rc;
 #[component]
@@ -58,9 +59,9 @@ pub fn AgentComposer(
     let mut command_error = use_signal(|| None::<String>);
     let mut voice_error = use_signal(|| None::<String>);
     let mut goal_open = use_signal(|| false);
-    let mut goal_view_request = use_signal(String::new);
+    let goal_view_request = use_signal(String::new);
     let mut goal_pending = use_signal(|| false);
-    let mut unresolved_send = use_signal(|| super::submission::restore(&conversation_id));
+    let unresolved_send = use_signal(|| super::submission::restore(&conversation_id));
     let busy_mode = use_signal(|| {
         unresolved_send
             .peek()
@@ -68,14 +69,19 @@ pub fn AgentComposer(
             .map(|pending| pending.when_busy.clone())
             .unwrap_or_else(|| "follow_up".to_owned())
     });
-    let mut submit_pending = use_signal(|| false);
+    let submit_pending = use_signal(|| false);
+    let staged_files = use_signal(Vec::<ChosenFile>::new);
     let goal_result = EventHandler::new(move |result: Result<(), String>| {
         goal_pending.set(false);
         command_error.set(result.err());
     });
     let report = report_command(command_error);
     let sources = slash_sources(&conversation, catalog.as_ref());
-    let menu = slash_menu_state(&draft(), &sources);
+    let menu = if edit_target.peek().is_some() {
+        None
+    } else {
+        slash_menu_state(&draft(), &sources)
+    };
     let option_count = menu.as_ref().map_or(0, |state| state.options.len());
     let menu_open = !menu_dismissed() && menu.is_some();
     let options_open = menu_open && option_count > 0;
@@ -88,82 +94,26 @@ pub fn AgentComposer(
     let run_error = transcript.error.clone();
     let (goal, failed, cost_usd) = composer_run_facts(&transcript);
     let usage = composer_usage(&transcript, catalog.as_ref(), &conversation);
-    let submit = EventHandler::new({
-        let pump = pump.clone();
-        let conversation_id = conversation_id.clone();
-        let conversation = conversation.clone();
-        let catalog = catalog.clone();
-        move |()| {
-            if disabled || submit_pending() {
-                return;
-            }
-            let text = draft.peek().trim().to_string();
-            if text.is_empty() {
-                return;
-            }
-            if try_submit_edit(edit_target, draft, &pump, &conversation_id, &text, report) {
-                return;
-            }
-            if let Some((command, args)) = parse_slash_command(&text) {
-                if command.name == "goal"
-                    && (args.is_empty()
-                        || args.trim().eq_ignore_ascii_case("set")
-                        || args.trim().eq_ignore_ascii_case("budget"))
-                {
-                    goal_view_request.set(args.trim().to_ascii_lowercase());
-                    goal_open.set(true);
-                    draft.set(String::new());
-                    return;
-                }
-                if command.requires_argument() && !command.client_bare && args.is_empty() {
-                    report.call(Err(format!("Usage: /{} {}", command.name, command.args)));
-                    return;
-                }
-                if run_local_command(
-                    command,
-                    args,
-                    &LocalCommandScope {
-                        conversation: &conversation,
-                        transcript: &transcript,
-                        catalog: catalog.as_ref(),
-                        pump: pump.clone(),
-                        navigate,
-                        connect_provider,
-                        model_hub_open,
-                        report,
-                    },
-                ) {
-                    draft.set(String::new());
-                    return;
-                }
-            }
-            let selected_mode = busy_mode.peek().clone();
-            let pending = super::submission::prepare(
-                &conversation_id,
-                &text,
-                &selected_mode,
-                unresolved_send.peek().as_ref(),
-            );
-            let (mode, request_id) = (pending.when_busy.clone(), pending.request_id.clone());
-            unresolved_send.set(Some(pending));
-            submit_pending.set(true);
-            let completion = super::submission::completion_callback(
-                conversation_id.clone(),
-                draft,
-                submit_pending,
-                unresolved_send,
-                report,
-            );
-            submit_message(
-                pump.clone(),
-                conversation_id.clone(),
-                text,
-                mode,
-                request_id,
-                completion,
-            );
-        }
-    });
+    let submit =
+        super::composer_submit::submit_handler(super::composer_submit::ComposerSubmitContext {
+            conversation: conversation.clone(),
+            catalog: catalog.clone(),
+            transcript,
+            draft,
+            edit_target,
+            disabled,
+            pump: pump.clone(),
+            goal_open,
+            goal_view_request,
+            connect_provider,
+            model_hub_open,
+            navigate,
+            report,
+            unresolved_send,
+            busy_mode,
+            submit_pending,
+            staged_files,
+        });
     let send = EventHandler::new({
         let dictation = dictation.clone();
         move |()| match dictation.send_gate() {
@@ -194,6 +144,42 @@ pub fn AgentComposer(
             }
         }
     });
+    let uploads_in_flight = staged_files()
+        .iter()
+        .any(|file| file.upload_state.is_in_flight());
+    let attachments_block_send = staged_files()
+        .iter()
+        .any(|file| file.upload_state.blocks_send());
+    let on_attach = super::composer_attachments::checked_stage_attachments(
+        pump.clone(),
+        staged_files,
+        conversation.clone(),
+        edit_target,
+        draft,
+        report,
+    );
+    let on_drop = EventHandler::new(move |event: DragEvent| {
+        event.prevent_default();
+        let files = super::composer_attachments::transferred_files(
+            event
+                .try_as_web_event()
+                .and_then(|native: web_sys::DragEvent| native.data_transfer())
+                .and_then(|transfer| transfer.files()),
+        );
+        spawn_read_chosen(files, on_attach);
+    });
+    let on_paste = EventHandler::new(move |event: ClipboardEvent| {
+        let files = super::composer_attachments::transferred_files(
+            event
+                .try_as_web_event()
+                .and_then(|native: web_sys::ClipboardEvent| native.clipboard_data())
+                .and_then(|transfer| transfer.files()),
+        );
+        if !files.is_empty() {
+            event.prevent_default();
+            spawn_read_chosen(files, on_attach);
+        }
+    });
     let stop = EventHandler::new({
         let pump = pump.clone();
         let conversation_id = conversation_id.clone();
@@ -214,6 +200,7 @@ pub fn AgentComposer(
         }
     });
     let empty = draft().trim().is_empty();
+    let dictation_finishing = dictation.send_gate() == SendGate::AfterFinalize;
     let send_available = dictation.send_gate().offers_send();
     let placeholder = composer_placeholder(disabled, send_available, running, &busy_mode());
     let sources_for_input = sources.clone();
@@ -285,6 +272,9 @@ pub fn AgentComposer(
             class: "relative flex flex-col gap-1 data-disabled:opacity-60",
             "data-disabled": disabled.then_some("true"),
             "data-testid": "agent-chat-composer",
+            ondragover: move |event: DragEvent| event.prevent_default(),
+            ondrop: on_drop,
+            onpaste: on_paste,
             if let Some(state) = menu.clone().filter(|_| menu_open) {
                 SlashMenu {
                     conversation_id: conversation_id.clone(),
@@ -338,8 +328,14 @@ pub fn AgentComposer(
                         focus_field(field);
                     },
                     running,
-                    has_draft: !empty,
+                    has_draft: !empty
+                        || !staged_files().is_empty()
+                        || edit_target
+                            .peek()
+                            .as_ref()
+                            .is_some_and(EditTarget::has_attachments),
                     send_available,
+                    dictation_finishing,
                     voice_controls: rsx! {
                         VoiceControl {
                             owner_id: conversation_id.clone(),
@@ -350,6 +346,10 @@ pub fn AgentComposer(
                             on_error: move |error| voice_error.set(error),
                         }
                     },
+                    staged_files,
+                    on_chosen: on_attach,
+                    uploads_in_flight,
+                    attachments_block_send,
                     disabled,
                     busy_mode,
                     submit_pending: submit_pending(),

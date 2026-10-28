@@ -210,6 +210,7 @@ async fn recovered_successful_output_finishes_without_repeating_its_primary_call
         &id,
         Entry::User {
             text: "already answered".into(),
+            attachments: Vec::new(),
             loop_repeat: false,
             item_id: None,
         },
@@ -263,6 +264,7 @@ async fn late_user_and_advisory_inputs_are_not_marked_consumed_by_prior_output()
         &id,
         Entry::User {
             text: "first request".into(),
+            attachments: Vec::new(),
             loop_repeat: false,
             item_id: None,
         },
@@ -301,6 +303,7 @@ async fn late_user_and_advisory_inputs_are_not_marked_consumed_by_prior_output()
         &id,
         Entry::User {
             text: "late steer".into(),
+            attachments: Vec::new(),
             loop_repeat: false,
             item_id: None,
         },

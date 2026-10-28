@@ -1,6 +1,8 @@
 //! Behavior tests for account selection, OAuth input parsing, and judgment retries.
 //! Local HTTP handlers keep provider traffic deterministic and exercise the real clients.
 
+#[path = "accounts/usage.rs"]
+mod usage;
 use std::{
     collections::BTreeMap,
     sync::{
@@ -98,6 +100,74 @@ async fn pool_skips_blocked_credential_and_returns_earliest_unblock() {
         panic!("expected aggregate rate limit")
     };
     assert!(reset_at_ms.is_some_and(|until| until < reset));
+}
+#[tokio::test]
+async fn preferred_account_keeps_a_usable_sticky_choice_and_skips_blocked_or_disabled_rows() {
+    let store = Arc::new(InMemoryCredentialStore::default());
+    let first = store
+        .upsert(
+            "typesafe",
+            CredentialKind::ApiKey { key: "one".into() },
+            "one",
+            "one",
+        )
+        .await
+        .expect("first credential");
+    let second = store
+        .upsert(
+            "typesafe",
+            CredentialKind::ApiKey { key: "two".into() },
+            "two",
+            "two",
+        )
+        .await
+        .expect("second credential");
+    let disabled = store
+        .upsert(
+            "typesafe",
+            CredentialKind::ApiKey {
+                key: "three".into(),
+            },
+            "three",
+            "three",
+        )
+        .await
+        .expect("third credential");
+    let pool = AccountPool::new(
+        store.clone(),
+        reqwest::Client::new(),
+        Endpoints::production(),
+    );
+    store
+        .set_sticky("conversation", "typesafe", first)
+        .await
+        .expect("sticky credential");
+    assert_eq!(
+        pool.preferred_credential_id("typesafe", "conversation")
+            .await
+            .expect("preferred credential"),
+        Some(first),
+        "a usable sticky account outranks the rotation candidate"
+    );
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock")
+        .as_millis() as i64;
+    store
+        .set_block(first, now + 60_000)
+        .await
+        .expect("block sticky account");
+    store
+        .disable(disabled, "revoked")
+        .await
+        .expect("disable account");
+    assert_eq!(
+        pool.preferred_credential_id("typesafe", "conversation")
+            .await
+            .expect("fallback credential"),
+        Some(second),
+        "blocked and disabled accounts remain visible to callers but cannot be selected"
+    );
 }
 
 #[tokio::test]

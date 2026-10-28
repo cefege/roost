@@ -18,6 +18,7 @@ async fn recovery_replays_unexpected_stop_policy_once_for_completed_output() {
             &id,
             &Entry::User {
                 text: "fix the bug".into(),
+                attachments: Vec::new(),
                 loop_repeat: false,
                 item_id: None,
             },

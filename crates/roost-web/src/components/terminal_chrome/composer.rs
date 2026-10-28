@@ -201,8 +201,8 @@ pub fn TerminalComposer(
             );
         }
     };
-    // While a stopped recording waits for its last words the press is queued
-    // with the mic, which submits through `submit_queued` once they land.
+    // While a recording waits for its last words, Send queues with the mic,
+    // which submits through `submit_queued` once they land.
     let mut press_send = {
         let dictation = dictation.clone();
         let mut send = send.clone();
@@ -247,9 +247,8 @@ pub fn TerminalComposer(
         upload_failed,
     );
     let on_key_down = move |event: KeyboardEvent| {
-        // A live recording owns the field: an Enter then would send a
-        // half-heard sentence, so it stays the newline the key is for. A
-        // stopped one takes it as Send, as the button does.
+        // Send stops a live recording and waits for its full transcript; a
+        // stopped recording also queues Send until those words are in the draft.
         // Uploaded paths are prefixed to the draft once every transfer settles.
         if event.key() == Key::Named(NamedKey::Enter)
             && !event.modifiers().contains(Modifiers::SHIFT)

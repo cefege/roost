@@ -14,7 +14,7 @@ use roost_proto::{
     FilesReadChunkRequest, FilesReadChunkResponse, FilesReadRequest, FilesReadResponse,
     ListAttachmentsRequest, ListAttachmentsResponse,
 };
-use roost_protocol::wire::SessionId;
+use roost_protocol::wire::{AttachmentTargetId, SessionId};
 
 use super::files::{files_list_dir, files_mkdir, files_read, files_read_chunk};
 use super::relay::require_worker_hub_socket;
@@ -182,21 +182,39 @@ pub async fn handle_delete_attachment(
     })
 }
 
-/// The session a request names and its live worker, as v2's
-/// `requireSessionWorkerSocket` answers: `NotFound` "session not found" for a
-/// session that is not there — including an id that is not one, because v2
-/// looks it up rather than parsing it — and `Unavailable` "worker offline".
-/// `presence_required` is v2's explicit `session_id required` check, which only
-/// the upload and the probe make.
+/// Resolve an attachment ID to its live terminal or conversation worker.
 async fn session_binding(
     core: &CoordCore,
     raw: &str,
     presence_required: bool,
-) -> Result<(SessionId, SessionWorkerBinding), ConnectError> {
+) -> Result<(AttachmentTargetId, SessionWorkerBinding), ConnectError> {
     if presence_required && raw.is_empty() {
         return Err(ConnectError::new(
             ErrorCode::InvalidArgument,
             "session_id required",
+        ));
+    }
+    let target_id = AttachmentTargetId::try_from(raw)
+        .map_err(|_| ConnectError::new(ErrorCode::NotFound, "session not found"))?;
+    if target_id.is_conversation() {
+        let target =
+            super::conversation_target::conversation_attachment_target(core, &target_id, None)
+                .await?
+                .ok_or_else(|| ConnectError::new(ErrorCode::NotFound, "session not found"))?;
+        let handle = core
+            .services
+            .scrollback
+            .workers()
+            .current_routable(&target.worker_fp)
+            .ok_or_else(|| {
+                ConnectError::new(ErrorCode::FailedPrecondition, "worker not connected")
+            })?;
+        return Ok((
+            target_id,
+            SessionWorkerBinding {
+                worker_fp: target.worker_fp,
+                handle,
+            },
         ));
     }
     let session = SessionId::try_from(raw)
@@ -206,5 +224,5 @@ async fn session_binding(
         .scrollback
         .session_worker_socket(&core.services.db, &session)
         .await?;
-    Ok((session, binding))
+    Ok((target_id, binding))
 }
