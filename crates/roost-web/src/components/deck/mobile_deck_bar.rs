@@ -38,12 +38,13 @@ pub fn MobileDeckBar(
     tab_ids: Vec<String>,
     selected_tab: String,
     show_agent_actions: bool,
+    tabs_sheet_open: Signal<bool>,
     on_select: EventHandler<String>,
     on_close: EventHandler<String>,
     on_new_tab: EventHandler<()>,
 ) -> Element {
     let pump = use_store();
-    let mut sheet_open = use_signal(|| false);
+    let mut sheet_open = tabs_sheet_open;
     let inspector_request = try_consume_context::<AgentInspectorRequest>();
     let reading = {
         let core = pump.core();
@@ -162,7 +163,7 @@ pub fn MobileDeckBar(
                 span { "{badge.text}" }
             }
         }
-        if sheet_open() {
+        if show_agent_actions && sheet_open() {
             WorkspaceTabsSheet {
                 tab_ids: tab_ids.clone(),
                 selected_tab: selected_tab.clone(),

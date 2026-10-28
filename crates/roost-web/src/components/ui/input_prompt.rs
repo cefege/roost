@@ -26,7 +26,7 @@ pub fn InputPrompt(
     #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
-    let merged = tw_merge!("overflow-hidden", class.as_deref().unwrap_or(""));
+    let merged = tw_merge!("overflow-hidden rounded-xl", class.as_deref().unwrap_or(""));
     rsx! { InputGroup { class: merged, attributes, {children} } }
 }
 

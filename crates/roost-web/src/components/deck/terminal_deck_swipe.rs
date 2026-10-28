@@ -11,7 +11,7 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-use super::deck_dom::{self, Listeners, Timeout};
+use super::deck_dom::{self, DeckTouch, Listeners, Timeout};
 use super::deck_swipe::{
     Swipe, SwipeCompletion, SwipeMode, SwipePhase, SwipeRelease, arm_swipe, cancel_swipe,
     new_fab_progress, release_swipe, route_outlives_swipe, should_commit_switch, track_swipe,
@@ -25,6 +25,8 @@ use crate::motion::edge_swipe_drawer::open_offset_px;
 pub struct SwipeFrame {
     /// Whether the host paints one pane.
     pub compact: bool,
+    /// Whether the workspace tabs sheet owns touches.
+    pub tabs_sheet_open: bool,
     /// The deck width, px.
     pub width: f64,
     /// The phone's flat tab order.
@@ -73,7 +75,7 @@ pub fn use_deck_swipe(
             let Some(frame) = latest.borrow().clone() else {
                 return false;
             };
-            let step = tracker.step(touch, frame.compact);
+            let step = step_touch(&mut tracker, touch, frame.compact, frame.tabs_sheet_open);
             frame.apply(swipe, step, &mut fab_armed, &timers);
             step.consumes()
         });
@@ -96,6 +98,19 @@ pub fn use_deck_swipe(
             clearing.set(None);
         }
     }));
+}
+
+fn step_touch(
+    tracker: &mut SwipeTouchTracker,
+    touch: DeckTouch,
+    compact: bool,
+    tabs_sheet_open: bool,
+) -> TouchStep {
+    if tabs_sheet_open {
+        tracker.step(DeckTouch::Cancel, compact)
+    } else {
+        tracker.step(touch, compact)
+    }
 }
 
 impl SwipeFrame {
@@ -263,4 +278,108 @@ fn drop_swipe_if_still(swipe: Signal<Option<Swipe>>, settle: &Swipe) -> bool {
 
 fn timer_ms(delay_ms: u64) -> u32 {
     u32::try_from(delay_ms).unwrap_or(u32::MAX)
+}
+#[cfg(test)]
+mod tests {
+    use super::{DeckTouch, SwipeTouchTracker, TouchStep, step_touch};
+
+    #[test]
+    fn workspace_tabs_sheet_owns_horizontal_gestures() {
+        let mut tracker = SwipeTouchTracker::default();
+        assert_eq!(
+            step_touch(
+                &mut tracker,
+                DeckTouch::Start {
+                    x: 120.0,
+                    y: 100.0,
+                    touches: 1,
+                    at_ms: 0.0,
+                },
+                true,
+                false,
+            ),
+            TouchStep::Ignored
+        );
+        assert_eq!(
+            step_touch(
+                &mut tracker,
+                DeckTouch::Move {
+                    x: 160.0,
+                    y: 100.0,
+                    at_ms: 20.0,
+                },
+                true,
+                false,
+            ),
+            TouchStep::Armed { delta_x: 40.0 }
+        );
+        assert_eq!(
+            step_touch(
+                &mut tracker,
+                DeckTouch::Move {
+                    x: 180.0,
+                    y: 100.0,
+                    at_ms: 40.0,
+                },
+                true,
+                true,
+            ),
+            TouchStep::Cancelled
+        );
+        assert_eq!(
+            step_touch(
+                &mut tracker,
+                DeckTouch::Move {
+                    x: 200.0,
+                    y: 100.0,
+                    at_ms: 60.0,
+                },
+                true,
+                false,
+            ),
+            TouchStep::Ignored
+        );
+
+        let mut sheet_tracker = SwipeTouchTracker::default();
+        assert_eq!(
+            step_touch(
+                &mut sheet_tracker,
+                DeckTouch::Start {
+                    x: 120.0,
+                    y: 100.0,
+                    touches: 1,
+                    at_ms: 0.0,
+                },
+                true,
+                true,
+            ),
+            TouchStep::Ignored
+        );
+        assert_eq!(
+            step_touch(
+                &mut sheet_tracker,
+                DeckTouch::Move {
+                    x: 160.0,
+                    y: 100.0,
+                    at_ms: 20.0,
+                },
+                true,
+                true,
+            ),
+            TouchStep::Ignored
+        );
+        assert_eq!(
+            step_touch(
+                &mut sheet_tracker,
+                DeckTouch::Move {
+                    x: 200.0,
+                    y: 100.0,
+                    at_ms: 40.0,
+                },
+                true,
+                false,
+            ),
+            TouchStep::Ignored
+        );
+    }
 }

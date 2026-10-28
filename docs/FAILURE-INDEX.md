@@ -2878,6 +2878,16 @@ finger, a `touchcancel`, or a new touch while the drag is still armed, and the d
 `a_cancelled_drag_springs_back_however_far_it_travelled`, `every_settle_has_a_bounded_drop_deadline`. The target
 follower is browser-only and has no Rust test: a native build has no DOM to detach a node from.
 
+### The workspace tabs sheet swipes the deck underneath
+
+**Symptom** — horizontal touch scrolling in the open phone tab grid changes the selected terminal or opens the workspace drawer.
+
+**Wrong** — relying on the sheet backdrop to isolate its touches. `WorkspaceTabsSheet` is a descendant of the deck, so its touch events reach the deck's capture-phase `deck_touches` listener.
+
+**Right** — `TerminalDeck` owns the sheet-open signal and includes it in `SwipeFrame`; `terminal_deck_swipe::step_touch` cancels the tracker while the sheet is open, so the sheet owns all touches and an in-progress deck drag springs back.
+
+**Guard** — `crates/roost-web/src/components/deck/terminal_deck_swipe.rs::tests::workspace_tabs_sheet_owns_horizontal_gestures` covers a gesture started while the sheet is open, a sheet opened during an armed drag, and moves continuing after it closes.
+
 ### A multi-line draft leaves the desktop pane: the composer is clipped and its first lines are hidden
 
 **Symptom** — "the chat box goes out of the frame with multiple rows / it gets deformed / you can't scroll

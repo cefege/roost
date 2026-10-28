@@ -85,7 +85,7 @@ pub fn TerminalCard(
         Card {
             size: CardSize::Sm,
             class: Some(
-                "relative h-[204px] min-w-0 cursor-pointer overflow-hidden text-left [-webkit-tap-highlight-color:transparent] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring data-[active=true]:ring-2 data-[active=true]:ring-primary data-[selected=true]:ring-2 data-[selected=true]:ring-primary"
+                "relative h-[204px] min-w-0 cursor-pointer overflow-hidden text-left [-webkit-tap-highlight-color:transparent] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring data-[active=true]:border-primary data-[selected=true]:border-primary"
                     .to_owned(),
             ),
             "data-testid": "terminal-card-{id}",

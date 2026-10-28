@@ -79,6 +79,7 @@ pub fn TerminalDeck(active_session_id: Option<String>, surface_visible: bool) ->
         }
     }));
     let swipe = use_signal(|| None::<Swipe>);
+    let tabs_sheet_open = use_signal(|| false);
     let drag_ratios = use_signal(BTreeMap::<String, f64>::new);
     let drop_overlay = use_signal(|| None::<DropOverlay>);
 
@@ -228,6 +229,7 @@ pub fn TerminalDeck(active_session_id: Option<String>, surface_visible: bool) ->
         swipe,
         measure.element,
         SwipeFrame {
+            tabs_sheet_open: tabs_sheet_open(),
             compact,
             width: size.w,
             mobile_tabs: frame.mobile_tabs.clone(),
@@ -283,7 +285,7 @@ pub fn TerminalDeck(active_session_id: Option<String>, surface_visible: bool) ->
                 }
             }
             if compact {
-                {compact_chrome(&frame, &operations, swipe_now.as_ref(), active_session_id.as_deref().unwrap_or_default(), size.w)}
+                {compact_chrome(&frame, &operations, swipe_now.as_ref(), active_session_id.as_deref().unwrap_or_default(), size.w, tabs_sheet_open)}
             }
             TerminalDeckSwipeOverlay {
                 compact,

@@ -238,7 +238,7 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
                             super::transcript::AgentTranscriptView { transcript: transcript.clone(), conversation_id: conversation_id.clone(), pump: pump.clone(), draft, edit_target }
                         }
                     }
-                    div { class: "relative mx-auto flex w-full max-w-reading shrink-0 flex-col gap-3 px-4 pt-2 pb-4",
+                    div { class: "relative mx-auto flex w-full max-w-reading shrink-0 flex-col gap-3 pl-[max(env(safe-area-inset-left,0px),0.5rem)] pr-[max(env(safe-area-inset-right,0px),0.5rem)] pt-2 pb-(--term-chat-dock-rest-offset)",
                         if running {
                             WorkingRow {
                                 label: if assistant_is_streaming(&transcript) { "Writing…".to_string() } else { working_label(&transcript.items) },
