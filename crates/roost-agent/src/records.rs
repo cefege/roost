@@ -126,6 +126,7 @@ pub enum PlanState {
     Proposed,
     Approved,
     Refined,
+    Rejected,
 }
 
 impl PlanState {
@@ -134,6 +135,7 @@ impl PlanState {
             Self::Proposed => "proposed",
             Self::Approved => "approved",
             Self::Refined => "refined",
+            Self::Rejected => "rejected",
         }
     }
 }

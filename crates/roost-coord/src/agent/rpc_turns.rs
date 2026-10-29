@@ -54,7 +54,7 @@ pub async fn handle_agent_chat_rewind(
     require_request_id(&request.request_id)?;
     let runtime = &core.services.agent.runtime;
     let text = runtime
-        .deduplicated(
+        .deduplicated_requiring_resolved_plan(
             &request.conversation_id,
             &request.request_id,
             "rewind",

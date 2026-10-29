@@ -47,6 +47,17 @@ pub enum IntentChange {
     RestartIfCurrent,
 }
 
+/// The plan state a command must observe while its journal write is admitted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PlanAdmission {
+    /// The command remains valid while a plan awaits a decision.
+    AllowPending,
+    /// Refuse the command while any plan proposal remains unresolved.
+    RejectIfPending,
+    /// Commit only while this proposal is still unresolved.
+    RequireProposed { item_id: String },
+}
+
 /// One client command, deduplicated by `(conversation, request_id)`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommandAdmission {
@@ -54,6 +65,7 @@ pub struct CommandAdmission {
     pub kind: String,
     pub entries: Vec<Entry>,
     pub intent: IntentChange,
+    pub plan_admission: PlanAdmission,
     pub fence: Option<LeaseFence>,
     pub expected_intent_seq: Option<u64>,
     pub completion_through: Option<u64>,
@@ -68,6 +80,10 @@ pub enum AdmitOutcome {
     Duplicate { result_json: Option<String> },
     /// The command requested rejection while a run was active.
     Busy,
+    /// An unresolved plan requires an explicit decision before this command.
+    PendingPlan,
+    /// The plan decision named a proposal that is no longer unresolved.
+    PlanNotProposed,
     /// The queued item was already consumed, withdrawn, or never existed.
     NotWithdrawable,
     /// A newer durable Stop superseded completion before it committed.

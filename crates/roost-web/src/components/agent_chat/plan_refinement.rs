@@ -7,7 +7,9 @@ use roost_protocol::wire::agent_chat::{Transcript, TranscriptItem};
 
 use super::message_actions::EditTarget;
 use crate::components::terminal_chrome::attachment_picker::ChosenFile;
-use crate::components::ui::{Badge, BadgeVariant, ButtonSize, ButtonVariant, IconButton, IconType};
+use crate::components::ui::{
+    Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, IconButton, IconType,
+};
 
 #[derive(Clone, PartialEq)]
 pub(super) struct PlanRefinementTarget {
@@ -116,6 +118,17 @@ impl PlanRefinement {
     }
 }
 
+pub(super) fn has_unresolved_proposal(transcript: &Transcript) -> bool {
+    pending_proposal_id(transcript).is_some()
+}
+
+pub(super) fn pending_proposal_id(transcript: &Transcript) -> Option<&str> {
+    transcript.items.iter().rev().find_map(|item| match item {
+        TranscriptItem::Plan { id, state, .. } if state == "proposed" => Some(id.as_str()),
+        _ => None,
+    })
+}
+
 fn proposed(transcript: &Transcript, item_id: &str) -> bool {
     transcript
         .items
@@ -126,6 +139,39 @@ fn proposed(transcript: &Transcript, item_id: &str) -> bool {
             _ => None,
         })
         .is_some_and(|state| state == "proposed")
+}
+
+#[component]
+pub(super) fn PlanDecisionBanner(item_id: String) -> Element {
+    let target_id = format!("plan-actions-{item_id}");
+    rsx! {
+        div {
+            class: "flex items-center gap-2 text-xs text-muted-foreground",
+            "data-testid": "agent-plan-decision-banner",
+            role: "status",
+            Badge { variant: BadgeVariant::Secondary, "Plan awaiting decision" }
+            Button {
+                variant: ButtonVariant::Link,
+                size: ButtonSize::Sm,
+                "aria-controls": target_id.clone(),
+                onclick: move |_| {
+                    #[cfg(target_arch = "wasm32")]
+                    show_plan_actions(&target_id);
+                },
+                "Show plan"
+            }
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn show_plan_actions(target_id: &str) {
+    if let Some(element) = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.get_element_by_id(target_id))
+    {
+        element.scroll_into_view_with_bool(false);
+    }
 }
 
 #[component]
@@ -241,6 +287,14 @@ mod tests {
             handles.refinement.cancel();
             assert!(!handles.refinement.is_active());
         });
+    }
+
+    #[test]
+    fn unresolved_proposal_gate_clears_after_a_decision() {
+        assert!(has_unresolved_proposal(&transcript("proposed")));
+        assert!(!has_unresolved_proposal(&transcript("approved")));
+        assert!(!has_unresolved_proposal(&transcript("refined")));
+        assert!(!has_unresolved_proposal(&transcript("rejected")));
     }
 
     #[test]

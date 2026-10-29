@@ -10,7 +10,7 @@ use roost_protocol::wire::agent_chat::{ChatEvent, QueuedMessage};
 use super::{AgentRuntime, Steer, random_id};
 use crate::error::AgentError;
 use crate::records::Entry;
-use crate::traits::{AdmitOutcome, CommandAdmission, IntentChange};
+use crate::traits::{AdmitOutcome, CommandAdmission, IntentChange, PlanAdmission};
 
 /// The client request a steer answers, for deduplication of retries.
 #[derive(Debug, Clone, Copy)]
@@ -33,8 +33,10 @@ impl AgentRuntime {
             Vec::new(),
             message,
             None,
+            PlanAdmission::AllowPending,
         )
         .await
+        .map(|_| ())
     }
 
     /// [`Self::steer`] for a client command: `prefix` commits in the same
@@ -46,7 +48,8 @@ impl AgentRuntime {
         prefix: Vec<Entry>,
         message: Steer,
         mode: Option<super::SubmitMode>,
-    ) -> Result<(), AgentError> {
+        plan_admission: PlanAdmission,
+    ) -> Result<bool, AgentError> {
         let lifecycle = self.lifecycle_lock(id);
         let _guard = lifecycle.lock().await;
         let (user_text, user_attachments) = match &message {
@@ -104,6 +107,7 @@ impl AgentRuntime {
                     kind: command.kind.to_owned(),
                     entries,
                     intent,
+                    plan_admission,
                     fence: None,
                     expected_intent_seq: None,
                     completion_through: None,
@@ -121,12 +125,25 @@ impl AgentRuntime {
                     request_id = command.request_id,
                     "duplicate agent command ignored"
                 );
-                return Ok(());
+                return Ok(false);
             }
             Ok(AdmitOutcome::Busy) => {
                 self.cancel_loop_prompt_capture(id).await;
                 return Err(AgentError::FailedPrecondition(
                     "conversation is busy".into(),
+                ));
+            }
+            Ok(AdmitOutcome::PendingPlan) => {
+                self.cancel_loop_prompt_capture(id).await;
+                return Err(AgentError::FailedPrecondition(
+                    "approve, refine, or reject the proposed plan before sending another message"
+                        .into(),
+                ));
+            }
+            Ok(AdmitOutcome::PlanNotProposed) => {
+                self.cancel_loop_prompt_capture(id).await;
+                return Err(AgentError::FailedPrecondition(
+                    "this plan was already decided".into(),
                 ));
             }
             Ok(AdmitOutcome::NotWithdrawable) => {
@@ -148,6 +165,9 @@ impl AgentRuntime {
                 return Err(error);
             }
         };
+        if let Some(text) = user_text {
+            self.prepare_accepted_user_submission(id, text).await?;
+        }
         let queue_sequence = seqs
             .get(appended.len().saturating_sub(1))
             .copied()
@@ -271,15 +291,15 @@ impl AgentRuntime {
         self.arrival_signal(id).notify_waiters();
         if queued {
             self.cancel_loop_prompt_capture(id).await;
-            return Ok(());
+            return Ok(true);
         }
         if mode == Some(super::SubmitMode::FollowUp) {
             if !wakes {
                 self.inner.signal.conversation_changed(id).await;
-                return Ok(());
+                return Ok(true);
             }
             return match self.start_run_now_boxed(id).await {
-                Ok(Some(_)) | Ok(None) => Ok(()),
+                Ok(Some(_)) | Ok(None) => Ok(true),
                 Err(error) => {
                     self.schedule_readmission(id);
                     Err(error)
@@ -298,23 +318,23 @@ impl AgentRuntime {
             true
         });
         if handed_off == Some(true) {
-            return Ok(());
+            return Ok(true);
         }
         if joins_live_run {
             self.emit_entry(id, sequence, &entry).await?;
         }
         if handed_off == Some(false) {
-            return Ok(());
+            return Ok(true);
         }
         if !wakes {
             self.inner.signal.conversation_changed(id).await;
-            return Ok(());
+            return Ok(true);
         }
         match self.start_run_now_boxed(id).await {
-            Ok(Some(_)) => Ok(()),
+            Ok(Some(_)) => Ok(true),
             Ok(None) => {
                 self.inner.signal.conversation_changed(id).await;
-                Ok(())
+                Ok(true)
             }
             Err(error) => {
                 if accepted_submission {

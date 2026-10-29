@@ -1,20 +1,25 @@
 //! The agent composer keeps the draft, slash commands and voice input together.
 //! Its footer carries model, plan, voice and send; the status line beneath it carries
 //! usage, advisor and goal. Submissions reuse their request ID until the outcome is known.
+use super::composer_attachments::{
+    AttachmentGate, AttachmentReports, ComposerAttachmentHandlers, composer_attachment_handlers,
+    use_attachment_feedback,
+};
 use super::composer_commands::report_command;
 use super::composer_footer::ComposerFooter;
-#[cfg(target_arch = "wasm32")]
-use super::composer_helpers::abort_run;
 use super::composer_helpers::{
-    EditBanner, composer_placeholder, composer_run_facts, fill_draft, focus_field,
+    DraftKeyContext, EditBanner, composer_placeholder, composer_run_facts, draft_key_handler,
+    fill_draft, focus_field, model_picker_handler, stop_handler,
 };
 use super::composer_status::{ComposerErrorBanner, ComposerStatusLine, composer_usage};
 use super::goal_controls::GoalControls;
 use super::message_actions::EditTarget;
-use super::plan_refinement::{PlanRefinement, PlanRefinementBanner};
+use super::plan_refinement::{
+    PlanDecisionBanner, PlanRefinement, PlanRefinementBanner, pending_proposal_id,
+};
 use super::slash_menu::{
     SlashAccept, SlashMenu, accept_action, initial_selection, listbox_id, option_id,
-    scroll_option_into_view, slash_menu_state, slash_sources,
+    slash_menu_state, slash_sources,
 };
 use crate::components::settings::agent_connect_dialog::AgentConnectDialog;
 use crate::components::terminal_chrome::attachment_picker::ChosenFile;
@@ -49,6 +54,10 @@ pub fn AgentComposer(
     let plan_refinement = use_context::<PlanRefinement>();
     let plan_target = plan_refinement.selected_target();
     let plan_is_current = plan_refinement.is_current(&transcript);
+    let pending_plan = pending_proposal_id(&transcript).map(str::to_owned);
+    let pending_plan_decision = pending_plan.is_some();
+    let refining_plan = plan_refinement.is_active();
+    let composer_locked = pending_plan_decision && !refining_plan;
     let dictation = use_dictation(draft);
     let dictation_context = use_dictation_context(None, draft);
     let disabled = !host_connected;
@@ -84,7 +93,7 @@ pub fn AgentComposer(
     });
     let report = report_command(command_error);
     let sources = slash_sources(&conversation, catalog.as_ref());
-    let menu = if edit_target.peek().is_some() || plan_target.is_some() {
+    let menu = if composer_locked || edit_target.peek().is_some() || plan_target.is_some() {
         None
     } else {
         slash_menu_state(&draft(), &sources)
@@ -152,48 +161,36 @@ pub fn AgentComposer(
             }
         }
     });
-    let uploads_in_flight = staged_files()
-        .iter()
-        .any(|file| file.upload_state.is_in_flight());
-    let attachments_block_send = staged_files()
-        .iter()
-        .any(|file| file.upload_state.blocks_send());
-    let on_attach = super::composer_attachments::checked_stage_attachments(
+    let attachment_gate = AttachmentGate::for_plan_state(pending_plan_decision, refining_plan);
+    let mut attachment_error = use_attachment_feedback(attachment_gate);
+    let attachment_report =
+        EventHandler::new(move |result: Result<(), String>| attachment_error.set(result.err()));
+    let ComposerAttachmentHandlers {
+        uploads_in_flight,
+        blocks_send: attachments_block_send,
+        on_chosen: on_attach,
+        on_drop,
+        on_paste,
+    } = composer_attachment_handlers(
         pump.clone(),
         staged_files,
         conversation.clone(),
         edit_target,
         draft,
-        report,
+        AttachmentReports {
+            ordinary: report,
+            gated: attachment_report,
+        },
+        attachment_gate,
     );
-    let on_drop = super::composer_attachments::attachment_drop_handler(on_attach);
-    let on_paste = super::composer_attachments::attachment_paste_handler(on_attach);
-    let stop = EventHandler::new({
-        let pump = pump.clone();
-        let conversation_id = conversation_id.clone();
-        move |()| {
-            #[cfg(target_arch = "wasm32")]
-            abort_run(pump.clone(), conversation_id.clone());
-            #[cfg(not(target_arch = "wasm32"))]
-            let _ = (&pump, &conversation_id);
-        }
-    });
-    let switch_model = EventHandler::new({
-        let conversation_id = conversation_id.clone();
-        move |()| {
-            #[cfg(target_arch = "wasm32")]
-            super::composer_commands::open_model_picker(&conversation_id);
-            #[cfg(not(target_arch = "wasm32"))]
-            let _ = &conversation_id;
-        }
-    });
+    let stop = stop_handler(pump.clone(), conversation_id.clone());
+    let switch_model = model_picker_handler(conversation_id.clone());
     let refinement_has_attachments =
         plan_refinement.attachments_block_send(staged_files, edit_target);
     let empty = draft().trim().is_empty();
     let dictation_finishing = dictation.send_gate() == SendGate::AfterFinalize;
     let send_available = dictation.send_gate().offers_send();
     let sources_for_input = sources.clone();
-    let key_conversation = conversation_id.clone();
     let placeholder = if plan_target.is_some() {
         "Describe the changes you want…"
     } else {
@@ -211,53 +208,23 @@ pub fn AgentComposer(
         );
         menu_dismissed.set(false);
     });
-    let handle_draft_key = EventHandler::new(move |event: KeyboardEvent| {
-        let key = event.key().to_string();
-        if menu_open && key == "Escape" {
-            event.prevent_default();
-            menu_dismissed.set(true);
-            return;
-        }
-        if !menu_open && key == "Escape" && edit_target.peek().is_some() {
-            event.prevent_default();
-            edit_target.set(None);
-            draft.set(String::new());
-            return;
-        }
-        if running && key == "Escape" {
-            event.prevent_default();
-            event.stop_propagation();
-            stop.call(());
-            return;
-        }
-        if options_open {
-            match key.as_str() {
-                "ArrowDown" | "ArrowUp" => {
-                    event.prevent_default();
-                    let next = if key == "ArrowDown" {
-                        (selected + 1) % option_count
-                    } else {
-                        selected.checked_sub(1).unwrap_or(option_count - 1)
-                    };
-                    selected_option.set(next);
-                    scroll_option_into_view(&key_conversation, next);
-                }
-                "Tab" => {
-                    event.prevent_default();
-                    if let Some(text) = &selected_text {
-                        fill_draft(draft, selected_option, text);
-                    }
-                }
-                _ => {}
-            }
-        }
+    let handle_draft_key = draft_key_handler(DraftKeyContext {
+        menu_open,
+        menu_dismissed,
+        edit_target,
+        draft,
+        running,
+        stop,
+        options_open,
+        selected,
+        option_count,
+        selected_option,
+        conversation_id: conversation_id.clone(),
+        selected_text,
     });
-    let submit_draft = EventHandler::new(move |()| {
-        if options_open {
-            accept.call(selected);
-        } else {
-            send.call(());
-        }
+    let submit_draft = EventHandler::new(move |()| match options_open {
+        true => accept.call(selected),
+        false => send.call(()),
     });
     rsx! {
         div {
@@ -274,6 +241,9 @@ pub fn AgentComposer(
                     selected,
                     on_choose: pick,
                 }
+            }
+            if let Some(item_id) = pending_plan.filter(|_| composer_locked) {
+                PlanDecisionBanner { item_id }
             }
             if let Some(target) = plan_target {
                 PlanRefinementBanner {
@@ -292,6 +262,7 @@ pub fn AgentComposer(
                     placeholder,
                     aria_label: "Message the agent",
                     disabled,
+                    readonly: composer_locked,
                     submit_on_enter: send_available,
                     class: "w-full",
                     on_mounted: capture_field,
@@ -318,7 +289,7 @@ pub fn AgentComposer(
                     commands_open: options_open,
                     listbox: listbox.clone(),
                     on_commands: move |_| {
-                        if disabled {
+                        if disabled || composer_locked {
                             return;
                         }
                         if draft.peek().is_empty() {
@@ -339,7 +310,7 @@ pub fn AgentComposer(
                     voice_controls: rsx! {
                         VoiceControl {
                             owner_id: conversation_id.clone(),
-                            active: active && !disabled,
+                            active: active && !disabled && !composer_locked,
                             read_context: Some(dictation_context.clone()),
                             binding: SharedBinding(dictation.clone()),
                             on_submit: submit,
@@ -350,7 +321,9 @@ pub fn AgentComposer(
                     on_chosen: on_attach,
                     uploads_in_flight,
                     attachments_block_send,
-                    refining_plan: plan_refinement.is_active(),
+                    attachments_disabled: attachment_gate.is_blocked(),
+                    refining_plan,
+                    plan_decision_pending: pending_plan_decision,
                     refinement_has_attachments,
                     disabled,
                     busy_mode,
@@ -372,7 +345,7 @@ pub fn AgentComposer(
                 on_stop: stop,
                 on_switch_model: switch_model,
             }
-            if let Some(message) = command_error() {
+            if let Some(message) = command_error().or_else(&*attachment_error) {
                 FieldError { test_id: "agent-command-error", class: "px-3", {message} }
             }
             if let Some(message) = voice_error() {

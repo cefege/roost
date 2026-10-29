@@ -66,7 +66,7 @@ pub(super) fn PlanOutline(
         .unwrap_or(1);
     rsx! {
         nav {
-            class: "hidden min-h-0 w-40 shrink-0 overflow-y-auto border-r border-border pr-2 md:block",
+            class: "hidden min-h-0 w-40 shrink-0 overflow-y-auto overscroll-y-auto border-r border-border pr-2 md:block",
             "aria-label": "Plan sections",
             SidenavMenu {
                 for (index, section) in sections.iter().enumerate() {

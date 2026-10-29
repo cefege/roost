@@ -3,12 +3,12 @@
 //! Conditional restarts cannot overwrite a later Stop or a newer submission.
 
 use crate::admission::{
-    activate_followup, intent_entry, queued_inputs_to_activate, restart_boundary_matches,
-    submission_is_withdrawable,
+    activate_followup, has_pending_plan, intent_entry, plan_is_proposed, queued_inputs_to_activate,
+    restart_boundary_matches, submission_is_withdrawable,
 };
 use crate::error::AgentError;
 use crate::records::Entry;
-use crate::traits::{AdmitOutcome, CommandAdmission, IntentChange};
+use crate::traits::{AdmitOutcome, CommandAdmission, IntentChange, PlanAdmission};
 
 use super::MemoryState;
 
@@ -28,6 +28,18 @@ impl MemoryState {
             });
         }
         let journal = self.entries.get(id).cloned().unwrap_or_default();
+        let pending_plan = has_pending_plan(&journal);
+        match &admission.plan_admission {
+            PlanAdmission::AllowPending => {}
+            PlanAdmission::RejectIfPending if pending_plan => {
+                return Ok(AdmitOutcome::PendingPlan);
+            }
+            PlanAdmission::RejectIfPending => {}
+            PlanAdmission::RequireProposed { item_id } if !plan_is_proposed(&journal, item_id) => {
+                return Ok(AdmitOutcome::PlanNotProposed);
+            }
+            PlanAdmission::RequireProposed { .. } => {}
+        }
         if matches!(
             admission.intent,
             IntentChange::Complete | IntentChange::RestartIfCurrent
@@ -89,7 +101,7 @@ impl MemoryState {
                 .flat_map(|entry| activate_followup(entry).into_iter().flatten())
                 .collect();
         }
-        if intent == IntentChange::Complete {
+        if intent == IntentChange::Complete && !pending_plan {
             entries.extend(queued_inputs_to_activate(&journal));
         }
         let last_before = self.last_seq(id);
@@ -99,13 +111,14 @@ impl MemoryState {
             .collect();
         if admission.intent == IntentChange::Complete {
             let through_seq = admission.completion_through.unwrap_or(last_before);
-            let has_unconsumed = self.entries.get(id).is_some_and(|journal| {
-                crate::journal::effective_entries(journal)
-                    .iter()
-                    .any(|(sequence, entry)| {
-                        *sequence > through_seq && matches!(entry, Entry::User { .. })
-                    })
-            });
+            let has_unconsumed = !pending_plan
+                && self.entries.get(id).is_some_and(|journal| {
+                    crate::journal::effective_entries(journal)
+                        .iter()
+                        .any(|(sequence, entry)| {
+                            *sequence > through_seq && matches!(entry, Entry::User { .. })
+                        })
+                });
             seqs.push(self.append(
                 id,
                 Entry::RunIntent {

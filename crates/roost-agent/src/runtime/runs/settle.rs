@@ -9,7 +9,7 @@ use tokio::sync::mpsc;
 use super::{AgentRuntime, RunEnd, Steer};
 use crate::error::AgentError;
 use crate::records::Entry;
-use crate::traits::{AdmitOutcome, CommandAdmission, IntentChange};
+use crate::traits::{AdmitOutcome, CommandAdmission, IntentChange, PlanAdmission};
 
 impl AgentRuntime {
     pub(super) async fn settle_run(
@@ -65,6 +65,7 @@ impl AgentRuntime {
                         kind: "run-complete".into(),
                         entries: Vec::new(),
                         intent: IntentChange::Complete,
+                        plan_admission: PlanAdmission::AllowPending,
                         fence: self.held_lease(id),
                         expected_intent_seq: Some(run_start_intent),
                         completion_through: Some(processed_seq),
@@ -80,6 +81,11 @@ impl AgentRuntime {
                     AdmitOutcome::Busy => Err(AgentError::Store(
                         "run completion was unexpectedly rejected as busy".into(),
                     )),
+                    AdmitOutcome::PendingPlan | AdmitOutcome::PlanNotProposed => {
+                        Err(AgentError::Store(
+                            "run completion was unexpectedly rejected by a plan".into(),
+                        ))
+                    }
                     AdmitOutcome::NotWithdrawable => Err(AgentError::Store(
                         "run completion was unexpectedly treated as a withdrawal".into(),
                     )),
@@ -127,6 +133,7 @@ impl AgentRuntime {
         });
         let pending = crate::runtime::latest_submission_seq(&entries)
             .is_some_and(|sequence| sequence > processed_seq && sequence > consumed_through);
+        let plan_pending = crate::admission::has_pending_plan(&entries);
         if matches!(intent_error, Some(AgentError::Fenced(_))) {
             drop(_guard);
             self.abandon_fenced_run(id).await;
@@ -161,7 +168,8 @@ impl AgentRuntime {
             && pending
             && super::super::recovery::latest_active_intent_seq(&entries)
                 .is_some_and(|sequence| sequence > run_start_intent);
-        let restart = (!aborted || explicit_after_stop)
+        let restart = !plan_pending
+            && (!aborted || explicit_after_stop)
             && !matches!(end, RunEnd::Yielded(_))
             && (pending || queued);
         if !restart {

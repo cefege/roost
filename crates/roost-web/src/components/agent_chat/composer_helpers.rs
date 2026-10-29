@@ -14,6 +14,80 @@ use crate::pump::Pump;
 use roost_client_core::client::rpc::calls::agent_chat::AbortAgentChat;
 
 use super::message_actions::EditTarget;
+use super::slash_menu::scroll_option_into_view;
+
+pub(super) struct DraftKeyContext {
+    pub menu_open: bool,
+    pub menu_dismissed: Signal<bool>,
+    pub edit_target: Signal<Option<EditTarget>>,
+    pub draft: Signal<String>,
+    pub running: bool,
+    pub stop: EventHandler<()>,
+    pub options_open: bool,
+    pub selected: usize,
+    pub option_count: usize,
+    pub selected_option: Signal<usize>,
+    pub conversation_id: String,
+    pub selected_text: Option<String>,
+}
+
+pub(super) fn draft_key_handler(context: DraftKeyContext) -> EventHandler<KeyboardEvent> {
+    let DraftKeyContext {
+        menu_open,
+        mut menu_dismissed,
+        mut edit_target,
+        mut draft,
+        running,
+        stop,
+        options_open,
+        selected,
+        option_count,
+        mut selected_option,
+        conversation_id,
+        selected_text,
+    } = context;
+    EventHandler::new(move |event: KeyboardEvent| {
+        let key = event.key().to_string();
+        if menu_open && key == "Escape" {
+            event.prevent_default();
+            menu_dismissed.set(true);
+            return;
+        }
+        if !menu_open && key == "Escape" && edit_target.peek().is_some() {
+            event.prevent_default();
+            edit_target.set(None);
+            draft.set(String::new());
+            return;
+        }
+        if running && key == "Escape" {
+            event.prevent_default();
+            event.stop_propagation();
+            stop.call(());
+            return;
+        }
+        if options_open {
+            match key.as_str() {
+                "ArrowDown" | "ArrowUp" => {
+                    event.prevent_default();
+                    let next = if key == "ArrowDown" {
+                        (selected + 1) % option_count
+                    } else {
+                        selected.checked_sub(1).unwrap_or(option_count - 1)
+                    };
+                    selected_option.set(next);
+                    scroll_option_into_view(&conversation_id, next);
+                }
+                "Tab" => {
+                    event.prevent_default();
+                    if let Some(text) = &selected_text {
+                        fill_draft(draft, selected_option, text);
+                    }
+                }
+                _ => {}
+            }
+        }
+    })
+}
 
 pub(super) fn composer_input_id(conversation_id: &str) -> String {
     format!("agent-chat-input-{conversation_id}")
@@ -91,6 +165,24 @@ pub(super) fn abort_run(pump: Pump, conversation_id: String) {
             tracing::warn!(target: "agent_chat", %error, "agent abort failed");
         }
     });
+}
+
+pub(super) fn stop_handler(pump: Pump, conversation_id: String) -> EventHandler<()> {
+    EventHandler::new(move |()| {
+        #[cfg(target_arch = "wasm32")]
+        abort_run(pump.clone(), conversation_id.clone());
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = (&pump, &conversation_id);
+    })
+}
+
+pub(super) fn model_picker_handler(conversation_id: String) -> EventHandler<()> {
+    EventHandler::new(move |()| {
+        #[cfg(target_arch = "wasm32")]
+        super::composer_commands::open_model_picker(&conversation_id);
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = &conversation_id;
+    })
 }
 
 /// Takes the edit-and-resend path when an edit is pending: refuses a slash

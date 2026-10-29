@@ -62,6 +62,6 @@ pub use records::{AgentSettings, ConversationRecord, Entry, Mode, Role};
 pub use runtime::{AgentRuntime, NewConversation, RuntimeConfig, SubmitMode};
 pub use traits::{
     AccountUsage, AdmitOutcome, AgentStore, ChatSink, ClusterSignal, CommandAdmission,
-    IntentChange, LeaseFence, Llm, NoClusterSignal, OwnerConversationId, ToolCall, ToolExecutor,
-    ToolOutcome, WorkerConversationNamespace,
+    IntentChange, LeaseFence, Llm, NoClusterSignal, OwnerConversationId, PlanAdmission, ToolCall,
+    ToolExecutor, ToolOutcome, WorkerConversationNamespace,
 };

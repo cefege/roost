@@ -138,10 +138,7 @@ impl AgentRuntime {
         if !self.insert_run(id, handle) {
             return Ok(None);
         }
-        match self
-            .commit_start_intent(id, through_seq, expected_intent)
-            .await
-        {
+        match self.commit_start_intent(id, expected_intent).await {
             Ok(Some(sequence)) => start_intent_seq.store(sequence, Ordering::SeqCst),
             Ok(None) => {
                 let _ = self.take_run(id);

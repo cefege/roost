@@ -4,6 +4,8 @@
 #[path = "support/mod.rs"]
 mod support;
 
+#[path = "plan_and_tasks/pending_plan.rs"]
+mod pending_plan;
 #[path = "plan_and_tasks/recovery.rs"]
 mod recovery;
 

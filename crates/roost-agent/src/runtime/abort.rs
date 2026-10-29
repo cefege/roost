@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use crate::error::AgentError;
 use crate::records::{ConversationRecord, Entry};
 use crate::runtime::{AgentRuntime, random_id};
-use crate::traits::{AdmitOutcome, CommandAdmission, IntentChange};
+use crate::traits::{AdmitOutcome, CommandAdmission, IntentChange, PlanAdmission};
 use roost_protocol::wire::agent_chat::{AgentRunState, ChatEvent};
 
 impl AgentRuntime {
@@ -37,6 +37,7 @@ impl AgentRuntime {
                         submission_id: submission_id.to_owned(),
                     }],
                     intent: IntentChange::Withdraw,
+                    plan_admission: PlanAdmission::AllowPending,
                     fence: None,
                     expected_intent_seq: None,
                     completion_through: None,
@@ -57,6 +58,8 @@ impl AgentRuntime {
             }
             AdmitOutcome::Duplicate { .. }
             | AdmitOutcome::Busy
+            | AdmitOutcome::PendingPlan
+            | AdmitOutcome::PlanNotProposed
             | AdmitOutcome::Stopped
             | AdmitOutcome::NotWithdrawable => Ok(false),
         }
@@ -125,6 +128,7 @@ impl AgentRuntime {
                         kind: "abort".into(),
                         entries: Vec::new(),
                         intent: IntentChange::Abort,
+                        plan_admission: PlanAdmission::AllowPending,
                         fence: None,
                         expected_intent_seq: None,
                         completion_through: None,
@@ -137,8 +141,13 @@ impl AgentRuntime {
                         abort_sequences.insert(record.id.clone(), *sequence);
                     }
                 }
-                Ok(AdmitOutcome::Duplicate { .. } | AdmitOutcome::Busy | AdmitOutcome::Stopped) => {
-                }
+                Ok(
+                    AdmitOutcome::Duplicate { .. }
+                    | AdmitOutcome::Busy
+                    | AdmitOutcome::PendingPlan
+                    | AdmitOutcome::PlanNotProposed
+                    | AdmitOutcome::Stopped,
+                ) => {}
                 Ok(AdmitOutcome::NotWithdrawable) => {
                     first_error.get_or_insert(AgentError::Store(
                         "abort admission returned a withdrawal result".to_owned(),

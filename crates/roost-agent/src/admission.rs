@@ -34,6 +34,69 @@ pub fn intent_entry(
     }
 }
 
+/// Whether any plan's latest durable state still awaits a decision.
+#[must_use]
+pub fn has_pending_plan(entries: &[(u64, Entry)]) -> bool {
+    use std::collections::HashSet;
+
+    use crate::records::PlanState;
+
+    let mut rewound_from = u64::MAX;
+    let mut seen = HashSet::new();
+    for (sequence, entry) in entries.iter().rev() {
+        match entry {
+            Entry::Rewind { to_seq } => rewound_from = rewound_from.min(*to_seq),
+            Entry::PlanProposal { item_id, state, .. }
+                if *sequence < rewound_from && !seen.contains(&item_id) =>
+            {
+                if *state == PlanState::Proposed {
+                    return true;
+                }
+                seen.insert(item_id);
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+/// Whether one named plan's latest durable state still awaits a decision.
+#[must_use]
+pub fn plan_is_proposed(entries: &[(u64, Entry)], item_id: &str) -> bool {
+    let mut rewound_from = u64::MAX;
+    for (sequence, entry) in entries.iter().rev() {
+        match entry {
+            Entry::Rewind { to_seq } => rewound_from = rewound_from.min(*to_seq),
+            Entry::PlanProposal {
+                item_id: found,
+                state,
+                ..
+            } if *sequence < rewound_from && found == item_id => {
+                return *state == crate::records::PlanState::Proposed;
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+/// The furthest durable input boundary a completed provider turn consumed.
+#[must_use]
+pub fn consumed_through(entries: &[(u64, Entry)]) -> u64 {
+    entries
+        .iter()
+        .filter_map(|(_, entry)| match entry {
+            Entry::InputConsumed { through_seq } => Some(*through_seq),
+            Entry::Assistant {
+                metadata: Some(metadata),
+                ..
+            } => Some(metadata.input_through_seq),
+            _ => None,
+        })
+        .max()
+        .unwrap_or(0)
+}
+
 /// Materializes pending follow-ups exactly once at a normal run boundary.
 #[must_use]
 pub fn queued_inputs_to_activate(entries: &[(u64, Entry)]) -> Vec<Entry> {

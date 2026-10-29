@@ -11,7 +11,7 @@ use super::composer_attachments::submit_attachments;
 use super::composer_commands::{LocalCommandScope, run_local_command, submit_message};
 use super::composer_helpers::try_submit_edit;
 use super::message_actions::EditTarget;
-use super::plan_refinement::PlanRefinement;
+use super::plan_refinement::{PlanRefinement, has_unresolved_proposal};
 use super::submission::{PendingSubmission, completion_callback, prepare};
 use crate::components::terminal_chrome::attachment_picker::ChosenFile;
 use crate::pump::Pump;
@@ -70,6 +70,10 @@ pub(super) fn submit_handler(context: ComposerSubmitContext) -> EventHandler<()>
                 return;
             }
             let text = draft.peek().trim().to_string();
+            let refining = plan_refinement.is_active();
+            if has_unresolved_proposal(&transcript) && !refining {
+                return;
+            }
             let attachments = staged_files.peek().clone();
             if attachments
                 .iter()
@@ -77,7 +81,6 @@ pub(super) fn submit_handler(context: ComposerSubmitContext) -> EventHandler<()>
             {
                 return;
             }
-            let refining = plan_refinement.is_active();
             let refinement_target = plan_refinement.current_target(&transcript);
             if refining {
                 let Some(refinement_target) = refinement_target else {

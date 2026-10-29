@@ -4,12 +4,14 @@
 //! decision runs inside one `CoordDb::begin_write` transaction.
 
 use roost_agent::admission::{
-    LeaseRow, intent_entry, lease_expiry, next_lease_epoch, queued_inputs_to_activate,
-    restart_boundary_matches, submission_is_withdrawable,
+    LeaseRow, has_pending_plan, intent_entry, lease_expiry, next_lease_epoch, plan_is_proposed,
+    queued_inputs_to_activate, restart_boundary_matches, submission_is_withdrawable,
 };
 use roost_agent::error::AgentError;
 use roost_agent::records::Entry;
-use roost_agent::traits::{AdmitOutcome, CommandAdmission, IntentChange, LeaseFence};
+use roost_agent::traits::{
+    AdmitOutcome, CommandAdmission, IntentChange, LeaseFence, PlanAdmission,
+};
 use sqlx::Row as _;
 use tokio_util::sync::CancellationToken;
 
@@ -75,6 +77,20 @@ pub(super) async fn admit_command(
         let entry_json: String = row.try_get("entry_json").map_err(store_error)?;
         let entry = serde_json::from_str(&entry_json).map_err(serialize_error)?;
         journal.push((u64::try_from(sequence).map_err(serialize_error)?, entry));
+    }
+    let pending_plan = has_pending_plan(&journal);
+    match &admission.plan_admission {
+        PlanAdmission::AllowPending => {}
+        PlanAdmission::RejectIfPending if pending_plan => {
+            tx.rollback().await.map_err(store_error)?;
+            return Ok(AdmitOutcome::PendingPlan);
+        }
+        PlanAdmission::RejectIfPending => {}
+        PlanAdmission::RequireProposed { item_id } if !plan_is_proposed(&journal, item_id) => {
+            tx.rollback().await.map_err(store_error)?;
+            return Ok(AdmitOutcome::PlanNotProposed);
+        }
+        PlanAdmission::RequireProposed { .. } => {}
     }
     if matches!(
         admission.intent,
@@ -146,21 +162,22 @@ pub(super) async fn admit_command(
             })
             .collect();
     }
-    if intent == IntentChange::Complete {
+    if intent == IntentChange::Complete && !pending_plan {
         entries.extend(queued_inputs_to_activate(&journal));
     }
     let last_before = last_seq(&mut tx, id).await?;
     let mut seq = last_before;
     let mut seqs = Vec::with_capacity(entries.len() + 1);
     let boundary = admission.completion_through.unwrap_or(last_before);
-    let mut has_unconsumed = roost_agent::journal::effective_entries(&journal)
-        .iter()
-        .any(|(sequence, entry)| *sequence > boundary && matches!(entry, Entry::User { .. }));
+    let mut has_unconsumed = !pending_plan
+        && roost_agent::journal::effective_entries(&journal)
+            .iter()
+            .any(|(sequence, entry)| *sequence > boundary && matches!(entry, Entry::User { .. }));
     for entry in &entries {
         seq = seq.saturating_add(1);
         let json = serde_json::to_string(entry).map_err(serialize_error)?;
         insert_entry(&mut tx, id, seq, &json).await?;
-        if seq > boundary && matches!(entry, Entry::User { .. }) {
+        if !pending_plan && seq > boundary && matches!(entry, Entry::User { .. }) {
             has_unconsumed = true;
         }
         seqs.push(seq);

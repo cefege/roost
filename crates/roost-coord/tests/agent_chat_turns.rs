@@ -7,9 +7,12 @@ mod db_support;
 
 use agent_fixture::{AgentFixture, WORKER_A};
 use connectrpc::ErrorCode;
+use roost_agent::records::PlanState;
 use roost_agent::{AgentStore, Entry};
 use roost_coord::agent::rpc_chat::handle_agent_chat_create;
-use roost_coord::agent::rpc_turns::{handle_agent_chat_answer, handle_agent_chat_fork};
+use roost_coord::agent::rpc_turns::{
+    handle_agent_chat_answer, handle_agent_chat_fork, handle_agent_chat_rewind,
+};
 use roost_proto as proto;
 
 #[tokio::test]
@@ -112,4 +115,64 @@ async fn a_command_without_a_request_id_is_rejected() {
     .await
     .expect_err("missing request id accepted");
     assert_eq!(error.code, ErrorCode::InvalidArgument);
+}
+
+#[tokio::test]
+async fn rewind_is_refused_while_a_plan_is_pending() {
+    let fixture = AgentFixture::new("agent-chat-rewind-pending-plan").await;
+    let created = handle_agent_chat_create(
+        &fixture.core,
+        &fixture.caller,
+        proto::AgentChatCreateRequest {
+            worker_fp: WORKER_A.into(),
+            cwd: "/repo".into(),
+            model_provider: "anthropic".into(),
+            model_id: "claude-sonnet-5".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap()
+    .body;
+    let store = roost_coord::agent::store::CoordAgentStore::new(fixture.core.services.db.clone());
+    for entry in [
+        Entry::User {
+            text: "do not rewind".into(),
+            attachments: Vec::new(),
+            loop_repeat: false,
+            item_id: Some("rewind-me".into()),
+        },
+        Entry::PlanProposal {
+            item_id: "plan".into(),
+            title: "Plan".into(),
+            content: "1. decide first".into(),
+            state: PlanState::Proposed,
+        },
+    ] {
+        store
+            .append_entry(&created.id, &entry, &[], None)
+            .await
+            .unwrap();
+    }
+    let error = handle_agent_chat_rewind(
+        &fixture.core,
+        &fixture.caller,
+        proto::AgentChatRewindRequest {
+            conversation_id: created.id.clone(),
+            item_id: "rewind-me".into(),
+            request_id: "rewind-pending-plan".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect_err("pending plan permits rewind");
+    assert_eq!(error.code, ErrorCode::FailedPrecondition);
+    assert!(
+        !store
+            .entries(&created.id)
+            .await
+            .unwrap()
+            .iter()
+            .any(|(_, entry)| { matches!(entry, Entry::Rewind { .. }) })
+    );
 }

@@ -105,6 +105,7 @@ async fn withdrawing_the_first_input_before_dispatch_makes_no_model_request() {
                     submission_id: "first-input".into(),
                 }],
                 intent: roost_agent::IntentChange::Withdraw,
+                plan_admission: roost_agent::PlanAdmission::AllowPending,
                 fence: None,
                 expected_intent_seq: None,
                 completion_through: None,

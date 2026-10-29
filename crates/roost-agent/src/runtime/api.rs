@@ -13,7 +13,9 @@ use roost_protocol::wire::agent_chat::{
 use super::{AgentRuntime, CommandKey, Steer, now_ms, random_id};
 use crate::error::AgentError;
 use crate::records::{ConversationRecord, Mode, Role, model_ref};
+use crate::traits::PlanAdmission;
 use crate::{judging, projection, roles};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubmitMode {
     Steer,
@@ -241,13 +243,6 @@ impl AgentRuntime {
         mode: SubmitMode,
     ) -> Result<(), AgentError> {
         let id = record.id.as_str();
-        self.note_goal_user_input(id).await?;
-        if record.title.trim().is_empty() {
-            let title: String = text.trim().chars().take(TITLE_CHARS).collect();
-            self.update_record(id, |row| row.title.clone_from(&title))
-                .await?;
-        }
-        self.deliver_pending_advisories(id).await?;
         let minted;
         let request_id = if let Some(request_id) = request_id {
             request_id
@@ -269,8 +264,25 @@ impl AgentRuntime {
             Vec::new(),
             message,
             Some(mode),
+            PlanAdmission::RejectIfPending,
         )
-        .await
+        .await?;
+        Ok(())
+    }
+
+    pub(super) async fn prepare_accepted_user_submission(
+        &self,
+        id: &str,
+        text: &str,
+    ) -> Result<(), AgentError> {
+        self.note_goal_user_input(id).await?;
+        let record = self.record(id).await?;
+        if record.title.trim().is_empty() {
+            let title = text.trim().chars().take(TITLE_CHARS).collect::<String>();
+            self.update_record(id, |row| row.title.clone_from(&title))
+                .await?;
+        }
+        self.deliver_pending_advisories(id).await
     }
 
     pub async fn set_model(&self, id: &str, model: ModelRef) -> Result<(), AgentError> {

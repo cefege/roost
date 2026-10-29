@@ -63,28 +63,49 @@ A newer explicit input can still start work after Stop.
 ## Plan review
 
 The web review panel keeps section navigation beside a bounded, independently
-scrollable document and actions below it. Phone layouts omit the outline.
+scrollable document and actions below it. Reaching either boundary of the
+document or outline hands scrolling to the main chat; the outer chat still
+contains scrolling within the application. Phone layouts omit the outline.
 Outline headings use the same Markdown parser options as the rendered plan.
 Plan prose uses the shared `MarkdownSize::Sm` typography and normal UI font;
 headings stay on the compact agent scale rather than document-scale type.
+
+A proposed plan requires an explicit Approve, Refine or Reject decision before
+ordinary chat continues. The composer preserves its draft read-only and offers
+**Show plan** to reach the decision controls. Message mutation actions and new
+attachments are unavailable while the proposal is pending; targeted refinement
+uses the same composer as the exception.
+
+The server returns `failed_precondition` for new ordinary input before appending
+it or reserving its request ID. Retrying an already accepted request retains
+its original result. Rewind is refused, and run admission and recovery hold
+queued work while a proposal awaits a decision. A crashed active run settles
+idle at its durable model-consumption boundary without discarding held input.
 
 **Approve in new chat** is the primary action: `AgentChatPlanDecide` with
 `decision=approve_new` starts an execution conversation and the client opens
 the returned `new_conversation_id`. **Execute in this chat** remains in the
 secondary actions menu and sends `decision=approve`.
 
+**Reject** sends `decision=reject`, marks the proposal rejected, exits plan mode
+and unlocks ordinary chat. Previously accepted held and queued input resumes
+in journal order; without such input, rejection starts no model call.
+
 **Refine** targets the proposal in the normal main composer, focuses it and
 preserves its draft. Sending feedback calls `AgentChatPlanDecide` with
 `decision=refine`; it is not a normal message or a transcript rewind.
-Cancellation preserves the draft. Request failure preserves both draft and
-target. A decided or superseded target rejects submission until cancelled or
-replaced; stale feedback must never silently become an ordinary message.
+Cancelling refinement preserves the draft and restores the decision lock.
+Request failure preserves draft and target. A decided or superseded target
+rejects submission until cancelled or replaced; stale feedback must never
+silently become an ordinary message.
 
 Refinement and message editing are exclusive. Starting refinement clears a
 plain edit but refuses an edit with retained attachments instead of dropping
 them. An older request's completion cannot clear a restarted refinement.
 Authority: `crates/roost-web/src/components/agent_chat/plan_card.rs`,
-`plan_refinement.rs` and `composer_submit.rs`.
+`plan_refinement.rs` and `composer_submit.rs`;
+`crates/roost-agent/src/admission.rs`, `plan_mode.rs` and `runtime/recovery.rs`;
+`crates/roost-coord/src/agent/store_execution.rs`.
 
 ## Attachments
 

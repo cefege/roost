@@ -5,7 +5,7 @@
 use super::AgentRuntime;
 
 impl AgentRuntime {
-    pub(super) fn schedule_readmission(&self, id: &str) {
+    pub(crate) fn schedule_readmission(&self, id: &str) {
         let runtime = self.clone();
         let id = id.to_owned();
         tokio::spawn(async move {

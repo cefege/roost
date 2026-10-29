@@ -8,6 +8,7 @@ use super::SubmitMode;
 use crate::commands;
 use crate::error::AgentError;
 use crate::runtime::AgentRuntime;
+use crate::traits::PlanAdmission;
 
 impl AgentRuntime {
     /// Submits text and durable attachment metadata under an explicit policy.
@@ -45,10 +46,16 @@ impl AgentRuntime {
         if attachments.is_empty()
             && let Some((command, args)) = parse_slash_command(&text)
         {
-            self.deduplicated(id, request_id, "command", || async {
-                commands::execute(self, &record, command, args).await?;
-                Ok(String::new())
-            })
+            self.deduplicated_with_plan_admission(
+                id,
+                request_id,
+                "command",
+                PlanAdmission::RejectIfPending,
+                || async {
+                    commands::execute(self, &record, command, args).await?;
+                    Ok(String::new())
+                },
+            )
             .await?;
             return Ok(());
         }

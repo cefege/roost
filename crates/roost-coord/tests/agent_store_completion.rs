@@ -9,9 +9,14 @@ mod db_support;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use roost_agent::records::{ConversationRecord, Entry, Mode};
-use roost_agent::traits::{AdmitOutcome, AgentStore, CommandAdmission, IntentChange, LeaseFence};
+use roost_agent::traits::{
+    AdmitOutcome, AgentStore, CommandAdmission, IntentChange, LeaseFence, PlanAdmission,
+};
 use roost_coord::agent::store::CoordAgentStore;
 use roost_protocol::wire::agent_chat::AgentRunState;
+
+#[path = "agent_store_completion/plan_gate.rs"]
+mod plan_gate;
 
 #[path = "agent_store_completion/restart.rs"]
 mod restart;
@@ -85,6 +90,7 @@ async fn completion_activates_follow_up_behind_a_recoverable_run_boundary() {
                     item_id: Some("first".into()),
                 }],
                 intent: IntentChange::Activate,
+                plan_admission: PlanAdmission::AllowPending,
                 fence: None,
                 expected_intent_seq: None,
                 completion_through: None,
@@ -108,6 +114,7 @@ async fn completion_activates_follow_up_behind_a_recoverable_run_boundary() {
                     state: roost_agent::records::QueuedInputState::Pending,
                 }],
                 intent: IntentChange::FollowUp,
+                plan_admission: PlanAdmission::AllowPending,
                 fence: None,
                 expected_intent_seq: None,
                 completion_through: None,
@@ -124,6 +131,7 @@ async fn completion_activates_follow_up_behind_a_recoverable_run_boundary() {
                 kind: "run-complete".into(),
                 entries: Vec::new(),
                 intent: IntentChange::Complete,
+                plan_admission: PlanAdmission::AllowPending,
                 fence: Some(fence),
                 expected_intent_seq: started.last().copied(),
                 completion_through: started.first().copied(),
@@ -171,6 +179,7 @@ async fn completion_activates_follow_up_behind_a_recoverable_run_boundary() {
                     kind: "run-complete".into(),
                     entries: Vec::new(),
                     intent: IntentChange::Complete,
+                    plan_admission: PlanAdmission::AllowPending,
                     fence: Some(stale_fence),
                     expected_intent_seq: started.last().copied(),
                     completion_through: started.first().copied(),
@@ -216,6 +225,7 @@ async fn completion_does_not_activate_input_after_a_durable_stop() {
                     item_id: Some("first".into()),
                 }],
                 intent: IntentChange::Activate,
+                plan_admission: PlanAdmission::AllowPending,
                 fence: None,
                 expected_intent_seq: None,
                 completion_through: None,
@@ -239,6 +249,7 @@ async fn completion_does_not_activate_input_after_a_durable_stop() {
                     state: roost_agent::records::QueuedInputState::Pending,
                 }],
                 intent: IntentChange::FollowUp,
+                plan_admission: PlanAdmission::AllowPending,
                 fence: None,
                 expected_intent_seq: None,
                 completion_through: None,
@@ -254,6 +265,7 @@ async fn completion_does_not_activate_input_after_a_durable_stop() {
                 kind: "abort".into(),
                 entries: Vec::new(),
                 intent: IntentChange::Abort,
+                plan_admission: PlanAdmission::AllowPending,
                 fence: None,
                 expected_intent_seq: None,
                 completion_through: None,
@@ -270,6 +282,7 @@ async fn completion_does_not_activate_input_after_a_durable_stop() {
                 kind: "run-complete".into(),
                 entries: Vec::new(),
                 intent: IntentChange::Complete,
+                plan_admission: PlanAdmission::AllowPending,
                 fence: Some(fence),
                 expected_intent_seq: started.last().copied(),
                 completion_through: started.first().copied(),

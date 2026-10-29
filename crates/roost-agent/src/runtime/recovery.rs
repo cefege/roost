@@ -44,6 +44,11 @@ impl AgentRuntime {
     ) -> Result<bool, AgentError> {
         let record = self.record(id).await?;
         let entries = self.inner.store.entries(id).await?;
+        if crate::admission::has_pending_plan(&entries) {
+            self.settle_pending_plan_interruption(id, &record, &entries)
+                .await?;
+            return Ok(false);
+        }
         if !needs_recovery(&record, &entries) {
             if record.run_state == AgentRunState::Running
                 && latest_run_intent(&entries).is_some_and(|(active, _, _)| !active)
@@ -73,6 +78,40 @@ impl AgentRuntime {
         drop(done);
         tracing::info!(conversation_id = id, "interrupted agent run resumed");
         Ok(true)
+    }
+
+    async fn settle_pending_plan_interruption(
+        &self,
+        id: &str,
+        record: &ConversationRecord,
+        entries: &[(u64, Entry)],
+    ) -> Result<(), AgentError> {
+        if latest_run_intent(entries).is_some_and(|(active, _, _)| active) {
+            let through_seq = crate::admission::consumed_through(entries);
+            self.append(
+                id,
+                Entry::RunIntent {
+                    active: false,
+                    through_seq,
+                    aborted: false,
+                    yielded: false,
+                },
+            )
+            .await?;
+            tracing::info!(
+                conversation_id = id,
+                through_seq,
+                "pending plan settled interrupted run"
+            );
+        }
+        if record.run_state != AgentRunState::Idle {
+            self.update_record(id, |row| {
+                row.run_state = AgentRunState::Idle;
+                row.error = None;
+            })
+            .await?;
+        }
+        Ok(())
     }
 
     /// Restores every loop snapshot, then resumes accepted unfinished runs.
@@ -121,6 +160,23 @@ impl AgentRuntime {
             let Some(entries) = entries_by_id.get(&record.id) else {
                 continue;
             };
+            if crate::admission::has_pending_plan(entries) {
+                if latest_run_intent(entries).is_some_and(|(active, _, _)| active)
+                    && restored_loops.contains(&record.id)
+                {
+                    candidates.push(record.clone());
+                } else if record.run_state != AgentRunState::Idle
+                    && let Err(error) = self
+                        .update_record(&record.id, |row| {
+                            row.run_state = AgentRunState::Idle;
+                            row.error = None;
+                        })
+                        .await
+                {
+                    first_error.get_or_insert(error);
+                }
+                continue;
+            }
             if needs_recovery(record, entries) {
                 if restored_loops.contains(&record.id) {
                     candidates.push(record.clone());
@@ -202,6 +258,9 @@ impl AgentRuntime {
 }
 
 pub(crate) fn needs_recovery(record: &ConversationRecord, entries: &[(u64, Entry)]) -> bool {
+    if crate::admission::has_pending_plan(entries) {
+        return false;
+    }
     if let Some((active, through_seq, _)) = latest_run_intent(entries) {
         return active
             || latest_submission_seq(entries).is_some_and(|sequence| sequence > through_seq);

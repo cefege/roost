@@ -9,7 +9,9 @@ mod db_support;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use roost_agent::records::{ConversationRecord, Entry, Mode};
-use roost_agent::traits::{AdmitOutcome, AgentStore, CommandAdmission, IntentChange, LeaseFence};
+use roost_agent::traits::{
+    AdmitOutcome, AgentStore, CommandAdmission, IntentChange, LeaseFence, PlanAdmission,
+};
 use roost_coord::agent::store::CoordAgentStore;
 use roost_protocol::wire::agent_chat::AgentRunState;
 
@@ -128,6 +130,7 @@ async fn stale_revisions_conflict_superseded_leases_are_fenced_and_commands_admi
             item_id: None,
         }],
         intent: IntentChange::Activate,
+        plan_admission: PlanAdmission::AllowPending,
         fence: None,
         expected_intent_seq: None,
         completion_through: None,

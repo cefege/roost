@@ -38,7 +38,9 @@ pub(super) fn ComposerFooter(
     on_chosen: EventHandler<Vec<ChosenFile>>,
     uploads_in_flight: bool,
     attachments_block_send: bool,
+    attachments_disabled: bool,
     refining_plan: bool,
+    plan_decision_pending: bool,
     refinement_has_attachments: bool,
     disabled: bool,
     busy_mode: Signal<String>,
@@ -56,10 +58,17 @@ pub(super) fn ComposerFooter(
     let options_pump = pump.clone();
     let options_conversation = conversation.id.clone();
     let mode = busy_mode();
-    let mut options = vec![
-        ToolbarMenuItem::choice("plan", "Plan mode", conversation.mode == "plan"),
-        ToolbarMenuItem::choice("advisor", "Advisor", conversation.advisor),
-    ];
+    let mut options = vec![ToolbarMenuItem::choice(
+        "advisor",
+        "Advisor",
+        conversation.advisor,
+    )];
+    if !plan_decision_pending {
+        options.insert(
+            0,
+            ToolbarMenuItem::choice("plan", "Plan mode", conversation.mode == "plan"),
+        );
+    }
     if let Some(goal) = goal.filter(|goal| !matches!(goal.status.as_str(), "complete" | "dropped"))
     {
         options.push(ToolbarMenuItem {
@@ -77,7 +86,9 @@ pub(super) fn ComposerFooter(
             ..ToolbarMenuItem::choice(value, label, mode == value)
         });
     }
+    let ordinary_send_blocked = plan_decision_pending && !refining_plan;
     let ready = !(disabled
+        || ordinary_send_blocked
         || submit_pending
         || attachments_block_send
         || refinement_has_attachments
@@ -95,6 +106,7 @@ pub(super) fn ComposerFooter(
                     variant: ButtonVariant::Ghost,
                     size: ButtonSize::IconSm,
                     "data-testid": "agent-chat-commands",
+                    disabled: disabled || plan_decision_pending,
                     expanded: Some(commands_open),
                     controls_id: Some(listbox),
                     onclick: move |_| on_commands.call(()),
@@ -104,7 +116,7 @@ pub(super) fn ComposerFooter(
                     conversation: conversation.clone(),
                     staged_files,
                     on_chosen,
-                    disabled,
+                    disabled: disabled || attachments_disabled,
                 }
             }
             InputPromptTools { class: "order-first ml-auto min-w-0 w-full flex-nowrap justify-end sm:order-none sm:w-auto",

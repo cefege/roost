@@ -20,6 +20,96 @@ use crate::components::ui::{ButtonSize, ButtonVariant, IconButton, IconType};
 use crate::pump::Pump;
 use roost_protocol::wire::agent_chat::{AgentChatAttachment, MAX_AGENT_CHAT_IMAGE_PAYLOAD_BYTES};
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum AttachmentGate {
+    Open,
+    PendingPlanDecision,
+    PlanRefinement,
+}
+
+impl AttachmentGate {
+    pub(super) fn for_plan_state(pending_decision: bool, refining: bool) -> Self {
+        if pending_decision && !refining {
+            Self::PendingPlanDecision
+        } else if refining {
+            Self::PlanRefinement
+        } else {
+            Self::Open
+        }
+    }
+
+    pub(super) fn is_blocked(self) -> bool {
+        self != Self::Open
+    }
+
+    fn feedback(self) -> &'static str {
+        match self {
+            Self::Open => "",
+            Self::PendingPlanDecision => {
+                "Choose Approve, Refine, or Reject before attaching files."
+            }
+            Self::PlanRefinement => "Plan feedback is text-only; attachments can't be added.",
+        }
+    }
+}
+
+pub(super) struct AttachmentReports {
+    pub(super) ordinary: EventHandler<Result<(), String>>,
+    pub(super) gated: EventHandler<Result<(), String>>,
+}
+
+pub(super) fn use_attachment_feedback(gate: AttachmentGate) -> Signal<Option<String>> {
+    let mut feedback = use_signal(|| None::<String>);
+    use_effect(use_reactive((&gate,), move |_| feedback.set(None)));
+    feedback
+}
+
+pub(super) struct ComposerAttachmentHandlers {
+    pub(super) uploads_in_flight: bool,
+    pub(super) blocks_send: bool,
+    pub(super) on_chosen: EventHandler<Vec<ChosenFile>>,
+    pub(super) on_drop: EventHandler<DragEvent>,
+    pub(super) on_paste: EventHandler<ClipboardEvent>,
+}
+
+pub(super) fn composer_attachment_handlers(
+    pump: Pump,
+    staged_files: Signal<Vec<ChosenFile>>,
+    conversation: ConversationSummary,
+    edit_target: Signal<Option<EditTarget>>,
+    draft: Signal<String>,
+    reports: AttachmentReports,
+    gate: AttachmentGate,
+) -> ComposerAttachmentHandlers {
+    let report = match gate {
+        AttachmentGate::Open => reports.ordinary,
+        _ => reports.gated,
+    };
+    let files = staged_files();
+    let on_chosen = if gate == AttachmentGate::Open {
+        checked_stage_attachments(pump, staged_files, conversation, edit_target, draft, report)
+    } else {
+        rejected_attachment_handler(report, gate)
+    };
+    let on_drop = if gate == AttachmentGate::Open {
+        attachment_drop_handler(on_chosen)
+    } else {
+        rejected_drop_handler(report, gate)
+    };
+    let on_paste = if gate == AttachmentGate::Open {
+        attachment_paste_handler(on_chosen)
+    } else {
+        rejected_paste_handler(report, gate)
+    };
+    ComposerAttachmentHandlers {
+        uploads_in_flight: files.iter().any(|file| file.upload_state.is_in_flight()),
+        blocks_send: files.iter().any(|file| file.upload_state.blocks_send()),
+        on_chosen,
+        on_drop,
+        on_paste,
+    }
+}
+
 /// Attach files to the worker immediately and expose their upload lifecycle.
 #[component]
 pub(super) fn AgentAttachmentControls(
@@ -101,6 +191,52 @@ pub(super) fn attachment_paste_handler(
         if !files.is_empty() {
             event.prevent_default();
             spawn_read_chosen(files, on_attach);
+        }
+    })
+}
+
+fn rejected_attachment_handler(
+    report: EventHandler<Result<(), String>>,
+    gate: AttachmentGate,
+) -> EventHandler<Vec<ChosenFile>> {
+    EventHandler::new(move |chosen: Vec<ChosenFile>| {
+        for file in &chosen {
+            if let Some(preview) = &file.preview_url {
+                dom::revoke_preview(preview);
+            }
+        }
+        report.call(Err(gate.feedback().to_owned()));
+    })
+}
+
+fn rejected_drop_handler(
+    report: EventHandler<Result<(), String>>,
+    gate: AttachmentGate,
+) -> EventHandler<DragEvent> {
+    EventHandler::new(move |event: DragEvent| {
+        event.prevent_default();
+        let files = event
+            .try_as_web_event()
+            .and_then(|native: web_sys::DragEvent| native.data_transfer())
+            .and_then(|transfer| transfer.files());
+        if files.is_some_and(|files| files.length() > 0) {
+            report.call(Err(gate.feedback().to_owned()));
+        }
+    })
+}
+
+fn rejected_paste_handler(
+    report: EventHandler<Result<(), String>>,
+    gate: AttachmentGate,
+) -> EventHandler<ClipboardEvent> {
+    EventHandler::new(move |event: ClipboardEvent| {
+        let files = event
+            .try_as_web_event()
+            .and_then(|native: web_sys::ClipboardEvent| native.clipboard_data())
+            .and_then(|transfer| transfer.files());
+        if files.is_some_and(|files| files.length() > 0) {
+            event.prevent_default();
+            report.call(Err(gate.feedback().to_owned()));
         }
     })
 }

@@ -4,7 +4,9 @@
 
 use roost_agent::InMemoryAgentStore;
 use roost_agent::records::Entry;
-use roost_agent::traits::{AdmitOutcome, AgentStore, CommandAdmission, IntentChange, LeaseFence};
+use roost_agent::traits::{
+    AdmitOutcome, AgentStore, CommandAdmission, IntentChange, LeaseFence, PlanAdmission,
+};
 use roost_coord::agent::store::CoordAgentStore;
 
 #[tokio::test]
@@ -67,6 +69,7 @@ async fn assert_stop_blocks_stale_restart(store: &dyn AgentStore, id: &str) {
                 kind: "abort".to_owned(),
                 entries: Vec::new(),
                 intent: IntentChange::Abort,
+                plan_admission: PlanAdmission::AllowPending,
                 fence: None,
                 expected_intent_seq: None,
                 completion_through: None,
@@ -80,6 +83,7 @@ async fn assert_stop_blocks_stale_restart(store: &dyn AgentStore, id: &str) {
         kind: "run-restart".to_owned(),
         entries: Vec::new(),
         intent: IntentChange::RestartIfCurrent,
+        plan_admission: PlanAdmission::AllowPending,
         fence: Some(fence.clone()),
         expected_intent_seq: Some(boundary),
         completion_through: None,
@@ -109,6 +113,7 @@ async fn assert_stop_blocks_stale_restart(store: &dyn AgentStore, id: &str) {
                     item_id: Some("explicit-new-input".to_owned()),
                 }],
                 intent: IntentChange::Activate,
+                plan_admission: PlanAdmission::AllowPending,
                 fence: None,
                 expected_intent_seq: None,
                 completion_through: None,

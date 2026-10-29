@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::AgentRuntime;
 use crate::error::AgentError;
-use crate::traits::{AdmitOutcome, CommandAdmission, IntentChange};
+use crate::traits::{AdmitOutcome, CommandAdmission, IntentChange, PlanAdmission};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -31,6 +31,50 @@ impl AgentRuntime {
         F: FnOnce() -> Fut,
         Fut: Future<Output = Result<String, AgentError>>,
     {
+        self.deduplicated_with_plan_admission(
+            id,
+            request_id,
+            kind,
+            PlanAdmission::AllowPending,
+            apply,
+        )
+        .await
+    }
+
+    /// Runs `apply` once, refusing a new command while a plan awaits a decision.
+    pub async fn deduplicated_requiring_resolved_plan<F, Fut>(
+        &self,
+        id: &str,
+        request_id: &str,
+        kind: &str,
+        apply: F,
+    ) -> Result<Option<String>, AgentError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<String, AgentError>>,
+    {
+        self.deduplicated_with_plan_admission(
+            id,
+            request_id,
+            kind,
+            PlanAdmission::RejectIfPending,
+            apply,
+        )
+        .await
+    }
+
+    pub(crate) async fn deduplicated_with_plan_admission<F, Fut>(
+        &self,
+        id: &str,
+        request_id: &str,
+        kind: &str,
+        plan_admission: PlanAdmission,
+        apply: F,
+    ) -> Result<Option<String>, AgentError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<String, AgentError>>,
+    {
         if request_id.trim().is_empty() {
             return Err(AgentError::InvalidArgument("request_id is required".into()));
         }
@@ -47,9 +91,24 @@ impl AgentRuntime {
                     fence: None,
                     expected_intent_seq: None,
                     completion_through: None,
+                    plan_admission,
                 },
             )
             .await?;
+        match &admitted {
+            AdmitOutcome::PendingPlan => {
+                return Err(AgentError::FailedPrecondition(
+                    "approve, refine, or reject the proposed plan before sending another message"
+                        .into(),
+                ));
+            }
+            AdmitOutcome::PlanNotProposed => {
+                return Err(AgentError::FailedPrecondition(
+                    "this plan was already decided".into(),
+                ));
+            }
+            _ => {}
+        }
         if let AdmitOutcome::Duplicate { result_json } = admitted {
             tracing::info!(
                 conversation_id = id,

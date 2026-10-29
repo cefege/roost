@@ -80,10 +80,14 @@ impl AgentStore for FailAppendStore {
                 Err(AgentError::Store("injected User append failure".into()))
             });
         }
-        if !self.fail_active
-            && admission.intent == IntentChange::Complete
-            && spend_failure(&self.intent_failures)
-        {
+        let fail_intent = match admission.intent {
+            IntentChange::Activate | IntentChange::RestartIfCurrent => {
+                self.fail_active && admission.entries.is_empty()
+            }
+            IntentChange::Complete => !self.fail_active,
+            _ => false,
+        };
+        if fail_intent && spend_failure(&self.intent_failures) {
             return Box::pin(async { Err(AgentError::Store("injected run-intent outage".into())) });
         }
         self.inner.admit_command(id, admission)
@@ -129,11 +133,6 @@ impl AgentStore for FailAppendStore {
         cancellation: &'a [&'a CancellationToken],
         fence: Option<&'a LeaseFence>,
     ) -> BoxFuture<'a, Result<u64, AgentError>> {
-        if matches!(entry, Entry::RunIntent { active, aborted: false, .. } if *active == self.fail_active)
-            && spend_failure(&self.intent_failures)
-        {
-            return Box::pin(async { Err(AgentError::Store("injected run-intent outage".into())) });
-        }
         if self.repeat_failures.load(Ordering::SeqCst) > 0
             && matches!(entry, Entry::LoopState { state_json: Some(json) }
                 if serde_json::from_str::<serde_json::Value>(json).is_ok_and(|state| !state["pending_repeat"].is_null()))

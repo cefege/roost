@@ -16,6 +16,7 @@ use super::message_actions::{EditTarget, UserMessageActions};
 use super::notice_card::NoticeCard;
 use super::peer_message_card::PeerMessageCard;
 use super::plan_card::PlanCard;
+use super::plan_refinement::has_unresolved_proposal;
 use super::streaming_reveal::StreamingText;
 use super::thinking_block::ThinkingBlock;
 use super::timeline_rail::StepGroup;
@@ -61,6 +62,7 @@ pub fn AgentTranscriptView(
     let show_thinking = use_signal(|| true);
     let expand_tools = use_signal(|| false);
     let running = transcript.run_state == AgentRunState::Running;
+    let plan_decision_pending = has_unresolved_proposal(&transcript);
     let mut filters_placed = false;
     rsx! {
         div { class: "flex w-full max-w-full flex-col gap-3",
@@ -79,6 +81,7 @@ pub fn AgentTranscriptView(
                                 draft,
                                 edit_target,
                                 running,
+                                plan_decision_pending,
                                 pump: pump.clone(),
                                 show_filters,
                                 has_tools,
@@ -142,6 +145,7 @@ fn UserMessage(
     draft: Signal<String>,
     edit_target: Signal<Option<EditTarget>>,
     running: bool,
+    plan_decision_pending: bool,
     pump: Pump,
     show_filters: bool,
     has_tools: bool,
@@ -195,7 +199,9 @@ fn UserMessage(
                             },
                         }
                     }
-                    UserMessageActions { conversation_id, item_id: id, text, attachment_names, draft, edit_target, running, pump }
+                    if !plan_decision_pending {
+                        UserMessageActions { conversation_id, item_id: id, text, attachment_names, draft, edit_target, running, pump }
+                    }
                 }
         }
     }

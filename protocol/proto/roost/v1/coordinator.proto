@@ -1093,7 +1093,7 @@ message AgentSettingsSetResponse {}
 message AgentChatPlanDecideRequest {
   string conversation_id = 1;
   string item_id = 2;
-  // approve | approve_new | refine
+  // approve | approve_new | refine | reject
   string decision = 3;
   string feedback = 4;
   string request_id = 5;

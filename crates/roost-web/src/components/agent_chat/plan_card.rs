@@ -49,6 +49,9 @@ pub fn PlanCard(
     let approve_pump = pump.clone();
     let approve_conversation = conversation_id.clone();
     let approve_item = id.clone();
+    let reject_pump = pump.clone();
+    let reject_conversation = conversation_id.clone();
+    let reject_item = id.clone();
     let continue_pump = pump;
     let continue_conversation = conversation_id;
     let continue_item = id.clone();
@@ -78,7 +81,7 @@ pub fn PlanCard(
                     }
                     div {
                         id: document_id,
-                        class: "min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain",
+                        class: "min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-auto",
                         "aria-label": "Plan document",
                         tabindex: "0",
                         Markdown { html: view.0.clone(), size: MarkdownSize::Sm }
@@ -88,7 +91,7 @@ pub fn PlanCard(
             CardFooter {
                 div { class: "flex w-full flex-col gap-2 border-t border-border pt-3",
                     if proposed {
-                        div { class: "flex flex-wrap items-center gap-2",
+                        div { id: format!("plan-actions-{id}"), class: "flex flex-wrap items-center gap-2", role: "group", "aria-label": "Plan actions",
                             Button {
                                 size: ButtonSize::Sm,
                                 disabled: pending(),
@@ -96,7 +99,7 @@ pub fn PlanCard(
                                     approve_pump.clone(), approve_conversation.clone(),
                                     approve_item.clone(), "approve_new", navigate, pending, error,
                                 ),
-                                if pending() { "Starting…" } else { "Approve in new chat" }
+                                "Approve in new chat"
                             }
                             Button {
                                 variant: ButtonVariant::Secondary,
@@ -111,6 +114,16 @@ pub fn PlanCard(
                                     }
                                 },
                                 "Refine"
+                            }
+                            Button {
+                                variant: ButtonVariant::Outline,
+                                size: ButtonSize::Sm,
+                                disabled: pending(),
+                                onclick: move |_| submit_decision(
+                                    reject_pump.clone(), reject_conversation.clone(),
+                                    reject_item.clone(), "reject", navigate, pending, error,
+                                ),
+                                "Reject"
                             }
                             DropdownMenu {
                                 open: more_open(),
@@ -142,6 +155,7 @@ pub fn PlanCard(
                             match state.as_str() {
                                 "approved" => "Plan approved",
                                 "refined" => "Revision requested in this chat",
+                                "rejected" => "Plan rejected",
                                 _ => "Plan is no longer awaiting approval",
                             }
                         }

@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use roost_agent::traits::{AdmitOutcome, CommandAdmission, IntentChange};
+use roost_agent::traits::{AdmitOutcome, CommandAdmission, IntentChange, PlanAdmission};
 use roost_agent::{AgentStore, ChatSink, Entry};
 use roost_protocol::wire::agent_chat::{ChatEvent, QueuedMessage, TranscriptItem};
 
@@ -82,6 +82,7 @@ async fn snapshot_does_not_restore_input_withdrawn_before_its_removal_event() {
                         submission_id: "queued-request".to_owned()
                     }],
                     intent: IntentChange::Withdraw,
+                    plan_admission: PlanAdmission::AllowPending,
                     fence: None,
                     expected_intent_seq: None,
                     completion_through: None,
