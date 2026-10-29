@@ -158,9 +158,9 @@ fn CompactImageUploadChip(
     rsx! {
         Attachment {
             state: file.state,
-            size: AttachmentSize::Xs,
+            size: AttachmentSize::Default,
             orientation: AttachmentOrientation::Vertical,
-            class: "w-16",
+            class: "w-40 max-lg:landscape:w-24 lg:w-48",
             "tabindex": "0",
             "role": "listitem",
             "data-testid": "staged-attachment",
@@ -186,7 +186,7 @@ fn CompactImageUploadChip(
                             Progress {
                                 value: Some(progress),
                                 label: "Upload progress for {file.name}",
-                                class: "w-10",
+                                class: "w-20",
                                 test_id: "attachment-upload-progress",
                             }
                         } else {

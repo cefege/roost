@@ -13,6 +13,7 @@ use super::plan_refinement::PlanRefinement;
 use crate::components::ui::{
     Button, ButtonSize, ButtonVariant, Card, CardContent, CardFooter, CardHeader, CardSize,
     CardTitle, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Markdown,
+    MarkdownSize,
 };
 use crate::pump::{Pump, use_store};
 use crate::router_state::use_navigate;
@@ -80,7 +81,7 @@ pub fn PlanCard(
                         class: "min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain",
                         "aria-label": "Plan document",
                         tabindex: "0",
-                        Markdown { html: view.0.clone(), class: "font-mono" }
+                        Markdown { html: view.0.clone(), size: MarkdownSize::Sm }
                     }
                 }
             }

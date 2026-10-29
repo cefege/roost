@@ -29,6 +29,11 @@ pub fn TerminalNavPad(
     let revision = pump.revision();
     let _ = revision.read();
     let open = terminal_nav_pad_open(pump.core().borrow().store());
+    let composer = crate::components::terminal_chrome::composer_geometry::published_geometry();
+    let compact = crate::components::layout::window_size::use_is_compact();
+    let lift = crate::components::layout::notification_dock_lift::notification_dock_lift(
+        composer, compact,
+    );
     let toggle_pump = pump.clone();
     let toggle = move |_event: MouseEvent| {
         toggle_pump.dispatch(ClientEvent::Shell(ShellIntent::ToggleNavPad));
@@ -36,6 +41,7 @@ pub fn TerminalNavPad(
 
     rsx! {
         Portal {
+          div { class: "contents", style: "--terminal-nav-composer-lift: {lift};",
             if open {
                 TerminalKeyGrid {
                     handle,
@@ -51,7 +57,7 @@ pub fn TerminalNavPad(
                 label: key_toggle_label(open),
                 variant: if open { ButtonVariant::Secondary } else { ButtonVariant::Outline },
                 size: ButtonSize::Icon,
-                class: Some("!size-[calc(var(--control-touch-target)_+_0.75rem)] fixed z-40 touch-manipulation right-[calc(env(safe-area-inset-right,0px)_+_1rem)] bottom-[calc(env(safe-area-inset-bottom,0px)_+_9.5rem)] tv:right-[calc(var(--tv-overscan-inline)_+_1rem)] tv:bottom-[calc(var(--tv-overscan-block)_+_9.5rem)]".to_owned()),
+                class: Some("!size-[calc(var(--control-touch-target)_+_0.75rem)] fixed z-40 touch-manipulation right-[calc(env(safe-area-inset-right,0px)_+_1rem)] bottom-[max(calc(env(safe-area-inset-bottom,0px)_+_9.5rem),var(--terminal-nav-composer-lift,0px))] tv:right-[calc(var(--tv-overscan-inline)_+_1rem)] tv:bottom-[calc(var(--tv-overscan-block)_+_9.5rem)]".to_owned()),
                 "data-testid": "terminal-nav-toggle",
                 "data-open": if open { "true" } else { "false" },
                 // Every press here is one tap into a pane the reader must not be
@@ -59,6 +65,7 @@ pub fn TerminalNavPad(
                 onmousedown: |event: MouseEvent| event.prevent_default(),
                 onclick: toggle,
             }
+          }
         }
     }
 }

@@ -7,6 +7,14 @@
 use dioxus::prelude::*;
 use tw_merge::tw_merge;
 
+/// Typography scale for reading documents or dense agent surfaces.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MarkdownSize {
+    #[default]
+    Default,
+    Sm,
+}
+
 /// Element selectors use `[&_tag]` so the recipe reaches the rendered HTML
 /// without a class on each element. Code blocks use the terminal tokens, not
 /// a fixed hex colour.
@@ -36,11 +44,18 @@ const MARKDOWN_PROSE: &str = "min-w-0 wrap-break-word text-sm leading-relaxed te
 #[component]
 pub fn Markdown(
     html: String,
+    #[props(default)] size: MarkdownSize,
     #[props(into, optional)] class: Option<String>,
     /// Native attributes the caller forwards, such as `data-streaming`.
     #[props(extends = GlobalAttributes)]
     attributes: Vec<Attribute>,
 ) -> Element {
-    let merged = tw_merge!(MARKDOWN_PROSE, class.as_deref().unwrap_or(""));
+    let typography = match size {
+        MarkdownSize::Default => "",
+        MarkdownSize::Sm => {
+            "text-xs leading-normal [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs [&_h4]:text-xs [&_:not(pre)>code]:text-xs"
+        }
+    };
+    let merged = tw_merge!(MARKDOWN_PROSE, typography, class.as_deref().unwrap_or(""));
     rsx! { div { "data-name": "Markdown", class: "{merged}", dangerous_inner_html: html, ..attributes } }
 }

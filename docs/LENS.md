@@ -11,6 +11,9 @@ Operating doctrine for how Claude writes/parses artifacts in this repo. Extracte
    actions share content rows rather than adding empty footer bands.
    Remove redundant icons, badges and status prose before shrinking text.
    Markdown body text stays readable; keyboard and touch controls stay usable.
+   Compactness must not make image previews unrecognizable. Verify real landscape
+   and portrait screenshots, loading states and controls at desktop and phone
+   sizes; a tiny synthetic image is not visual acceptance.
 
 2. **L2-NO-HUMAN-AFFORDANCE — Skip every human-affordance.** No tutorial
    framing, no preambles, no summaries, no emoji, no rhetorical questions,

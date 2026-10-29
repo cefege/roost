@@ -176,7 +176,7 @@ pub use item::{
 pub use kbd::{Kbd, KbdGroup};
 pub use label::Label;
 pub use list::{List, ListLayout, ListRow};
-pub use markdown::Markdown;
+pub use markdown::{Markdown, MarkdownSize};
 pub use marker::{Marker, MarkerContent, MarkerIcon, MarkerVariant};
 pub use message::{
     Message, MessageAlign, MessageAvatar, MessageContent, MessageFooter, MessageGroup,

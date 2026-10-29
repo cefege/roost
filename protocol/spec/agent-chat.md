@@ -65,6 +65,8 @@ A newer explicit input can still start work after Stop.
 The web review panel keeps section navigation beside a bounded, independently
 scrollable document and actions below it. Phone layouts omit the outline.
 Outline headings use the same Markdown parser options as the rendered plan.
+Plan prose uses the shared `MarkdownSize::Sm` typography and normal UI font;
+headings stay on the compact agent scale rather than document-scale type.
 
 **Approve in new chat** is the primary action: `AgentChatPlanDecide` with
 `decision=approve_new` starts an execution conversation and the client opens

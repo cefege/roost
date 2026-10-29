@@ -39,7 +39,7 @@ pub fn TerminalKeyGrid(
     );
     rsx! {
         Card {
-            class: Some("group/nav fixed z-40 box-border max-h-[max(0rem,calc(100dvh_-_env(safe-area-inset-top,0px)_-_env(safe-area-inset-bottom,0px)_-_13.75rem_-_1rem))] left-[calc(env(safe-area-inset-left,0px)_+_0.5rem)] right-[calc(env(safe-area-inset-right,0px)_+_0.5rem)] bottom-[calc(env(safe-area-inset-bottom,0px)_+_13.75rem)] overflow-y-auto pointer-events-auto font-sans animate-voice-dock-enter motion-reduce:animate-none rounded-xl border-0 shadow-none p-1 data-[placement=tray]:absolute data-[placement=tray]:inset-x-0 data-[placement=tray]:bottom-full data-[placement=tray]:h-(--term-tray-height) data-[placement=tray]:max-h-none data-[placement=tray]:overflow-visible".to_owned()),
+            class: Some("group/nav fixed z-40 box-border max-h-[max(0rem,calc(100dvh_-_env(safe-area-inset-top,0px)_-_max(calc(env(safe-area-inset-bottom,0px)_+_13.75rem),calc(var(--terminal-nav-composer-lift,0px)_+_4.25rem))_-_1rem))] left-[calc(env(safe-area-inset-left,0px)_+_0.5rem)] right-[calc(env(safe-area-inset-right,0px)_+_0.5rem)] bottom-[max(calc(env(safe-area-inset-bottom,0px)_+_13.75rem),calc(var(--terminal-nav-composer-lift,0px)_+_4.25rem))] overflow-y-auto pointer-events-auto font-sans animate-voice-dock-enter motion-reduce:animate-none rounded-xl border-0 shadow-none p-1 data-[placement=tray]:absolute data-[placement=tray]:inset-x-0 data-[placement=tray]:bottom-full data-[placement=tray]:h-(--term-tray-height) data-[placement=tray]:max-h-none data-[placement=tray]:overflow-visible".to_owned()),
             "data-testid": "terminal-nav-buttons",
             "data-placement": placement,
             "data-keypad": "true",
