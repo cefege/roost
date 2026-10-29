@@ -5,20 +5,27 @@
 
 use dioxus::prelude::*;
 
+use super::inline_transfer::use_inline_transfer_presentation;
 use super::transfer_row::TransferRow;
 use crate::components::ui::{Card, CardAction, CardContent, CardHeader, CardTitle, List};
 use crate::pump::use_store;
 
-/// The popup, or nothing when no transfer is live.
+/// The popup, or nothing when no transfer needs separate dock presentation.
 #[component]
 pub fn TransfersPanel() -> Element {
     let pump = use_store();
+    let inline_presentation = use_inline_transfer_presentation();
     let cards = {
         let core = pump.core();
         let core = core.borrow();
         core.store()
             .transfers
             .transfers()
+            .filter(|transfer| {
+                !inline_presentation.is_some_and(|presentation| {
+                    presentation.suppresses(&transfer.id, transfer.state)
+                })
+            })
             .cloned()
             .collect::<Vec<_>>()
     };

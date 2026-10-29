@@ -64,6 +64,12 @@ pub fn UserMessageActions(
     running: bool,
     pump: Pump,
 ) -> Element {
+    let plan_refinement = try_use_context::<super::plan_refinement::PlanRefinement>();
+    let cancel_refinement = move || {
+        if let Some(refinement) = plan_refinement {
+            refinement.cancel();
+        }
+    };
     let edit_names = attachment_names.clone();
     let mut confirm = use_signal(|| false);
     let mut restore_files = use_signal(|| true);
@@ -93,13 +99,17 @@ pub fn UserMessageActions(
             items,
             on_choose: move |action: String| match action.as_str() {
                 "edit" if !running => {
+                    cancel_refinement();
                     edit_draft.set(edit_text.clone());
                     edit_target.set(Some(EditTarget::PendingRewind {
                         item_id: edit_item.clone(),
                         attachment_names: edit_names.clone(),
                     }));
                 }
-                "retry" => rewind_and_submit(retry_pump.clone(), retry_id.clone(), retry_item.clone(), retry_text.clone(), Vec::new(), None),
+                "retry" => {
+                    cancel_refinement();
+                    rewind_and_submit(retry_pump.clone(), retry_id.clone(), retry_item.clone(), retry_text.clone(), Vec::new(), None);
+                }
                 "rewind" => confirm.set(true),
                 _ => {}
             },
@@ -126,6 +136,7 @@ pub fn UserMessageActions(
                         variant: ButtonVariant::Destructive,
                         onclick: move |_| {
                             confirm.set(false);
+                            cancel_refinement();
                             rewind_to(
                                 rewind_pump.clone(),
                                 rewind_id.clone(),

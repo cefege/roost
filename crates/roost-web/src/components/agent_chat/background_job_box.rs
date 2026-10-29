@@ -29,11 +29,11 @@ pub fn BackgroundJobBox(
     rsx! {
         Card {
             size: CardSize::Sm,
-            class: Some("min-w-0 data-[state=error]:border-destructive/40".to_owned()),
+            class: Some("min-w-0 py-1 data-[state=error]:border-destructive/40".to_owned()),
             "data-state": state_name,
             "data-tool": "bash",
             CardContent { class: "flex min-w-0 flex-col gap-1",
-                div { class: "flex min-w-0 items-center gap-2 text-sm text-muted-foreground",
+                div { class: "flex min-w-0 items-center gap-1 text-sm text-muted-foreground",
                     span { class: "inline-flex flex-none items-center gap-1 {tool_tint}",
                         Icon { icon: IconType::Terminal, class: "size-4" }
                     }
@@ -49,7 +49,7 @@ pub fn BackgroundJobBox(
                         span { "{label}" }
                     }
                 }
-                div { class: "flex min-w-0 flex-col pt-2 font-mono text-xs text-foreground",
+                div { class: "flex min-w-0 flex-col pt-1 font-mono text-xs text-foreground",
                     span { class: "whitespace-pre-wrap break-words",
                         span { class: "text-primary", "$ " }
                         "{command}"

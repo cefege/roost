@@ -10,10 +10,14 @@ use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd, html};
 /// The attribute the transcript's click delegation looks for on a Copy button.
 pub const COPY_CODE_ATTRIBUTE: &str = "data-copy-code";
 
+/// Parsing switches shared by the document renderer and its section outline.
+pub(super) fn parser_options() -> Options {
+    Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS
+}
+
 /// Convert chat Markdown to HTML while treating host-provided content as untrusted.
 pub fn markdown_to_safe_html(text: &str) -> String {
-    let options =
-        Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
+    let options = parser_options();
     // The open fence: whether its language is highlighted, and its text so far.
     let mut open_code: Option<(bool, String)> = None;
     let events = Parser::new_ext(text, options).filter_map(move |event| match event {
@@ -143,15 +147,14 @@ fn code_block_open(kind: &CodeBlockKind<'_>) -> String {
     } else {
         language.as_str()
     };
-    // The sanitized markup cannot mount Dioxus primitives, so it uses the
-    // registry Card and Ghost button recipes directly.
+    // Sanitized HTML cannot mount a Dioxus button, so copy uses its registry recipe.
     let copy_class = button_class(ButtonVariant::Ghost, ButtonSize::Sm, None);
     format!(
-        "<div data-code-block class=\"my-4 overflow-hidden bg-card text-card-foreground flex flex-col rounded-xl border shadow-sm py-6 gap-4\">\
-         <div class=\"flex items-center justify-between gap-2 px-6\">\
+        "<div data-code-block class=\"my-2 overflow-hidden rounded-md border border-border\">\
+         <div class=\"flex items-center justify-between gap-2 border-b border-border bg-card px-3\">\
          <span class=\"font-mono text-xs text-muted-foreground\">{label}</span>\
          <button type=\"button\" class=\"{copy_class}\" {COPY_CODE_ATTRIBUTE}>Copy</button>\
-         </div><pre class=\"m-0 overflow-x-auto px-6 pb-6\"><code>"
+         </div><pre><code>"
     )
 }
 

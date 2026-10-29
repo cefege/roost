@@ -10,6 +10,7 @@ pub mod command_finished;
 pub mod command_finished_scheduler;
 pub mod connection_banner;
 pub mod desktop_push_bridge;
+pub mod inline_transfer;
 pub mod notify_target;
 pub mod pad_hint_bar;
 pub mod store_write;

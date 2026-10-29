@@ -21,9 +21,8 @@ use super::thinking_block::ThinkingBlock;
 use super::timeline_rail::StepGroup;
 use super::toolbar_menu::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
 use crate::components::ui::{
-    Badge, BadgeSize, BadgeVariant, Bubble, BubbleContent, BubbleVariant, Button, ButtonSize,
-    ButtonVariant, IconType, Marker, Message, MessageAlign, MessageContent, MessageFooter,
-    StatusDot,
+    Badge, BadgeSize, BadgeVariant, Bubble, BubbleContent, BubbleVariant, ButtonSize, IconButton,
+    IconType, Marker, Message, MessageAlign, MessageContent, MessageFooter, StatusDot,
 };
 use crate::pump::Pump;
 
@@ -64,7 +63,7 @@ pub fn AgentTranscriptView(
     let running = transcript.run_state == AgentRunState::Running;
     let mut filters_placed = false;
     rsx! {
-        div { class: "flex w-full max-w-full flex-col gap-6",
+        div { class: "flex w-full max-w-full flex-col gap-3",
             for segment in segments {
                 match segment {
                     Segment::User(TranscriptItem::User { id, text, attachment_names }) => {
@@ -154,8 +153,8 @@ fn UserMessage(
     rsx! {
         Message { align: MessageAlign::Start, class: "w-full max-w-full",
             MessageContent {
-                Bubble { variant: BubbleVariant::Muted, class: "w-full max-w-full",
-                    BubbleContent { class: "w-full max-w-full whitespace-pre-wrap", "{text}"
+                Bubble { variant: BubbleVariant::Muted, class: "max-w-full",
+                    BubbleContent { class: "max-w-full whitespace-pre-wrap", "{text}"
                         if !attachment_names.is_empty() {
                             div { class: "mt-2 flex flex-wrap gap-1",
                                 for filename in &attachment_names {
@@ -170,7 +169,8 @@ fn UserMessage(
                         }
                     }
                 }
-                MessageFooter {
+            }
+            MessageFooter { class: "shrink-0 self-start",
                     if show_filters {
                         ToolbarMenu {
                             menu_key: "transcript",
@@ -197,13 +197,12 @@ fn UserMessage(
                     }
                     UserMessageActions { conversation_id, item_id: id, text, attachment_names, draft, edit_target, running, pump }
                 }
-            }
         }
     }
 }
 
-/// An assistant reply sits on the page, not in a bubble: prose at reading width,
-/// thinking blocks inline, and one quiet copy action beneath.
+/// Assistant prose stays at reading width; its copy control occupies the
+/// trailing gutter rather than adding an otherwise empty transcript row.
 #[component]
 fn AssistantMessage(
     blocks: Vec<TranscriptBlock>,
@@ -226,7 +225,7 @@ fn AssistantMessage(
         crate::components::hooks::use_copy_clipboard::use_copy_clipboard(None);
     let has_text = !copy_text.trim().is_empty();
     rsx! {
-        div { class: "group/assistant flex min-w-0 max-w-reading flex-col gap-3 text-sm text-foreground", "data-streaming": streaming.then_some("true"),
+        div { class: "group/assistant relative flex min-w-0 max-w-reading flex-col gap-1 pr-8 text-sm text-foreground", "data-streaming": streaming.then_some("true"),
             for (index, block) in blocks.iter().enumerate() {
                 match block {
                     // Every text block goes through StreamingText under one key,
@@ -253,13 +252,12 @@ fn AssistantMessage(
                 AgentAlert { p { "{error}" } }
             }
             if !streaming && has_text {
-                div { class: "flex items-center text-muted-foreground",
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        size: ButtonSize::Sm,
-                        onclick: move |_| copy_response(&copy_text),
-                        if response_copied() { "Copied" } else { "Copy" }
-                    }
+                IconButton {
+                    icon: if response_copied() { IconType::Check } else { IconType::Copy },
+                    label: if response_copied() { "Response copied" } else { "Copy response" },
+                    size: ButtonSize::IconXs,
+                    class: "absolute right-0 top-0",
+                    onclick: move |_| copy_response(&copy_text),
                 }
             }
         }

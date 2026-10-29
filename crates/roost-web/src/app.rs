@@ -146,6 +146,13 @@ pub fn GatedApp() -> Element {
         let _notify_target =
             crate::components::notifications::notify_target::NotifyTarget::provide();
     }
+    // Terminal thumbnails own ordinary image-upload feedback. The notification
+    // dock remains responsible for failed and ambiguous ledger rows.
+    {
+        let _inline_transfer_presentation =
+            crate::components::notifications::inline_transfer::InlineTransferPresentation::provide(
+            );
+    }
     #[cfg(target_arch = "wasm32")]
     install_document_input(crate::pump::use_pump(), path);
     #[cfg(target_arch = "wasm32")]

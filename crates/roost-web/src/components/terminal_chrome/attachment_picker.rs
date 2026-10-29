@@ -2,6 +2,8 @@
 //! The hidden input stays beside the composer's attach button because iOS
 //! rejects programmatic clicks outside the gesture that requested them.
 
+use std::rc::Rc;
+
 use dioxus::prelude::*;
 
 use super::dom;
@@ -53,6 +55,18 @@ impl StagedUploadState {
     #[must_use]
     pub fn blocks_send(&self) -> bool {
         self.is_in_flight() || matches!(self, Self::Failed { .. })
+    }
+}
+
+/// Open the chooser within the original gesture, without stealing composer focus.
+pub(super) fn open_attachment_picker(
+    event: MouseEvent,
+    active: bool,
+    input: Signal<Option<Rc<MountedData>>>,
+) {
+    event.prevent_default();
+    if active && let Some(input) = input.peek().as_ref() {
+        dom::open_file_chooser(input);
     }
 }
 

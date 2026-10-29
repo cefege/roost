@@ -26,9 +26,9 @@ pub fn BashBody(
     let first_shown_index = hidden_command;
     let hint = format!("… {hidden_command} earlier lines");
     rsx! {
-        div { class: "flex min-w-0 flex-col px-3 pt-2 font-mono text-xs text-foreground",
+        div { class: "flex min-w-0 flex-col px-2 pt-1 font-mono text-xs text-foreground",
             if hidden_command > 0 {
-                p { class: "m-0 px-3 text-xs text-muted-foreground", "{hint}" }
+                p { class: "m-0 px-2 text-xs text-muted-foreground", "{hint}" }
             }
             for (offset, line) in shown_command.iter().enumerate() {
                 div { class: "whitespace-pre-wrap break-words", key: "{offset}",

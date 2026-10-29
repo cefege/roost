@@ -1,6 +1,6 @@
-//! The timeline rail and the step group that holds it. A group is one bordered
-//! card for a run of consecutive tool calls: a summary header ("Edited 1 file,
-//! ran 1 command · 2.1s") that folds the rail beneath it. The rail is a hairline
+//! The timeline rail and the step group that holds it. A group is one compact
+//! disclosure for consecutive tool calls: its summary header ("Edited 1 file,
+//! ran 1 command · 2.1s") folds the rail beneath it. The rail is a hairline
 //! joining the steps, with a mark on each step showing its state, so a run reads
 //! as one line of work. The mark's colour comes from `StatusDot`, so the rail
 //! shares the status meanings every other surface uses.
@@ -12,8 +12,8 @@ use super::tool_card::ToolCard;
 use super::tool_view::{duration_ms, group_summary};
 use super::working_row::format_duration;
 use crate::components::ui::{
-    ButtonSize, ButtonVariant, Card, CardContent, CardSize, Collapsible, CollapsibleContent,
-    CollapsibleTrigger, Icon, IconType, StatusDot,
+    ButtonSize, ButtonVariant, Collapsible, CollapsibleContent, CollapsibleTrigger, Icon, IconType,
+    StatusDot,
 };
 
 /// The state a step's mark shows. `Queued` is a step the agent has not started.
@@ -51,10 +51,10 @@ impl StepMark {
     const fn ring_class(self) -> &'static str {
         match self {
             Self::Running => {
-                "absolute -left-5 top-2 flex rounded-full ring-4 ring-background animate-pulse motion-reduce:animate-none"
+                "absolute -left-4 top-2 flex rounded-full ring-4 ring-background animate-pulse motion-reduce:animate-none"
             }
             Self::Queued | Self::Done | Self::Failed => {
-                "absolute -left-5 top-2 flex rounded-full ring-4 ring-background"
+                "absolute -left-4 top-2 flex rounded-full ring-4 ring-background"
             }
         }
     }
@@ -104,41 +104,39 @@ pub fn StepGroup(steps: Vec<TranscriptItem>, expanded: bool) -> Element {
         IconType::ChevronDown
     };
     rsx! {
-        Card { size: CardSize::Sm, class: Some("min-w-0".to_owned()),
-            CardContent { class: "min-w-0",
-                Collapsible {
-                    class: "flex min-w-0 flex-col gap-2",
-                    open: is_open,
-                    on_open_change: move |next: bool| open.set(Some(next)),
-                    CollapsibleTrigger {
-                        variant: ButtonVariant::Ghost,
-                        size: ButtonSize::Sm,
-                        class: "w-full min-w-0 justify-start gap-2 text-left",
-                        span { class: "min-w-0 flex-1 truncate font-medium text-foreground", title: "{summary}", "{summary}" }
-                        if failures > 0 {
-                            span { class: "shrink-0 text-xs text-destructive", "{failures} failed" }
-                        }
-                        if let Some(duration) = duration {
-                            span { class: "flex-none font-mono text-xs text-muted-foreground", "{duration}" }
-                        }
-                        Icon { icon: chevron, class: "size-4 text-muted-foreground" }
+        div { class: "min-w-0 border-b border-border py-1",
+            Collapsible {
+                class: "flex min-w-0 flex-col gap-1",
+                open: is_open,
+                on_open_change: move |next: bool| open.set(Some(next)),
+                CollapsibleTrigger {
+                    variant: ButtonVariant::Ghost,
+                    size: ButtonSize::Sm,
+                    class: "w-full min-w-0 justify-start gap-2 text-left",
+                    span { class: "min-w-0 flex-1 truncate font-medium text-foreground", title: "{summary}", "{summary}" }
+                    if failures > 0 {
+                        span { class: "shrink-0 text-xs text-destructive", "{failures} failed" }
                     }
-                    CollapsibleContent { class: "min-w-0",
-                        TimelineRail {
-                            for step in steps {
-                                if let TranscriptItem::Tool { id, tool_name, args_json, output, is_error, running, queued, details_json, children, .. } = step {
-                                    TimelineStep { key: "{id}", mark: StepMark::from_tool(is_error, running, queued),
-                                        ToolCard {
-                                            tool_name: tool_name,
-                                            args_json: args_json,
-                                            output: output,
-                                            is_error: is_error,
-                                            running: running,
-                                            queued: queued,
-                                            details_json: details_json,
-                                            child_ids: children,
-                                            expanded: expanded,
-                                        }
+                    if let Some(duration) = duration {
+                        span { class: "flex-none font-mono text-xs text-muted-foreground", "{duration}" }
+                    }
+                    Icon { icon: chevron, class: "size-4 text-muted-foreground" }
+                }
+                CollapsibleContent { class: "min-w-0 pt-1",
+                    TimelineRail {
+                        for step in steps {
+                            if let TranscriptItem::Tool { id, tool_name, args_json, output, is_error, running, queued, details_json, children, .. } = step {
+                                TimelineStep { key: "{id}", mark: StepMark::from_tool(is_error, running, queued),
+                                    ToolCard {
+                                        tool_name: tool_name,
+                                        args_json: args_json,
+                                        output: output,
+                                        is_error: is_error,
+                                        running: running,
+                                        queued: queued,
+                                        details_json: details_json,
+                                        child_ids: children,
+                                        expanded: expanded,
                                     }
                                 }
                             }
@@ -170,7 +168,7 @@ fn group_duration(steps: &[TranscriptItem]) -> Option<u64> {
 #[component]
 pub fn TimelineRail(children: Element) -> Element {
     rsx! {
-        div { "data-name": "TimelineRail", class: "flex flex-col gap-2 border-l border-border pl-4", {children} }
+        div { "data-name": "TimelineRail", class: "flex flex-col gap-1 border-l border-border pl-3", {children} }
     }
 }
 

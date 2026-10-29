@@ -6,6 +6,12 @@ Operating doctrine for how Claude writes/parses artifacts in this repo. Extracte
    readability.** Dense > pretty. Path+line anchors > prose pointers.
    Grep-able identifiers > clever names. `key=value` logs > English sentences.
 
+   **UI-DENSITY — Compact layouts are the default across the product.**
+   Chat, plans, activity, tabs and settings use short rows and tight gaps;
+   actions share content rows rather than adding empty footer bands.
+   Remove redundant icons, badges and status prose before shrinking text.
+   Markdown body text stays readable; keyboard and touch controls stay usable.
+
 2. **L2-NO-HUMAN-AFFORDANCE — Skip every human-affordance.** No tutorial
    framing, no preambles, no summaries, no emoji, no rhetorical questions,
    no "Let's…", no "Hope this helps", no progressive disclosure.

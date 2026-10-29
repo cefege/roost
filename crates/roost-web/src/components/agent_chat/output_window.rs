@@ -54,18 +54,18 @@ pub fn OutputWindow(
     let syntax_offset = if from_head { 0 } else { hidden };
     let error = failed.then_some("true");
     rsx! {
-        div { class: "bg-terminal py-2 text-terminal-foreground",
+        div { class: "bg-terminal py-1 text-terminal-foreground",
             if hidden > 0 && !from_head {
-                p { class: "m-0 px-3 pb-1 text-xs text-muted-foreground", "{hint}" }
+                p { class: "m-0 px-2 pb-1 text-xs text-muted-foreground", "{hint}" }
             }
-            pre { class: "m-0 overflow-x-auto font-mono text-xs leading-5", "data-error": error,
+            pre { class: "m-0 overflow-x-auto font-mono text-xs leading-4", "data-error": error,
                 for (index, line) in window_lines.iter().enumerate() {
                     div {
                         class: match line.tone {
-                            LineTone::Added => "whitespace-pre-wrap break-words px-3 text-success",
-                            LineTone::Removed => "whitespace-pre-wrap break-words px-3 text-destructive",
-                            LineTone::Header => "whitespace-pre-wrap break-words px-3 text-primary",
-                            LineTone::Plain => "whitespace-pre-wrap break-words px-3",
+                            LineTone::Added => "whitespace-pre-wrap break-words px-2 text-success",
+                            LineTone::Removed => "whitespace-pre-wrap break-words px-2 text-destructive",
+                            LineTone::Header => "whitespace-pre-wrap break-words px-2 text-primary",
+                            LineTone::Plain => "whitespace-pre-wrap break-words px-2",
                         },
                         "data-tone": line.tone.attribute(),
                         if let Some(tokens) = syntax_lines.as_ref().and_then(|rows| rows.get(index + syntax_offset)) {
@@ -81,7 +81,7 @@ pub fn OutputWindow(
                 }
             }
             if hidden > 0 && from_head {
-                p { class: "m-0 px-3 pt-1 text-xs text-muted-foreground", "{hint}" }
+                p { class: "m-0 px-2 pt-1 text-xs text-muted-foreground", "{hint}" }
             }
         }
         if hidden > 0 {

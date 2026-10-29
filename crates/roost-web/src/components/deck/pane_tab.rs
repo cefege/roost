@@ -1,16 +1,20 @@
-//! One terminal tab in a pane strip: the select button with its title,
-//! carrier mark and agent chip, and the close button. `PaneStrip` owns drag,
-//! close and hover state; this maps it onto the stable tab DOM. Ports
-//! `apps/web/src/components/deck/PaneTab.tsx`.
+//! One terminal tab in a pane strip: its compact title, one aggregated status
+//! cue, and close action. `PaneStrip` owns drag, close and hover state; this
+//! maps it onto the stable tab DOM. Terminal signal, bell and agent states
+//! remain available through the cue's accessible label and tooltip.
 
-use crate::components::agents::agent_status_indicator::AgentStatusIndicator;
+use crate::components::agents::agent_status_indicator::agent_dot_status_name;
+use crate::components::terminal_signal_marks::progress_presentation;
+use crate::components::ui::{ButtonSize, IconButton, IconType, StatusDot, TabsTrigger};
 use crate::pump::use_store;
 use crate::session_naming::session_title;
 use dioxus::prelude::*;
 use roost_client_core::TerminalTransport;
+use roost_client_core::client::agents::status_policy::{
+    AgentStatusLevel, agent_status_presentation, agent_status_tooltip, derive_agent_status_level,
+};
 use roost_client_core::store::terminal_transport::session_terminal_transport_kind;
-
-use crate::components::ui::{ButtonSize, Icon, IconButton, IconType, StatusDot, TabsTrigger};
+use roost_protocol::wire::SessionId;
 
 /// v2 `sessionTerminalTransportLabel`: the tooltip for a DIRECT carrier, and
 /// nothing for the coordinator or an unconfirmed one.
@@ -25,6 +29,101 @@ pub fn direct_transport_label(kind: Option<TerminalTransport>) -> Option<&'stati
 /// `data-terminal-transport` for a confirmed carrier.
 fn transport_attribute(kind: TerminalTransport) -> &'static str {
     roost_client_core::store::terminal_transport::transport_attribute(kind)
+}
+
+/// The one visible tab cue, which summarizes every state needing attention.
+struct TabStatusCue {
+    status: &'static str,
+    label: String,
+}
+
+/// A compact, accessible roll-up of terminal and agent activity.
+#[component]
+fn TabStatus(
+    session_id: String,
+    agent_run_state: Option<&'static str>,
+    suppress_tooltip: bool,
+) -> Element {
+    let pump = use_store();
+    let (bell_rang, progress, session_agent_status) = {
+        let core = pump.core();
+        let core = core.borrow();
+        let store = core.store();
+        let session_agent_status =
+            SessionId::try_from(session_id.clone())
+                .ok()
+                .and_then(|session_id| {
+                    let status = store.agent_status.status(&session_id)?;
+                    let acknowledged = Some(store.agent_seen.acknowledged_revision(status));
+                    let level = derive_agent_status_level(Some(status), acknowledged);
+                    (level != AgentStatusLevel::Unknown).then(|| {
+                        let presentation = agent_status_presentation(level);
+                        TabStatusCue {
+                            status: agent_dot_status_name(presentation.dot_status),
+                            label: agent_status_tooltip(status, acknowledged),
+                        }
+                    })
+                });
+        (
+            store.terminal_bells.is_unseen(&session_id),
+            store
+                .terminal_signals
+                .progress(&session_id)
+                .and_then(progress_presentation)
+                .map(|(_, state, label)| (state, label)),
+            session_agent_status,
+        )
+    };
+    let conversation_status = agent_run_state.map(|state| match state {
+        "info" => TabStatusCue {
+            status: "running",
+            label: "Agent running".to_owned(),
+        },
+        "warn" => TabStatusCue {
+            status: "warn",
+            label: "Agent failed".to_owned(),
+        },
+        _ => TabStatusCue {
+            status: "idle",
+            label: "Agent idle".to_owned(),
+        },
+    });
+    let agent_status = conversation_status.or(session_agent_status);
+    let status = match (
+        progress.as_ref().map(|(state, _)| *state),
+        agent_status.as_ref().map(|cue| cue.status),
+    ) {
+        (Some("error"), _) => Some("error"),
+        (Some("paused"), _) | (_, Some("warn")) => Some("warn"),
+        (Some(_), _) => Some("running"),
+        (_, _) if bell_rang => Some("running"),
+        (_, Some(status)) => Some(status),
+        _ => None,
+    };
+    let Some(status) = status else {
+        return rsx! {};
+    };
+    let mut labels = Vec::with_capacity(3);
+    if bell_rang {
+        labels.push("Bell rang".to_owned());
+    }
+    if let Some((_, label)) = progress {
+        labels.push(label);
+    }
+    if let Some(agent_status) = agent_status {
+        labels.push(agent_status.label);
+    }
+    let label = labels.join("; ");
+    let title = (!suppress_tooltip).then(|| label.clone());
+    rsx! {
+        span {
+            class: "inline-flex shrink-0",
+            role: "img",
+            "aria-label": label,
+            title,
+            StatusDot { status: status.to_owned() }
+        }
+    }
 }
 
 /// One tab.
@@ -96,7 +195,7 @@ pub fn PaneTab(
     let style = (!style.is_empty()).then_some(style);
     rsx! {
         div {
-            class: "group/tab relative inline-flex items-center gap-1 box-border h-full self-stretch flex-[0_1_auto] w-[var(--workbench-tab-width-max)] min-w-[var(--workbench-tab-width-min)] max-w-[var(--workbench-tab-width-max)] cursor-pointer touch-pan-y text-sm data-[dragging=true]:z-[4] data-[dragging=true]:bg-background data-[dragging=true]:cursor-grabbing data-[closing=true]:!min-w-0 data-[closing=true]:!max-w-0 data-[closing=true]:!px-0 data-[closing=true]:z-0 data-[closing=true]:opacity-0 data-[closing=true]:pointer-events-none data-[closing=true]:overflow-hidden data-[closing=true]:transition-[max-width,min-width,padding,opacity] data-[closing=true]:duration-[220ms] @container/pane-tab",
+            class: "group/tab relative inline-flex items-center gap-0 box-border h-full self-stretch flex-[0_1_auto] w-[var(--workbench-tab-width-max)] min-w-[var(--workbench-tab-width-min)] max-w-[var(--workbench-tab-width-max)] cursor-pointer touch-pan-y text-xs data-[dragging=true]:z-[4] data-[dragging=true]:bg-background data-[dragging=true]:cursor-grabbing data-[closing=true]:!min-w-0 data-[closing=true]:!max-w-0 data-[closing=true]:!px-0 data-[closing=true]:z-0 data-[closing=true]:opacity-0 data-[closing=true]:pointer-events-none data-[closing=true]:overflow-hidden data-[closing=true]:transition-[max-width,min-width,padding,opacity] data-[closing=true]:duration-[220ms]",
             "data-testid": "tab-{session_id}",
             "data-deck-tab": "true",
             "data-active": if active { "true" } else { "false" },
@@ -114,10 +213,11 @@ pub fn PaneTab(
             onmouseleave: move |_| on_hover_end.call(()),
             TabsTrigger {
                 value: session_id.clone(),
-                class: "h-full min-w-0 flex-1 justify-start text-start",
+                class: "h-full min-w-0 flex-1 justify-start px-2 text-xs text-start",
                 aria_label: title.clone(),
                 has_panel: false,
                 title: native_tooltip,
+                "data-tab-select": session_id.clone(),
                 onpointerdown: move |event| on_pointer_down.call(event),
                 trailing_action: rsx! {
                     IconButton {
@@ -129,25 +229,11 @@ pub fn PaneTab(
                         onclick: move |event| on_close.call(event),
                     }
                 },
-                "data-tab-select": "true",
-                Icon {
-                    icon: if agent_status.is_some() { IconType::Bot } else { IconType::Terminal },
-                    class: "size-4 shrink-0 text-muted-foreground group-data-[packed=true]/strip:group-data-[active=true]/tab:hidden",
-                }
-                if direct.is_some() {
-                    Icon { icon: IconType::Zap, class: "size-4 shrink-0 text-warning @max-[120px]/pane-tab:hidden" }
-                }
-                span { class: "flex-1 min-w-0 truncate [font-family:var(--term-font-family)] group-data-[packed=true]/strip:hidden", "{title}" }
-                if let Some(status) = agent_status {
-                    StatusDot { status: status.to_owned() }
-                } else {
-                    AgentStatusIndicator {
-                        session_id: session_id.clone(),
-                        compact: true,
-                        suppress_tooltip: hover_card_available,
-                    }
-                    crate::components::terminal_bell_mark::TerminalBellMark { session_id: session_id.clone() }
-                    crate::components::terminal_signal_marks::TerminalProgressMark { session_id: session_id.clone() }
+                span { class: "flex-1 min-w-0 truncate [font-family:var(--term-font-family)]", "{title}" }
+                TabStatus {
+                    session_id: session_id.clone(),
+                    agent_run_state: agent_status,
+                    suppress_tooltip: hover_card_available,
                 }
             }
         }

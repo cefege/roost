@@ -2,21 +2,54 @@
 //! The owning pane supplies the staged-file signal; Send submits completed
 //! paths and Escape/removal abandons files without typing their paths.
 
+use std::collections::BTreeSet;
+
 use dioxus::prelude::*;
 
 use super::attachment_picker::{ChosenFile, StagedUploadState};
 use super::dom;
 use super::upload_tray::format_file_size;
+use crate::components::notifications::inline_transfer::use_inline_transfer_presentation;
 use crate::components::ui::AttachmentState;
-use crate::components::ui::attachment_upload::{AttachmentUploadChipData, AttachmentUploadChips};
+use crate::components::ui::attachment_upload::{
+    AttachmentUploadChipData, AttachmentUploadChips, AttachmentUploadPresentation,
+};
 
 /// Show staged files with their live upload state.
 #[component]
 pub fn StagedAttachments(
     staged_files: Signal<Vec<ChosenFile>>,
     on_retry: EventHandler<usize>,
+    #[props(default)] compact_image_uploads: bool,
+    #[props(into, optional)] inline_transfer_scope: Option<String>,
+    #[props(default = true)] visible: bool,
 ) -> Element {
     let staged = staged_files();
+    let inline_presentation = use_inline_transfer_presentation();
+    let claim_scope = inline_transfer_scope.clone();
+    use_effect(use_reactive(
+        (&visible, &compact_image_uploads, &claim_scope),
+        move |(visible, compact_image_uploads, claim_scope)| {
+            let image_upload_ids = if visible && compact_image_uploads {
+                staged_files
+                    .read()
+                    .iter()
+                    .filter(|file| file.preview_url.is_some())
+                    .filter_map(|file| file.upload_id.clone())
+                    .collect::<BTreeSet<_>>()
+            } else {
+                BTreeSet::new()
+            };
+            if let (Some(scope), Some(presentation)) = (claim_scope.clone(), inline_presentation) {
+                presentation.replace(scope, image_upload_ids);
+            }
+        },
+    ));
+    use_drop(move || {
+        if let (Some(scope), Some(presentation)) = (inline_transfer_scope, inline_presentation) {
+            presentation.clear(&scope);
+        }
+    });
     if staged.is_empty() {
         return rsx! {};
     }
@@ -36,6 +69,11 @@ pub fn StagedAttachments(
             files: chips,
             on_remove: remove,
             on_retry: move |index| on_retry.call(index),
+            presentation: if compact_image_uploads {
+                AttachmentUploadPresentation::CompactImages
+            } else {
+                AttachmentUploadPresentation::Standard
+            },
         }
     }
 }

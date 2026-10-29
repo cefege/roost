@@ -2,12 +2,15 @@
 //! Images stay inline in the submit payload; other file types submit their completed worker path.
 
 use dioxus::prelude::*;
+use dioxus::web::WebEventExt as _;
 use roost_protocol::wire::agent_chat::ConversationSummary;
 
 use crate::components::agent_chat::message_actions::EditTarget;
 #[cfg(target_arch = "wasm32")]
 use crate::components::terminal_chrome::attachment_picker::StagedUploadState;
-use crate::components::terminal_chrome::attachment_picker::{AttachmentInput, ChosenFile};
+use crate::components::terminal_chrome::attachment_picker::{
+    AttachmentInput, ChosenFile, spawn_read_chosen,
+};
 use crate::components::terminal_chrome::composer_attachments::StagedAttachments;
 use crate::components::terminal_chrome::dom;
 use crate::components::terminal_chrome::terminal_upload::{
@@ -68,6 +71,38 @@ pub(super) fn transferred_files(file_list: Option<web_sys::FileList>) -> Vec<web
     (0..file_list.length())
         .filter_map(|index| file_list.item(index))
         .collect()
+}
+
+pub(super) fn attachment_drop_handler(
+    on_attach: EventHandler<Vec<ChosenFile>>,
+) -> EventHandler<DragEvent> {
+    EventHandler::new(move |event: DragEvent| {
+        event.prevent_default();
+        let files = transferred_files(
+            event
+                .try_as_web_event()
+                .and_then(|native: web_sys::DragEvent| native.data_transfer())
+                .and_then(|transfer| transfer.files()),
+        );
+        spawn_read_chosen(files, on_attach);
+    })
+}
+
+pub(super) fn attachment_paste_handler(
+    on_attach: EventHandler<Vec<ChosenFile>>,
+) -> EventHandler<ClipboardEvent> {
+    EventHandler::new(move |event: ClipboardEvent| {
+        let files = transferred_files(
+            event
+                .try_as_web_event()
+                .and_then(|native: web_sys::ClipboardEvent| native.clipboard_data())
+                .and_then(|transfer| transfer.files()),
+        );
+        if !files.is_empty() {
+            event.prevent_default();
+            spawn_read_chosen(files, on_attach);
+        }
+    })
 }
 
 /// Stages chosen files only when the current draft remains within the image wire budget.

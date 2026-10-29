@@ -226,15 +226,8 @@ pub fn TerminalComposer(
     // if Escape or an outside interaction blurred it, the click must not
     // reopen the soft keyboard.
     let keep_keyboard = |event: MouseEvent| event.prevent_default();
-    let open_picker = move |event: MouseEvent| {
-        event.prevent_default();
-        if !active {
-            return;
-        }
-        if let Some(input) = file_input.peek().as_ref() {
-            dom::open_file_chooser(input);
-        }
-    };
+    let open_picker =
+        move |event| super::attachment_picker::open_attachment_picker(event, active, file_input);
     // The session id is still needed after the submit closure has taken it.
     let owner_id = use_hook(move || session_id.clone());
     let dictation_for_keys = dictation.clone();
@@ -308,7 +301,13 @@ pub fn TerminalComposer(
                 class: "pointer-events-auto relative animate-voice-dock-enter motion-reduce:animate-none @container/term-chat-pane",
                 "data-testid": "chat-box",
                 "data-composer-part": "box",
-                StagedAttachments { staged_files, on_retry: on_retry_upload }
+                StagedAttachments {
+                    staged_files,
+                    on_retry: on_retry_upload,
+                    compact_image_uploads: true,
+                    inline_transfer_scope: owner_id.clone(),
+                    visible: active,
+                }
                 div {
                     class: "relative flex w-full min-w-0",
                     "data-testid": "chat-field",

@@ -11,9 +11,12 @@ use super::composer_attachments::submit_attachments;
 use super::composer_commands::{LocalCommandScope, run_local_command, submit_message};
 use super::composer_helpers::try_submit_edit;
 use super::message_actions::EditTarget;
+use super::plan_refinement::PlanRefinement;
 use super::submission::{PendingSubmission, completion_callback, prepare};
 use crate::components::terminal_chrome::attachment_picker::ChosenFile;
 use crate::pump::Pump;
+#[cfg(target_arch = "wasm32")]
+use roost_client_core::client::rpc::calls::agent_chat::DecideAgentPlan;
 
 pub(super) struct ComposerSubmitContext {
     pub conversation: ConversationSummary,
@@ -21,6 +24,7 @@ pub(super) struct ComposerSubmitContext {
     pub transcript: Transcript,
     pub draft: Signal<String>,
     pub edit_target: Signal<Option<EditTarget>>,
+    pub plan_refinement: PlanRefinement,
     pub disabled: bool,
     pub pump: Pump,
     pub goal_open: Signal<bool>,
@@ -42,6 +46,7 @@ pub(super) fn submit_handler(context: ComposerSubmitContext) -> EventHandler<()>
         transcript,
         mut draft,
         edit_target,
+        plan_refinement,
         disabled,
         pump,
         mut goal_open,
@@ -70,6 +75,73 @@ pub(super) fn submit_handler(context: ComposerSubmitContext) -> EventHandler<()>
                 .iter()
                 .any(|file| file.upload_state.blocks_send())
             {
+                return;
+            }
+            let refining = plan_refinement.is_active();
+            let refinement_target = plan_refinement.current_target(&transcript);
+            if refining {
+                let Some(refinement_target) = refinement_target else {
+                    report.call(Err(
+                        "This plan is no longer available for refinement.".to_owned()
+                    ));
+                    return;
+                };
+                if !attachments.is_empty()
+                    || edit_target
+                        .peek()
+                        .as_ref()
+                        .is_some_and(EditTarget::has_attachments)
+                {
+                    report.call(Err(
+                        "Remove attachments before sending plan feedback.".to_owned()
+                    ));
+                    return;
+                }
+                if text.is_empty() {
+                    return;
+                }
+                submit_pending.set(true);
+                #[cfg(target_arch = "wasm32")]
+                {
+                    let refinement_pump = pump.clone();
+                    let refinement_conversation_id = conversation_id.clone();
+                    let item_id = refinement_target.item_id.clone();
+                    let generation = refinement_target.generation;
+                    let submitted_text = text.clone();
+                    let mut submitted_draft = draft;
+                    spawn(async move {
+                        let result = refinement_pump
+                            .rpc()
+                            .call(&DecideAgentPlan {
+                                conversation_id: refinement_conversation_id,
+                                item_id: item_id.clone(),
+                                decision: "refine".to_owned(),
+                                feedback: submitted_text.clone(),
+                                request_id: super::request_ids::new_request_id(),
+                            })
+                            .await;
+                        submit_pending.set(false);
+                        match result {
+                            Ok(_) => {
+                                if plan_refinement.clear_if_matches(&item_id, generation)
+                                    && submitted_draft.peek().trim() == submitted_text
+                                {
+                                    submitted_draft.set(String::new());
+                                }
+                                report.call(Ok(()));
+                            }
+                            Err(error) => report.call(Err(error.to_string())),
+                        }
+                    });
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let _ = refinement_target;
+                    submit_pending.set(false);
+                    report.call(Err(
+                        "Plan refinement is available in the web client.".to_owned()
+                    ));
+                }
                 return;
             }
             let target = edit_target.peek();

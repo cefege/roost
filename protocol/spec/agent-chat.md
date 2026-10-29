@@ -60,6 +60,30 @@ background jobs running; absent or `true` stops both. Stop is durable: fenced
 completion and conditional automatic restart cannot overtake a newer Stop.
 A newer explicit input can still start work after Stop.
 
+## Plan review
+
+The web review panel keeps section navigation beside a bounded, independently
+scrollable document and actions below it. Phone layouts omit the outline.
+Outline headings use the same Markdown parser options as the rendered plan.
+
+**Approve in new chat** is the primary action: `AgentChatPlanDecide` with
+`decision=approve_new` starts an execution conversation and the client opens
+the returned `new_conversation_id`. **Execute in this chat** remains in the
+secondary actions menu and sends `decision=approve`.
+
+**Refine** targets the proposal in the normal main composer, focuses it and
+preserves its draft. Sending feedback calls `AgentChatPlanDecide` with
+`decision=refine`; it is not a normal message or a transcript rewind.
+Cancellation preserves the draft. Request failure preserves both draft and
+target. A decided or superseded target rejects submission until cancelled or
+replaced; stale feedback must never silently become an ordinary message.
+
+Refinement and message editing are exclusive. Starting refinement clears a
+plain edit but refuses an edit with retained attachments instead of dropping
+them. An older request's completion cannot clear a restarted refinement.
+Authority: `crates/roost-web/src/components/agent_chat/plan_card.rs`,
+`plan_refinement.rs` and `composer_submit.rs`.
+
 ## Attachments
 
 `AgentChatSubmit.attachments` carries ordered `AgentChatAttachment` values:

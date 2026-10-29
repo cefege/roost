@@ -181,15 +181,12 @@ pub fn ToolCard(
                         class: "size-4 text-muted-foreground",
                     }
                 }
-                CollapsibleContent { class: "flex min-w-0 flex-col gap-2 px-2 pb-2",
+                CollapsibleContent { class: "flex min-w-0 flex-col gap-1 px-1 pb-1",
                     if disclosure_visible {
                         if let Some(text) = intent {
                             p { class: "m-0 break-words text-xs italic text-muted-foreground",
                                 "{text}"
                             }
-                        }
-                        span { class: "text-xs font-medium text-muted-foreground",
-                            if running { "Live output" } else { "Result" }
                         }
                         {body}
                         if tool_name == "edit" && !diff_text.is_empty() && !notes.is_empty() {

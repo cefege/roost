@@ -38,6 +38,7 @@ mod output_lines;
 mod output_window;
 mod peer_message_card;
 mod plan_card;
+mod plan_refinement;
 mod provider_usage;
 mod queued_band;
 mod request_ids;

@@ -14,6 +14,7 @@ use super::loop_controls::LoopControls;
 use super::message_actions::EditTarget;
 use super::model_controls::{ModelSetup, ModelSetupNotice};
 use super::model_hub::ModelHub;
+use super::plan_refinement::PlanRefinement;
 use super::queued_band::QueuedBand;
 use super::surface_dom::copy_code_block;
 #[cfg(target_arch = "wasm32")]
@@ -69,6 +70,12 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
     if *edit_target_owner.peek() != conversation_id {
         edit_target.set(None);
         edit_target_owner.set(conversation_id.clone());
+    }
+    let plan_refinement = PlanRefinement::provide(edit_target);
+    let mut plan_refinement_owner = use_signal(|| conversation_id.clone());
+    if *plan_refinement_owner.peek() != conversation_id {
+        plan_refinement.cancel();
+        plan_refinement_owner.set(conversation_id.clone());
     }
     let model_hub_open = use_signal(|| false);
     let connect_provider = use_signal(|| None::<ProviderEntry>);

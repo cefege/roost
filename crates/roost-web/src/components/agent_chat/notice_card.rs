@@ -69,11 +69,12 @@ pub fn NoticeCard(id: String, level: String, title: String, body: String) -> Ele
             } else {
                 Alert {
                     variant: if destructive { AlertVariant::Destructive } else { AlertVariant::Default },
+                    class: "px-3 py-2 [&>svg]:left-3 [&>svg]:top-3 [&>svg~*]:pl-6",
                     Icon {
                         icon: notice_icon,
                         class: if destructive { "text-destructive" } else { "text-warning" },
                     }
-                    AlertTitle { "{severity}: {title}" }
+                    AlertTitle { class: "mb-0", "{severity}: {title}" }
                     div { class: "mt-1", {details} }
                 }
             }

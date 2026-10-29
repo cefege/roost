@@ -8,9 +8,9 @@ use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{AskQuestion, TodoPhase, TodoStatus};
 
 use crate::components::ui::{
-    Button, ButtonVariant, Card, CardContent, CardHeader, CardSize, CardTitle, Checkbox, Chip,
-    Collapsible, CollapsibleContent, CollapsibleTrigger, FieldError, Icon, IconType, Label,
-    ListRow, SectionTitle, Shimmer, StatusDot, TextField,
+    Button, ButtonSize, ButtonVariant, Card, CardContent, CardHeader, CardSize, CardTitle,
+    Checkbox, Chip, Collapsible, CollapsibleContent, CollapsibleTrigger, FieldError, Icon,
+    IconType, Label, ListRow, SectionTitle, Shimmer, StatusDot, TextField,
 };
 use crate::pump::Pump;
 
@@ -37,11 +37,12 @@ pub fn TodoCard(phases: Vec<TodoPhase>) -> Element {
                 .find(|task| !matches!(task.status, TodoStatus::Completed | TodoStatus::Abandoned))
         });
     rsx! {
-        Card { size: CardSize::Sm, class: Some("min-w-0".to_owned()), "data-testid": "agent-chat-todo",
-            CardContent { class: Some("flex flex-col gap-2".to_owned()),
-                Collapsible { class: "flex flex-col gap-2 min-w-0", open: expanded(), on_open_change: move |next: bool| expanded.set(next),
+        Card { size: CardSize::Sm, class: Some("min-w-0 py-1".to_owned()), "data-testid": "agent-chat-todo",
+            CardContent { class: Some("flex flex-col gap-1".to_owned()),
+                Collapsible { class: "flex min-w-0 flex-col gap-1", open: expanded(), on_open_change: move |next: bool| expanded.set(next),
                 CollapsibleTrigger {
                     variant: ButtonVariant::Link,
+                    size: ButtonSize::Sm,
                     class: "w-full min-w-0 justify-start gap-2 whitespace-normal text-left",
                     test_id: "agent-chat-todo-toggle",
                     Icon { icon: IconType::ListChecks, class: "size-4" }
@@ -57,7 +58,7 @@ pub fn TodoCard(phases: Vec<TodoPhase>) -> Element {
                     Icon { icon: if expanded() { IconType::ChevronUp } else { IconType::ChevronDown }, class: "size-4" }
                 }
                 CollapsibleContent {
-                    div { class: "flex flex-col gap-2", role: "list", "aria-label": "Phased task checklist",
+                    div { class: "flex flex-col gap-1", role: "list", "aria-label": "Phased task checklist",
                         for phase in phases.iter() {
                             TodoPhaseSection { key: "{phase.name}", phase: phase.clone() }
                         }
@@ -83,7 +84,7 @@ fn TodoPhaseSection(phase: TodoPhase) -> Element {
     }));
     rsx! {
         Collapsible { class: "flex flex-col gap-1", open: open(), on_open_change: move |next: bool| open.set(next),
-            CollapsibleTrigger { variant: ButtonVariant::Ghost, class: "w-full min-w-0 justify-start",
+            CollapsibleTrigger { variant: ButtonVariant::Ghost, size: ButtonSize::Sm, class: "w-full min-w-0 justify-start",
                 SectionTitle { "{phase.name}" }
             }
             CollapsibleContent { class: "flex flex-col gap-1",
@@ -143,8 +144,10 @@ pub fn AskCard(
     let send_item = item_id.clone();
     rsx! {
         Card {
+            size: CardSize::Sm,
+            class: Some("py-2".to_owned()),
             CardHeader { CardTitle { "A question for you" } }
-            CardContent { class: "flex flex-col gap-3",
+            CardContent { class: "flex flex-col gap-2",
                 for question in &questions {
                     AskQuestionOptions {
                         key: "{question.id}",
@@ -193,7 +196,7 @@ fn AskQuestionOptions(
         .or_else(|| other().get(&question_id).cloned())
         .unwrap_or_default();
     rsx! {
-        div { class: "flex flex-col gap-2 min-w-0",
+        div { class: "flex min-w-0 flex-col gap-1",
             h3 { class: "text-sm font-medium", "{question.question}" }
             for (index, option) in question.options.iter().enumerate() {
                 {
@@ -316,8 +319,10 @@ pub fn BtwCard(question: String, answer: Option<String>, error: Option<String>) 
     let loading = use_signal(|| true);
     rsx! {
         Card {
+            size: CardSize::Sm,
+            class: Some("py-2".to_owned()),
             CardHeader { CardTitle { "Side question" } }
-            CardContent { class: "flex flex-col gap-3",
+            CardContent { class: "flex flex-col gap-1",
                 p { class: "text-sm text-foreground", "{question}" }
                 if let Some(answer) = answer {
                     div { class: "text-sm text-foreground break-words", dangerous_inner_html: super::markdown::markdown_to_safe_html(&answer) }

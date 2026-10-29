@@ -11,13 +11,13 @@ use super::composer_helpers::{
 use super::composer_status::{ComposerErrorBanner, ComposerStatusLine, composer_usage};
 use super::goal_controls::GoalControls;
 use super::message_actions::EditTarget;
+use super::plan_refinement::{PlanRefinement, PlanRefinementBanner};
 use super::slash_menu::{
     SlashAccept, SlashMenu, accept_action, initial_selection, listbox_id, option_id,
     scroll_option_into_view, slash_menu_state, slash_sources,
 };
 use crate::components::settings::agent_connect_dialog::AgentConnectDialog;
 use crate::components::terminal_chrome::attachment_picker::ChosenFile;
-use crate::components::terminal_chrome::attachment_picker::spawn_read_chosen;
 use crate::components::terminal_chrome::composer_dictation::{
     SharedBinding, VoiceControl, use_dictation, use_dictation_context,
 };
@@ -26,7 +26,6 @@ use crate::pump::Pump;
 use crate::router_state::use_navigate;
 use crate::voice::send_gate::SendGate;
 use dioxus::prelude::*;
-use dioxus::web::WebEventExt as _;
 use roost_protocol::wire::agent_chat::{
     ConversationSummary, ModelsCatalog, ProviderEntry, Transcript,
 };
@@ -47,6 +46,9 @@ pub fn AgentComposer(
     connect_provider: Signal<Option<ProviderEntry>>,
 ) -> Element {
     let mut draft = draft;
+    let plan_refinement = use_context::<PlanRefinement>();
+    let plan_target = plan_refinement.selected_target();
+    let plan_is_current = plan_refinement.is_current(&transcript);
     let dictation = use_dictation(draft);
     let dictation_context = use_dictation_context(None, draft);
     let disabled = !host_connected;
@@ -58,6 +60,11 @@ pub fn AgentComposer(
     let mut connect_provider = connect_provider;
     let mut command_error = use_signal(|| None::<String>);
     let mut voice_error = use_signal(|| None::<String>);
+    use_effect(move || {
+        if plan_refinement.focus_request().is_some() {
+            focus_field(field);
+        }
+    });
     let mut goal_open = use_signal(|| false);
     let goal_view_request = use_signal(String::new);
     let mut goal_pending = use_signal(|| false);
@@ -77,7 +84,7 @@ pub fn AgentComposer(
     });
     let report = report_command(command_error);
     let sources = slash_sources(&conversation, catalog.as_ref());
-    let menu = if edit_target.peek().is_some() {
+    let menu = if edit_target.peek().is_some() || plan_target.is_some() {
         None
     } else {
         slash_menu_state(&draft(), &sources)
@@ -101,6 +108,7 @@ pub fn AgentComposer(
             transcript,
             draft,
             edit_target,
+            plan_refinement,
             disabled,
             pump: pump.clone(),
             goal_open,
@@ -158,28 +166,8 @@ pub fn AgentComposer(
         draft,
         report,
     );
-    let on_drop = EventHandler::new(move |event: DragEvent| {
-        event.prevent_default();
-        let files = super::composer_attachments::transferred_files(
-            event
-                .try_as_web_event()
-                .and_then(|native: web_sys::DragEvent| native.data_transfer())
-                .and_then(|transfer| transfer.files()),
-        );
-        spawn_read_chosen(files, on_attach);
-    });
-    let on_paste = EventHandler::new(move |event: ClipboardEvent| {
-        let files = super::composer_attachments::transferred_files(
-            event
-                .try_as_web_event()
-                .and_then(|native: web_sys::ClipboardEvent| native.clipboard_data())
-                .and_then(|transfer| transfer.files()),
-        );
-        if !files.is_empty() {
-            event.prevent_default();
-            spawn_read_chosen(files, on_attach);
-        }
-    });
+    let on_drop = super::composer_attachments::attachment_drop_handler(on_attach);
+    let on_paste = super::composer_attachments::attachment_paste_handler(on_attach);
     let stop = EventHandler::new({
         let pump = pump.clone();
         let conversation_id = conversation_id.clone();
@@ -199,14 +187,18 @@ pub fn AgentComposer(
             let _ = &conversation_id;
         }
     });
+    let refinement_has_attachments =
+        plan_refinement.attachments_block_send(staged_files, edit_target);
     let empty = draft().trim().is_empty();
     let dictation_finishing = dictation.send_gate() == SendGate::AfterFinalize;
     let send_available = dictation.send_gate().offers_send();
-    let placeholder = composer_placeholder(disabled, send_available, running, &busy_mode());
     let sources_for_input = sources.clone();
     let key_conversation = conversation_id.clone();
-    // A tap or click on a row does what Enter does on it: runs a command that
-    // needs nothing more, completes one that needs an argument.
+    let placeholder = if plan_target.is_some() {
+        "Describe the changes you want…"
+    } else {
+        composer_placeholder(disabled, send_available, running, &busy_mode())
+    };
     let pick = accept;
     let capture_field = EventHandler::new(move |event: MountedEvent| field.set(Some(event.data())));
     let input_dictation = dictation.clone();
@@ -283,6 +275,14 @@ pub fn AgentComposer(
                     on_choose: pick,
                 }
             }
+            if let Some(target) = plan_target {
+                PlanRefinementBanner {
+                    refinement: plan_refinement,
+                    target,
+                    attachments_block_send: refinement_has_attachments,
+                    valid: plan_is_current,
+                }
+            }
             EditBanner { edit_target, draft }
             InputPrompt {
                 class: "min-w-0 flex-col",
@@ -350,6 +350,8 @@ pub fn AgentComposer(
                     on_chosen: on_attach,
                     uploads_in_flight,
                     attachments_block_send,
+                    refining_plan: plan_refinement.is_active(),
+                    refinement_has_attachments,
                     disabled,
                     busy_mode,
                     submit_pending: submit_pending(),

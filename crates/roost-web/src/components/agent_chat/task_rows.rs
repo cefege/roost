@@ -118,7 +118,7 @@ pub fn TaskRows(child_ids: Vec<String>, open: bool, on_expand: EventHandler<bool
                     ListRow {
                         key: "{child_id}",
                         dense: true,
-                        class: "min-h-0 gap-2 px-3 py-1",
+                        class: "min-h-0 gap-2 px-2 py-1",
                         href: crate::routes::agent_href(&child_id),
                         on_navigate: navigate,
                         headline: rsx! { "{agent}: {title}" },

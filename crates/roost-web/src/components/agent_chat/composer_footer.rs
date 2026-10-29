@@ -38,6 +38,8 @@ pub(super) fn ComposerFooter(
     on_chosen: EventHandler<Vec<ChosenFile>>,
     uploads_in_flight: bool,
     attachments_block_send: bool,
+    refining_plan: bool,
+    refinement_has_attachments: bool,
     disabled: bool,
     busy_mode: Signal<String>,
     submit_pending: bool,
@@ -78,6 +80,7 @@ pub(super) fn ComposerFooter(
     let ready = !(disabled
         || submit_pending
         || attachments_block_send
+        || refinement_has_attachments
         || (!has_draft && !dictation_finishing));
     rsx! {
         InputGroupAddon {
@@ -145,22 +148,32 @@ pub(super) fn ComposerFooter(
                     InputPromptSubmit {
                         disabled: !ready,
                         variant: if ready { ButtonVariant::Default } else { ButtonVariant::Ghost },
-                        aria_label: if running {
+                        aria_label: if refining_plan {
+                            "Send plan feedback"
+                        } else if running {
                             match busy_mode().as_str() {
                                 "follow_up" => "Send follow-up",
                                 "reject" => "Reject if busy",
                                 _ => "Steer the agent",
                             }
-                        } else { "Send message" },
+                        } else {
+                            "Send message"
+                        },
                         title: if uploads_in_flight {
                             "Uploading…"
+                        } else if refinement_has_attachments {
+                            "Remove attachments to send feedback"
+                        } else if refining_plan {
+                            "Send feedback"
                         } else if running {
                             match busy_mode().as_str() {
                                 "follow_up" => "Follow-up",
                                 "reject" => "Reject if busy",
                                 _ => "Steer",
                             }
-                        } else { "Send" },
+                        } else {
+                            "Send"
+                        },
                         test_id: "agent-chat-send",
                         onclick: move |_| on_send.call(()),
                         Icon { icon: IconType::ArrowUp, class: "size-4" }

@@ -84,7 +84,7 @@ pub(super) fn ThinkingBlock(text: String, live: bool, globally_visible: bool) ->
                             class: "size-4",
                         }
                     }
-                    CollapsibleContent { class: "flex flex-col gap-2 border-l border-border pl-3 text-muted-foreground",
+                    CollapsibleContent { class: "flex flex-col gap-1 border-l border-border pl-2 text-muted-foreground",
                         if omitted_live_lines {
                             p { class: "text-xs text-muted-foreground", "Earlier lines are omitted from the live preview." }
                         }
