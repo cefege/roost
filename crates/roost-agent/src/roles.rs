@@ -11,9 +11,9 @@ use crate::records::{AgentSettings, Role};
 use crate::traits::Llm;
 
 /// The judge chain when no `judge` role is configured: TypeSafe's Jev
-/// directly, then through OpenRouter, then progressively larger chat models.
-const BUILTIN_JUDGE_CHAIN: &str =
-    "typesafe/jev-latest, openrouter/~typesafe/jev-latest, @tiny, @smol, @default";
+/// directly, then through Experiential Labs and OpenRouter, then progressively
+/// larger chat models.
+const BUILTIN_JUDGE_CHAIN: &str = "typesafe/jev-latest, experiential-labs/jev-latest, openrouter/~typesafe/jev-latest, @tiny, @smol, @default";
 
 /// Default provider chain from oh-my-pi's `src/priority.json`.
 pub const DEFAULT_WEB_CHAIN: &str = "web/parallel, web/hosted, web/exa, web/firecrawl, web/searxng, web/startpage, web/duckduckgo, web/ecosia, web/google, web/mojeek, web/public";

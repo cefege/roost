@@ -340,3 +340,30 @@ async fn provider_replay_preserves_ordered_tool_images_and_origin_signatures() {
     assert_eq!(completion_parts[1]["type"], "image_url");
     assert_eq!(completion_parts[2]["text"], "after");
 }
+
+#[tokio::test]
+async fn experiential_chat_posts_once_to_the_v1_completions_path() {
+    let catalog = Catalog::builtin();
+    let model = catalog
+        .get("experiential-labs", "claude-opus-4.5")
+        .expect("the experiential chat model is bundled");
+    let (url, requests, sent_headers, paths) = super::provider_support::server_with_paths(
+        include_str!("fixtures/completions.sse"),
+        StatusCode::OK,
+    )
+    .await;
+    let events = events(request(model, Vec::new()), &format!("{url}/v1")).await;
+    assert!(events.iter().any(|event| matches!(
+        event,
+        StreamEvent::BlockEnd {
+            block: AssistantBlock::Text { text, .. },
+            ..
+        } if text == "Open"
+    )));
+    assert_eq!(*paths.lock().await, ["/v1/chat/completions"]);
+    let sent = requests.lock().await;
+    assert_eq!(sent[0]["model"], "claude-opus-4.5");
+    drop(sent);
+    let headers = sent_headers.lock().await;
+    assert_eq!(headers[0]["authorization"], "Bearer test-key");
+}

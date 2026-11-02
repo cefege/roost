@@ -12,9 +12,10 @@ use crate::coord_core::{Caller, CoordCore};
 use crate::rpc::service::ok_response;
 
 /// Providers that accept an API key.
-const API_KEY_PROVIDERS: [&str; 11] = [
+const API_KEY_PROVIDERS: [&str; 12] = [
     "anthropic",
     "openrouter",
+    "experiential-labs",
     "typesafe",
     "exa",
     "parallel",

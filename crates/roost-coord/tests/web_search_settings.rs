@@ -13,7 +13,7 @@ use roost_proto as proto;
 use serde_json::Value;
 
 #[tokio::test]
-async fn web_search_api_key_allow_list_accepts_brave_and_rejects_unknown_providers() {
+async fn api_key_allow_list_accepts_known_providers_and_rejects_unknown_providers() {
     let fixture = AgentFixture::new("web-search-api-key").await;
     handle_agent_auth_set_api_key(
         &fixture.core,
@@ -26,6 +26,17 @@ async fn web_search_api_key_allow_list_accepts_brave_and_rejects_unknown_provide
     )
     .await
     .expect("Brave API key accepted");
+    handle_agent_auth_set_api_key(
+        &fixture.core,
+        &fixture.caller,
+        proto::AgentAuthSetApiKeyRequest {
+            provider: "experiential-labs".into(),
+            api_key: "xpl-test-key-0001".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("Experiential Labs API key accepted");
 
     let error = handle_agent_auth_set_api_key(
         &fixture.core,

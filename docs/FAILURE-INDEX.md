@@ -4689,3 +4689,17 @@ anchored edge to the opposite bounds margin, in viewport coordinates before
 conversion to the containing block.
 
 **Guard** — `components::menu_placement::tests::inset_triggers_keep_wide_popups_inside_both_viewport_margins`.
+
+### A versioned OpenAI-compatible root receives `/v1` twice
+
+**Symptom** — a provider whose catalog root ends in `/v1` receives requests at
+`/v1/v1/chat/completions` instead of its advertised chat endpoint.
+
+**Wrong** — append `/v1/chat/completions` to every provider root.
+
+**Right** — append `/chat/completions` to a versioned root and
+`/v1/chat/completions` to a bare override; strip trailing slashes first.
+
+**Guard** — `roost-llm`
+`providers::completions::tests::appends_the_completions_path_once_to_a_versioned_root`
+and `provider_stream::experiential_chat_posts_once_to_the_v1_completions_path`.

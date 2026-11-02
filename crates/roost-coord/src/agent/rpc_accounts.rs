@@ -25,6 +25,7 @@ fn provider_name(id: &str) -> String {
         "anthropic" => "Anthropic".into(),
         "openai-codex" => "OpenAI Codex".into(),
         "openrouter" => "OpenRouter".into(),
+        "experiential-labs" => "Experiential Labs".into(),
         "typesafe" => "TypeSafe".into(),
         other => other.into(),
     }

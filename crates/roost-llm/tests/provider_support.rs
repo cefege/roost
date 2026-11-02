@@ -16,15 +16,18 @@ struct ServerState {
     status: StatusCode,
     requests: Arc<Mutex<Vec<Value>>>,
     headers: Arc<Mutex<Vec<axum::http::HeaderMap>>>,
+    paths: Arc<Mutex<Vec<String>>>,
 }
 
 async fn serve_request(
     State(state): State<ServerState>,
+    uri: axum::http::Uri,
     headers: axum::http::HeaderMap,
     Json(body): Json<Value>,
 ) -> Response<String> {
     state.requests.lock().await.push(body);
     state.headers.lock().await.push(headers);
+    state.paths.lock().await.push(uri.path().to_owned());
     let mut response = Response::builder()
         .status(state.status)
         .header("content-type", "text/event-stream");
@@ -44,13 +47,28 @@ pub async fn server(
     Arc<Mutex<Vec<Value>>>,
     Arc<Mutex<Vec<axum::http::HeaderMap>>>,
 ) {
+    let (url, requests, headers, _) = server_with_paths(body, status).await;
+    (url, requests, headers)
+}
+
+pub async fn server_with_paths(
+    body: &'static str,
+    status: StatusCode,
+) -> (
+    String,
+    Arc<Mutex<Vec<Value>>>,
+    Arc<Mutex<Vec<axum::http::HeaderMap>>>,
+    Arc<Mutex<Vec<String>>>,
+) {
     let requests = Arc::new(Mutex::new(Vec::new()));
     let headers = Arc::new(Mutex::new(Vec::new()));
+    let paths = Arc::new(Mutex::new(Vec::new()));
     let state = ServerState {
         body,
         status,
         requests: requests.clone(),
         headers: headers.clone(),
+        paths: paths.clone(),
     };
     let app = Router::new()
         .route("/{*path}", post(serve_request))
@@ -60,7 +78,7 @@ pub async fn server(
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
-    (format!("http://{address}"), requests, headers)
+    (format!("http://{address}"), requests, headers, paths)
 }
 
 pub fn request(model: &roost_llm::ModelInfo, tools: Vec<ToolSpec>) -> ChatRequest {

@@ -250,6 +250,16 @@ A successful rewind emits a canonical `ChatEvent::Reset` before returning.
 Already-open subscribers remove hidden turns before a retry or edited
 replacement arrives; refreshing only the initiating browser is insufficient.
 
+## Provider endpoints
+
+`experiential-labs` accepts API-key credentials. Chat models use
+`/v1/chat/completions`; native classifiers use `/v1/systemone` and belong in
+the Judge role, not a conversation's chat-model pin. The built-in Judge chain
+tries TypeSafe, Experiential Labs, then OpenRouter.
+
+OpenAI-compatible chat roots ending in `/v1` receive `/chat/completions` once.
+Bare endpoint overrides receive `/v1/chat/completions`.
+
 ## Model roles
 
 `AgentSettingsView.model_roles`, each preset in `model_presets`, and each

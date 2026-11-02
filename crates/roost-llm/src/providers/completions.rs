@@ -25,7 +25,7 @@ pub(super) fn stream(
     let endpoints = endpoints.clone();
     Box::pin(async_stream::try_stream! {
         let base = endpoints.base(&request.model.provider, &request.model.base_url);
-        let url = format!("{}/v1/chat/completions", base.trim_end_matches('/'));
+        let url = chat_completions_url(&base);
         let headers = auth_headers(&auth, "authorization", true)?;
         let body = build_body(&request);
         let response = post_sse(&http, url, headers, body, &cancel, &observer).await?;
@@ -326,6 +326,18 @@ fn find_or_start(
     index
 }
 
+/// The catalog's `baseUrl` includes `/v1` for a versioned API root; the
+/// completions path appends to it once. A bare proxy base (an endpoint
+/// override with no `/v1`) still gets the version prefix.
+fn chat_completions_url(base: &str) -> String {
+    let base = base.trim_end_matches('/');
+    if base.ends_with("/v1") {
+        format!("{base}/chat/completions")
+    } else {
+        format!("{base}/v1/chat/completions")
+    }
+}
+
 fn push_usage(value: &Value, output: &mut Vec<StreamEvent>) {
     output.push(StreamEvent::Usage(Usage {
         input: value
@@ -344,4 +356,29 @@ fn push_usage(value: &Value, output: &mut Vec<StreamEvent>) {
             .unwrap_or(0),
         cache_write: 0,
     }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::chat_completions_url;
+
+    #[test]
+    fn appends_the_completions_path_once_to_a_versioned_root() {
+        assert_eq!(
+            chat_completions_url("https://openrouter.ai/api/v1"),
+            "https://openrouter.ai/api/v1/chat/completions"
+        );
+        assert_eq!(
+            chat_completions_url("https://api.experientiallabs.ai/v1/"),
+            "https://api.experientiallabs.ai/v1/chat/completions"
+        );
+        assert_eq!(
+            chat_completions_url("http://127.0.0.1:47215"),
+            "http://127.0.0.1:47215/v1/chat/completions"
+        );
+        assert_eq!(
+            chat_completions_url("http://127.0.0.1:47215/v1"),
+            "http://127.0.0.1:47215/v1/chat/completions"
+        );
+    }
 }

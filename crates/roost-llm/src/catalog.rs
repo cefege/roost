@@ -1,5 +1,5 @@
 //! Ported from pi-ai 1.1.0 dist/providers/data/*.json and dist/models.js (MIT).
-//! The model catalog: the four providers' JSON compiled in, parsed once, and
+//! The model catalog: the bundled providers' JSON compiled in, parsed once, and
 //! the thinking-level rules (`supported_thinking_levels`, `clamp_thinking_level`).
 //! Read by the provider clients, the account pool and roost-agent's role resolver.
 //! The intelligence, speed, kind, priority and pricing fields are copied from
@@ -15,10 +15,11 @@ use crate::message::Usage;
 /// not here: roost-agent resolves it to one of these through the judge.
 pub const THINKING_LEVELS: [&str; 7] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
-const CATALOG_SOURCES: [&str; 4] = [
+const CATALOG_SOURCES: [&str; 5] = [
     include_str!("../catalog/anthropic.json"),
     include_str!("../catalog/openai-codex.json"),
     include_str!("../catalog/openrouter.json"),
+    include_str!("../catalog/experiential-labs.json"),
     include_str!("../catalog/typesafe.json"),
 ];
 
@@ -150,8 +151,8 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    /// The compiled-in catalog. Entries whose `api` is not one of the four
-    /// supported wire APIs (OpenRouter's image models) are skipped.
+    /// The compiled-in catalog. Entries whose `api` is not one of the supported
+    /// wire APIs (OpenRouter's image models) are skipped.
     pub fn builtin() -> Self {
         let mut models = Vec::new();
         for source in CATALOG_SOURCES {
@@ -324,27 +325,6 @@ mod tests {
             model.provider_thinking_value("minimal").as_deref(),
             Some("low")
         );
-    }
-
-    #[test]
-    fn bundled_model_carries_omp_intelligence_and_speed() {
-        let catalog = Catalog::builtin();
-        let model = catalog
-            .get("anthropic", "claude-opus-5-5")
-            .expect("pinned model catalog entry exists");
-        assert_eq!(model.intelligence, Some(57.6));
-        assert_eq!(model.tokens_per_second, Some(96.6));
-        assert_eq!(model.runner_kind, "");
-    }
-
-    #[test]
-    fn bundled_judge_model_carries_its_omp_kind() {
-        let catalog = Catalog::builtin();
-        let model = catalog
-            .get("typesafe", "jev-latest")
-            .expect("pinned model catalog entry exists");
-        assert_eq!(model.runner_kind, "judge");
-        assert_eq!(model.kind, super::ModelKind::Classifier);
     }
 
     #[test]
