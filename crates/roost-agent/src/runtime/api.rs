@@ -364,6 +364,7 @@ impl AgentRuntime {
                 model: record.model.clone(),
                 thinking_level: Some(record.thinking_level.clone()),
                 mode: Some(record.mode.as_str().to_owned()),
+                omp_session: None,
             }],
         )
         .await;

@@ -10,13 +10,14 @@ mod ordering;
 mod settings_restart;
 
 use agent_fixture::{AgentFixture, WORKER_A, WORKER_B};
+use roost_coord::agent::omp::rpc::handle_agent_omp_session_open;
 use roost_coord::{
     agent::{omp, rpc_chat::*, rpc_chat_transcript::*},
     coord_core::{worker_handle::WorkerHandle, worker_lifecycle::WorkerLifecycleObserver},
 };
 use roost_proto as proto;
 use roost_protocol::{
-    versioning::CAPABILITY_OMP_ACP_V1,
+    versioning::{CAPABILITY_OMP_ACP_SESSION_V1, CAPABILITY_OMP_ACP_V1},
     wire::{
         WorkerFp,
         agent_chat::*,
@@ -33,12 +34,26 @@ fn register_worker(
     Arc<WorkerHandle>,
     mpsc::UnboundedReceiver<CoordWorkerDownstream>,
 ) {
+    register_worker_with_session_capability(fixture, epoch, true)
+}
+fn register_worker_with_session_capability(
+    fixture: &AgentFixture,
+    epoch: &str,
+    session_open: bool,
+) -> (
+    Arc<WorkerHandle>,
+    mpsc::UnboundedReceiver<CoordWorkerDownstream>,
+) {
     let (sender, receiver) = mpsc::unbounded_channel();
+    let mut capabilities = BTreeSet::from([CAPABILITY_OMP_ACP_V1.into()]);
+    if session_open {
+        capabilities.insert(CAPABILITY_OMP_ACP_SESSION_V1.into());
+    }
     let handle = Arc::new(WorkerHandle::new(
         WorkerFp::try_from(WORKER_A.to_owned()).unwrap(),
         Some(epoch.into()),
         format!("gen-{epoch}"),
-        BTreeSet::from([CAPABILITY_OMP_ACP_V1.into()]),
+        capabilities,
         Arc::new(move |frame| if sender.send(frame).is_ok() { 1 } else { 0 }),
     ));
     handle.mark_ready();
@@ -238,6 +253,94 @@ async fn omp_chat_submit_projection_replay_and_native_isolation() {
         .local(&id, vec![], vec![])
         .await
         .unwrap();
+    assert_eq!(snapshot(&fixture, &id).await, before);
+    assert!(downstream.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn omp_session_open_reuses_saved_session_without_changing_transcript() {
+    let fixture = AgentFixture::new("omp-session-open").await;
+    let (_handle, mut downstream) = register_worker(&fixture, "worker-epoch");
+    let id = create(&fixture).await;
+    sqlx::query("UPDATE omp_sessions SET acp_session_id = $1 WHERE conversation_id = $2")
+        .bind("acp-saved")
+        .bind(&id)
+        .execute(fixture.core.services.db.pool())
+        .await
+        .unwrap();
+    let before = snapshot(&fixture, &id).await;
+    assert_eq!(before.1.run_state, AgentRunState::Idle);
+    assert!(before.1.items.is_empty());
+
+    handle_agent_omp_session_open(
+        &fixture.core,
+        &fixture.caller,
+        proto::AgentOmpSessionOpenRequest {
+            conversation_id: id.clone(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        receive(&mut downstream).await,
+        CoordWorkerDownstream::OmpOpen(open)
+            if open.conversation_id == id && open.cwd == "/work" && open.acp_session_id == "acp-saved"
+    ));
+    assert_eq!(snapshot(&fixture, &id).await, before);
+}
+
+#[tokio::test]
+async fn omp_session_open_requires_updated_worker_before_create_and_preserves_offline_snapshot() {
+    let fixture = AgentFixture::new("omp-session-open-errors").await;
+    let (_handle, _downstream) =
+        register_worker_with_session_capability(&fixture, "old-worker", false);
+    let error = handle_agent_chat_create(
+        &fixture.core,
+        &fixture.caller,
+        proto::AgentChatCreateRequest {
+            worker_fp: WORKER_A.into(),
+            cwd: "/work".into(),
+            backend: "omp".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code, connectrpc::ErrorCode::FailedPrecondition);
+    assert_eq!(
+        error.message.as_deref(),
+        Some("Update Roost on this machine to use OMP chats")
+    );
+    assert!(
+        omp::store::list(&fixture.core.services.db)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    let (_handle, mut downstream) = register_worker(&fixture, "new-worker");
+    let id = create(&fixture).await;
+    submit(&fixture, &id, "durable").await;
+    assert!(matches!(
+        receive(&mut downstream).await,
+        CoordWorkerDownstream::OmpPrompt(prompt) if prompt.request_id == "durable"
+    ));
+    let before = snapshot(&fixture, &id).await;
+    assert_eq!(before.1.run_state, AgentRunState::Running);
+    let fp = WorkerFp::try_from(WORKER_A.to_owned()).unwrap();
+    fixture.core.services.workers.fence(&fp);
+    let error = handle_agent_omp_session_open(
+        &fixture.core,
+        &fixture.caller,
+        proto::AgentOmpSessionOpenRequest {
+            conversation_id: id.clone(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code, connectrpc::ErrorCode::Unavailable);
     assert_eq!(snapshot(&fixture, &id).await, before);
     assert!(downstream.try_recv().is_err());
 }

@@ -37,6 +37,7 @@ fn transcript() -> Transcript {
         usage: UsageTotals::default(),
         queued: Vec::new(),
         schedules: Vec::new(),
+        omp_session: None,
     }
 }
 

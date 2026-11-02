@@ -191,6 +191,7 @@ mod tests {
             usage: UsageTotals::default(),
             queued: Vec::new(),
             schedules: Vec::new(),
+            omp_session: None,
         };
         assert_eq!(
             transcript_to_markdown("Research", &transcript),

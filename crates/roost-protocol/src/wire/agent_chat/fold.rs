@@ -139,10 +139,14 @@ pub fn fold_chat_event(transcript: &mut Transcript, event: &ChatEvent) {
             model,
             thinking_level,
             mode,
+            omp_session,
         } => {
             transcript.model = model.clone();
             transcript.thinking_level = thinking_level.clone();
             transcript.mode = mode.clone();
+            if let Some(state) = omp_session {
+                transcript.omp_session = Some(state.clone());
+            }
         }
         ChatEvent::Usage { usage } => transcript.usage = usage.clone(),
     }
@@ -223,6 +227,7 @@ mod tests {
             usage: Default::default(),
             queued: Vec::new(),
             schedules: Vec::new(),
+            omp_session: None,
         }
     }
 
@@ -234,6 +239,31 @@ mod tests {
             every_ms: None,
             fired: 0,
         }
+    }
+
+    #[test]
+    fn agent_events_preserve_omp_session_unless_explicitly_set() {
+        let mut transcript = transcript();
+        let state = crate::wire::agent_chat::OmpSessionState::Ready;
+        fold_chat_event(
+            &mut transcript,
+            &ChatEvent::Agent {
+                model: None,
+                thinking_level: None,
+                mode: None,
+                omp_session: Some(state.clone()),
+            },
+        );
+        fold_chat_event(
+            &mut transcript,
+            &ChatEvent::Agent {
+                model: None,
+                thinking_level: None,
+                mode: None,
+                omp_session: None,
+            },
+        );
+        assert_eq!(transcript.omp_session, Some(state));
     }
 
     #[test]

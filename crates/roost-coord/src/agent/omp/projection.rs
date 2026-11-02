@@ -105,7 +105,7 @@ pub fn project(
                 }
                 SessionUpdate::ConfigOptionUpdate(update) => {
                     if let Ok(options) = serde_json::to_value(update.config_options) {
-                        projected.events.push(agent_event(&options));
+                        projected.events.push(agent_event(&options, None));
                         projected.effects.push(OmpEffect::ConfigOptions(options));
                     }
                 }
@@ -114,6 +114,7 @@ pub fn project(
                         model: transcript.model.clone(),
                         thinking_level: transcript.thinking_level.clone(),
                         mode: Some(update.current_mode_id.to_string()),
+                        omp_session: None,
                     })
                 }
                 SessionUpdate::SessionInfoUpdate(update) => {
@@ -128,10 +129,22 @@ pub fn project(
             acp_session_id,
             config_options,
         } => {
-            projected.events.push(agent_event(config_options));
+            projected
+                .events
+                .push(agent_event(config_options, Some(OmpSessionState::Ready)));
             projected.effects.push(OmpEffect::SessionReady {
                 acp_session_id: acp_session_id.clone(),
                 config_options: config_options.clone(),
+            });
+        }
+        OmpWorkerEvent::SessionFailed { error } => {
+            projected.events.push(ChatEvent::Agent {
+                model: transcript.model.clone(),
+                thinking_level: transcript.thinking_level.clone(),
+                mode: transcript.mode.clone(),
+                omp_session: Some(OmpSessionState::Failed {
+                    error: error.clone(),
+                }),
             });
         }
         OmpWorkerEvent::TurnStarted { .. } if transcript.run_state != AgentRunState::Running => {
@@ -232,12 +245,13 @@ fn set_state(projected: &mut Projected, state: AgentRunState, error: Option<Stri
     projected.effects.push(OmpEffect::RunState(state, error));
 }
 
-fn agent_event(options: &serde_json::Value) -> ChatEvent {
+fn agent_event(options: &serde_json::Value, omp_session: Option<OmpSessionState>) -> ChatEvent {
     let (model, thinking_level, mode) = super::catalog::current_values(options);
     ChatEvent::Agent {
         model: model.as_deref().and_then(split_omp_model),
         thinking_level,
         mode,
+        omp_session,
     }
 }
 

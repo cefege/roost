@@ -8,7 +8,7 @@ use agent_client_protocol::{
     Agent, Client, Error,
     v1::{ConnectionTo, schema::*},
 };
-use roost_proto::DOmpPrompt;
+use roost_proto::{DOmpOpen, DOmpPrompt};
 use roost_protocol::wire::agent_chat::OmpWorkerEvent;
 use std::{collections::HashSet, sync::Arc, time::Duration};
 use tokio::{
@@ -16,11 +16,8 @@ use tokio::{
     time::{Instant, interval, sleep_until},
 };
 
-#[expect(
-    clippy::large_enum_variant,
-    reason = "Keep prompts inline instead of allocating a box for each message, like CoordWorkerDownstream."
-)]
 pub(super) enum OmpCommand {
+    Open(DOmpOpen),
     Prompt(DOmpPrompt),
     Cancel,
     Ack { run_id: String, seq: u64 },
@@ -40,6 +37,11 @@ pub(super) enum AcpEvent {
     Notice(OmpWorkerEvent),
 }
 
+struct ConnectionProgress {
+    prompt_first: bool,
+    has_started_turn: bool,
+}
+
 pub(super) async fn conversation_actor<L: OmpLauncher>(
     launcher: Arc<L>,
     uplink: Uplink,
@@ -51,9 +53,15 @@ pub(super) async fn conversation_actor<L: OmpLauncher>(
     let mut seen = HashSet::new();
     let mut tick = interval(Duration::from_millis(50));
     loop {
-        let prompt = tokio::select! {
+        let (prompt, start_turn) = tokio::select! {
             command = inbox.recv()=>match command {
-                Some(OmpCommand::Prompt(prompt)) if seen.insert(prompt.request_id.clone())=>prompt,
+                Some(OmpCommand::Open(request)) => (DOmpPrompt {
+                    conversation_id: request.conversation_id,
+                    cwd: request.cwd,
+                    acp_session_id: request.acp_session_id,
+                    ..Default::default()
+                }, false),
+                Some(OmpCommand::Prompt(prompt)) if seen.insert(prompt.request_id.clone())=>(prompt, true),
                 Some(OmpCommand::Ack {run_id,seq})=>{emitter.ack(&run_id,seq);continue;}
                 Some(OmpCommand::Resend)=>{emitter.resend();continue;}
                 Some(OmpCommand::Close)|None=>{emitter.flush();return;}
@@ -64,17 +72,25 @@ pub(super) async fn conversation_actor<L: OmpLauncher>(
         let (transport, description) = match launcher.launch(&prompt.cwd) {
             Ok(transport) => transport,
             Err(error) => {
-                emitter.notice(
-                    "error",
-                    "OMP is not installed",
-                    "`omp` was not found on this machine's PATH.",
-                );
-                emitter.emit(OmpWorkerEvent::TurnEnded {
-                    request_id: prompt.request_id,
-                    stop_reason: "error".into(),
-                    error: Some(error.to_string()),
-                    outstanding: 0,
-                });
+                if start_turn {
+                    emitter.notice(
+                        "error",
+                        "OMP is not installed",
+                        "`omp` was not found on this machine's PATH.",
+                    );
+
+                    emitter.emit(OmpWorkerEvent::TurnEnded {
+                        request_id: prompt.request_id,
+                        stop_reason: "error".into(),
+                        error: Some(error.to_string()),
+                        outstanding: 0,
+                    });
+                } else {
+                    emitter.emit(OmpWorkerEvent::SessionFailed {
+                        error: "OMP is not installed. Install OMP and sign in on this machine."
+                            .into(),
+                    });
+                }
                 emitter.flush();
                 continue;
             }
@@ -83,6 +99,10 @@ pub(super) async fn conversation_actor<L: OmpLauncher>(
         let (events_tx, mut events) = mpsc::unbounded_channel();
         let notification_tx = events_tx.clone();
         let notice_tx = events_tx.clone();
+        let mut progress = ConnectionProgress {
+            prompt_first: start_turn,
+            has_started_turn: start_turn,
+        };
         let result = Client.v1()
             .on_receive_notification(async move |notification:SessionNotification,_connection| {let _=notification_tx.send(AcpEvent::Notification(notification));Ok(())},agent_client_protocol::on_receive_notification!())
             .on_receive_request(async move |request:RequestPermissionRequest,responder,_connection| {
@@ -91,11 +111,15 @@ pub(super) async fn conversation_actor<L: OmpLauncher>(
                 let outcome=selected.map(|id| RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(id))).unwrap_or(RequestPermissionOutcome::Cancelled);
                 responder.respond(RequestPermissionResponse::new(outcome))
             },agent_client_protocol::on_receive_request!())
-            .connect_with(transport,async |connection:ConnectionTo<Agent>| {connected_loop(connection,prompt,&mut emitter,&mut seen,&mut inbox,&mut events,events_tx).await}).await;
+            .connect_with(transport,async |connection:ConnectionTo<Agent>| {connected_loop(connection,(prompt,&mut progress),&mut emitter,&mut seen,&mut inbox,&mut events,events_tx).await}).await;
         let close = matches!(result, Ok(true));
         let error = result.err().map(|error| error.to_string());
         tracing::info!(conversation_id=%emitter.conversation_id,?error,"OMP process exited");
-        emitter.emit(OmpWorkerEvent::ProcessExited { error });
+        if progress.has_started_turn {
+            emitter.emit(OmpWorkerEvent::ProcessExited { error });
+        } else if let Some(error) = error {
+            emitter.emit(OmpWorkerEvent::SessionFailed { error });
+        }
         emitter.flush();
         if close {
             return;
@@ -105,41 +129,50 @@ pub(super) async fn conversation_actor<L: OmpLauncher>(
 
 async fn connected_loop(
     connection: ConnectionTo<Agent>,
-    first: DOmpPrompt,
+    initial: (DOmpPrompt, &mut ConnectionProgress),
     emitter: &mut Emitter,
     seen: &mut HashSet<String>,
     inbox: &mut mpsc::UnboundedReceiver<OmpCommand>,
     events: &mut mpsc::UnboundedReceiver<AcpEvent>,
     sender: mpsc::UnboundedSender<AcpEvent>,
 ) -> Result<bool, Error> {
+    let (first, progress) = initial;
     let mut session = match session::open(&connection, &first, events, emitter).await {
         Ok(session) => session,
         Err(error) => {
-            emitter.emit(OmpWorkerEvent::TurnEnded {
-                request_id: first.request_id,
-                stop_reason: "error".into(),
-                error: Some(error.to_string()),
-                outstanding: 0,
-            });
+            if progress.prompt_first {
+                emitter.emit(OmpWorkerEvent::TurnEnded {
+                    request_id: first.request_id,
+                    stop_reason: "error".into(),
+                    error: Some(error.to_string()),
+                    outstanding: 0,
+                });
+            }
             return Err(error);
         }
     };
     let mut outstanding = 0;
-    enqueue(
-        &connection,
-        &mut session,
-        first,
-        emitter,
-        &sender,
-        &mut outstanding,
-    )
-    .await?;
+    if progress.prompt_first {
+        enqueue(
+            &connection,
+            &mut session,
+            first,
+            emitter,
+            &sender,
+            &mut outstanding,
+        )
+        .await?;
+    }
     let mut tick = interval(Duration::from_millis(50));
     let mut idle = Instant::now() + Duration::from_secs(600);
     loop {
         tokio::select! {
             command=inbox.recv()=>match command {
-                Some(OmpCommand::Prompt(prompt)) if seen.insert(prompt.request_id.clone())=>enqueue(&connection,&mut session,prompt,emitter,&sender,&mut outstanding).await?,
+                Some(OmpCommand::Prompt(prompt)) if seen.insert(prompt.request_id.clone())=>{
+                    progress.has_started_turn = true;
+                    enqueue(&connection,&mut session,prompt,emitter,&sender,&mut outstanding).await?;
+                }
+                Some(OmpCommand::Open(_)) => {}
                 Some(OmpCommand::Cancel)=>{tracing::info!(conversation_id=%emitter.conversation_id,"OMP cancel requested");connection.send_notification(CancelNotification::new(session.id.clone()))?;}
                 Some(OmpCommand::Ack {run_id,seq})=>emitter.ack(&run_id,seq),
                 Some(OmpCommand::Resend)=>emitter.resend(),

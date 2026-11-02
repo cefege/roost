@@ -134,6 +134,7 @@ pub fn empty_transcript() -> Transcript {
         model: None,
         thinking_level: None,
         mode: None,
+        omp_session: None,
         usage: UsageTotals::default(),
         queued: vec![],
         schedules: vec![],

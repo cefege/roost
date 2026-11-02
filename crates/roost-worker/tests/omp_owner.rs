@@ -7,14 +7,46 @@ mod duplex;
 #[path = "omp_owner/ordering.rs"]
 mod ordering;
 use duplex::{DuplexLauncher, MissingLauncher};
-use roost_proto::{DOmpCancel, DOmpEventsAck, DOmpPrompt, WOmpEvents};
+use roost_proto::{DOmpCancel, DOmpEventsAck, DOmpOpen, DOmpPrompt, WOmpEvents};
 use roost_protocol::wire::{agent_chat::OmpWorkerEvent, coord_worker::CoordWorkerUpstream};
+use roost_worker::omp::launcher::{OmpLaunchError, OmpLauncher};
 use roost_worker::{
     link_ports::OmpPort,
     omp::{OmpOwner, OmpResend},
     uplink::{self, UplinkReceiver},
 };
 use std::{sync::Arc, time::Duration};
+use tokio::io::AsyncReadExt;
+use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
+
+#[derive(Debug, Default)]
+struct FlakyStartup {
+    connected: std::sync::atomic::AtomicBool,
+    healthy: DuplexLauncher,
+}
+
+impl OmpLauncher for FlakyStartup {
+    type Transport = <DuplexLauncher as OmpLauncher>::Transport;
+
+    fn launch(&self, cwd: &str) -> Result<(Self::Transport, String), OmpLaunchError> {
+        if self
+            .connected
+            .swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            return self.healthy.launch(cwd);
+        }
+        let (client, mut peer) = tokio::io::duplex(64 * 1024);
+        tokio::spawn(async move {
+            let mut byte = [0_u8; 1];
+            let _ = peer.read_exact(&mut byte).await;
+        });
+        let (read, write) = tokio::io::split(client);
+        Ok((
+            agent_client_protocol::ByteStreams::new(write.compat_write(), read.compat()),
+            "startup disconnect".into(),
+        ))
+    }
+}
 
 fn prompt(session: &str) -> DOmpPrompt {
     DOmpPrompt {
@@ -153,4 +185,92 @@ async fn omp_owner_missing_install_settles_failed() {
     assert!(
         matches!(events.last(),Some(OmpWorkerEvent::TurnEnded {error:Some(error),outstanding:0,..}) if error == "omp not found")
     );
+}
+
+#[tokio::test]
+async fn omp_owner_opens_settings_without_a_prompt_and_reuses_the_session() {
+    let launcher = Arc::new(DuplexLauncher::default());
+    let (uplink, mut receiver) = uplink::channel();
+    let owner = OmpOwner::new(Arc::clone(&launcher), uplink);
+    let open = DOmpOpen {
+        conversation_id: "c1".into(),
+        cwd: "/work".into(),
+        ..Default::default()
+    };
+    owner.open(open.clone());
+    let initial = frame(&mut receiver).await;
+    let events: Vec<OmpWorkerEvent> = initial
+        .events_json
+        .iter()
+        .map(|event| serde_json::from_str(event).unwrap())
+        .collect();
+    assert!(
+        events
+            .iter()
+            .all(|event| matches!(event, OmpWorkerEvent::SessionReady { .. }))
+    );
+    let OmpWorkerEvent::SessionReady {
+        acp_session_id,
+        config_options,
+    } = &events[0]
+    else {
+        panic!("session must be initialized without a user prompt");
+    };
+    assert_eq!(acp_session_id, "s1");
+    assert_eq!(config_options[0]["options"][1]["value"], "provider/model-b");
+    assert_eq!(config_options[1]["currentValue"], "medium");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(150), launcher.started.notified())
+            .await
+            .is_err()
+    );
+    owner.open(open);
+    owner.prompt(prompt(""));
+    let (_, events) = turn(&mut receiver).await;
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, OmpWorkerEvent::SessionReady { .. }))
+    );
+    assert_eq!(text(&events), vec!["hi"]);
+    assert!(matches!(
+        events.last(),
+        Some(OmpWorkerEvent::TurnEnded {
+            outstanding: 0,
+            error: None,
+            ..
+        })
+    ));
+}
+
+#[tokio::test]
+async fn omp_owner_failed_preparation_does_not_interrupt_the_queued_first_prompt() {
+    let (uplink, mut receiver) = uplink::channel();
+    let owner = OmpOwner::new(Arc::new(FlakyStartup::default()), uplink);
+    owner.open(DOmpOpen {
+        conversation_id: "c1".into(),
+        cwd: "/work".into(),
+        ..Default::default()
+    });
+    owner.prompt(prompt(""));
+    let (_, events) = turn(&mut receiver).await;
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, OmpWorkerEvent::SessionFailed { .. }))
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, OmpWorkerEvent::ProcessExited { .. }))
+    );
+    assert_eq!(text(&events), vec!["hi"]);
+    assert!(matches!(
+        events.last(),
+        Some(OmpWorkerEvent::TurnEnded {
+            error: None,
+            outstanding: 0,
+            ..
+        })
+    ));
 }

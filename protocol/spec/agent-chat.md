@@ -28,9 +28,22 @@ conversation → exact `(worker_fp, cwd)` folder → machine → your defaults �
 configuration. Empty values inherit. Model identifiers split at the first `/`.
 Conversation overrides apply on the next prompt; OMP config options supply machine catalogs.
 
+`AgentOmpSessionOpen` initializes or loads the conversation's ACP session without
+submitting a prompt or changing its run state. The active chat opens its session
+before the first message, so its controls can show OMP's actual current model,
+thinking level, and selectable options. Session metadata refreshes the catalog;
+opening a menu refreshes inherited settings, and failures expose a retry action.
+`Agent` events optionally carry `omp_session` (`ready` or `failed` with an error);
+omitted session metadata preserves its previous value. A prompt-free initialization
+failure does not fail a user message queued behind it.
+
 Worker capability `omp_acp_v1` gates `omp-prompt`, `omp-cancel`, `omp-close`, and
-`omp-events-ack`. Worker event sequences are contiguous within an actor's `run_id`;
-unacknowledged batches are resent after link snapshot readiness. The coordinator commits
+`omp-events-ack`. Session opening additionally requires `omp_acp_session_v1` and sends
+`omp-open`. An online worker missing a required OMP capability is reported as needing
+an update, not as offline.
+
+Worker event sequences are contiguous within an actor's `run_id`; unacknowledged
+batches are resent after link snapshot readiness. The coordinator commits
 deduplication sequence, transcript, event cursor and metadata atomically, then publishes and
 ACKs. Snapshot/event-cursor catch-up works while the worker is offline. Retention is bounded
 to 8 MiB per actor and reports output loss explicitly.

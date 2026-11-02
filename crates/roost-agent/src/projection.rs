@@ -376,6 +376,7 @@ pub fn transcript(
         // The runtime overwrites this from the store after projection;
         // schedules are not journal-derived like `queued` is.
         schedules: Vec::new(),
+        omp_session: None,
     }
 }
 

@@ -35,6 +35,7 @@ fn transcript() -> Transcript {
         mode: None,
         queued: Vec::new(),
         schedules: Vec::new(),
+        omp_session: None,
     }
 }
 
@@ -151,6 +152,7 @@ fn every_chat_event_round_trips_spec_json() {
                     usage: UsageTotals::default(),
                     queued: Vec::new(),
                     schedules: Vec::new(),
+                    omp_session: None,
                 },
             },
         ),
@@ -213,6 +215,7 @@ fn every_chat_event_round_trips_spec_json() {
                 }),
                 thinking_level: Some("high".into()),
                 mode: None,
+                omp_session: None,
             },
         ),
         (

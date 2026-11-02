@@ -1097,6 +1097,8 @@ message AgentOmpSettingsGetResponse { string settings_json = 1; }
 // JSON OmpScopedSettings (roost-protocol wire/agent_chat).
 message AgentOmpSettingsSetRequest { string scoped_json = 1; }
 message AgentOmpSettingsSetResponse {}
+message AgentOmpSessionOpenRequest { string conversation_id = 1; }
+message AgentOmpSessionOpenResponse {}
 message AgentChatPlanDecideRequest {
   string conversation_id = 1;
   string item_id = 2;
@@ -1197,6 +1199,7 @@ service CoordinatorService {
   rpc AgentSettingsSet(AgentSettingsSetRequest) returns (AgentSettingsSetResponse);
   rpc AgentOmpSettingsGet(AgentOmpSettingsGetRequest) returns (AgentOmpSettingsGetResponse);
   rpc AgentOmpSettingsSet(AgentOmpSettingsSetRequest) returns (AgentOmpSettingsSetResponse);
+  rpc AgentOmpSessionOpen(AgentOmpSessionOpenRequest) returns (AgentOmpSessionOpenResponse);
   rpc AgentChatPlanDecide(AgentChatPlanDecideRequest) returns (AgentChatPlanDecideResponse);
   rpc AgentChatAnswer(AgentChatAnswerRequest) returns (AgentChatAnswerResponse);
   rpc AgentChatRewind(AgentChatRewindRequest) returns (AgentChatRewindResponse);

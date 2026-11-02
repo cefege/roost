@@ -160,6 +160,7 @@ pub(super) fn to_proto(frame: &CoordWorkerDownstream) -> ProtocolResult<CoordWor
         CoordWorkerDownstream::OmpPrompt(prompt) => Frame::OmpPrompt(Box::new((*prompt).clone())),
         CoordWorkerDownstream::OmpCancel(cancel) => Frame::OmpCancel(Box::new((*cancel).clone())),
         CoordWorkerDownstream::OmpEventsAck(ack) => Frame::OmpEventsAck(Box::new((*ack).clone())),
+        CoordWorkerDownstream::OmpOpen(open) => Frame::OmpOpen(Box::new((*open).clone())),
         CoordWorkerDownstream::OmpClose(close) => Frame::OmpClose(Box::new((*close).clone())),
     };
     Ok(CoordWorkerDown {
@@ -297,6 +298,7 @@ pub(super) fn from_proto(message: &CoordWorkerDown) -> ProtocolResult<CoordWorke
         Frame::OmpPrompt(prompt) => CoordWorkerDownstream::OmpPrompt((**prompt).clone()),
         Frame::OmpCancel(cancel) => CoordWorkerDownstream::OmpCancel((**cancel).clone()),
         Frame::OmpEventsAck(ack) => CoordWorkerDownstream::OmpEventsAck((**ack).clone()),
+        Frame::OmpOpen(open) => CoordWorkerDownstream::OmpOpen((**open).clone()),
         Frame::OmpClose(close) => CoordWorkerDownstream::OmpClose((**close).clone()),
     };
     frame.check()?;

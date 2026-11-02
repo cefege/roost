@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 pub use super::interaction::{AskOption, AskQuestion, TodoPhase, TodoStatus, TodoTask};
 use super::jobs::JobState;
+use super::omp::OmpSessionState;
 use super::usage::UsageTotals;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -130,6 +131,8 @@ pub struct Transcript {
     /// `due_ms` ascending by the projector.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub schedules: Vec<ScheduledMessage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub omp_session: Option<OmpSessionState>,
 }
 
 /// A user message accepted but not yet read by the running agent.
@@ -350,6 +353,8 @@ pub enum ChatEvent {
         model: Option<ModelRef>,
         thinking_level: Option<String>,
         mode: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        omp_session: Option<OmpSessionState>,
     },
     Usage {
         usage: UsageTotals,

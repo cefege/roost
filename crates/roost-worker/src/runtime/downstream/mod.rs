@@ -185,6 +185,13 @@ impl Dispatcher {
             CoordWorkerDownstream::AgentConversationClosed(request) => {
                 self.agent_conversation_closed(request)
             }
+            CoordWorkerDownstream::OmpOpen(request) => {
+                if let Some(owner) = self.owners.as_ref().and_then(|owners| owners.omp.as_ref()) {
+                    owner.open(request);
+                } else {
+                    tracing::debug!("OMP owner absent");
+                }
+            }
             CoordWorkerDownstream::OmpPrompt(request) => {
                 if let Some(owner) = self.owners.as_ref().and_then(|owners| owners.omp.as_ref()) {
                     owner.prompt(request);

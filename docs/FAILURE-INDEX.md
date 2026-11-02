@@ -4784,3 +4784,25 @@ encodes the value for the selected database; no backend-specific SQL is needed.
 `omp_chat::omp_chat_submit_projection_replay_and_native_isolation` runs against
 SQLite in workspace CI and a real PostgreSQL server in the PostgreSQL CI job.
 
+### OMP controls stay on defaults with no model or thinking choices
+
+**Symptom** — a fresh OMP chat offers only inheritance/defaults, or its controls
+remain empty after OMP has initialized.
+
+**Wrong** — discover ACP configuration only when sending the first prompt, fetch
+the catalog once on mount, or fill the gap with hard-coded model/thinking lists.
+Calling an online worker without the required capability "offline" hides a
+deployment mismatch.
+
+**Right** — open the ACP session when the chat becomes active, without inference.
+Persist its real config options and current values, refresh controls on session
+metadata and menu opening, and offer retry for both RPC and asynchronous startup
+failures. Report an unsupported online worker as update-required. A preparation
+failure must not settle a user prompt still queued behind it.
+
+**Guard** — `roost-worker`'s
+`omp_owner_opens_settings_without_a_prompt_and_reuses_the_session` and
+`omp_owner_failed_preparation_does_not_interrupt_the_queued_first_prompt`;
+`roost-coord`'s `omp_session_open_reuses_saved_session_without_changing_transcript`
+and `omp_session_failure_does_not_settle_pending_turn_and_ready_clears_failure`.
+

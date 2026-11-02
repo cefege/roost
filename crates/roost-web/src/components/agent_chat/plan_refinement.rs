@@ -257,6 +257,7 @@ mod tests {
             usage: Default::default(),
             queued: Vec::new(),
             schedules: Vec::new(),
+            omp_session: None,
         }
     }
 

@@ -286,6 +286,7 @@ pub fn AgentComposer(
                 }
                 ComposerFooter {
                     conversation: conversation.clone(),
+                    active,
                     catalog,
                     catalog_failed,
                     pump: pump.clone(),

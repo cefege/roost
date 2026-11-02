@@ -15,20 +15,25 @@ pub(super) fn OmpSettingMenu(
     value: OmpEffectiveValue,
     inherited: OmpEffectiveValue,
     choices: Vec<OmpChoice>,
+    disabled: bool,
+    on_open: EventHandler<()>,
     on_choose: EventHandler<Option<String>>,
 ) -> Element {
     let mut open = use_signal(|| false);
-    let current = value.value.as_deref().unwrap_or("OMP default");
     let source = source_label(&value.source);
+    let current = value.value.as_ref().map_or_else(
+        || format!("Choose {}", label.to_ascii_lowercase()),
+        |value| format!("{label}: {value} · {source}"),
+    );
     let inherited_label = format!(
         "Inherit · {} ({})",
-        inherited.value.as_deref().unwrap_or("OMP default"),
+        inherited.value.as_deref().unwrap_or("OMP's own config"),
         source_label(&inherited.source)
     );
     rsx! {
-        DropdownMenu {open:open(),on_open_change:move |next| open.set(next),
-            DropdownMenuTrigger {ghost:true,aria_label:format!("OMP {label}"),title:format!("{current} · {source}"),class:"max-w-48",
-                span {class:"truncate", "{label}: {current} · {source}"}
+        DropdownMenu {open:open(),on_open_change:move |next| {open.set(next);if next {on_open.call(());}},
+            DropdownMenuTrigger {ghost:true,disabled,aria_label:format!("OMP {label}"),title:current.clone(),class:"max-w-48",
+                span {class:"truncate", "{current}"}
             }
             DropdownMenuContent {class:"max-h-80 w-72 max-w-full overflow-y-auto",
                 DropdownMenuItem {onclick:move |_| on_choose.call(None), "{inherited_label}"}
