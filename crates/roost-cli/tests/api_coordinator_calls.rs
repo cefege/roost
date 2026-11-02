@@ -30,7 +30,7 @@ use std::process::ExitCode;
 use roost_cli::api::client::CoordinatorApi;
 use roost_cli::api::output::ApiOutput;
 use roost_cli::api::verbs::{self, Invocation};
-use roost_cli::api::{agent_projection, agents, sessions, workers};
+use roost_cli::api::{agent_projection, agents, scrollback, sessions, workers};
 use roost_cli::command_error::GENERIC_FAILURE;
 use roost_proto::{AgentPromptWaitOutcome, Session, Worker};
 
@@ -336,6 +336,25 @@ async fn no_readout_puts_the_credential_anywhere_near_stdout() {
             "the credential reached a stream: {line}"
         );
     }
+    server.abort();
+}
+
+#[tokio::test]
+async fn cells_without_an_end_row_reads_the_newest_rows() {
+    let (origin, server) = api_support::serve(Fixture {
+        scrollback_rows: vec!["alpha".to_string(), "beta".to_string()],
+        ..Default::default()
+    })
+    .await;
+    let api = link_to(&origin).await;
+    let mut out = Captured::default();
+
+    scrollback::cells(&api, &invocation("cells", &[SESSION_ID]), &mut out)
+        .await
+        .expect("the coordinator answered the newest rows");
+
+    assert_eq!(out.answers, ["alpha", "beta"]);
+    assert_eq!(out.progress, ["rows 0..2 of 2 (cols 80)"]);
     server.abort();
 }
 

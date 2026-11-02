@@ -15,6 +15,7 @@
 use std::path::Path;
 use std::process::ExitCode;
 
+use roost_coord::terminal_screen::scrollback_window::MAX_SAFE_ROW;
 use roost_proto::{AttachFileChunkRequest, SessionsGetScrollbackCellsRequest};
 use sha2::{Digest, Sha256};
 
@@ -40,10 +41,9 @@ pub async fn cells(
     let max_rows = args.count("--rows", DEFAULT_ROWS)?;
     // `end_row` is exclusive, and a headless caller holds no viewport epoch, so
     // the empty epoch binds the request to whatever the worker is serving now.
-    // A value past any possible scrollback is how "the newest rows" is asked
-    // for; the worker clamps it to the rows it actually retains.
+    // The worker clamps at its retained tail; the request must remain JSON-safe.
     let end_row = match args.optional_value("--end") {
-        None => u64::MAX,
+        None => MAX_SAFE_ROW,
         Some(raw) => raw.parse::<u64>().map_err(|_| {
             CommandFailure::usage(format!(
                 "roost api cells: --end must be a row number, got {raw:?}"

@@ -35,6 +35,7 @@ use roost_proto::buffa::{Inline, MessageField};
 use roost_proto::{
     AgentPromptWaitOutcome, AgentStatusGetRequest, AgentStatusGetResponse, AgentStatusListRequest,
     AgentStatusListResponse, AgentStatusView, AgentStatusWaitRequest, AgentStatusWaitResponse,
+    PbCellRow, PbCellSpan, SessionsGetScrollbackCellsRequest, SessionsGetScrollbackCellsResponse,
     SessionsListRequest, SessionsListResponse, Worker, WorkersListRequest, WorkersListResponse,
 };
 
@@ -62,6 +63,7 @@ pub struct Fixture {
     pub first_status: Option<AgentStatusView>,
     pub second_status: Option<AgentStatusView>,
     pub wait_outcome: Option<AgentPromptWaitOutcome>,
+    pub scrollback_rows: Vec<String>,
     // The read counter that pairs `first_status` with `second_status` is NOT a
     // canned value and does not live here — it belongs to the router, which is
     // what serves the reads. As a field it had to be private, and one private
@@ -142,6 +144,7 @@ fn router(fixture: Fixture) -> connectrpc::Router {
     let sessions = fixture.clone();
     let status = fixture.clone();
     let listed = fixture.clone();
+    let scrollback = fixture.clone();
     let wait = fixture;
     // Shared across requests by the `AgentStatusGet` handler, so "the first read
     // and the second read" is a property of the served conversation rather than
@@ -216,6 +219,42 @@ fn router(fixture: Fixture) -> connectrpc::Router {
                     outcome: outcome_name(wait.wait_outcome),
                     ..Default::default()
                 }))
+            }
+        }),
+    );
+    router = mount(
+        router,
+        roost_proto::COORDINATOR_SERVICE_SESSIONS_GET_SCROLLBACK_CELLS_SPEC,
+        handler_fn(move |_ctx, request: SessionsGetScrollbackCellsRequest| {
+            let scrollback = scrollback.clone();
+            async move {
+                roost_coord::terminal_screen::scrollback_window::require_json_safe_row(
+                    request.end_row,
+                    "scrollback cells end_row",
+                )?;
+                let total = scrollback.scrollback_rows.len() as u64;
+                let end_row = request.end_row.min(total);
+                let start_row = end_row.saturating_sub(u64::from(request.max_rows));
+                let rows = (start_row..end_row)
+                    .map(|index| PbCellRow {
+                        index: index as u32,
+                        spans: vec![PbCellSpan {
+                            text: scrollback.scrollback_rows[index as usize].clone(),
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    })
+                    .collect();
+                Ok(connectrpc::Response::new(
+                    SessionsGetScrollbackCellsResponse {
+                        rows,
+                        cols: 80,
+                        scrollback_total: total,
+                        start_row,
+                        end_row,
+                        ..Default::default()
+                    },
+                ))
             }
         }),
     );

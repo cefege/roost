@@ -4703,3 +4703,16 @@ conversion to the containing block.
 **Guard** — `roost-llm`
 `providers::completions::tests::appends_the_completions_path_once_to_a_versioned_root`
 and `provider_stream::experiential_chat_posts_once_to_the_v1_completions_path`.
+
+### `roost api cells` rejects its default newest-row request
+
+**Symptom** — `roost api cells <session>` returns `InvalidArgument: scrollback
+cells end_row must be a nonnegative JSON-safe integer`; an explicit `--end` works.
+
+**Wrong** — use `u64::MAX` as the newest-row sentinel across a JSON boundary.
+
+**Right** — reuse the coordinator's `scrollback_window::MAX_SAFE_ROW`; the
+worker clamps the request at its retained tail.
+
+**Guard** — `roost-cli`
+`api_coordinator_calls::cells_without_an_end_row_reads_the_newest_rows`.
