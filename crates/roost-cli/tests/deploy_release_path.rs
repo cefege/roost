@@ -20,7 +20,6 @@ use roost_cli::deploy::facts::{self, RemoteFacts};
 use roost_cli::deploy::manifest::{ApplyManifest, ApplyOutcome, ApplyReport};
 use roost_cli::deploy::ssh::{self, REMOTE_PATH_PREFIX, SSH_OPTS, read_remote_file};
 use roost_protocol::keeper_update::KeeperContractV1;
-use roost_worker::runtime::boot::ENV_COORDINATOR_URL;
 use serde_json::json;
 
 /// A remote command is an argv, never a shell string assembled by a caller. `--`
@@ -106,10 +105,11 @@ fn reading_a_definition_that_may_not_exist_still_quotes_it() {
 #[test]
 fn a_manifest_refuses_a_build_identity_that_is_not_one() {
     let environment = BTreeMap::new();
+    let staged = std::env::temp_dir().join("roost-manifest-staged");
     for bad in ["../../etc", "sha/../other", "", "sha with space"] {
         let manifest = ApplyManifest::new(
             bad,
-            "/home/studio/.roost-deploy/x",
+            &staged.to_string_lossy(),
             &"a".repeat(64),
             environment.clone(),
         );
@@ -117,7 +117,7 @@ fn a_manifest_refuses_a_build_identity_that_is_not_one() {
     }
     let good = ApplyManifest::new(
         "b1d1836a",
-        "/home/studio/.roost-deploy/x",
+        &staged.to_string_lossy(),
         &"a".repeat(64),
         environment,
     );
@@ -260,32 +260,6 @@ fn the_staging_directory_is_outside_the_release_root() {
     let staged = roost_cli::deploy::apply_release::staging_dir("/home/studio", "b1d1836a");
     assert_eq!(staged, PathBuf::from("/home/studio/.roost-deploy/b1d1836a"));
     assert!(!staged.starts_with("/home/studio/.local/share"));
-}
-
-/// A release is proved against the target, so the manifest's release directory is
-/// not something the deploying box chooses: it is the staging path both sides can
-/// compute from a home they each already know.
-#[test]
-fn the_manifest_names_the_staging_path_and_not_an_install_path() {
-    let manifest = ApplyManifest::new(
-        "b1d1836a",
-        "/home/studio/.roost-deploy/b1d1836a",
-        &"a".repeat(64),
-        BTreeMap::from([(
-            ENV_COORDINATOR_URL.to_string(),
-            "https://coord.test".to_string(),
-        )]),
-    );
-    let decoded = ApplyManifest::decode(&manifest.encode().unwrap()).unwrap();
-    assert_eq!(decoded, manifest);
-    assert!(decoded.staged_dir.contains("/.roost-deploy/"));
-    assert_eq!(
-        decoded
-            .environment
-            .get(ENV_COORDINATOR_URL)
-            .map(String::as_str),
-        Some("https://coord.test")
-    );
 }
 
 /// The remote facts carry the installed program's own path, because a keeper

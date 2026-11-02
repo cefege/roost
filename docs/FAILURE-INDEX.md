@@ -4737,3 +4737,19 @@ requests carry a User-Agent.
 `install_script_channel::an_off_branch_stable_does_not_block_the_default_prerelease_fallback`,
 `install_powershell_channel::the_windows_installer_takes_only_a_tag_whose_commit_is_on_v3`,
 and `update_release_decision::only_a_tag_on_the_release_branch_is_installable`.
+
+### Windows self-update refuses its absolute staging directory
+
+**Symptom** — `self-update-<tag>.log` reports `apply manifest staged directory
+is not absolute: C:\Users\…\AppData\Local\Temp\roost-release-…`; the old
+worker keeps running.
+
+**Wrong** — require every target staging directory to start with `/`.
+
+**Right** — the target-side manifest validator uses native
+`Path::is_absolute`. Drive-rooted and UNC Windows paths are absolute;
+drive-relative and root-relative paths are not.
+
+**Guard** — `roost-cli`
+`deploy::manifest::tests::windows_staging_paths_require_a_drive_or_unc_root`
+and `deploy::manifest::tests::relative_staging_paths_are_refused_before_activation`.

@@ -20,6 +20,7 @@
 //! documents exists to prevent.
 
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
@@ -102,7 +103,7 @@ impl ApplyManifest {
                 self.git_sha
             ));
         }
-        if !self.staged_dir.starts_with('/') {
+        if !Path::new(&self.staged_dir).is_absolute() {
             return Err(format!(
                 "apply manifest staged directory is not absolute: {}",
                 self.staged_dir
@@ -141,7 +142,13 @@ mod tests {
     use super::*;
 
     fn manifest(git_sha: &str) -> ApplyManifest {
-        ApplyManifest::new(git_sha, "/tmp/staged", &"0".repeat(64), BTreeMap::new())
+        let staged = std::env::temp_dir().join("roost-manifest-staged");
+        ApplyManifest::new(
+            git_sha,
+            &staged.to_string_lossy(),
+            &"0".repeat(64),
+            BTreeMap::new(),
+        )
     }
 
     #[test]
@@ -157,6 +164,36 @@ mod tests {
                 manifest(name).validate().is_err(),
                 "{name:?} must be refused"
             );
+        }
+    }
+
+    #[test]
+    fn relative_staging_paths_are_refused_before_activation() {
+        for staged in ["", "staged", "../staged"] {
+            let mut manifest = manifest("v3.0.0-rc.98");
+            manifest.staged_dir = staged.into();
+            assert!(ApplyManifest::decode(&manifest.encode().unwrap()).is_err());
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_staging_paths_require_a_drive_or_unc_root() {
+        for staged in [
+            r"C:\Users\roost\AppData\Local\Temp\roost-release",
+            r"\\server\share\roost-release",
+            r"\\?\C:\Temp\roost-release",
+        ] {
+            let mut manifest = manifest("v3.0.0-rc.98");
+            manifest.staged_dir = staged.into();
+            let decoded = ApplyManifest::decode(&manifest.encode().unwrap())
+                .expect("a fully qualified Windows staging directory");
+            assert_eq!(decoded.staged_dir, staged);
+        }
+        for staged in [r"C:staged", r"\staged", "/staged"] {
+            let mut manifest = manifest("v3.0.0-rc.98");
+            manifest.staged_dir = staged.into();
+            assert!(ApplyManifest::decode(&manifest.encode().unwrap()).is_err());
         }
     }
 }
