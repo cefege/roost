@@ -16,6 +16,12 @@ pub async fn handle_agent_chat_inspect(
     request: proto::AgentChatInspectRequest,
 ) -> ServiceResult<proto::AgentChatInspectResponse> {
     require_account_device(caller)?;
+    if super::omp::rpc::find_omp(core, &request.conversation_id)
+        .await?
+        .is_some()
+    {
+        return Err(super::omp::rpc::unsupported());
+    }
     let mut inspection = core
         .services
         .agent

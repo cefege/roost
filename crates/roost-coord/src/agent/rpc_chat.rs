@@ -1,19 +1,16 @@
 //! Device-authorized agent chat RPCs over the harness: conversation list,
-//! create, submit, abort, configure, delete, transcript snapshot, the model
-//! catalog, and plan decisions. Worker metadata comes from the registry.
+//! create, submit, abort, configure, delete and plan decisions.
+//! Worker metadata comes from the registry.
 
 use connectrpc::{ConnectError, ErrorCode, ServiceResult};
 use roost_agent::{NewConversation, SubmitMode};
 use roost_proto as proto;
-use roost_protocol::wire::agent_chat::{ModelRef, conversation_to_proto};
+use roost_protocol::wire::agent_chat::{AgentBackend, ModelRef, conversation_to_proto};
 
-use super::rpc_errors::{agent_status, credential_status, internal};
+use super::rpc_errors::{agent_status, internal};
 use crate::auth::principal::require_account_device;
 use crate::coord_core::{Caller, CoordCore};
 use crate::rpc::service::ok_response;
-
-/// How many recently used models the catalog carries.
-const RECENT_MODEL_LIMIT: i64 = 15;
 
 pub async fn handle_agent_chat_list(
     core: &CoordCore,
@@ -21,13 +18,29 @@ pub async fn handle_agent_chat_list(
     _request: proto::AgentChatListRequest,
 ) -> ServiceResult<proto::AgentChatListResponse> {
     require_account_device(caller)?;
-    let conversations = core
+    let mut conversations = core
         .services
         .agent
         .runtime
         .conversations()
         .await
         .map_err(agent_status)?;
+    let scopes = super::omp::store::settings(&core.services.db)
+        .await
+        .map_err(super::omp::rpc_settings::database_error)?;
+    conversations.extend(
+        super::omp::store::list(&core.services.db)
+            .await
+            .map_err(super::omp::rpc_settings::database_error)?
+            .iter()
+            .map(|conversation| super::omp::summary::summary(conversation, &scopes)),
+    );
+    conversations.sort_by(|left, right| {
+        right
+            .updated_ms
+            .cmp(&left.updated_ms)
+            .then_with(|| left.id.cmp(&right.id))
+    });
     ok_response(proto::AgentChatListResponse {
         conversations: conversations.iter().map(conversation_to_proto).collect(),
         host_connected: true,
@@ -48,13 +61,13 @@ async fn live_worker(
 
 /// What a configure or create request asks for the session model: leave it,
 /// reset it to the inherited folder/global default, or pin an explicit selection.
-enum ModelUpdate {
+pub(super) enum ModelUpdate {
     Unchanged,
     Clear,
     Set(ModelRef),
 }
 
-fn model_update(
+pub(super) fn model_update(
     provider: Option<&str>,
     model_id: Option<&str>,
 ) -> Result<ModelUpdate, ConnectError> {
@@ -81,6 +94,9 @@ pub async fn handle_agent_chat_create(
 ) -> ServiceResult<proto::AgentConversation> {
     require_account_device(caller)?;
     let (worker_fp, worker_label, worker_os) = live_worker(core, &request.worker_fp).await?;
+    if AgentBackend::from_wire(&request.backend) == AgentBackend::Omp {
+        return super::omp::rpc::create(core, request, (worker_fp, worker_label, worker_os)).await;
+    }
     let model = match model_update(Some(&request.model_provider), Some(&request.model_id))? {
         ModelUpdate::Set(model) => Some(model),
         ModelUpdate::Unchanged | ModelUpdate::Clear => None,
@@ -110,6 +126,9 @@ pub async fn handle_agent_chat_submit(
 ) -> ServiceResult<proto::AgentChatSubmitResponse> {
     require_account_device(caller)?;
     require_request_id(&request.request_id)?;
+    if let Some(omp) = super::omp::rpc::find_omp(core, &request.conversation_id).await? {
+        return super::omp::rpc::submit(core, omp, request).await;
+    }
     let mode = SubmitMode::parse(&request.when_busy).map_err(agent_status)?;
     let attachments = super::rpc_chat_attachments::to_domain_attachments(request.attachments);
     core.services
@@ -134,6 +153,15 @@ pub async fn handle_agent_chat_withdraw(
 ) -> ServiceResult<proto::AgentChatWithdrawResponse> {
     require_account_device(caller)?;
     require_request_id(&request.request_id)?;
+    if super::omp::rpc::find_omp(core, &request.conversation_id)
+        .await?
+        .is_some()
+    {
+        return ok_response(proto::AgentChatWithdrawResponse {
+            withdrawn: false,
+            ..Default::default()
+        });
+    }
     let withdrawn = core
         .services
         .agent
@@ -158,6 +186,9 @@ pub async fn handle_agent_chat_abort(
 ) -> ServiceResult<proto::AgentChatAbortResponse> {
     require_account_device(caller)?;
     require_request_id(&request.request_id)?;
+    if let Some(omp) = super::omp::rpc::find_omp(core, &request.conversation_id).await? {
+        return super::omp::rpc::abort(core, omp, request).await;
+    }
     let runtime = &core.services.agent.runtime;
     runtime
         .deduplicated(
@@ -196,6 +227,9 @@ pub async fn handle_agent_chat_configure(
     request: proto::AgentChatConfigureRequest,
 ) -> ServiceResult<proto::AgentConversation> {
     require_account_device(caller)?;
+    if let Some(omp) = super::omp::rpc::find_omp(core, &request.conversation_id).await? {
+        return super::omp::rpc::configure(core, omp, request).await;
+    }
     let runtime = &core.services.agent.runtime;
     let id = &request.conversation_id;
     match model_update(
@@ -235,6 +269,9 @@ pub async fn handle_agent_chat_delete(
     request: proto::AgentChatDeleteRequest,
 ) -> ServiceResult<proto::AgentChatDeleteResponse> {
     require_account_device(caller)?;
+    if let Some(omp) = super::omp::rpc::find_omp(core, &request.conversation_id).await? {
+        return super::omp::rpc::delete(core, omp).await;
+    }
     core.services
         .agent
         .runtime
@@ -244,82 +281,6 @@ pub async fn handle_agent_chat_delete(
     ok_response(proto::AgentChatDeleteResponse::default())
 }
 
-pub async fn handle_agent_chat_snapshot(
-    core: &CoordCore,
-    caller: &Caller,
-    request: proto::AgentChatSnapshotRequest,
-) -> ServiceResult<proto::AgentChatSnapshotResponse> {
-    require_account_device(caller)?;
-    let (seq, transcript) = core
-        .services
-        .agent
-        .sink
-        .snapshot(&request.conversation_id)
-        .await
-        .map_err(agent_status)?;
-    let transcript_json =
-        serde_json::to_string(&transcript).map_err(|_| internal("transcript did not serialize"))?;
-    ok_response(proto::AgentChatSnapshotResponse {
-        seq,
-        transcript_json,
-        ..Default::default()
-    })
-}
-
-pub async fn handle_agent_chat_events(
-    core: &CoordCore,
-    caller: &Caller,
-    request: proto::AgentChatEventsRequest,
-) -> ServiceResult<proto::AgentChatEventsResponse> {
-    require_account_device(caller)?;
-    let limit = if request.limit == 0 {
-        500
-    } else {
-        request.limit.min(500)
-    };
-    let (rows, truncated) = super::chat_events::read_after(
-        &core.services.db,
-        &request.conversation_id,
-        request.after_cursor,
-        limit,
-    )
-    .await
-    .map_err(|error| internal(&format!("chat event read failed: {error}")))?;
-    ok_response(proto::AgentChatEventsResponse {
-        batches: rows
-            .into_iter()
-            .map(|row| proto::AgentChatEventBatch {
-                cursor: row.cursor,
-                events_json: row.events_json,
-                ..Default::default()
-            })
-            .collect(),
-        truncated,
-        ..Default::default()
-    })
-}
-
-pub async fn handle_agent_models_list(
-    core: &CoordCore,
-    caller: &Caller,
-    _request: proto::AgentModelsListRequest,
-) -> ServiceResult<proto::AgentModelsListResponse> {
-    require_account_device(caller)?;
-    let mut catalog = super::rpc_accounts::models_catalog(&core.services.agent)
-        .await
-        .map_err(credential_status)?;
-    catalog.recent_models =
-        super::store::recent_models(&core.services.agent.sink.database(), RECENT_MODEL_LIMIT)
-            .await
-            .map_err(agent_status)?;
-    let catalog_json =
-        serde_json::to_string(&catalog).map_err(|_| internal("catalog did not serialize"))?;
-    ok_response(proto::AgentModelsListResponse {
-        catalog_json,
-        ..Default::default()
-    })
-}
-
 pub async fn handle_agent_chat_plan_decide(
     core: &CoordCore,
     caller: &Caller,
@@ -327,6 +288,12 @@ pub async fn handle_agent_chat_plan_decide(
 ) -> ServiceResult<proto::AgentChatPlanDecideResponse> {
     require_account_device(caller)?;
     require_request_id(&request.request_id)?;
+    if super::omp::rpc::find_omp(core, &request.conversation_id)
+        .await?
+        .is_some()
+    {
+        return Err(super::omp::rpc::unsupported());
+    }
     let runtime = &core.services.agent.runtime;
     let created = runtime
         .deduplicated(
@@ -371,18 +338,6 @@ pub const METHOD_HANDLERS: &[(&str, &str)] = &[
     (
         "AgentChatDelete",
         "agent::rpc_chat::handle_agent_chat_delete",
-    ),
-    (
-        "AgentChatSnapshot",
-        "agent::rpc_chat::handle_agent_chat_snapshot",
-    ),
-    (
-        "AgentChatEvents",
-        "agent::rpc_chat::handle_agent_chat_events",
-    ),
-    (
-        "AgentModelsList",
-        "agent::rpc_chat::handle_agent_models_list",
     ),
     (
         "AgentChatPlanDecide",

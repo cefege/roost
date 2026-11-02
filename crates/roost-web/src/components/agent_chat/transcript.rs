@@ -44,6 +44,7 @@ enum Segment<'transcript> {
 pub fn AgentTranscriptView(
     transcript: Transcript,
     conversation_id: String,
+    native: bool,
     pump: Pump,
     draft: Signal<String>,
     edit_target: Signal<Option<EditTarget>>,
@@ -78,6 +79,7 @@ pub fn AgentTranscriptView(
                                 text: text.clone(),
                                 attachment_names: attachment_names.clone(),
                                 conversation_id: conversation_id.clone(),
+                                native,
                                 draft,
                                 edit_target,
                                 running,
@@ -142,6 +144,7 @@ fn UserMessage(
     text: String,
     attachment_names: Vec<String>,
     conversation_id: String,
+    native: bool,
     draft: Signal<String>,
     edit_target: Signal<Option<EditTarget>>,
     running: bool,
@@ -199,7 +202,7 @@ fn UserMessage(
                             },
                         }
                     }
-                    if !plan_decision_pending {
+                    if native && !plan_decision_pending {
                         UserMessageActions { conversation_id, item_id: id, text, attachment_names, draft, edit_target, running, pump }
                     }
                 }

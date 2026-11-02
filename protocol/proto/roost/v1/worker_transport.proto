@@ -298,6 +298,16 @@ message WLiveMetrics {
   LiveHostSnapshot snapshot = 1;
 }
 
+message WOmpEvents {
+  string conversation_id = 1;
+  // Fresh for each worker-side conversation actor.
+  string run_id = 2;
+  // Sequence of events_json[0]; events are contiguous within run_id.
+  uint64 first_seq = 3;
+  // Each entry is OmpWorkerEvent JSON.
+  repeated string events_json = 4;
+}
+
 message CoordWorkerUp {
   reserved 4, 5, 8, 9, 13, 15;
   reserved "viewport_result", "transfer_line", "transfer_done";
@@ -330,6 +340,7 @@ message CoordWorkerUp {
     WAgentToolResult agent_tool_result = 34;
     WAgentJobResult agent_job_result = 35;
     WLiveMetrics live_metrics = 36;
+    WOmpEvents omp_events = 37;
   }
   reserved 31, 32;
 }
@@ -624,6 +635,32 @@ message DAgentJobsAbort { string conversation_id = 1; }
 message DLiveMetricsSubscription { bool active = 1; }
 message DAgentConversationClosed { string conversation_id = 1; }
 
+message DOmpImage {
+  string mime_type = 1;
+  bytes data = 2;
+}
+message DOmpPrompt {
+  string conversation_id = 1;
+  string request_id = 2;
+  string cwd = 3;
+  // Empty starts a new OMP session.
+  string acp_session_id = 4;
+  string text = 5;
+  repeated DOmpImage images = 6;
+  repeated string file_paths = 7;
+  // Resolved provider/id; empty leaves OMP's own model.
+  string model = 8;
+  // Resolved thinking level; empty leaves OMP's own setting.
+  string thinking_level = 9;
+}
+message DOmpCancel { string conversation_id = 1; }
+message DOmpEventsAck {
+  string conversation_id = 1;
+  string run_id = 2;
+  uint64 seq = 3;
+}
+message DOmpClose { string conversation_id = 1; }
+
 message CoordWorkerDown {
   reserved 11;
   reserved "viewport_request";
@@ -665,6 +702,10 @@ message CoordWorkerDown {
     DAgentToolBackground agent_tool_background = 40;
     DAgentJobsAbort agent_jobs_abort = 41;
     DLiveMetricsSubscription live_metrics = 42;
+    DOmpPrompt omp_prompt = 43;
+    DOmpCancel omp_cancel = 44;
+    DOmpEventsAck omp_events_ack = 45;
+    DOmpClose omp_close = 46;
   }
   reserved 33, 34, 35, 36;
 }

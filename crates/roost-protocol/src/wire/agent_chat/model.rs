@@ -13,6 +13,31 @@ pub struct ModelRef {
     pub model_id: String,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentBackend {
+    #[default]
+    Native,
+    Omp,
+}
+
+impl AgentBackend {
+    pub fn as_wire(self) -> &'static str {
+        match self {
+            Self::Native => "native",
+            Self::Omp => "omp",
+        }
+    }
+
+    pub fn from_wire(value: &str) -> Self {
+        if value == "omp" {
+            Self::Omp
+        } else {
+            Self::Native
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentRunState {
@@ -24,6 +49,8 @@ pub enum AgentRunState {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationSummary {
     pub id: String,
+    #[serde(default)]
+    pub backend: AgentBackend,
     pub title: String,
     pub worker_fp: String,
     pub worker_label: String,
@@ -66,6 +93,10 @@ pub fn subagent_role(agent: &str) -> Option<&'static str> {
 }
 
 impl ConversationSummary {
+    pub fn is_native(&self) -> bool {
+        self.backend == AgentBackend::Native
+    }
+
     /// The role this conversation's own turns run on: Architect in plan mode,
     /// its kind's role for a subagent, otherwise Default.
     pub fn running_role(&self) -> &'static str {
@@ -346,43 +377,4 @@ pub enum ChatEvent {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{AgentRunState, ConversationSummary};
-
-    fn conversation(mode: &str, agent: Option<&str>) -> ConversationSummary {
-        ConversationSummary {
-            id: "c".into(),
-            title: String::new(),
-            worker_fp: String::new(),
-            worker_label: String::new(),
-            cwd: String::new(),
-            model: None,
-            effective_model: None,
-            thinking_level: None,
-            mode: mode.into(),
-            parent_id: None,
-            agent: agent.map(Into::into),
-            advisor: false,
-            run_state: AgentRunState::Idle,
-            error: None,
-            created_ms: 0,
-            updated_ms: 0,
-        }
-    }
-
-    #[test]
-    fn plan_mode_then_subagent_kind_then_default_decide_the_running_role() {
-        assert_eq!(conversation("plan", Some("scout")).running_role(), "plan");
-        assert_eq!(conversation("normal", Some("scout")).running_role(), "smol");
-        assert_eq!(
-            conversation("normal", Some("reviewer")).running_role(),
-            "slow"
-        );
-        assert_eq!(conversation("normal", Some("task")).running_role(), "task");
-        assert_eq!(
-            conversation("normal", Some("other")).running_role(),
-            "default"
-        );
-        assert_eq!(conversation("normal", None).running_role(), "default");
-    }
-}
+mod tests;

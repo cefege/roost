@@ -37,6 +37,7 @@ use roost_client_core::store::browse_paths::BROWSE_HOME;
 use roost_client_core::store::navigation::worker_online;
 use roost_client_core::store::selectors::all_sessions;
 use roost_client_core::sync::SyncDomain;
+use roost_protocol::wire::agent_chat::AgentBackend;
 
 use crate::platform::worker_paths::WorkerPathCrumb;
 use crate::pump::{Pump, use_store};
@@ -47,7 +48,7 @@ use crate::routes::{Route, browse_href};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowseLaunchMode {
     /// The picker was opened to create an agent rather than a terminal.
-    Agent,
+    Agent(AgentBackend),
     /// The picker was opened to create a terminal.
     Terminal,
 }
@@ -57,7 +58,8 @@ pub enum BrowseLaunchMode {
 pub fn browse_mode_href(worker_fp: &str, mode: BrowseLaunchMode) -> String {
     let href = browse_href(worker_fp);
     match mode {
-        BrowseLaunchMode::Agent => format!("{href}?intent=agent"),
+        BrowseLaunchMode::Agent(AgentBackend::Native) => format!("{href}?intent=agent"),
+        BrowseLaunchMode::Agent(AgentBackend::Omp) => format!("{href}?intent=omp"),
         BrowseLaunchMode::Terminal => href,
     }
 }
@@ -68,27 +70,53 @@ pub fn browse_launch_mode(location: &str) -> BrowseLaunchMode {
     let Some((_, query)) = location.split_once('?') else {
         return BrowseLaunchMode::Terminal;
     };
-    if query
+    query
         .split('&')
-        .any(|parameter| parameter == "intent=agent")
-    {
-        BrowseLaunchMode::Agent
-    } else {
-        BrowseLaunchMode::Terminal
-    }
+        .find_map(|parameter| match parameter {
+            "intent=agent" => Some(BrowseLaunchMode::Agent(AgentBackend::Native)),
+            "intent=omp" => Some(BrowseLaunchMode::Agent(AgentBackend::Omp)),
+            _ => None,
+        })
+        .unwrap_or(BrowseLaunchMode::Terminal)
 }
 
 #[cfg(test)]
 mod launch_mode_tests {
     use super::{BrowseLaunchMode, browse_launch_mode, browse_mode_href};
+    use roost_protocol::wire::agent_chat::AgentBackend;
 
     #[test]
     fn agent_intent_survives_browse_machine_href_and_query_parsing() {
-        let href = browse_mode_href("worker", BrowseLaunchMode::Agent);
+        let mode = BrowseLaunchMode::Agent(AgentBackend::Native);
+        let href = browse_mode_href("worker", mode);
         assert_eq!(href, "/browse/worker?intent=agent");
-        assert_eq!(browse_launch_mode(&href), BrowseLaunchMode::Agent);
+        assert_eq!(browse_launch_mode(&href), mode);
         assert_eq!(
             browse_launch_mode("/browse/worker?intent=terminal"),
+            BrowseLaunchMode::Terminal
+        );
+    }
+
+    #[test]
+    fn omp_intent_survives_browse_machine_href_and_query_parsing() {
+        let mode = BrowseLaunchMode::Agent(AgentBackend::Omp);
+        let href = browse_mode_href("worker", mode);
+        assert_eq!(href, "/browse/worker?intent=omp");
+        assert_eq!(browse_launch_mode(&href), mode);
+        assert_eq!(
+            browse_launch_mode("/browse/worker?other=value&intent=omp"),
+            mode
+        );
+    }
+
+    #[test]
+    fn missing_or_unknown_intent_opens_a_terminal() {
+        assert_eq!(
+            browse_launch_mode("/browse/worker"),
+            BrowseLaunchMode::Terminal
+        );
+        assert_eq!(
+            browse_launch_mode("/browse/worker?intent=unknown"),
             BrowseLaunchMode::Terminal
         );
     }

@@ -246,6 +246,14 @@ pub trait AgentToolsPort: Send + Sync + std::fmt::Debug {
     fn close_all(&self);
 }
 
+/// Worker-owned OMP conversations carried over ACP.
+pub trait OmpPort: Send + Sync + std::fmt::Debug {
+    fn prompt(&self, request: roost_proto::DOmpPrompt);
+    fn cancel(&self, request: roost_proto::DOmpCancel);
+    fn ack(&self, request: roost_proto::DOmpEventsAck);
+    fn close(&self, request: roost_proto::DOmpClose);
+}
+
 /// Coordinator-driven live host metrics: a subscription starts or stops sampling.
 pub trait LiveMetricsPort: Send + Sync + std::fmt::Debug {
     fn subscription(&self, request: roost_proto::DLiveMetricsSubscription);
@@ -266,5 +274,6 @@ pub struct DownstreamOwners {
     pub attachments: Arc<dyn AttachmentLinkPort>,
     pub keeper_update: Arc<dyn KeeperUpdatePort>,
     pub agent_tools: Option<Arc<dyn AgentToolsPort>>,
+    pub omp: Option<Arc<dyn OmpPort>>,
     pub live_metrics: Option<Arc<dyn LiveMetricsPort>>,
 }

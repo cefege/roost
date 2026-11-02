@@ -23,6 +23,12 @@ pub async fn handle_agent_chat_answer(
 ) -> ServiceResult<proto::AgentChatAnswerResponse> {
     require_account_device(caller)?;
     require_request_id(&request.request_id)?;
+    if super::omp::rpc::find_omp(core, &request.conversation_id)
+        .await?
+        .is_some()
+    {
+        return Err(super::omp::rpc::unsupported());
+    }
     let answers: BTreeMap<String, Vec<String>> = serde_json::from_str(&request.answers_json)
         .map_err(|error| {
             ConnectError::new(ErrorCode::InvalidArgument, format!("answers_json: {error}"))
@@ -52,6 +58,12 @@ pub async fn handle_agent_chat_rewind(
 ) -> ServiceResult<proto::AgentChatRewindResponse> {
     require_account_device(caller)?;
     require_request_id(&request.request_id)?;
+    if super::omp::rpc::find_omp(core, &request.conversation_id)
+        .await?
+        .is_some()
+    {
+        return Err(super::omp::rpc::unsupported());
+    }
     let runtime = &core.services.agent.runtime;
     let text = runtime
         .deduplicated_requiring_resolved_plan(
@@ -99,6 +111,12 @@ pub async fn handle_agent_chat_fork(
 ) -> ServiceResult<proto::AgentConversation> {
     require_account_device(caller)?;
     require_request_id(&request.request_id)?;
+    if super::omp::rpc::find_omp(core, &request.conversation_id)
+        .await?
+        .is_some()
+    {
+        return Err(super::omp::rpc::unsupported());
+    }
     let item_id = (!request.item_id.is_empty()).then_some(request.item_id.as_str());
     let runtime = &core.services.agent.runtime;
     let forked_id = runtime

@@ -29,6 +29,7 @@ pub(super) fn AgentWorkspace(
     active: bool,
     children: Element,
 ) -> Element {
+    let native = conversation.is_native();
     let storage = use_hook(|| Rc::new(LocalStorageKeyValueStore::new()));
     let mut expanded = use_signal(|| false);
     let mut selected_tab = use_signal(|| {
@@ -98,7 +99,7 @@ pub(super) fn AgentWorkspace(
                 }
                 *observer.borrow_mut() = watch;
             },
-            if inline() && expanded() {
+            if native && inline() && expanded() {
                 aside {
                     class: "flex h-full w-80 shrink-0 flex-col overflow-hidden border-r border-border bg-card",
                     "aria-label": "Agent inspector",
@@ -113,7 +114,7 @@ pub(super) fn AgentWorkspace(
                 {children}
             }
             // The deck's pane stacking context must not trap the mobile modal.
-            if active && !inline() {
+            if native && active && !inline() {
                 Portal {
                     Sheet {
                         open: overlay(),

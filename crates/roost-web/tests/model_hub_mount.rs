@@ -51,6 +51,7 @@ fn hub_root() -> Element {
         recent_models: Vec::new(),
     };
     let conversation = ConversationSummary {
+        backend: roost_protocol::wire::agent_chat::AgentBackend::Native,
         id: "conversation-1".to_owned(),
         title: "A chat".to_owned(),
         worker_fp: "00000000000000000000000000000000000000000000000000000000000000ff".to_owned(),

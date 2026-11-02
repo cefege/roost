@@ -252,6 +252,8 @@ mod local_terminal_scrollback;
 mod local_terminal_socket;
 #[path = "local_terminal_socket_input.rs"]
 mod local_terminal_socket_input;
+#[path = "omp_owner.rs"]
+mod omp_owner;
 #[path = "open_session_credential.rs"]
 mod open_session_credential;
 #[path = "open_session_set.rs"]

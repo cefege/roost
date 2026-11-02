@@ -9,6 +9,37 @@ Implementation anchors: `crates/roost-coord/src/agent/` (RPC handlers, store),
 `crates/roost-agent/src/runtime/` (admission, leases, recovery),
 `crates/roost-coord/src/cluster/notify.rs` (cross-replica notices).
 
+## Backends and OMP settings
+
+`AgentChatCreate.backend` and `AgentConversation.backend` select `native` or `omp`;
+empty and unknown values decode as native. Native settings, model roles, credentials,
+and terminal agent launchers are unchanged. Native adoption queries exclude OMP rows.
+
+OMP conversations run `omp acp --approval-mode yolo` on their fixed worker and cwd.
+Credentials stay under that machine's `~/.omp`; Roost distributes no secrets.
+Unexpected permission requests are declined with a visible notice, never a permission UI.
+OMP receives raw slash commands and owns its prompt queue. Busy `reject` refuses input;
+other busy policies queue follow-ups. Native inspect, plan decisions, answers, rewind,
+and fork are unsupported; withdrawal returns false.
+
+`AgentOmpSettingsGet` returns `OmpSettingsView` JSON; `AgentOmpSettingsSet` upserts one
+`OmpScopedSettings` JSON row. Each nonempty field resolves independently:
+conversation → exact `(worker_fp, cwd)` folder → machine → your defaults → OMP's own
+configuration. Empty values inherit. Model identifiers split at the first `/`.
+Conversation overrides apply on the next prompt; OMP config options supply machine catalogs.
+
+Worker capability `omp_acp_v1` gates `omp-prompt`, `omp-cancel`, `omp-close`, and
+`omp-events-ack`. Worker event sequences are contiguous within an actor's `run_id`;
+unacknowledged batches are resent after link snapshot readiness. The coordinator commits
+deduplication sequence, transcript, event cursor and metadata atomically, then publishes and
+ACKs. Snapshot/event-cursor catch-up works while the worker is offline. Retention is bounded
+to 8 MiB per actor and reports output loss explicitly.
+
+Link reconnects preserve OMP processes. Worker restarts fail active turns; the next message
+loads the saved ACP session without projecting its replayed history a second time.
+Authority: `crates/roost-worker/src/omp/`, `crates/roost-coord/src/agent/omp/`,
+`crates/roost-protocol/src/wire/agent_chat/omp.rs`.
+
 ## Commands and request ids
 
 The idempotent commands below carry a client-minted `request_id` (at least

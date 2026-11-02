@@ -166,6 +166,8 @@ mod middleware_security_headers;
 mod middleware_spa;
 #[path = "migration_history.rs"]
 mod migration_history;
+#[path = "omp_chat.rs"]
+mod omp_chat;
 #[path = "orphan_kills.rs"]
 mod orphan_kills;
 #[path = "pairing_approval_machine.rs"]

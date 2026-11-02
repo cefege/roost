@@ -22,6 +22,7 @@ pub mod link_barrier;
 pub mod link_dial;
 pub mod local_door;
 pub mod local_terminal;
+pub mod omp;
 pub mod outbox;
 pub mod peer;
 pub mod runtime;

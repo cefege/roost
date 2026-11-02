@@ -112,6 +112,7 @@ mod web {
     use roost_client_core::client::rpc::calls::sessions::SpawnSession;
     use roost_client_core::deck::{DeckSpawn, agent_tab_id};
     use roost_client_core::store::selectors::session_by_id;
+    use roost_protocol::wire::agent_chat::AgentBackend;
 
     use super::SpawnAnchor;
     use crate::components::deck::terminal_deck_model::{deck_folder_for, deck_folder_for_agent};
@@ -187,6 +188,7 @@ mod web {
                 worker_fp: anchor.worker_fp.clone(),
                 cwd: anchor.folder.clone(),
                 model: None,
+                backend: AgentBackend::Native,
             })
             .await
         {

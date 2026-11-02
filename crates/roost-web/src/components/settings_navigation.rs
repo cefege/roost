@@ -99,6 +99,14 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
                 "advisor adviser planning delegated quick side tasks decisions fallback chains session thinking effort btw compact web search",
             ),
             pane(
+                "omp",
+                "OMP",
+                IconType::Bot,
+                "OMP",
+                "Default model and thinking for OMP chats, per machine and folder.",
+                "omp oh my pi acp model thinking machine folder defaults",
+            ),
+            pane(
                 "mcp",
                 "Tool integrations",
                 IconType::Puzzle,

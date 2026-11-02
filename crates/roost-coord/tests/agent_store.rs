@@ -3,9 +3,9 @@
 //! The test uses the shared database helper so the same assertions run against
 //! SQLite locally and Postgres when `ROOST_TEST_DATABASE_URL` is configured.
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-
 mod db_support;
+#[path = "agent_store/omp_isolation.rs"]
+mod omp_isolation;
 
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};

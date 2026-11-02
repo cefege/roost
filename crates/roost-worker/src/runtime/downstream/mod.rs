@@ -185,6 +185,34 @@ impl Dispatcher {
             CoordWorkerDownstream::AgentConversationClosed(request) => {
                 self.agent_conversation_closed(request)
             }
+            CoordWorkerDownstream::OmpPrompt(request) => {
+                if let Some(owner) = self.owners.as_ref().and_then(|owners| owners.omp.as_ref()) {
+                    owner.prompt(request);
+                } else {
+                    tracing::debug!("OMP prompt has no owner");
+                }
+            }
+            CoordWorkerDownstream::OmpCancel(request) => {
+                if let Some(owner) = self.owners.as_ref().and_then(|owners| owners.omp.as_ref()) {
+                    owner.cancel(request);
+                } else {
+                    tracing::debug!("OMP cancel has no owner");
+                }
+            }
+            CoordWorkerDownstream::OmpEventsAck(request) => {
+                if let Some(owner) = self.owners.as_ref().and_then(|owners| owners.omp.as_ref()) {
+                    owner.ack(request);
+                } else {
+                    tracing::debug!("OMP acknowledgment has no owner");
+                }
+            }
+            CoordWorkerDownstream::OmpClose(request) => {
+                if let Some(owner) = self.owners.as_ref().and_then(|owners| owners.omp.as_ref()) {
+                    owner.close(request);
+                } else {
+                    tracing::debug!("OMP close has no owner");
+                }
+            }
             CoordWorkerDownstream::LiveMetricsSubscription(request) => {
                 self.live_metrics_subscription(request)
             }

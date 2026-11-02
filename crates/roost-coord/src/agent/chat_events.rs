@@ -21,21 +21,46 @@ pub async fn append(
     events_json: &str,
     run_start: bool,
 ) -> Result<u64, sqlx::Error> {
-    let mut transaction = match db.backend() {
-        DbBackend::Sqlite => db.begin_write().await?,
-        DbBackend::Postgres => db.pool().begin().await?,
-    };
-    if db.backend() == DbBackend::Postgres {
+    let mut transaction = begin_chat_write(db).await?;
+    let cursor = append_in(
+        &mut transaction,
+        db.backend(),
+        conversation_id,
+        events_json,
+        run_start,
+    )
+    .await?;
+    transaction.commit().await?;
+    Ok(cursor)
+}
+
+pub(super) async fn begin_chat_write(
+    db: &CoordDb,
+) -> Result<sqlx::Transaction<'_, sqlx::Any>, sqlx::Error> {
+    match db.backend() {
+        DbBackend::Sqlite => db.begin_write().await,
+        DbBackend::Postgres => db.pool().begin().await,
+    }
+}
+
+pub(super) async fn append_in(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Any>,
+    backend: DbBackend,
+    conversation_id: &str,
+    events_json: &str,
+    run_start: bool,
+) -> Result<u64, sqlx::Error> {
+    if backend == DbBackend::Postgres {
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('chat:' || $1, 0))")
             .bind(conversation_id)
-            .execute(&mut *transaction)
+            .execute(&mut **transaction)
             .await?;
     }
     let cursor: i64 = sqlx::query_scalar(
         "SELECT COALESCE(MAX(cursor), 0) + 1 FROM agent_chat_events WHERE conversation_id=$1",
     )
     .bind(conversation_id)
-    .fetch_one(&mut *transaction)
+    .fetch_one(&mut **transaction)
     .await?;
     sqlx::query("INSERT INTO agent_chat_events(conversation_id, cursor, events_json, run_start, created_ms) VALUES($1,$2,$3,$4,$5)")
         .bind(conversation_id)
@@ -43,9 +68,8 @@ pub async fn append(
         .bind(events_json)
         .bind(i64::from(run_start))
         .bind(now_ms())
-        .execute(&mut *transaction)
+        .execute(&mut **transaction)
         .await?;
-    transaction.commit().await?;
     Ok(u64::try_from(cursor).unwrap_or_default())
 }
 

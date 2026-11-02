@@ -19,6 +19,7 @@ use super::machines::MachinesPane;
 use super::mcp::McpPane;
 use super::metrics::MetricsPane;
 use super::notifications::NotificationsPane;
+use super::omp_settings::OmpSettingsPane;
 use super::terminal::TerminalPane;
 use super::theme::ThemePane;
 use super::voice::VoicePane;
@@ -32,6 +33,7 @@ pub fn SettingsPane(id: &'static str) -> Element {
             "connection" => rsx! { ConnectionPane {} },
             "devices" => rsx! { DevicesPane {} },
             "models" => rsx! { AgentModelsPane {} },
+            "omp" => rsx! { OmpSettingsPane {} },
             "launcher" => rsx! { AgentLauncherPane {} },
             "mcp" => rsx! { McpPane {} },
             "voice" => rsx! { VoicePane {} },

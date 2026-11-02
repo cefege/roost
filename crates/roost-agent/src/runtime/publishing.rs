@@ -33,6 +33,7 @@ impl AgentRuntime {
             None
         };
         ConversationSummary {
+            backend: roost_protocol::wire::agent_chat::AgentBackend::Native,
             id: record.id.clone(),
             title: record.title.clone(),
             worker_fp: record.worker_fp.clone(),

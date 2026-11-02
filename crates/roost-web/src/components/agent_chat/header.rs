@@ -123,15 +123,21 @@ pub fn AgentChatHeader(
                 menu_key: "actions",
                 trigger: ToolbarTrigger::Icon { icon: IconType::Ellipsis },
                 aria_label: "Conversation actions",
-                items: vec![
-                    ToolbarMenuItem::choice("inspect", "Inspector", false),
-                    ToolbarMenuItem::choice("rename", "Rename conversation", false),
-                    ToolbarMenuItem::choice("browse", "Browse conversations", false),
-                    ToolbarMenuItem {
-                        danger: true,
-                        ..ToolbarMenuItem::choice("delete", "Delete conversation", false)
-                    },
-                ],
+                items: {
+                    let mut items = Vec::new();
+                    if conversation.is_native() {
+                        items.push(ToolbarMenuItem::choice("inspect", "Inspector", false));
+                    }
+                    items.extend([
+                        ToolbarMenuItem::choice("rename", "Rename conversation", false),
+                        ToolbarMenuItem::choice("browse", "Browse conversations", false),
+                        ToolbarMenuItem {
+                            danger: true,
+                            ..ToolbarMenuItem::choice("delete", "Delete conversation", false)
+                        },
+                    ]);
+                    items
+                },
                 on_choose: move |action: String| match action.as_str() {
                     "inspect" => on_inspector.call(()),
                     "rename" => {

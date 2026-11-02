@@ -2,11 +2,12 @@
 
 use roost_proto::AgentConversation as PbAgentConversation;
 
-use super::model::{AgentRunState, ConversationSummary, ModelRef};
+use super::model::{AgentBackend, AgentRunState, ConversationSummary, ModelRef};
 
 pub fn conversation_to_proto(summary: &ConversationSummary) -> PbAgentConversation {
     PbAgentConversation {
         id: summary.id.clone(),
+        backend: summary.backend.as_wire().to_owned(),
         title: summary.title.clone(),
         worker_fp: summary.worker_fp.clone(),
         worker_label: summary.worker_label.clone(),
@@ -43,6 +44,7 @@ pub fn conversation_to_proto(summary: &ConversationSummary) -> PbAgentConversati
 pub fn conversation_from_proto(message: &PbAgentConversation) -> ConversationSummary {
     ConversationSummary {
         id: message.id.clone(),
+        backend: AgentBackend::from_wire(&message.backend),
         title: message.title.clone(),
         worker_fp: message.worker_fp.clone(),
         worker_label: message.worker_label.clone(),

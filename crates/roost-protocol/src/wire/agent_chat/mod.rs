@@ -16,6 +16,8 @@ mod model;
 mod model_order;
 mod model_presets;
 pub mod model_search;
+mod omp;
+pub use omp::*;
 mod proto;
 mod tools;
 mod usage;

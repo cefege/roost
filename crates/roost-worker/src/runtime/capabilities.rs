@@ -19,7 +19,7 @@
 
 use roost_protocol::versioning::{
     CAPABILITY_AGENT_TOOLS_V1, CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1,
-    CAPABILITY_TERMINAL_INPUT_ROUTE_V1, CAPABILITY_TERMINAL_METADATA_V1,
+    CAPABILITY_OMP_ACP_V1, CAPABILITY_TERMINAL_INPUT_ROUTE_V1, CAPABILITY_TERMINAL_METADATA_V1,
     CAPABILITY_TERMINAL_PEER_WEBRTC_V1, CAPABILITY_TERMINAL_VIEW_OWNER_V1,
 };
 
@@ -38,6 +38,7 @@ pub fn advertised(direct: DirectPeerSupport) -> Vec<String> {
         CAPABILITY_TERMINAL_INPUT_ROUTE_V1.to_owned(),
     ];
     capabilities.push(CAPABILITY_AGENT_TOOLS_V1.to_owned());
+    capabilities.push(CAPABILITY_OMP_ACP_V1.to_owned());
     if direct.terminal {
         capabilities.push(CAPABILITY_TERMINAL_PEER_WEBRTC_V1.to_owned());
     }
@@ -61,7 +62,7 @@ mod tests {
     use crate::peer::DirectPeerSupport;
     use roost_protocol::versioning::{
         CAPABILITY_AGENT_TOOLS_V1, CAPABILITY_ATTACHMENT_TRANSFER_PEER_WEBRTC_V1,
-        CAPABILITY_TERMINAL_INPUT_ROUTE_V1, CAPABILITY_TERMINAL_METADATA_V1,
+        CAPABILITY_OMP_ACP_V1, CAPABILITY_TERMINAL_INPUT_ROUTE_V1, CAPABILITY_TERMINAL_METADATA_V1,
         CAPABILITY_TERMINAL_PEER_WEBRTC_V1, CAPABILITY_TERMINAL_VIEW_OWNER_V1,
     };
     const BOTH: DirectPeerSupport = DirectPeerSupport {
@@ -78,6 +79,7 @@ mod tests {
     fn every_advertised_name_is_the_protocols_own_spelling() {
         let known = [
             CAPABILITY_AGENT_TOOLS_V1.to_owned(),
+            CAPABILITY_OMP_ACP_V1.to_owned(),
             CAPABILITY_TERMINAL_METADATA_V1.to_owned(),
             CAPABILITY_TERMINAL_VIEW_OWNER_V1.to_owned(),
             CAPABILITY_TERMINAL_INPUT_ROUTE_V1.to_owned(),

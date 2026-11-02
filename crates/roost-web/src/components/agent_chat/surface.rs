@@ -126,9 +126,15 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
             },
         ));
         let models_pump = pump.clone();
+        let backend = conversation
+            .as_ref()
+            .map(|conversation| conversation.backend);
         use_effect(use_reactive(
-            (&conversation_id, &catalog_attempt()),
-            move |_| {
+            (&conversation_id, &backend, &catalog_attempt()),
+            move |(_, backend, _)| {
+                if backend != Some(roost_protocol::wire::agent_chat::AgentBackend::Native) {
+                    return;
+                }
                 let pump = models_pump.clone();
                 catalog_failed.set(false);
                 wasm_bindgen_futures::spawn_local(async move {
@@ -182,11 +188,14 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
         return rsx! { div { class: ROOT_CLASS, LoadingTranscript {} } };
     };
     let running = transcript.run_state == AgentRunState::Running;
+    let native = conversation.is_native();
     let setup = ModelSetup::from_catalog(catalog.read().as_ref(), catalog_failed());
     let retry_catalog = move |()| catalog_attempt += 1;
     let composer = rsx! {
-        if let Some(status) = loop_status(&transcript) {
-            LoopControls { status: status.to_owned(), conversation_id: conversation_id.clone(), pump: pump.clone() }
+        if native {
+            if let Some(status) = loop_status(&transcript) {
+                LoopControls { status: status.to_owned(), conversation_id: conversation_id.clone(), pump: pump.clone() }
+            }
         }
         AgentComposer {
             conversation: conversation.clone(),
@@ -202,12 +211,14 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
             model_hub_open,
             connect_provider,
         }
-        ModelHub {
-            open: model_hub_open,
-            conversation: conversation.clone(),
-            catalog: catalog(),
-            pump: pump.clone(),
-            connect_provider,
+        if native {
+            ModelHub {
+                open: model_hub_open,
+                conversation: conversation.clone(),
+                catalog: catalog(),
+                pump: pump.clone(),
+                connect_provider,
+            }
         }
     };
     rsx! {
@@ -240,7 +251,7 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
                             if transcript.items.is_empty() && !running {
                                 super::welcome::AgentWelcome {}
                             }
-                            super::transcript::AgentTranscriptView { transcript: transcript.clone(), conversation_id: conversation_id.clone(), pump: pump.clone(), draft, edit_target }
+                            super::transcript::AgentTranscriptView { transcript: transcript.clone(), conversation_id: conversation_id.clone(), native, pump: pump.clone(), draft, edit_target }
                         }
                     }
                     div { class: "relative mx-auto flex w-full max-w-reading shrink-0 flex-col gap-3 pl-[max(env(safe-area-inset-left,0px),0.5rem)] pr-[max(env(safe-area-inset-right,0px),0.5rem)] pt-2 pb-(--term-chat-dock-rest-offset)",
@@ -267,8 +278,10 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
                             }
                         }
                         if let Some(phases) = latest_todo(&transcript) { TodoCard { phases } }
-                        QueuedBand { messages: transcript.queued.clone(), conversation_id: conversation_id.clone(), pump: pump.clone() }
-                        ModelSetupNotice { setup, on_retry: retry_catalog }
+                        if native {
+                            QueuedBand { messages: transcript.queued.clone(), conversation_id: conversation_id.clone(), pump: pump.clone() }
+                            ModelSetupNotice { setup, on_retry: retry_catalog }
+                        }
                         {composer}
                     }
                 }
