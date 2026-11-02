@@ -4753,3 +4753,18 @@ drive-relative and root-relative paths are not.
 **Guard** — `roost-cli`
 `deploy::manifest::tests::windows_staging_paths_require_a_drive_or_unc_root`
 and `deploy::manifest::tests::relative_staging_paths_are_refused_before_activation`.
+
+### Cold release verification exhausts the hosted runner's disk
+
+**Symptom** — release `verify` fails with `StorageFull` / `No space left on
+device` while writing a keeper fixture, even though branch CI passed.
+
+**Wrong** — retain unused Android/.NET SDKs beside a cold Rust/wasm build, or
+read the entire debug CLI into memory and write two full fixture copies.
+
+**Right** — reclaim those SDK directories on ephemeral Linux gate runners.
+Read-only candidate/keeper fixtures hard-link the built CLI; only a
+cross-filesystem fixture falls back to copying. No gate or assertion is skipped.
+
+**Guard** — `roost-cli`'s executable `update_keeper_gate` suite and the CI /
+release verifier, whose preparation prints the remaining filesystem capacity.

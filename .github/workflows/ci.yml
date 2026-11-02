@@ -18,6 +18,12 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      # Cold Rust/test/wasm builds need disk, not the preinstalled mobile/.NET SDKs.
+      - name: Reclaim Linux runner disk
+        if: runner.os == 'Linux'
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet
+          df -h /
       # Caches the DEPENDENCY artifacts, not the workspace crates, so a cache
       # hit removes the third-party build from the job without ever letting a
       # stale roost-*.rlib into a build. `shared-key` folds the two gate
