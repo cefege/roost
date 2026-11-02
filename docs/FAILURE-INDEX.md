@@ -4716,3 +4716,24 @@ worker clamps the request at its retained tail.
 
 **Guard** — `roost-cli`
 `api_coordinator_calls::cells_without_an_end_row_reads_the_newest_rows`.
+
+### A side-branch release outranks the fleet's releases
+
+**Symptom** — a first install selects a `v3.`-prefixed side-branch tag, or an
+off-branch stable tag prevents fallback to an available on-branch prerelease.
+
+**Wrong** — trust the tag prefix and version rank as proof of branch ancestry,
+or decide default-channel fallback before filtering stable candidates.
+
+**Right** — walk candidates in descending version order and ask GitHub's
+`compare/v3...<tag>` endpoint. Admit `identical`/`behind`, skip
+`ahead`/`diverged`, and preserve listing-based selection with a warning when
+the comparison is unreadable. Decide default fallback from admitted stable
+tags. `install.sh`, `install.ps1` and the CLI share these rules; GitHub API
+requests carry a User-Agent.
+
+**Guard** — `roost-cli`:
+`install_script_channel::a_tag_cut_from_a_side_branch_is_passed_over`,
+`install_script_channel::an_off_branch_stable_does_not_block_the_default_prerelease_fallback`,
+`install_powershell_channel::the_windows_installer_takes_only_a_tag_whose_commit_is_on_v3`,
+and `update_release_decision::only_a_tag_on_the_release_branch_is_installable`.

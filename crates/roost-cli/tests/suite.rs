@@ -52,6 +52,8 @@ mod doctor_digest_shape;
 mod import_v2_copy;
 #[path = "import_v2_plan.rs"]
 mod import_v2_plan;
+#[path = "install_powershell_channel.rs"]
+mod install_powershell_channel;
 #[path = "install_script.rs"]
 mod install_script;
 #[path = "install_script_channel.rs"]

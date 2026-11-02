@@ -1,32 +1,18 @@
-//! What `roost update` decides BEFORE it downloads anything, and the two string
-//! tables that must never become one.
-//!
-//! Three decisions live here and each is a pure function of its inputs, so each
-//! is decidable without a network: which asset a platform installs, whether there
-//! is anything to do at all, and what the release's digest sidecar says. A
-//! mistake in any of them is invisible until an operator is told they are up to
-//! date on a machine that is not, or until a 404 comes back from one platform
-//! only.
-//!
-//! The wording test is here for the same reason. `roost status` prints
-//! `Up to date` to mean "this worker's commit equals the coordinator's", and
-//! `roost update` prints its own sentence to mean "this binary is the newest
-//! one published". They are the same three words about two different facts, and
-//! a shared constant would make a wording change to one silently edit the other.
+//! Release selection, channel precedence, asset identity and digest parsing.
+//! Exercises the updater's pure decisions before download or activation.
+//! The installer suite covers the corresponding executable shell path.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use roost_cli::update::candidate::parse_published_digest;
 use roost_cli::update::release::{
-    RELEASE_API_URL, RELEASE_BASE_URL_ENV, RELEASE_DOWNLOAD_ORIGIN, RELEASE_REPOSITORY,
-    newest_installable_tag, release_asset_name, release_base_url,
+    RELEASE_BASE_URL_ENV, RELEASE_DOWNLOAD_ORIGIN, release_asset_name, release_base_url,
 };
+use roost_cli::update::release_listing::{compare_status_allows, installable_tags};
 use roost_cli::update::version::{
     RELEASE_CHANNEL_ENV, ReleaseChannel, canonical_release_version, needs_update, release_channel,
 };
-use roost_cli::update::{ALREADY_LATEST, NO_PUBLISHED_RELEASE};
 use roost_host::{HostPlatform, MapEnv};
-use roost_protocol::fleet_update::{WorkerUpdateState, worker_update_label};
 use serde_json::json;
 
 /// Every published asset name, one per platform this product ships. A name
@@ -179,19 +165,20 @@ fn the_listing_resolves_the_highest_version_on_the_channel() {
         {"tag_name": "v0.5.0"},
     ]);
     assert_eq!(
-        newest_installable_tag(&listing, ReleaseChannel::Stable),
-        "v3.0.0"
+        installable_tags(&listing, ReleaseChannel::Stable).next(),
+        Some("v3.0.0")
     );
     assert_eq!(
-        newest_installable_tag(&listing, ReleaseChannel::Prerelease),
-        "v3.0.1-rc.1"
+        installable_tags(&listing, ReleaseChannel::Prerelease).next(),
+        Some("v3.0.1-rc.1")
     );
     assert_eq!(
-        newest_installable_tag(
+        installable_tags(
             &json!([{"tag_name": "v3.0.0-rc.9"}, {"tag_name": "v3.0.0-rc.10"}]),
             ReleaseChannel::Stable
-        ),
-        "",
+        )
+        .next(),
+        None,
         "with no stable release the stable channel has nothing to install"
     );
 }
@@ -244,46 +231,79 @@ fn only_a_v3_tag_is_installable() {
         {"tag_name": "v3.0.0-rc.0", "draft": false},
     ]);
     assert_eq!(
-        newest_installable_tag(&listing, ReleaseChannel::Prerelease),
-        "v3.0.0-rc.1",
+        installable_tags(&listing, ReleaseChannel::Prerelease).next(),
+        Some("v3.0.0-rc.1"),
         "a v2 tag above a v3 rc must not win: the rc is the highest INSTALLABLE release"
     );
     assert_eq!(
-        newest_installable_tag(
+        installable_tags(
             &json!([{"tag_name": "v0.5.0"}, {"tag_name": "v0.4.0"}]),
             ReleaseChannel::Prerelease
-        ),
-        "",
-        "a listing with no v3 tag names nothing, which is the `no published release` answer \
-         rather than a v2 download: {NO_PUBLISHED_RELEASE}"
+        )
+        .next(),
+        None,
+        "a listing with no v3 tag names nothing"
     );
     assert_eq!(
-        newest_installable_tag(
+        installable_tags(
             &json!([
                 {"tag_name": "v3.0.0-rc.2", "draft": true},
                 {"tag_name": "v3.0.0-rc.1", "draft": false},
             ]),
             ReleaseChannel::Prerelease
-        ),
-        "v3.0.0-rc.1",
+        )
+        .next(),
+        Some("v3.0.0-rc.1"),
         "a draft has no assets anybody can fetch, so the next published tag is the answer"
     );
     assert_eq!(
-        newest_installable_tag(&json!({"message": "Not Found"}), ReleaseChannel::Prerelease),
-        "",
+        installable_tags(&json!({"message": "Not Found"}), ReleaseChannel::Prerelease).next(),
+        None,
         "a body that is not a listing names nothing"
     );
 }
 
-/// The listing and the download are two literals, so the repository they name
-/// is asserted rather than assumed: a listing from one repository and assets
-/// from another is a digest check against somebody else's sidecar.
+/// A side-branch tag can outrank every real release: semver sorts an
+/// alphanumeric pre-release identifier above a numeric one. The selector walks
+/// the list past it, so the ranker's head is pinned here.
 #[test]
-fn the_listing_and_the_download_name_the_same_repository() {
-    for origin in [RELEASE_API_URL, RELEASE_DOWNLOAD_ORIGIN] {
-        assert!(
-            origin.contains(RELEASE_REPOSITORY),
-            "{origin} must name {RELEASE_REPOSITORY}"
+fn version_order_puts_a_side_branch_tag_above_every_real_release() {
+    let listing = json!([
+        {"tag_name": "v3.0.0-rc.96"},
+        {"tag_name": "v3.0.0-rc.win.4"},
+        {"tag_name": "v3.0.0-rc.95"},
+    ]);
+    assert_eq!(
+        installable_tags(&listing, ReleaseChannel::Prerelease).collect::<Vec<_>>(),
+        ["v3.0.0-rc.win.4", "v3.0.0-rc.96", "v3.0.0-rc.95"],
+        "highest version first; the v3 branch check is what disqualifies the head"
+    );
+}
+
+/// Which compare answers may be installed. `identical` and `behind` are a tag
+/// cut from `v3`; `ahead` and `diverged` carry work `v3` does not contain;
+/// anything else is unreadable, which installs the candidate.
+#[test]
+fn only_a_tag_on_the_release_branch_is_installable() {
+    for status in ["identical", "behind"] {
+        assert_eq!(
+            compare_status_allows(status),
+            Some(true),
+            "{status} is a tag cut from v3"
+        );
+    }
+    for status in ["ahead", "diverged"] {
+        assert_eq!(
+            compare_status_allows(status),
+            Some(false),
+            "{status} is a commit v3 does not contain"
+        );
+    }
+    for status in ["", "unknown", "Behind"] {
+        assert_eq!(
+            compare_status_allows(status),
+            None,
+            "{status:?} is not an answer this command reads"
         );
     }
 }
@@ -312,37 +332,4 @@ fn a_digest_sidecar_verifies_in_every_shape_a_mirror_writes_it() {
             "text that is not a digest is refused: {sidecar:?}"
         );
     }
-}
-
-/// The two commands that both say "up to date" must never say it with one
-/// constant. `roost status` answers "is this worker's commit the coordinator's";
-/// `roost update` answers "is this binary the newest one published".
-#[test]
-fn the_fleet_wording_and_the_self_update_wording_are_two_different_sentences() {
-    let fleet_labels = [
-        WorkerUpdateState::Unknown,
-        WorkerUpdateState::UpToDate,
-        WorkerUpdateState::Updating,
-        WorkerUpdateState::UpdateAvailable,
-        WorkerUpdateState::UpdateDeferred,
-    ]
-    .map(worker_update_label);
-    assert!(
-        fleet_labels.contains(&"Up to date"),
-        "the fleet's own wording is what this test holds apart from"
-    );
-    for label in fleet_labels {
-        assert_ne!(
-            label, ALREADY_LATEST,
-            "`roost status` and `roost update` must not share one sentence: {label:?}"
-        );
-    }
-    assert_ne!(
-        NO_PUBLISHED_RELEASE, ALREADY_LATEST,
-        "this command's own two sentences are distinct too"
-    );
-    assert!(
-        ALREADY_LATEST.contains("release"),
-        "this command's sentence is about a published release, not about a worker's commit"
-    );
 }

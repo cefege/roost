@@ -1,6 +1,6 @@
 //! Release versions in semver order, and the channel that decides whether a
 //! pre-release is a candidate. Called by `update::mod` (whether to update) and
-//! `update::release` (which listed tag to pick); `install.sh` applies the same
+//! `update::release_listing` (which listed tag to pick); `install.sh` applies the same
 //! rules in shell. Depends on `roost-host` for the environment and the dev stamp.
 
 use std::cmp::Ordering;

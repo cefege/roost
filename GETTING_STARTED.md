@@ -780,6 +780,13 @@ version is installed, so an update never moves a machine sideways or back.
 `ROOST_RELEASE_CHANNEL=stable` or `=prerelease` overrides the default, for
 both `roost update` and the install script.
 
+The installers and `roost update` check candidate tags against the `v3` branch
+before selecting one. A `v3.` name alone does not establish ancestry: a
+side-branch prerelease can sort above the fleet's releases. An unreadable
+GitHub comparison preserves listing-based selection and emits a warning.
+With no explicit install channel, prerelease fallback is decided after
+off-branch stable tags have been excluded.
+
 The running services keep the old binary until they restart:
 
 ```sh

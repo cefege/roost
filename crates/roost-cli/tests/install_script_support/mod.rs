@@ -85,11 +85,36 @@ impl Sandbox {
         self.publish_fake_releases(&["v3.9.9"])
     }
 
-    /// The same, for every tag in `tags`, listed in the order given.
+    /// The same, for every tag in `tags`, listed in the order given. Every tag
+    /// is answered as cut from `v3`, which is what a real release is.
     pub fn publish_fake_releases(&self, tags: &[&str]) -> (String, String) {
+        self.publish_fake_releases_cut_from(tags, &[])
+    }
+
+    /// The same, with `off_branch`'s tags answered as a side-branch cut: the
+    /// compare endpoint the script asks says `diverged` for them, and
+    /// `identical` for every other tag. Returns the release-list URL and the
+    /// download origin.
+    pub fn publish_fake_releases_cut_from(
+        &self,
+        tags: &[&str],
+        off_branch: &[&str],
+    ) -> (String, String) {
         let release = self.root.join("release");
+        let compare = self.root.join("compare");
+        std::fs::create_dir_all(&compare).expect("the compare directory");
         for tag in tags {
             publish_fake_assets(&release.join("download").join(tag));
+            let status = if off_branch.contains(tag) {
+                "diverged"
+            } else {
+                "identical"
+            };
+            std::fs::write(
+                compare.join(format!("v3...{tag}")),
+                format!("{{\"status\":\"{status}\"}}"),
+            )
+            .expect("the compare answer");
         }
         let list = release.join("releases.json");
         let entries: Vec<serde_json::Value> = tags
@@ -102,6 +127,11 @@ impl Sandbox {
             format!("file://{}", list.display()),
             format!("file://{}", release.join("download").display()),
         )
+    }
+
+    /// The compare origin the script asks about a tag's branch, over `file://`.
+    pub fn compare_origin(&self) -> String {
+        format!("file://{}", self.root.join("compare").display())
     }
 }
 
@@ -181,6 +211,7 @@ pub fn run_script_against(
         .env("ROOST_TEST_JOIN_LOG", sandbox.log())
         .env("ROOST_RELEASE_BASE_URL", release_origin)
         .env("ROOST_RELEASE_API_URL", release_api)
+        .env("ROOST_RELEASE_COMPARE_URL", sandbox.compare_origin())
         .stdin(std::process::Stdio::null());
     if invocation.grant {
         command

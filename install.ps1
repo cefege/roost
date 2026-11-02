@@ -19,7 +19,10 @@
 # it, and nothing more.
 #
 # The origin is overridable by the same variables install.sh and `roost update`
-# read: ROOST_RELEASE_API_URL, ROOST_RELEASE_BASE_URL, ROOST_RELEASE_CHANNEL.
+# read: ROOST_RELEASE_API_URL, ROOST_RELEASE_COMPARE_URL, ROOST_RELEASE_BASE_URL,
+# ROOST_RELEASE_CHANNEL. A v3-prefixed tag name is not proof of a v3 build, so a
+# candidate is installed only when GitHub's compare endpoint reports its commit
+# on v3 (see `Test-RoostTagOnV3`).
 
 function Install-RoostWorker {
     $ErrorActionPreference = 'Stop'
@@ -99,13 +102,23 @@ function Install-RoostWorker {
 
 # The tag to install, by the same rule as install.sh's `install_tag`: the
 # highest v3 tag of any kind under ROOST_RELEASE_CHANNEL=prerelease, otherwise
-# the highest stable one, and only while no stable v3 exists and no channel was
-# named, the highest pre-release. Versions order by a key whose numbers are
-# zero-padded to ten digits and whose stable releases end in `~`, which sorts
-# after every `-…`, compared ordinally.
+# the highest stable one, and only while no admitted stable v3 exists and no
+# channel was named, the highest admitted pre-release. Versions order by a key
+# whose numbers are zero-padded to ten digits and whose stable releases end in
+# `~`, which sorts after every `-…`, compared ordinally. Candidates are tried
+# highest-version first and each must be cut from v3 (see `Test-RoostTagOnV3`),
+# so a `v3.`-prefixed tag from a side branch is passed over rather than
+# installed; a compare answer GitHub cannot give admits the candidate.
+#
+# The compare origin is overridable by ROOST_RELEASE_COMPARE_URL for the same
+# reason the listing and downloads are: a mirror pins one origin, not three.
 function Select-RoostTag {
     param([string] $Api, [string] $Channel)
-    $releases = Invoke-RestMethod -UseBasicParsing -Uri $Api -Headers @{ Accept = 'application/vnd.github+json' }
+    $compare = if ($env:ROOST_RELEASE_COMPARE_URL) { $env:ROOST_RELEASE_COMPARE_URL } else { 'https://api.github.com/repos/cefege/roost/compare' }
+    # api.github.com refuses a request without a user agent, and the refusal
+    # reads exactly like an empty listing or an unreadable compare answer.
+    $userAgent = 'roost-install.ps1 (+https://github.com/cefege/roost)'
+    $releases = Invoke-RestMethod -UseBasicParsing -Uri $Api -Headers @{ Accept = 'application/vnd.github+json' } -UserAgent $userAgent
     $ranked = New-Object System.Collections.Generic.List[object]
     foreach ($release in $releases) {
         $tag = [string] $release.tag_name
@@ -135,18 +148,62 @@ function Select-RoostTag {
     $ranked.Sort([System.Comparison[object]] { param($left, $right) [string]::CompareOrdinal($left.Key, $right.Key) })
     $ordered = $ranked.ToArray()
     if ($Channel -eq 'prerelease') {
-        return $ordered[-1].Tag
+        return Select-RoostHighestTag -Ranked $ordered -Only '' -Compare $compare -UserAgent $userAgent
     }
-    $stable = @($ordered | Where-Object { $_.Stable })
-    if ($stable.Count -gt 0) {
-        return $stable[-1].Tag
+    if ($Channel -eq 'stable' -and -not ($ordered | Where-Object { $_.Stable })) {
+        Write-Host '>> ROOST_RELEASE_CHANNEL=stable and no stable v3 release is published'
+        return $null
     }
-    if (-not $Channel) {
-        Write-Host '>> no stable v3 release yet; installing the newest pre-release'
-        return $ordered[-1].Tag
+    if ($Channel -eq 'stable') {
+        return Select-RoostHighestTag -Ranked $ordered -Only 'stable' -Compare $compare -UserAgent $userAgent
     }
-    Write-Host '>> ROOST_RELEASE_CHANNEL=stable and no stable v3 release is published'
+    $stable = Select-RoostHighestTag -Ranked $ordered -Only 'stable' -Compare $compare -UserAgent $userAgent
+    if ($stable) { return $stable }
+    Write-Host '>> no stable v3 release yet; installing the newest pre-release'
+    return Select-RoostHighestTag -Ranked $ordered -Only 'prerelease' -Compare $compare -UserAgent $userAgent
+}
+
+# The highest-version candidate `Only` admits that is cut from v3, walking a
+# version-ordered listing from its top. `Only` is 'stable', 'prerelease', or ''
+# for either kind; restricting the walk is what keeps the unnamed-channel
+# fallback from asking GitHub about a stable tag it already rejected.
+function Select-RoostHighestTag {
+    param([object[]] $Ranked, [string] $Only, [string] $Compare, [string] $UserAgent)
+    for ($idx = $Ranked.Count - 1; $idx -ge 0; $idx--) {
+        $candidate = $Ranked[$idx]
+        if ($Only -eq 'stable' -and -not $candidate.Stable) { continue }
+        if ($Only -eq 'prerelease' -and $candidate.Stable) { continue }
+        if (Test-RoostTagOnV3 -Compare $Compare -Tag $candidate.Tag -UserAgent $UserAgent) {
+            return $candidate.Tag
+        }
+    }
     return $null
+}
+
+# Whether to install a published tag, by the one question a tag name cannot
+# answer: GitHub's compare endpoint reports `identical` or `behind` for a tag
+# cut from v3, including every release of a fleet that rolled back, and `ahead`
+# or `diverged` for one carrying work v3 does not contain. An answer GitHub
+# cannot give admits the candidate, so a rate limit or a mirror does not refuse
+# every install; it says so, because an unreachable compare otherwise reads
+# exactly like an on-branch tag.
+function Test-RoostTagOnV3 {
+    param([string] $Compare, [string] $Tag, [string] $UserAgent)
+    $status = ''
+    try {
+        $answer = Invoke-RestMethod -UseBasicParsing -ErrorAction Stop -Uri "$Compare/v3...$Tag" -Headers @{ Accept = 'application/vnd.github+json' } -UserAgent $UserAgent
+        $status = [string] $answer.status
+    }
+    catch {
+        $status = ''
+    }
+    if ($status -eq 'identical' -or $status -eq 'behind') { return $true }
+    if ($status -eq 'ahead' -or $status -eq 'diverged') {
+        Write-Host ">> skipping ${Tag}: GitHub says its commit is not on v3"
+        return $false
+    }
+    Write-Warning "could not ask GitHub whether $Tag is cut from v3; installing it"
+    return $true
 }
 
 Install-RoostWorker

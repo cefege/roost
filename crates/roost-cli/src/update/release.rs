@@ -1,13 +1,10 @@
-//! Which release a machine would install, and getting its bytes onto this
-//! machine's disk. Called by `update::mod`; depends on the update group's
+//! Getting one release's bytes onto this machine's disk and proving them.
+//! Called by `update::mod` and the deploy paths; depends on the update group's
 //! candidate module and on `reqwest`, and on nothing else in this crate.
 //!
-//! **A v3 binary may only install a v3 release.** This repository publishes
-//! both series from one tag namespace, so "the newest release" is a TypeScript
-//! build today and a Rust build the day after. Resolution is therefore the
-//! GitHub releases LISTING filtered to `v3.`, and the download names the tag it
-//! chose: a `latest/download` URL verifies its own sidecar's digest perfectly
-//! while handing this binary a different program.
+//! The download names the tag it was given: a `latest/download` URL verifies
+//! its own sidecar's digest perfectly while handing this binary a different
+//! program. Which tag that is belongs to [`release_listing`](crate::update::release_listing).
 //!
 //! The origin is resolved once, here, from one variable. v2's self-updater
 //! hardcoded the GitHub origin while the deploy paths honoured
@@ -26,38 +23,15 @@ use std::path::{Path, PathBuf};
 use roost_host::{EnvSource, HostPlatform};
 use tracing::info;
 
-use crate::command_error::CommandFailure;
 pub use crate::update::assets::{WEB_ASSET_NAME, keeper_release_asset_name, release_asset_name};
 use crate::update::candidate::{self, CandidateError, VerifiedCandidate};
-use crate::update::version::{ReleaseChannel, ReleaseVersion};
-
-/// The GitHub repository every release is published from, named in both URLs
-/// below rather than concatenated into them: a `const` cannot be built from
-/// another, and two literals that have to agree are better as two literals
-/// that a test can compare.
-pub const RELEASE_REPOSITORY: &str = "cefege/roost";
 
 /// The directory release assets are downloaded from, and this crate's ONLY read
 /// of the mirror variable.
 pub const RELEASE_BASE_URL_ENV: &str = "ROOST_RELEASE_BASE_URL";
 
-/// The GitHub REST listing every published release, newest first. The `latest`
-/// endpoint is deliberately not used: it answers with the newest release of
-/// ANY series, and this repository's newest release today is a v2 binary.
-pub const RELEASE_API_URL: &str = "https://api.github.com/repos/cefege/roost/releases?per_page=100";
-
 /// Where a tag's assets live when no mirror is configured.
 pub const RELEASE_DOWNLOAD_ORIGIN: &str = "https://github.com/cefege/roost/releases/download";
-
-/// The tag prefix a release must carry to be installable by this binary.
-///
-/// THE WHOLE POINT OF THIS FILTER. `releases/latest` answers `v0.5.0`, a
-/// TypeScript build, and a digest-verified download of it would replace a Rust
-/// `roost` with a Bun one that answers none of the commands this contract
-/// documents. Drafts are excluded because a draft has no assets anybody can
-/// fetch; pre-releases are candidates only on the pre-release channel
-/// (`update::version::release_channel`).
-pub const INSTALLABLE_TAG_PREFIX: &str = "v3.";
 
 /// How long a checksum sidecar may take. It is a 65-byte file, so this is
 /// patience rather than a transfer budget.
@@ -65,63 +39,6 @@ pub const CHECKSUM_DEADLINE: std::time::Duration = std::time::Duration::from_sec
 
 /// How long a release binary may take to arrive.
 pub const ASSET_DEADLINE: std::time::Duration = std::time::Duration::from_secs(120);
-
-/// How long the release listing may take before "no release" is the answer.
-pub const LISTING_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
-
-/// The release this machine would install, and the architecture it is for.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReleaseListing {
-    /// The published tag, or empty when the origin named none.
-    pub tag: String,
-    /// The architecture the tag is for, which is what the asset is chosen for.
-    pub arch: String,
-}
-
-impl ReleaseListing {
-    /// The listing an unreachable or silent origin produces.
-    ///
-    /// No release and an unreachable origin are deliberately the SAME answer:
-    /// both mean there is nothing this command can safely install, and telling
-    /// an operator their update failed when the origin was merely down would
-    /// send them to debug the wrong machine.
-    pub fn none() -> Self {
-        Self {
-            tag: String::new(),
-            arch: String::new(),
-        }
-    }
-}
-
-/// The highest installable tag on `channel` in a GitHub releases listing, or
-/// an empty tag when the listing holds none.
-///
-/// Highest by version, not first in the listing: the listing is ordered by
-/// publish date, so a candidate published after a final, or a re-cut older tag,
-/// would otherwise be "newest". Pure over the response body, so the choice is
-/// decidable without a network. A v2 tag, a draft, a tag that is not a
-/// version, and a body that is not a listing are all "nothing to install".
-pub fn newest_installable_tag(releases: &serde_json::Value, channel: ReleaseChannel) -> String {
-    releases
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|entry| entry.get("draft").and_then(serde_json::Value::as_bool) != Some(true))
-        .filter_map(|entry| {
-            let tag = entry
-                .get("tag_name")
-                .and_then(serde_json::Value::as_str)?
-                .trim();
-            if !tag.starts_with(INSTALLABLE_TAG_PREFIX) {
-                return None;
-            }
-            let version = ReleaseVersion::parse(tag).ok()?;
-            version.is_on(channel).then(|| (version, tag.to_string()))
-        })
-        .max_by(|(left, _), (right, _)| left.cmp(right))
-        .map(|(_, tag)| tag)
-        .unwrap_or_default()
-}
 
 /// The directory one tag's assets are downloaded from, which is the mirror when
 /// one is configured and the resolved tag's own directory when it is not.
@@ -134,45 +51,6 @@ pub fn release_base_url(env: &dyn EnvSource, tag: &str) -> String {
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| format!("{RELEASE_DOWNLOAD_ORIGIN}/{tag}"))
-}
-
-/// Ask GitHub which installable release on `channel` is highest.
-///
-/// No environment: the listing is GitHub's, and the one origin an operator may
-/// substitute is the one the ASSETS come from, which [`release_base_url`]
-/// resolves. A mirror that also republished the listing would be a second
-/// release index to keep in step with the first, for no origin this command
-/// cannot already be pointed at.
-pub async fn fetch_latest_release_tag(
-    arch: &str,
-    channel: ReleaseChannel,
-) -> Result<ReleaseListing, CommandFailure> {
-    let client = reqwest::Client::builder()
-        .timeout(LISTING_DEADLINE)
-        .build()
-        .map_err(|error| CommandFailure::generic(error.to_string()))?;
-    let response = client
-        .get(RELEASE_API_URL)
-        .header("accept", "application/vnd.github+json")
-        .send()
-        .await;
-    let Ok(response) = response else {
-        return Ok(ReleaseListing::none());
-    };
-    if !response.status().is_success() {
-        return Ok(ReleaseListing::none());
-    }
-    let Ok(value) = response.json::<serde_json::Value>().await else {
-        return Ok(ReleaseListing::none());
-    };
-    let tag = newest_installable_tag(&value, channel);
-    if tag.is_empty() {
-        return Ok(ReleaseListing::none());
-    }
-    Ok(ReleaseListing {
-        tag,
-        arch: arch.to_string(),
-    })
 }
 
 /// Download one release asset from one tag's directory and prove it against the

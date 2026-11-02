@@ -49,6 +49,7 @@ die() { printf 'ERROR: %s\n' "$1" >&2; shift; for h in "$@"; do printf '  %s\n' 
 # installed by script and later runs `roost update` ends up on the same release.
 RELEASE_REPO="cefege/roost"
 RELEASE_API="${ROOST_RELEASE_API_URL:-https://api.github.com/repos/${RELEASE_REPO}/releases?per_page=100}"
+RELEASE_COMPARE="${ROOST_RELEASE_COMPARE_URL:-https://api.github.com/repos/${RELEASE_REPO}/compare}"
 RELEASE_DOWNLOADS="${ROOST_RELEASE_BASE_URL:-https://github.com/${RELEASE_REPO}/releases/download}"
 
 # The asset name for this machine. These are the four names the release
@@ -100,28 +101,80 @@ v3_tags_by_version() {
     | LC_ALL=C sort
 }
 
+# Whether a published tag was cut from the v3 branch.
+#
+# A v3-prefixed name is not proof of a v3 build: a side-branch tag with an
+# alphanumeric pre-release identifier sorts above every real release, and its
+# binary may predate `__self-update`. GitHub's compare endpoint answers the one
+# question a tag name cannot: `identical` and `behind` mean the tag's commit is
+# on v3, `ahead` and `diverged` mean it is not. An unreadable answer installs
+# the tag, so a rate limit or a mirror does not refuse every install.
+tag_is_on_v3() {
+  local status
+  status="$(curl -fsSL -H 'accept: application/vnd.github+json' \
+      "${RELEASE_COMPARE}/v3...$1" 2>/dev/null \
+    | grep -o '"status": *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true)"
+  case "$status" in
+    identical|behind) return 0 ;;
+    ahead|diverged)
+      say "skipping $1: GitHub says its commit is not on v3" >&2
+      return 1
+      ;;
+    *)
+      say "could not ask GitHub whether $1 is cut from v3; installing it" >&2
+      return 0
+      ;;
+  esac
+}
+
+# The highest tag of a version-ordered listing that was cut from v3, or nothing
+# when none was. Walking from the top usually costs one request.
+highest_tag_on_v3() {
+  local tag
+  printf '%s\n' "$1" \
+    | awk '{ line[NR] = $0 } END { for (i = NR; i >= 1; i--) print line[i] }' \
+    | cut -d' ' -f3 \
+    | while IFS= read -r tag; do
+        [ -n "$tag" ] || continue
+        if tag_is_on_v3 "$tag"; then
+          printf '%s\n' "$tag"
+          break
+        fi
+      done
+}
+
 # The tag to install. ROOST_RELEASE_CHANNEL=prerelease takes the highest v3 tag
 # of any kind; otherwise the highest stable one, and only while no stable v3
 # exists and no channel was named, the highest pre-release — saying so,
 # because a machine installed from a pre-release keeps updating on
-# pre-releases. The channel value is validated before this runs.
+# pre-releases. The channel value is validated before this runs. Within the
+# chosen channel, only tags cut from v3 count (see `tag_is_on_v3`).
 install_tag() {
   local listing stable
   listing="$(v3_tags_by_version)"
   [ -n "$listing" ] || return 0
-  if [ "${ROOST_RELEASE_CHANNEL:-}" = "prerelease" ]; then
-    printf '%s\n' "$listing" | tail -1 | cut -d' ' -f3
-    return 0
-  fi
-  stable="$(printf '%s\n' "$listing" | grep ' stable ' | tail -1 | cut -d' ' -f3)"
-  if [ -n "$stable" ]; then
-    printf '%s' "$stable"
-  elif [ -z "${ROOST_RELEASE_CHANNEL:-}" ]; then
-    say "no stable v3 release yet; installing the newest pre-release" >&2
-    printf '%s\n' "$listing" | tail -1 | cut -d' ' -f3
-  else
-    say "ROOST_RELEASE_CHANNEL=stable and no stable v3 release is published" >&2
-  fi
+  stable="$(printf '%s\n' "$listing" | grep ' stable ' || true)"
+  case "${ROOST_RELEASE_CHANNEL:-}" in
+    prerelease)
+      highest_tag_on_v3 "$listing"
+      ;;
+    stable)
+      if [ -n "$stable" ]; then
+        highest_tag_on_v3 "$stable"
+      else
+        say "ROOST_RELEASE_CHANNEL=stable and no stable v3 release is published" >&2
+      fi
+      ;;
+    *)
+      stable="$(highest_tag_on_v3 "$stable")"
+      if [ -n "$stable" ]; then
+        printf '%s\n' "$stable"
+      else
+        say "no stable v3 release yet; installing the newest pre-release" >&2
+        highest_tag_on_v3 "$(printf '%s\n' "$listing" | grep ' prerelease ' || true)"
+      fi
+      ;;
+  esac
 }
 
 sha256_of() {

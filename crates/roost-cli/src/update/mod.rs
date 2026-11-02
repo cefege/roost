@@ -24,6 +24,7 @@ pub mod keeper;
 pub mod local_keeper;
 pub mod recovery;
 pub mod release;
+pub mod release_listing;
 pub mod rollout;
 pub mod version;
 
@@ -44,9 +45,7 @@ use crate::update::release::{host_arch, release_asset_name};
 use crate::update::rollout::{InstalledBinary, ReplaceOutcome, read_installed};
 use crate::update::version::{needs_update, release_channel};
 
-/// What this command prints when there is nothing to do. Its own table,
-/// deliberately separate from the fleet's five, and public so the executable
-/// spec can hold the two apart rather than trusting that nobody imports both.
+/// What this command prints when this binary is already the newest release.
 pub const ALREADY_LATEST: &str = "already the latest release";
 
 /// What this command prints when no release has been published.
@@ -74,7 +73,7 @@ pub async fn run(_args: &UpdateArgs) -> Result<ExitCode, CommandFailure> {
     resolve_recovery_first(&service_dir)?;
     let identity = roost_host::build_identity(&env);
     let channel = release_channel(&env, &identity.artifact_version)?;
-    let listing = release::fetch_latest_release_tag(host_arch(platform), channel).await?;
+    let listing = release_listing::fetch_latest_release_tag(host_arch(platform), channel).await?;
     if listing.tag.is_empty() {
         println!(">> {NO_PUBLISHED_RELEASE}");
         return Ok(ExitCode::SUCCESS);
