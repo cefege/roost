@@ -531,20 +531,19 @@ gh workflow run promote.yml -f tag=<older tag>   # roll back (see below)
    upgrade can migrate the database and re-encrypt credentials. Flux's own
    manifests were installed once from its release `install.yaml`
    (`kubectl apply --server-side`), then `deploy/flux/bootstrap.yaml`.
-4. **Workers.** Linux, macOS and Windows workers poll the coordinator's
-   `/version` and install exactly that release themselves (`roost __self-update`,
+4. **Workers.** Linux and macOS workers poll the coordinator's `/version` and
+   install exactly that release themselves (`roost __self-update`,
    log `self-update-<tag>.log` in the worker's log directory), so they follow a
    promotion and a rollback alike. The first poll is 60 seconds after startup,
    then every 15 minutes; persisted attempt state enforces an hour between
    updater starts, even across tags or restarts
-   (`crates/roost-worker/src/runtime/auto_update.rs`). Windows installs into a
-   versioned directory and restarts its Scheduled Task from a detached updater,
-   leaving the keeper running. The detached Windows environment preserves its
-   temporary, profile and system directory variables; dropping `TEMP`/`TMP`
-   stages under `C:\Windows` and refuses before changing the service. A worker
-   running an affected older updater needs one
-   `cargo xtask fleet install --version <fixed tag> --host <name>` to receive
-   the correction, after which normal coordinator-following polling takes over.
+   (`crates/roost-worker/src/runtime/auto_update.rs`).
+
+**Windows is outside our managed deployment fleet.** Do not deploy, recover
+or re-enroll `roost-win` for routine releases; leave its installation untouched.
+Windows binaries and CI remain supported. The fleet policy lives beside the
+manual installation command in
+[`GETTING_STARTED.md`](GETTING_STARTED.md#workers-follow-a-released-coordinator).
 
 **Rolling back** is promoting an older tag. Going back past a migration or
 the credential encryption also needs the database restored from a
@@ -556,8 +555,8 @@ commit: a worker sent to rc.37 or rc.38 would apply the next release with
 their broken updater.
 
 **`cargo xtask fleet install --version <tag> [--host <name>]…`** remains for
-bootstrapping an affected older updater or moving any machine by hand: it
-fetches the tag's assets with `gh` into
+bootstrapping an affected older updater or moving a listed Linux/macOS machine
+by hand: it fetches the tag's assets with `gh` into
 `target/fleet/<tag>/`, checks their `.sha256`, copies the tag into each
 `xtask/fleet.json` host's `versions/<tag>/` over ssh, repoints and restarts
 its services, and fails a host whose binary reports another commit or whose

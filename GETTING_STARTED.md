@@ -750,8 +750,7 @@ Start-ScheduledTask -TaskPath '\Roost\' -TaskName roost3-worker
 
 Windows sessions need Windows 11 (or Windows 10 1803+) for AF_UNIX sockets
 and ConPTY. `roost update` does not replace binaries on Windows: upgrade by
-running the same `install.ps1` line with a fresh grant, or with
-`cargo xtask fleet install` for a fleet host.
+running the same `install.ps1` line with a fresh grant.
 
 
 ## Update
@@ -832,6 +831,12 @@ Update such a machine by updating its coordinator, or set
 release immediately on selected fleet hosts. It downloads and verifies only
 their platform assets and the shared web bundle; other platforms need not be
 published.
+
+Our managed deployment fleet is Linux/macOS only. `roost-win` is excluded
+from `xtask/fleet.json`; routine releases do not deploy, recover or re-enroll
+it. Its existing installation is left untouched. Windows binaries and CI
+remain supported; this is a fleet policy, not removal of platform support.
+Without `--host`, the fleet command installs on every listed host.
 
 ### Rolling a fleet from a source checkout: `roost push`
 

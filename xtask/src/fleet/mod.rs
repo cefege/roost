@@ -7,8 +7,8 @@
 //! The coordinator is not installed here: Flux deploys it from the
 //! `production` branch (`deploy/flux/`, `.github/workflows/promote.yml`), and
 //! Linux and macOS workers follow its `/version` on their own. This stays for
-//! the Windows host, which cannot replace its own binary, and for a machine
-//! that has to be moved by hand.
+//! listed machines that have to be moved by hand. Windows is outside our
+//! managed deployment fleet.
 
 mod fetch;
 mod install;
