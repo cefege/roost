@@ -41,6 +41,14 @@
       ]
     },
     {
+      "name": "m1-max",
+      "ssh": "mike@mihai-m1-max-64.tail67850e.ts.net",
+      "platform": "macos",
+      "services": [
+        "com.roost.worker-v3"
+      ]
+    },
+    {
       "name": "roost-win",
       "ssh": "roost-win",
       "platform": "windows",
