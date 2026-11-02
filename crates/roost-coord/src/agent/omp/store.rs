@@ -40,8 +40,8 @@ pub async fn create(db: &CoordDb, new: OmpNew) -> Result<OmpConversation, sqlx::
     let id = super::super::random_hex("c-");
     let now = super::super::store::now_ms();
     let mut transaction = super::super::chat_events::begin_chat_write(db).await?;
-    sqlx::query("INSERT INTO agent_conversations(id,title,worker_fp,worker_label,worker_os,cwd,thinking_level,mode,read_only,run_state,created_ms,updated_ms,revision,backend) VALUES($1,'',$2,$3,$4,$5,'','normal',0,'idle',$6,$6,1,'omp')")
-        .bind(&id).bind(new.worker_fp).bind(new.worker_label).bind(new.worker_os).bind(new.cwd).bind(now)
+    sqlx::query("INSERT INTO agent_conversations(id,title,worker_fp,worker_label,worker_os,cwd,thinking_level,mode,read_only,run_state,created_ms,updated_ms,revision,backend) VALUES($1,'',$2,$3,$4,$5,'','normal',$7,'idle',$6,$6,1,'omp')")
+        .bind(&id).bind(new.worker_fp).bind(new.worker_label).bind(new.worker_os).bind(new.cwd).bind(now).bind(false)
         .execute(&mut *transaction).await?;
     sqlx::query("INSERT INTO omp_sessions(conversation_id,transcript_json) VALUES($1,$2)")
         .bind(&id)

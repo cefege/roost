@@ -4769,3 +4769,18 @@ cross-filesystem fixture falls back to copying. No gate or assertion is skipped.
 
 **Guard** — `roost-cli`'s executable `update_keeper_gate` suite and the CI /
 release verifier, whose preparation prints the remaining filesystem capacity.
+
+### OMP creation fails on PostgreSQL despite passing SQLite tests
+
+**Symptom** — creating an OMP conversation returns `column "read_only" is of
+type boolean but expression is of type integer`.
+
+**Wrong** — embed SQLite's integer `0` in a shared insert into a boolean column.
+
+**Right** — bind Rust `false`, as the native conversation store does. SQLx
+encodes the value for the selected database; no backend-specific SQL is needed.
+
+**Guard** — `roost-coord`'s
+`omp_chat::omp_chat_submit_projection_replay_and_native_isolation` runs against
+SQLite in workspace CI and a real PostgreSQL server in the PostgreSQL CI job.
+
