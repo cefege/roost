@@ -167,6 +167,8 @@ pub enum CoordWorkerDownstream {
     OmpEventsAck(roost_proto::DOmpEventsAck),
     #[serde(rename = "omp-close")]
     OmpClose(roost_proto::DOmpClose),
+    #[serde(rename = "omp-open")]
+    OmpOpen(roost_proto::DOmpOpen),
 }
 
 impl CoordWorkerDownstream {
@@ -213,6 +215,7 @@ impl CoordWorkerDownstream {
             Self::OmpPrompt(_) => "omp-prompt",
             Self::OmpCancel(_) => "omp-cancel",
             Self::OmpEventsAck(_) => "omp-events-ack",
+            Self::OmpOpen(_) => "omp-open",
             Self::OmpClose(_) => "omp-close",
         }
     }

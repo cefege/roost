@@ -19,6 +19,7 @@ use crate::pump::Pump;
 #[component]
 pub(super) fn ComposerFooter(
     conversation: ConversationSummary,
+    active: bool,
     catalog: Option<ModelsCatalog>,
     catalog_failed: bool,
     pump: Pump,
@@ -151,7 +152,7 @@ pub(super) fn ComposerFooter(
                     }
                     AgentModelControls { conversation: conversation.clone(), catalog, catalog_failed, pump }
                 } else {
-                    super::omp_controls::OmpModelControls { conversation: conversation.clone(), pump }
+                    super::omp_controls::OmpModelControls { conversation: conversation.clone(), active, pump }
                 }
             }
             InputPromptTools { class: "ml-auto min-w-0 flex-nowrap justify-end sm:ml-0",

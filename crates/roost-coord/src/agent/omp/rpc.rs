@@ -28,8 +28,16 @@ pub(crate) fn unsupported() -> ConnectError {
         "not supported for OMP conversations",
     )
 }
-fn offline() -> ConnectError {
-    ConnectError::new(ErrorCode::Unavailable, "worker offline")
+pub(crate) fn unavailable(error: super::OmpUnavailable) -> ConnectError {
+    match error {
+        super::OmpUnavailable::Offline => {
+            ConnectError::new(ErrorCode::Unavailable, "worker offline")
+        }
+        super::OmpUnavailable::UpdateRequired => ConnectError::new(
+            ErrorCode::FailedPrecondition,
+            "Update Roost on this machine to use OMP chats",
+        ),
+    }
 }
 fn writer_error(error: String) -> ConnectError {
     ConnectError::new(ErrorCode::Internal, error)
@@ -46,6 +54,10 @@ pub(crate) async fn create(
             "OMP conversations choose their model in settings",
         ));
     }
+    core.services
+        .omp
+        .worker_for_session(&worker.0)
+        .map_err(unavailable)?;
     let conversation = store::create(
         &core.services.db,
         store::OmpNew {
@@ -59,6 +71,37 @@ pub(crate) async fn create(
     .map_err(database_error)?;
     publish(core, &conversation).await
 }
+
+pub async fn handle_agent_omp_session_open(
+    core: &CoordCore,
+    caller: &crate::coord_core::Caller,
+    request: proto::AgentOmpSessionOpenRequest,
+) -> ServiceResult<proto::AgentOmpSessionOpenResponse> {
+    crate::auth::principal::require_account_device(caller)?;
+    let conversation = find_omp(core, &request.conversation_id)
+        .await?
+        .ok_or_else(|| ConnectError::new(ErrorCode::NotFound, "OMP conversation not found"))?;
+    let worker = core
+        .services
+        .omp
+        .worker_for_session(&conversation.worker_fp)
+        .map_err(unavailable)?;
+    if worker.send(CoordWorkerDownstream::OmpOpen(proto::DOmpOpen {
+        conversation_id: conversation.id,
+        cwd: conversation.cwd,
+        acp_session_id: conversation.acp_session_id.unwrap_or_default(),
+        ..Default::default()
+    })) == 0
+    {
+        return Err(unavailable(super::OmpUnavailable::Offline));
+    }
+    ok_response(proto::AgentOmpSessionOpenResponse::default())
+}
+
+pub const METHOD_HANDLERS: &[(&str, &str)] = &[(
+    "AgentOmpSessionOpen",
+    "agent::omp::rpc::handle_agent_omp_session_open",
+)];
 
 pub(crate) async fn submit(
     core: &CoordCore,
@@ -102,7 +145,7 @@ pub(crate) async fn submit(
     let service = &core.services.omp;
     let worker = service
         .worker(&conversation.worker_fp)
-        .map_err(|_| offline())?;
+        .map_err(unavailable)?;
     let effective = resolve_omp_settings(
         &store::settings(&service.db).await.map_err(database_error)?,
         &conversation.worker_fp,
@@ -167,7 +210,7 @@ pub(crate) async fn abort(
                     ..Default::default()
                 }),
             )
-            .map_err(|_| offline())?;
+            .map_err(unavailable)?;
     }
     ok_response(proto::AgentChatAbortResponse::default())
 }

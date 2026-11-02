@@ -660,6 +660,11 @@ message DOmpEventsAck {
   uint64 seq = 3;
 }
 message DOmpClose { string conversation_id = 1; }
+message DOmpOpen {
+  string conversation_id = 1;
+  string cwd = 2;
+  string acp_session_id = 3;
+}
 
 message CoordWorkerDown {
   reserved 11;
@@ -706,6 +711,7 @@ message CoordWorkerDown {
     DOmpCancel omp_cancel = 44;
     DOmpEventsAck omp_events_ack = 45;
     DOmpClose omp_close = 46;
+    DOmpOpen omp_open = 47;
   }
   reserved 33, 34, 35, 36;
 }

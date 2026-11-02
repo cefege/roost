@@ -47,7 +47,14 @@ impl OmpLauncher for DuplexLauncher {
                 )
                 .on_receive_request(
                     async |_request: NewSessionRequest, responder, _cx| {
-                        responder.respond(NewSessionResponse::new("s1"))
+                        let mut response = NewSessionResponse::new("s1");
+                        response.config_options = Some(serde_json::from_value(serde_json::json!([
+                            {"id":"model","name":"Model","type":"select","currentValue":"provider/model-a",
+                             "options":[{"value":"provider/model-a","name":"Model A"},{"value":"provider/model-b","name":"Model B"}]},
+                            {"id":"thinking","name":"Thinking","type":"select","currentValue":"medium",
+                             "options":[{"value":"low","name":"Low"},{"value":"medium","name":"Medium"}]}
+                        ])).expect("session options"));
+                        responder.respond(response)
                     },
                     agent_client_protocol::on_receive_request!(),
                 )

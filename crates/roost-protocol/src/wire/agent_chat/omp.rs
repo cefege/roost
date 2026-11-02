@@ -6,6 +6,13 @@ use super::ModelRef;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum OmpSessionState {
+    Ready,
+    Failed { error: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "scope", rename_all = "snake_case")]
 pub enum OmpSettingsScope {
     Defaults,
@@ -168,6 +175,9 @@ pub enum OmpWorkerEvent {
     },
     ProcessExited {
         error: Option<String>,
+    },
+    SessionFailed {
+        error: String,
     },
 }
 

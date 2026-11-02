@@ -123,3 +123,51 @@ fn omp_process_exit_fails_a_running_turn() {
         }
     ));
 }
+
+#[test]
+fn omp_session_failure_does_not_settle_pending_turn_and_ready_clears_failure() {
+    let mut transcript = super::super::store::empty_transcript();
+    transcript.run_state = AgentRunState::Running;
+    transcript.model = Some(ModelRef {
+        provider: "provider".into(),
+        model_id: "model".into(),
+    });
+    transcript.thinking_level = Some("low".into());
+    transcript.mode = Some("normal".into());
+    let failed = apply(
+        &mut transcript,
+        1,
+        OmpWorkerEvent::SessionFailed {
+            error: "OMP is not signed in".into(),
+        },
+    );
+    assert!(matches!(
+        failed.as_slice(),
+        [ChatEvent::Agent {
+            model: Some(_),
+            thinking_level: Some(thinking),
+            mode: Some(mode),
+            omp_session: Some(OmpSessionState::Failed { error }),
+        }] if thinking == "low" && mode == "normal" && error == "OMP is not signed in"
+    ));
+    assert_eq!(transcript.run_state, AgentRunState::Running);
+    assert_eq!(transcript.items, Vec::<TranscriptItem>::new());
+
+    let ready = apply(
+        &mut transcript,
+        2,
+        OmpWorkerEvent::SessionReady {
+            acp_session_id: "s1".into(),
+            config_options: json!([]),
+        },
+    );
+    assert!(matches!(
+        ready.as_slice(),
+        [ChatEvent::Agent {
+            omp_session: Some(OmpSessionState::Ready),
+            ..
+        }]
+    ));
+    assert_eq!(transcript.run_state, AgentRunState::Running);
+    assert_eq!(transcript.items, Vec::<TranscriptItem>::new());
+}

@@ -29,6 +29,9 @@ pub const CAPABILITY_AGENT_TOOLS_V1: &str = "agent_tools_v1";
 
 pub const CAPABILITY_OMP_ACP_V1: &str = "omp_acp_v1";
 
+/// Worker capability for opening an OMP ACP session without a prompt.
+pub const CAPABILITY_OMP_ACP_SESSION_V1: &str = "omp_acp_session_v1";
+
 /// Direct-terminal WebRTC control-channel label.
 pub const CHANNEL_TERMINAL_CONTROL_V1: &str = "roost-terminal-control-v1";
 

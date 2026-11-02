@@ -23,7 +23,7 @@ use crate::{
     db::CoordDb,
 };
 use roost_protocol::{
-    versioning::CAPABILITY_OMP_ACP_V1,
+    versioning::{CAPABILITY_OMP_ACP_SESSION_V1, CAPABILITY_OMP_ACP_V1},
     wire::{
         WorkerFp,
         coord_worker::{CoordWorkerDownstream, CoordWorkerUpstream},
@@ -41,8 +41,12 @@ pub struct OmpService {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("worker offline")]
-pub struct OmpUnavailable;
+pub enum OmpUnavailable {
+    #[error("worker offline")]
+    Offline,
+    #[error("Update Roost on this machine to use OMP chats")]
+    UpdateRequired,
+}
 
 impl OmpService {
     pub fn new(db: CoordDb, workers: Arc<WorkerRegistry>, sink: Arc<CoordChatSink>) -> Self {
@@ -72,11 +76,28 @@ impl OmpService {
         true
     }
     pub fn worker(&self, worker_fp: &str) -> Result<Arc<WorkerHandle>, OmpUnavailable> {
-        let fp = WorkerFp::try_from(worker_fp.to_owned()).map_err(|_| OmpUnavailable)?;
+        let worker = self.routable_worker(worker_fp)?;
+        if worker.capabilities.contains(CAPABILITY_OMP_ACP_V1) {
+            Ok(worker)
+        } else {
+            Err(OmpUnavailable::UpdateRequired)
+        }
+    }
+    pub fn worker_for_session(&self, worker_fp: &str) -> Result<Arc<WorkerHandle>, OmpUnavailable> {
+        let worker = self.routable_worker(worker_fp)?;
+        if worker.capabilities.contains(CAPABILITY_OMP_ACP_V1)
+            && worker.capabilities.contains(CAPABILITY_OMP_ACP_SESSION_V1)
+        {
+            Ok(worker)
+        } else {
+            Err(OmpUnavailable::UpdateRequired)
+        }
+    }
+    fn routable_worker(&self, worker_fp: &str) -> Result<Arc<WorkerHandle>, OmpUnavailable> {
+        let fp = WorkerFp::try_from(worker_fp.to_owned()).map_err(|_| OmpUnavailable::Offline)?;
         self.workers
             .current_routable(&fp)
-            .filter(|worker| worker.capabilities.contains(CAPABILITY_OMP_ACP_V1))
-            .ok_or(OmpUnavailable)
+            .ok_or(OmpUnavailable::Offline)
     }
     pub fn send_to_worker(
         &self,
@@ -84,7 +105,7 @@ impl OmpService {
         frame: CoordWorkerDownstream,
     ) -> Result<(), OmpUnavailable> {
         if self.worker(worker_fp)?.send(frame) == 0 {
-            Err(OmpUnavailable)
+            Err(OmpUnavailable::Offline)
         } else {
             Ok(())
         }
@@ -93,11 +114,14 @@ impl OmpService {
 
 impl WorkerLifecycleObserver for OmpService {
     fn acknowledge_capabilities(&self, advertised: &BTreeSet<String>) -> Vec<&'static str> {
+        let mut acknowledged = Vec::new();
         if advertised.contains(CAPABILITY_OMP_ACP_V1) {
-            vec![CAPABILITY_OMP_ACP_V1]
-        } else {
-            vec![]
+            acknowledged.push(CAPABILITY_OMP_ACP_V1);
         }
+        if advertised.contains(CAPABILITY_OMP_ACP_SESSION_V1) {
+            acknowledged.push(CAPABILITY_OMP_ACP_SESSION_V1);
+        }
+        acknowledged
     }
     fn on_ready(&self, handle: &Arc<WorkerHandle>) {
         let db = self.db.clone();

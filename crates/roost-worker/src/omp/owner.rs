@@ -53,14 +53,11 @@ impl<L: OmpLauncher> OmpOwner<L> {
             let _ = actor.commands.send(command);
         }
     }
-}
-impl<L: OmpLauncher> OmpPort for OmpOwner<L> {
-    fn prompt(&self, request: roost_proto::DOmpPrompt) {
+    fn start(&self, id: String, command: OmpCommand) {
         let mut conversations = self
             .conversations
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        let id = request.conversation_id.clone();
         if conversations
             .get(&id)
             .is_none_or(|actor| actor.task.is_finished())
@@ -82,8 +79,16 @@ impl<L: OmpLauncher> OmpPort for OmpOwner<L> {
             conversations.insert(id.clone(), OmpHandle { commands, task });
         }
         if let Some(actor) = conversations.get(&id) {
-            let _ = actor.commands.send(OmpCommand::Prompt(request));
+            let _ = actor.commands.send(command);
         }
+    }
+}
+impl<L: OmpLauncher> OmpPort for OmpOwner<L> {
+    fn open(&self, request: roost_proto::DOmpOpen) {
+        self.start(request.conversation_id.clone(), OmpCommand::Open(request));
+    }
+    fn prompt(&self, request: roost_proto::DOmpPrompt) {
+        self.start(request.conversation_id.clone(), OmpCommand::Prompt(request));
     }
     fn cancel(&self, request: roost_proto::DOmpCancel) {
         self.forward(&request.conversation_id, OmpCommand::Cancel);

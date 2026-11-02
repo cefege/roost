@@ -248,6 +248,7 @@ pub trait AgentToolsPort: Send + Sync + std::fmt::Debug {
 
 /// Worker-owned OMP conversations carried over ACP.
 pub trait OmpPort: Send + Sync + std::fmt::Debug {
+    fn open(&self, request: roost_proto::DOmpOpen);
     fn prompt(&self, request: roost_proto::DOmpPrompt);
     fn cancel(&self, request: roost_proto::DOmpCancel);
     fn ack(&self, request: roost_proto::DOmpEventsAck);

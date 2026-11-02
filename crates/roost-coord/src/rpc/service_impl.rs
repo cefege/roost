@@ -18,6 +18,7 @@ use super::service::{
     sync_moved_stream,
 };
 
+use crate::agent::omp::rpc::handle_agent_omp_session_open;
 use crate::agent::omp::rpc_settings::{
     handle_agent_omp_settings_get, handle_agent_omp_settings_set,
 };
@@ -854,6 +855,19 @@ impl CoordinatorService for CoordinatorServiceImpl {
         async move {
             let caller = caller_of(&ctx, "AgentOmpSettingsSet")?;
             handle_agent_omp_settings_set(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn agent_omp_session_open<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentOmpSessionOpenRequest>,
+    ) -> impl Future<
+        Output = ServiceResult<impl Encodable<AgentOmpSessionOpenResponse> + Send + use<'a>>,
+    > + Send {
+        async move {
+            let caller = caller_of(&ctx, "AgentOmpSessionOpen")?;
+            handle_agent_omp_session_open(&self.core, caller, r.to_owned_message()).await
         }
     }
 

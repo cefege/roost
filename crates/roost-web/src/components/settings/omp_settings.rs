@@ -93,7 +93,7 @@ pub fn OmpSettingsPane() -> Element {
                 }
             }
             if catalog_empty {
-                p {class:"text-sm text-muted-foreground","Model choices appear after an OMP chat has run on that machine."}
+                p {class:"text-sm text-muted-foreground","Model choices appear after an OMP chat has been opened on that machine."}
             }
             if let Some(message) = error() {AgentAlert {test_id:"omp-settings-error","{message}"}}
         }
