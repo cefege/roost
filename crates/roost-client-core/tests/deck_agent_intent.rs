@@ -13,6 +13,7 @@ use roost_protocol::wire::agent_chat::{AgentRunState, ConversationSummary};
 fn agent_tab_selects_agent_route_and_undo_restores_its_tab() {
     let mut core = core();
     let conversation = ConversationSummary {
+        backend: roost_protocol::wire::agent_chat::AgentBackend::Native,
         id: "abc".to_owned(),
         title: "Agent conversation".to_owned(),
         worker_fp: MACHINE.to_owned(),

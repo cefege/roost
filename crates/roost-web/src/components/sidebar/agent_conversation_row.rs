@@ -10,7 +10,8 @@ use crate::components::layout::window_size::use_is_compact;
 use crate::components::sidebar::rel_time_tick::use_rel_time_now;
 use crate::components::ui::list::is_in_app_navigation_click;
 use crate::components::ui::{
-    Icon, IconType, SidenavMenuButton, SidenavMenuButtonSize, SidenavMenuSubButton, StatusDot,
+    Badge, BadgeSize, BadgeVariant, Icon, IconType, SidenavMenuButton, SidenavMenuButtonSize,
+    SidenavMenuSubButton, StatusDot,
 };
 use crate::pump::use_store;
 use crate::router_state::use_navigate;
@@ -91,6 +92,9 @@ pub fn AgentConversationRow(
                             }
                         }
                     }
+                    if !conversation.is_native() {
+                        Badge { variant: BadgeVariant::Outline, size: BadgeSize::Sm, "OMP" }
+                    }
                     StatusDot { status: status.to_owned(), title: status_title.to_owned() }
                     if let Some(activity) = activity {
                         span { class: "shrink-0 text-xs tabular-nums text-muted-foreground",
@@ -115,9 +119,15 @@ pub fn AgentConversationRow(
                     span { class: "truncate text-xs text-muted-foreground", "{model}" }
                 }
             }
+            if !conversation.is_native() {
+                Badge { variant: BadgeVariant::Outline, size: BadgeSize::Sm, "OMP" }
+            }
             StatusDot { status: status.to_owned(), title: status_title.to_owned() }
         } else {
             span { class: "min-w-0 flex-1 truncate", "{title}" }
+            if !conversation.is_native() {
+                Badge { variant: BadgeVariant::Outline, size: BadgeSize::Sm, "OMP" }
+            }
             StatusDot { status: status.to_owned(), title: status_title.to_owned() }
         }
     };

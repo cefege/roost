@@ -7,6 +7,7 @@ use roost_protocol::wire::agent_chat::{
 
 fn conversation(id: &str, cwd: &str, updated_ms: i64) -> ConversationSummary {
     ConversationSummary {
+        backend: roost_protocol::wire::agent_chat::AgentBackend::Native,
         id: id.into(),
         title: "New".into(),
         worker_fp: "worker".into(),

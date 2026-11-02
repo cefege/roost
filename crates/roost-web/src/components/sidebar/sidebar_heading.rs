@@ -38,9 +38,9 @@ impl SidebarView {
 pub fn SidebarHeading(view: SidebarView, on_view_change: EventHandler<SidebarView>) -> Element {
     rsx! {
         div { class: "flex flex-col gap-2 px-3 pt-3", "data-testid": "sidebar-heading",
-            div { class: "flex items-center justify-between gap-2",
+            div { class: "flex flex-wrap items-center justify-between gap-2",
                 span { class: "text-sm font-semibold", "Sessions" }
-                SidebarNewAgent {}
+                div { class: "flex items-center gap-2", SidebarNewAgent {} }
             }
             Tabs {
                 value: view.as_value().to_owned(),

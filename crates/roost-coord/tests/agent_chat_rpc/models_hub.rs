@@ -5,7 +5,8 @@ use std::time::Duration;
 
 use connectrpc::ErrorCode;
 use roost_coord::agent::rpc_accounts::{handle_agent_settings_get, handle_agent_settings_set};
-use roost_coord::agent::rpc_chat::{handle_agent_chat_configure, handle_agent_models_list};
+use roost_coord::agent::rpc_chat::handle_agent_chat_configure;
+use roost_coord::agent::rpc_chat_transcript::handle_agent_models_list;
 use roost_proto as proto;
 use roost_protocol::wire::agent_chat::{AgentSettingsView, ModelRef, ModelsCatalog};
 

@@ -992,6 +992,7 @@ message AgentChatCreateRequest {
   string cwd = 2;
   string model_provider = 3;
   string model_id = 4;
+  string backend = 5;
 }
 message AgentChatAttachment {
   string filename = 1;
@@ -1090,6 +1091,12 @@ message AgentSettingsGetRequest {}
 message AgentSettingsGetResponse { string settings_json = 1; }
 message AgentSettingsSetRequest { string settings_json = 1; }
 message AgentSettingsSetResponse {}
+message AgentOmpSettingsGetRequest {}
+// JSON OmpSettingsView (roost-protocol wire/agent_chat).
+message AgentOmpSettingsGetResponse { string settings_json = 1; }
+// JSON OmpScopedSettings (roost-protocol wire/agent_chat).
+message AgentOmpSettingsSetRequest { string scoped_json = 1; }
+message AgentOmpSettingsSetResponse {}
 message AgentChatPlanDecideRequest {
   string conversation_id = 1;
   string item_id = 2;
@@ -1188,6 +1195,8 @@ service CoordinatorService {
   rpc AgentUsageGet(AgentUsageGetRequest) returns (AgentUsageGetResponse);
   rpc AgentSettingsGet(AgentSettingsGetRequest) returns (AgentSettingsGetResponse);
   rpc AgentSettingsSet(AgentSettingsSetRequest) returns (AgentSettingsSetResponse);
+  rpc AgentOmpSettingsGet(AgentOmpSettingsGetRequest) returns (AgentOmpSettingsGetResponse);
+  rpc AgentOmpSettingsSet(AgentOmpSettingsSetRequest) returns (AgentOmpSettingsSetResponse);
   rpc AgentChatPlanDecide(AgentChatPlanDecideRequest) returns (AgentChatPlanDecideResponse);
   rpc AgentChatAnswer(AgentChatAnswerRequest) returns (AgentChatAnswerResponse);
   rpc AgentChatRewind(AgentChatRewindRequest) returns (AgentChatRewindResponse);

@@ -183,6 +183,7 @@ pub(super) fn run_local_command(
                 pump,
                 conversation.worker_fp.clone(),
                 conversation.cwd.clone(),
+                conversation.backend,
                 navigate,
             );
             true

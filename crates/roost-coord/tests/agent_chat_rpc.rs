@@ -32,9 +32,8 @@ use roost_agent::{ToolCall, ToolExecutor};
 use roost_coord::agent::AgentService;
 use roost_coord::agent::rpc_accounts::handle_agent_settings_set;
 use roost_coord::agent::rpc_auth::handle_agent_auth_set_api_key;
-use roost_coord::agent::rpc_chat::{
-    handle_agent_chat_create, handle_agent_chat_snapshot, handle_agent_chat_submit,
-};
+use roost_coord::agent::rpc_chat::{handle_agent_chat_create, handle_agent_chat_submit};
+use roost_coord::agent::rpc_chat_transcript::handle_agent_chat_snapshot;
 use roost_proto as proto;
 use serde_json::Value;
 use tokio::net::TcpListener;

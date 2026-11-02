@@ -34,6 +34,8 @@ pub mod model_picker;
 mod model_reference_actions;
 mod model_reference_menu;
 mod notice_card;
+pub(crate) mod omp_controls;
+mod omp_setting_menu;
 mod output_lines;
 mod output_window;
 mod peer_message_card;

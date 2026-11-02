@@ -70,8 +70,8 @@ pub(super) fn submit_handler(context: ComposerSubmitContext) -> EventHandler<()>
                 return;
             }
             let text = draft.peek().trim().to_string();
-            let refining = plan_refinement.is_active();
-            if has_unresolved_proposal(&transcript) && !refining {
+            let refining = conversation.is_native() && plan_refinement.is_active();
+            if conversation.is_native() && has_unresolved_proposal(&transcript) && !refining {
                 return;
             }
             let attachments = staged_files.peek().clone();
@@ -81,8 +81,8 @@ pub(super) fn submit_handler(context: ComposerSubmitContext) -> EventHandler<()>
             {
                 return;
             }
-            let refinement_target = plan_refinement.current_target(&transcript);
             if refining {
+                let refinement_target = plan_refinement.current_target(&transcript);
                 let Some(refinement_target) = refinement_target else {
                     report.call(Err(
                         "This plan is no longer available for refinement.".to_owned()
@@ -178,7 +178,8 @@ pub(super) fn submit_handler(context: ComposerSubmitContext) -> EventHandler<()>
                 }
                 submit_pending.set(false);
             }
-            if !restored
+            if conversation.is_native()
+                && !restored
                 && !text.is_empty()
                 && let Some((command, args)) = parse_slash_command(&text)
             {
@@ -237,7 +238,11 @@ pub(super) fn submit_handler(context: ComposerSubmitContext) -> EventHandler<()>
                 _ => None,
             };
             let mut target_on_success = edit_target;
-            let selected_mode = busy_mode.peek().clone();
+            let selected_mode = if conversation.is_native() {
+                busy_mode.peek().clone()
+            } else {
+                "follow_up".to_owned()
+            };
             let pending = prepare(
                 &conversation_id,
                 &text,

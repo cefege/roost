@@ -1,9 +1,10 @@
-//! The sidebar's launchers. "New" (agent) sits in the sidebar heading and
-//! "Terminal" sits in the footer. Each asks which machine to start on when more
+//! The sidebar's launchers. "New" (native agent) and "OMP" sit in the sidebar
+//! heading and "Terminal" sits in the footer. Each asks which machine to start on when more
 //! than one is online; a single online machine launches directly. The active
 //! folder is reused on its own machine.
 
 use dioxus::prelude::*;
+use roost_protocol::wire::agent_chat::AgentBackend;
 
 use crate::components::agent_chat::launch_agent;
 use crate::components::browse::BrowseLaunchMode;
@@ -35,6 +36,7 @@ pub const MACHINE_MENU_SIDE: MenuSide = MenuSide::Above;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LaunchKind {
     Agent,
+    Omp,
     Terminal,
 }
 
@@ -42,6 +44,7 @@ impl LaunchKind {
     fn button_id(self) -> &'static str {
         match self {
             Self::Agent => "sidebar-new-agent-button",
+            Self::Omp => "sidebar-new-omp-button",
             Self::Terminal => "sidebar-new-terminal-button",
         }
     }
@@ -49,6 +52,7 @@ impl LaunchKind {
     fn menu_id(self) -> &'static str {
         match self {
             Self::Agent => "sidebar-new-agent-machine-menu",
+            Self::Omp => "sidebar-new-omp-machine-menu",
             Self::Terminal => "sidebar-new-terminal-machine-menu",
         }
     }
@@ -80,14 +84,15 @@ pub fn SidebarNewTerminal() -> Element {
     }
 }
 
-/// The heading's agent launcher.
+/// The heading's native and OMP agent launchers.
 #[component]
 pub fn SidebarNewAgent() -> Element {
     let pump = use_store();
     let path = use_location();
     let targets = launch_targets(&pump, &path.read());
     rsx! {
-        LaunchMenu { kind: LaunchKind::Agent, targets, header: true }
+        LaunchMenu { kind: LaunchKind::Agent, targets: targets.clone(), header: true }
+        LaunchMenu { kind: LaunchKind::Omp, targets, header: true }
     }
 }
 
@@ -169,6 +174,13 @@ fn LaunchButton(kind: LaunchKind, targets: LaunchTargets, header: bool) -> Eleme
             if header { "New" } else { "New agent" },
             "New agent",
             "Start a new agent",
+        ),
+        LaunchKind::Omp => (
+            ButtonVariant::Outline,
+            IconType::Bot,
+            "OMP",
+            "New OMP chat",
+            "New OMP chat",
         ),
         LaunchKind::Terminal => (
             ButtonVariant::Outline,
@@ -254,9 +266,23 @@ fn launch_on_machine(
         .filter(|(fp, _)| *fp == worker_fp)
         .map(|(_, folder)| folder);
     match (kind, folder) {
-        (LaunchKind::Agent, Some(folder)) => launch_agent(pump, worker_fp, folder, navigate),
+        (LaunchKind::Agent, Some(folder)) => {
+            launch_agent(pump, worker_fp, folder, AgentBackend::Native, navigate);
+        }
+        (LaunchKind::Omp, Some(folder)) => {
+            launch_agent(pump, worker_fp, folder, AgentBackend::Omp, navigate);
+        }
         (LaunchKind::Agent, None) => {
-            navigate.call(browse_mode_href(&worker_fp, BrowseLaunchMode::Agent));
+            navigate.call(browse_mode_href(
+                &worker_fp,
+                BrowseLaunchMode::Agent(AgentBackend::Native),
+            ));
+        }
+        (LaunchKind::Omp, None) => {
+            navigate.call(browse_mode_href(
+                &worker_fp,
+                BrowseLaunchMode::Agent(AgentBackend::Omp),
+            ));
         }
         (LaunchKind::Terminal, Some(folder)) => {
             listing::launch_terminal(pump, worker_fp, folder, navigate);

@@ -18,6 +18,9 @@ use super::service::{
     sync_moved_stream,
 };
 
+use crate::agent::omp::rpc_settings::{
+    handle_agent_omp_settings_get, handle_agent_omp_settings_set,
+};
 use crate::agent::rpc_accounts::{
     handle_agent_account_remove, handle_agent_accounts_list, handle_agent_settings_get,
     handle_agent_settings_set, handle_agent_usage_get,
@@ -28,9 +31,11 @@ use crate::agent::rpc_auth::{
 };
 use crate::agent::rpc_chat::{
     handle_agent_chat_abort, handle_agent_chat_configure, handle_agent_chat_create,
-    handle_agent_chat_delete, handle_agent_chat_events, handle_agent_chat_list,
-    handle_agent_chat_plan_decide, handle_agent_chat_snapshot, handle_agent_chat_submit,
-    handle_agent_chat_withdraw, handle_agent_models_list,
+    handle_agent_chat_delete, handle_agent_chat_list, handle_agent_chat_plan_decide,
+    handle_agent_chat_submit, handle_agent_chat_withdraw,
+};
+use crate::agent::rpc_chat_transcript::{
+    handle_agent_chat_events, handle_agent_chat_snapshot, handle_agent_models_list,
 };
 use crate::agent::rpc_inspect::handle_agent_chat_inspect;
 use crate::agent::rpc_turns::{
@@ -823,6 +828,32 @@ impl CoordinatorService for CoordinatorServiceImpl {
         async move {
             let caller = caller_of(&ctx, "AgentSettingsSet")?;
             handle_agent_settings_set(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn agent_omp_settings_get<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentOmpSettingsGetRequest>,
+    ) -> impl Future<
+        Output = ServiceResult<impl Encodable<AgentOmpSettingsGetResponse> + Send + use<'a>>,
+    > + Send {
+        async move {
+            let caller = caller_of(&ctx, "AgentOmpSettingsGet")?;
+            handle_agent_omp_settings_get(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+
+    fn agent_omp_settings_set<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentOmpSettingsSetRequest>,
+    ) -> impl Future<
+        Output = ServiceResult<impl Encodable<AgentOmpSettingsSetResponse> + Send + use<'a>>,
+    > + Send {
+        async move {
+            let caller = caller_of(&ctx, "AgentOmpSettingsSet")?;
+            handle_agent_omp_settings_set(&self.core, caller, r.to_owned_message()).await
         }
     }
 

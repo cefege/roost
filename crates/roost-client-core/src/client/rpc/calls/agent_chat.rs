@@ -4,8 +4,8 @@ use crate::client::rpc::codec::{RpcCodecError, decode_message, encode_message};
 use crate::client::rpc::unary::UnaryMethod;
 use roost_proto::*;
 use roost_protocol::wire::agent_chat::{
-    AgentInspection, ChatEvent, LoginState, ModelRef, ModelsCatalog, RewoundUserMessage,
-    Transcript, validate_agent_chat_image_payload,
+    AgentBackend, AgentInspection, ChatEvent, LoginState, ModelRef, ModelsCatalog, OmpSettingsView,
+    RewoundUserMessage, Transcript, validate_agent_chat_image_payload,
 };
 
 macro_rules! simple_call {
@@ -92,6 +92,8 @@ simple_call!(ListAgentAccounts,AgentAccountsListRequest,AgentAccountsListRespons
 simple_call!(GetAgentUsage,AgentUsageGetRequest,AgentUsageGetResponse,String,"AgentUsageGet",|response:AgentUsageGetResponse| Ok(response.usage_json); conversation_id:String,provider:String);
 simple_call!(GetAgentSettings,AgentSettingsGetRequest,AgentSettingsGetResponse,String,"AgentSettingsGet",|response:AgentSettingsGetResponse| Ok(response.settings_json););
 simple_call!(SetAgentSettings,AgentSettingsSetRequest,AgentSettingsSetResponse,(),"AgentSettingsSet",empty; settings_json:String);
+simple_call!(GetOmpSettings,AgentOmpSettingsGetRequest,AgentOmpSettingsGetResponse,OmpSettingsView,"AgentOmpSettingsGet",|response:AgentOmpSettingsGetResponse| decode_json("AgentOmpSettingsGet", response.settings_json););
+simple_call!(SetOmpSettings,AgentOmpSettingsSetRequest,AgentOmpSettingsSetResponse,(),"AgentOmpSettingsSet",empty; scoped_json:String);
 simple_call!(DecideAgentPlan,AgentChatPlanDecideRequest,AgentChatPlanDecideResponse,String,"AgentChatPlanDecide",|response:AgentChatPlanDecideResponse| Ok(response.new_conversation_id); conversation_id:String,item_id:String,decision:String,feedback:String,request_id:String);
 simple_call!(AnswerAgentQuestion,AgentChatAnswerRequest,AgentChatAnswerResponse,(),"AgentChatAnswer",empty; conversation_id:String,item_id:String,answers_json:String,request_id:String);
 simple_call!(RewindAgentChat,AgentChatRewindRequest,AgentChatRewindResponse,RewoundUserMessage,"AgentChatRewind",|response:AgentChatRewindResponse| Ok(RewoundUserMessage { text: response.text, attachments: response.attachments.into_iter().map(|attachment| roost_protocol::wire::agent_chat::AgentChatAttachment { filename: attachment.filename, mime_type: attachment.mime_type, data: attachment.data, path: attachment.path }).collect() }); conversation_id:String,item_id:String,restore_files:bool,request_id:String);
@@ -102,6 +104,7 @@ pub struct CreateAgentChat {
     pub worker_fp: String,
     pub cwd: String,
     pub model: Option<ModelRef>,
+    pub backend: AgentBackend,
 }
 impl UnaryMethod for CreateAgentChat {
     const METHOD: &'static str = "AgentChatCreate";
@@ -112,6 +115,7 @@ impl UnaryMethod for CreateAgentChat {
             &AgentChatCreateRequest {
                 worker_fp: self.worker_fp.clone(),
                 cwd: self.cwd.clone(),
+                backend: self.backend.as_wire().to_owned(),
                 model_provider: self
                     .model
                     .as_ref()

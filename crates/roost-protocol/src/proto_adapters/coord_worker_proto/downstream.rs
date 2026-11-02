@@ -157,6 +157,10 @@ pub(super) fn to_proto(frame: &CoordWorkerDownstream) -> ProtocolResult<CoordWor
         CoordWorkerDownstream::LiveMetricsSubscription(subscription) => {
             Frame::LiveMetrics(Box::new((*subscription).clone()))
         }
+        CoordWorkerDownstream::OmpPrompt(prompt) => Frame::OmpPrompt(Box::new((*prompt).clone())),
+        CoordWorkerDownstream::OmpCancel(cancel) => Frame::OmpCancel(Box::new((*cancel).clone())),
+        CoordWorkerDownstream::OmpEventsAck(ack) => Frame::OmpEventsAck(Box::new((*ack).clone())),
+        CoordWorkerDownstream::OmpClose(close) => Frame::OmpClose(Box::new((*close).clone())),
     };
     Ok(CoordWorkerDown {
         frame: Some(arm),
@@ -290,6 +294,10 @@ pub(super) fn from_proto(message: &CoordWorkerDown) -> ProtocolResult<CoordWorke
         Frame::LiveMetrics(subscription) => {
             CoordWorkerDownstream::LiveMetricsSubscription((**subscription).clone())
         }
+        Frame::OmpPrompt(prompt) => CoordWorkerDownstream::OmpPrompt((**prompt).clone()),
+        Frame::OmpCancel(cancel) => CoordWorkerDownstream::OmpCancel((**cancel).clone()),
+        Frame::OmpEventsAck(ack) => CoordWorkerDownstream::OmpEventsAck((**ack).clone()),
+        Frame::OmpClose(close) => CoordWorkerDownstream::OmpClose((**close).clone()),
     };
     frame.check()?;
     Ok(frame)

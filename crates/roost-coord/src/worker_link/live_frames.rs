@@ -164,6 +164,13 @@ impl WorkerFrameDispatcher {
                 "worker link: unready_rpc_result; dropped");
             return DispatchOutcome::Refused;
         }
+        if matches!(upstream, CoordWorkerUpstream::OmpEvents(_)) {
+            return if self.core.services.omp.receive(worker_fp, upstream) {
+                DispatchOutcome::Handled
+            } else {
+                self.refuse(channel, "omp_frame_unroutable")
+            };
+        }
         let pending = self.core.services.scrollback.pending();
         if matches!(
             upstream,

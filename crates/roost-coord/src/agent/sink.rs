@@ -152,6 +152,17 @@ impl CoordChatSink {
         Arc::clone(&self.store.delivery)
     }
 
+    pub(crate) async fn publish_committed(
+        &self,
+        conversation_id: &str,
+        cursor: u64,
+        events_json: String,
+    ) {
+        self.store
+            .publish_committed(conversation_id, cursor, events_json)
+            .await;
+    }
+
     /// Hands `message` to the conversation's writer, starting one if it has
     /// none or the last one ended.
     fn send(&self, conversation_id: &str, message: WriterMessage) {
@@ -230,6 +241,13 @@ async fn write_conversation(
 }
 
 impl BatchStore {
+    async fn publish_committed(&self, conversation_id: &str, cursor: u64, events_json: String) {
+        self.delivery.deliver(conversation_id, cursor, events_json);
+        self.notifier
+            .notify(CHAT_CHANNEL, &format!("{conversation_id}:{cursor}"))
+            .await;
+    }
+
     /// Appends one batch, publishes it here at once, then notifies every
     /// replica; the local relay finds it already delivered.
     async fn persist(&self, conversation_id: &str, events: Vec<ChatEvent>) {
@@ -254,9 +272,7 @@ impl BatchStore {
         });
         match super::chat_events::append(&self.db, conversation_id, &events_json, run_start).await {
             Ok(cursor) => {
-                self.delivery.deliver(conversation_id, cursor, events_json);
-                self.notifier
-                    .notify(CHAT_CHANNEL, &format!("{conversation_id}:{cursor}"))
+                self.publish_committed(conversation_id, cursor, events_json)
                     .await;
             }
             Err(error) => {

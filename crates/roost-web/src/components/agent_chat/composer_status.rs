@@ -16,6 +16,7 @@ use crate::components::ui::{
 pub(super) fn ComposerErrorBanner(
     error: Option<String>,
     running: bool,
+    can_switch_model: bool,
     on_stop: EventHandler<()>,
     on_switch_model: EventHandler<()>,
 ) -> Element {
@@ -79,11 +80,13 @@ pub(super) fn ComposerErrorBanner(
                         "Interrupt"
                     }
                 }
-                Button {
-                    variant: ButtonVariant::Outline,
-                    "data-testid": "agent-chat-error-switch-model",
-                    onclick: move |_| on_switch_model.call(()),
-                    "Switch model"
+                if can_switch_model {
+                    Button {
+                        variant: ButtonVariant::Outline,
+                        "data-testid": "agent-chat-error-switch-model",
+                        onclick: move |_| on_switch_model.call(()),
+                        "Switch model"
+                    }
                 }
             }
         }

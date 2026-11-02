@@ -51,12 +51,15 @@ pub fn AgentComposer(
     connect_provider: Signal<Option<ProviderEntry>>,
 ) -> Element {
     let mut draft = draft;
+    let native = conversation.is_native();
     let plan_refinement = use_context::<PlanRefinement>();
-    let plan_target = plan_refinement.selected_target();
-    let plan_is_current = plan_refinement.is_current(&transcript);
-    let pending_plan = pending_proposal_id(&transcript).map(str::to_owned);
+    let plan_target = native.then(|| plan_refinement.selected_target()).flatten();
+    let plan_is_current = native && plan_refinement.is_current(&transcript);
+    let pending_plan = native
+        .then(|| pending_proposal_id(&transcript).map(str::to_owned))
+        .flatten();
     let pending_plan_decision = pending_plan.is_some();
-    let refining_plan = plan_refinement.is_active();
+    let refining_plan = native && plan_refinement.is_active();
     let composer_locked = pending_plan_decision && !refining_plan;
     let dictation = use_dictation(draft);
     let dictation_context = use_dictation_context(None, draft);
@@ -70,7 +73,7 @@ pub fn AgentComposer(
     let mut command_error = use_signal(|| None::<String>);
     let mut voice_error = use_signal(|| None::<String>);
     use_effect(move || {
-        if plan_refinement.focus_request().is_some() {
+        if native && plan_refinement.focus_request().is_some() {
             focus_field(field);
         }
     });
@@ -79,6 +82,9 @@ pub fn AgentComposer(
     let mut goal_pending = use_signal(|| false);
     let unresolved_send = use_signal(|| super::submission::restore(&conversation_id));
     let busy_mode = use_signal(|| {
+        if !native {
+            return "follow_up".to_owned();
+        }
         unresolved_send
             .peek()
             .as_ref()
@@ -93,11 +99,12 @@ pub fn AgentComposer(
     });
     let report = report_command(command_error);
     let sources = slash_sources(&conversation, catalog.as_ref());
-    let menu = if composer_locked || edit_target.peek().is_some() || plan_target.is_some() {
-        None
-    } else {
-        slash_menu_state(&draft(), &sources)
-    };
+    let menu =
+        if !native || composer_locked || edit_target.peek().is_some() || plan_target.is_some() {
+            None
+        } else {
+            slash_menu_state(&draft(), &sources)
+        };
     let option_count = menu.as_ref().map_or(0, |state| state.options.len());
     let menu_open = !menu_dismissed() && menu.is_some();
     let options_open = menu_open && option_count > 0;
@@ -186,7 +193,7 @@ pub fn AgentComposer(
     let stop = stop_handler(pump.clone(), conversation_id.clone());
     let switch_model = model_picker_handler(conversation_id.clone());
     let refinement_has_attachments =
-        plan_refinement.attachments_block_send(staged_files, edit_target);
+        native && plan_refinement.attachments_block_send(staged_files, edit_target);
     let empty = draft().trim().is_empty();
     let dictation_finishing = dictation.send_gate() == SendGate::AfterFinalize;
     let send_available = dictation.send_gate().offers_send();
@@ -342,6 +349,7 @@ pub fn AgentComposer(
             ComposerErrorBanner {
                 error: run_error,
                 running,
+                can_switch_model: native,
                 on_stop: stop,
                 on_switch_model: switch_model,
             }
@@ -351,21 +359,23 @@ pub fn AgentComposer(
             if let Some(message) = voice_error() {
                 FieldError { test_id: "agent-voice-error", class: "px-3", {message} }
             }
-            GoalControls {
-                goal,
-                open: goal_open,
-                view_request: goal_view_request,
-                pending: goal_pending,
-                command_error,
-                on_result: goal_result,
-                conversation_id: conversation_id.clone(),
-                pump: pump.clone(),
-                disabled,
-            }
-            if let Some(provider) = connect_provider() {
-                AgentConnectDialog {
-                    provider,
-                    on_close: move |_| connect_provider.set(None),
+            if native {
+                GoalControls {
+                    goal,
+                    open: goal_open,
+                    view_request: goal_view_request,
+                    pending: goal_pending,
+                    command_error,
+                    on_result: goal_result,
+                    conversation_id: conversation_id.clone(),
+                    pump: pump.clone(),
+                    disabled,
+                }
+                if let Some(provider) = connect_provider() {
+                    AgentConnectDialog {
+                        provider,
+                        on_close: move |_| connect_provider.set(None),
+                    }
                 }
             }
         }

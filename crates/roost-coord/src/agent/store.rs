@@ -254,7 +254,7 @@ pub async fn recent_models(db: &CoordDb, limit: i64) -> Result<Vec<ModelRef>, Ag
     let rows = sqlx::query(
         "SELECT model_provider, model_id FROM agent_conversations \
          WHERE model_provider IS NOT NULL AND model_id IS NOT NULL \
-         AND model_provider <> '' AND model_id <> '' \
+         AND model_provider <> '' AND model_id <> '' AND backend = 'native' \
          GROUP BY model_provider, model_id ORDER BY MAX(updated_ms) DESC LIMIT $1",
     )
     .bind(limit)

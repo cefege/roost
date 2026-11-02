@@ -2945,15 +2945,16 @@ brotli at runtime.
 
 **Symptom** — "omp launcher stops opening in a normal terminal"
 
-**Wrong** — spawn an external agent CLI (omp, Claude Code, Codex) as a headless child, vendor its
+**Wrong** — replace a terminal agent launcher with a headless child, vendor an external agent's
 runtime, or import its browser UI.
 
-**Right** — an external agent CLI runs as an ordinary command in a normal shell PTY; Roost transports
-that terminal and never spawns, supervises, or owns its session. This scope is external CLI agents in
-PTYs only: the built-in agent (`roost-agent`, `/a/:conversationId`) is Roost's own harness, and its
-conversations, runs and tool calls are owned by the coordinator by design.
+**Right** — PTY-launched external CLIs remain ordinary commands in normal shell terminals;
+Roost transports those terminals without owning their agent sessions. The explicit OMP chat
+backend is the one supervised external agent: `roost-worker::omp` launches `omp acp
+--approval-mode yolo` only for OMP conversations, using that machine's OMP login. The coordinator
+stores its projected transcript; the native `roost-agent` backend retains its own harness.
 
-**Guard** — `none`.
+**Guard** — `crates/roost-worker/tests/omp_owner.rs`; `crates/roost-coord/tests/omp_chat.rs`.
 
 ### A removed migration's history row reads as corruption
 

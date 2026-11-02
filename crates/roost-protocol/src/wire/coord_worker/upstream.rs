@@ -148,6 +148,8 @@ pub enum CoordWorkerUpstream {
     AgentJobResult(roost_proto::WAgentJobResult),
     #[serde(rename = "live-metrics")]
     LiveMetrics(LiveHostSnapshot),
+    #[serde(rename = "omp-events")]
+    OmpEvents(roost_proto::WOmpEvents),
 }
 
 impl CoordWorkerUpstream {
@@ -182,6 +184,7 @@ impl CoordWorkerUpstream {
             Self::AgentToolResult(_) => "agent-tool-result",
             Self::AgentJobResult(_) => "agent-job-result",
             Self::LiveMetrics(_) => "live-metrics",
+            Self::OmpEvents(_) => "omp-events",
         }
     }
 

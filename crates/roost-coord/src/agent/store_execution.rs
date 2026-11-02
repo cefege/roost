@@ -290,8 +290,8 @@ pub(super) async fn release_lease(
 pub(super) async fn orphaned_runs(db: &CoordDb, now_ms: i64) -> Result<Vec<String>, AgentError> {
     sqlx::query_scalar(
         "SELECT c.id FROM agent_conversations c LEFT JOIN agent_run_leases l ON l.conversation_id = c.id \
-         WHERE (l.expires_ms > 0 AND l.expires_ms <= $1) \
-            OR (c.run_state = 'running' AND (l.conversation_id IS NULL OR l.expires_ms <= $1)) \
+         WHERE c.backend = 'native' AND ((l.expires_ms > 0 AND l.expires_ms <= $1) \
+            OR (c.run_state = 'running' AND (l.conversation_id IS NULL OR l.expires_ms <= $1))) \
          ORDER BY c.id",
     )
     .bind(now_ms)

@@ -143,6 +143,8 @@ pub struct CoordServices {
     pub agents: AgentsRuntime,
     /// The agent harness: conversations, accounts, sign-ins and its event cache.
     pub agent: Arc<crate::agent::AgentService>,
+    /// OMP conversations: the per-conversation writer and the worker frames that feed it.
+    pub omp: Arc<crate::agent::omp::OmpService>,
     /// Native worker tool calls and their generation-bound completions.
     pub agent_tools: Arc<ToolCallRegistry>,
     /// File RPCs, the chunk relay, direct grants, and peer negotiations.
@@ -308,6 +310,11 @@ impl CoordServices {
                 .and_then(|config| config.credential_secret_key.as_ref())
                 .map(|key| *key.as_bytes()),
         );
+        let omp = Arc::new(crate::agent::omp::OmpService::new(
+            db.clone(),
+            Arc::clone(&workers),
+            Arc::clone(&agent.sink),
+        ));
         let catch_up_on_ready = Arc::new(crate::deploy::catchup_on_ready::CatchUpOnReady::new(
             deploy.clone(),
             db.clone(),
@@ -326,6 +333,8 @@ impl CoordServices {
                 as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
             Arc::clone(&agent_tools)
                 as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
+            Arc::clone(&omp)
+                as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
         ]);
         Self {
             db,
@@ -341,6 +350,7 @@ impl CoordServices {
             worker_lifecycle,
             agent,
             agent_tools,
+            omp,
             diag_pipelines: WorkerTerminalPipelineSnapshotCache::new(scrollback.clone()),
             terminal_capture,
             scrollback,

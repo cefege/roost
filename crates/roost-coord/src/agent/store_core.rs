@@ -17,10 +17,12 @@ fn serialize_error(error: impl std::fmt::Display) -> AgentError {
 }
 
 pub(super) async fn conversations(db: &CoordDb) -> Result<Vec<ConversationRecord>, AgentError> {
-    let rows = sqlx::query("SELECT * FROM agent_conversations ORDER BY updated_ms DESC, id")
-        .fetch_all(db.pool())
-        .await
-        .map_err(store_error)?;
+    let rows = sqlx::query(
+        "SELECT * FROM agent_conversations WHERE backend = 'native' ORDER BY updated_ms DESC, id",
+    )
+    .fetch_all(db.pool())
+    .await
+    .map_err(store_error)?;
     rows.iter()
         .map(|row| decode_record(row, db.backend()))
         .collect()
@@ -30,7 +32,7 @@ pub(super) async fn conversation(
     db: &CoordDb,
     id: &str,
 ) -> Result<Option<ConversationRecord>, AgentError> {
-    let row = sqlx::query("SELECT * FROM agent_conversations WHERE id = $1")
+    let row = sqlx::query("SELECT * FROM agent_conversations WHERE id = $1 AND backend = 'native'")
         .bind(id)
         .fetch_optional(db.pool())
         .await

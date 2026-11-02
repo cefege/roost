@@ -159,6 +159,14 @@ pub enum CoordWorkerDownstream {
     AgentJobsAbort(roost_proto::DAgentJobsAbort),
     #[serde(rename = "live-metrics-subscription")]
     LiveMetricsSubscription(roost_proto::DLiveMetricsSubscription),
+    #[serde(rename = "omp-prompt")]
+    OmpPrompt(roost_proto::DOmpPrompt),
+    #[serde(rename = "omp-cancel")]
+    OmpCancel(roost_proto::DOmpCancel),
+    #[serde(rename = "omp-events-ack")]
+    OmpEventsAck(roost_proto::DOmpEventsAck),
+    #[serde(rename = "omp-close")]
+    OmpClose(roost_proto::DOmpClose),
 }
 
 impl CoordWorkerDownstream {
@@ -202,6 +210,10 @@ impl CoordWorkerDownstream {
             Self::AgentToolBackground(_) => "agent-tool-background",
             Self::AgentJobsAbort(_) => "agent-jobs-abort",
             Self::LiveMetricsSubscription(_) => "live-metrics-subscription",
+            Self::OmpPrompt(_) => "omp-prompt",
+            Self::OmpCancel(_) => "omp-cancel",
+            Self::OmpEventsAck(_) => "omp-events-ack",
+            Self::OmpClose(_) => "omp-close",
         }
     }
 

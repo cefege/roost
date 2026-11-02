@@ -28,7 +28,15 @@ pub(super) async fn conversation_attachment_target(
         .await
     {
         Ok(summary) => summary,
-        Err(AgentError::NotFound(_)) => return Ok(None),
+        Err(AgentError::NotFound(_)) => {
+            let Some(omp) = crate::agent::omp::store::find(&core.services.db, conversation_id)
+                .await
+                .map_err(|error| ConnectError::new(ErrorCode::Internal, error.to_string()))?
+            else {
+                return Ok(None);
+            };
+            crate::agent::omp::summary::summary(&omp, &[])
+        }
         Err(error) => {
             tracing::error!(conversation_id, %error, "attachments: agent conversation lookup failed");
             return Err(ConnectError::new(

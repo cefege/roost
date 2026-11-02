@@ -151,6 +151,7 @@ pub(super) fn to_proto(frame: &CoordWorkerUpstream) -> ProtocolResult<CoordWorke
             snapshot: MessageField::some(live_host_snapshot_to_proto(snapshot)?),
             ..Default::default()
         })),
+        CoordWorkerUpstream::OmpEvents(events) => Frame::OmpEvents(Box::new((*events).clone())),
     };
     Ok(CoordWorkerUp {
         frame: Some(arm),
@@ -273,6 +274,7 @@ pub(super) fn from_proto(message: &CoordWorkerUp) -> ProtocolResult<CoordWorkerU
             })?;
             CoordWorkerUpstream::LiveMetrics(live_host_snapshot_from_proto(snapshot)?)
         }
+        Frame::OmpEvents(events) => CoordWorkerUpstream::OmpEvents((**events).clone()),
     };
     frame.check()?;
     Ok(frame)

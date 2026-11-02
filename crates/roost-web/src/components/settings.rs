@@ -25,6 +25,8 @@ pub mod model_chain_editor;
 pub mod model_chain_table;
 pub mod model_scope;
 pub mod notifications;
+mod omp_scope;
+pub mod omp_settings;
 pub mod terminal;
 pub mod theme;
 pub mod voice;

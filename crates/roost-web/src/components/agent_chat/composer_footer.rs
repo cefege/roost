@@ -48,6 +48,7 @@ pub(super) fn ComposerFooter(
     on_send: EventHandler<()>,
     on_stop: EventHandler<()>,
 ) -> Element {
+    let native = conversation.is_native();
     let mut advisor_pending = use_signal(|| false);
     let mut command_error = command_error;
     let advisor_done = EventHandler::new(move |result: Result<(), String>| {
@@ -57,7 +58,11 @@ pub(super) fn ComposerFooter(
     let report = report_command(command_error);
     let options_pump = pump.clone();
     let options_conversation = conversation.id.clone();
-    let mode = busy_mode();
+    let mode = if native {
+        busy_mode()
+    } else {
+        "follow_up".to_owned()
+    };
     let mut options = vec![ToolbarMenuItem::choice(
         "advisor",
         "Advisor",
@@ -98,18 +103,20 @@ pub(super) fn ComposerFooter(
             align: InputGroupAddonAlign::BlockEnd,
             class: "flex-wrap gap-y-2 border-t-0 px-2 pb-2 pt-0",
             InputPromptTools { class: "min-w-0 max-w-full flex-wrap",
-                IconButton {
-                    class: "shrink-0",
-                    icon: IconType::Plus,
-                    label: "Show agent commands",
-                    title: "Commands",
-                    variant: ButtonVariant::Ghost,
-                    size: ButtonSize::IconSm,
-                    "data-testid": "agent-chat-commands",
-                    disabled: disabled || plan_decision_pending,
-                    expanded: Some(commands_open),
-                    controls_id: Some(listbox),
-                    onclick: move |_| on_commands.call(()),
+                if native {
+                    IconButton {
+                        class: "shrink-0",
+                        icon: IconType::Plus,
+                        label: "Show agent commands",
+                        title: "Commands",
+                        variant: ButtonVariant::Ghost,
+                        size: ButtonSize::IconSm,
+                        "data-testid": "agent-chat-commands",
+                        disabled: disabled || plan_decision_pending,
+                        expanded: Some(commands_open),
+                        controls_id: Some(listbox),
+                        onclick: move |_| on_commands.call(()),
+                    }
                 }
                 AgentAttachmentControls {
                     pump: pump.clone(),
@@ -120,28 +127,32 @@ pub(super) fn ComposerFooter(
                 }
             }
             InputPromptTools { class: "order-first ml-auto min-w-0 w-full flex-nowrap justify-end sm:order-none sm:w-auto",
-                ToolbarMenu {
-                    menu_key: "options",
-                    trigger: ToolbarTrigger::Icon { icon: IconType::Ellipsis },
-                    aria_label: "Chat options",
-                    items: options,
-                    opens_up: true,
-                    on_choose: move |choice: String| match choice.as_str() {
-                        "plan" => submit_direct_command(options_pump.clone(), options_conversation.clone(), "/plan".to_owned(), report),
-                        "advisor" => {
-                            if !advisor_pending() {
-                                advisor_pending.set(true);
-                                submit_direct_command(options_pump.clone(), options_conversation.clone(), "/advisor".to_owned(), advisor_done);
+                if native {
+                    ToolbarMenu {
+                        menu_key: "options",
+                        trigger: ToolbarTrigger::Icon { icon: IconType::Ellipsis },
+                        aria_label: "Chat options",
+                        items: options,
+                        opens_up: true,
+                        on_choose: move |choice: String| match choice.as_str() {
+                            "plan" => submit_direct_command(options_pump.clone(), options_conversation.clone(), "/plan".to_owned(), report),
+                            "advisor" => {
+                                if !advisor_pending() {
+                                    advisor_pending.set(true);
+                                    submit_direct_command(options_pump.clone(), options_conversation.clone(), "/advisor".to_owned(), advisor_done);
+                                }
                             }
-                        }
-                        "goal" => {
-                            goal_view_request.set(String::new());
-                            on_goal_open.call(());
-                        }
-                        _ => busy_mode.set(choice),
-                    },
+                            "goal" => {
+                                goal_view_request.set(String::new());
+                                on_goal_open.call(());
+                            }
+                            _ => busy_mode.set(choice),
+                        },
+                    }
+                    AgentModelControls { conversation: conversation.clone(), catalog, catalog_failed, pump }
+                } else {
+                    super::omp_controls::OmpModelControls { conversation: conversation.clone(), pump }
                 }
-                AgentModelControls { conversation: conversation.clone(), catalog, catalog_failed, pump }
             }
             InputPromptTools { class: "ml-auto min-w-0 flex-nowrap justify-end sm:ml-0",
                 {voice_controls}
@@ -163,7 +174,7 @@ pub(super) fn ComposerFooter(
                         aria_label: if refining_plan {
                             "Send plan feedback"
                         } else if running {
-                            match busy_mode().as_str() {
+                            match mode.as_str() {
                                 "follow_up" => "Send follow-up",
                                 "reject" => "Reject if busy",
                                 _ => "Steer the agent",
@@ -178,7 +189,7 @@ pub(super) fn ComposerFooter(
                         } else if refining_plan {
                             "Send feedback"
                         } else if running {
-                            match busy_mode().as_str() {
+                            match mode.as_str() {
                                 "follow_up" => "Follow-up",
                                 "reject" => "Reject if busy",
                                 _ => "Steer",

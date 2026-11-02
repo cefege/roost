@@ -166,6 +166,7 @@ fn agent_conversations_join_and_create_folder_groups() {
     let session = session(SESSION_A, FIRST_FP, "/tmp/repo", 1_000);
     let mut core = seeded(&[session], &[(FIRST_FP, "First worker")], &[]);
     let summary = |id: &str, cwd: &str, updated_ms| ConversationSummary {
+        backend: roost_protocol::wire::agent_chat::AgentBackend::Native,
         id: id.into(),
         title: id.into(),
         worker_fp: FIRST_FP.into(),

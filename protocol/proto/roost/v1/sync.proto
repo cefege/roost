@@ -201,6 +201,7 @@ message AgentConversation {
   bool advisor = 16;
   string effective_model_provider = 17;
   string effective_model_id = 18;
+  string backend = 19;
 }
 
 
