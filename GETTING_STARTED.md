@@ -255,7 +255,7 @@ argument is needed, or fills the composer so you can add its argument.
 Bare `/model`, `/models` and `/settings` open controls without sending a message.
 Settings have searchable groups and mobile list/detail navigation.
 
-Chat follows [Pi Pocket's conversation layout](https://tannermidd.github.io/pi-pocket/):
+Native chat follows [Pi Pocket's conversation layout](https://tannermidd.github.io/pi-pocket/):
 one title in the deck/mobile navigation, left-aligned user blocks, unboxed
 assistant prose, and consecutive tools folded into one activity disclosure.
 Expand the activity, then a tool row, for its output or diff; raw arguments
@@ -265,12 +265,29 @@ behind one filter menu.
 Chat opens without the inspector or a second recent-conversation list. The
 title-band **…** menu opens Inspector, Rename, Browse conversations and Delete,
 including while a pane is in spotlight. Message **…** holds Edit, Retry and
-Rewind. The composer shares the transcript column, with commands and the model
-selector on the left, voice
-and Send on the right; context usage sits below it. The model selector changes
-this chat's model and exposes its thinking level inside the menu.
+Rewind. The composer shares the transcript column: attachments and commands on
+the left, a compact model/effort picker beside voice and Send on the right.
+Staged files sit above the field rather than widening the toolbar. Context usage
+sits below it. The model selector changes this chat's model and exposes its
+thinking level inside the menu.
 **Chat options** (**…**) holds Plan mode, Advisor, goal management and the
 Follow-up / Steer / Reject-if-busy policy.
+
+OMP chat uses the worker's real OMP configuration, connected providers, and model
+choices—not the native agent's accounts. Its combined model/effort picker follows
+[Claude's control placement](https://support.claude.com/en/articles/8664678-change-the-model-effort-and-thinking-settings).
+Provider discovery finishes before choices are advertised. Reopening the picker
+reloads the saved session in a fresh OMP process when idle; a busy chat defers that
+refresh until work settles. Model and thinking pins apply independently to the
+next message; **Use inherited…** clears the corresponding pin.
+
+OMP tool output updates where the call began. Reads group compactly; other tools
+show their bounded preview directly, with full output available on expansion.
+Writes show numbered content, edits show contextual diffs, and command output
+follows its tail within the available viewport. Live thinking opens and completed
+thinking folds unless you chose otherwise. The web client cannot display
+pre-execution argument streams that OMP's ACP interface does not send.
+
 
 **Chat options → Manage goal**, available while a goal is live, opens the objective, status and budget dialog.
 `/goal <objective>` (or `/goal set <objective>`) starts the same workflow.
@@ -1078,22 +1095,25 @@ copy on rollback, and removes it once the transaction settles.
 
 ## Release rollout and canaries
 
-Use one release tag and one fleet transaction:
+The managed fleet releases through GitHub and Flux, not a host-side deployment:
 
-1. Qualify the four public host targets—macOS arm64/x64 and Linux arm64/x64—
-   from the same source commit. Each published binary must match its GitHub
-   Release SHA-256 sidecar.
-2. Update every machine: `roost update` plus a service restart on each, or
-   `roost push` from the clean pushed checkout. A machine that was offline
-   during a push is named as deferred and catches up on its next attach; for a
-   release you care about, confirm it reaches the new SHA in `roost status`
-   before declaring the rollout done.
-3. Require a new coordinator boot, all workers online on the expected build,
-   and a pre-restart PTY to paint a new marker. Reject new anomalies in
-   `roost doctor --since 1h`.
-4. Re-prove the front door: an unauthenticated `MiscHealth` POST through the
-   public origin reaches the coordinator, and `/api/db-export` from off-host
-   answers 403 or the front door's 404.
+1. Commit the tested `v3` state, create the next `v3.*` tag, and push the branch
+   and tag. `release.yml` runs the full verification gates and publishes five
+   native targets, their SHA-256 sidecars, and the web bundle.
+2. `container.yml` publishes the coordinator image. After publication,
+   `release.yml` calls `promote.yml`, which moves the `production` branch to the
+   tag plus its image-pin commit and waits for the public `/version` to match.
+3. Flux on desktop-pc applies that branch's desktop chart values and edge
+   manifests. Do not run `roost push` or install a coordinator host service for
+   this fleet.
+4. Enrolled Linux and macOS workers follow the coordinator's release through
+   their existing updater. Windows binaries remain supported, but Windows is
+   outside this managed deployment fleet and is not deployed for routine releases.
+5. Verify the public `/version` and `/readyz`, the HelmRelease, worker roster
+   versions, and continuity of pre-release PTYs. Check `roost doctor --since 1h`
+   for new anomalies. A failed migration or upgrade is investigated, not
+   automatically retried or rolled back; crossing a migration may require the
+   pre-release database backup.
 
 ## Logs
 

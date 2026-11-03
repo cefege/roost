@@ -10,6 +10,8 @@ use super::composer_commands::{report_command, submit_direct_command};
 use super::model_controls::AgentModelControls;
 use super::toolbar_menu::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
 use crate::components::terminal_chrome::attachment_picker::ChosenFile;
+use crate::components::terminal_chrome::composer_attachments::StagedAttachments;
+use crate::components::terminal_chrome::terminal_upload::retry_staged_upload_handler;
 use crate::components::ui::input_group::{InputGroupAddon, InputGroupAddonAlign};
 use crate::components::ui::{
     ButtonSize, ButtonVariant, Icon, IconButton, IconType, InputPromptSubmit, InputPromptTools,
@@ -21,6 +23,7 @@ pub(super) fn ComposerFooter(
     conversation: ConversationSummary,
     active: bool,
     catalog: Option<ModelsCatalog>,
+    omp_mode: Option<String>,
     catalog_failed: bool,
     pump: Pump,
     goal: Option<GoalState>,
@@ -99,12 +102,22 @@ pub(super) fn ComposerFooter(
         || attachments_block_send
         || refinement_has_attachments
         || (!has_draft && !dictation_finishing));
+    let retry_upload = retry_staged_upload_handler(
+        pump.clone(),
+        conversation.id.clone(),
+        conversation.worker_fp.clone(),
+        staged_files,
+    );
     rsx! {
+        if !staged_files().is_empty() {
+            div { class: "order-first w-full min-w-0 overflow-hidden",
+                StagedAttachments { staged_files, on_retry: retry_upload }
+            }
+        }
         InputGroupAddon {
             align: InputGroupAddonAlign::BlockEnd,
-            class: "flex-wrap gap-y-2 border-t-0 px-2 pb-2 pt-0",
-            InputPromptTools { class: "min-w-0 max-w-full flex-wrap",
-                if native {
+            class: "flex-nowrap gap-1 border-t-0 px-2 pb-2 pt-0",
+            InputPromptTools { class: "shrink-0",
                     IconButton {
                         class: "shrink-0",
                         icon: IconType::Plus,
@@ -118,16 +131,12 @@ pub(super) fn ComposerFooter(
                         controls_id: Some(listbox),
                         onclick: move |_| on_commands.call(()),
                     }
-                }
                 AgentAttachmentControls {
-                    pump: pump.clone(),
-                    conversation: conversation.clone(),
-                    staged_files,
                     on_chosen,
                     disabled: disabled || attachments_disabled,
                 }
             }
-            InputPromptTools { class: "order-first ml-auto min-w-0 w-full flex-nowrap justify-end sm:order-none sm:w-auto",
+            InputPromptTools { class: "ml-auto min-w-0 flex-1 justify-end [&>[data-name=DropdownMenu]]:min-w-0",
                 if native {
                     ToolbarMenu {
                         menu_key: "options",
@@ -152,10 +161,13 @@ pub(super) fn ComposerFooter(
                     }
                     AgentModelControls { conversation: conversation.clone(), catalog, catalog_failed, pump }
                 } else {
+                    if let Some(mode) = omp_mode.filter(|mode| !mode.is_empty() && mode != "default") {
+                        span { class: "text-xs text-muted-foreground", "Mode: {mode}" }
+                    }
                     super::omp_controls::OmpModelControls { conversation: conversation.clone(), active, pump }
                 }
             }
-            InputPromptTools { class: "ml-auto min-w-0 flex-nowrap justify-end sm:ml-0",
+            InputPromptTools { class: "shrink-0",
                 {voice_controls}
                 if running {
                     IconButton {
@@ -168,7 +180,7 @@ pub(super) fn ComposerFooter(
                         onclick: move |_| on_stop.call(()),
                     }
                 }
-                if send_available {
+                if send_available && (!running || has_draft || dictation_finishing) {
                     InputPromptSubmit {
                         disabled: !ready,
                         variant: if ready { ButtonVariant::Default } else { ButtonVariant::Ghost },

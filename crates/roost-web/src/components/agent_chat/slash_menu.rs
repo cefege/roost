@@ -26,15 +26,11 @@ const NAME_COLUMN_GAP_CHARS: usize = 2;
 /// One completion the menu offers.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct SlashOption {
-    pub(super) command: &'static SlashCommand,
-    /// The draft this option produces. A trailing space means more input is expected.
+    pub(super) command_name: String,
     pub(super) text: String,
-    /// Enter cannot run `text` as it stands: a value must be typed after it.
     pub(super) needs_value: bool,
-    /// What the name column shows: the command name, or the argument value.
     pub(super) label: String,
-    /// The command's usage, shown ahead of the summary on name rows only.
-    pub(super) usage: &'static str,
+    pub(super) usage: String,
     pub(super) summary: String,
 }
 
@@ -42,9 +38,7 @@ pub(super) struct SlashOption {
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct SlashMenuState {
     pub(super) options: Vec<SlashOption>,
-    /// The command the draft has named past its name. With nothing left to
-    /// complete, its usage is the one line the menu shows.
-    pub(super) argument_command: Option<&'static SlashCommand>,
+    pub(super) argument_command: Option<String>,
 }
 
 /// What Enter on an option does.
@@ -79,8 +73,25 @@ pub(super) fn slash_menu_state(draft: &str, sources: &SlashSources) -> Option<Sl
     }
     Some(SlashMenuState {
         options: argument_options(command, &argument.to_ascii_lowercase(), sources),
-        argument_command: Some(command),
+        argument_command: Some(command.name.to_owned()),
     })
+}
+
+pub(super) fn slash_menu_state_for_omp(
+    draft: &str,
+    sources: &SlashSources,
+    modes: Option<&[String]>,
+    commands: &[roost_protocol::wire::agent_chat::OmpSlashCommand],
+) -> Option<SlashMenuState> {
+    match modes {
+        None => slash_menu_state(draft, sources),
+        Some(modes) => {
+            if draft.contains('\n') {
+                return None;
+            }
+            super::slash_omp::omp_menu_state(draft.strip_prefix('/')?, modes, commands, sources)
+        }
+    }
 }
 
 /// The option the draft already matches, else the first one.
@@ -162,7 +173,7 @@ fn name_options(partial: &str) -> Vec<SlashOption> {
     ranked
         .into_iter()
         .map(|(_, command)| SlashOption {
-            command,
+            command_name: command.name.to_owned(),
             text: if command.args.is_empty() {
                 format!("/{}", command.name)
             } else {
@@ -170,7 +181,7 @@ fn name_options(partial: &str) -> Vec<SlashOption> {
             },
             needs_value: command.requires_argument() && !command.client_bare,
             label: command.name.to_string(),
-            usage: command.args,
+            usage: command.args.to_owned(),
             summary: command.summary.to_string(),
         })
         .collect()
@@ -238,7 +249,7 @@ fn argument_options(
     candidates
         .into_iter()
         .map(|(value, summary, needs_value)| SlashOption {
-            command,
+            command_name: command.name.to_owned(),
             text: if needs_value {
                 format!("/{} {value} ", command.name)
             } else {
@@ -246,7 +257,7 @@ fn argument_options(
             },
             needs_value,
             label: value,
-            usage: "",
+            usage: String::new(),
             summary,
         })
         .collect()
@@ -284,9 +295,10 @@ pub fn SlashMenu(
 ) -> Element {
     let listbox = listbox_id(&conversation_id);
     let name_chars = name_column_chars(&state.options);
-    // With nothing left to complete, the named command's usage is all there is
-    // to say; while a list is open its rows already carry it.
-    let usage_line = state.argument_command.filter(|_| state.options.is_empty());
+    let usage_line = state
+        .argument_command
+        .as_ref()
+        .filter(|_| state.options.is_empty());
     rsx! {
         div {
             class: "absolute inset-x-0 bottom-full z-10 mb-2",
@@ -297,13 +309,7 @@ pub fn SlashMenu(
                 class: Some("max-h-[min(21rem,40dvh)] overflow-y-auto overscroll-contain".to_owned()),
                 if let Some(command) = usage_line {
                     p { class: "px-3 py-2 text-xs text-muted-foreground", "data-testid": "agent-chat-command-usage",
-                        span { class: "font-mono",
-                            "/{command.name}"
-                            if !command.args.is_empty() {
-                                " {command.args}"
-                            }
-                        }
-                        " {command.summary}"
+                        span { class: "font-mono", "/{command}" }
                     }
                 } else {
                     // The composer owns focus and arrow keys (its textarea holds

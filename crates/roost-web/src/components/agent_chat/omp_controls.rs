@@ -1,6 +1,6 @@
 //! Conversation-only OMP model and thinking pins with inherited source labels.
-//! Mounted instead of native model controls; settings come from the shared RPC.
-//! The same protocol resolver supplies the settings pane's inheritance text.
+//! Choices come only from the machine's ACP catalog, never native providers.
+//! Mounted by the composer; the shared resolver supplies inheritance details.
 
 use super::{agent_alert::AgentAlert, omp_setting_menu::OmpSettingMenu};
 use crate::pump::Pump;
@@ -14,6 +14,7 @@ struct SessionView {
     model: Option<ModelRef>,
     thinking: Option<String>,
     state: Option<OmpSessionState>,
+    settings_seq: u64,
 }
 
 #[component]
@@ -52,6 +53,7 @@ pub fn OmpModelControls(conversation: ConversationSummary, active: bool, pump: P
             &session.model,
             &session.thinking,
             &session.state,
+            &session.settings_seq,
         ),
         move |_| {
             let pump = fetch_pump.clone();
@@ -94,7 +96,7 @@ pub fn OmpModelControls(conversation: ConversationSummary, active: bool, pump: P
             .find(|catalog| catalog.worker_fp == conversation.worker_fp)
     });
     let choices = |model| {
-        let mut choices = catalog
+        catalog
             .map(|catalog| {
                 if model {
                     catalog.models.clone()
@@ -102,24 +104,9 @@ pub fn OmpModelControls(conversation: ConversationSummary, active: bool, pump: P
                     catalog.thinking_levels.clone()
                 }
             })
-            .unwrap_or_default();
-        let current = if model {
-            &overrides.model
-        } else {
-            &overrides.thinking_level
-        };
-        if view.is_some()
-            && let Some(value) = current
-            && !choices.iter().any(|choice| &choice.value == value)
-        {
-            choices.push(OmpChoice {
-                value: value.clone(),
-                name: value.clone(),
-                description: None,
-            });
-        }
-        choices
+            .unwrap_or_default()
     };
+    let trigger_id = super::composer_commands::model_picker_trigger_id(&conversation.id);
     let model_pump = pump.clone();
     let model_id = conversation.id.clone();
     let thinking_pump = pump;
@@ -140,20 +127,22 @@ pub fn OmpModelControls(conversation: ConversationSummary, active: bool, pump: P
     let retry_visible = prepare_error.is_some() || fetch_error.is_some() || async_error.is_some();
     rsx! {
         div {class:"flex min-w-0 max-w-full flex-col gap-1", "data-testid":"omp-model-controls",
-            div {class:"flex min-w-0 flex-wrap items-center gap-1",
-                OmpSettingMenu {label:"Model",value:effective.model,inherited:inherited.model,choices:choices(true),
-                    disabled:catalog.is_none_or(|catalog| catalog.models.is_empty()) && overrides.model.as_deref().is_none_or(str::is_empty),
-                    on_open:move |_| settings.restart(),
-                    on_choose:move |value| configure(model_pump.clone(),model_id.clone(),true,value,error)}
-                OmpSettingMenu {label:"Thinking",value:effective.thinking_level,inherited:inherited.thinking_level,choices:choices(false),
-                    disabled:catalog.is_none_or(|catalog| catalog.thinking_levels.is_empty()) && overrides.thinking_level.as_deref().is_none_or(str::is_empty),
-                    on_open:move |_| settings.restart(),
-                    on_choose:move |value| configure(thinking_pump.clone(),thinking_id.clone(),false,value,error)}
+            OmpSettingMenu {
+                trigger_id,
+                model: effective.model,
+                thinking: effective.thinking_level,
+                inherited_model: inherited.model,
+                inherited_thinking: inherited.thinking_level,
+                models: choices(true),
+                thinking_levels: choices(false),
+                model_disabled: catalog.is_none_or(|catalog| catalog.models.is_empty()) && overrides.model.as_deref().is_none_or(str::is_empty),
+                thinking_disabled: catalog.is_none_or(|catalog| catalog.thinking_levels.is_empty()) && overrides.thinking_level.as_deref().is_none_or(str::is_empty),
+                on_open: move |_| { preparation.restart(); settings.restart(); },
+                on_model: move |value| configure(model_pump.clone(), model_id.clone(), true, value, error),
+                on_thinking: move |value| configure(thinking_pump.clone(), thinking_id.clone(), false, value, error),
             }
             if catalog.is_none() && prepare_error.is_none() && fetch_error.is_none() && async_error.is_none() {
-                p {class:"text-xs text-muted-foreground", "Connecting to OMP and loading its settings…"}
-            } else {
-                p {class:"text-xs text-muted-foreground", "Applies to your next message."}
+                span {class:"sr-only", role:"status", "Connecting to OMP and loading its settings…"}
             }
             if let Some(message) = error().or(prepare_error.clone()).or(fetch_error).or(async_error) {AgentAlert {test_id:"omp-controls-error", "{message}"}}
             if retry_visible {
@@ -189,7 +178,15 @@ fn session_view(pump: &Pump, id: &str, worker_fp: &str) -> SessionView {
         model: transcript.and_then(|transcript| transcript.model.clone()),
         thinking: transcript.and_then(|transcript| transcript.thinking_level.clone()),
         state: transcript.and_then(|transcript| transcript.omp_session.clone()),
+        settings_seq: store
+            .agent_chat
+            .transcripts
+            .get(id)
+            .map_or(0, |loaded| loaded.settings_seq),
     }
+}
+pub(super) fn settings_revision(pump: &Pump, conversation_id: &str, worker_fp: &str) -> u64 {
+    session_view(pump, conversation_id, worker_fp).settings_seq
 }
 
 async fn open_session(pump: Pump, conversation_id: String) -> Result<(), String> {

@@ -68,6 +68,8 @@ async fn snapshot_does_not_restore_input_withdrawn_before_its_removal_event() {
                     }],
                     schedules: Vec::new(),
                     omp_session: None,
+                    omp_commands: Vec::new(),
+                    omp_interactions: Vec::new(),
                 },
             }],
         )

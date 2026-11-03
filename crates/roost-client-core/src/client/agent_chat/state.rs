@@ -9,6 +9,9 @@ use roost_protocol::wire::agent_chat::{
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoadedTranscript {
     pub seq: u64,
+    /// Advances on Agent events even when the selected values are unchanged:
+    /// OMP may have changed its available choices without switching models.
+    pub settings_seq: u64,
     pub transcript: Transcript,
     pub stale: bool,
 }
@@ -68,6 +71,9 @@ impl AgentChatState {
         }
         for event in events {
             fold_chat_event(&mut loaded.transcript, event);
+            if matches!(event, ChatEvent::Agent { .. }) {
+                loaded.settings_seq = seq;
+            }
         }
         loaded.seq = seq;
     }
@@ -95,6 +101,7 @@ impl AgentChatState {
             id,
             LoadedTranscript {
                 seq,
+                settings_seq: seq,
                 transcript,
                 stale: false,
             },
@@ -126,6 +133,9 @@ impl AgentChatState {
             }
             for event in events {
                 fold_chat_event(&mut loaded.transcript, event);
+                if matches!(event, ChatEvent::Agent { .. }) {
+                    loaded.settings_seq = *seq;
+                }
             }
             loaded.seq = *seq;
             applied = true;

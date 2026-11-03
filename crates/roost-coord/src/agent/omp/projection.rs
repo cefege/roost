@@ -2,7 +2,7 @@
 //! Only the final streaming assistant can accept a chunk, never earlier history.
 //! Effects update OMP metadata atomically beside the transcript event batch.
 
-use agent_client_protocol::v1::schema::{ContentBlock, PlanEntryStatus, SessionUpdate};
+use agent_client_protocol::v1::schema::{ContentBlock, SessionUpdate};
 use roost_protocol::wire::agent_chat::*;
 
 #[derive(Debug, Clone)]
@@ -13,6 +13,8 @@ pub enum OmpEffect {
     },
     ConfigOptions(serde_json::Value),
     Title(String),
+    Mode(String),
+    Modes(Vec<OmpChoice>),
     RunState(AgentRunState, Option<String>),
     WorkerEpoch(Option<String>),
 }
@@ -30,6 +32,24 @@ pub fn project(
 ) -> Projected {
     let mut projected = Projected::default();
     match event {
+        OmpWorkerEvent::Commands { commands } => {
+            projected.events.push(ChatEvent::OmpCommands {
+                commands: commands.clone(),
+            });
+        }
+        OmpWorkerEvent::Interaction { interaction } => {
+            projected.events.push(ChatEvent::OmpInteraction {
+                interaction: interaction.clone(),
+            });
+        }
+        OmpWorkerEvent::InteractionResolved { id } => {
+            projected
+                .events
+                .push(ChatEvent::OmpInteractionResolved { id: id.clone() });
+        }
+        OmpWorkerEvent::Modes { modes } => {
+            projected.effects.push(OmpEffect::Modes(modes.clone()));
+        }
         OmpWorkerEvent::Update { update } => {
             let update = match serde_json::from_value::<SessionUpdate>(update.clone()) {
                 Ok(update) => update,
@@ -65,36 +85,21 @@ pub fn project(
                 }
                 SessionUpdate::ToolCall(call) => {
                     close_assistant(transcript, &mut projected.events);
-                    projected.events.push(ChatEvent::Item {
-                        item: super::projection_tools::new_tool(call),
-                    });
+                    append_tool_and_todo(
+                        &mut projected.events,
+                        super::projection_tools::new_tool(call),
+                    );
                 }
                 SessionUpdate::ToolCallUpdate(update) => {
                     if let Some(item) = super::projection_tools::update_tool(transcript, update) {
+                        append_tool_and_todo(&mut projected.events, item);
+                    }
+                }
+                SessionUpdate::Plan(plan) => {
+                    if let Some(item) = super::projection_todo::from_plan(transcript, plan) {
                         projected.events.push(ChatEvent::Item { item });
                     }
                 }
-                SessionUpdate::Plan(plan) => projected.events.push(ChatEvent::Item {
-                    item: TranscriptItem::Todo {
-                        id: "todo-omp".into(),
-                        phases: vec![TodoPhase {
-                            name: "Plan".into(),
-                            tasks: plan
-                                .entries
-                                .into_iter()
-                                .map(|entry| TodoTask {
-                                    content: entry.content,
-                                    status: match entry.status {
-                                        PlanEntryStatus::InProgress => TodoStatus::InProgress,
-                                        PlanEntryStatus::Completed => TodoStatus::Completed,
-                                        _ => TodoStatus::Pending,
-                                    },
-                                    blocker: None,
-                                })
-                                .collect(),
-                        }],
-                    },
-                }),
                 SessionUpdate::UsageUpdate(update) => {
                     let mut usage = transcript.usage.clone();
                     usage.context_tokens = update.used;
@@ -105,7 +110,9 @@ pub fn project(
                 }
                 SessionUpdate::ConfigOptionUpdate(update) => {
                     if let Ok(options) = serde_json::to_value(update.config_options) {
-                        projected.events.push(agent_event(&options, None));
+                        projected
+                            .events
+                            .push(agent_event(&options, None, transcript.mode.clone()));
                         projected.effects.push(OmpEffect::ConfigOptions(options));
                     }
                 }
@@ -115,7 +122,10 @@ pub fn project(
                         thinking_level: transcript.thinking_level.clone(),
                         mode: Some(update.current_mode_id.to_string()),
                         omp_session: None,
-                    })
+                    });
+                    projected
+                        .effects
+                        .push(OmpEffect::Mode(update.current_mode_id.to_string()));
                 }
                 SessionUpdate::SessionInfoUpdate(update) => {
                     if let Some(title) = update.title.take().filter(|title| !title.is_empty()) {
@@ -128,14 +138,20 @@ pub fn project(
         OmpWorkerEvent::SessionReady {
             acp_session_id,
             config_options,
+            mode,
         } => {
-            projected
-                .events
-                .push(agent_event(config_options, Some(OmpSessionState::Ready)));
+            projected.events.push(agent_event(
+                config_options,
+                Some(OmpSessionState::Ready),
+                mode.clone().or_else(|| transcript.mode.clone()),
+            ));
             projected.effects.push(OmpEffect::SessionReady {
                 acp_session_id: acp_session_id.clone(),
                 config_options: config_options.clone(),
             });
+            if let Some(mode) = mode {
+                projected.effects.push(OmpEffect::Mode(mode.clone()));
+            }
         }
         OmpWorkerEvent::SessionFailed { error } => {
             projected.events.push(ChatEvent::Agent {
@@ -187,6 +203,11 @@ pub fn project(
             .push(notice(run_id, seq, level, title, body)),
         OmpWorkerEvent::ProcessExited { error } => {
             close_open_items(transcript, &mut projected.events);
+            for interaction in &transcript.omp_interactions {
+                projected.events.push(ChatEvent::OmpInteractionResolved {
+                    id: interaction.id.clone(),
+                });
+            }
             if let Some(error) = error {
                 projected
                     .events
@@ -245,12 +266,16 @@ fn set_state(projected: &mut Projected, state: AgentRunState, error: Option<Stri
     projected.effects.push(OmpEffect::RunState(state, error));
 }
 
-fn agent_event(options: &serde_json::Value, omp_session: Option<OmpSessionState>) -> ChatEvent {
+fn agent_event(
+    options: &serde_json::Value,
+    omp_session: Option<OmpSessionState>,
+    mode_override: Option<String>,
+) -> ChatEvent {
     let (model, thinking_level, mode) = super::catalog::current_values(options);
     ChatEvent::Agent {
         model: model.as_deref().and_then(split_omp_model),
         thinking_level,
-        mode,
+        mode: mode_override.or(mode),
         omp_session,
     }
 }
@@ -323,6 +348,14 @@ fn chunk_event(
             delta: text,
         }
     });
+}
+
+fn append_tool_and_todo(events: &mut Vec<ChatEvent>, item: TranscriptItem) {
+    let todo = super::projection_todo::from_tool(&item);
+    events.push(ChatEvent::Item { item });
+    if let Some(item) = todo {
+        events.push(ChatEvent::Item { item });
+    }
 }
 
 #[cfg(test)]

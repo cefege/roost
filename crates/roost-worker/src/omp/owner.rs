@@ -53,6 +53,15 @@ impl<L: OmpLauncher> OmpOwner<L> {
             let _ = actor.commands.send(command);
         }
     }
+    fn forward_response(&self, request: roost_proto::DOmpRespond) {
+        let conversations = self
+            .conversations
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(actor) = conversations.get(&request.conversation_id) {
+            let _ = actor.commands.send(OmpCommand::Respond(request));
+        }
+    }
     fn start(&self, id: String, command: OmpCommand) {
         let mut conversations = self
             .conversations
@@ -92,6 +101,15 @@ impl<L: OmpLauncher> OmpPort for OmpOwner<L> {
     }
     fn cancel(&self, request: roost_proto::DOmpCancel) {
         self.forward(&request.conversation_id, OmpCommand::Cancel);
+    }
+    fn respond(&self, request: roost_proto::DOmpRespond) {
+        self.forward_response(request);
+    }
+    fn set_mode(&self, request: roost_proto::DOmpSetMode) {
+        self.start(
+            request.conversation_id.clone(),
+            OmpCommand::SetMode(request),
+        );
     }
     fn ack(&self, request: roost_proto::DOmpEventsAck) {
         self.forward(

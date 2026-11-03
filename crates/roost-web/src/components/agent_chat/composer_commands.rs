@@ -230,13 +230,50 @@ pub(super) fn model_picker_trigger_id(conversation_id: &str) -> String {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub(super) fn open_model_picker(conversation_id: &str) {
+pub(super) fn open_model_picker(conversation_id: &str) -> bool {
     use wasm_bindgen::JsCast;
-    if let Some(button) = web_sys::window()
+    let Some(button) = web_sys::window()
         .and_then(|window| window.document())
         .and_then(|document| document.get_element_by_id(&model_picker_trigger_id(conversation_id)))
         .and_then(|element| element.dyn_into::<web_sys::HtmlElement>().ok())
-    {
-        button.click();
+    else {
+        return false;
+    };
+    if button.has_attribute("disabled") {
+        return false;
     }
+    button.click();
+    true
+}
+#[cfg(target_arch = "wasm32")]
+pub(super) fn configure_omp_mode(
+    pump: Pump,
+    conversation_id: String,
+    mode: String,
+    outcome: EventHandler<Result<(), String>>,
+) {
+    spawn(async move {
+        use roost_client_core::client::rpc::calls::agent_chat::ConfigureAgentChat;
+        outcome.call(
+            pump.rpc()
+                .call(&ConfigureAgentChat {
+                    conversation_id,
+                    mode: Some(mode),
+                    ..Default::default()
+                })
+                .await
+                .map(|_| ())
+                .map_err(|error| error.to_string()),
+        );
+    });
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) fn configure_omp_mode(
+    _: Pump,
+    _: String,
+    _: String,
+    outcome: EventHandler<Result<(), String>>,
+) {
+    outcome.call(Err("OMP modes are available in the browser.".into()));
 }

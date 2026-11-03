@@ -6,7 +6,7 @@ use agent_client_protocol::{
     Agent, ByteStreams, Client,
     v1::{ConnectionTo, Responder, schema::*},
 };
-use roost_worker::omp::launcher::{OmpLaunchError, OmpLauncher};
+use roost_worker::omp::launcher::{OmpLaunch, OmpLaunchError, OmpLauncher};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
@@ -56,7 +56,7 @@ impl OrderingLauncher {
 impl OmpLauncher for OrderingLauncher {
     type Transport = Transport;
 
-    fn launch(&self, _cwd: &str) -> Result<(Transport, String), OmpLaunchError> {
+    fn launch(&self, _cwd: &str) -> Result<OmpLaunch<Transport>, OmpLaunchError> {
         self.launches.fetch_add(1, Ordering::SeqCst);
         let (client, agent) = tokio::io::duplex(64 * 1024);
         let (client_read, client_write) = tokio::io::split(client);
@@ -144,9 +144,10 @@ impl OmpLauncher for OrderingLauncher {
             }
             closed.notify_one();
         });
-        Ok((
-            ByteStreams::new(client_write.compat_write(), client_read.compat()),
-            "ordering duplex OMP".into(),
-        ))
+        Ok(OmpLaunch {
+            transport: ByteStreams::new(client_write.compat_write(), client_read.compat()),
+            description: "ordering duplex OMP".into(),
+            catalog: None,
+        })
     }
 }

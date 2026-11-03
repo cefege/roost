@@ -4,8 +4,11 @@
 
 pub mod catalog;
 pub mod projection;
+mod projection_todo;
 mod projection_tools;
 pub mod rpc;
+mod rpc_respond;
+mod rpc_session;
 pub mod rpc_settings;
 mod settings;
 pub mod store;
@@ -23,7 +26,9 @@ use crate::{
     db::CoordDb,
 };
 use roost_protocol::{
-    versioning::{CAPABILITY_OMP_ACP_SESSION_V1, CAPABILITY_OMP_ACP_V1},
+    versioning::{
+        CAPABILITY_OMP_ACP_INTERACTIONS_V1, CAPABILITY_OMP_ACP_SESSION_V1, CAPABILITY_OMP_ACP_V1,
+    },
     wire::{
         WorkerFp,
         coord_worker::{CoordWorkerDownstream, CoordWorkerUpstream},
@@ -76,17 +81,18 @@ impl OmpService {
         true
     }
     pub fn worker(&self, worker_fp: &str) -> Result<Arc<WorkerHandle>, OmpUnavailable> {
-        let worker = self.routable_worker(worker_fp)?;
-        if worker.capabilities.contains(CAPABILITY_OMP_ACP_V1) {
-            Ok(worker)
-        } else {
-            Err(OmpUnavailable::UpdateRequired)
-        }
+        self.interaction_worker(worker_fp)
     }
     pub fn worker_for_session(&self, worker_fp: &str) -> Result<Arc<WorkerHandle>, OmpUnavailable> {
+        self.interaction_worker(worker_fp)
+    }
+    pub fn interaction_worker(&self, worker_fp: &str) -> Result<Arc<WorkerHandle>, OmpUnavailable> {
         let worker = self.routable_worker(worker_fp)?;
         if worker.capabilities.contains(CAPABILITY_OMP_ACP_V1)
             && worker.capabilities.contains(CAPABILITY_OMP_ACP_SESSION_V1)
+            && worker
+                .capabilities
+                .contains(CAPABILITY_OMP_ACP_INTERACTIONS_V1)
         {
             Ok(worker)
         } else {
@@ -121,6 +127,9 @@ impl WorkerLifecycleObserver for OmpService {
         if advertised.contains(CAPABILITY_OMP_ACP_SESSION_V1) {
             acknowledged.push(CAPABILITY_OMP_ACP_SESSION_V1);
         }
+        if advertised.contains(CAPABILITY_OMP_ACP_INTERACTIONS_V1) {
+            acknowledged.push(CAPABILITY_OMP_ACP_INTERACTIONS_V1);
+        }
         acknowledged
     }
     fn on_ready(&self, handle: &Arc<WorkerHandle>) {
@@ -132,11 +141,7 @@ impl WorkerLifecycleObserver for OmpService {
             match store::list(&db).await {
                 Ok(conversations) => {
                     for conversation in conversations {
-                        if conversation.worker_fp == worker
-                            && conversation.run_state
-                                == roost_protocol::wire::agent_chat::AgentRunState::Running
-                            && conversation.worker_epoch != epoch
-                        {
+                        if conversation.worker_fp == worker && conversation.worker_epoch != epoch {
                             writers.send(
                                 &conversation.id,
                                 WriterJob::Restart {

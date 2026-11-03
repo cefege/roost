@@ -11,7 +11,7 @@ use crate::components::ui::{
 
 #[component]
 pub(super) fn ThinkingBlock(text: String, live: bool, globally_visible: bool) -> Element {
-    let mut expanded = use_signal(|| false);
+    let mut expanded = use_signal(|| live);
     let mut manually_changed = use_signal(|| false);
     let started_ms = use_hook(now_ms);
     let mut observed_seconds = use_signal(|| 0_u64);
@@ -34,16 +34,10 @@ pub(super) fn ThinkingBlock(text: String, live: bool, globally_visible: bool) ->
             if !*manually_changed.peek() {
                 expanded.set(false);
             }
+        } else if !*manually_changed.peek() {
+            expanded.set(true);
         }
     }));
-    let tail = if live {
-        let lines: Vec<&str> = text.lines().collect();
-        let first = lines.len().saturating_sub(8);
-        lines[first..].join("\n")
-    } else {
-        text.clone()
-    };
-    let omitted_live_lines = live && text.lines().count() > 8;
     let observed = observed_seconds();
     let copy_text = text.clone();
     let (copy_thought, thought_copied) =
@@ -85,10 +79,7 @@ pub(super) fn ThinkingBlock(text: String, live: bool, globally_visible: bool) ->
                         }
                     }
                     CollapsibleContent { class: "flex flex-col gap-1 border-l border-border pl-2 text-muted-foreground",
-                        if omitted_live_lines {
-                            p { class: "text-xs text-muted-foreground", "Earlier lines are omitted from the live preview." }
-                        }
-                        Markdown { class: "text-muted-foreground", html: super::markdown::markdown_to_safe_html(&tail) }
+                        Markdown { class: "text-muted-foreground", html: super::markdown::markdown_to_safe_html(&text) }
                         Button {
                             variant: ButtonVariant::Link,
                             class: "self-start",

@@ -34,6 +34,8 @@ fn transcript() -> Transcript {
         usage: UsageTotals::default(),
         mode: None,
         queued: Vec::new(),
+        omp_commands: Vec::new(),
+        omp_interactions: Vec::new(),
         schedules: Vec::new(),
         omp_session: None,
     }
@@ -151,6 +153,8 @@ fn every_chat_event_round_trips_spec_json() {
                     mode: None,
                     usage: UsageTotals::default(),
                     queued: Vec::new(),
+                    omp_commands: Vec::new(),
+                    omp_interactions: Vec::new(),
                     schedules: Vec::new(),
                     omp_session: None,
                 },

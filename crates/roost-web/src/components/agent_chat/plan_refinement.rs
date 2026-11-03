@@ -258,6 +258,8 @@ mod tests {
             queued: Vec::new(),
             schedules: Vec::new(),
             omp_session: None,
+            omp_commands: Vec::new(),
+            omp_interactions: Vec::new(),
         }
     }
 

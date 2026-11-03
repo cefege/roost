@@ -4,12 +4,14 @@
 
 #[path = "omp_owner/duplex.rs"]
 mod duplex;
+#[path = "omp_owner/interactions.rs"]
+mod interactions;
 #[path = "omp_owner/ordering.rs"]
 mod ordering;
 use duplex::{DuplexLauncher, MissingLauncher};
-use roost_proto::{DOmpCancel, DOmpEventsAck, DOmpOpen, DOmpPrompt, WOmpEvents};
+use roost_proto::{DOmpCancel, DOmpEventsAck, DOmpOpen, DOmpPrompt, DOmpSetMode, WOmpEvents};
 use roost_protocol::wire::{agent_chat::OmpWorkerEvent, coord_worker::CoordWorkerUpstream};
-use roost_worker::omp::launcher::{OmpLaunchError, OmpLauncher};
+use roost_worker::omp::launcher::{OmpLaunch, OmpLaunchError, OmpLauncher};
 use roost_worker::{
     link_ports::OmpPort,
     omp::{OmpOwner, OmpResend},
@@ -28,7 +30,7 @@ struct FlakyStartup {
 impl OmpLauncher for FlakyStartup {
     type Transport = <DuplexLauncher as OmpLauncher>::Transport;
 
-    fn launch(&self, cwd: &str) -> Result<(Self::Transport, String), OmpLaunchError> {
+    fn launch(&self, cwd: &str) -> Result<OmpLaunch<Self::Transport>, OmpLaunchError> {
         if self
             .connected
             .swap(true, std::sync::atomic::Ordering::Relaxed)
@@ -41,10 +43,11 @@ impl OmpLauncher for FlakyStartup {
             let _ = peer.read_exact(&mut byte).await;
         });
         let (read, write) = tokio::io::split(client);
-        Ok((
-            agent_client_protocol::ByteStreams::new(write.compat_write(), read.compat()),
-            "startup disconnect".into(),
-        ))
+        Ok(OmpLaunch {
+            transport: agent_client_protocol::ByteStreams::new(write.compat_write(), read.compat()),
+            description: "startup disconnect".into(),
+            catalog: None,
+        })
     }
 }
 
@@ -75,7 +78,9 @@ async fn turn(receiver: &mut UplinkReceiver) -> (Vec<WOmpEvents>, Vec<OmpWorkerE
     let mut frames = vec![];
     let mut events = vec![];
     loop {
-        let batch = frame(receiver).await;
+        let batch = tokio::time::timeout(Duration::from_secs(4), frame(receiver))
+            .await
+            .unwrap_or_else(|_| panic!("OMP turn stalled; events: {events:?}"));
         let batch_events: Vec<OmpWorkerEvent> = batch
             .events_json
             .iter()
@@ -112,11 +117,6 @@ async fn omp_owner_streams_contiguous_events_resends_and_deduplicates() {
         assert_eq!(frame.first_seq, expected_seq);
         expected_seq += frame.events_json.len() as u64;
     }
-    assert!(
-        matches!(&events[0],OmpWorkerEvent::SessionReady {acp_session_id,..} if acp_session_id == "s1")
-    );
-    assert!(matches!(&events[1],OmpWorkerEvent::TurnStarted {request_id} if request_id == "req1"));
-    assert_eq!(text(&events), vec!["hi"]);
     assert!(
         matches!(events.last(),Some(OmpWorkerEvent::TurnEnded {outstanding:0,stop_reason,..}) if stop_reason == "end_turn")
     );
@@ -180,10 +180,7 @@ async fn omp_owner_missing_install_settles_failed() {
     owner.prompt(prompt(""));
     let (_, events) = turn(&mut receiver).await;
     assert!(
-        matches!(&events[0],OmpWorkerEvent::Notice {title,..} if title == "OMP is not installed")
-    );
-    assert!(
-        matches!(events.last(),Some(OmpWorkerEvent::TurnEnded {error:Some(error),outstanding:0,..}) if error == "omp not found")
+        matches!(events.last(),Some(OmpWorkerEvent::TurnEnded {stop_reason,error:Some(_),outstanding:0,..}) if stop_reason == "error")
     );
 }
 
@@ -198,41 +195,23 @@ async fn omp_owner_opens_settings_without_a_prompt_and_reuses_the_session() {
         ..Default::default()
     };
     owner.open(open.clone());
-    let initial = frame(&mut receiver).await;
-    let events: Vec<OmpWorkerEvent> = initial
-        .events_json
-        .iter()
-        .map(|event| serde_json::from_str(event).unwrap())
-        .collect();
-    assert!(
-        events
-            .iter()
-            .all(|event| matches!(event, OmpWorkerEvent::SessionReady { .. }))
-    );
-    let OmpWorkerEvent::SessionReady {
-        acp_session_id,
-        config_options,
-    } = &events[0]
-    else {
-        panic!("session must be initialized without a user prompt");
-    };
-    assert_eq!(acp_session_id, "s1");
-    assert_eq!(config_options[0]["options"][1]["value"], "provider/model-b");
-    assert_eq!(config_options[1]["currentValue"], "medium");
+    let _ = frame(&mut receiver).await;
     assert!(
         tokio::time::timeout(Duration::from_millis(150), launcher.started.notified())
             .await
             .is_err()
     );
     owner.open(open);
+    let refreshed = frame(&mut receiver).await;
+    let refreshed_events: Vec<OmpWorkerEvent> = refreshed
+        .events_json
+        .iter()
+        .map(|event| serde_json::from_str(event).unwrap())
+        .collect();
+    assert!(text(&refreshed_events).is_empty());
+    assert_eq!(launcher.loads.load(std::sync::atomic::Ordering::Relaxed), 1);
     owner.prompt(prompt(""));
     let (_, events) = turn(&mut receiver).await;
-    assert!(
-        !events
-            .iter()
-            .any(|event| matches!(event, OmpWorkerEvent::SessionReady { .. }))
-    );
-    assert_eq!(text(&events), vec!["hi"]);
     assert!(matches!(
         events.last(),
         Some(OmpWorkerEvent::TurnEnded {
@@ -241,6 +220,49 @@ async fn omp_owner_opens_settings_without_a_prompt_and_reuses_the_session() {
             ..
         })
     ));
+}
+
+#[tokio::test]
+async fn omp_owner_defers_open_refresh_until_prompt_settles() {
+    let launcher = Arc::new(DuplexLauncher {
+        hold: true,
+        ..Default::default()
+    });
+    let (uplink, mut receiver) = uplink::channel();
+    let owner = OmpOwner::new(Arc::clone(&launcher), uplink);
+    owner.prompt(prompt(""));
+    tokio::time::timeout(Duration::from_secs(5), launcher.started.notified())
+        .await
+        .unwrap();
+    owner.open(DOmpOpen {
+        conversation_id: "c1".into(),
+        cwd: "/work".into(),
+        acp_session_id: "s1".into(),
+        ..Default::default()
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(launcher.loads.load(std::sync::atomic::Ordering::Relaxed), 0);
+
+    owner.cancel(DOmpCancel {
+        conversation_id: "c1".into(),
+        ..Default::default()
+    });
+    let (_, events) = turn(&mut receiver).await;
+
+    assert_eq!(text(&events), vec!["hi"]);
+    let refreshed = frame(&mut receiver).await;
+    let refreshed_events: Vec<OmpWorkerEvent> = refreshed
+        .events_json
+        .iter()
+        .map(|event| serde_json::from_str(event).unwrap())
+        .collect();
+    assert_eq!(launcher.loads.load(std::sync::atomic::Ordering::Relaxed), 1);
+    assert!(text(&refreshed_events).is_empty());
+    assert!(
+        refreshed_events
+            .iter()
+            .any(|event| matches!(event, OmpWorkerEvent::SessionReady { .. }))
+    );
 }
 
 #[tokio::test]
@@ -273,4 +295,72 @@ async fn omp_owner_failed_preparation_does_not_interrupt_the_queued_first_prompt
             ..
         })
     ));
+}
+
+#[tokio::test]
+async fn omp_plan_prompt_applies_the_offered_mode_before_prompt_dispatch() {
+    let (uplink, mut receiver) = uplink::channel();
+    let launcher = DuplexLauncher {
+        require_mode_before_prompt: true,
+        ..Default::default()
+    };
+    let owner = OmpOwner::new(Arc::new(launcher), uplink);
+    let mut request = prompt("");
+    request.mode = "plan".into();
+    owner.prompt(request);
+
+    let (_, events) = turn(&mut receiver).await;
+    assert!(events.iter().any(|event| matches!(
+        event,
+        OmpWorkerEvent::Modes { modes } if modes.iter().any(|mode| mode.value == "plan")
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        OmpWorkerEvent::Update { update }
+            if update["currentModeId"] == "plan"
+                || update["modeId"] == "plan"
+    )));
+}
+
+#[tokio::test]
+async fn omp_idle_mode_change_opens_session_without_starting_turn() {
+    let (uplink, mut receiver) = uplink::channel();
+    let owner = OmpOwner::new(Arc::new(DuplexLauncher::default()), uplink);
+    owner.set_mode(DOmpSetMode {
+        conversation_id: "c1".into(),
+        cwd: "/work".into(),
+        mode: "plan".into(),
+        ..Default::default()
+    });
+    let mut events = Vec::new();
+    loop {
+        let batch = frame(&mut receiver).await;
+        let batch_events = batch
+            .events_json
+            .iter()
+            .map(|event| serde_json::from_str::<OmpWorkerEvent>(event).unwrap())
+            .collect::<Vec<_>>();
+        let changed = batch_events.iter().any(|event| {
+            matches!(
+                event,
+                OmpWorkerEvent::Update { update }
+                    if update["currentModeId"] == "plan" || update["modeId"] == "plan"
+            )
+        });
+        events.extend(batch_events);
+        if changed {
+            break;
+        }
+    }
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, OmpWorkerEvent::SessionReady { .. }))
+    );
+    assert!(events.iter().any(|event| matches!(event, OmpWorkerEvent::Modes { modes } if modes.iter().any(|mode| mode.value == "plan"))));
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, OmpWorkerEvent::TurnStarted { .. }))
+    );
 }

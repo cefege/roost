@@ -144,6 +144,7 @@ pub struct ConfigureAgentChat {
     pub cwd: Option<String>,
     pub title: Option<String>,
     pub read_only: Option<bool>,
+    pub mode: Option<String>,
 }
 impl UnaryMethod for ConfigureAgentChat {
     const METHOD: &'static str = "AgentChatConfigure";
@@ -160,12 +161,41 @@ impl UnaryMethod for ConfigureAgentChat {
                 cwd: self.cwd.clone(),
                 title: self.title.clone(),
                 read_only: self.read_only,
+                mode: self.mode.clone(),
                 ..Default::default()
             },
         )
     }
     fn decode_response(body: &[u8]) -> Result<Self::Response, RpcCodecError> {
         decode_message(Self::METHOD, body)
+    }
+}
+#[derive(Debug, Clone, Default)]
+pub struct RespondOmpInteraction {
+    pub conversation_id: String,
+    pub item_id: String,
+    pub action: String,
+    pub content_json: String,
+    pub request_id: String,
+}
+impl UnaryMethod for RespondOmpInteraction {
+    const METHOD: &'static str = "AgentOmpRespond";
+    type Response = ();
+    fn encode_request(&self) -> Result<Vec<u8>, RpcCodecError> {
+        encode_message(
+            Self::METHOD,
+            &AgentOmpRespondRequest {
+                conversation_id: self.conversation_id.clone(),
+                item_id: self.item_id.clone(),
+                action: self.action.clone(),
+                content_json: self.content_json.clone(),
+                request_id: self.request_id.clone(),
+                ..Default::default()
+            },
+        )
+    }
+    fn decode_response(body: &[u8]) -> Result<Self::Response, RpcCodecError> {
+        decode_message::<AgentOmpRespondResponse>(Self::METHOD, body).map(|_| ())
     }
 }
 

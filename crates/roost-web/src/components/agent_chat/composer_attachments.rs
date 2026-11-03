@@ -11,11 +11,8 @@ use crate::components::terminal_chrome::attachment_picker::StagedUploadState;
 use crate::components::terminal_chrome::attachment_picker::{
     AttachmentInput, ChosenFile, spawn_read_chosen,
 };
-use crate::components::terminal_chrome::composer_attachments::StagedAttachments;
 use crate::components::terminal_chrome::dom;
-use crate::components::terminal_chrome::terminal_upload::{
-    retry_staged_upload_handler, start_staged_uploads,
-};
+use crate::components::terminal_chrome::terminal_upload::start_staged_uploads;
 use crate::components::ui::{ButtonSize, ButtonVariant, IconButton, IconType};
 use crate::pump::Pump;
 use roost_protocol::wire::agent_chat::{AgentChatAttachment, MAX_AGENT_CHAT_IMAGE_PAYLOAD_BYTES};
@@ -113,24 +110,14 @@ pub(super) fn composer_attachment_handlers(
 /// Attach files to the worker immediately and expose their upload lifecycle.
 #[component]
 pub(super) fn AgentAttachmentControls(
-    pump: Pump,
-    conversation: ConversationSummary,
-    staged_files: Signal<Vec<ChosenFile>>,
     on_chosen: EventHandler<Vec<ChosenFile>>,
     disabled: bool,
 ) -> Element {
     let mut file_input = use_signal(|| None::<std::rc::Rc<MountedData>>);
-    let retry = retry_staged_upload_handler(
-        pump,
-        conversation.id.clone(),
-        conversation.worker_fp.clone(),
-        staged_files,
-    );
     let onmounted =
         EventHandler::new(move |event: MountedEvent| file_input.set(Some(event.data())));
-    let staged = !staged_files().is_empty();
     rsx! {
-        div { class: "flex min-w-0 flex-col items-start gap-2",
+        div { class: "shrink-0",
             AttachmentInput { on_chosen, onmounted: Some(onmounted) }
             IconButton {
                 class: "shrink-0",
@@ -145,9 +132,6 @@ pub(super) fn AgentAttachmentControls(
                         dom::open_file_chooser(input);
                     }
                 },
-            }
-            if staged {
-                StagedAttachments { staged_files, on_retry: retry }
             }
         }
     }

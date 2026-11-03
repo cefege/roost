@@ -43,10 +43,26 @@ pub struct OmpChoice {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OmpSlashCommand {
+    pub name: String,
+    pub description: String,
+    #[serde(default)]
+    pub input_hint: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OmpInteraction {
+    pub id: String,
+    pub request: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OmpWorkerCatalog {
     pub worker_fp: String,
     pub models: Vec<OmpChoice>,
     pub thinking_levels: Vec<OmpChoice>,
+    #[serde(default)]
+    pub modes: Vec<OmpChoice>,
     pub updated_ms: i64,
 }
 
@@ -149,15 +165,29 @@ pub fn join_omp_model(model: &ModelRef) -> String {
     format!("{}/{}", model.provider, model.model_id)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum OmpWorkerEvent {
     Update {
         update: serde_json::Value,
     },
+    Commands {
+        commands: Vec<OmpSlashCommand>,
+    },
+    Interaction {
+        interaction: OmpInteraction,
+    },
+    InteractionResolved {
+        id: String,
+    },
+    Modes {
+        modes: Vec<OmpChoice>,
+    },
     SessionReady {
         acp_session_id: String,
         config_options: serde_json::Value,
+        #[serde(default)]
+        mode: Option<String>,
     },
     TurnStarted {
         request_id: String,

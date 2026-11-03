@@ -6,6 +6,8 @@ mod agent_fixture;
 mod db_support;
 #[path = "omp_chat/ordering.rs"]
 mod ordering;
+#[path = "omp_chat/respond.rs"]
+mod respond;
 #[path = "omp_chat/settings_restart.rs"]
 mod settings_restart;
 
@@ -17,7 +19,9 @@ use roost_coord::{
 };
 use roost_proto as proto;
 use roost_protocol::{
-    versioning::{CAPABILITY_OMP_ACP_SESSION_V1, CAPABILITY_OMP_ACP_V1},
+    versioning::{
+        CAPABILITY_OMP_ACP_INTERACTIONS_V1, CAPABILITY_OMP_ACP_SESSION_V1, CAPABILITY_OMP_ACP_V1,
+    },
     wire::{
         WorkerFp,
         agent_chat::*,
@@ -34,12 +38,13 @@ fn register_worker(
     Arc<WorkerHandle>,
     mpsc::UnboundedReceiver<CoordWorkerDownstream>,
 ) {
-    register_worker_with_session_capability(fixture, epoch, true)
+    register_worker_with_session_capability(fixture, epoch, true, true)
 }
 fn register_worker_with_session_capability(
     fixture: &AgentFixture,
     epoch: &str,
     session_open: bool,
+    interactions: bool,
 ) -> (
     Arc<WorkerHandle>,
     mpsc::UnboundedReceiver<CoordWorkerDownstream>,
@@ -48,6 +53,9 @@ fn register_worker_with_session_capability(
     let mut capabilities = BTreeSet::from([CAPABILITY_OMP_ACP_V1.into()]);
     if session_open {
         capabilities.insert(CAPABILITY_OMP_ACP_SESSION_V1.into());
+    }
+    if interactions {
+        capabilities.insert(CAPABILITY_OMP_ACP_INTERACTIONS_V1.into());
     }
     let handle = Arc::new(WorkerHandle::new(
         WorkerFp::try_from(WORKER_A.to_owned()).unwrap(),
@@ -294,7 +302,7 @@ async fn omp_session_open_reuses_saved_session_without_changing_transcript() {
 async fn omp_session_open_requires_updated_worker_before_create_and_preserves_offline_snapshot() {
     let fixture = AgentFixture::new("omp-session-open-errors").await;
     let (_handle, _downstream) =
-        register_worker_with_session_capability(&fixture, "old-worker", false);
+        register_worker_with_session_capability(&fixture, "old-worker", false, false);
     let error = handle_agent_chat_create(
         &fixture.core,
         &fixture.caller,

@@ -14,6 +14,7 @@ use super::background_job_box::BackgroundJobBox;
 use super::interaction_cards::{AskCard, BtwCard};
 use super::message_actions::{EditTarget, UserMessageActions};
 use super::notice_card::NoticeCard;
+use super::omp_interaction_card::OmpInteractionCard;
 use super::peer_message_card::PeerMessageCard;
 use super::plan_card::PlanCard;
 use super::plan_refinement::has_unresolved_proposal;
@@ -26,11 +27,11 @@ use crate::components::ui::{
     IconType, Marker, Message, MessageAlign, MessageContent, MessageFooter, StatusDot,
 };
 use crate::pump::Pump;
-
 enum Segment<'transcript> {
     User(&'transcript TranscriptItem),
     Assistant(&'transcript TranscriptItem),
     Steps(Vec<&'transcript TranscriptItem>),
+    Tool(&'transcript TranscriptItem),
     Notice(&'transcript TranscriptItem),
     Plan(&'transcript TranscriptItem),
     Advisory(&'transcript TranscriptItem),
@@ -49,7 +50,7 @@ pub fn AgentTranscriptView(
     draft: Signal<String>,
     edit_target: Signal<Option<EditTarget>>,
 ) -> Element {
-    let segments = segments(&transcript);
+    let segments = segments(&transcript, native);
     let has_tools = transcript
         .items
         .iter()
@@ -64,6 +65,7 @@ pub fn AgentTranscriptView(
     let expand_tools = use_signal(|| false);
     let running = transcript.run_state == AgentRunState::Running;
     let plan_decision_pending = has_unresolved_proposal(&transcript);
+    let interactions = transcript.omp_interactions.clone();
     let mut filters_placed = false;
     rsx! {
         div { class: "flex w-full max-w-full flex-col gap-3",
@@ -97,14 +99,27 @@ pub fn AgentTranscriptView(
                     Segment::Assistant(TranscriptItem::Assistant { id, blocks, streaming, error }) => rsx! {
                         AssistantMessage { key: "{id}", blocks: blocks.clone(), streaming: *streaming, error: error.clone(), show_thinking: show_thinking() }
                     },
-                    Segment::Steps(_) if !show_tools() => rsx! {},
+                    Segment::Steps(_) | Segment::Tool(_) if !show_tools() => rsx! {},
                     Segment::Steps(steps) => {
                         let key = step_group_key(&steps);
                         let steps = steps.into_iter().cloned().collect::<Vec<_>>();
-                        rsx! {
-                            StepGroup { key: "{key}", steps, expanded: expand_tools() }
+                        rsx! { StepGroup { key: "{key}", steps, expanded: expand_tools() } }
+                    },
+                    Segment::Tool(TranscriptItem::Tool { id, tool_name, args_json, output, is_error, running, queued, details_json, children, .. }) => rsx! {
+                        super::tool_card::ToolCard {
+                            key: "{id}",
+                            tool_name: tool_name.clone(),
+                            args_json: args_json.clone(),
+                            output: output.clone(),
+                            is_error: *is_error,
+                            running: *running,
+                            queued: *queued,
+                            details_json: details_json.clone(),
+                            child_ids: children.clone(),
+                            expanded: expand_tools(),
+                            preview_visible: true,
                         }
-                    }
+                    },
                     Segment::Notice(TranscriptItem::Notice { id, level, title, body }) => rsx! {
                         NoticeCard { key: "{id}", id: id.clone(), level: level.clone(), title: title.clone(), body: body.clone() }
                     },
@@ -127,6 +142,14 @@ pub fn AgentTranscriptView(
                         PeerMessageCard { key: "{id}", id: id.clone(), from: from.clone(), broadcast: *broadcast, text: text.clone() }
                     },
                     _ => rsx! {},
+                }
+            }
+            for interaction in interactions {
+                OmpInteractionCard {
+                    key: "{interaction.id}",
+                    conversation_id: conversation_id.clone(),
+                    interaction,
+                    pump: pump.clone(),
                 }
             }
             if transcript.run_state == AgentRunState::Failed {
@@ -273,10 +296,14 @@ fn AssistantMessage(
     }
 }
 
-/// Fold the items into segments: each user and assistant item alone, and
-/// every run of consecutive tool items as one step group.
-fn segments(transcript: &Transcript) -> Vec<Segment<'_>> {
+/// Native activity folds together; OMP only groups uninterrupted read calls.
+fn segments(transcript: &Transcript, native: bool) -> Vec<Segment<'_>> {
     let mut segments: Vec<Segment<'_>> = Vec::new();
+    let has_omp_plan = !native
+        && transcript
+            .items
+            .iter()
+            .any(|item| matches!(item, TranscriptItem::Todo { .. }));
     for item in &transcript.items {
         match item {
             TranscriptItem::User { .. } => segments.push(Segment::User(item)),
@@ -299,10 +326,18 @@ fn segments(transcript: &Transcript) -> Vec<Segment<'_>> {
                     segments.push(Segment::Assistant(item));
                 }
             }
-            TranscriptItem::Tool { .. } => match segments.last_mut() {
-                Some(Segment::Steps(steps)) => steps.push(item),
-                _ => segments.push(Segment::Steps(vec![item])),
-            },
+            TranscriptItem::Tool {
+                tool_name,
+                is_error: false,
+                ..
+            } if has_omp_plan && tool_name == "todo" => {}
+            TranscriptItem::Tool { tool_name, .. } if native || tool_name == "read" => {
+                match segments.last_mut() {
+                    Some(Segment::Steps(steps)) => steps.push(item),
+                    _ => segments.push(Segment::Steps(vec![item])),
+                }
+            }
+            TranscriptItem::Tool { .. } => segments.push(Segment::Tool(item)),
             TranscriptItem::Notice { .. } => segments.push(Segment::Notice(item)),
             TranscriptItem::Plan { .. } => segments.push(Segment::Plan(item)),
             TranscriptItem::Goal { .. }

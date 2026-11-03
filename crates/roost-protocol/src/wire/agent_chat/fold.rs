@@ -1,7 +1,9 @@
 //! In-place application of host chat events to a transcript.
 //! Invalid item and block references are ignored rather than panicking.
+//! Shared by coordinator projection and browser transcript repair.
 
-use super::model::{AgentRunState, ChatEvent, Transcript, TranscriptBlock, TranscriptItem};
+use super::event::ChatEvent;
+use super::model::{Transcript, TranscriptBlock, TranscriptItem};
 
 pub fn fold_chat_event(transcript: &mut Transcript, event: &ChatEvent) {
     match event {
@@ -75,6 +77,21 @@ pub fn fold_chat_event(transcript: &mut Transcript, event: &ChatEvent) {
         }
         ChatEvent::ScheduleRemoved { id } => {
             transcript.schedules.retain(|row| row.id != *id);
+        }
+        ChatEvent::OmpCommands { commands } => transcript.omp_commands = commands.clone(),
+        ChatEvent::OmpInteraction { interaction } => {
+            if let Some(existing) = transcript
+                .omp_interactions
+                .iter_mut()
+                .find(|existing| existing.id == interaction.id)
+            {
+                *existing = interaction.clone();
+            } else {
+                transcript.omp_interactions.push(interaction.clone());
+            }
+        }
+        ChatEvent::OmpInteractionResolved { id } => {
+            transcript.omp_interactions.retain(|item| item.id != *id);
         }
         ChatEvent::TextDelta {
             item_id,
@@ -208,133 +225,6 @@ impl TranscriptItem {
         }
     }
 }
-#[allow(dead_code)]
-fn _assert_closed_run_state(_: AgentRunState) {}
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::wire::agent_chat::ScheduledMessage;
-
-    fn transcript() -> Transcript {
-        Transcript {
-            items: Vec::new(),
-            run_state: AgentRunState::Idle,
-            error: None,
-            model: None,
-            thinking_level: None,
-            mode: None,
-            usage: Default::default(),
-            queued: Vec::new(),
-            schedules: Vec::new(),
-            omp_session: None,
-        }
-    }
-
-    fn schedule(id: &str, due_ms: i64) -> ScheduledMessage {
-        ScheduledMessage {
-            id: id.to_owned(),
-            text: "ping".to_owned(),
-            due_ms,
-            every_ms: None,
-            fired: 0,
-        }
-    }
-
-    #[test]
-    fn agent_events_preserve_omp_session_unless_explicitly_set() {
-        let mut transcript = transcript();
-        let state = crate::wire::agent_chat::OmpSessionState::Ready;
-        fold_chat_event(
-            &mut transcript,
-            &ChatEvent::Agent {
-                model: None,
-                thinking_level: None,
-                mode: None,
-                omp_session: Some(state.clone()),
-            },
-        );
-        fold_chat_event(
-            &mut transcript,
-            &ChatEvent::Agent {
-                model: None,
-                thinking_level: None,
-                mode: None,
-                omp_session: None,
-            },
-        );
-        assert_eq!(transcript.omp_session, Some(state));
-    }
-
-    #[test]
-    fn schedule_set_inserts_a_new_row() {
-        let mut transcript = transcript();
-        fold_chat_event(
-            &mut transcript,
-            &ChatEvent::ScheduleSet {
-                schedule: schedule("s-1", 100),
-            },
-        );
-        assert_eq!(transcript.schedules, vec![schedule("s-1", 100)]);
-    }
-
-    #[test]
-    fn schedule_set_upserts_in_place_by_id() {
-        let mut transcript = transcript();
-        fold_chat_event(
-            &mut transcript,
-            &ChatEvent::ScheduleSet {
-                schedule: schedule("s-1", 100),
-            },
-        );
-        fold_chat_event(
-            &mut transcript,
-            &ChatEvent::ScheduleSet {
-                schedule: schedule("s-1", 200),
-            },
-        );
-        assert_eq!(transcript.schedules, vec![schedule("s-1", 200)]);
-    }
-
-    #[test]
-    fn schedule_removed_drops_the_row() {
-        let mut transcript = transcript();
-        fold_chat_event(
-            &mut transcript,
-            &ChatEvent::ScheduleSet {
-                schedule: schedule("s-1", 100),
-            },
-        );
-        fold_chat_event(
-            &mut transcript,
-            &ChatEvent::ScheduleRemoved {
-                id: "s-1".to_owned(),
-            },
-        );
-        assert!(transcript.schedules.is_empty());
-    }
-
-    #[test]
-    fn schedule_removed_leaves_other_rows_untouched() {
-        let mut transcript = transcript();
-        fold_chat_event(
-            &mut transcript,
-            &ChatEvent::ScheduleSet {
-                schedule: schedule("s-1", 100),
-            },
-        );
-        fold_chat_event(
-            &mut transcript,
-            &ChatEvent::ScheduleSet {
-                schedule: schedule("s-2", 200),
-            },
-        );
-        fold_chat_event(
-            &mut transcript,
-            &ChatEvent::ScheduleRemoved {
-                id: "s-1".to_owned(),
-            },
-        );
-        assert_eq!(transcript.schedules, vec![schedule("s-2", 200)]);
-    }
-}
+mod tests;

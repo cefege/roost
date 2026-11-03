@@ -206,6 +206,20 @@ impl Dispatcher {
                     tracing::debug!("OMP cancel has no owner");
                 }
             }
+            CoordWorkerDownstream::OmpSetMode(request) => {
+                if let Some(owner) = self.owners.as_ref().and_then(|owners| owners.omp.as_ref()) {
+                    owner.set_mode(request);
+                } else {
+                    tracing::debug!("OMP mode change has no owner");
+                }
+            }
+            CoordWorkerDownstream::OmpRespond(request) => {
+                if let Some(owner) = self.owners.as_ref().and_then(|owners| owners.omp.as_ref()) {
+                    owner.respond(request);
+                } else {
+                    tracing::debug!("OMP response has no owner");
+                }
+            }
             CoordWorkerDownstream::OmpEventsAck(request) => {
                 if let Some(owner) = self.owners.as_ref().and_then(|owners| owners.omp.as_ref()) {
                     owner.ack(request);

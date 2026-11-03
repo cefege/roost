@@ -105,6 +105,67 @@ async fn omp_chat_settings_configure_and_delete_are_durable() {
 }
 
 #[tokio::test]
+async fn omp_mode_and_plan_admission_require_interaction_capability() {
+    let fixture = AgentFixture::new("omp-mode-capability").await;
+    let (_new_handle, _new_downstream) = register_worker(&fixture, "new-mode-worker");
+    let id = create(&fixture).await;
+    let (_old_handle, mut downstream) =
+        register_worker_with_session_capability(&fixture, "old-mode-worker", true, false);
+
+    let configure_error = handle_agent_chat_configure(
+        &fixture.core,
+        &fixture.caller,
+        proto::AgentChatConfigureRequest {
+            conversation_id: id.clone(),
+            mode: Some("plan".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        configure_error.code,
+        connectrpc::ErrorCode::FailedPrecondition
+    );
+    assert!(downstream.try_recv().is_err());
+
+    let submit_error = handle_agent_chat_submit(
+        &fixture.core,
+        &fixture.caller,
+        proto::AgentChatSubmitRequest {
+            conversation_id: id.clone(),
+            request_id: "plan-request".into(),
+            text: "/plan inspect this".into(),
+            when_busy: "follow_up".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(submit_error.code, connectrpc::ErrorCode::FailedPrecondition);
+    assert!(downstream.try_recv().is_err());
+
+    let ordinary_error = handle_agent_chat_submit(
+        &fixture.core,
+        &fixture.caller,
+        proto::AgentChatSubmitRequest {
+            conversation_id: id,
+            request_id: "ordinary-request".into(),
+            text: "continue this conversation".into(),
+            when_busy: "follow_up".into(),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        ordinary_error.code,
+        connectrpc::ErrorCode::FailedPrecondition
+    );
+    assert!(downstream.try_recv().is_err());
+}
+
+#[tokio::test]
 async fn omp_chat_worker_restart_fails_the_turn_but_reconnect_does_not() {
     let fixture = AgentFixture::new("omp-restart").await;
     let (_handle, mut downstream) = register_worker(&fixture, "worker-epoch");

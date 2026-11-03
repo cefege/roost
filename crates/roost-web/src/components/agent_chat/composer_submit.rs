@@ -22,6 +22,7 @@ pub(super) struct ComposerSubmitContext {
     pub conversation: ConversationSummary,
     pub catalog: Option<ModelsCatalog>,
     pub transcript: Transcript,
+    pub omp_modes: Vec<String>,
     pub draft: Signal<String>,
     pub edit_target: Signal<Option<EditTarget>>,
     pub plan_refinement: PlanRefinement,
@@ -44,6 +45,7 @@ pub(super) fn submit_handler(context: ComposerSubmitContext) -> EventHandler<()>
         conversation,
         catalog,
         transcript,
+        omp_modes,
         mut draft,
         edit_target,
         plan_refinement,
@@ -79,6 +81,46 @@ pub(super) fn submit_handler(context: ComposerSubmitContext) -> EventHandler<()>
                 .iter()
                 .any(|file| file.upload_state.blocks_send())
             {
+                return;
+            }
+            if !conversation.is_native() && text == "/model" {
+                #[cfg(target_arch = "wasm32")]
+                let opened = super::composer_commands::open_model_picker(&conversation_id);
+                #[cfg(not(target_arch = "wasm32"))]
+                let opened = false;
+                if opened {
+                    draft.set(String::new());
+                } else {
+                    report.call(Err("OMP's model picker is not ready.".to_owned()));
+                }
+                return;
+            }
+            if !conversation.is_native() && text == "/plan" {
+                let desired = if transcript.mode.as_deref() == Some("plan") {
+                    omp_modes.iter().find(|mode| mode.as_str() != "plan")
+                } else {
+                    omp_modes.iter().find(|mode| mode.as_str() == "plan")
+                };
+                let Some(desired) = desired else {
+                    report.call(Err(
+                        "OMP has not offered that mode for this session.".to_owned()
+                    ));
+                    return;
+                };
+                submit_pending.set(true);
+                let on_configured = EventHandler::new(move |result: Result<(), String>| {
+                    submit_pending.set(false);
+                    if result.is_ok() && draft.peek().trim() == text {
+                        draft.set(String::new());
+                    }
+                    report.call(result);
+                });
+                super::composer_commands::configure_omp_mode(
+                    pump.clone(),
+                    conversation_id.clone(),
+                    desired.clone(),
+                    on_configured,
+                );
                 return;
             }
             if refining {

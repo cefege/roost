@@ -15,6 +15,7 @@ pub struct OmpConversation {
     pub worker_label: String,
     pub cwd: String,
     pub override_values: OmpSettingValues,
+    pub mode: Option<String>,
     pub run_state: AgentRunState,
     pub error: Option<String>,
     pub created_ms: i64,
@@ -80,6 +81,7 @@ pub async fn set_override(
     id: &str,
     model: Option<Option<String>>,
     thinking: Option<Option<String>>,
+    mode: Option<Option<String>>,
 ) -> Result<(), sqlx::Error> {
     let mut transaction = super::super::chat_events::begin_chat_write(db).await?;
     if let Some(value) = model {
@@ -91,6 +93,16 @@ pub async fn set_override(
     if let Some(value) = thinking {
         sqlx::query("UPDATE agent_conversations SET thinking_level=$2,updated_ms=$3 WHERE id=$1 AND backend='omp'")
             .bind(id).bind(value.unwrap_or_default()).bind(super::super::store::now_ms()).execute(&mut *transaction).await?;
+    }
+    if let Some(value) = mode {
+        sqlx::query(
+            "UPDATE agent_conversations SET mode=$2,updated_ms=$3 WHERE id=$1 AND backend='omp'",
+        )
+        .bind(id)
+        .bind(value.unwrap_or_default())
+        .bind(super::super::store::now_ms())
+        .execute(&mut *transaction)
+        .await?;
     }
     transaction.commit().await
 }
@@ -111,6 +123,28 @@ pub async fn admit_input(
 ) -> Result<bool, sqlx::Error> {
     Ok(sqlx::query("INSERT INTO omp_inputs(conversation_id,request_id,kind,created_ms) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING")
         .bind(id).bind(request_id).bind(kind).bind(super::super::store::now_ms()).execute(db.pool()).await?.rows_affected() == 1)
+}
+
+pub async fn has_prompt_admission(
+    db: &CoordDb,
+    id: &str,
+    request_id: &str,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM omp_inputs WHERE conversation_id=$1 AND request_id=$2 AND kind='prompt'",
+    )
+    .bind(id)
+    .bind(request_id)
+    .fetch_one(db.pool())
+    .await.map(|count| count != 0)
+}
+pub async fn remove_admission(db: &CoordDb, id: &str, request_id: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM omp_inputs WHERE conversation_id=$1 AND request_id=$2")
+        .bind(id)
+        .bind(request_id)
+        .execute(db.pool())
+        .await?;
+    Ok(())
 }
 
 pub async fn snapshot(db: &CoordDb, id: &str) -> Result<(u64, Transcript), sqlx::Error> {
@@ -137,6 +171,8 @@ pub fn empty_transcript() -> Transcript {
         omp_session: None,
         usage: UsageTotals::default(),
         queued: vec![],
+        omp_commands: vec![],
+        omp_interactions: vec![],
         schedules: vec![],
     }
 }
@@ -160,6 +196,10 @@ fn decode(row: &sqlx::any::AnyRow) -> Result<OmpConversation, sqlx::Error> {
                 .zip(model)
                 .map(|(provider, model)| format!("{provider}/{model}")),
             thinking_level: (!thinking.is_empty()).then_some(thinking),
+        },
+        mode: {
+            let mode: String = row.try_get("mode")?;
+            (!mode.is_empty()).then_some(mode)
         },
         run_state: AgentRunState::from_wire(&row.try_get::<String, _>("run_state")?),
         error: row.try_get("error")?,

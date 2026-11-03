@@ -16,31 +16,57 @@ empty and unknown values decode as native. Native settings, model roles, credent
 and terminal agent launchers are unchanged. Native adoption queries exclude OMP rows.
 
 OMP conversations run `omp acp --approval-mode yolo` on their fixed worker and cwd.
+A worker-owned `--extension` awaits OMP's background and runtime-provider discovery
+before ACP publishes its initial choices; ordinary extension discovery remains enabled.
+The worker verifies a per-process completion marker before emitting `SessionReady`.
+Missing, failed, or malformed discovery status fails initialization visibly.
 Credentials stay under that machine's `~/.omp`; Roost distributes no secrets.
-Unexpected permission requests are declined with a visible notice, never a permission UI.
-OMP receives raw slash commands and owns its prompt queue. Busy `reject` refuses input;
-other busy policies queue follow-ups. Native inspect, plan decisions, answers, rewind,
-and fork are unsupported; withdrawal returns false.
+OMP slash commands come from ACP `AvailableCommandsUpdate`, including same-session
+reload updates; replayed messages are still suppressed. They are inserted into the
+composer as OMP commands and are not translated into native agent commands. OMP
+permissions and `elicitation.form` requests remain pending until an explicit browser
+response; closing, canceling, or ending the ACP prompt cancels unanswered requests.
+Startup requests are delivered while initialize, load, new-session, or authentication
+is still pending. Stop cancels that startup and its queued prompts; a canceled load
+does not fall through to a new session. No terminal-only OMP screen is represented
+as an HTML interaction.
+Bare `/model` opens the worker-backed model picker. Bare `/plan` toggles between
+ACP's offered plan and non-plan modes without starting a turn. `/plan <prompt>`
+enters plan mode before submitting an idle, non-plan session's prompt; an already
+planning or running session rejects it without submitting or clearing the draft.
+The transcript changes only when ACP reports its current mode. Roost-native inspect,
+plan-decision, answer, rewind, and fork RPCs remain unsupported for OMP; its
+interactive approvals and answers use `AgentOmpRespond`. Withdrawal returns false.
 
 `AgentOmpSettingsGet` returns `OmpSettingsView` JSON; `AgentOmpSettingsSet` upserts one
 `OmpScopedSettings` JSON row. Each nonempty field resolves independently:
 conversation → exact `(worker_fp, cwd)` folder → machine → your defaults → OMP's own
 configuration. Empty values inherit. Model identifiers split at the first `/`.
-Conversation overrides apply on the next prompt; OMP config options supply machine catalogs.
+Model and thinking overrides apply on the next prompt. The ACP session's offered modes
+are separate from config options; `AgentChatConfigure.mode` applies an offered mode to
+the live session immediately, and transcript mode changes only on ACP's current-mode
+update.
 
 `AgentOmpSessionOpen` initializes or loads the conversation's ACP session without
 submitting a prompt or changing its run state. The active chat opens its session
-before the first message, so its controls can show OMP's actual current model,
-thinking level, and selectable options. Session metadata refreshes the catalog;
-opening a menu refreshes inherited settings, and failures expose a retry action.
+before the first message, so its controls show OMP's actual current model, thinking
+level, and selectable options. Opening the picker refreshes inheritance and requests
+a fresh OMP child loading the actor-owned saved-session ID: startup rereads OMP's
+provider configuration rather than reusing an old in-memory registry. Active turns
+finish before this refresh; replayed history is suppressed.
+Every committed `Agent` event invalidates the browser's settings cache, including
+catalog-only changes with unchanged selected values. Choices come only from ACP;
+an unavailable old pin is not inserted into the selectable catalog.
 `Agent` events optionally carry `omp_session` (`ready` or `failed` with an error);
 omitted session metadata preserves its previous value. A prompt-free initialization
-failure does not fail a user message queued behind it.
+failure does not fail a user message queued behind it. Failures expose retry.
 
-Worker capability `omp_acp_v1` gates `omp-prompt`, `omp-cancel`, `omp-close`, and
-`omp-events-ack`. Session opening additionally requires `omp_acp_session_v1` and sends
-`omp-open`. An online worker missing a required OMP capability is reported as needing
-an update, not as offline.
+The `omp_acp_v1`, `omp_acp_session_v1`, and `omp_acp_interactions_v1` capabilities
+are all required to create, reopen, resume, or prompt an OMP conversation. This prevents
+an older ACP client from auto-approving OMP plan proposals when it lacks form elicitation.
+Live mode changes and interaction responses also require `omp_acp_interactions_v1`.
+An online worker missing a required OMP capability is reported as needing an update,
+not as offline.
 
 Worker event sequences are contiguous within an actor's `run_id`; unacknowledged
 batches are resent after link snapshot readiness. The coordinator commits
@@ -48,10 +74,46 @@ deduplication sequence, transcript, event cursor and metadata atomically, then p
 ACKs. Snapshot/event-cursor catch-up works while the worker is offline. Retention is bounded
 to 8 MiB per actor and reports output loss explicitly.
 
-Link reconnects preserve OMP processes. Worker restarts fail active turns; the next message
-loads the saved ACP session without projecting its replayed history a second time.
+Link reconnects preserve OMP processes. Worker restarts fail active turns and resolve
+all pending interactions from the old actor run; the next message loads the saved ACP
+session without projecting its replayed history a second time.
+Deferred commands belong to the actor, not a single startup attempt, so failed
+catalog preparation cannot discard the queued first prompt.
 Authority: `crates/roost-worker/src/omp/`, `crates/roost-coord/src/agent/omp/`,
 `crates/roost-protocol/src/wire/agent_chat/omp.rs`.
+
+### OMP transcript presentation
+
+Assistant text, thoughts, and calls retain event order. Tool IDs identify mutable
+entries: partial and final results replace the existing call without appending a
+second result row. ACP `name` selects the tool renderer; a human `title` never
+overwrites that identity. Returned `rawOutput.content` excludes synthesized command
+headers; `rawOutput.details` retains execution and display metadata. Numbered OMP
+diffs with supplied old/new file contents normalize into contextual unified diffs.
+
+OMP renders ordinary calls with compact previews visible; only uninterrupted read
+calls group into path-first disclosures. Native chat retains its activity groups.
+Bash follows the latest output with a viewport-limited visual-row budget and explicit
+expansion; searches use head previews, completed writes show six numbered lines, and
+completed edits fold at eight hunks/forty body lines. Successful todo calls with a
+projected plan share the canonical checklist instead of duplicating raw snapshots.
+Detailed todo results preserve OMP's native phases, blockers, and abandoned states
+using the shared task types. Flat ACP updates with matching tasks update progress
+without flattening those phases or erasing states the flat format cannot express.
+Live thinking opens by default; completed thinking folds unless the reader made an
+explicit choice. Opening thinking exposes the actual text without a separate tail cap.
+
+Pending forms render after the latest transcript entries, independently of tool
+expansion, with an explicit waiting-for-answer state. Single-question prompts are
+not repeated as both a message and a field title. OMP's optional custom-answer
+editors open on demand; closing one removes its hidden override. String editors
+retain newlines and quotes. A false confirmation is a submitted answer, distinct
+from decline and cancellation; no choice takes effect before explicit submission.
+
+ACP does not transport OMP's pre-execution streamed tool-argument previews. Roost
+renders supplied start arguments and live result snapshots, never simulated argument
+updates. Semantic roles and supplied ANSI styles use the existing theme.
+
 
 ## Commands and request ids
 
@@ -67,6 +129,11 @@ The idempotent commands below carry a client-minted `request_id` (at least
 | `AgentChatPlanDecide` | 5 | returns the first decision's `new_conversation_id` |
 | `AgentChatRewind` | 4 | after completion, returns the first rewind's `text` and original `attachments`; while still applying, both are empty |
 | `AgentChatFork` | 3 | returns the conversation the first fork created |
+
+`AgentOmpRespond` uses a client-minted `request_id` and is deduplicated in
+`omp_inputs` separately from native commands. Its `item_id` must still name a
+pending canonical OMP interaction; a stale interaction fails rather than reusing
+an ACP request id or implying approval.
 
 An empty `request_id` is `invalid_argument`. Deduplication is per
 `(conversation_id, request_id)` in table `agent_commands`. A retry of a

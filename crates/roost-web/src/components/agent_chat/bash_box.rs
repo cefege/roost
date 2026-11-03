@@ -48,6 +48,7 @@ pub fn BashBody(
                 open: open,
                 failed: is_error,
                 on_expand: on_expand,
+                viewport_limited: true,
             }
         }
     }

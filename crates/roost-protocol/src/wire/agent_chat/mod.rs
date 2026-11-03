@@ -8,14 +8,20 @@ pub use image_payload::{
 
 mod catalog;
 mod commands;
+mod event;
 mod fold;
+pub use event::ChatEvent;
 mod inspection;
 mod interaction;
+mod interaction_validation;
 mod jobs;
 mod model;
 mod model_order;
 mod model_presets;
 pub mod model_search;
+pub use interaction_validation::{
+    OmpInteractionValidationError, validate_omp_interaction_response,
+};
 mod omp;
 pub use omp::*;
 mod proto;

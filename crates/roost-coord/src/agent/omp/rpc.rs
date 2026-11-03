@@ -2,6 +2,8 @@
 //! Native handlers dispatch here only after device and request-id admission.
 //! Prompt events persist before sending; the worker owns its prompt queue.
 
+pub use super::rpc_respond::handle_agent_omp_respond;
+pub use super::rpc_session::handle_agent_omp_session_open;
 use super::{
     rpc_settings::database_error,
     store::{self, OmpConversation},
@@ -72,48 +74,83 @@ pub(crate) async fn create(
     publish(core, &conversation).await
 }
 
-pub async fn handle_agent_omp_session_open(
-    core: &CoordCore,
-    caller: &crate::coord_core::Caller,
-    request: proto::AgentOmpSessionOpenRequest,
-) -> ServiceResult<proto::AgentOmpSessionOpenResponse> {
-    crate::auth::principal::require_account_device(caller)?;
-    let conversation = find_omp(core, &request.conversation_id)
-        .await?
-        .ok_or_else(|| ConnectError::new(ErrorCode::NotFound, "OMP conversation not found"))?;
-    let worker = core
-        .services
-        .omp
-        .worker_for_session(&conversation.worker_fp)
-        .map_err(unavailable)?;
-    if worker.send(CoordWorkerDownstream::OmpOpen(proto::DOmpOpen {
-        conversation_id: conversation.id,
-        cwd: conversation.cwd,
-        acp_session_id: conversation.acp_session_id.unwrap_or_default(),
-        ..Default::default()
-    })) == 0
-    {
-        return Err(unavailable(super::OmpUnavailable::Offline));
-    }
-    ok_response(proto::AgentOmpSessionOpenResponse::default())
-}
-
-pub const METHOD_HANDLERS: &[(&str, &str)] = &[(
-    "AgentOmpSessionOpen",
-    "agent::omp::rpc::handle_agent_omp_session_open",
-)];
+pub const METHOD_HANDLERS: &[(&str, &str)] = &[
+    (
+        "AgentOmpSessionOpen",
+        "agent::omp::rpc::handle_agent_omp_session_open",
+    ),
+    (
+        "AgentOmpRespond",
+        "agent::omp::rpc::handle_agent_omp_respond",
+    ),
+];
 
 pub(crate) async fn submit(
     core: &CoordCore,
     conversation: OmpConversation,
     request: proto::AgentChatSubmitRequest,
 ) -> ServiceResult<proto::AgentChatSubmitResponse> {
+    if store::has_prompt_admission(&core.services.db, &conversation.id, &request.request_id)
+        .await
+        .map_err(database_error)?
+    {
+        return ok_response(proto::AgentChatSubmitResponse::default());
+    }
     if request.when_busy == "reject" && conversation.run_state == AgentRunState::Running {
         return Err(ConnectError::new(
             ErrorCode::FailedPrecondition,
             "OMP is busy",
         ));
     }
+    let (text, mode) = if request.text.trim() == "/plan" {
+        return Err(ConnectError::new(
+            ErrorCode::InvalidArgument,
+            "bare /plan uses the live mode control and must not submit a prompt",
+        ));
+    } else if let Some(suffix) = request
+        .text
+        .strip_prefix("/plan")
+        .filter(|suffix| suffix.chars().next().is_some_and(char::is_whitespace))
+    {
+        let text = suffix.trim_start();
+        if text.is_empty() {
+            return Err(ConnectError::new(
+                ErrorCode::InvalidArgument,
+                "use /plan with a prompt or change mode without submitting",
+            ));
+        }
+        if conversation.mode.as_deref() == Some("plan") {
+            return Err(ConnectError::new(
+                ErrorCode::FailedPrecondition,
+                "OMP is already in plan mode; no prompt was submitted",
+            ));
+        }
+        if conversation.run_state == AgentRunState::Running {
+            return Err(ConnectError::new(
+                ErrorCode::FailedPrecondition,
+                "OMP plan prompt requires an idle session; no prompt was submitted",
+            ));
+        }
+        core.services
+            .omp
+            .interaction_worker(&conversation.worker_fp)
+            .map_err(unavailable)?;
+        let offered = store::catalogs(&core.services.db)
+            .await
+            .map_err(database_error)?
+            .into_iter()
+            .find(|catalog| catalog.worker_fp == conversation.worker_fp)
+            .is_some_and(|catalog| catalog.modes.iter().any(|choice| choice.value == "plan"));
+        if !offered {
+            return Err(ConnectError::new(
+                ErrorCode::FailedPrecondition,
+                "OMP did not offer plan mode; no prompt was submitted",
+            ));
+        }
+        (text.to_owned(), "plan".into())
+    } else {
+        (request.text, String::new())
+    };
     let mut images = vec![];
     let mut file_paths = vec![];
     let mut attachment_names = vec![];
@@ -157,7 +194,8 @@ pub(crate) async fn submit(
         request_id: request.request_id,
         cwd: conversation.cwd,
         acp_session_id: conversation.acp_session_id.unwrap_or_default(),
-        text: request.text,
+        text,
+        mode,
         images,
         file_paths,
         model: effective.model.value.unwrap_or_default(),
@@ -226,6 +264,25 @@ pub(crate) async fn configure(
             "OMP conversations cannot change machine, folder, or read-only mode",
         ));
     }
+    let mode = request.mode.filter(|mode| !mode.is_empty());
+    if let Some(mode) = &mode {
+        core.services
+            .omp
+            .interaction_worker(&conversation.worker_fp)
+            .map_err(unavailable)?;
+        let offered = store::catalogs(&core.services.db)
+            .await
+            .map_err(database_error)?
+            .into_iter()
+            .find(|catalog| catalog.worker_fp == conversation.worker_fp)
+            .is_some_and(|catalog| catalog.modes.iter().any(|choice| choice.value == *mode));
+        if !offered {
+            return Err(ConnectError::new(
+                ErrorCode::InvalidArgument,
+                "mode was not offered by this worker's ACP session",
+            ));
+        }
+    }
     let model = match super::super::rpc_chat::model_update(
         request.model_provider.as_deref(),
         request.model_id.as_deref(),
@@ -241,6 +298,7 @@ pub(crate) async fn configure(
         request
             .thinking_level
             .map(|value| (!value.is_empty()).then_some(value)),
+        None,
     )
     .await
     .map_err(database_error)?;
@@ -248,6 +306,22 @@ pub(crate) async fn configure(
         store::set_title(&core.services.db, &conversation.id, &title)
             .await
             .map_err(database_error)?;
+    }
+    if let Some(mode) = mode {
+        core.services
+            .omp
+            .send_to_worker(
+                &conversation.worker_fp,
+                CoordWorkerDownstream::OmpSetMode(proto::DOmpSetMode {
+                    conversation_id: conversation.id.clone(),
+                    request_id: format!("mode-{mode}"),
+                    mode,
+                    cwd: conversation.cwd.clone(),
+                    acp_session_id: conversation.acp_session_id.clone().unwrap_or_default(),
+                    ..Default::default()
+                }),
+            )
+            .map_err(unavailable)?;
     }
     let updated = find_omp(core, &conversation.id)
         .await?

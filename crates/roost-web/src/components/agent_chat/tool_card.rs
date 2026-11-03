@@ -33,10 +33,12 @@ pub fn ToolCard(
     details_json: String,
     #[props(default)] child_ids: Vec<String>,
     #[props(default)] expanded: bool,
+    #[props(default)] preview_visible: bool,
 ) -> Element {
     let mut body_open = use_signal(|| false);
-    let mut disclosure_open = use_signal(|| false);
+    let mut disclosure_open = use_signal(|| preview_visible);
     let mut agents_open = use_signal(|| false);
+    let mut raw_result_open = use_signal(|| false);
     let details = serde_json::from_str::<serde_json::Value>(&details_json).ok();
     let flag = |name: &str| {
         details
@@ -60,6 +62,11 @@ pub fn ToolCard(
     let (icon, verb) = presentation(&tool_name, running);
     let target = argument_summary(&tool_name, &args_json);
     let intent = intent_for(&args_json);
+    let header_target = if preview_visible && tool_name == "bash" {
+        intent.as_deref().unwrap_or_default()
+    } else {
+        target.as_str()
+    };
     let command = string_field(&args_json, "command");
     let content = string_field(&args_json, "content");
     let diff_text = string_field(&details_json, "diff");
@@ -144,11 +151,11 @@ pub fn ToolCard(
                         Icon { icon, class: "size-4" }
                     }
                     span { class: "flex-none font-medium {category_class(&tool_name)}", "{verb}" }
-                    if !target.is_empty() {
+                    if !header_target.is_empty() {
                         code {
                             class: target_class(&tool_name),
-                            title: target.clone(),
-                            "{target}"
+                            title: "{header_target}",
+                            "{header_target}"
                         }
                     }
                     if diff_stats.added > 0 || diff_stats.removed > 0 {
@@ -183,15 +190,33 @@ pub fn ToolCard(
                 }
                 CollapsibleContent { class: "flex min-w-0 flex-col gap-1 px-1 pb-1",
                     if disclosure_visible {
-                        if let Some(text) = intent {
+                        if let Some(text) = intent.as_ref().filter(|_| !(preview_visible && tool_name == "bash")) {
                             p { class: "m-0 break-words text-xs italic text-muted-foreground",
                                 "{text}"
                             }
                         }
                         {body}
                         if tool_name == "edit" && !diff_text.is_empty() && !notes.is_empty() {
-                            pre { class: "m-0 whitespace-pre-wrap break-words py-1 font-mono text-xs text-muted-foreground",
-                                "{notes}"
+                            if preview_visible && !is_error {
+                                Collapsible {
+                                    open: raw_result_open(),
+                                    on_open_change: move |next| raw_result_open.set(next),
+                                    CollapsibleTrigger {
+                                        variant: ButtonVariant::Ghost,
+                                        size: ButtonSize::Sm,
+                                        class: "justify-start",
+                                        "Full tool result"
+                                    }
+                                    CollapsibleContent {
+                                        pre { class: "m-0 whitespace-pre-wrap break-words py-1 font-mono text-xs text-muted-foreground",
+                                            "{notes}"
+                                        }
+                                    }
+                                }
+                            } else {
+                                pre { class: "m-0 whitespace-pre-wrap break-words py-1 font-mono text-xs text-muted-foreground",
+                                    "{notes}"
+                                }
                             }
                         }
                         if timed_out {

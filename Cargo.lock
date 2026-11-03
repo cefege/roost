@@ -6626,6 +6626,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "similar",
  "sqlx",
  "thiserror 2.0.21",
  "tokio",
@@ -6728,6 +6729,7 @@ dependencies = [
 name = "roost-protocol"
 version = "3.0.0"
 dependencies = [
+ "regex",
  "roost-proto",
  "serde",
  "serde_json",

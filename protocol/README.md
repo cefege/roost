@@ -30,6 +30,7 @@
 | `schema_version` | Explicit schema discriminator for versioned non-proto payloads and observations. | `crates/roost-protocol/src/versioning.rs`; `crates/roost-protocol/src/layout/document.rs` |
 | `protocol_version` | Keeper contract compatibility discriminator. | `crates/roost-protocol/src/versioning.rs`; `crates/roost-protocol/src/keeper_update/contract.rs` |
 | `sync_v` | Sync WebSocket negotiation discriminator; `2` selects domain generations and socket identity. | `crates/roost-protocol/src/wire/sync_ws.rs`; `crates/roost-coord/src/http/upgrade.rs` |
+| `omp_acp_interactions_v1` | Worker capability for live OMP modes and explicitly answered ACP forms and permissions. | `crates/roost-protocol/src/versioning.rs` |
 
 ## Client endpoint manifest
 

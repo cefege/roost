@@ -31,6 +31,7 @@ pub fn OutputWindow(
     failed: bool,
     on_expand: EventHandler<bool>,
     #[props(default)] code_language: Option<String>,
+    #[props(default)] viewport_limited: bool,
 ) -> Element {
     let lines = styled_lines(&output, diff);
     let syntax_lines = (!diff && !output.contains('\u{1b}'))
@@ -50,22 +51,27 @@ pub fn OutputWindow(
         window_lines
     };
     let hint = window_hint(window_lines.len(), hidden, lines.len(), from_head);
-    let can_collapse = open && lines.len() > rows;
+    let can_collapse = open && (lines.len() > rows || viewport_limited);
     let syntax_offset = if from_head { 0 } else { hidden };
     let error = failed.then_some("true");
+    let window_class = if viewport_limited && !open {
+        "m-0 flex min-h-0 flex-col justify-end overflow-x-auto overflow-y-hidden font-mono text-xs leading-4 max-h-[min(calc(var(--output-preview-rows)*1lh),max(6lh,calc(100dvh_-_20lh)))]"
+    } else {
+        "m-0 overflow-x-auto font-mono text-xs leading-4"
+    };
     rsx! {
         div { class: "bg-terminal py-1 text-terminal-foreground",
             if hidden > 0 && !from_head {
                 p { class: "m-0 px-2 pb-1 text-xs text-muted-foreground", "{hint}" }
             }
-            pre { class: "m-0 overflow-x-auto font-mono text-xs leading-4", "data-error": error,
+            pre { class: window_class, style: format!("--output-preview-rows: {rows}"), "data-error": error,
                 for (index, line) in window_lines.iter().enumerate() {
                     div {
                         class: match line.tone {
-                            LineTone::Added => "whitespace-pre-wrap break-words px-2 text-success",
-                            LineTone::Removed => "whitespace-pre-wrap break-words px-2 text-destructive",
-                            LineTone::Header => "whitespace-pre-wrap break-words px-2 text-primary",
-                            LineTone::Plain => "whitespace-pre-wrap break-words px-2",
+                            LineTone::Added => "shrink-0 whitespace-pre-wrap break-words px-2 text-success",
+                            LineTone::Removed => "shrink-0 whitespace-pre-wrap break-words px-2 text-destructive",
+                            LineTone::Header => "shrink-0 whitespace-pre-wrap break-words px-2 text-primary",
+                            LineTone::Plain => "shrink-0 whitespace-pre-wrap break-words px-2",
                         },
                         "data-tone": line.tone.attribute(),
                         if let Some(tokens) = syntax_lines.as_ref().and_then(|rows| rows.get(index + syntax_offset)) {
@@ -84,9 +90,11 @@ pub fn OutputWindow(
                 p { class: "m-0 px-2 pt-1 text-xs text-muted-foreground", "{hint}" }
             }
         }
-        if hidden > 0 {
+        if hidden > 0 || (viewport_limited && !open) {
             Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "self-start",
-                onclick: move |_| on_expand.call(true), "Show all" }
+                onclick: move |_| on_expand.call(true),
+                if hidden > 0 { "Show all" } else { "Expand output" }
+            }
         }
         if can_collapse {
             Button { variant: ButtonVariant::Link, size: ButtonSize::Sm, class: "self-start",

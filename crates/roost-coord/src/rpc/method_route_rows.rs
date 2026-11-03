@@ -152,6 +152,7 @@ pub const ROWS_AGENT_CHAT: &[MethodRoute] = &[
     route("AgentOmpSettingsGet", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
     route("AgentOmpSettingsSet", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
     route("AgentOmpSessionOpen", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
+    route("AgentOmpRespond", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
     route("AgentChatPlanDecide", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
     route("AgentChatAnswer", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),
     route("AgentChatRewind", "agent_chat", AuthRequirement::Device, PortStatus::Implemented),

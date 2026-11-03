@@ -47,6 +47,7 @@ reqwest = { workspace = true, features = ["rustls"] }
 rsa.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+similar.workspace = true
 sha2.workspace = true
 # `any` so one `CoordDb` serves a SQLite file or a Postgres URL; rustls so a
 # managed Postgres that demands `sslmode=require` is reachable.

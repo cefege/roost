@@ -38,6 +38,8 @@ fn transcript() -> Transcript {
         queued: Vec::new(),
         schedules: Vec::new(),
         omp_session: None,
+        omp_commands: Vec::new(),
+        omp_interactions: Vec::new(),
     }
 }
 
@@ -120,4 +122,42 @@ fn event_repair_applies_only_contiguous_batches_and_rejects_stale_snapshots() {
     assert!(state.transcripts["chat"].stale);
     state.apply_event_batches("chat", &[], true);
     assert!(state.transcripts["chat"].stale);
+}
+
+#[test]
+fn omp_config_refresh_invalidates_choices_without_changing_the_selected_model() {
+    let agent = ChatEvent::Agent {
+        model: None,
+        thinking_level: Some("high".into()),
+        mode: None,
+        omp_session: Some(roost_protocol::wire::agent_chat::OmpSessionState::Ready),
+    };
+    for repair_batch in [false, true] {
+        let mut state = AgentChatState::default();
+        state.load_snapshot("chat".into(), 0, 0, transcript());
+        let apply = |state: &mut AgentChatState, seq, event: ChatEvent| {
+            if repair_batch {
+                state.apply_event_batches("chat", &[(seq, vec![event])], false);
+            } else {
+                state.apply_events("chat", seq, &[event]);
+            }
+        };
+        apply(&mut state, 1, agent.clone());
+        let before = state.transcripts["chat"].transcript.clone();
+        apply(&mut state, 2, agent.clone());
+        assert_eq!(state.transcripts["chat"].transcript, before);
+        assert_eq!(state.transcripts["chat"].settings_seq, 2);
+
+        apply(
+            &mut state,
+            3,
+            ChatEvent::Usage {
+                usage: UsageTotals::default(),
+            },
+        );
+        assert_eq!(state.transcripts["chat"].settings_seq, 2);
+        apply(&mut state, 5, agent.clone());
+        assert!(state.transcripts["chat"].stale);
+        assert_eq!(state.transcripts["chat"].settings_seq, 2);
+    }
 }

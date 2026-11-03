@@ -45,11 +45,15 @@ pub async fn put_settings(db: &CoordDb, settings: OmpScopedSettings) -> Result<(
 }
 
 pub async fn catalogs(db: &CoordDb) -> Result<Vec<OmpWorkerCatalog>, sqlx::Error> {
-    sqlx::query("SELECT worker_fp,config_options_json,updated_ms FROM omp_worker_catalogs ORDER BY worker_fp")
+    sqlx::query("SELECT worker_fp,config_options_json,modes_json,updated_ms FROM omp_worker_catalogs ORDER BY worker_fp")
         .fetch_all(db.pool()).await?.iter().map(|row| {
             let options: String = row.try_get("config_options_json")?;
             let options = serde_json::from_str(&options).map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
-            Ok(super::catalog::catalog_from_config_options(&row.try_get::<String,_>("worker_fp")?, &options, row.try_get("updated_ms")?))
+            let modes: String = row.try_get("modes_json")?;
+            let modes = serde_json::from_str(&modes).map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
+            Ok(super::catalog::catalog_from_config_options(
+                &row.try_get::<String,_>("worker_fp")?, &options, modes, row.try_get("updated_ms")?
+            ))
         }).collect()
 }
 
@@ -60,5 +64,18 @@ pub async fn put_catalog(
 ) -> Result<(), sqlx::Error> {
     sqlx::query("INSERT INTO omp_worker_catalogs(worker_fp,config_options_json,updated_ms) VALUES($1,$2,$3) ON CONFLICT(worker_fp) DO UPDATE SET config_options_json=excluded.config_options_json,updated_ms=excluded.updated_ms")
         .bind(worker_fp).bind(super::store::encode(options)?).bind(super::super::store::now_ms()).execute(&mut **transaction).await?;
+    Ok(())
+}
+pub async fn put_modes(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Any>,
+    worker_fp: &str,
+    modes: &[OmpChoice],
+) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO omp_worker_catalogs(worker_fp,config_options_json,modes_json,updated_ms) VALUES($1,'[]',$2,$3) ON CONFLICT(worker_fp) DO UPDATE SET modes_json=excluded.modes_json,updated_ms=excluded.updated_ms")
+        .bind(worker_fp)
+        .bind(super::store::encode(&modes)?)
+        .bind(super::super::store::now_ms())
+        .execute(&mut **transaction)
+        .await?;
     Ok(())
 }

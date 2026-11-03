@@ -1,6 +1,6 @@
-//! What one tool call shows, as pure functions: its verb and target, the
-//! slice of output visible while folded (OMP's per-tool preview windows), and
-//! the executor facts. The component is `tool_card`.
+//! Tool presentation policy: source-matched preview windows and semantic
+//! summaries shared by tool cards. OMP bash budgets depend on available rows;
+//! the browser renderer supplies its terminal-row estimate.
 
 use std::collections::BTreeSet;
 
@@ -15,9 +15,8 @@ pub(super) enum PreviewEdge {
     Head,
 }
 
-/// Rows a folded tool shows, per OMP's renderers: bash keeps the last 10,
-/// a read its first 3, grep 6, glob 8, find and fetch 12, a subagent 3, an
-/// edit's diff 12 and a write 6.
+/// Preview rows follow the source renderers: bash uses the terminal viewport,
+/// reads stay path-only by default, and completed tool types use their own limits.
 pub(super) fn preview_window(tool_name: &str) -> (usize, PreviewEdge) {
     match tool_name {
         "read" => (3, PreviewEdge::Head),
@@ -25,7 +24,8 @@ pub(super) fn preview_window(tool_name: &str) -> (usize, PreviewEdge) {
         "write" => (6, PreviewEdge::Head),
         "glob" | "ls" | "web_search" => (8, PreviewEdge::Head),
         "find" | "fetch" | "edit" => (12, PreviewEdge::Head),
-        "task" => (3, PreviewEdge::Tail),
+        "task" => (3, PreviewEdge::Head),
+        "bash" => (10, PreviewEdge::Tail),
         _ => (10, PreviewEdge::Tail),
     }
 }

@@ -2,7 +2,7 @@
 //! Auto-titles never overwrite an operator title; catalog changes stay machine-local.
 //! The ordered writer publishes only after these updates commit.
 
-use super::{projection::OmpEffect, store};
+use super::{projection::OmpEffect, settings, store};
 
 pub(super) async fn apply(
     transaction: &mut sqlx::Transaction<'_, sqlx::Any>,
@@ -23,6 +23,14 @@ pub(super) async fn apply(
             config(transaction, id, worker_fp, config_options).await?;
         }
         OmpEffect::ConfigOptions(options) => config(transaction, id, worker_fp, options).await?,
+        OmpEffect::Modes(modes) => settings::put_modes(transaction, worker_fp, modes).await?,
+        OmpEffect::Mode(mode) => {
+            sqlx::query("UPDATE agent_conversations SET mode=$2 WHERE id=$1 AND backend='omp'")
+                .bind(id)
+                .bind(mode)
+                .execute(&mut **transaction)
+                .await?;
+        }
         OmpEffect::Title(title) => {
             let changed = sqlx::query("UPDATE agent_conversations SET title=$2 WHERE id=$1 AND (title='' OR title=(SELECT applied_title FROM omp_sessions WHERE conversation_id=$1))")
                 .bind(id).bind(title).execute(&mut **transaction).await?.rows_affected();

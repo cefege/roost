@@ -190,6 +190,8 @@ mod tests {
             mode: None,
             usage: UsageTotals::default(),
             queued: Vec::new(),
+            omp_commands: Vec::new(),
+            omp_interactions: Vec::new(),
             schedules: Vec::new(),
             omp_session: None,
         };

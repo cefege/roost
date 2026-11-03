@@ -18,15 +18,14 @@ use super::plan_refinement::{
     PlanDecisionBanner, PlanRefinement, PlanRefinementBanner, pending_proposal_id,
 };
 use super::slash_menu::{
-    SlashAccept, SlashMenu, accept_action, initial_selection, listbox_id, option_id,
-    slash_menu_state, slash_sources,
+    SlashMenu, initial_selection, listbox_id, option_id, slash_menu_state_for_omp,
 };
 use crate::components::settings::agent_connect_dialog::AgentConnectDialog;
 use crate::components::terminal_chrome::attachment_picker::ChosenFile;
 use crate::components::terminal_chrome::composer_dictation::{
     SharedBinding, VoiceControl, use_dictation, use_dictation_context,
 };
-use crate::components::ui::{FieldError, InputPrompt, InputPromptTextarea};
+use crate::components::ui::{FieldError, InputPromptSheet, InputPromptTextarea};
 use crate::pump::Pump;
 use crate::router_state::use_navigate;
 use crate::voice::send_gate::SendGate;
@@ -50,7 +49,6 @@ pub fn AgentComposer(
     model_hub_open: Signal<bool>,
     connect_provider: Signal<Option<ProviderEntry>>,
 ) -> Element {
-    let mut draft = draft;
     let native = conversation.is_native();
     let plan_refinement = use_context::<PlanRefinement>();
     let plan_target = native.then(|| plan_refinement.selected_target()).flatten();
@@ -98,13 +96,20 @@ pub fn AgentComposer(
         command_error.set(result.err());
     });
     let report = report_command(command_error);
-    let sources = slash_sources(&conversation, catalog.as_ref());
-    let menu =
-        if !native || composer_locked || edit_target.peek().is_some() || plan_target.is_some() {
-            None
-        } else {
-            slash_menu_state(&draft(), &sources)
-        };
+    let (sources, omp_modes) =
+        super::slash_omp::use_slash_sources(&conversation, catalog.as_ref(), pump.clone(), active);
+    let omp_commands = transcript.omp_commands.clone();
+    let omp_mode = transcript.mode.clone();
+    let menu = if composer_locked || edit_target.peek().is_some() || plan_target.is_some() {
+        None
+    } else {
+        slash_menu_state_for_omp(
+            &draft(),
+            &sources,
+            (!native).then_some(omp_modes.as_slice()),
+            &omp_commands,
+        )
+    };
     let option_count = menu.as_ref().map_or(0, |state| state.options.len());
     let menu_open = !menu_dismissed() && menu.is_some();
     let options_open = menu_open && option_count > 0;
@@ -122,6 +127,7 @@ pub fn AgentComposer(
             conversation: conversation.clone(),
             catalog: catalog.clone(),
             transcript,
+            omp_modes: omp_modes.clone(),
             draft,
             edit_target,
             plan_refinement,
@@ -146,27 +152,15 @@ pub fn AgentComposer(
             SendGate::Withheld => {}
         }
     });
-    let accept = EventHandler::new({
-        let sources = sources.clone();
-        move |index: usize| {
-            let current = draft.peek().clone();
-            let Some(option) = slash_menu_state(&current, &sources)
-                .and_then(|state| state.options.get(index).cloned())
-            else {
-                return;
-            };
-            match accept_action(&option) {
-                SlashAccept::Fill(text) => {
-                    fill_draft(draft, selected_option, &text);
-                    // A tap moved focus to the row; the argument is typed next.
-                    focus_field(field);
-                }
-                SlashAccept::Submit(text) => {
-                    draft.set(text);
-                    send.call(());
-                }
-            }
-        }
+    let accept = super::slash_omp::acceptance_handler(super::slash_omp::SlashAcceptance {
+        native,
+        sources: sources.clone(),
+        commands: omp_commands.clone(),
+        modes: omp_modes.clone(),
+        draft,
+        selected_option,
+        field,
+        send,
     });
     let attachment_gate = AttachmentGate::for_plan_state(pending_plan_decision, refining_plan);
     let mut attachment_error = use_attachment_feedback(attachment_gate);
@@ -206,9 +200,16 @@ pub fn AgentComposer(
     let pick = accept;
     let capture_field = EventHandler::new(move |event: MountedEvent| field.set(Some(event.data())));
     let input_dictation = dictation.clone();
+    let modes_for_input = omp_modes.clone();
+    let commands_for_input = omp_commands.clone();
     let handle_draft_input = EventHandler::new(move |value: String| {
         input_dictation.forget_provisional();
-        let next = slash_menu_state(&value, &sources_for_input);
+        let next = slash_menu_state_for_omp(
+            &value,
+            &sources_for_input,
+            (!native).then_some(modes_for_input.as_slice()),
+            &commands_for_input,
+        );
         selected_option.set(
             next.as_ref()
                 .map_or(0, |state| initial_selection(state, &value)),
@@ -261,7 +262,7 @@ pub fn AgentComposer(
                 }
             }
             EditBanner { edit_target, draft }
-            InputPrompt {
+            InputPromptSheet {
                 class: "min-w-0 flex-col",
                 InputPromptTextarea {
                     id: super::composer_helpers::composer_input_id(&conversation_id),
@@ -288,6 +289,7 @@ pub fn AgentComposer(
                     conversation: conversation.clone(),
                     active,
                     catalog,
+                    omp_mode: omp_mode.clone(),
                     catalog_failed,
                     pump: pump.clone(),
                     goal: goal.clone(),

@@ -97,6 +97,8 @@ impl WriterState {
                     });
                 }
                 if run_id.as_deref() != Some(&frame.run_id) {
+                    let resolved = pending_interaction_resolutions(&transcript);
+                    append_events(&mut transcript, &mut events, resolved);
                     run_id = Some(frame.run_id.clone());
                     applied_seq = 0;
                 }
@@ -121,29 +123,37 @@ impl WriterState {
             }
             WriterJob::Restart { worker_epoch } => {
                 let previous: Option<String> = row.try_get("worker_epoch")?;
-                if transcript.run_state != AgentRunState::Running || &previous == worker_epoch {
+                let pending = pending_interaction_resolutions(&transcript);
+                let was_running = transcript.run_state == AgentRunState::Running;
+                if &previous == worker_epoch {
                     return Ok(Commit {
                         cursor,
                         admitted: false,
                         worker_applied: false,
                     });
                 }
-                projection::close_open_items(&transcript, &mut events);
-                events.push(projection::notice(
-                    "restart",
-                    super::super::store::now_ms() as u64,
-                    "error",
-                    "OMP stopped",
-                    "The worker restarted during this turn.",
-                ));
-                events.push(ChatEvent::RunState {
-                    run_state: AgentRunState::Failed,
-                    error: Some("worker restarted".into()),
-                });
-                effects.push(OmpEffect::RunState(
-                    AgentRunState::Failed,
-                    Some("worker restarted".into()),
-                ));
+                effects.push(OmpEffect::WorkerEpoch(worker_epoch.clone()));
+                if was_running || !pending.is_empty() {
+                    events.extend(pending);
+                    if was_running {
+                        projection::close_open_items(&transcript, &mut events);
+                        events.push(projection::notice(
+                            "restart",
+                            super::super::store::now_ms() as u64,
+                            "error",
+                            "OMP stopped",
+                            "The worker restarted during this turn.",
+                        ));
+                        events.push(ChatEvent::RunState {
+                            run_state: AgentRunState::Failed,
+                            error: Some("worker restarted".into()),
+                        });
+                        effects.push(OmpEffect::RunState(
+                            AgentRunState::Failed,
+                            Some("worker restarted".into()),
+                        ));
+                    }
+                }
                 for event in &events {
                     fold_chat_event(&mut transcript, event);
                 }
@@ -251,4 +261,14 @@ fn append_events(
         fold_chat_event(transcript, &event);
         events.push(event);
     }
+}
+
+fn pending_interaction_resolutions(transcript: &Transcript) -> Vec<ChatEvent> {
+    transcript
+        .omp_interactions
+        .iter()
+        .map(|interaction| ChatEvent::OmpInteractionResolved {
+            id: interaction.id.clone(),
+        })
+        .collect()
 }

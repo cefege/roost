@@ -89,6 +89,9 @@ pub fn AgentModelsPane() -> Element {
         div { "data-testid": "agent-models-pane",
             if !error().is_empty() { FieldError { {error()} } }
             if !settings_error().is_empty() { FieldError { {settings_error()} } }
+            p { class: "mb-4 text-sm text-muted-foreground",
+                "These accounts and roles configure Roost's built-in agent. OMP chats use OMP's own login and model catalog on their worker."
+            }
             Tabs {
                 value: section(),
                 on_value_change: move |next: String| {

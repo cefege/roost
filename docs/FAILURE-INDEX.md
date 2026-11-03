@@ -4806,3 +4806,76 @@ failure must not settle a user prompt still queued behind it.
 `roost-coord`'s `omp_session_open_reuses_saved_session_without_changing_transcript`
 and `omp_session_failure_does_not_settle_pending_turn_and_ready_clears_failure`.
 
+
+### OMP tool previews use the wrong renderer or lose edit context
+
+**Symptom** — Bash/Edit/Write appear as generic tools; output includes a repeated
+command header or a result-envelope JSON dump; numbered edit diffs render empty.
+
+**Wrong** — use ACP's human `title` as tool identity, discard `rawOutput.details`,
+flatten synthesized ACP content instead of result content, or treat OMP's numbered
+diff as unified-diff syntax.
+
+**Right** — retain ACP `name` across title updates; replace result text/details
+from real partial/final snapshots. Normalize supplied old/new file text into a
+contextual unified diff before the shared diff renderer consumes it. Stable call
+IDs retain chronology; OMP compact previews are visible without opening a second
+activity group.
+
+**Guard** — `roost-coord`'s
+`omp_tool_updates_preserve_identity_output_details_and_diff`,
+`omp_tool_title_fallback_does_not_replace_identity`, and
+`omp_edit_snapshot_normalizes_numbered_diff_without_losing_context`.
+
+### OMP's initial catalog omits connected discovery-backed providers
+
+**Symptom** — a fresh ACP session lacks providers shown by `omp models`, or choices
+stay unchanged after a catalog-only update with the same current model.
+
+**Wrong** — advertise the first ACP options as settled, insert separate CLI model
+choices, or reload an already-managed session whose registry never rereads config.
+
+**Right** — await OMP's own background and runtime discovery through the ordinary
+extension startup hook; require its per-process completion status before readiness.
+Refresh an idle child through the saved session, defer during active work, and
+invalidate choices on accepted `Agent` events even when selected values are equal.
+Keep OMP's authentication, enabled-model filters, and working-directory policy.
+
+**Guard** — `roost-worker`'s `incomplete_or_failed_discovery_never_passes_readiness`
+and `omp_owner_defers_open_refresh_until_prompt_settles`; `roost-client-core`'s
+`omp_config_refresh_invalidates_choices_without_changing_the_selected_model`.
+
+### OMP startup waits forever on an invisible question or submits after Stop
+
+**Symptom** — an ACP startup form never reaches the browser, or stopping session
+preparation still sends the queued first prompt.
+
+**Wrong** — await the ACP handshake without servicing the actor inbox, flush its
+interaction events only after readiness, or treat a canceled load as a missing
+session and retry with a new one.
+
+**Right** — service responses and cancellation while startup is pending, flush
+interactive requests immediately, and cancel queued startup prompts on Stop.
+Keep the actor and its journal alive for the next command; propagate load
+cancellation rather than falling back to new-session creation.
+
+**Guard** — `roost-worker`'s
+`omp_startup_form_can_be_answered_before_new_session_returns`,
+`omp_startup_cancel_after_form_never_submits_initial_prompt`, and
+`omp_startup_cancel_before_form_aborts_initialization`.
+
+### OMP todos lose native phase boundaries or blockers
+
+**Symptom** — `/todo` shows multiple native phases, but the HTML checklist puts
+every task under one Plan heading or turns blocked and dropped tasks into ordinary
+pending and completed tasks.
+
+**Wrong** — use only the lossy ACP plan entries and ignore the successful todo
+tool's structured `rawOutput.details.phases` snapshot.
+
+**Right** — decode the native snapshot with the shared task types. Matching flat
+notifications may update progress without erasing phase boundaries, blockers, or
+abandoned states; an empty plan still clears all tasks.
+
+**Guard** — `roost-coord`'s
+`omp_todo_keeps_native_phases_and_blockers_across_flat_plan_updates`.

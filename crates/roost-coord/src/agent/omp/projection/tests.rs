@@ -5,6 +5,8 @@
 use super::*;
 use serde_json::json;
 
+mod todo;
+
 fn apply(transcript: &mut Transcript, seq: u64, event: OmpWorkerEvent) -> Vec<ChatEvent> {
     let projected = project(transcript, "r1", seq, &event);
     for event in &projected.events {
@@ -74,6 +76,94 @@ fn omp_tool_call_closes_assistant_and_partial_completion_sets_output() {
     assert!(
         matches!(&transcript.items[1],TranscriptItem::Tool {running:false,output,tool_name,..} if output == "contents" && tool_name == "Read file")
     );
+}
+
+#[test]
+fn omp_tool_updates_preserve_identity_output_details_and_diff() {
+    let mut transcript = super::super::store::empty_transcript();
+    apply(
+        &mut transcript,
+        1,
+        OmpWorkerEvent::Update {
+            update: json!({"sessionUpdate":"tool_call","toolCallId":"edit","title":"Editing file","name":"edit","status":"in_progress","rawInput":{"path":"src/lib.rs"}}),
+        },
+    );
+    apply(
+        &mut transcript,
+        2,
+        OmpWorkerEvent::Update {
+            update: json!({"sessionUpdate":"tool_call_update","toolCallId":"edit","title":"A prettier title"}),
+        },
+    );
+    apply(
+        &mut transcript,
+        3,
+        OmpWorkerEvent::Update {
+            update: json!({"sessionUpdate":"tool_call_update","toolCallId":"edit","name":"write","rawOutput":{"content":[{"type":"text","text":"partial result"}],"details":{"phase":"streaming"}}}),
+        },
+    );
+    assert!(matches!(
+        &transcript.items[0],
+        TranscriptItem::Tool {tool_name,output,details_json,..}
+            if tool_name == "write" && output == "partial result"
+                && serde_json::from_str::<serde_json::Value>(details_json).ok()
+                    == Some(json!({"phase":"streaming"}))
+    ));
+    apply(
+        &mut transcript,
+        4,
+        OmpWorkerEvent::Update {
+            update: json!({"sessionUpdate":"tool_call_update","toolCallId":"edit","status":"completed","rawOutput":{"content":[{"type":"text","text":"final result"}],"details":{"exit_code":0}}}),
+        },
+    );
+    assert!(matches!(
+        &transcript.items[0],
+        TranscriptItem::Tool {tool_name,output,details_json,running,..}
+            if tool_name == "write" && output == "final result" && !running
+                && serde_json::from_str::<serde_json::Value>(details_json).ok()
+                    == Some(json!({"exit_code":0}))
+    ));
+    apply(
+        &mut transcript,
+        5,
+        OmpWorkerEvent::Update {
+            update: json!({"sessionUpdate":"tool_call_update","toolCallId":"edit","rawOutput":{"content":[{"type":"text","text":"Edit completed"}],"details":{"exit_code":0}},"content":[{"type":"diff","path":"/tmp/a.rs","oldText":"first\nold line\nlast\n","newText":"first\nnew line\nlast\n"}]}),
+        },
+    );
+    assert!(matches!(
+        &transcript.items[0],
+        TranscriptItem::Tool {output,details_json,..}
+            if output == "Edit completed"
+                && serde_json::from_str::<serde_json::Value>(details_json).ok()
+                    .is_some_and(|details| details.get("exit_code") == Some(&json!(0))
+                        && details.get("diff").and_then(serde_json::Value::as_str)
+                            .is_some_and(|diff| diff.contains("/tmp/a.rs")
+                                && diff.contains("-old line") && diff.contains("+new line")
+                                && diff.contains(" first")))
+    ));
+}
+
+#[test]
+fn omp_tool_title_fallback_does_not_replace_identity() {
+    let mut transcript = super::super::store::empty_transcript();
+    apply(
+        &mut transcript,
+        1,
+        OmpWorkerEvent::Update {
+            update: json!({"sessionUpdate":"tool_call","toolCallId":"read","title":"Read file","status":"in_progress"}),
+        },
+    );
+    apply(
+        &mut transcript,
+        2,
+        OmpWorkerEvent::Update {
+            update: json!({"sessionUpdate":"tool_call_update","toolCallId":"read","title":"Changed presentation"}),
+        },
+    );
+    assert!(matches!(
+        &transcript.items[0],
+        TranscriptItem::Tool {tool_name,..} if tool_name == "Read file"
+    ));
 }
 #[test]
 fn omp_turn_end_preserves_running_until_last_outstanding_prompt() {
@@ -159,6 +249,7 @@ fn omp_session_failure_does_not_settle_pending_turn_and_ready_clears_failure() {
         OmpWorkerEvent::SessionReady {
             acp_session_id: "s1".into(),
             config_options: json!([]),
+            mode: None,
         },
     );
     assert!(matches!(
@@ -170,4 +261,36 @@ fn omp_session_failure_does_not_settle_pending_turn_and_ready_clears_failure() {
     ));
     assert_eq!(transcript.run_state, AgentRunState::Running);
     assert_eq!(transcript.items, Vec::<TranscriptItem>::new());
+}
+
+#[test]
+fn omp_edit_snapshot_normalizes_numbered_diff_without_losing_context() {
+    let mut transcript = super::super::store::empty_transcript();
+    apply(
+        &mut transcript,
+        1,
+        OmpWorkerEvent::Update {
+            update: json!({"sessionUpdate":"tool_call","toolCallId":"edit","name":"edit","title":"Fixing reducer","status":"in_progress"}),
+        },
+    );
+    apply(
+        &mut transcript,
+        2,
+        OmpWorkerEvent::Update {
+            update: json!({"sessionUpdate":"tool_call_update","toolCallId":"edit","status":"completed",
+            "rawOutput":{"content":[{"type":"text","text":"Updated file"}],"details":{
+                "path":"/work/sum.ts","diff":"-1|old\n+1|new\n 2|unchanged",
+                "oldText":"old\nunchanged\n","newText":"new\nunchanged\n","firstChangedLine":1
+            }}}),
+        },
+    );
+    let TranscriptItem::Tool { details_json, .. } = &transcript.items[0] else {
+        panic!("expected projected edit");
+    };
+    let details: serde_json::Value = serde_json::from_str(details_json).unwrap();
+    let diff = details["diff"].as_str().unwrap();
+    assert!(diff.starts_with("--- a/"));
+    assert!(diff.contains("\n@@ "));
+    assert!(diff.contains("\n-old\n+new\n unchanged\n"));
+    assert_eq!(details["firstChangedLine"], 1);
 }

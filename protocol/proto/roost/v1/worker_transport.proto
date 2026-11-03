@@ -652,6 +652,7 @@ message DOmpPrompt {
   string model = 8;
   // Resolved thinking level; empty leaves OMP's own setting.
   string thinking_level = 9;
+  string mode = 10;
 }
 message DOmpCancel { string conversation_id = 1; }
 message DOmpEventsAck {
@@ -666,6 +667,19 @@ message DOmpOpen {
   string acp_session_id = 3;
 }
 
+message DOmpRespond {
+  string conversation_id = 1;
+  string request_id = 2;
+  string action = 3;
+  string content_json = 4;
+}
+message DOmpSetMode {
+  string conversation_id = 1;
+  string request_id = 2;
+  string mode = 3;
+  string cwd = 4;
+  string acp_session_id = 5;
+}
 message CoordWorkerDown {
   reserved 11;
   reserved "viewport_request";
@@ -712,6 +726,8 @@ message CoordWorkerDown {
     DOmpEventsAck omp_events_ack = 45;
     DOmpClose omp_close = 46;
     DOmpOpen omp_open = 47;
+    DOmpRespond omp_respond = 48;
+    DOmpSetMode omp_set_mode = 49;
   }
   reserved 33, 34, 35, 36;
 }

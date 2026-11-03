@@ -1034,7 +1034,18 @@ message AgentChatConfigureRequest {
   optional string cwd = 6;
   optional string title = 7;
   optional bool read_only = 8;
+  optional string mode = 9;
 }
+message AgentOmpRespondRequest {
+  string conversation_id = 1;
+  string item_id = 2;
+  // accept | decline | cancel | permission
+  string action = 3;
+  // JSON value supplied as ACP form values or {optionId: ...}.
+  string content_json = 4;
+  string request_id = 5;
+}
+message AgentOmpRespondResponse {}
 message AgentChatDeleteRequest { string conversation_id = 1; }
 message AgentChatDeleteResponse {}
 message AgentChatSnapshotRequest { string conversation_id = 1; }
@@ -1183,6 +1194,7 @@ service CoordinatorService {
   rpc AgentChatWithdraw(AgentChatWithdrawRequest) returns (AgentChatWithdrawResponse);
   rpc AgentChatInspect(AgentChatInspectRequest) returns (AgentChatInspectResponse);
   rpc AgentChatConfigure(AgentChatConfigureRequest) returns (AgentConversation);
+  rpc AgentOmpRespond(AgentOmpRespondRequest) returns (AgentOmpRespondResponse);
   rpc AgentChatDelete(AgentChatDeleteRequest) returns (AgentChatDeleteResponse);
   rpc AgentChatSnapshot(AgentChatSnapshotRequest) returns (AgentChatSnapshotResponse);
   rpc AgentChatEvents(AgentChatEventsRequest) returns (AgentChatEventsResponse);
