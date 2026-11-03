@@ -184,6 +184,13 @@ is supported when sharing Postgres. One replica owns worker links while others
 proxy connections to it. The probe port serves `/readyz` (database and
 cluster-state readiness) and `/healthz`; on `SIGTERM` the coordinator releases
 ownership and gives open connections 20 s before exiting.
+
+The chart rolls with `rollingUpdate.maxUnavailable=0` and
+`rollingUpdate.maxSurge=1` by default. A node must have spare CPU and memory
+reservations for that extra pod, not just low current usage. Desktop's singleton
+profile instead sets `maxUnavailable=1` and `maxSurge=0`: it stops the old
+coordinator before starting its replacement. Browsers and workers reconnect
+during that brief interruption; keeper-owned PTYs survive it.
 `--set logs.persistence.enabled=true` keeps the coordinator's warn/error log
 (`main.err.log`, rotated at 32 MiB with one previous file) on its own PVC
 through `ROOST_LOG_FILE_DIR`, so `kubectl -n roost exec deploy/roost-coordinator

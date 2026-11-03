@@ -4,6 +4,11 @@
 publicUrl: https://mike.roosttt.com
 replicas: 1
 
+# Replace the singleton without reserving a second pod on the packed node.
+rollingUpdate:
+  maxUnavailable: 1
+  maxSurge: 0
+
 trustProxy: true
 trustedProxyCidrs: ["100.66.192.24/32", "10.42.0.0/24"]
 

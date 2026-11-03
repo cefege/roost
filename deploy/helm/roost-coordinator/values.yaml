@@ -35,6 +35,10 @@ env: {}
 # 0 stops the coordinator for maintenance (such as db-to-postgres --replace).
 replicas: 2
 
+rollingUpdate:
+  maxUnavailable: 0
+  maxSurge: 1
+
 service:
   # ClusterIP behind an Ingress; NodePort when the front door is a TCP proxy
   # on another machine (then set externalTrafficPolicy: Local, so the
