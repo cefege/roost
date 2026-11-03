@@ -1,16 +1,16 @@
-//! `WorkbenchShellSpecimen`: the static workbench reference on `/design` — the
-//! activity rail, folders sidebar, editor tab strip and status bar. Markup
-//! Markup only: `gallery.rs` mounts it; the live shell is `components/layout`.
+//! `WorkbenchShellSpecimen`: the `/design` reference for the activity rail,
+//! folders sidebar, browser-style workspace tabs and status bar.
+//! `gallery.rs` mounts this UI-primitive composition; live chrome lives in `deck`.
 
 use dioxus::prelude::*;
 
 use crate::components::ui::tabs::TabsVariant;
 use crate::components::ui::{
-    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, SidenavContent, SidenavFooter,
-    SidenavGroup, SidenavGroupLabel, SidenavInner, SidenavMenu, SidenavMenuButton,
-    SidenavMenuButtonSize, SidenavMenuItem, SidenavMenuSub, SidenavMenuSubButton,
-    SidenavMenuSubItem, StatusDot, Tabs, TabsContent, TabsList, TabsTrigger, Toolbar,
-    ToolbarButton,
+    Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, Separator, SeparatorOrientation,
+    SidenavContent, SidenavFooter, SidenavGroup, SidenavGroupLabel, SidenavInner, SidenavMenu,
+    SidenavMenuButton, SidenavMenuButtonSize, SidenavMenuItem, SidenavMenuSub,
+    SidenavMenuSubButton, SidenavMenuSubItem, StatusDot, Tabs, TabsContent, TabsList, TabsTrigger,
+    Toolbar, ToolbarButton,
 };
 
 /// The specimen's grid: rail, sidebar and editor above the status bar. Track
@@ -102,20 +102,29 @@ pub fn WorkbenchShellSpecimen() -> Element {
                     class: "contents",
                     value: "main".to_owned(),
                     div { class: "flex min-w-0 items-center border-b border-border",
-                        TabsList { variant: TabsVariant::Line, class: "h-[var(--workbench-tab-strip-height)] min-w-0 flex-1 justify-start overflow-x-auto px-1",
-                            div { class: "flex min-w-0 items-center", "data-testid": "tab-roost-main",
-                                TabsTrigger { value: "main".to_owned(),
-                                    Icon { icon: IconType::Terminal }
-                                    span { class: "truncate", "roost · main" }
+                        TabsList {
+                            variant: TabsVariant::Default,
+                            class: "h-[var(--workbench-tab-strip-height)] group-data-[orientation=Horizontal]/tabs:h-[var(--workbench-tab-strip-height)] min-w-0 flex-1 justify-start overflow-x-auto p-1",
+                            div { class: "relative flex h-[var(--workbench-tab-action-size)] min-w-0 flex-1 items-center", "data-testid": "tab-roost-main",
+                                TabsTrigger {
+                                    value: "main".to_owned(),
+                                    trailing_action: rsx! {
+                                        IconButton { icon: IconType::X, label: "Close roost main", size: ButtonSize::IconXs, class: "shrink-0" }
+                                    },
+                                    Icon { icon: IconType::Terminal, class: "size-4 shrink-0" }
+                                    span { class: "min-w-0 flex-1 truncate", "roost · main" }
                                 }
-                                IconButton { icon: IconType::X, label: "Close roost main", size: ButtonSize::IconXs, class: "shrink-0" }
                             }
-                            div { class: "flex min-w-0 items-center", "data-testid": "tab-roost-logs",
-                                TabsTrigger { value: "logs".to_owned(),
-                                    Icon { icon: IconType::Terminal }
-                                    span { class: "truncate", "worker logs" }
+                            div { class: "relative flex h-[var(--workbench-tab-action-size)] min-w-0 flex-1 items-center", "data-testid": "tab-roost-logs",
+                                TabsTrigger {
+                                    value: "logs".to_owned(),
+                                    trailing_action: rsx! {
+                                        IconButton { icon: IconType::X, label: "Close worker logs", size: ButtonSize::IconXs, class: "shrink-0" }
+                                    },
+                                    Icon { icon: IconType::Terminal, class: "size-4 shrink-0" }
+                                    span { class: "min-w-0 flex-1 truncate", "worker logs" }
                                 }
-                                IconButton { icon: IconType::X, label: "Close worker logs", size: ButtonSize::IconXs, class: "shrink-0" }
+                                Separator { orientation: SeparatorOrientation::Vertical, decorative: true, class: "absolute end-0 h-4" }
                             }
                         }
                         IconButton { icon: IconType::Plus, label: "New terminal", size: ButtonSize::IconSm, class: "shrink-0" }

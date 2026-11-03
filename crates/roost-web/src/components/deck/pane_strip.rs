@@ -1,8 +1,6 @@
-//! One pane's terminal tab strip: tabs (drag to reorder or tile), the selected
-//! agent's actions, the new terminal button, the carrier chip and the overflow
-//! list. `TerminalDeck` supplies layout callbacks; this owns strip gestures.
-//! Ports `apps/web/src/components/deck/PaneStrip.tsx` and
-//! `paneTabRailScroll.ts`.
+//! One pane's workspace strip: draggable terminal/agent tabs, the new-tab menu,
+//! active-agent actions, carrier status and overflow. `TerminalDeck` supplies
+//! layout callbacks; this component owns strip gestures and hover state.
 
 use std::cell::RefCell;
 use std::collections::BTreeSet;
@@ -164,9 +162,9 @@ pub fn PaneStrip(
                         rail.set(Some(event.data()));
                     },
                     TabsList {
-                        variant: TabsVariant::Line,
-                        class: "h-full min-w-0 flex-[0_1_auto] items-center justify-start overflow-visible rounded-none bg-transparent p-0",
-                        aria_label: "Terminal tabs",
+                        variant: TabsVariant::Default,
+                        class: "h-full group-data-[orientation=Horizontal]/tabs:h-full min-w-0 flex-[0_1_auto] items-center justify-start overflow-visible p-1",
+                        aria_label: "Workspace tabs",
                         for (index, session_id) in tab_ids.iter().cloned().enumerate() {
                             PaneTab {
                                 key: "{session_id}",
@@ -220,23 +218,6 @@ pub fn PaneStrip(
                     }
                 }
             }
-            if let Some(conversation) = selected_agent {
-                {
-                    let conversation_id = conversation.id.clone();
-                    rsx! {
-                        AgentChatHeader {
-                            conversation,
-                            online: Some(online),
-                            pump: pump.clone(),
-                            on_inspector: move |_| {
-                                if let Some(mut request) = inspector_request {
-                                    request.0.set(Some(conversation_id.clone()));
-                                }
-                            },
-                        }
-                    }
-                }
-            }
             PaneTabNewMenu {
                 on_new_terminal: move |_| on_new_tab.call(()),
                 on_new_agent: move |_| {
@@ -262,6 +243,23 @@ pub fn PaneStrip(
                         on_new_tab.call(());
                     }
                 },
+            }
+            if let Some(conversation) = selected_agent {
+                {
+                    let conversation_id = conversation.id.clone();
+                    rsx! {
+                        AgentChatHeader {
+                            conversation,
+                            online: Some(online),
+                            pump: pump.clone(),
+                            on_inspector: move |_| {
+                                if let Some(mut request) = inspector_request {
+                                    request.0.set(Some(conversation_id.clone()));
+                                }
+                            },
+                        }
+                    }
+                }
             }
             if !matches!(roost_client_core::deck::tab::DeckTab::parse(&selected_tab), Some(roost_client_core::deck::tab::DeckTab::Agent(_))) {
                 TerminalTransportIndicator { session_id: selected_tab.clone() }

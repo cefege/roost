@@ -1,11 +1,12 @@
-//! One terminal tab in a pane strip: its compact title, one aggregated status
-//! cue, and close action. `PaneStrip` owns drag, close and hover state; this
-//! maps it onto the stable tab DOM. Terminal signal, bell and agent states
-//! remain available through the cue's accessible label and tooltip.
+//! One workspace tab: identity icon, truncated title, aggregated status and close.
+//! `PaneStrip` owns drag, close and hover state; this maps them onto stable DOM.
+//! Terminal signals, bells and agent activity remain accessible through the cue.
 
 use crate::components::agents::agent_status_indicator::agent_dot_status_name;
 use crate::components::terminal_signal_marks::progress_presentation;
-use crate::components::ui::{ButtonSize, IconButton, IconType, StatusDot, TabsTrigger};
+use crate::components::ui::{
+    ButtonSize, Icon, IconButton, IconType, Separator, SeparatorOrientation, StatusDot, TabsTrigger,
+};
 use crate::pump::use_store;
 use crate::session_naming::session_title;
 use dioxus::prelude::*;
@@ -195,7 +196,7 @@ pub fn PaneTab(
     let style = (!style.is_empty()).then_some(style);
     rsx! {
         div {
-            class: "group/tab relative inline-flex items-center gap-0 box-border h-full self-stretch flex-[0_1_auto] w-[var(--workbench-tab-width-max)] min-w-[var(--workbench-tab-width-min)] max-w-[var(--workbench-tab-width-max)] cursor-pointer touch-pan-y text-xs data-[dragging=true]:z-[4] data-[dragging=true]:bg-background data-[dragging=true]:cursor-grabbing data-[closing=true]:!min-w-0 data-[closing=true]:!max-w-0 data-[closing=true]:!px-0 data-[closing=true]:z-0 data-[closing=true]:opacity-0 data-[closing=true]:pointer-events-none data-[closing=true]:overflow-hidden data-[closing=true]:transition-[max-width,min-width,padding,opacity] data-[closing=true]:duration-[220ms]",
+            class: "group/tab relative inline-flex items-center gap-0 box-border h-[var(--workbench-tab-action-size)] self-center flex-[0_1_auto] w-[var(--workbench-tab-width-max)] min-w-[var(--workbench-tab-width-min)] max-w-[var(--workbench-tab-width-max)] data-[active=true]:min-w-[var(--workbench-tab-width-active-min)] cursor-pointer touch-pan-y text-xs data-[dragging=true]:z-[4] data-[dragging=true]:bg-background data-[dragging=true]:cursor-grabbing data-[closing=true]:!min-w-0 data-[closing=true]:!max-w-0 data-[closing=true]:!px-0 data-[closing=true]:z-0 data-[closing=true]:opacity-0 data-[closing=true]:pointer-events-none data-[closing=true]:overflow-hidden data-[closing=true]:transition-[max-width,min-width,padding,opacity] data-[closing=true]:duration-[220ms]",
             "data-testid": "tab-{session_id}",
             "data-deck-tab": "true",
             "data-active": if active { "true" } else { "false" },
@@ -224,16 +225,27 @@ pub fn PaneTab(
                         icon: IconType::X,
                         label: if agent_status.is_some() { "Close agent" } else { "Close terminal" },
                         size: ButtonSize::IconXs,
-                        class: "shrink-0 opacity-0 pointer-events-none transition-opacity duration-150 group-hover/tab:opacity-100 group-hover/tab:pointer-events-auto group-focus-within/tab:opacity-100 group-data-[active=true]/tab:opacity-100 group-data-[active=true]/tab:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto tv:opacity-100 tv:pointer-events-auto pad:opacity-100 pad:pointer-events-auto group-data-[packed=true]/strip:hidden group-data-[packed=true]/strip:group-data-[active=true]/tab:inline-flex",
+                        class: "shrink-0 group-data-[packed=true]/strip:hidden group-data-[packed=true]/strip:group-data-[active=true]/tab:inline-flex",
                         "data-testid": "tab-close-{session_id}",
                         onclick: move |event| on_close.call(event),
                     }
                 },
-                span { class: "flex-1 min-w-0 truncate [font-family:var(--term-font-family)]", "{title}" }
+                Icon {
+                    icon: if session_id.starts_with("agent:") { IconType::Bot } else { IconType::Terminal },
+                    class: "size-4 shrink-0",
+                }
+                span { class: "flex-1 min-w-0 truncate", "{title}" }
                 TabStatus {
                     session_id: session_id.clone(),
                     agent_run_state: agent_status,
                     suppress_tooltip: hover_card_available,
+                }
+            }
+            if !active {
+                Separator {
+                    orientation: SeparatorOrientation::Vertical,
+                    decorative: true,
+                    class: "absolute end-0 h-4",
                 }
             }
         }

@@ -1,11 +1,8 @@
-//! `Tabs`: a set of panels with one active tab. The caller owns the active value
-//! (`value` plus `on_value_change`); the tabs keep an internal signal only so the
-//! panels and triggers repaint without re-rendering the whole tree.
-//!
-//! Keyboard movement follows the WAI-ARIA tabs pattern: arrow keys along the
-//! orientation, Home and End to the ends, with the roving tabindex on the active
-//! trigger. The step arithmetic lives in `tab_step_for_key` and
-//! `next_tab_index`, which the tests cover without a DOM.
+//! Tabs, triggers and panels sharing caller-supplied selection through context.
+//! Callers may own the key ladder or use the built-in roving focus.
+//! Keyboard selection follows WAI-ARIA: orientation arrows, Home and End;
+//! `tab_step_for_key` and `next_tab_index` own the tested step arithmetic.
+//! Sibling actions stay outside the trigger button and share its active surface.
 
 use dioxus::prelude::*;
 use tw_merge::tw_merge;
@@ -224,7 +221,7 @@ pub fn TabsTrigger(
         } else {
             "text-foreground/60 hover:text-foreground"
         },
-        if !is_line && is_active {
+        if !is_line && is_active && trailing_action.is_none() {
             "bg-background shadow-sm dark:border-input dark:bg-input/30"
         } else {
             ""
@@ -282,8 +279,12 @@ pub fn TabsTrigger(
     if let Some(trailing_action) = trailing_action {
         let wrapper_class = if is_line && is_active {
             "relative inline-flex h-full min-w-0 flex-1 items-center gap-1 after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-foreground after:pointer-events-none after:transition-opacity after:opacity-100"
-        } else {
+        } else if is_line {
             "relative inline-flex h-full min-w-0 flex-1 items-center gap-1 after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-foreground after:pointer-events-none after:transition-opacity after:opacity-0"
+        } else if is_active {
+            "relative inline-flex h-full min-w-0 flex-1 items-center gap-1 rounded-md border border-transparent bg-background shadow-sm dark:border-input dark:bg-input/30"
+        } else {
+            "relative inline-flex h-full min-w-0 flex-1 items-center gap-1 rounded-md border border-transparent"
         };
         rsx! {
             div {
