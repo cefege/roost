@@ -1,13 +1,7 @@
-//! The picker's two coordinator round trips: the directory listing behind the
-//! entry grid, and the `SessionsSpawn` behind "Open terminal here" and a recent
-//! folder chip. Both are auth-fenced the way v2 fenced them — a superseded
-//! listing cannot repaint the directory the reader has already left, and a
-//! spawn's answer cannot navigate after the credential moved on.
-//!
-//! Called by `browse::picker`. Ports
-//! `apps/web/src/components/browse/browseDirectoryListing.ts` and
-//! `workerBrowseActions.ts`; the field mapping is
-//! `client::rpc::calls::browse`'s.
+//! Coordinator round trips owned by the browse picker's Dioxus scope.
+//! Directory listings, folder creation and terminal launches are canceled when
+//! that scope unmounts; auth and listing generations also fence their replies.
+//! `browse::picker` calls these operations through the client RPC adapters.
 
 use dioxus::prelude::*;
 use roost_client_core::store::browse_state::intent::{BrowseIntent, apply_browse_intent};
@@ -85,7 +79,7 @@ pub fn refresh(pump: Pump, worker_fp: String, ticket: Signal<u64>) {
     let next = ticket.peek().wrapping_add(1);
     ticket.set(next);
     #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_futures::spawn_local(list_directory(pump, request, ticket));
+    spawn(list_directory(pump, request, ticket));
     #[cfg(not(target_arch = "wasm32"))]
     let _ = (pump, request, ticket);
 }
@@ -140,6 +134,7 @@ async fn list_directory(pump: Pump, request: BrowseListingRequest, mut ticket: S
                 .fail_listing(&request, browse_error_message(&error.to_string()));
         }
     }
+    drop(core);
     let next = ticket.peek().wrapping_add(1);
     ticket.set(next);
 }
@@ -155,7 +150,7 @@ pub fn create_folder(
     on_result: EventHandler<Result<String, String>>,
 ) {
     #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_futures::spawn_local(run_create_folder(pump, worker_fp, path, on_result));
+    spawn(run_create_folder(pump, worker_fp, path, on_result));
     #[cfg(not(target_arch = "wasm32"))]
     let _ = (pump, worker_fp, path, on_result);
 }
@@ -201,7 +196,7 @@ pub fn launch_terminal(
     navigate: EventHandler<String>,
 ) {
     #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_futures::spawn_local(run_launch_terminal(pump, worker_fp, path, navigate));
+    spawn(run_launch_terminal(pump, worker_fp, path, navigate));
     #[cfg(not(target_arch = "wasm32"))]
     let _ = (pump, worker_fp, path, navigate);
 }

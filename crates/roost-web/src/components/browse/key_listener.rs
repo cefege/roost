@@ -1,10 +1,7 @@
-//! The picker's `window` keydown listener: it gathers the facts
-//! `browse::keys::picker_key` decides on and runs the answer. The listener is
-//! the only part that touches the document, so the decision stays a pure
-//! function a test can reach.
-//!
-//! Installed for the life of `browse::picker::BrowsePicker`. Ports the listener
-//! `apps/web/src/components/browse/browsePickerKeys.ts` installs.
+//! The picker's window keydown listener and its scope-owned action callback.
+//! `browse::picker` installs it while mounted; teardown removes the listener.
+//! DOM facts feed the pure `keys::picker_key` decision, and the resulting action
+//! executes inside the picker's Dioxus runtime and scope.
 
 use std::rc::Rc;
 
@@ -58,6 +55,12 @@ pub fn install_picker_keys(
         use wasm_bindgen::closure::Closure;
 
         let on_key = RefCell::new(on_key);
+        // Native key callbacks need the owner scope when they spawn picker tasks.
+        let on_key = EventHandler::new(move |action| {
+            if let Ok(mut on_key) = on_key.try_borrow_mut() {
+                on_key(action);
+            }
+        });
         let listener = Closure::<dyn FnMut(web_sys::KeyboardEvent)>::new(
             move |event: web_sys::KeyboardEvent| {
                 let context = facts();
@@ -73,9 +76,7 @@ pub fn install_picker_keys(
                     return;
                 }
                 event.prevent_default();
-                if let Ok(mut on_key) = on_key.try_borrow_mut() {
-                    on_key(action);
-                }
+                on_key.call(action);
             },
         );
         if let Some(window) = web_sys::window() {
