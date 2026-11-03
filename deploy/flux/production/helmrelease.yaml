@@ -1,6 +1,6 @@
 # The production coordinator, as Flux deploys it from the `production` branch
 # (see ../bootstrap.yaml). It upgrades the Helm release `roost-coordinator`
-# with the chart, its values.yaml and `deploy/helm/fleet-ovh1.values.yaml`,
+# with the chart, its values.yaml and `deploy/helm/fleet-desktop.values.yaml`,
 # plus:
 #
 # - `deploy/helm/production.values.yaml`, which exists only on `production`
@@ -36,7 +36,7 @@ spec:
         namespace: flux-system
       valuesFiles:
         - ./deploy/helm/roost-coordinator/values.yaml
-        - ./deploy/helm/fleet-ovh1.values.yaml
+        - ./deploy/helm/fleet-desktop.values.yaml
         - ./deploy/helm/production.values.yaml
   valuesFrom:
     - kind: Secret

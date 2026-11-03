@@ -1,5 +1,5 @@
 # Flux's entry point into this repository, applied once by hand
-# (`kubectl apply -f deploy/flux/bootstrap.yaml` on ovh1's k3s, after Flux's own
+# (`kubectl apply -f deploy/flux/bootstrap.yaml` on desktop-pc's k3s, after Flux's own
 # install manifest). Everything else Flux runs is read from the `production`
 # branch: the Kustomization below applies `deploy/flux/production/`, whose
 # HelmRelease deploys the coordinator chart with that branch's values.

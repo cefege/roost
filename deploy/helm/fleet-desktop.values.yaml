@@ -1,0 +1,40 @@
+# Desktop's existing k3s cluster hosts a new coordinator and database.
+# Only the Roost namespace and the desktop host can reach the coordinator;
+# the edge proxy replaces X-Forwarded-For before forwarding Cloudflare traffic.
+publicUrl: https://mike.roosttt.com
+replicas: 1
+
+trustProxy: true
+trustedProxyCidrs: ["100.66.192.24/32", "10.42.0.0/24"]
+
+service:
+  type: ClusterIP
+
+networkPolicy:
+  enabled: true
+  fromNamespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: roost
+  fromCidrs: ["100.66.192.24/32"]
+
+nodeSelector:
+  kubernetes.io/hostname: desktop-pc
+
+env:
+  ROOST_COORDINATOR_AUDIT_RETENTION_DAYS: "90"
+  ROOST_COORDINATOR_JWT_MAX_AGE_SECS: "300"
+  ROOST_RELAXED_CSP: "0"
+  ROOST_TERMINAL_PEER_ENABLED: "1"
+  ROOST_TERMINAL_PEER_STUN_URLS: stun:stun.cloudflare.com:3478
+  ROOST_PUSH_ALLOWED_ORIGINS: https://fcm.googleapis.com,https://web.push.apple.com,https://updates.push.services.mozilla.com
+
+postgres:
+  enabled: true
+  storage: 5Gi
+  backup:
+    enabled: true
+    keep: 14
+
+logs:
+  persistence:
+    enabled: true

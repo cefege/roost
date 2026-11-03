@@ -362,23 +362,23 @@ Coord down → workers redial and browsers lose state and terminal fan-out, but
 keeper subprocesses preserve the PTYs until the coordinator returns. Worker
 down → that machine's PTYs are unavailable; other machines keep working.
 
-**Our fleet's coordinator is not a host service.** It runs on a single-node
-k3s on ovh1, the same host as the public edge (namespace `roost`, Deployment
-`roost-coordinator`, StatefulSet `roost-coordinator-postgres`, a daily
-`pg_dump` CronJob keeping 14 archives), so on every fleet host `roost status`
-reports the coordinator service and listener as absent and the worker roster as
-"not on this host"; that is expected. The Deployment runs `replicas` pods
-(the chart's default, 2): one holds the `cluster:links` lease and serves
-every worker link, browser socket and agent run, and the others splice their
-connections to it (`crates/roost-coord/src/cluster/`). Flux, installed in the
-same k3s (`flux-system`), owns the Helm release (see "Release to the fleet").
-The k3s API answers on ovh1's tailnet address only to desktop-pc (firewalld
-rich rule on ovh1's `public` zone, port 6443, kubeconfig `~/.kube/ovh1.yaml`
-there); on ovh1 itself `sudo /usr/local/bin/k3s kubectl` needs none. Check it
-with:
+**Our fleet's coordinator is not a host service.** It runs in desktop-pc's
+existing k3s cluster, pinned to the desktop-pc node (namespace `roost`,
+Deployment `roost-coordinator`, StatefulSet `roost-coordinator-postgres`, a daily
+`pg_dump` CronJob keeping 14 archives). The desktop profile uses one coordinator
+replica; the chart supports multiple replicas through `cluster:links`
+ownership (`crates/roost-coord/src/cluster/`). Flux in `flux-system` owns the
+Helm release. Desktop is both the coordinator host and a managed worker. The
+managed workers are m1-max, mike-m5-air, desktop-pc and mini-pc;
+`xtask/fleet.json` lists their SSH aliases. Mini-pc's administrative SSH access
+uses desktop's existing key (`ssh desktop`, then `ssh mini-pc`).
+Other machines are not enrolled in this coordinator.
+
+The database was initialized empty on desktop; no OVH database was restored.
+On desktop, check it with:
 
 ```
-export KUBECONFIG=~/.kube/ovh1.yaml               # or, on ovh1: alias kubectl='sudo k3s kubectl'
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 kubectl -n roost get helmrelease roost-coordinator # Ready = Flux's last upgrade succeeded
 kubectl -n roost get pods                         # coordinator, postgres, backups
 curl -s https://mike.roosttt.com/readyz           # 200 = database answers
@@ -396,15 +396,13 @@ names (`/styles/*.css`) and the coordinator serves them `no-cache`; any fixed
 TTL there overrides that and ships each release's CSS hours late, beside the
 new wasm.
 
-ovh1's `roost-saas-legacy-bridge` reaches it through the drop-in
-`/etc/systemd/system/roost-saas-legacy-bridge.service.d/ovh1-k3s.conf`
-(`100.103.95.19:30413`). desktop-pc's k3s still holds the previous release,
-scaled to 0, with its Postgres as of the move. Roll back to it: on desktop-pc
-`kubectl -n roost scale deploy/roost-coordinator --replicas=1`
-(`KUBECONFIG=/etc/rancher/k3s/k3s.yaml`), and on ovh1 point the drop-in at
-`100.66.192.24:30413` and restart the bridge. Rows written on ovh1 since do not
-carry back unless dumped and restored (`pg_dump -Fc` / `pg_restore --no-owner`
-between the two `roost-coordinator-postgres-0` pods).
+The `roost-edge` Deployment on desktop runs cloudflared and Caddy together.
+Its tunnel credential lives only in Secret `roost-tunnel`; the old OVH
+credential was rotated at cutover. `deploy/flux/production/edge.yaml` defines
+the connector, explicit ingress and proxy. Caddy replaces X-Forwarded-For
+from CF-Connecting-IP and rejects private paths before forwarding to the
+coordinator's ClusterIP Service. No public NodePort or OVH bridge is needed
+for mike.roosttt.com. The shared tunnel's other hostnames still target OVH.
 
 **v3 runs beside v2, not on top of it.** v3 uses the data directories
 `RoostCoordinatorV3` and `RoostWorkerV3`, binds the coordinator to
@@ -520,10 +518,10 @@ gh workflow run promote.yml -f tag=<older tag>   # roll back (see below)
    cannot move the branch across changes to `.github/workflows/`.
    `release.yml` passes that named secret across the reusable-workflow boundary;
    the `production` environment supplies its value.
-3. **Coordinator.** Flux on ovh1 (`deploy/flux/`: a GitRepository on
+3. **Coordinator.** Flux on desktop-pc (`deploy/flux/`: a GitRepository on
    `production`, a Kustomization applying `deploy/flux/production/`, whose
    HelmRelease upgrades `roost-coordinator` with the chart and
-   `fleet-ovh1.values.yaml` from that commit) picks the branch up within a
+   `fleet-desktop.values.yaml` from that commit) picks the branch up within a
    minute. `postgres.password` comes from the Secret
    `roost-coordinator-values` (namespace `roost`, created by hand, never in
    git); the chart's `lookup` keeps `ROOST_COORDINATOR_SECRET_KEY`. A failed
@@ -531,6 +529,13 @@ gh workflow run promote.yml -f tag=<older tag>   # roll back (see below)
    upgrade can migrate the database and re-encrypt credentials. Flux's own
    manifests were installed once from its release `install.yaml`
    (`kubectl apply --server-side`), then `deploy/flux/bootstrap.yaml`.
+   The values Secret also pins desktop placement, one replica and the private
+   Service settings so promoting an older tag cannot send this cluster back
+   to OVH settings. It must not contain `image.tag`; the production branch owns
+   that pin. For a new installation, the backup PVC uses
+   `WaitForFirstConsumer`: create a job from
+   `roost-coordinator-postgres-backup` to bind it before expecting Helm's
+   `--wait` to finish.
 4. **Workers.** Linux and macOS workers poll the coordinator's `/version` and
    install exactly that release themselves (`roost __self-update`,
    log `self-update-<tag>.log` in the worker's log directory), so they follow a

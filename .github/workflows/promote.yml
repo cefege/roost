@@ -19,7 +19,7 @@ name: promote
 # reviewer), so it promotes as soon as the release publishes. It never touches
 # the cluster: it
 # points the `production` branch at the tag's commit plus one commit pinning
-# the coordinator image, and Flux on ovh1 (deploy/flux/) pulls that branch and
+# the coordinator image, and Flux on desktop-pc (deploy/flux/) pulls that branch and
 # upgrades the Helm release. Workers follow the coordinator's `/version` on
 # their own, so this is the whole deploy.
 on:
@@ -197,7 +197,7 @@ jobs:
           if [ -z "${version:-}" ]; then
             # Releases before /version existed cannot report themselves; the
             # rollout is still Flux's, so say so instead of failing it.
-            echo "::warning::${PUBLIC_URL}/version did not answer; check the HelmRelease on ovh1"
+            echo "::warning::${PUBLIC_URL}/version did not answer; check the HelmRelease on desktop-pc"
             exit 0
           fi
           echo "::error::${PUBLIC_URL} still reports ${version}, not ${TAG}"
