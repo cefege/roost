@@ -1,8 +1,6 @@
-//! The three direct-attachment RPCs over a booted coordinator and a real
-//! database: the grant binds the authenticated tab, the status call returns
-//! only a typed receipt, and deleting the worker retires its grants so an
-//! in-flight negotiation fails at once. Ports
-//! `apps/coord/tests/attachments/attachment-direct-handlers.test.ts`.
+//! Direct-attachment ownership, authenticated tab and lease boundaries.
+//! Uses a migrated coordinator and a transport-controlled ready worker.
+//! Covers OMP conversation grants, typed status receipts and retirement.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod attachments_direct_support;
@@ -15,6 +13,7 @@ use attachments_direct_support::{
     offer_of, owner_key, valid_sdp, wait_for_frame,
 };
 use connectrpc::ErrorCode;
+use roost_coord::agent::omp::store::{OmpNew, create as create_omp_conversation};
 use roost_coord::attachments::grant_state::AttachmentGrantPort;
 use roost_coord::attachments::rpc_direct::{
     handle_attachments_direct_status, handle_attachments_grant_direct,
@@ -96,22 +95,17 @@ async fn the_grant_binds_the_authenticated_tab_and_its_own_lease() {
 async fn a_conversation_grant_rejects_a_worker_that_does_not_own_the_conversation() {
     let harness = DirectHarness::new("conversation-worker-owner").await;
     let (_handle, sent) = harness.attach_acking_worker();
-    let conversation = harness
-        .core
-        .services
-        .agent
-        .runtime
-        .create_conversation(roost_agent::NewConversation {
+    let conversation = create_omp_conversation(
+        &harness.core.services.db,
+        OmpNew {
             worker_fp: attachments_direct_support::OTHER_WORKER_FP.to_owned(),
             worker_label: "other".to_owned(),
             worker_os: "linux".to_owned(),
             cwd: "/tmp/project".to_owned(),
-            title: Some("wrong worker".to_owned()),
-            model: None,
-            thinking_level: None,
-        })
-        .await
-        .expect("conversation created");
+        },
+    )
+    .await
+    .expect("conversation created");
     let mut request = grant_request(TAB_ID);
     request.session_id = conversation.id;
     let error =
@@ -130,22 +124,17 @@ async fn a_conversation_grant_rejects_a_worker_that_does_not_own_the_conversatio
 async fn a_conversation_can_receive_a_direct_attachment_grant() {
     let harness = DirectHarness::new("conversation-direct-grant").await;
     let (_handle, sent) = harness.attach_acking_worker();
-    let conversation = harness
-        .core
-        .services
-        .agent
-        .runtime
-        .create_conversation(roost_agent::NewConversation {
+    let conversation = create_omp_conversation(
+        &harness.core.services.db,
+        OmpNew {
             worker_fp: WORKER_FP.to_owned(),
             worker_label: "laptop".to_owned(),
             worker_os: "linux".to_owned(),
             cwd: "/tmp/project".to_owned(),
-            title: Some("attachment target".to_owned()),
-            model: None,
-            thinking_level: None,
-        })
-        .await
-        .expect("conversation created");
+        },
+    )
+    .await
+    .expect("conversation created");
     let mut request = grant_request(TAB_ID);
     request.session_id = conversation.id.clone();
     let response =
@@ -161,64 +150,6 @@ async fn a_conversation_can_receive_a_direct_attachment_grant() {
         .expect("the conversation grant is active");
     assert_eq!(lease.descriptor.session_id.as_str(), conversation.id);
     assert_eq!(installs(&sent), 1);
-}
-
-#[tokio::test]
-async fn direct_status_resolves_an_agent_conversation_to_its_worker() {
-    let harness = DirectHarness::new("conversation-direct-status").await;
-    let (handle, sent) = harness.attach_acking_worker();
-    let conversation = harness
-        .core
-        .services
-        .agent
-        .runtime
-        .create_conversation(roost_agent::NewConversation {
-            worker_fp: WORKER_FP.to_owned(),
-            worker_label: "laptop".to_owned(),
-            worker_os: "linux".to_owned(),
-            cwd: "/tmp/project".to_owned(),
-            title: Some("attachment target".to_owned()),
-            model: None,
-            thinking_level: None,
-        })
-        .await
-        .expect("conversation created");
-    let request = AttachmentsDirectStatusRequest {
-        session_id: conversation.id,
-        upload_id: UPLOAD_ID.to_owned(),
-        ..Default::default()
-    };
-    let caller = browser_caller(Some(TAB_ID));
-    let status_call = handle_attachments_direct_status(&harness.core, &caller, request);
-    tokio::pin!(status_call);
-    let asked = tokio::select! {
-        _ = &mut status_call => panic!("status answered before the worker reply"),
-        request = wait_for_frame(&sent, |frame| match frame {
-            CoordWorkerDownstream::AttachmentDirectStatusRequest(request) => {
-                Some(request.clone())
-            }
-            _ => None,
-        }) => request,
-    };
-    assert!(harness.services().attachments.statuses().accept_status(
-        &handle,
-        &WAttachmentDirectStatus {
-            request_id: asked.request_id,
-            status: MessageField::some(AttachmentTransferStatus {
-                upload_id: UPLOAD_ID.to_owned(),
-                ..Default::default()
-            }),
-            ..Default::default()
-        }
-    ));
-    let status = status_call
-        .await
-        .expect("conversation status resolves")
-        .body
-        .status
-        .into_option()
-        .expect("worker status");
-    assert_eq!(status.upload_id, UPLOAD_ID);
 }
 
 // v2 "AttachmentsDirectStatus returns only an authenticated typed receipt".

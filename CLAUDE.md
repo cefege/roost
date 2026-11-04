@@ -39,9 +39,11 @@ Also live, read when relevant:
   open decision gates.
 - **[`docs/LENS.md`](docs/LENS.md)** — the generic operating doctrine
   (`## Reading lens` below). Read once, not per task.
-- **[`protocol/spec/agent-chat.md`](protocol/spec/agent-chat.md)** — the native
-  Rust agent contract. Full one-to-one OMP-harness parity is out of scope
-  unless the operator explicitly requests it again.
+- **[`protocol/spec/agent-chat.md`](protocol/spec/agent-chat.md)** — the active
+  OMP web-agent contract and retained Rust-native contract. OMP is the only
+  active agent backend. The Rust-native harness is archived: preserve its code,
+  journals and credentials, but do not re-enable its runtime or UI without an
+  explicit operator request.
 
 ---
 

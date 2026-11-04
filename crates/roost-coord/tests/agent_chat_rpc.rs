@@ -8,6 +8,8 @@
 mod agent_fixture;
 mod db_support;
 
+#[path = "agent_chat_rpc/archive.rs"]
+mod archive;
 #[path = "agent_chat_rpc/fake_worker.rs"]
 mod fake_worker;
 #[path = "agent_chat_rpc/models_hub.rs"]
@@ -179,6 +181,7 @@ async fn create(setup: &Setup) -> String {
         &setup.fixture.caller,
         proto::AgentChatCreateRequest {
             worker_fp: WORKER_A.into(),
+            backend: "native".into(),
             cwd: "/repo".into(),
             model_provider: "anthropic".into(),
             model_id: MODEL.into(),

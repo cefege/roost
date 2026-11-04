@@ -25,7 +25,7 @@ pub async fn handle_agent_chat_inspect(
     let mut inspection = core
         .services
         .agent
-        .runtime
+        .native_runtime()?
         .inspect(&request.conversation_id)
         .await
         .map_err(agent_status)?;

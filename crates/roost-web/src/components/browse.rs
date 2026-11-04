@@ -37,7 +37,6 @@ use roost_client_core::store::browse_paths::BROWSE_HOME;
 use roost_client_core::store::navigation::worker_online;
 use roost_client_core::store::selectors::all_sessions;
 use roost_client_core::sync::SyncDomain;
-use roost_protocol::wire::agent_chat::AgentBackend;
 
 use crate::platform::worker_paths::WorkerPathCrumb;
 use crate::pump::{Pump, use_store};
@@ -47,8 +46,8 @@ use crate::routes::{Route, browse_href};
 /// The launch intent carried while a folder picker is choosing a directory.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowseLaunchMode {
-    /// The picker was opened to create an agent rather than a terminal.
-    Agent(AgentBackend),
+    /// The picker was opened to create an OMP agent rather than a terminal.
+    Agent,
     /// The picker was opened to create a terminal.
     Terminal,
 }
@@ -58,8 +57,7 @@ pub enum BrowseLaunchMode {
 pub fn browse_mode_href(worker_fp: &str, mode: BrowseLaunchMode) -> String {
     let href = browse_href(worker_fp);
     match mode {
-        BrowseLaunchMode::Agent(AgentBackend::Native) => format!("{href}?intent=agent"),
-        BrowseLaunchMode::Agent(AgentBackend::Omp) => format!("{href}?intent=omp"),
+        BrowseLaunchMode::Agent => format!("{href}?intent=omp"),
         BrowseLaunchMode::Terminal => href,
     }
 }
@@ -73,8 +71,7 @@ pub fn browse_launch_mode(location: &str) -> BrowseLaunchMode {
     query
         .split('&')
         .find_map(|parameter| match parameter {
-            "intent=agent" => Some(BrowseLaunchMode::Agent(AgentBackend::Native)),
-            "intent=omp" => Some(BrowseLaunchMode::Agent(AgentBackend::Omp)),
+            "intent=agent" | "intent=omp" => Some(BrowseLaunchMode::Agent),
             _ => None,
         })
         .unwrap_or(BrowseLaunchMode::Terminal)
@@ -83,26 +80,14 @@ pub fn browse_launch_mode(location: &str) -> BrowseLaunchMode {
 #[cfg(test)]
 mod launch_mode_tests {
     use super::{BrowseLaunchMode, browse_launch_mode, browse_mode_href};
-    use roost_protocol::wire::agent_chat::AgentBackend;
 
     #[test]
-    fn agent_intent_survives_browse_machine_href_and_query_parsing() {
-        let mode = BrowseLaunchMode::Agent(AgentBackend::Native);
-        let href = browse_mode_href("worker", mode);
-        assert_eq!(href, "/browse/worker?intent=agent");
-        assert_eq!(browse_launch_mode(&href), mode);
-        assert_eq!(
-            browse_launch_mode("/browse/worker?intent=terminal"),
-            BrowseLaunchMode::Terminal
-        );
-    }
-
-    #[test]
-    fn omp_intent_survives_browse_machine_href_and_query_parsing() {
-        let mode = BrowseLaunchMode::Agent(AgentBackend::Omp);
+    fn agent_intent_uses_omp_and_legacy_agent_links_still_open_the_picker() {
+        let mode = BrowseLaunchMode::Agent;
         let href = browse_mode_href("worker", mode);
         assert_eq!(href, "/browse/worker?intent=omp");
         assert_eq!(browse_launch_mode(&href), mode);
+        assert_eq!(browse_launch_mode("/browse/worker?intent=agent"), mode);
         assert_eq!(
             browse_launch_mode("/browse/worker?other=value&intent=omp"),
             mode

@@ -320,27 +320,3 @@ fn search_groups(query: &str) -> Vec<(&'static str, Vec<SettingsPaneSpec>)> {
         })
         .collect()
 }
-
-#[cfg(test)]
-mod search_tests {
-    use super::search_groups;
-
-    #[test]
-    fn find_model_controls_by_work_name_or_command() {
-        for query in [
-            "advisor",
-            "Adviser",
-            "planning",
-            "side tasks",
-            "btw",
-            "fallback",
-        ] {
-            let matches: Vec<_> = search_groups(query)
-                .into_iter()
-                .flat_map(|(_, panes)| panes)
-                .map(|pane| pane.id)
-                .collect();
-            assert_eq!(matches, ["models"], "search: {query}");
-        }
-    }
-}

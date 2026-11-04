@@ -50,7 +50,8 @@ async fn pair(label: &str) -> (Replica, Replica, std::path::PathBuf) {
 async fn create(replica: &Replica) -> String {
     replica
         .service
-        .runtime
+        .native_runtime()
+        .unwrap()
         .create_conversation(NewConversation {
             worker_fp: "worker-fp".into(),
             worker_label: "desktop".into(),
@@ -146,8 +147,8 @@ async fn a_due_schedule_delivers_exactly_once_across_two_racing_replicas() {
     let mut fired = 0;
     for _ in 0..20 {
         let (fired_a, fired_b) = tokio::join!(
-            roost_agent::schedules::deliver_due(&a.service.runtime),
-            roost_agent::schedules::deliver_due(&b.service.runtime),
+            roost_agent::schedules::deliver_due(a.service.native_runtime().unwrap()),
+            roost_agent::schedules::deliver_due(b.service.native_runtime().unwrap()),
         );
         fired += fired_a.unwrap_or(0) + fired_b.unwrap_or(0);
         if store(&a).schedules(&id).await.unwrap().is_empty() {
@@ -297,7 +298,12 @@ async fn conversation_deletion_removes_its_schedule_rows() {
     store(&a).set_schedule(&id, &row).await.unwrap();
     assert_eq!(store(&a).schedules(&id).await.unwrap().len(), 1);
 
-    a.service.runtime.delete_conversation(&id).await.unwrap();
+    a.service
+        .native_runtime()
+        .unwrap()
+        .delete_conversation(&id)
+        .await
+        .unwrap();
 
     assert!(
         store(&a).schedules(&id).await.unwrap().is_empty(),

@@ -175,7 +175,7 @@ pub(super) fn run_local_command(
             true
         }
         "logout" => {
-            navigate.call(crate::routes::settings_pane_href("models"));
+            navigate.call(crate::routes::settings_pane_href("omp"));
             true
         }
         "new" => {
@@ -183,7 +183,6 @@ pub(super) fn run_local_command(
                 pump,
                 conversation.worker_fp.clone(),
                 conversation.cwd.clone(),
-                conversation.backend,
                 navigate,
             );
             true

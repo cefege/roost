@@ -156,7 +156,7 @@ pub fn build_folder_groups_from(
         Vec<&roost_protocol::wire::agent_chat::ConversationSummary>,
     )> = Vec::new();
     for conversation in store.agent_chat.conversations.values() {
-        if conversation.parent_id.is_some() {
+        if conversation.is_native() || conversation.parent_id.is_some() {
             continue;
         }
         let key = crate::store::paths::folder_key_of(
@@ -176,7 +176,9 @@ pub fn build_folder_groups_from(
     let mut children_by_parent =
         BTreeMap::<&str, Vec<&roost_protocol::wire::agent_chat::ConversationSummary>>::new();
     for conversation in store.agent_chat.conversations.values() {
-        if let Some(parent) = conversation.parent_id.as_deref() {
+        if !conversation.is_native()
+            && let Some(parent) = conversation.parent_id.as_deref()
+        {
             children_by_parent
                 .entry(parent)
                 .or_default()

@@ -157,7 +157,7 @@ pub fn MobileDeckBar(
                 size: count_size,
                 class: Some(count_class.to_owned()),
                 "data-testid": "mobile-tab-count",
-                "aria-label": "Open terminal grid — {badge.description}",
+                "aria-label": "Open workspace tabs — {badge.description}",
                 title: "{badge.description}",
                 onclick: move |_| sheet_open.set(true),
                 span { "{badge.text}" }

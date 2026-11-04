@@ -128,18 +128,15 @@ pub fn use_boot_landing(path: Signal<String>) {
 }
 
 /// The href a boot at `/` opens: the last terminal while its session is still
-/// open, else the last agent conversation while it still exists.
+/// open, else the last OMP conversation while it still exists.
 fn landing_href(store: &Store, storage: &dyn KeyValueStore) -> Option<String> {
     let terminal = last_terminal_path(storage).filter(|path| {
         active_open_session_for_route(store, &BrowserWorkerPaths, &Route::parse(path)).is_some()
     });
     terminal.or_else(|| {
         let conversation_id = storage.get(LAST_CONVERSATION_KEY)?;
-        store
-            .agent_chat
-            .conversations
-            .contains_key(&conversation_id)
-            .then(|| agent_href(&conversation_id))
+        let conversation = store.agent_chat.conversations.get(&conversation_id)?;
+        (!conversation.is_native()).then(|| agent_href(&conversation_id))
     })
 }
 

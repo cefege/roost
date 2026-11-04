@@ -29,7 +29,8 @@ pub fn RecentConversations(query: String) -> Element {
             .conversations
             .values()
             .filter(|conversation| {
-                needle.is_empty() || conversation.title.to_lowercase().contains(&needle)
+                !conversation.is_native()
+                    && (needle.is_empty() || conversation.title.to_lowercase().contains(&needle))
             })
             .map(|conversation| (conversation.id.clone(), conversation.updated_ms))
             .collect()

@@ -27,7 +27,13 @@ use tokio_util::sync::CancellationToken;
 #[tokio::test]
 async fn a_lost_background_job_is_delivered_to_its_conversation_as_failed() {
     let fixture = AgentFixture::new("agent-job-loss").await;
-    let runtime: AgentRuntime = fixture.core.services.agent.runtime.clone();
+    let runtime: AgentRuntime = fixture
+        .core
+        .services
+        .agent
+        .native_runtime()
+        .unwrap()
+        .clone();
     let conversation = runtime
         .create_conversation(NewConversation {
             worker_fp: agent_fixture::WORKER_A.to_owned(),

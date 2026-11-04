@@ -153,14 +153,18 @@ wins.
   (`GetScrollbackCells`).
 
 - **agent CLI** — an arbitrary terminal program, such as `omp`, Claude Code, or
-  Codex, launched inside a normal shell PTY. Roost transports its terminal
-  input and output but does not interpret its transcript, tools, or approval
-  prompts. The built-in agent is a separate Roost-owned conversation type.
+  Codex, launched inside a normal shell PTY. Roost transports that program's
+  terminal input and output. It is distinct from OMP agent mode.
 
-- **built-in agent** — the Rust coding-agent harness in the coordinator.
-  `roost-agent` drives conversations and `roost-llm` handles provider access;
-  tools execute on the selected worker through `agent_tools_v1` frames using
-  `roost-agent-tools`.
+- **OMP agent mode** — a worker-hosted `omp acp` conversation rendered as
+  semantic HTML. The coordinator projects OMP's transcript and interactions;
+  models, providers and commands come from the worker's OMP process. It creates
+  no shell PTY and is the only active web-agent backend.
+
+- **Rust-native agent (archived)** — Roost's retained custom coordinator harness:
+  `roost-agent`, `roost-llm` and `roost-agent-tools`. Its code, conversations and
+  credentials remain stored, but production execution and native UI entry
+  points are disabled. It is not the OMP web agent.
 
 - **agent runtime state** — what a coding agent inside a shell PTY is doing:
   `working`, `blocked` (waiting on the user), or `idle`. Volatile metadata on a

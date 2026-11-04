@@ -35,6 +35,7 @@ pub async fn handle_agent_auth_login_start(
     require_account_device(caller)?;
     let agent = &core.services.agent;
     let login_id = agent
+        .native_service()?
         .logins
         .start(&request.provider)
         .await
@@ -54,6 +55,7 @@ pub async fn handle_agent_auth_login_poll(
     let state = core
         .services
         .agent
+        .native_service()?
         .logins
         .state(&request.login_id)
         .await
@@ -74,6 +76,7 @@ pub async fn handle_agent_auth_login_respond(
     require_account_device(caller)?;
     let agent = &core.services.agent;
     agent
+        .native_service()?
         .logins
         .respond(&request.login_id, &request.prompt_id, &request.value)
         .await
@@ -89,6 +92,7 @@ pub async fn handle_agent_auth_login_cancel(
     require_account_device(caller)?;
     core.services
         .agent
+        .native_service()?
         .logins
         .cancel(&request.login_id)
         .await
@@ -102,6 +106,7 @@ pub async fn handle_agent_auth_set_api_key(
     request: proto::AgentAuthSetApiKeyRequest,
 ) -> ServiceResult<proto::AgentAuthSetApiKeyResponse> {
     require_account_device(caller)?;
+    core.services.agent.native_service()?;
     if !API_KEY_PROVIDERS.contains(&request.provider.as_str()) {
         return Err(ConnectError::new(
             ErrorCode::InvalidArgument,
@@ -119,7 +124,7 @@ pub async fn handle_agent_auth_set_api_key(
     let credential_id = core
         .services
         .agent
-        .pool()
+        .pool()?
         .store()
         .upsert(
             &request.provider,

@@ -33,7 +33,7 @@ pub async fn handle_agent_chat_answer(
         .map_err(|error| {
             ConnectError::new(ErrorCode::InvalidArgument, format!("answers_json: {error}"))
         })?;
-    let runtime = &core.services.agent.runtime;
+    let runtime = core.services.agent.native_runtime()?;
     runtime
         .deduplicated(
             &request.conversation_id,
@@ -64,7 +64,7 @@ pub async fn handle_agent_chat_rewind(
     {
         return Err(super::omp::rpc::unsupported());
     }
-    let runtime = &core.services.agent.runtime;
+    let runtime = core.services.agent.native_runtime()?;
     let text = runtime
         .deduplicated_requiring_resolved_plan(
             &request.conversation_id,
@@ -118,7 +118,7 @@ pub async fn handle_agent_chat_fork(
         return Err(super::omp::rpc::unsupported());
     }
     let item_id = (!request.item_id.is_empty()).then_some(request.item_id.as_str());
-    let runtime = &core.services.agent.runtime;
+    let runtime = core.services.agent.native_runtime()?;
     let forked_id = runtime
         .deduplicated(
             &request.conversation_id,

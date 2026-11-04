@@ -4,7 +4,9 @@
 
 use std::collections::BTreeMap;
 
-use roost_protocol::wire::agent_chat::{AgentRunState, FolderModelRoles, ModelPresets, ModelRef};
+use roost_protocol::wire::agent_chat::{
+    AgentBackend, AgentRunState, ConversationSummary, FolderModelRoles, ModelPresets, ModelRef,
+};
 use serde::{Deserialize, Serialize};
 
 mod journal;
@@ -113,6 +115,34 @@ pub struct ConversationRecord {
 }
 
 impl ConversationRecord {
+    /// Projects persisted metadata without requiring a live native runtime.
+    /// Archived readers supply no effective model or active advisor default.
+    pub fn to_summary(
+        &self,
+        effective_model: Option<ModelRef>,
+        advisor_default: bool,
+    ) -> ConversationSummary {
+        ConversationSummary {
+            backend: AgentBackend::Native,
+            id: self.id.clone(),
+            title: self.title.clone(),
+            worker_fp: self.worker_fp.clone(),
+            worker_label: self.worker_label.clone(),
+            cwd: self.cwd.clone(),
+            model: self.model.clone(),
+            effective_model,
+            thinking_level: Some(self.thinking_level.clone()),
+            mode: self.mode.as_str().to_owned(),
+            parent_id: self.parent_id.clone(),
+            agent: self.agent.clone(),
+            advisor: self.parent_id.is_none() && self.advisor.unwrap_or(advisor_default),
+            run_state: self.run_state,
+            error: self.error.clone(),
+            created_ms: self.created_ms,
+            updated_ms: self.updated_ms,
+        }
+    }
+
     /// The one owner of the parent link: peer lookups, cascades and the
     /// fleet's child listings all ask through this.
     pub(crate) fn is_child_of(&self, parent_id: &str) -> bool {

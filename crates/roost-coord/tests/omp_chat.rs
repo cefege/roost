@@ -83,7 +83,6 @@ async fn create(fixture: &AgentFixture) -> String {
         proto::AgentChatCreateRequest {
             worker_fp: WORKER_A.into(),
             cwd: "/work".into(),
-            backend: "omp".into(),
             ..Default::default()
         },
     )
@@ -159,7 +158,8 @@ async fn omp_chat_submit_projection_replay_and_native_isolation() {
         .core
         .services
         .agent
-        .runtime
+        .native_runtime()
+        .unwrap()
         .conversations()
         .await
         .unwrap()
@@ -184,7 +184,8 @@ async fn omp_chat_submit_projection_replay_and_native_isolation() {
             .core
             .services
             .agent
-            .runtime
+            .native_runtime()
+            .unwrap()
             .conversations()
             .await
             .unwrap()

@@ -20,12 +20,12 @@ registry, `Session` is the user-facing row, `Channel` is a PTY connection,
 | `roost-keeper` | The keeper daemon: PTY ownership, per-channel byte rings, the framed keeper socket protocol. | `roost-keeper` |
 | `roost-worker` | Sessions, keeper client, durable outbox, coordinator link, local door, WebRTC peer, agent tracking. | — |
 | `roost-coord` | SQLite or Postgres state, auth, Connect RPC handlers, Sync and worker WebSocket links, terminal hubs, server-side web push (no browser subscribes yet). | — |
-| `roost-coord::agent` | The agent harness wired to the coordinator: database stores (command admission, run leases), provider sign-ins and accounts, chat/settings RPCs, the transcript event cache, and worker tool calls. | — |
+| `roost-coord::agent` | OMP event/interaction projection, worker-backed settings and chat RPCs; retained read-only native history and the archived native service/test fixtures. | — |
 | `roost-coord::cluster` | What lets coordinator replicas share one Postgres database: the cross-replica notice channel (`pg_notify`/`LISTEN`; in-process on SQLite). | — |
 | `roost-client-core` | The UI-free client: Connect client, Sync state machine, store fold, terminal-stream replica and route election, input lanes, encoders, find paging. | — |
-| `roost-llm` | The agent harness's provider layer: model catalog, Anthropic / OpenAI Codex / OpenRouter / Experiential Labs / TypeSafe wire clients, OAuth logins, the multi-account credential pool and rotation, usage reports, the judge. | — |
-| `roost-agent` | Native chat and Roost policies around vendored Pi Durable. `src/durable/` adapts fenced atomic batches, history import/projection, providers, worker tools and hooks; the reusable kernel owns generation/tool/compaction execution. Run leases, goals/loop/advisor/plan/subagents, roles and commands stay host-owned. | — |
-| `roost-agent-tools` | The worker-side agent tools: hashline read/edit, write, bash, grep, glob, LSP client and on-demand language-server installer. | — |
+| `roost-llm` | Retained provider layer for the archived Rust-native harness: model catalogs, wire clients, OAuth logins, credential rotation, usage and judging. Not OMP's provider-account source. | — |
+| `roost-agent` | Archived native chat/policies around vendored Pi Durable. Engine, durable history, goals/loop/advisor/plan/subagents, roles and commands remain implemented and tested, but production does not start native execution. | — |
+| `roost-agent-tools` | Retained worker-side tools for the archived native harness: hashline read/edit, write, bash, grep, glob, LSP and language-server installation. OMP uses its own harness tools. | — |
 | `roost-vcs` | Git-linked worktree creation: reflink staging, clean target reconciliation or retained live changes, safe plain-checkout fallback, and captured checkout hooks. | — |
 | `roost-web-terminal` | The imperative `web-sys` terminal renderer and its input, IME, mouse, selection and link controllers. | — |
 | `roost-web` | The Dioxus 0.8 alpha.3 web application: routes, components, static assets. | — |

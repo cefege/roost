@@ -197,153 +197,51 @@ through `ROOST_LOG_FILE_DIR`, so `kubectl -n roost exec deploy/roost-coordinator
 -- roost doctor --since 24h` reads across rollouts; doctor reads the audit log
 from the Postgres the pod's `ROOST_COORDINATOR_DATABASE_URL` names.
 
-The Rust agent harness runs in the coordinator; worker-side tools are dispatched
-over the worker link. For a proxy or alternate provider endpoint, set
-`ROOST_AGENT_ENDPOINT_OVERRIDES` to a JSON object mapping provider names to base
-URLs, for example `{"anthropic":"https://gateway.example"}`.
+## OMP agent mode
 
-Background jobs: a `bash` call with `async` set returns a job id (`bg_N`) at once,
-and the command keeps running on its worker. A foreground `bash` call that runs
-longer than 60 s moves into a background job by itself and returns its id. The
-`wait` tool blocks until a running job settles and answers at once when none runs;
-the `job` tool lists jobs, shows a job's output, or cancels one. A settled job is
-delivered into its conversation as a notice, which starts a new run when the chat
-is idle. Each chat may hold 15 running jobs; a sixteenth is refused until one
-settles or is cancelled. Jobs live on their worker's coordinator link: if that
-link drops, the jobs are reported as failed, since their outcome is unknown and
-nothing is replayed. Aborting a chat cancels its running jobs.
+Choose **New agent**, select a worker and folder, and chat with OMP through the
+web UI. This creates an agent conversation, not a terminal. **Terminal** remains
+the separate launcher for shells and terminal agent CLIs.
 
-Peer messages: a live chat or subagent sends another visible conversation text
-with the `message` tool, addressed by a peer's id or unique label, or to `all`
-for a broadcast. Delivery never blocks the sender. A busy recipient reads the
-message as an aside at its next step boundary. An idle recipient starts a run
-for a direct message; a broadcast only waits for the recipient's next turn and
-never wakes it. A subagent sees its parent and the subagents with the same
-parent; the main chat sees its subagents. A subagent that has yielded is
-finished and refuses messages. `wait` also returns once a message arrives. A
-parent blocked inside a `task` call receives its messages after the whole batch
-finishes. Not in this version: OMP's parked-agent lifecycle and broadcast
-de-duplication (`suppressRelay`).
+OMP is the only active agent backend. Roost's custom Rust-native agent is
+archived: its code, conversation journals, settings and credentials remain
+stored, but its runtime and creation/settings UI are not active. Old native
+links show an archived notice; nothing is converted into an OMP conversation.
+The retained native contract is in
+[`protocol/spec/agent-chat.md`](protocol/spec/agent-chat.md).
 
-In agent chat, `/model` (also `/models`) opens **Models** on **This chat**.
-Click a model once, or select it and press Enter, to use it in this chat.
-That explicit choice is the chat's model pin. The **Default** and **Fast**
-shortcuts open those saved pickers directly.
+Models, connected providers and commands come from the selected worker's actual
+OMP configuration, not Roost's archived provider-account store. Provider
+discovery finishes before choices are advertised. OMP credentials stay on that
+worker under `~/.omp`.
 
-Most people set two models. **Default model** is what new chats use.
-**Fast model** is optional: a cheaper model for code searches, `/btw` side
-questions and conversation summaries. Unset, that work uses the chat's model.
-**Advanced overrides** (closed by default) hold separate models for Plan mode,
-general and reviewer helpers, side questions & summaries, and the Judge that
-makes background decisions such as auto thinking effort; an unset helper uses
-its parent chat's model. The advisor's model sits beside the Advisor switch,
-and search engine order lives in Settings → Web search. The
-[native role contract](protocol/spec/agent-chat.md#model-roles) lists every
-role and fallback. Classifier models appear only in the Judge picker.
+The composer combines model and thinking controls. Reopening the picker reloads
+the saved session in a fresh OMP process when idle; a busy chat defers refresh
+until work settles. Model and thinking pins apply independently to the next
+message; **Use inherited…** clears the corresponding pin. Settings exposes the
+OMP defaults for a machine or folder.
 
-Settings → **Models & accounts** shows each role as a priority table. Drag a
-row by its grip to change the default and fallback order. Click a model to
-replace it, or **Add fallback** to append another. The row menu also moves or
-removes candidates. Changes save automatically in order. Removing the default
-promotes the next candidate; removing the last restores the inherited choice.
+Type `/` or open the command button for commands offered by OMP. Bare `/model`
+opens the worker-backed picker. `/plan` uses the plan and non-plan modes ACP
+actually offers; `/plan <prompt>` enters plan mode before submitting an idle,
+non-plan conversation's prompt. Commands are not translated into the archived
+Rust-native agent's commands.
 
-Saved defaults apply to all folders unless you choose a folder. Editing them
-never clears an explicit chat pin, and folder overrides take precedence.
+Questions, forms, confirmations and plan approvals wait for an explicit answer.
+Closing or canceling a request is not approval. Stop also cancels unanswered
+startup requests; no terminal-only OMP screen is replaced with a fake HTML form.
 
-A role's **Thinking** control can follow the chat's `/effort`, choose Auto per
-request, or save a fixed level as the model's `:level` suffix. **Presets** apply
-the roles they name without resetting the others. Anthropic and OpenAI are
-starter presets. **Save as…** stores the current roles; saving under a starter's
-name replaces it, and deleting that saved copy restores the starter.
-**Settings** opens fallback chains, presets and accounts.
+Tool output updates where its call began. Reads group compactly; other tools show
+a bounded preview with full output on expansion. Writes show numbered content,
+edits show contextual diffs, and live command output follows its tail. Thinking
+opens while live and folds after completion unless you chose otherwise.
+Pre-execution argument streams that ACP does not send are not simulated.
 
-The command button opens the command menu. Selecting a command runs it if no
-argument is needed, or fills the composer so you can add its argument.
-Bare `/model`, `/models` and `/settings` open controls without sending a message.
-Settings have searchable groups and mobile list/detail navigation.
+Desktop uses browser-style workspace tabs with icons, titles, close buttons and
+a trailing new-tab button. Packed strips retain a readable active tab and an
+overflow list; phones retain their larger controls and workspace tab grid.
 
-Native chat follows [Pi Pocket's conversation layout](https://tannermidd.github.io/pi-pocket/):
-one title in the deck/mobile navigation, left-aligned user blocks, unboxed
-assistant prose, and consecutive tools folded into one activity disclosure.
-Expand the activity, then a tool row, for its output or diff; raw arguments
-and execution facts live under **Details**. Transcript display options sit
-behind one filter menu.
-
-Chat opens without the inspector or a second recent-conversation list. The
-title-band **…** menu opens Inspector, Rename, Browse conversations and Delete,
-including while a pane is in spotlight. Message **…** holds Edit, Retry and
-Rewind. The composer shares the transcript column: attachments and commands on
-the left, a compact model/effort picker beside voice and Send on the right.
-Staged files sit above the field rather than widening the toolbar. Context usage
-sits below it. The model selector changes this chat's model and exposes its
-thinking level inside the menu.
-**Chat options** (**…**) holds Plan mode, Advisor, goal management and the
-Follow-up / Steer / Reject-if-busy policy.
-
-OMP chat uses the worker's real OMP configuration, connected providers, and model
-choices—not the native agent's accounts. Its combined model/effort picker follows
-[Claude's control placement](https://support.claude.com/en/articles/8664678-change-the-model-effort-and-thinking-settings).
-Provider discovery finishes before choices are advertised. Reopening the picker
-reloads the saved session in a fresh OMP process when idle; a busy chat defers that
-refresh until work settles. Model and thinking pins apply independently to the
-next message; **Use inherited…** clears the corresponding pin.
-
-OMP tool output updates where the call began. Reads group compactly; other tools
-show their bounded preview directly, with full output available on expansion.
-Writes show numbered content, edits show contextual diffs, and command output
-follows its tail within the available viewport. Live thinking opens and completed
-thinking folds unless you chose otherwise. The web client cannot display
-pre-execution argument streams that OMP's ACP interface does not send.
-
-
-**Chat options → Manage goal**, available while a goal is live, opens the objective, status and budget dialog.
-`/goal <objective>` (or `/goal set <objective>`) starts the same workflow.
-`/goal show`, `pause`, `resume`, `drop`, and `budget <positive integer|off>`
-manage it; those words are commands only on their own (`budget` with one
-value), so `/goal drop support for X` sets that objective.
-Pause prevents future goal continuations, not the current accepted
-turn; **Stop** aborts that turn and pauses the goal, even with an unsent draft.
-Resume or drop a paused goal before replacing it. Dropping retains its history.
-Completion requires the model's explicit `goal complete` tool report; prose or
-closed todos alone do not prove completion.
-
-Goal budgets are soft: input, output and cache-write tokens count, cache-read
-tokens do not. Exhaustion admits one wrap-up; changing the budget re-arms it.
-Active execution time excludes paused/offline time and checkpoints every five
-seconds. Active goals recover automatically, except durable waiting states
-requiring user input. Blocked-only todos or no/repeated tool progress produce
-that waiting state rather than an endless empty loop. Goals do not overlap
-`/loop` or plan mode.
-
-Chat renders streamed prose, separately collapsible thinking, compact tool
-heads with bounded live previews, and a phased todo disclosure. Thinking
-visibility and thinking effort are separate controls. Tool arguments, transported
-output and execution facts remain reachable; truncated output/artifacts are not
-advertised as complete. Errors remain in history, with Details/Dismiss and
-session-local model switching in the composer. Cancellation is neutral; a
-dispatched call whose final result was not observed still warns that its outcome
-is unknown. These controls are clickable on desktop and mobile.
-
-Accepted unfinished harness work resumes automatically when the coordinator
-starts against the same database. Failed run attempts and run-task panics retry
-until completion or Stop; retry backoff reaches 60 s, and failures/recovery are
-recorded in the conversation and structured logs. An offline worker holds tool
-dispatch until it reconnects. If a dispatched tool's result was lost, recovery
-marks its outcome unknown rather than repeating a potentially completed effect.
-The coordinator service or pod must restart after a host failure, and its
-database must survive; nothing executes while that host is powered off.
-SQLite's WAL uses `synchronous=NORMAL`: process-crash recovery is supported,
-but OS crashes or power loss can lose recent commits. Use durable Postgres
-storage when those commits must survive power loss; preserve its normal
-durability settings and the coordinator's service/pod restart policy.
-
-Partial responses remain context for a fresh continuation request, not an
-assistant prefill. Unsigned interrupted thinking is retained as text context;
-the continuation does not add another accepted prompt or spend a loop iteration.
-
-`/loop` resumes with its remaining count or absolute deadline, so time spent
-offline counts toward a duration. An interrupted shell-condition outcome is
-not replayed; repetition stops so its effects can be inspected.
+## Coordinator front-door networking
 
 When the front door is a TCP proxy on another machine rather than an ingress
 (for example a Caddy host forwarding over a tailnet), expose the coordinator

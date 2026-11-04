@@ -23,7 +23,8 @@ pub struct ScheduleRow {
     pub created_ms: i64,
 }
 
-pub(crate) fn to_wire(row: &ScheduleRow) -> ScheduledMessage {
+/// Shared by live publication and archived readers that do not start the runtime.
+pub fn to_wire(row: &ScheduleRow) -> ScheduledMessage {
     ScheduledMessage {
         id: row.id.clone(),
         text: row.text.clone(),

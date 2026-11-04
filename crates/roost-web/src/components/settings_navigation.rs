@@ -91,14 +91,6 @@ pub const SETTINGS_GROUPS: [SettingsRailGroup; 4] = [
                 "omp command launch",
             ),
             pane(
-                "models",
-                "Models & accounts",
-                IconType::Bot,
-                "Models & accounts",
-                "Models for chat and tasks, folder defaults, advisor reviews and provider accounts.",
-                "advisor adviser planning delegated quick side tasks decisions fallback chains session thinking effort btw compact web search",
-            ),
-            pane(
                 "omp",
                 "OMP",
                 IconType::Bot,

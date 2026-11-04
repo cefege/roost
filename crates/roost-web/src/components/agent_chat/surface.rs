@@ -1,7 +1,6 @@
-//! The native agent workspace: inspector, transcript and composer inside a
-//! deck agent tab. Owns snapshot repair, catalog loading, draft and reader
-//! position; `workspace` owns responsive inspector placement. Mounted by
-//! `AgentSlot`, with all conversation state supplied by the client store.
+//! The OMP agent workspace: transcript and composer inside a deck agent tab.
+//! Owns snapshot repair, draft and reader position; `workspace` owns responsive
+//! layout. Mounted by `AgentSlot`, with conversation state supplied by the store.
 
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::{AgentRunState, ModelsCatalog, ProviderEntry, Transcript};
@@ -10,16 +9,12 @@ use super::composer::AgentComposer;
 use super::draft::use_conversation_draft;
 use super::interaction_cards::TodoCard;
 use super::last_conversation::use_remember_conversation;
-use super::loop_controls::LoopControls;
 use super::message_actions::EditTarget;
-use super::model_controls::{ModelSetup, ModelSetupNotice};
-use super::model_hub::ModelHub;
 use super::plan_refinement::PlanRefinement;
-use super::queued_band::QueuedBand;
 use super::surface_dom::copy_code_block;
 #[cfg(target_arch = "wasm32")]
 use super::surface_dom::{distance_from_bottom, scroll_to_bottom};
-use super::surface_state::{assistant_is_streaming, latest_todo, loop_status};
+use super::surface_state::{assistant_is_streaming, latest_todo};
 use super::working_row::{WorkingRow, working_label};
 use super::workspace::AgentWorkspace;
 use crate::components::ui::{
@@ -38,8 +33,6 @@ use super::surface_fetch::{fetch_events_or_snapshot, fetch_snapshot};
 use roost_client_core::ClientEvent;
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::client::agent_chat::AgentChatIntent;
-#[cfg(target_arch = "wasm32")]
-use roost_client_core::client::rpc::calls::agent_chat::ListAgentModels;
 
 /// Scrolled further than this from the bottom, the reader is reading history
 /// and new output must not pull the view down.
@@ -58,13 +51,14 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
     let fetch_attempt = use_signal(|| 0_u32);
     #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
     let snapshot_generation = use_signal(|| 0_u64);
-    #[allow(unused_mut)]
-    let mut catalog = use_signal(|| None::<ModelsCatalog>);
-    #[allow(unused_mut)]
-    let mut catalog_failed = use_signal(|| false);
-    let mut catalog_attempt = use_signal(|| 0_u32);
+    let catalog = use_signal(|| None::<ModelsCatalog>);
+    let catalog_failed = use_signal(|| false);
     let draft = use_conversation_draft(&conversation_id);
-    use_remember_conversation(&conversation_id, active);
+    use_remember_conversation(
+        &conversation_id,
+        active,
+        conversation.as_ref().is_some_and(|row| !row.is_native()),
+    );
     let mut edit_target = use_signal(|| None::<EditTarget>);
     let mut edit_target_owner = use_signal(|| conversation_id.clone());
     if *edit_target_owner.peek() != conversation_id {
@@ -79,13 +73,6 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
     }
     let model_hub_open = use_signal(|| false);
     let connect_provider = use_signal(|| None::<ProviderEntry>);
-    // Opening the hub refetches the catalog so its recent models are current.
-    use_effect(move || {
-        if model_hub_open() {
-            let next = *catalog_attempt.peek() + 1;
-            catalog_attempt.set(next);
-        }
-    });
     let mut scroll_node = use_signal(|| None::<std::rc::Rc<MountedData>>);
     // Decided on scroll, not after render: by the time a large chunk of output
     // has rendered, the distance to the bottom already includes it.
@@ -125,31 +112,6 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
                 }
             },
         ));
-        let models_pump = pump.clone();
-        let backend = conversation
-            .as_ref()
-            .map(|conversation| conversation.backend);
-        use_effect(use_reactive(
-            (&conversation_id, &backend, &catalog_attempt()),
-            move |(_, backend, _)| {
-                if backend != Some(roost_protocol::wire::agent_chat::AgentBackend::Native) {
-                    return;
-                }
-                let pump = models_pump.clone();
-                catalog_failed.set(false);
-                wasm_bindgen_futures::spawn_local(async move {
-                    match pump.rpc().call(&ListAgentModels).await {
-                        Ok(models) => catalog.set(Some(models)),
-                        Err(error) => {
-                            tracing::warn!(target: "agent_chat", %error, "agent models unavailable");
-                            if let Ok(mut failed) = catalog_failed.try_write() {
-                                *failed = true;
-                            }
-                        }
-                    }
-                });
-            },
-        ));
         let transcript_for_scroll = transcript.clone();
         use_effect(use_reactive((&transcript_for_scroll,), move |_| {
             if let (Some(node), true) = (scroll_node(), *pinned_to_bottom.peek()) {
@@ -184,19 +146,25 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
     let Some(conversation) = conversation else {
         return rsx! { LoadingTranscript {} };
     };
+    if conversation.is_native() {
+        return rsx! {
+            div { class: "flex min-h-0 flex-1 items-center justify-center p-6",
+                role: "status",
+                "data-testid": "archived-native-agent-notice",
+                EmptyState {
+                    icon: IconType::Bot,
+                    title: "Archived Rust-native conversation",
+                    supporting: "The custom Rust agent is archived. Its conversation data is retained. Start new conversations with OMP.",
+                    action: None,
+                }
+            }
+        };
+    }
     let Some(transcript) = transcript else {
         return rsx! { div { class: ROOT_CLASS, LoadingTranscript {} } };
     };
     let running = transcript.run_state == AgentRunState::Running;
-    let native = conversation.is_native();
-    let setup = ModelSetup::from_catalog(catalog.read().as_ref(), catalog_failed());
-    let retry_catalog = move |()| catalog_attempt += 1;
     let composer = rsx! {
-        if native {
-            if let Some(status) = loop_status(&transcript) {
-                LoopControls { status: status.to_owned(), conversation_id: conversation_id.clone(), pump: pump.clone() }
-            }
-        }
         AgentComposer {
             conversation: conversation.clone(),
             catalog: catalog(),
@@ -210,15 +178,6 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
             pump: pump.clone(),
             model_hub_open,
             connect_provider,
-        }
-        if native {
-            ModelHub {
-                open: model_hub_open,
-                conversation: conversation.clone(),
-                catalog: catalog(),
-                pump: pump.clone(),
-                connect_provider,
-            }
         }
     };
     rsx! {
@@ -251,7 +210,7 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
                             if transcript.items.is_empty() && !running {
                                 super::welcome::AgentWelcome {}
                             }
-                            super::transcript::AgentTranscriptView { transcript: transcript.clone(), conversation_id: conversation_id.clone(), native, pump: pump.clone(), draft, edit_target }
+                            super::transcript::AgentTranscriptView { transcript: transcript.clone(), conversation_id: conversation_id.clone(), native: false, pump: pump.clone(), draft, edit_target }
                         }
                     }
                     div { class: "relative mx-auto flex w-full max-w-reading shrink-0 flex-col gap-3 pl-[max(env(safe-area-inset-left,0px),0.5rem)] pr-[max(env(safe-area-inset-right,0px),0.5rem)] pt-2 pb-(--term-chat-dock-rest-offset)",
@@ -284,10 +243,6 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
                             }
                         }
                         if let Some(phases) = latest_todo(&transcript) { TodoCard { phases } }
-                        if native {
-                            QueuedBand { messages: transcript.queued.clone(), conversation_id: conversation_id.clone(), pump: pump.clone() }
-                            ModelSetupNotice { setup, on_retry: retry_catalog }
-                        }
                         {composer}
                     }
                 }

@@ -291,24 +291,15 @@ impl CoordServices {
             boot.config.as_deref(),
         );
         let deploy = DeployRuntime::new();
-        let agent_tools = Arc::new(ToolCallRegistry::new(Arc::clone(&workers), db.clone()));
         let cluster = crate::cluster::notify::ClusterNotifier::new(db.clone());
+        let agent_tools = Arc::new(ToolCallRegistry::new(Arc::clone(&workers), db.clone()));
         let agent = crate::agent::AgentService::new(
             db.clone(),
             Arc::clone(&buses),
-            Arc::clone(&agent_tools),
-            boot.config
-                .as_deref()
-                .map(|config| config.agent_endpoint_overrides.clone())
-                .unwrap_or_default(),
             crate::agent::ClusterMembership {
                 instance_id: instance_id.clone(),
                 notifier: Arc::clone(&cluster),
             },
-            boot.config
-                .as_deref()
-                .and_then(|config| config.credential_secret_key.as_ref())
-                .map(|key| *key.as_bytes()),
         );
         let omp = Arc::new(crate::agent::omp::OmpService::new(
             db.clone(),

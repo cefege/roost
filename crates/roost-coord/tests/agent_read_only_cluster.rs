@@ -44,7 +44,8 @@ async fn read_only_update_reaches_peer_summary_without_waking_a_run() {
     let (first, second) = pair(&root).await;
     let before = first
         .service
-        .runtime
+        .native_runtime()
+        .unwrap()
         .create_conversation(roost_agent::NewConversation {
             worker_fp: "worker-fp".into(),
             worker_label: "desktop".into(),
@@ -70,7 +71,8 @@ async fn read_only_update_reaches_peer_summary_without_waking_a_run() {
 
     let changed = first
         .service
-        .runtime
+        .native_runtime()
+        .unwrap()
         .set_read_only(&before.id, true)
         .await
         .unwrap();
@@ -85,7 +87,13 @@ async fn read_only_update_reaches_peer_summary_without_waking_a_run() {
         .conversation
         .expect("conversation remains active");
     assert!(peer_summary.updated_ms >= changed.updated_ms);
-    let inspection = second.service.runtime.inspect(&before.id).await.unwrap();
+    let inspection = second
+        .service
+        .native_runtime()
+        .unwrap()
+        .inspect(&before.id)
+        .await
+        .unwrap();
     assert!(
         inspection.read_only,
         "peer reads the persisted configuration"

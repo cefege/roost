@@ -36,7 +36,11 @@ session from the same control panel. Pick a folder on any machine, open a
 workspace there, and the process runs on that machine while its terminal stays
 available on every browser device — including a phone or tablet.
 
-Every session is a shell PTY rendered in the browser. Launch any agent CLI, shell, REPL, or TUI inside it and use that program's native terminal interface. Roost never spawns, supervises, or owns an agent session; the CLI remains an ordinary command in its shell PTY.
+Shell sessions are real PTYs: launch any agent CLI, shell, REPL or TUI and use
+its terminal interface. Agent mode instead runs OMP on the selected worker and
+renders its messages, tools and interactive questions as responsive HTML.
+Roost's custom Rust-native agent is archived; its code and stored data are kept,
+but it is not an active agent option.
 
 ## The problem
 
@@ -58,6 +62,10 @@ different device does not mean juggling a different workflow.
 ## What you get
 
 **Run any terminal program.** Pick a server and folder, open a terminal, and launch `omp`, Claude Code, Codex, a shell, a REPL, or any other TUI. Roost keeps the PTY alive and renders the program's own terminal interface on every device.
+
+**Use OMP without terminal formatting.** Start an agent conversation on a worker
+and folder. The web UI uses that machine's actual OMP models, connected providers,
+slash commands and interactive requests; it does not invent a second agent.
 
 **Build a fleet from the machines you already own.** Connect your macOS and
 Linux hosts to one coordinator, then use each one as a worker, including the
@@ -219,9 +227,9 @@ Claude on the web and on your phone is a control plane too, but it drives Anthro
 |---|---|---|
 | **What it drives** | Anthropic-hosted cloud sandboxes, or one local Mac tethered via `claude rc` | Every macOS or Linux worker you own, natively |
 | **Open a new terminal while away** | No; limited to sandboxes or sessions already running | Yes; open a fresh terminal in any folder on any registered worker, from your phone |
-| **What runs in it** | Claude Code only | Any agent, shell, REPL, or TUI |
+| **What runs in it** | Claude Code only | OMP agent mode, or any agent CLI, shell, REPL or TUI in a terminal |
 | **Where your code lives** | A cloud VM (or the one tethered Mac) | Your own hardware, your own network |
-| **The surface** | A chat window onto the agent | The real terminal, with full ANSI, scrollback, and touch |
+| **The surface** | A chat window onto the agent | Responsive OMP HTML chat or a real terminal with ANSI, scrollback and touch |
 | **Hosting** | SaaS, tied to a login account | Self-hosted, automatic local tenant, no login account or telemetry |
 
 Your desktop browser stays perfectly usable for claude.ai. Roost isn't a replacement for it; it's the piece the cloud can't be, which is native control of your own fleet from anywhere.
@@ -231,8 +239,8 @@ Your desktop browser stays perfectly usable for claude.ai. Roost isn't a replace
 v3 releases install from the newest stable `v3.*` tag (pre-releases while no
 stable tag exists; `ROOST_RELEASE_CHANNEL=prerelease` opts into pre-releases):
 
-- **Hosts:** macOS arm64/x64 and Linux arm64/x64. Windows is a browser client
-  only.
+- **Hosts:** macOS arm64/x64, Linux arm64/x64, and supported Windows binaries.
+  Windows remains outside our managed deployment fleet.
 - **Networks:** local-first loopback access, with optional operator-managed
   HTTPS promotion for remote browsers and workers. Roost does not configure
   Tailscale or another network.

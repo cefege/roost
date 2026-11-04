@@ -1,12 +1,10 @@
-//! The harness ChatSink: one writer task per conversation stores event batches
-//! in order and publishes each to this replica's bus as soon as it is durable,
-//! then tells the other replicas. Streamed deltas never wait on the database;
-//! any other event returns once stored, as it always has. Snapshot projection
-//! remains in the runtime journal; `chat_events::relay` carries batches
-//! appended elsewhere.
+//! Durable chat delivery: each conversation's writer stores ordered event batches
+//! and publishes committed batches locally and across replicas.
+//! Native snapshots read either the explicit fixture runtime or retained journals;
+//! archived reads need no provider clients. `chat_events::relay` carries remote batches.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
 use futures::future::BoxFuture;
@@ -46,6 +44,7 @@ pub struct CoordChatSink {
     store: BatchStore,
     writers: Mutex<HashMap<String, mpsc::UnboundedSender<WriterMessage>>>,
     runtime: OnceLock<AgentRuntime>,
+    native_pricing: LazyLock<roost_llm::Catalog>,
 }
 
 impl std::fmt::Debug for CoordChatSink {
@@ -66,6 +65,7 @@ impl CoordChatSink {
             },
             writers: Mutex::new(HashMap::new()),
             runtime: OnceLock::new(),
+            native_pricing: LazyLock::new(roost_llm::Catalog::builtin),
         }
     }
 
@@ -77,14 +77,35 @@ impl CoordChatSink {
         &self,
         id: &str,
     ) -> Result<(u64, roost_protocol::wire::agent_chat::Transcript), roost_agent::AgentError> {
-        let runtime = self
-            .runtime
-            .get()
-            .ok_or_else(|| roost_agent::AgentError::Store("agent runtime is not bound".into()))?;
+        let runtime = self.runtime.get();
         let (cursor, rows) = super::chat_events::snapshot_rows(&self.store.db, id)
             .await
             .map_err(|error| roost_agent::AgentError::Store(error.to_string()))?;
-        let mut transcript = runtime.transcript(id).await?;
+        let mut transcript = match runtime {
+            Some(runtime) => runtime.transcript(id).await?,
+            None => {
+                use roost_agent::AgentStore as _;
+                let store = super::store::CoordAgentStore::new(self.store.db.clone());
+                let record = store
+                    .conversation(id)
+                    .await?
+                    .ok_or_else(|| roost_agent::AgentError::NotFound(id.to_owned()))?;
+                let entries = store.entries(id).await?;
+                let usage = roost_agent::projection::usage_totals(
+                    &self.native_pricing,
+                    &entries,
+                    &roost_protocol::wire::agent_chat::UsageTotals::default(),
+                );
+                let mut transcript = roost_agent::projection::transcript(&record, &entries, usage);
+                transcript.schedules = store
+                    .schedules(id)
+                    .await?
+                    .iter()
+                    .map(roost_agent::schedules::to_wire)
+                    .collect();
+                transcript
+            }
+        };
         let queued_ids: HashSet<_> = transcript
             .queued
             .iter()

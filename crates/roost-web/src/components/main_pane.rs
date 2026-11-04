@@ -1,9 +1,7 @@
-//! The main pane: the persistent terminal deck behind every terminal, file and
-//! search route, the file/search overlays above it, and the compact drawer's
-//! dim. Ports `apps/web/src/components/MainPane.tsx`; mounted by `app::RouteContent`
-//! for every `ServedSurface::MainPane` route, so crossing /s ↔ /file ↔ /search
-//! keeps one pane and one deck mounted and only flips the deck host's
-//! visibility. Depends on `route_session`, `dead_route_safety_net`, the store.
+//! Main-pane routing for the persistent terminal/OMP deck and file/search overlays.
+//! Archived Rust-native links render a notice without mounting agent controls.
+//! Mounted by `app::RouteContent`; reads `route_session`, sidebar and Sync state.
+//! Terminal geometry stays mounted beneath file/search overlays.
 
 mod safety_net;
 
@@ -13,7 +11,8 @@ use roost_client_core::store::sidebar::SidebarIntent;
 use roost_client_core::sync::SyncDomain;
 
 use crate::components::layout::window_size::use_is_compact;
-use crate::platform::worker_paths::BrowserWorkerPaths;
+use crate::components::ui::{EmptyState, IconType};
+use crate::platform::BrowserWorkerPaths;
 use crate::pump::use_store;
 use crate::route_session::{
     active_deck_tab_for_route, active_open_session_for_route, is_terminal_route,
@@ -51,6 +50,7 @@ struct PaneReading {
     active_deck_tab_id: Option<String>,
     visit: Option<(String, String, String, String)>,
     sidebar_open: bool,
+    archived_native_agent: bool,
 }
 
 /// The main pane for `route`.
@@ -80,6 +80,14 @@ pub fn MainPane(route: Route) -> Element {
                 )
             }),
             sidebar_open: store.ui.sidebar_open,
+            archived_native_agent: match &route {
+                Route::Agent { conversation_id } => store
+                    .agent_chat
+                    .conversations
+                    .get(conversation_id)
+                    .is_some_and(|conversation| conversation.is_native()),
+                _ => false,
+            },
         }
     };
     safety_net::use_dead_route_safety_net(
@@ -103,30 +111,43 @@ pub fn MainPane(route: Route) -> Element {
     let dim_pump = pump.clone();
     rsx! {
         div { style: "flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative;",
-            if compact && reading.sidebar_open {
-                div {
-                    "data-testid": "main-pane-sidebar-dim",
-                    "aria-hidden": "true",
-                    class: "absolute inset-0 z-[48] cursor-pointer bg-transparent",
-                    onclick: move |_| dim_pump.dispatch(ClientEvent::Sidebar(SidebarIntent::CloseDrawer)),
+            if reading.archived_native_agent {
+                div { class: "flex min-h-0 flex-1 items-center justify-center p-6",
+                    role: "status",
+                    "data-testid": "archived-native-agent-notice",
+                    EmptyState {
+                        icon: IconType::Bot,
+                        title: "Archived Rust-native conversation",
+                        supporting: "The custom Rust agent is archived. Its conversation data is retained. Start new conversations with OMP.",
+                        action: None,
+                    }
                 }
-            }
-            match overlay {
-                MainPaneOverlay::File => rsx! {
-                    crate::components::file_viewer::FileViewer { route: route.clone() }
-                },
-                MainPaneOverlay::Search => rsx! {
-                    crate::components::global_search::GlobalSearchOverlay {}
-                },
-                MainPaneOverlay::None => rsx! {},
-            }
-            div {
-                "data-testid": "main-pane-deck-host",
-                style: deck_host_style(overlay_active),
-                "aria-hidden": overlay_active.then_some("true"),
-                crate::components::deck::terminal_deck::TerminalDeck {
-                    active_session_id: reading.active_deck_tab_id.clone(),
-                    surface_visible: !overlay_active,
+            } else {
+                if compact && reading.sidebar_open {
+                    div {
+                        "data-testid": "main-pane-sidebar-dim",
+                        "aria-hidden": "true",
+                        class: "absolute inset-0 z-[48] cursor-pointer bg-transparent",
+                        onclick: move |_| dim_pump.dispatch(ClientEvent::Sidebar(SidebarIntent::CloseDrawer)),
+                    }
+                }
+                match overlay {
+                    MainPaneOverlay::File => rsx! {
+                        crate::components::file_viewer::FileViewer { route: route.clone() }
+                    },
+                    MainPaneOverlay::Search => rsx! {
+                        crate::components::global_search::GlobalSearchOverlay {}
+                    },
+                    MainPaneOverlay::None => rsx! {},
+                }
+                div {
+                    "data-testid": "main-pane-deck-host",
+                    style: deck_host_style(overlay_active),
+                    "aria-hidden": overlay_active.then_some("true"),
+                    crate::components::deck::terminal_deck::TerminalDeck {
+                        active_session_id: reading.active_deck_tab_id.clone(),
+                        surface_visible: !overlay_active,
+                    }
                 }
             }
         }

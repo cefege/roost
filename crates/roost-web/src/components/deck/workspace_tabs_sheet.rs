@@ -122,7 +122,7 @@ pub fn WorkspaceTabsSheet(
                     if !selection_mode() {
                         IconButton {
                             icon: IconType::ArrowLeft,
-                            label: "Close terminal grid",
+                            label: "Close workspace tabs",
                             "data-testid": "workspace-tabs-back",
                             onclick: move |_| on_close_sheet.call(()),
                         }

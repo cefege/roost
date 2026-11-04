@@ -32,25 +32,7 @@ impl AgentRuntime {
         } else {
             None
         };
-        ConversationSummary {
-            backend: roost_protocol::wire::agent_chat::AgentBackend::Native,
-            id: record.id.clone(),
-            title: record.title.clone(),
-            worker_fp: record.worker_fp.clone(),
-            worker_label: record.worker_label.clone(),
-            cwd: record.cwd.clone(),
-            model: record.model.clone(),
-            effective_model,
-            thinking_level: Some(record.thinking_level.clone()),
-            mode: record.mode.as_str().to_owned(),
-            parent_id: record.parent_id.clone(),
-            agent: record.agent.clone(),
-            advisor: record.parent_id.is_none() && record.advisor.unwrap_or(advisor_default),
-            run_state: record.run_state,
-            error: record.error.clone(),
-            created_ms: record.created_ms,
-            updated_ms: record.updated_ms,
-        }
+        record.to_summary(effective_model, advisor_default)
     }
 
     pub(crate) async fn publish_summary(&self, record: &ConversationRecord) {

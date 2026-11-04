@@ -61,7 +61,7 @@ pub(super) fn ModelReferenceMenu(
         .unwrap_or_default();
     let no_connected_models = model_rows.iter().all(|model| !model.available);
     let navigate = use_navigate();
-    let settings_href = crate::routes::settings_pane_href("models");
+    let settings_href = crate::routes::settings_pane_href("omp");
     let query_value = query();
     let filtered_models = filter_model_rows(catalog.as_ref(), &model_rows, &query_value);
     let no_search_results = !query_value.is_empty() && filtered_models.is_empty();

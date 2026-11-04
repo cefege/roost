@@ -166,7 +166,7 @@ fn agent_conversations_join_and_create_folder_groups() {
     let session = session(SESSION_A, FIRST_FP, "/tmp/repo", 1_000);
     let mut core = seeded(&[session], &[(FIRST_FP, "First worker")], &[]);
     let summary = |id: &str, cwd: &str, updated_ms| ConversationSummary {
-        backend: roost_protocol::wire::agent_chat::AgentBackend::Native,
+        backend: roost_protocol::wire::agent_chat::AgentBackend::Omp,
         id: id.into(),
         title: id.into(),
         worker_fp: FIRST_FP.into(),
@@ -192,6 +192,12 @@ fn agent_conversations_join_and_create_folder_groups() {
         "agent-only".into(),
         summary("agent-only", "/tmp/other", 3_000),
     );
+    let mut archived = summary("agent-native", "/tmp/repo", 5_000);
+    archived.backend = roost_protocol::wire::agent_chat::AgentBackend::Native;
+    core.store_mut()
+        .agent_chat
+        .conversations
+        .insert("agent-native".into(), archived);
     let mut child = summary("agent-child", "/tmp/nested", 4_000);
     child.title = "child-only-needle".into();
     child.parent_id = Some("agent-only".into());
@@ -206,6 +212,18 @@ fn agent_conversations_join_and_create_folder_groups() {
         .expect("mixed folder");
     assert_eq!(mixed.session_ids, [SESSION_A.to_owned()]);
     assert_eq!(mixed.agent_conversation_ids, ["agent-mixed"]);
+    assert!(
+        core.store()
+            .agent_chat
+            .conversations
+            .contains_key("agent-native")
+    );
+    let tab_candidates = core.store().agent_chat.conversations_in_folder(
+        &ExactWorkerPaths,
+        core.store(),
+        &mixed.key,
+    );
+    assert_eq!(tab_candidates, ["agent-mixed"]);
     let only = groups
         .iter()
         .find(|group| group.spawn_cwd == "/tmp/other")

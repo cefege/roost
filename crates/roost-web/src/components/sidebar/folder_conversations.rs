@@ -28,7 +28,10 @@ pub(super) fn FolderConversationRows(
         let mut children_by_parent =
             std::collections::BTreeMap::<String, Vec<(i64, String)>>::new();
         for id in &conversation_ids {
-            let Some(conversation) = conversations.get(id.as_str()) else {
+            let Some(conversation) = conversations
+                .get(id.as_str())
+                .filter(|conversation| !conversation.is_native())
+            else {
                 continue;
             };
             if let Some(parent) = conversation

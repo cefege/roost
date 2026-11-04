@@ -42,6 +42,7 @@ async fn fork_returns_new_id_and_copies_transcript() {
         &fixture.caller,
         proto::AgentChatCreateRequest {
             worker_fp: WORKER_A.into(),
+            backend: "native".into(),
             cwd: "/repo".into(),
             model_provider: "anthropic".into(),
             model_id: "claude-sonnet-5".into(),
@@ -125,6 +126,7 @@ async fn rewind_is_refused_while_a_plan_is_pending() {
         &fixture.caller,
         proto::AgentChatCreateRequest {
             worker_fp: WORKER_A.into(),
+            backend: "native".into(),
             cwd: "/repo".into(),
             model_provider: "anthropic".into(),
             model_id: "claude-sonnet-5".into(),

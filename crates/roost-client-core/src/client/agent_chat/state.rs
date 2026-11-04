@@ -152,16 +152,18 @@ impl AgentChatState {
             .conversations
             .values()
             .filter(|conversation| {
-                let worker_os = store
-                    .workers
-                    .get(&conversation.worker_fp)
-                    .map(|worker| worker.os.as_str());
-                crate::store::paths::folder_key_of(
-                    paths,
-                    worker_os,
-                    &conversation.worker_fp,
-                    &conversation.cwd,
-                ) == folder_key
+                !conversation.is_native() && {
+                    let worker_os = store
+                        .workers
+                        .get(&conversation.worker_fp)
+                        .map(|worker| worker.os.as_str());
+                    crate::store::paths::folder_key_of(
+                        paths,
+                        worker_os,
+                        &conversation.worker_fp,
+                        &conversation.cwd,
+                    ) == folder_key
+                }
             })
             .collect();
         conversations.sort_by_key(|conversation| std::cmp::Reverse(conversation.updated_ms));

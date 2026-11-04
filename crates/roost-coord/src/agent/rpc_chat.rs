@@ -3,9 +3,9 @@
 //! Worker metadata comes from the registry.
 
 use connectrpc::{ConnectError, ErrorCode, ServiceResult};
-use roost_agent::{NewConversation, SubmitMode};
+use roost_agent::{AgentStore, NewConversation, SubmitMode};
 use roost_proto as proto;
-use roost_protocol::wire::agent_chat::{AgentBackend, ModelRef, conversation_to_proto};
+use roost_protocol::wire::agent_chat::{ModelRef, conversation_to_proto};
 
 use super::rpc_errors::{agent_status, internal};
 use crate::auth::principal::require_account_device;
@@ -18,13 +18,16 @@ pub async fn handle_agent_chat_list(
     _request: proto::AgentChatListRequest,
 ) -> ServiceResult<proto::AgentChatListResponse> {
     require_account_device(caller)?;
-    let mut conversations = core
-        .services
-        .agent
-        .runtime
-        .conversations()
-        .await
-        .map_err(agent_status)?;
+    let mut conversations = match core.services.agent.native.as_ref() {
+        Some(native) => native.runtime.conversations().await.map_err(agent_status)?,
+        None => super::store::CoordAgentStore::new(core.services.db.clone())
+            .conversations()
+            .await
+            .map_err(agent_status)?
+            .iter()
+            .map(|record| record.to_summary(None, false))
+            .collect(),
+    };
     let scopes = super::omp::store::settings(&core.services.db)
         .await
         .map_err(super::omp::rpc_settings::database_error)?;
@@ -93,30 +96,35 @@ pub async fn handle_agent_chat_create(
     request: proto::AgentChatCreateRequest,
 ) -> ServiceResult<proto::AgentConversation> {
     require_account_device(caller)?;
-    let (worker_fp, worker_label, worker_os) = live_worker(core, &request.worker_fp).await?;
-    if AgentBackend::from_wire(&request.backend) == AgentBackend::Omp {
-        return super::omp::rpc::create(core, request, (worker_fp, worker_label, worker_os)).await;
+    if request.backend.is_empty() || request.backend == "omp" {
+        let worker = live_worker(core, &request.worker_fp).await?;
+        return super::omp::rpc::create(core, request, worker).await;
     }
-    let model = match model_update(Some(&request.model_provider), Some(&request.model_id))? {
-        ModelUpdate::Set(model) => Some(model),
-        ModelUpdate::Unchanged | ModelUpdate::Clear => None,
-    };
-    let summary = core
-        .services
-        .agent
-        .runtime
-        .create_conversation(NewConversation {
-            worker_fp,
-            worker_label,
-            worker_os,
-            cwd: request.cwd,
-            title: None,
-            model,
-            thinking_level: None,
-        })
-        .await
-        .map_err(agent_status)?;
-    ok_response(conversation_to_proto(&summary))
+    if request.backend == "native" {
+        let runtime = core.services.agent.native_runtime()?;
+        let (worker_fp, worker_label, worker_os) = live_worker(core, &request.worker_fp).await?;
+        let model = match model_update(Some(&request.model_provider), Some(&request.model_id))? {
+            ModelUpdate::Set(model) => Some(model),
+            ModelUpdate::Unchanged | ModelUpdate::Clear => None,
+        };
+        let summary = runtime
+            .create_conversation(NewConversation {
+                worker_fp,
+                worker_label,
+                worker_os,
+                cwd: request.cwd,
+                title: None,
+                model,
+                thinking_level: None,
+            })
+            .await
+            .map_err(agent_status)?;
+        return ok_response(conversation_to_proto(&summary));
+    }
+    Err(ConnectError::new(
+        ErrorCode::InvalidArgument,
+        format!("unsupported agent backend: {}", request.backend),
+    ))
 }
 
 pub async fn handle_agent_chat_submit(
@@ -133,7 +141,7 @@ pub async fn handle_agent_chat_submit(
     let attachments = super::rpc_chat_attachments::to_domain_attachments(request.attachments);
     core.services
         .agent
-        .runtime
+        .native_runtime()?
         .submit_request_with_attachments(
             &request.conversation_id,
             &request.request_id,
@@ -165,7 +173,7 @@ pub async fn handle_agent_chat_withdraw(
     let withdrawn = core
         .services
         .agent
-        .runtime
+        .native_runtime()?
         .withdraw(
             &request.conversation_id,
             &request.request_id,
@@ -189,7 +197,7 @@ pub async fn handle_agent_chat_abort(
     if let Some(omp) = super::omp::rpc::find_omp(core, &request.conversation_id).await? {
         return super::omp::rpc::abort(core, omp, request).await;
     }
-    let runtime = &core.services.agent.runtime;
+    let runtime = core.services.agent.native_runtime()?;
     runtime
         .deduplicated(
             &request.conversation_id,
@@ -230,7 +238,7 @@ pub async fn handle_agent_chat_configure(
     if let Some(omp) = super::omp::rpc::find_omp(core, &request.conversation_id).await? {
         return super::omp::rpc::configure(core, omp, request).await;
     }
-    let runtime = &core.services.agent.runtime;
+    let runtime = core.services.agent.native_runtime()?;
     let id = &request.conversation_id;
     match model_update(
         request.model_provider.as_deref(),
@@ -274,7 +282,7 @@ pub async fn handle_agent_chat_delete(
     }
     core.services
         .agent
-        .runtime
+        .native_runtime()?
         .delete_conversation(&request.conversation_id)
         .await
         .map_err(agent_status)?;
@@ -294,7 +302,7 @@ pub async fn handle_agent_chat_plan_decide(
     {
         return Err(super::omp::rpc::unsupported());
     }
-    let runtime = &core.services.agent.runtime;
+    let runtime = core.services.agent.native_runtime()?;
     let created = runtime
         .deduplicated(
             &request.conversation_id,

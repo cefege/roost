@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use connectrpc::{ConnectError, ErrorCode, ServiceResult};
 use roost_agent::{AgentSettings, Role};
-use roost_llm::{CredentialKind, CredentialStoreError, ModelKind, StoredCredential};
+use roost_llm::{CredentialKind, ModelKind, StoredCredential};
 use roost_proto as proto;
 use roost_protocol::wire::agent_chat::{
     AccountBrief, AccountEntry, AccountKind, AccountUsage, AccountUsageWindow, AgentSettingsView,
@@ -39,12 +39,19 @@ fn account_kind(credential: &StoredCredential) -> AccountKind {
 }
 
 /// The catalog with availability, accounts per provider, and thinking levels.
-pub async fn models_catalog(agent: &AgentService) -> Result<ModelsCatalog, CredentialStoreError> {
-    let catalog = agent.runtime.catalog();
+pub async fn models_catalog(agent: &AgentService) -> Result<ModelsCatalog, ConnectError> {
+    let native = agent.native_service()?;
+    let catalog = native.runtime.catalog();
     let mut providers = Vec::new();
     let mut connected = Vec::new();
     for provider in catalog.providers() {
-        let credentials = agent.pool().store().list(provider).await?;
+        let credentials = native
+            .llm
+            .pool()
+            .store()
+            .list(provider)
+            .await
+            .map_err(credential_status)?;
         let accounts: Vec<AccountBrief> = credentials
             .iter()
             .map(|credential| AccountBrief {
@@ -67,7 +74,13 @@ pub async fn models_catalog(agent: &AgentService) -> Result<ModelsCatalog, Crede
     }
     for engine in roost_llm::web_search::ENGINE_IDS.iter().copied() {
         let label = roost_llm::web_search::engine_label(engine);
-        let accounts = agent.pool().store().list(engine).await?;
+        let accounts = native
+            .llm
+            .pool()
+            .store()
+            .list(engine)
+            .await
+            .map_err(credential_status)?;
         let configured = !accounts.is_empty();
         if configured {
             connected.push(engine.to_owned());
@@ -123,8 +136,8 @@ pub async fn models_catalog(agent: &AgentService) -> Result<ModelsCatalog, Crede
     Ok(ModelsCatalog {
         models,
         providers,
-        thinking_levels: agent.runtime.thinking_levels().await,
-        default_model: agent.runtime.default_model().await,
+        thinking_levels: native.runtime.thinking_levels().await,
+        default_model: native.runtime.default_model().await,
         recent_models: Vec::new(),
     })
 }
@@ -142,9 +155,11 @@ async fn account_entries(
     agent: &AgentService,
     with_usage: bool,
 ) -> Result<Vec<AccountEntry>, ConnectError> {
+    let native = agent.native_service()?;
     let mut entries = Vec::new();
-    let store = agent.pool().store();
-    for provider in agent.runtime.catalog().providers().into_iter().chain(
+    let pool = native.llm.pool();
+    let store = pool.store();
+    for provider in native.runtime.catalog().providers().into_iter().chain(
         roost_llm::web_search::ENGINE_IDS
             .iter()
             .copied()
@@ -158,15 +173,11 @@ async fn account_entries(
             .collect();
         for credential in store.list(provider).await.map_err(credential_status)? {
             let report = if with_usage {
-                agent
-                    .pool()
-                    .refresh_usage(credential.id, provider)
+                pool.refresh_usage(credential.id, provider)
                     .await
                     .map_err(llm_status)?
             } else {
-                agent
-                    .pool()
-                    .usage_reports()
+                pool.usage_reports()
                     .into_iter()
                     .find(|report| report.credential_id == credential.id)
             };
@@ -220,7 +231,7 @@ pub async fn handle_agent_account_remove(
     require_account_device(caller)?;
     core.services
         .agent
-        .pool()
+        .pool()?
         .store()
         .delete(request.credential_id)
         .await
@@ -244,7 +255,7 @@ pub async fn handle_agent_usage_get(
     } else {
         core.services
             .agent
-            .pool()
+            .pool()?
             .preferred_credential_id(&request.provider, &request.conversation_id)
             .await
             .map_err(llm_status)?
@@ -270,7 +281,7 @@ pub async fn handle_agent_settings_get(
     let settings = core
         .services
         .agent
-        .runtime
+        .native_runtime()?
         .settings()
         .await
         .map_err(agent_status)?;
@@ -300,6 +311,7 @@ pub async fn handle_agent_settings_set(
     request: proto::AgentSettingsSetRequest,
 ) -> ServiceResult<proto::AgentSettingsSetResponse> {
     require_account_device(caller)?;
+    core.services.agent.native_service()?;
     let view: AgentSettingsView =
         serde_json::from_str(&request.settings_json).map_err(|error| {
             ConnectError::new(
@@ -326,7 +338,7 @@ pub async fn handle_agent_settings_set(
     };
     core.services
         .agent
-        .runtime
+        .native_runtime()?
         .set_settings(settings)
         .await
         .map_err(agent_status)?;

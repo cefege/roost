@@ -7,7 +7,6 @@
 
 use dioxus::prelude::*;
 use roost_client_core::store::browse_state::intent::BrowseIntent;
-use roost_protocol::wire::agent_chat::AgentBackend;
 
 use crate::components::browse::BrowseLaunchMode;
 use crate::components::browse::browse_mode_href;
@@ -164,15 +163,10 @@ pub fn build_controls(
         let worker_fp = worker_fp.to_owned();
         let folder = view.resolved.clone();
         move |()| {
-            let backend = match launch_mode {
-                BrowseLaunchMode::Agent(backend) => backend,
-                BrowseLaunchMode::Terminal => AgentBackend::Native,
-            };
             crate::components::agent_chat::launch_agent(
                 pump.clone(),
                 worker_fp.clone(),
                 folder.clone(),
-                backend,
                 navigate,
             );
         }
@@ -189,11 +183,10 @@ pub fn build_controls(
         let pump = pump.clone();
         let worker_fp = worker_fp.to_owned();
         move |folder: String| match launch_mode {
-            BrowseLaunchMode::Agent(backend) => crate::components::agent_chat::launch_agent(
+            BrowseLaunchMode::Agent => crate::components::agent_chat::launch_agent(
                 pump.clone(),
                 worker_fp.clone(),
                 folder,
-                backend,
                 navigate,
             ),
             BrowseLaunchMode::Terminal => {

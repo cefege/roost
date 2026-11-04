@@ -30,7 +30,8 @@ async fn call_spec(fixture: &AgentFixture) -> AgentToolCallSpec {
         .core
         .services
         .agent
-        .runtime
+        .native_runtime()
+        .unwrap()
         .create_conversation(roost_agent::NewConversation {
             worker_fp: agent_fixture::WORKER_A.to_owned(),
             worker_label: "worker-a".to_owned(),
@@ -81,7 +82,8 @@ async fn an_offline_worker_waits_then_dispatches_once_after_reconnect() {
         .core
         .services
         .agent
-        .runtime
+        .native_runtime()
+        .unwrap()
         .set_read_only(&conversation_id, true)
         .await
         .expect("read-only setting persists");
@@ -294,7 +296,8 @@ async fn an_offline_mutation_is_rejected_after_read_only_is_enabled() {
         .core
         .services
         .agent
-        .runtime
+        .native_runtime()
+        .unwrap()
         .set_read_only(&conversation_id, true)
         .await
         .expect("read-only setting persists");

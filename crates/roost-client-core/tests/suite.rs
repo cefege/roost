@@ -60,8 +60,6 @@ mod deck_agent_intent;
 mod deck_intent;
 #[path = "deck_spawn.rs"]
 mod deck_spawn;
-#[path = "deck_tab_badge.rs"]
-mod deck_tab_badge;
 #[path = "deck_view.rs"]
 mod deck_view;
 #[path = "deck_warm_set.rs"]

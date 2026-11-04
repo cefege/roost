@@ -2952,9 +2952,32 @@ runtime, or import its browser UI.
 Roost transports those terminals without owning their agent sessions. The explicit OMP chat
 backend is the one supervised external agent: `roost-worker::omp` launches `omp acp
 --approval-mode yolo` only for OMP conversations, using that machine's OMP login. The coordinator
-stores its projected transcript; the native `roost-agent` backend retains its own harness.
+stores its projected transcript. The Rust-native harness's code and data remain retained,
+but its production runtime and native UI entry points are archived.
 
 **Guard** — `crates/roost-worker/tests/omp_owner.rs`; `crates/roost-coord/tests/omp_chat.rs`.
+
+### Archived native data still needs identity and ownership readers
+
+**Symptom** — an old native conversation URL is not recognized as archived even
+though its row remains stored, or an unknown attachment target reports
+`FailedPrecondition` instead of `NotFound`.
+
+**Wrong** — equate an absent native runtime with absent native data, or gate
+identity lookup on native execution availability. Relabeling stored native
+summaries as OMP also destroys the distinction the archived notice needs.
+
+**Right** — production constructs no native engine or provider clients. Read
+native identity and retained transcript/reminder data through `CoordAgentStore`;
+keep the backend Native and exclude it only from normal UI projections.
+Attachment admission resolves persisted identity first, then rejects a known
+native target as archived; a missing target stays missing.
+
+**Guard** — `roost-coord`'s
+`agent_chat_rpc::archive::production_archive_rejects_native_delete_and_preserves_transcript`
+and
+`attachments_file_rpcs::conversation_targets::archived_native_upload_is_refused_without_changing_conversation`.
+
 
 ### A removed migration's history row reads as corruption
 

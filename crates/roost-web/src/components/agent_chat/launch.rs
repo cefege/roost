@@ -4,6 +4,7 @@
 //! Folder memory is not touched: it holds session ids and links `/s/…`.
 
 use dioxus::prelude::*;
+#[cfg(target_arch = "wasm32")]
 use roost_protocol::wire::agent_chat::AgentBackend;
 
 use crate::pump::Pump;
@@ -15,19 +16,13 @@ use roost_client_core::client::rpc::calls::agent_chat::CreateAgentChat;
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::store::shell_intent::ShellIntent;
 
-/// Create a conversation whose tools start in `folder` on `worker_fp`, then
-/// navigate to it. A refusal surfaces as a shell action failure.
-pub fn launch_agent(
-    pump: Pump,
-    worker_fp: String,
-    folder: String,
-    backend: AgentBackend,
-    navigate: EventHandler<String>,
-) {
+/// Create an OMP conversation whose tools start in `folder` on `worker_fp`,
+/// then navigate to it. A refusal surfaces as a shell action failure.
+pub fn launch_agent(pump: Pump, worker_fp: String, folder: String, navigate: EventHandler<String>) {
     #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_futures::spawn_local(run_launch_agent(pump, worker_fp, folder, backend, navigate));
+    wasm_bindgen_futures::spawn_local(run_launch_agent(pump, worker_fp, folder, navigate));
     #[cfg(not(target_arch = "wasm32"))]
-    let _ = (pump, worker_fp, folder, backend, navigate);
+    let _ = (pump, worker_fp, folder, navigate);
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -35,7 +30,6 @@ async fn run_launch_agent(
     pump: Pump,
     worker_fp: String,
     folder: String,
-    backend: AgentBackend,
     navigate: EventHandler<String>,
 ) {
     let auth_generation = pump.core().borrow().store().auth_generation;
@@ -43,15 +37,12 @@ async fn run_launch_agent(
         worker_fp: worker_fp.clone(),
         cwd: folder.clone(),
         model: None,
-        backend,
+        backend: AgentBackend::Omp,
     };
     let created = match pump.rpc().call(&call).await {
         Ok(created) => created,
         Err(error) => {
-            let message = match backend {
-                AgentBackend::Native => format!("New agent failed: {error}"),
-                AgentBackend::Omp => format!("New OMP chat failed: {error}"),
-            };
+            let message = format!("New agent failed: {error}");
             tracing::warn!(target: "agent_chat", %message, "agent launch refused");
             pump.dispatch(ClientEvent::Shell(ShellIntent::ActionFailed { message }));
             return;

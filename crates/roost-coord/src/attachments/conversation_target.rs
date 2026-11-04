@@ -1,8 +1,9 @@
 //! Resolves agent conversation identity before its worker receives an attachment.
-//! The conversation runtime owns the authoritative worker and workspace metadata.
+//! OMP reads durable worker/workspace metadata without a native runtime.
+//! Native attachment dispatch is available only to explicit native fixtures.
 
 use connectrpc::{ConnectError, ErrorCode};
-use roost_agent::AgentError;
+use roost_agent::AgentStore;
 use roost_protocol::wire::{AttachmentTargetId, WorkerFp};
 
 use crate::coord_core::CoordCore;
@@ -20,32 +21,28 @@ pub(super) async fn conversation_attachment_target(
         return Ok(None);
     }
     let conversation_id = target_id.as_str();
-    let summary = match core
-        .services
-        .agent
-        .runtime
-        .conversation(conversation_id)
-        .await
+    let (resolved_id, cwd, target_worker_fp) = if let Some(omp) =
+        crate::agent::omp::store::find(&core.services.db, conversation_id)
+            .await
+            .map_err(|error| ConnectError::new(ErrorCode::Internal, error.to_string()))?
     {
-        Ok(summary) => summary,
-        Err(AgentError::NotFound(_)) => {
-            let Some(omp) = crate::agent::omp::store::find(&core.services.db, conversation_id)
-                .await
-                .map_err(|error| ConnectError::new(ErrorCode::Internal, error.to_string()))?
-            else {
-                return Ok(None);
-            };
-            crate::agent::omp::summary::summary(&omp, &[])
-        }
-        Err(error) => {
-            tracing::error!(conversation_id, %error, "attachments: agent conversation lookup failed");
-            return Err(ConnectError::new(
-                ErrorCode::Internal,
-                "attachment conversation lookup failed",
-            ));
-        }
+        (omp.id, omp.cwd, omp.worker_fp)
+    } else {
+        let store = crate::agent::store::CoordAgentStore::new(core.services.db.clone());
+        let Some(record) = store
+            .conversation(conversation_id)
+            .await
+            .map_err(|error| {
+                tracing::error!(conversation_id, %error, "attachments: agent conversation lookup failed");
+                ConnectError::new(ErrorCode::Internal, "attachment conversation lookup failed")
+            })?
+        else {
+            return Ok(None);
+        };
+        core.services.agent.native_service()?;
+        (record.id, record.cwd, record.worker_fp)
     };
-    if summary.id != conversation_id || summary.cwd.trim().is_empty() {
+    if resolved_id != conversation_id || cwd.trim().is_empty() {
         tracing::error!(
             conversation_id,
             "attachments: conversation metadata is incomplete"
@@ -55,7 +52,7 @@ pub(super) async fn conversation_attachment_target(
             "attachment conversation metadata is invalid",
         ));
     }
-    if expected_worker_fp.is_some_and(|expected| expected != summary.worker_fp.as_str()) {
+    if expected_worker_fp.is_some_and(|expected| expected != target_worker_fp.as_str()) {
         return Err(ConnectError::new(
             ErrorCode::PermissionDenied,
             "attachment worker does not own the conversation",
@@ -64,7 +61,7 @@ pub(super) async fn conversation_attachment_target(
     let worker_fp = crate::attachments::relay::require_worker_hub_socket(
         &core.services.db,
         &core.services.scrollback,
-        &summary.worker_fp,
+        &target_worker_fp,
     )
     .await?;
     Ok(Some(ConversationAttachmentTarget { worker_fp }))

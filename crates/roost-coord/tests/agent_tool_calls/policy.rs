@@ -16,7 +16,8 @@ async fn readonly_policy_uses_owner_and_keeps_advisor_and_loop_worker_namespaces
         .core
         .services
         .agent
-        .runtime
+        .native_runtime()
+        .unwrap()
         .set_read_only(&owner, true)
         .await
         .expect("read-only setting persists");

@@ -9,7 +9,7 @@ use crate::store::navigation::query::normalize_navigation_search_query;
 
 use super::folder_groups::FolderGroup;
 
-/// Filter folders by folder metadata and their native agent conversation data.
+/// Filter folders by folder metadata and their visible OMP conversation data.
 pub fn filter_folder_groups_for_store(
     store: &Store,
     groups: &[FolderGroup],

@@ -1,6 +1,6 @@
-//! The coordinator's agent harness: the Rust runtime from roost-agent wired to
-//! the coordinator's database, worker links, Sync buses and provider accounts.
-//! RPC handlers live in `rpc_*`; `tool_calls` carries tool frames to workers.
+//! Agent lifecycle and archive boundary; worker-hosted OMP lives in `omp`.
+//! Production owns durable chat delivery but no native runtime or provider clients.
+//! Explicit native fixtures bind worker tools and run recovery/schedule tasks.
 
 mod chat_delivery;
 mod chat_events;
@@ -23,6 +23,7 @@ pub mod tool_calls;
 mod tool_calls_jobs;
 
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -51,58 +52,75 @@ pub struct ClusterMembership {
     pub notifier: Arc<ClusterNotifier>,
 }
 
-/// The harness and everything its RPCs need.
+/// Production keeps only durable chat delivery; native execution is test-only.
 pub struct AgentService {
-    pub runtime: AgentRuntime,
-    pub llm: Arc<RoostLlm>,
+    pub native: Option<NativeAgent>,
     pub sink: Arc<CoordChatSink>,
-    pub logins: LoginRegistry,
-    pub http: reqwest::Client,
-    pub endpoints: Endpoints,
     pub cluster: ClusterMembership,
     background: Mutex<Vec<tokio::task::AbortHandle>>,
+}
+
+/// Runtime and provider services used by explicit native fixtures.
+pub struct NativeAgent {
+    pub runtime: AgentRuntime,
+    pub llm: Arc<RoostLlm>,
+    pub logins: LoginRegistry,
+}
+
+impl std::fmt::Debug for NativeAgent {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("NativeAgent")
+            .finish_non_exhaustive()
+    }
+}
+
+impl AgentService {
+    pub fn native_runtime(&self) -> Result<&AgentRuntime, connectrpc::ConnectError> {
+        self.native_service().map(|native| &native.runtime)
+    }
+
+    pub fn native_service(&self) -> Result<&NativeAgent, connectrpc::ConnectError> {
+        self.native.as_ref().ok_or_else(|| {
+            connectrpc::ConnectError::new(
+                connectrpc::ErrorCode::FailedPrecondition,
+                "native agent is archived",
+            )
+        })
+    }
+    pub fn pool(&self) -> Result<&Arc<AccountPool>, connectrpc::ConnectError> {
+        self.native_service().map(|native| native.llm.pool())
+    }
 }
 
 impl std::fmt::Debug for AgentService {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("AgentService")
-            .field("endpoints", &self.endpoints)
+            .field("native_enabled", &self.native.is_some())
             .finish_non_exhaustive()
     }
 }
 
 impl AgentService {
-    /// Builds the harness. `endpoint_overrides` replaces provider base URLs
-    /// (`ROOST_AGENT_ENDPOINT_OVERRIDES`).
-    pub fn new(
-        db: CoordDb,
-        buses: Arc<Buses>,
-        tool_calls: Arc<ToolCallRegistry>,
-        endpoint_overrides: BTreeMap<String, String>,
-        cluster: ClusterMembership,
-        credential_key: Option<[u8; 32]>,
-    ) -> Arc<Self> {
-        let registry = Arc::clone(&tool_calls);
-        let tools = Arc::new(executor::WorkerToolExecutor::new(tool_calls));
-        let config = RuntimeConfig {
-            instance_id: cluster.instance_id.clone(),
-            ..RuntimeConfig::default()
-        };
-        let service = Self::with_config(
-            db,
-            buses,
-            tools,
-            endpoint_overrides,
-            cluster,
-            config,
-            credential_key,
+    /// Production construction retains event delivery without creating an
+    /// engine, provider client, login registry or worker callback binding.
+    pub fn new(db: CoordDb, buses: Arc<Buses>, cluster: ClusterMembership) -> Arc<Self> {
+        let sink = Arc::new(CoordChatSink::new(db, Arc::clone(&cluster.notifier), buses));
+        tracing::info!(
+            backend = "native",
+            state = "archived",
+            "native agent runtime disabled"
         );
-        registry.bind_runtime(service.runtime.clone());
-        service
+        Arc::new(Self {
+            native: None,
+            sink,
+            cluster,
+            background: Mutex::new(Vec::new()),
+        })
     }
 
-    /// The harness over any tool executor; tests answer tool calls directly.
+    /// Explicit native harness construction for tests.
     pub fn with_tools(
         db: CoordDb,
         buses: Arc<Buses>,
@@ -116,9 +134,28 @@ impl AgentService {
         };
         Self::with_config(db, buses, tools, endpoint_overrides, cluster, config, None)
     }
+    /// Native fixture construction with the coordinator's worker tool router.
+    pub fn with_worker_tools(
+        db: CoordDb,
+        buses: Arc<Buses>,
+        tool_calls: Arc<ToolCallRegistry>,
+        endpoint_overrides: BTreeMap<String, String>,
+        cluster: ClusterMembership,
+    ) -> Arc<Self> {
+        let service = Self::with_tools(
+            db,
+            buses,
+            Arc::new(executor::WorkerToolExecutor::new(Arc::clone(&tool_calls))),
+            endpoint_overrides,
+            cluster,
+        );
+        if let Ok(native) = service.native_runtime() {
+            tool_calls.bind_runtime(native.clone());
+        }
+        service
+    }
 
-    /// [`Self::with_tools`] with the runtime's tunables; `config.instance_id`
-    /// must be `cluster.instance_id`.
+    /// Explicit native harness construction with runtime tunables.
     pub fn with_config(
         db: CoordDb,
         buses: Arc<Buses>,
@@ -170,29 +207,27 @@ impl AgentService {
         );
         sink.bind(runtime.clone());
         Arc::new(Self {
-            runtime,
-            llm,
+            native: Some(NativeAgent {
+                runtime,
+                llm,
+                logins,
+            }),
             sink,
-            logins,
-            http,
-            endpoints,
             cluster,
             background: Mutex::new(Vec::new()),
         })
     }
 
-    pub fn pool(&self) -> &Arc<AccountPool> {
-        self.llm.pool()
-    }
-
-    /// Resumes durable unfinished work at boot; a storage failure retries
-    /// without preventing the coordinator's worker listener from opening.
+    /// Resumes durable unfinished native work only for explicit native fixtures.
     pub async fn recover(&self) {
-        match self.runtime.recover_interrupted_runs().await {
+        let Some(native) = &self.native else {
+            return;
+        };
+        match native.runtime.recover_interrupted_runs().await {
             Ok(recovered) => tracing::info!(recovered, "agent harness ready"),
             Err(error) => {
                 tracing::error!(%error, "agent run recovery failed; retry scheduled");
-                let runtime = self.runtime.clone();
+                let runtime = native.runtime.clone();
                 self.spawn_background(async move {
                     let mut delay = Duration::from_secs(2);
                     loop {
@@ -213,14 +248,10 @@ impl AgentService {
         }
     }
 
-    /// Joins the replica set: listens for other replicas' notices, applies
-    /// agent commands they admitted, and adopts runs whose owner vanished.
     pub fn join_cluster(&self) {
-        let mut notices = self.cluster.notifier.subscribe();
-        let notifier = Arc::clone(&self.cluster.notifier);
         let db = self.sink.database();
         self.spawn_background(chat_events::relay(
-            notifier,
+            Arc::clone(&self.cluster.notifier),
             db.clone(),
             self.sink.delivery(),
         ));
@@ -228,76 +259,60 @@ impl AgentService {
             let mut prune = tokio::time::interval(Duration::from_secs(10 * 60));
             loop {
                 prune.tick().await;
-                match chat_events::prune(&db).await {
-                    Ok(deleted) if deleted > 0 => {
-                        tracing::info!(deleted, "expired agent chat event batches pruned")
-                    }
-                    Ok(_) => {}
-                    Err(error) => tracing::warn!(%error, "agent chat event pruning failed"),
+                if let Err(error) = chat_events::prune(&db).await {
+                    tracing::warn!(%error, "agent chat event pruning failed");
                 }
             }
         });
-        let runtime = self.runtime.clone();
-        let sink = Arc::clone(&self.sink);
-        self.spawn_background(async move {
-            loop {
-                match notices.recv().await {
-                    Ok(notice) if notice.channel == AGENT_CHANNEL && notice.resync => {
-                        runtime.resync_local_runs().await;
-                    }
-                    Ok(notice) if notice.channel == AGENT_CHANNEL => {
-                        let runtime = runtime.clone();
-                        tokio::spawn(async move {
+        if let Some(native) = &self.native {
+            let mut notices = self.cluster.notifier.subscribe();
+            let runtime = native.runtime.clone();
+            let sink = Arc::clone(&self.sink);
+            self.spawn_background(async move {
+                loop {
+                    match notices.recv().await {
+                        Ok(notice) if notice.channel == AGENT_CHANNEL && notice.resync => {
+                            runtime.resync_local_runs().await;
+                        }
+                        Ok(notice) if notice.channel == AGENT_CHANNEL => {
                             runtime.apply_remote_change(&notice.payload).await;
-                        });
-                    }
-                    Ok(notice) if notice.channel == AGENT_SUMMARY_CHANNEL => {
-                        let runtime = runtime.clone();
-                        let sink = Arc::clone(&sink);
-                        let conversation_id = (!notice.resync).then_some(notice.payload);
-                        tokio::spawn(async move {
+                        }
+                        Ok(notice) if notice.channel == AGENT_SUMMARY_CHANNEL => {
+                            let conversation_id = (!notice.resync).then_some(notice.payload);
                             refresh_summary_bus(&runtime, &sink, conversation_id.as_deref()).await;
-                        });
-                    }
-                    Ok(_) => {}
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => {
-                        tracing::warn!(missed, "agent cluster notices lagged; resynchronizing");
-                        runtime.resync_local_runs().await;
-                        let runtime = runtime.clone();
-                        let sink = Arc::clone(&sink);
-                        tokio::spawn(async move {
+                        }
+                        Ok(_) => {}
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                            runtime.resync_local_runs().await;
                             refresh_summary_bus(&runtime, &sink, None).await;
-                        });
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 }
-            }
-        });
-        let runtime = self.runtime.clone();
-        self.spawn_background(async move {
-            let mut sweep = tokio::time::interval(ORPHAN_SWEEP);
-            loop {
-                sweep.tick().await;
-                if let Err(error) = runtime.recover_orphaned_runs().await {
-                    tracing::warn!(%error, "orphaned agent run sweep failed");
+            });
+            let runtime = native.runtime.clone();
+            self.spawn_background(async move {
+                let mut sweep = tokio::time::interval(ORPHAN_SWEEP);
+                loop {
+                    sweep.tick().await;
+                    if let Err(error) = runtime.recover_orphaned_runs().await {
+                        tracing::warn!(%error, "orphaned agent run sweep failed");
+                    }
                 }
-            }
-        });
-        let runtime = self.runtime.clone();
-        self.spawn_background(async move {
-            let mut sweep = tokio::time::interval(SCHEDULE_SWEEP);
-            loop {
-                sweep.tick().await;
-                if let Err(error) = roost_agent::schedules::deliver_due(&runtime).await {
-                    tracing::warn!(%error, "scheduled message sweep failed");
+            });
+            let runtime = native.runtime.clone();
+            self.spawn_background(async move {
+                let mut sweep = tokio::time::interval(SCHEDULE_SWEEP);
+                loop {
+                    sweep.tick().await;
+                    if let Err(error) = roost_agent::schedules::deliver_due(&runtime).await {
+                        tracing::warn!(%error, "scheduled message sweep failed");
+                    }
                 }
-            }
-        });
-        tracing::info!(instance_id = %self.cluster.instance_id, "agent harness joined the coordinator cluster");
+            });
+        }
     }
 
-    /// Stops this replica's background tasks and hands its runs to the other
-    /// replicas: local runs stop without settling and their leases are freed.
     pub async fn leave_cluster(&self) {
         for task in self
             .background
@@ -307,8 +322,10 @@ impl AgentService {
         {
             task.abort();
         }
-        let released = self.runtime.release_all_leases().await;
-        tracing::info!(released, instance_id = %self.cluster.instance_id, "agent harness left the coordinator cluster");
+        if let Some(native) = &self.native {
+            let released = native.runtime.release_all_leases().await;
+            tracing::info!(released, instance_id = %self.cluster.instance_id, "agent harness left the coordinator cluster");
+        }
     }
 
     fn spawn_background(&self, task: impl Future<Output = ()> + Send + 'static) {

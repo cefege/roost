@@ -1,12 +1,17 @@
 # Rust Pi Durable: implementation boundary
 
+**Status: archived.** Production agent mode runs OMP on a worker. This document
+describes the retained Rust-native implementation, not an active runtime or an
+authorization to re-enable it. Its code, journals, settings and credentials stay
+intact; native reactivation requires an explicit operator request.
+
 ## DURABLE-TARGET
 
-Roost uses a maintained Rust Pi Durable fork, not `bigfish1913/pi-rust` and not a Node agent sidecar. The behavioral reference is [`earendil-works/pi@d5b3de22d0e24a3e9c38a9410d3329b099717283`, `packages/durable`](https://github.com/earendil-works/pi/tree/d5b3de22d0e24a3e9c38a9410d3329b099717283/packages/durable). Its manifest reports 1.4.0; the published npm artifact is different and is not the oracle.
+The archived Rust-native harness uses a maintained Rust Pi Durable fork, not `bigfish1913/pi-rust` and not a Node agent sidecar. The behavioral reference is [`earendil-works/pi@d5b3de22d0e24a3e9c38a9410d3329b099717283`, `packages/durable`](https://github.com/earendil-works/pi/tree/d5b3de22d0e24a3e9c38a9410d3329b099717283/packages/durable). Its manifest reports 1.4.0; the published npm artifact is different and is not the oracle.
 
 The reusable engine is vendored under [`third_party/pi-durable-rs`](../../third_party/pi-durable-rs), based on `revpidev/rpi` v0.1.7 / `7ee970aad1d825b30b9413ce251c98e610214e2b`. That base ported official Durable 1.1.0 / `abe508e1b89912adde45528136c3221eb69acdd7`. The [vendoring record](../../third_party/pi-durable-rs/ROOST-PATCHES.md) identifies the local behavior patches and maintenance owner.
 
-This is **fork maintenance**, not zero maintenance. Upstream Durable changes require reviewing the source delta, updating the Rust fork and rerunning the oracle. Roost no longer keeps a second primary model/tool/compaction engine beside it. Exact OMP harness parity remains outside [the native chat contract](../../protocol/spec/agent-chat.md).
+This is **fork maintenance**, not zero maintenance. Any native reactivation requires reviewing upstream Durable changes, maintaining the Rust fork and rerunning the oracle. The active OMP web agent runs OMP itself instead of porting that harness into this engine.
 
 ## DURABLE-RUST-CANDIDATES
 
@@ -45,4 +50,4 @@ The [development oracle](../../tools/pi-durable-conformance/README.md) runs the 
 
 Native acceptance additionally covers SQLite/Postgres atomic projection and fences, existing-history import/rewind/fork, worker effect recovery, cancellation partials, persisted yields, model/account policies and product commands. Browser proof uses isolated coordinator/worker data and a disposable local model endpoint; no operator credentials are required. The stock UI and notification proof artifacts are under `target/stock-rust-ui/target/ui-proof/artifacts/`.
 
-No test count establishes exhaustive equivalence or authorizes deployment. Release promotion remains a separate operator approval; changing source here does not deploy the coordinator or fleet.
+No test count authorizes native reactivation. Deployment follows the tagged release and automatic promotion pipeline; changing this retained engine does not itself enable or deploy it.

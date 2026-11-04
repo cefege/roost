@@ -1,19 +1,28 @@
 # Agent chat
 
-The built-in agent's client contract: the `AgentChat*` Connect RPCs in
-`protocol/proto/roost/v1/coordinator.proto`, the transcript shapes in
-`roost_protocol::wire::agent_chat`, and the coordinator-side rules that make
-them safe when several coordinator replicas share one database.
+The OMP web agent's client contract: `AgentChat*` and `AgentOmp*` Connect RPCs
+in `protocol/proto/roost/v1/coordinator.proto`, transcript shapes in
+`roost_protocol::wire::agent_chat`, and coordinator/worker admission and projection.
+The retained Rust-native contract below is archival, not an active product mode.
 
-Implementation anchors: `crates/roost-coord/src/agent/` (RPC handlers, store),
-`crates/roost-agent/src/runtime/` (admission, leases, recovery),
-`crates/roost-coord/src/cluster/notify.rs` (cross-replica notices).
+Implementation anchors: `crates/roost-coord/src/agent/omp/` (projection and RPCs),
+the worker's OMP adapter, and `crates/roost-web/src/components/agent_chat/`.
+Native engine code remains under `crates/roost-agent/` with explicit test fixtures.
 
 ## Backends and OMP settings
 
-`AgentChatCreate.backend` and `AgentConversation.backend` select `native` or `omp`;
-empty and unknown values decode as native. Native settings, model roles, credentials,
-and terminal agent launchers are unchanged. Native adoption queries exclude OMP rows.
+OMP is the only active backend. Normal clients send `AgentChatCreate.backend=omp`;
+an omitted creation backend also selects OMP. Explicit native creation and native
+execution/configuration/auth mutations reject as archived in production. Native
+code, conversation journals, settings and credentials are preserved, not migrated
+to OMP or deleted. Production starts no native recovery, schedules or tool wakeups.
+
+Stored `AgentConversation.backend` values retain their compatibility semantics:
+`omp` identifies OMP; empty or unknown stored values decode as native. The enum's
+Native default is not the creation default and must not relabel old history.
+Read-only native summaries remain available to identify archived links. The
+normal UI retains that metadata but excludes it from conversation navigation
+and mounts no native controls.
 
 OMP conversations run `omp acp --approval-mode yolo` on their fixed worker and cwd.
 A worker-owned `--extension` awaits OMP's background and runtime-provider discovery
@@ -114,6 +123,11 @@ ACP does not transport OMP's pre-execution streamed tool-argument previews. Roos
 renders supplied start arguments and live result snapshots, never simulated argument
 updates. Semantic roles and supplied ANSI styles use the existing theme.
 
+Native-only commands, plan review, ownership/recovery, provider and model-role
+sections below document the retained implementation and its explicit native test
+fixtures. They do not enable those workflows in the production product. Shared
+transcript, attachment and request-id rules still apply where the OMP contract
+above supports them.
 
 ## Commands and request ids
 
@@ -417,8 +431,8 @@ Authority: `crates/roost-llm/src/usage.rs`, `crates/roost-llm/src/pool/rank.rs`,
 
 ## Agent scope and storage compatibility
 
-The native Rust agent's behavioral baseline is `d5cf3bda`, immediately before
-the full OMP-harness parity project. Exact OMP parity is not this contract.
+The archived Rust-native engine retains its own behavioral and storage contract.
+It is not a second active agent option or the source of OMP's provider settings.
 
 Applied SQLite and Postgres migration history remains intact. The single
 advisor reads and writes the empty `roster_slug` slot through the current
@@ -437,8 +451,7 @@ re-imported as new messages. Optional rich tool content and provider data retain
 image ordering and replay metadata when materialized native history is forked.
 Old tool rows without these fields remain readable.
 
-
-The rollback does not rewrite operator settings, credentials or conversation
-journals. Compatibility with journal variants written by the retired parity
-features must be checked before a production rollout; fresh-database acceptance
-does not establish that compatibility.
+Archiving does not rewrite operator settings, credentials or conversation
+journals. Compatibility with retained journal variants must be checked before
+any native reactivation; fresh-database acceptance does not establish that
+compatibility.

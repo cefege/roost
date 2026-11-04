@@ -10,17 +10,17 @@ use crate::pump::use_pump;
 /// The boot landing reads the same key.
 pub(crate) const LAST_CONVERSATION_KEY: &str = "roost.lastAgentConversation";
 
-/// Records `conversation_id` whenever its surface becomes the focused one.
+/// Records an OMP conversation whenever its surface becomes the focused one.
 /// Only the focused tab writes, so a background mount cannot overwrite the
 /// memory with a conversation nobody is looking at.
-pub(super) fn use_remember_conversation(conversation_id: &str, active: bool) {
+pub(super) fn use_remember_conversation(conversation_id: &str, active: bool, is_omp: bool) {
     let pump = use_pump();
     let core = pump.core();
     let conversation_id = conversation_id.to_owned();
     use_effect(use_reactive(
-        (&conversation_id, &active),
-        move |(conversation_id, active)| {
-            if !active {
+        (&conversation_id, &active, &is_omp),
+        move |(conversation_id, active, is_omp)| {
+            if !active || !is_omp {
                 return;
             }
             core.borrow()

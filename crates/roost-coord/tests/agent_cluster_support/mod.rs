@@ -233,6 +233,7 @@ pub async fn add_key(replica: &Replica) {
     replica
         .service
         .pool()
+        .unwrap()
         .store()
         .upsert(
             "anthropic",
@@ -250,7 +251,13 @@ pub async fn add_key(replica: &Replica) {
 pub async fn settled(replica: &Replica, id: &str, within: Duration) {
     tokio::time::timeout(within, async {
         loop {
-            let transcript = replica.service.runtime.transcript(id).await.unwrap();
+            let transcript = replica
+                .service
+                .native_runtime()
+                .unwrap()
+                .transcript(id)
+                .await
+                .unwrap();
             if transcript.run_state != roost_protocol::wire::agent_chat::AgentRunState::Running {
                 return;
             }

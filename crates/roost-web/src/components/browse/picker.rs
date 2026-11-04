@@ -251,11 +251,10 @@ fn run_key(
             cursor.set(-1);
         }
         PickerKey::OpenHere => match launch_mode {
-            BrowseLaunchMode::Agent(backend) => crate::components::agent_chat::launch_agent(
+            BrowseLaunchMode::Agent => crate::components::agent_chat::launch_agent(
                 pump.clone(),
                 view.worker_fp.clone(),
                 view.resolved.clone(),
-                backend,
                 *navigate,
             ),
             BrowseLaunchMode::Terminal => listing::launch_terminal(

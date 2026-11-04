@@ -11,6 +11,8 @@ pub(super) fn latest_todo(transcript: &Transcript) -> Option<Vec<TodoPhase>> {
     })
 }
 
+// Retained with the archived native UI, which does not mount loop controls.
+#[allow(dead_code)]
 pub(super) fn loop_status(transcript: &Transcript) -> Option<&str> {
     transcript.items.iter().find_map(|item| match item {
         TranscriptItem::LoopStatus { status, .. } => Some(status.as_str()),

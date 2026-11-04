@@ -206,7 +206,12 @@ fn open_sessions_oldest_first(store: &Store) -> Vec<String> {
         .into_iter()
         .map(|session| session.id.as_str().to_owned())
         .collect::<Vec<_>>();
-    let mut conversations: Vec<_> = store.agent_chat.conversations.values().collect();
+    let mut conversations: Vec<_> = store
+        .agent_chat
+        .conversations
+        .values()
+        .filter(|conversation| !conversation.is_native())
+        .collect();
     conversations.sort_by_key(|conversation| std::cmp::Reverse(conversation.updated_ms));
     tab_ids.extend(
         conversations

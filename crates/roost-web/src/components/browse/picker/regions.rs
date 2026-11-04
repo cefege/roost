@@ -7,7 +7,6 @@
 #![allow(clippy::too_many_arguments)]
 
 use dioxus::prelude::*;
-use roost_protocol::wire::agent_chat::AgentBackend;
 
 use crate::components::browse::BrowseLaunchMode;
 use crate::components::browse::dom;
@@ -137,14 +136,14 @@ pub fn PickerRegions(
                 }
             }
             div { class: "flex flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-3",
-                if let BrowseLaunchMode::Agent(backend) = launch_mode {
+                if let BrowseLaunchMode::Agent = launch_mode {
                     Button {
                         variant: ButtonVariant::Default,
                         icon: Some(IconType::Bot),
-                        "data-testid": if backend == AgentBackend::Omp { "browse-start-omp" } else { "browse-start-agent" },
+                        "data-testid": "browse-start-agent",
                         disabled: !view.scoped,
                         onclick: move |_| on_start_agent.call(()),
-                        if backend == AgentBackend::Omp { "Start OMP here" } else { "Start agent here" }
+                        "New agent here"
                     }
                     Button {
                         variant: ButtonVariant::Outline,
@@ -169,7 +168,7 @@ pub fn PickerRegions(
                         "data-testid": "browse-start-agent",
                         disabled: !view.scoped,
                         onclick: move |_| on_start_agent.call(()),
-                        "Start agent here"
+                        "New agent here"
                     }
                 }
             }

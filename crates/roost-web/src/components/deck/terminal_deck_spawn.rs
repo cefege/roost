@@ -188,7 +188,7 @@ mod web {
                 worker_fp: anchor.worker_fp.clone(),
                 cwd: anchor.folder.clone(),
                 model: None,
-                backend: AgentBackend::Native,
+                backend: AgentBackend::Omp,
             })
             .await
         {

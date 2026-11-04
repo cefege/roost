@@ -181,7 +181,7 @@ fn an_agent_route_selects_its_agent_deck_tab() {
     core.store_mut().agent_chat.conversations.insert(
         "abc".to_owned(),
         ConversationSummary {
-            backend: roost_protocol::wire::agent_chat::AgentBackend::Native,
+            backend: roost_protocol::wire::agent_chat::AgentBackend::Omp,
             id: "abc".to_owned(),
             title: "Agent".to_owned(),
             worker_fp: fp(),

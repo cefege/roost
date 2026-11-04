@@ -84,6 +84,7 @@ pub fn AgentChatHeader(
             .agent_chat
             .conversations
             .values()
+            .filter(|conversation| !conversation.is_native())
             .cloned()
             .collect::<Vec<_>>()
     };

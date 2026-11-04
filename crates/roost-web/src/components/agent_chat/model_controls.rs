@@ -51,7 +51,7 @@ pub fn AgentModelControls(
     pump: Pump,
 ) -> Element {
     let navigate = use_navigate();
-    let open_settings = move || navigate.call(crate::routes::settings_pane_href("models"));
+    let open_settings = move || navigate.call(crate::routes::settings_pane_href("omp"));
     let setup = ModelSetup::from_catalog(catalog.as_ref(), catalog_failed);
     let trigger_id = model_picker_trigger_id(&conversation.id);
     // Nothing to pick from: a button that says why, never an empty menu. The
@@ -76,7 +76,7 @@ pub fn AgentModelControls(
                     disabled: waiting,
                     "aria-busy": waiting.then_some("true"),
                     "data-testid": "agent-chat-model-setup",
-                    title: "Open Settings → Agents → Models",
+                    title: "Open Settings → Agents → OMP",
                     onclick: move |_| open_settings(),
                     span { class: "truncate", "{label}" }
                 }

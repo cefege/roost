@@ -17,7 +17,8 @@ async fn read_only_keeps_controller_context_and_explicit_rewind_available() {
         .core
         .services
         .agent
-        .runtime
+        .native_runtime()
+        .unwrap()
         .set_read_only(&template.owner_conversation_id.0, true)
         .await
         .unwrap();

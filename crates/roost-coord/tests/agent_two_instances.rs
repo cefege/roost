@@ -53,7 +53,8 @@ async fn pair(label: &str) -> (Replica, Replica, std::path::PathBuf) {
 async fn create(replica: &Replica) -> String {
     replica
         .service
-        .runtime
+        .native_runtime()
+        .unwrap()
         .create_conversation(NewConversation {
             worker_fp: "worker-fp".into(),
             worker_label: "desktop".into(),
@@ -158,7 +159,8 @@ async fn input_admitted_on_one_replica_reaches_the_run_another_owns() {
         text_sse("Both requests handled."),
     ]);
     a.service
-        .runtime
+        .native_runtime()
+        .unwrap()
         .submit_request(&id, "first-request", "first".into())
         .await
         .unwrap();
@@ -167,7 +169,8 @@ async fn input_admitted_on_one_replica_reaches_the_run_another_owns() {
         .expect("A runs the tool");
 
     b.service
-        .runtime
+        .native_runtime()
+        .unwrap()
         .submit_request(&id, "second-request", "second".into())
         .await
         .unwrap();
@@ -179,7 +182,13 @@ async fn input_admitted_on_one_replica_reaches_the_run_another_owns() {
     let bodies = primary_bodies(&a);
     assert_eq!(bodies.len(), 2, "one tool round and one reply: {bodies:#?}");
     assert!(user_texts(&bodies[1]).contains(&"second".to_owned()));
-    let transcript = a.service.runtime.transcript(&id).await.unwrap();
+    let transcript = a
+        .service
+        .native_runtime()
+        .unwrap()
+        .transcript(&id)
+        .await
+        .unwrap();
     let replies = serde_json::to_string(&transcript.items).unwrap();
     assert_eq!(replies.matches("Both requests handled.").count(), 1);
 }
@@ -195,7 +204,8 @@ async fn an_abort_on_one_replica_stops_the_run_another_owns() {
         r#"{"i":"Wait","command":"sleep 60"}"#,
     ));
     a.service
-        .runtime
+        .native_runtime()
+        .unwrap()
         .submit_request(&id, "long-request", "run for a minute".into())
         .await
         .unwrap();
@@ -204,7 +214,14 @@ async fn an_abort_on_one_replica_stops_the_run_another_owns() {
         .expect("A runs the tool");
 
     let asked = Instant::now();
-    assert!(b.service.runtime.abort(&id).await.unwrap());
+    assert!(
+        b.service
+            .native_runtime()
+            .unwrap()
+            .abort(&id)
+            .await
+            .unwrap()
+    );
     settled(&a, &id, Duration::from_secs(2)).await;
     assert!(asked.elapsed() < Duration::from_secs(2));
     assert_eq!(primary_requests(&a), 1, "the aborted run asks nothing more");
@@ -225,7 +242,8 @@ async fn a_retried_submit_is_admitted_once() {
     a.fake.replies.lock().push(text_sse("Hello once."));
     for _ in 0..2 {
         b.service
-            .runtime
+            .native_runtime()
+            .unwrap()
             .submit_request(&id, "same-request", "hello".into())
             .await
             .unwrap();
@@ -254,7 +272,8 @@ async fn durable_chat_events_relay_across_replicas_and_continue_after_restart() 
 
     a.fake.replies.lock().push(text_sse("Cursor stream."));
     a.service
-        .runtime
+        .native_runtime()
+        .unwrap()
         .submit_request(&conversation_id, "chat-run", "hello".into())
         .await
         .unwrap();

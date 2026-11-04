@@ -47,7 +47,8 @@ async fn a_replica_that_dies_mid_tool_is_replaced_without_replaying_the_tool() {
     runtime_a
         .spawn(async move {
             service_a
-                .runtime
+                .native_runtime()
+                .unwrap()
                 .submit_request(&submit_id, "migrate", "run the migration".into())
                 .await
         })
@@ -70,7 +71,14 @@ async fn a_replica_that_dies_mid_tool_is_replaced_without_replaying_the_tool() {
 
     let adopted = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            if b.service.runtime.recover_orphaned_runs().await.unwrap() == 1 {
+            if b.service
+                .native_runtime()
+                .unwrap()
+                .recover_orphaned_runs()
+                .await
+                .unwrap()
+                == 1
+            {
                 return;
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
