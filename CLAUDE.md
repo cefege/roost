@@ -491,12 +491,13 @@ reuses artifacts built from another tree's sources, and gates then pass or
 fail on the wrong code. `cargo xtask` run from a worktree needs
 `ROOST_REPO_ROOT=<worktree>`.
 
-**Dependencies come from sccache.** Each fleet machine with a toolchain sets
-`[build] rustc-wrapper` in `~/.cargo/config.toml` to sccache, which keeps a
-local disk cache shared by every checkout. Third-party libraries and C objects
-hit across worktrees. Proc-macros, build scripts, crates that read `OUT_DIR`,
-and the incremental workspace crates recompile per worktree.
-`sccache --show-stats` shows the hit rate.
+**Compiler caching uses sccache.** Install sccache on build hosts. Configure
+`[build] rustc-wrapper` in `~/.cargo/config.toml` for ordinary checkouts, or pass
+`RUSTC_WRAPPER=<absolute sccache path>` for an isolated build without changing
+user-wide Cargo settings. The default machine-local cache is shared across
+checkouts: third-party libraries and C objects hit across worktrees.
+Proc-macros, build scripts, crates that read `OUT_DIR`, and incremental workspace
+crates recompile per worktree. `sccache --show-stats` shows the hit rate.
 
 ### Release to the fleet
 
