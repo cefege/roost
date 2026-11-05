@@ -222,6 +222,7 @@ pub(super) fn render_item<'a>(
         .or_else(|| node.p.get("text"))
         .map(text_value)
         .unwrap_or_default();
+    let value = node.p.get("value").map(text_value);
     let item_href = actions::href(node);
     let row = if let Some(action) = click {
         let action = action.to_owned();
@@ -250,14 +251,20 @@ pub(super) fn render_item<'a>(
                         false,
                     );
                 },
-                "{text}"
+                span { class: "min-w-0 flex-1", "{text}" }
+                if let Some(value) = value {
+                    span { class: "ml-auto shrink-0 text-xs tabular-nums text-muted-foreground", "{value}" }
+                }
             }
         }
     } else {
         rsx! {
             div {
                 class: "flex w-full min-w-0 flex-wrap items-center gap-2 px-2 py-1 text-sm",
-                "{text}"
+                span { class: "min-w-0 flex-1", "{text}" }
+                if let Some(value) = value {
+                    span { class: "ml-auto shrink-0 text-xs tabular-nums text-muted-foreground", "{value}" }
+                }
             }
         }
     };
