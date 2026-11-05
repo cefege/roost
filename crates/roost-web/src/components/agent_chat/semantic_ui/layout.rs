@@ -35,6 +35,24 @@ pub(super) fn render_box(
                 }
             };
         }
+        // Virtual lists (the terminal only paints the visible window) may grow
+        // to hundreds of rows; let the browser skip layout/paint of the rows
+        // outside the scroll viewport instead of rendering the whole catalog.
+        if node.k == "list"
+            && node
+                .p
+                .get("virtual")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        {
+            return rsx! {
+                div { class: "{classes}",
+                    for child in children {
+                        div { style: "content-visibility:auto;contain-intrinsic-block-size:1lh;", {child} }
+                    }
+                }
+            };
+        }
         return rsx! {
             div { class: "{classes}", for child in children { {child} } }
         };
