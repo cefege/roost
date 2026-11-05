@@ -16,7 +16,7 @@ pub(super) fn open_omp_ui_action(
     reduce_motion: bool,
     reset: bool,
 ) -> Value {
-    let mut action = json!({"method":"open","params":{"cols":cols,"rows":rows,"dark":dark,"reduceMotion":reduce_motion,"features":["send","undo","scroll"]}});
+    let mut action = json!({"method":"open","params":{"cols":cols,"rows":rows,"dark":dark,"reduceMotion":reduce_motion,"features":["send","undo","scroll"],"kinds":["col","row","card","section","rule","spacer","text","md","code","diff","ansi","math","image","media","kv","table","tree","json","badge","kbd","icon","spinner","shimmer","elapsed","progress","rate","list","item","tabs","editor","input","button","status","seg","overlay","toast","rows","prefs","tool","checklist","agent","chart","meter","effort"]}});
     if reset && let Some(params) = action.get_mut("params").and_then(Value::as_object_mut) {
         params.insert("reset".to_owned(), json!(true));
     }
