@@ -12,7 +12,7 @@ use super::render_icon;
 use super::{duration, event, prop_text, text_value, tone_variant};
 use crate::components::hooks::use_copy_clipboard::use_copy_clipboard;
 use crate::components::ui::{
-    Badge, BadgeSize, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, CardSize, Collapsible,
+    Badge, BadgeSize, BadgeVariant, Button, ButtonSize, ButtonVariant, Collapsible,
     CollapsibleContent, CollapsibleTrigger, Kbd, KbdGroup, Spinner, button_class,
 };
 use dioxus::prelude::*;
@@ -97,7 +97,8 @@ pub(super) fn render(
     if inline {
         rsx! { div { class: "flex min-w-0 flex-col gap-2", {framed} } }
     } else {
-        rsx! { Card { size: CardSize::Sm, class: Some("min-w-0 p-3".to_owned()), {framed} } }
+        // The terminal frames only the tool body; the head stays on the canvas.
+        rsx! { div { class: "flex min-w-0 flex-col gap-2", {framed} } }
     }
 }
 

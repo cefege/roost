@@ -95,7 +95,7 @@ pub(super) fn NativeRegions(
                 class: "relative mx-auto w-full max-w-reading min-w-0 max-h-full shrink-0",
                 "data-omp-dock": true,
                 {dock_overlays}
-                div { class: "max-h-full overflow-y-auto px-4 pb-3", {dock} }
+                div { class: "max-h-full overflow-y-auto border-t border-border px-4 pt-2 pb-3", {dock} }
             }
             {surface_overlays}
         }

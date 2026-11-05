@@ -182,7 +182,7 @@ pub(super) fn OmpEditor(
         if single_line{
             Input{id:Some(element_id),r#type:input_type,autocomplete,spellcheck,class:Some("w-full".into()),value:Some(value),placeholder:Some(placeholder),readonly:html_readonly,autofocus:focused,aria_label:Some(label),oninput:on_input,onkeydown:on_key}
         }else{
-            Textarea{id:Some(element_id),class:Some("w-full resize-none max-h-(--omp-native-editor-height)".into()),rows:1,value:Some(value),placeholder:Some(placeholder),readonly:html_readonly,autofocus:focused,aria_label:Some(label),oninput:on_input,onkeydown:on_key}
+            Textarea{id:Some(element_id),class:Some("w-full resize-none max-h-(--omp-native-editor-height) rounded-none border-0 bg-transparent dark:bg-transparent px-0 py-1 shadow-none min-h-8 focus-visible:border-0 focus-visible:ring-0".into()),rows:1,value:Some(value),placeholder:Some(placeholder),readonly:html_readonly,autofocus:focused,aria_label:Some(label),oninput:on_input,onkeydown:on_key}
         }
     }}
 }

@@ -5,8 +5,7 @@
 use super::super::prop_text;
 use super::copy::CopyButton;
 use crate::components::ui::{
-    ButtonSize, ButtonVariant, Card, CardContent, CardSize, Collapsible, CollapsibleContent,
-    CollapsibleTrigger,
+    ButtonSize, ButtonVariant, Collapsible, CollapsibleContent, CollapsibleTrigger,
 };
 use crate::syntax_lite::{self, Token, TokenKind};
 use dioxus::prelude::*;
@@ -164,13 +163,12 @@ fn CodeView(props: CodeViewProps) -> Element {
         "code".to_owned()
     };
     rsx! {
-        Card { size: CardSize::Sm,
-            CardContent { class: "flex min-w-0 flex-col gap-2",
-                div { class: "flex min-w-0 items-center justify-between gap-2",
-                    span { class: "min-w-0 truncate font-mono text-xs text-muted-foreground", "{label}" }
-                    CopyButton { text: props.source.clone() }
-                }
-                pre { class: "m-0 overflow-x-auto bg-terminal p-3 font-mono text-xs leading-5 text-terminal-foreground",
+        div { class: "flex min-w-0 flex-col rounded-none border border-border",
+            div { class: "flex min-w-0 items-center justify-between gap-2 border-b border-border px-2 py-1",
+                span { class: "min-w-0 truncate font-mono text-xs text-muted-foreground", "{label}" }
+                CopyButton { text: props.source.clone() }
+            }
+            pre { class: "m-0 overflow-x-auto bg-terminal p-2 font-mono text-xs leading-5 text-terminal-foreground",
                     for (offset, line) in lines[visible_start..visible_end].iter().enumerate() {
                         { line_row(
                             visible_start + offset,
@@ -198,7 +196,7 @@ fn CodeView(props: CodeViewProps) -> Element {
                             if open() { "Show fewer lines" } else { "Show all {total} lines" }
                         }
                         CollapsibleContent {
-                            pre { class: "m-0 overflow-x-auto bg-terminal p-3 font-mono text-xs leading-5 text-terminal-foreground",
+                            pre { class: "m-0 overflow-x-auto bg-terminal p-2 font-mono text-xs leading-5 text-terminal-foreground",
                                 for (idx, line) in lines.iter().enumerate().skip(visible_end) {
                                     { line_row(
                                         idx,
@@ -214,7 +212,6 @@ fn CodeView(props: CodeViewProps) -> Element {
                         }
                     }
                 }
-            }
         }
     }
 }

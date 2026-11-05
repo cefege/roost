@@ -5,8 +5,7 @@ use super::super::prop_text;
 use super::copy::CopyButton;
 use crate::components::agent_chat::output_lines::{styled_lines, window};
 use crate::components::ui::{
-    ButtonSize, ButtonVariant, Card, CardContent, CardSize, Collapsible, CollapsibleContent,
-    CollapsibleTrigger,
+    ButtonSize, ButtonVariant, Collapsible, CollapsibleContent, CollapsibleTrigger,
 };
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::semantic_ui::OmpUiNode;
@@ -104,12 +103,11 @@ fn AnsiView(props: AnsiViewProps) -> Element {
         }
     };
     rsx! {
-        Card { size: CardSize::Sm,
-            CardContent { class: "flex min-w-0 flex-col gap-2",
-                div { class: "flex min-w-0 items-center justify-between gap-2",
-                    span { class: "font-mono text-xs text-muted-foreground", "output" }
-                    CopyButton { text: props.plain.clone() }
-                }
+        div { class: "flex min-w-0 flex-col rounded-none border border-border",
+            div { class: "flex min-w-0 items-center justify-between gap-2 border-b border-border px-2 py-1",
+                span { class: "font-mono text-xs text-muted-foreground", "output" }
+                CopyButton { text: props.plain.clone() }
+            }
                 if previewable && !props.from_head {
                     { output_hint(hidden, props.rows, total) }
                 }
@@ -132,7 +130,7 @@ fn AnsiView(props: AnsiViewProps) -> Element {
                         }
                     }
                 }
-                pre { class: "m-0 overflow-x-auto bg-terminal p-3 font-mono text-xs leading-5 text-terminal-foreground",
+                pre { class: "m-0 overflow-x-auto bg-terminal p-2 font-mono text-xs leading-5 text-terminal-foreground",
                     for line in shown.iter() {
                         { output_line(line) }
                     }
@@ -156,7 +154,6 @@ fn AnsiView(props: AnsiViewProps) -> Element {
                         }
                     }
                 }
-            }
         }
     }
 }

@@ -6,8 +6,8 @@
 
 use super::{duration, event, prop_text, render_children, text_value};
 use crate::components::ui::{
-    Badge, BadgeSize, BadgeVariant, ButtonSize, ButtonVariant, Card, CardSize, Collapsible,
-    CollapsibleContent, CollapsibleTrigger, Icon, IconType, Progress,
+    Badge, BadgeSize, BadgeVariant, ButtonSize, ButtonVariant, Collapsible, CollapsibleContent,
+    CollapsibleTrigger, Icon, IconType, Progress,
 };
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::semantic_ui::{OmpUiBlob, OmpUiNode};
@@ -288,7 +288,7 @@ fn agent(
     } else {
         body
     };
-    rsx! { Card { size: CardSize::Sm, class: Some("min-w-0 p-3".to_owned()), {framed} } }
+    rsx! { div { class: "flex min-w-0 flex-col gap-2", {framed} } }
 }
 
 fn agent_status(status: &str) -> Element {

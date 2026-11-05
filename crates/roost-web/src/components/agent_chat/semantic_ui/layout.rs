@@ -8,8 +8,7 @@
 //! wire, never from an invented height.
 
 use crate::components::ui::{
-    ButtonSize, ButtonVariant, Card, CardSize, Collapsible, CollapsibleContent, CollapsibleTrigger,
-    Icon, IconType,
+    ButtonSize, ButtonVariant, Collapsible, CollapsibleContent, CollapsibleTrigger, Icon, IconType,
 };
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::semantic_ui::{OmpUiBlob, OmpUiNode};
@@ -148,11 +147,9 @@ pub(super) fn render_box(
             {body}
         }
     };
-    if node.k == "card" && node.p.get("variant").and_then(Value::as_str) != Some("bare") {
-        rsx! { Card { size: CardSize::Sm, {content} } }
-    } else {
-        rsx! { div { class: "flex min-w-0 flex-col gap-2", {content} } }
-    }
+    // The terminal paints cards as borderless sections; a tinted panel here
+    // would break the transcript's single-line rhythm.
+    rsx! { div { class: "flex min-w-0 flex-col gap-2", {content} } }
 }
 
 /// A structural box inside a line window. The selected children replace the

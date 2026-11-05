@@ -3,7 +3,7 @@
 
 use super::super::prop_text;
 use super::copy::CopyButton;
-use crate::components::ui::{Card, CardContent, CardSize};
+
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::semantic_ui::OmpUiNode;
 use serde_json::Value;
@@ -20,15 +20,14 @@ pub(super) fn render(node: &OmpUiNode) -> Element {
     let lang = prop_text(node, "lang");
     let label = if !path.is_empty() { path } else { lang };
     rsx! {
-        Card { size: CardSize::Sm,
-            CardContent { class: "flex min-w-0 flex-col gap-2",
-                div { class: "flex min-w-0 items-center justify-between gap-2",
-                    span { class: "min-w-0 truncate font-mono text-xs text-muted-foreground",
-                        if label.is_empty() { "diff" } else { "{label}" }
-                    }
-                    CopyButton { text: copy }
+        div { class: "flex min-w-0 flex-col rounded-none border border-border",
+            div { class: "flex min-w-0 items-center justify-between gap-2 border-b border-border px-2 py-1",
+                span { class: "min-w-0 truncate font-mono text-xs text-muted-foreground",
+                    if label.is_empty() { "diff" } else { "{label}" }
                 }
-                pre { class: "m-0 overflow-x-auto bg-terminal p-3 font-mono text-xs leading-5 text-terminal-foreground",
+                CopyButton { text: copy }
+            }
+            pre { class: "m-0 overflow-x-auto bg-terminal p-2 font-mono text-xs leading-5 text-terminal-foreground",
                     for (index, row) in rows.iter().enumerate() {
                         div {
                             class: row.classes(),
@@ -45,7 +44,6 @@ pub(super) fn render(node: &OmpUiNode) -> Element {
                         }
                     }
                 }
-            }
         }
     }
 }
