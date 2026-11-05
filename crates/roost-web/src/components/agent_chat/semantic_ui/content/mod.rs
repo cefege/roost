@@ -9,6 +9,8 @@ mod data_table;
 mod text;
 mod tool;
 
+pub(super) use text::render_spans;
+
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::semantic_ui::{OmpUiBlob, OmpUiNode};
 use serde_json::{Value, json};

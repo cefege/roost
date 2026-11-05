@@ -13,6 +13,7 @@ use serde_json::Value;
 use crate::components::ui::{Button, ButtonSize, ButtonVariant, Kbd, Spinner, button_class};
 
 use super::actions::{self, DoubleClickRegion, NativeCopyButton};
+use super::content::render_spans;
 use super::links::NativeLink;
 use super::text_value;
 
@@ -216,13 +217,10 @@ pub(super) fn render_item<'a>(
         .p
         .get("disabled")
         .is_some_and(|value| !value.is_null() && value != false);
-    let text = node
-        .p
-        .get("label")
-        .or_else(|| node.p.get("text"))
-        .map(text_value)
-        .unwrap_or_default();
-    let value = node.p.get("value").map(text_value);
+    let tone_muted = node.p.get("tone").and_then(Value::as_str) == Some("muted");
+    let label = node.p.get("label").or_else(|| node.p.get("text"));
+    let value = node.p.get("value");
+    let detail = node.p.get("detail");
     let item_href = actions::href(node);
     let row = if let Some(action) = click {
         let action = action.to_owned();
@@ -233,7 +231,7 @@ pub(super) fn render_item<'a>(
         rsx! {
             Button {
                 class: Some(
-                    "pointer-events-auto h-auto w-full justify-start whitespace-normal text-left"
+                    "pointer-events-auto h-auto w-full flex-wrap justify-start whitespace-normal text-left"
                         .into(),
                 ),
                 size: ButtonSize::Sm,
@@ -251,19 +249,27 @@ pub(super) fn render_item<'a>(
                         false,
                     );
                 },
-                span { class: "min-w-0 flex-1", "{text}" }
+                span { class: "min-w-0 flex-1", {render_spans(label, if tone_muted { "text-muted-foreground" } else { "" })} }
                 if let Some(value) = value {
-                    span { class: "ml-auto shrink-0 text-xs tabular-nums text-muted-foreground", "{value}" }
+                    span { class: "ml-auto shrink-0 tabular-nums", {render_spans(Some(value), "whitespace-pre font-mono text-xs")} }
+                }
+                if let Some(detail) = detail {
+                    span { class: "w-full basis-full text-xs", {render_spans(Some(detail), "min-w-0 break-words")} }
                 }
             }
         }
     } else {
         rsx! {
             div {
-                class: "flex w-full min-w-0 flex-wrap items-center gap-2 px-2 py-1 text-sm",
-                span { class: "min-w-0 flex-1", "{text}" }
-                if let Some(value) = value {
-                    span { class: "ml-auto shrink-0 text-xs tabular-nums text-muted-foreground", "{value}" }
+                class: "flex w-full min-w-0 flex-col px-2 py-1",
+                div { class: "flex w-full min-w-0 items-center gap-2 text-sm",
+                    span { class: "min-w-0 flex-1", {render_spans(label, if tone_muted { "text-muted-foreground" } else { "" })} }
+                    if let Some(value) = value {
+                        span { class: "ml-auto shrink-0 tabular-nums", {render_spans(Some(value), "whitespace-pre font-mono text-xs")} }
+                    }
+                }
+                if let Some(detail) = detail {
+                    span { class: "text-xs", {render_spans(Some(detail), "min-w-0 break-words")} }
                 }
             }
         }

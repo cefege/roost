@@ -15,6 +15,12 @@ mod diff;
 mod math;
 mod spans;
 
+/// Render one `label`/`value`/`detail` span run list with its styling intact,
+/// the same treatment `seg` nodes get; a plain string falls through to text.
+pub(crate) fn render_spans(value: Option<&Value>, extra_class: &str) -> Element {
+    spans::render(value, "", extra_class)
+}
+
 pub(super) fn render(node: &OmpUiNode, expanded: bool) -> Element {
     match node.k.as_str() {
         "seg" => spans::render(
