@@ -86,6 +86,9 @@ pub(super) fn MediaFilePreview(
         let core = core.borrow();
         core.store().auth_generation
     };
+    #[cfg(target_arch = "wasm32")]
+    let mut preview = use_signal(|| Preview::Idle);
+    #[cfg(not(target_arch = "wasm32"))]
     let preview = use_signal(|| Preview::Idle);
     let fetch_token = use_hook(|| Rc::new(Cell::new(0_u64)));
     #[cfg(target_arch = "wasm32")]
