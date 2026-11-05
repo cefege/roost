@@ -2483,8 +2483,47 @@ index a030ce0..c64e186 100644
  		const ev = pickerEvent(event, PICKER_KEY);
  		if (ev?.kind === "action") {
  			this.#resetCountdown();
+diff --git a/packages/tui/src/overlays/hub-frame.ts b/packages/tui/src/overlays/hub-frame.ts
+index 38c7a1f..2d9d44e 100644
+--- a/packages/tui/src/overlays/hub-frame.ts
++++ b/packages/tui/src/overlays/hub-frame.ts
+@@ -4,7 +4,7 @@ import { Stack } from "../components/layout/stack";
+ import { matchesKey } from "../keys";
+ import { theme } from "../theme/theme";
+ import { truncateToWidth, visibleWidth } from "../utils";
+-import type { TspText } from "@oh-my-pi/pi-wire";
++import type { TspText, TspTone } from "@oh-my-pi/pi-wire";
+ import { node, span, text } from "../native/describe";
+ import type { NativeChild, NativeNode } from "../native/node";
+ import { overlayCard } from "../native/overlay";
+@@ -45,6 +45,7 @@ export interface SidebarStyle {
+ 	muted?: boolean;
+ 	hovered?: boolean;
+ 	padTruncated?: boolean;
++	tone?: TspTone;
+ }
+ 
+ /** Cycle a strip's selection for directional and tab input, returning whether it handled the key. */
+@@ -68,7 +69,7 @@ export function moveStripSelection(strip: StripState<StripChip<unknown>>, data:
+ export function describeHubSidebar<TEntry extends SidebarEntry<string>>(
+ 	entries: readonly TEntry[],
+ 	selectedId: string,
+-	style: (entry: TEntry, index: number) => Pick<SidebarStyle, "icon" | "annotation" | "muted">,
++	style: (entry: TEntry, index: number) => Pick<SidebarStyle, "icon" | "annotation" | "muted" | "tone">,
+ 	key = "sidebar",
+ ): NativeNode {
+ 	const items: NativeNode[] = [];
+@@ -85,7 +86,7 @@ export function describeHubSidebar<TEntry extends SidebarEntry<string>>(
+ 				{
+ 					label: decoration.icon
+ 						? [
+-								span(`${plainText(decoration.icon)} `, "muted"),
++								span(`${plainText(decoration.icon)} `, decoration.tone ?? "muted"),
+ 								span(entry.label, decoration.muted ? "dim" : undefined),
+ 							]
+ 						: [span(entry.label, decoration.muted ? "dim" : undefined)],
 diff --git a/packages/tui/src/overlays/model-browser.ts b/packages/tui/src/overlays/model-browser.ts
-index cb52726..48f80c3 100644
+index cb52726..242b90b 100644
 --- a/packages/tui/src/overlays/model-browser.ts
 +++ b/packages/tui/src/overlays/model-browser.ts
 @@ -21,6 +21,7 @@ import type { Component } from "../tui";
@@ -2515,8 +2554,33 @@ index cb52726..48f80c3 100644
  
  	getSelected(): ModelBrowserItem | undefined {
  		return this.#menu.selectedItem;
+@@ -1890,18 +1904,21 @@ export class ModelBrowser implements Component {
+ 		if (this.#showProvider) label.push(span(`${item.provider}/`, "dim"));
+ 		label.push(span(item.id, item.labelColor));
+ 		if (item.selector === this.#currentSelector) label.push(span(` ${theme.status.enabled}`, "success"));
+-		const metrics = [
++		const numeric = [
+ 			formatIntelligence(item.model),
+ 			this.#perfCell(item, "full"),
+ 			formatContext(item.model),
+-			formatCostPair(item.model),
+ 		].filter(Boolean);
++		const price = formatCostPair(item.model);
++		const metrics: TspSpan[] = [];
++		if (numeric.length > 0) metrics.push(span(`${numeric.join("  ")}${price ? "  " : ""}`, "dim"));
++		if (price) metrics.push(span(price, price === "free" || price === "included" ? "success" : "dim"));
+ 		const overContext = this.isOverContext(item);
+ 		const itemNode = node(
+ 			"item",
+ 			{
+ 				label,
+-				value: [span(metrics.join("  "), "dim")],
++				value: metrics,
+ 				detail: overContext
+ 					? [
+ 							span(
 diff --git a/packages/tui/src/overlays/model-hub.ts b/packages/tui/src/overlays/model-hub.ts
-index d927daf..0ad8a08 100644
+index d927daf..f461104 100644
 --- a/packages/tui/src/overlays/model-hub.ts
 +++ b/packages/tui/src/overlays/model-hub.ts
 @@ -2950,6 +2950,11 @@ export class ModelHubComponent implements Component {
@@ -2531,6 +2595,23 @@ index d927daf..0ad8a08 100644
  		const picked = pickerEvent(event);
  		if (picked) {
  			this.#handlePickerEvent(picked);
+@@ -3014,10 +3019,14 @@ export class ModelHubComponent implements Component {
+ 	}
+ 
+ 	/** Sidebar decoration for the native list: refreshing providers show an ellipsis, the status row spins. */
+-	#nativeSidebarStyle = (entry: SidebarEntry, index: number): Pick<SidebarStyle, "icon" | "annotation" | "muted"> => {
++	#nativeSidebarStyle = (entry: SidebarEntry, index: number): Pick<SidebarStyle, "icon" | "annotation" | "muted" | "tone"> => {
+ 		const style = this.#sidebarStyle(entry, index);
+ 		const refreshing = entry.providerId !== undefined && this.#refreshingProviders.has(entry.providerId);
+-		return { ...style, annotation: refreshing ? "…" : plainText(style.annotation) };
++		return {
++			...style,
++			annotation: refreshing ? "…" : plainText(style.annotation),
++			tone: style.muted ? "muted" : entry.kind === "provider" ? "success" : "accent",
++		};
+ 	};
+ 
+ 	#describeBody(): NativeNode {
 diff --git a/packages/tui/src/overlays/model-picker.ts b/packages/tui/src/overlays/model-picker.ts
 index 67c029a..b4d9d1c 100644
 --- a/packages/tui/src/overlays/model-picker.ts
