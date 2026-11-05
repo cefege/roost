@@ -18,6 +18,7 @@ pub mod bind;
 pub mod db_export;
 pub mod health;
 pub mod listener;
+pub mod native_dashboard;
 pub mod spa;
 pub mod spa_cache;
 pub mod upgrade;

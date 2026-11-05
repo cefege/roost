@@ -24,28 +24,53 @@ Read-only native summaries remain available to identify archived links. The
 normal UI retains that metadata but excludes it from conversation navigation
 and mounts no native controls.
 
-OMP conversations run `omp acp --approval-mode yolo` on their fixed worker and cwd.
+OMP conversations run `omp acp --approval-mode yolo` on their assigned worker and current cwd.
 A worker-owned `--extension` awaits OMP's background and runtime-provider discovery
 before ACP publishes its initial choices; ordinary extension discovery remains enabled.
 The worker verifies a per-process completion marker before emitting `SessionReady`.
 Missing, failed, or malformed discovery status fails initialization visibly.
 Credentials stay under that machine's `~/.omp`; Roost distributes no secrets.
-OMP slash commands come from ACP `AvailableCommandsUpdate`, including same-session
-reload updates; replayed messages are still suppressed. They are inserted into the
-composer as OMP commands and are not translated into native agent commands. OMP
-permissions and `elicitation.form` requests remain pending until an explicit browser
-response; closing, canceling, or ending the ACP prompt cancels unanswered requests.
-Startup requests are delivered while initialize, load, new-session, or authentication
-is still pending. Stop cancels that startup and its queued prompts; a canceled load
-does not fall through to a new session. No terminal-only OMP screen is represented
-as an HTML interaction.
-Bare `/model` opens the worker-backed model picker. Bare `/plan` toggles between
-ACP's offered plan and non-plan modes without starting a turn. `/plan <prompt>`
-enters plan mode before submitting an idle, non-plan session's prompt; an already
-planning or running session rejects it without submitting or clearing the draft.
-The transcript changes only when ACP reports its current mode. Roost-native inspect,
-plan-decision, answer, rewind, and fork RPCs remain unsupported for OMP; its
-interactive approvals and answers use `AgentOmpRespond`. Withdrawal returns false.
+OMP exposes its existing interactive controllers through the versioned TSP command
+UI extension (`agentCapabilities._meta.commandUi = {version:1,protocol:"tsp"}`).
+`AgentOmpUi` carries `open`, `event`, `input`, `command`, `close`, and `host_reply`;
+the worker supplies the canonical ACP session identity. `/models`, `/resume`, and
+`/settings` are OMP's actual terminal workflows, not Roost-authored forms. Native
+session switches update the saved resume identity, cwd and canonical history.
+The Rust-native execution/configuration APIs remain archived.
+
+`OmpUiDocument` is the only TSP fold. Frames apply atomically against contiguous
+surface sequences; a rejected operation rolls back all touched nodes, properties,
+catalogue rows and indexes. A null `set` value removes a property. Picker
+`itemsAdd`/`itemsDel` arrays mutate the retained catalogue; clearing those transient
+props with null does not undo their entries. Bounds: 2 MiB per message, 32 MiB per
+document, 20,000 nodes, 128 levels and 128 surfaces. Opening a view does not submit
+a prompt. Adoption/reconnect rebuilds a complete document before deltas resume.
+
+HTML renders the supplied semantic nodes with stock UI components. Nonmodal
+autocomplete leaves its editor active; modal sheets and screen surfaces own focus
+and cover lower layers. Query strings, selection, role assignments and settings
+remain OMP-owned. Pointer list events address the list and preserve the clicked
+wire ID for OMP's key decoder. Browser text uses one acknowledged edit in flight;
+typed-ahead drafts and UTF-16 carets survive delayed frames and complete submits.
+
+Private host services and receipts are fenced by conversation, authenticated
+device, tab, view and worker-owned transport generation. Clipboard text and URLs
+never enter transcript events or logs. Browser permission refusal leaves a real
+Copy/Open action pending; only a confirmed effect is acknowledged. Native
+input/event success receipts wait for durable semantic frames; `receipt=false`
+success stays silent, but asynchronous native rejection still reports a private
+failure. Closing/replacing a view cancels its pending effects.
+`/quit` detaches the semantic view without deleting its conversation or stopping
+the worker. The pane offers an explicit reopen action, which reconstructs a fresh
+transport and document. Viewport callbacks and teardown read that current identity.
+
+Stats dashboards use short-lived `/omp-stats/<capability>/` routes bound to that
+same origin tuple. The worker pins a locally assigned address, refuses redirects
+and forwards allowlisted headers without credentials. The dashboard runs in an
+opaque-origin CSP sandbox. Each capability permits eight outstanding normal
+requests (30 s total including upload), two SSE streams and bounded request rate.
+Authority: `roost-protocol::native_dashboard`, `roost-coord::http::native_dashboard`
+and `roost-worker::browser_commands::native_dashboard`.
 
 `AgentOmpSettingsGet` returns `OmpSettingsView` JSON; `AgentOmpSettingsSet` upserts one
 `OmpScopedSettings` JSON row. Each nonempty field resolves independently:
@@ -59,10 +84,9 @@ update.
 `AgentOmpSessionOpen` initializes or loads the conversation's ACP session without
 submitting a prompt or changing its run state. The active chat opens its session
 before the first message, so its controls show OMP's actual current model, thinking
-level, and selectable options. Opening the picker refreshes inheritance and requests
-a fresh OMP child loading the actor-owned saved-session ID: startup rereads OMP's
-provider configuration rather than reusing an old in-memory registry. Active turns
-finish before this refresh; replayed history is suppressed.
+level, and selectable options. The semantic command UI keeps those controllers
+and the managed AgentSession together; model and provider changes follow OMP's
+own refresh and persistence rules rather than rebuilding a second browser catalog.
 Every committed `Agent` event invalidates the browser's settings cache, including
 catalog-only changes with unchanged selected values. Choices come only from ACP;
 an unavailable old pin is not inserted into the selectable catalog.
@@ -93,35 +117,38 @@ Authority: `crates/roost-worker/src/omp/`, `crates/roost-coord/src/agent/omp/`,
 
 ### OMP transcript presentation
 
-Assistant text, thoughts, and calls retain event order. Tool IDs identify mutable
-entries: partial and final results replace the existing call without appending a
-second result row. ACP `name` selects the tool renderer; a human `title` never
-overwrites that identity. Returned `rawOutput.content` excludes synthesized command
-headers; `rawOutput.details` retains execution and display metadata. Numbered OMP
-diffs with supplied old/new file contents normalize into contextual unified diffs.
+The active chat projects OMP's TSP document, including its transcript, composer,
+tool previews, disclosure headers and command sheets. Declared preview windows
+select borrowed source nodes; expanding a disclosure reveals the complete body.
+Copy actions retain complete source text even when its paint is clamped.
+Thinking headers that reference child IDs resolve to those children and are not
+duplicated in the body. Native reveal/scroll requests remain surface-local,
+bounded and transient; applying one never substitutes a second selection model.
 
-OMP renders ordinary calls with compact previews visible; only uninterrupted read
-calls group into path-first disclosures. Native chat retains its activity groups.
-Bash follows the latest output with a viewport-limited visual-row budget and explicit
-expansion; searches use head previews, completed writes show six numbered lines, and
-completed edits fold at eight hunks/forty body lines. Successful todo calls with a
-projected plan share the canonical checklist instead of duplicating raw snapshots.
-Detailed todo results preserve OMP's native phases, blockers, and abandoned states
-using the shared task types. Flat ACP updates with matching tasks update progress
-without flattening those phases or erasing states the flat format cannot express.
-Live thinking opens by default; completed thinking folds unless the reader made an
-explicit choice. Opening thinking exposes the actual text without a separate tail cap.
+ACP transcript events remain durable for snapshots, history and nonvisual clients.
+Tool IDs identify mutable entries; returned raw-output details preserve execution
+metadata. Native plan/answer/permission prompts stay owned by OMP's controllers;
+standard ACP permissions and elicitation retain their existing explicit-response
+channels. Retained Rust-native rendering and tests do not reactivate its archived
+execution backend.
 
-Pending forms render after the latest transcript entries, independently of tool
-expansion, with an explicit waiting-for-answer state. Single-question prompts are
-not repeated as both a message and a field title. OMP's optional custom-answer
-editors open on demand; closing one removes its hidden override. String editors
-retain newlines and quotes. A false confirmation is a submitted answer, distinct
-from decline and cancellation; no choice takes effect before explicit submission.
+`/resume` projects OMP's session picker: scope-aware search placeholder, day
+groups without a query and flat ranking with one, `itemsAdd` badge upserts that
+stick until the listing replaces `items`, and the action row Resume (enter),
+Delete (backspace), Rename (f2), Pin/Unpin, scope toggle (tab) and Close (esc).
+Delete over an empty caret side belongs to the program: the browser forwards
+Backspace/Delete only when the caret has text to edit on that side. The delete
+confirmation is the picker's confirm strip; it captures its session when
+requested, its button confirms, and Esc cancels. Resuming switches the saved
+resume identity, cwd and canonical history; a cold open or `/restart`
+reconstructs the transcript from the saved session.
 
-ACP does not transport OMP's pre-execution streamed tool-argument previews. Roost
-renders supplied start arguments and live result snapshots, never simulated argument
-updates. Semantic roles and supplied ANSI styles use the existing theme.
+`/btw` projects OMP's side-question history sheet: per-turn question, time,
+status and error, Close (escape) and Follow up (f). The follow-up composer
+opens inside the sheet with Cancel (escape) and Send (enter); a sent follow-up
+appends its own turn under the record. Inject/steering controls appear only
+while OMP's inject setting allows and a turn can accept them; idle surfaces on
+both terminal and browser show none.
 
 Native-only commands, plan review, ownership/recovery, provider and model-role
 sections below document the retained implementation and its explicit native test

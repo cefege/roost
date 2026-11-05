@@ -1,5 +1,6 @@
 //! The models hub's views, rows and model completions, from the catalog and
 //! settings the coordinator returns.
+#![cfg(feature = "archived-native-ui")]
 
 use roost_protocol::wire::agent_chat::{
     AgentSettingsView, ModelEntry, ModelRef, ModelsCatalog, ProviderEntry,

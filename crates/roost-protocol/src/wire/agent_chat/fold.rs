@@ -3,13 +3,13 @@
 //! Shared by coordinator projection and browser transcript repair.
 
 use super::event::ChatEvent;
-use super::model::{Transcript, TranscriptBlock, TranscriptItem};
+use super::model::{AgentRunState, Transcript, TranscriptBlock, TranscriptItem};
 
 pub fn fold_chat_event(transcript: &mut Transcript, event: &ChatEvent) {
     match event {
         ChatEvent::Reset {
             transcript: replacement,
-        } => *transcript = replacement.clone(),
+        } => *transcript = (**replacement).clone(),
         // A user message is emitted once, when the run reads it, and belongs
         // after everything already shown; one that was queued leaves the queue.
         ChatEvent::Item {
@@ -92,6 +92,32 @@ pub fn fold_chat_event(transcript: &mut Transcript, event: &ChatEvent) {
         }
         ChatEvent::OmpInteractionResolved { id } => {
             transcript.omp_interactions.retain(|item| item.id != *id);
+        }
+        ChatEvent::OmpHistoryReset => {
+            transcript.items.clear();
+            transcript.queued.clear();
+            transcript.omp_interactions.clear();
+            transcript.usage = Default::default();
+            transcript.run_state = AgentRunState::Idle;
+            transcript.error = None;
+        }
+        ChatEvent::OmpUiReset { transport_id } => {
+            transcript.omp_ui = None;
+            transcript.omp_ui_transport_id = transport_id.clone();
+            transcript.omp_ui_error = None;
+        }
+        ChatEvent::OmpUi { message } => {
+            let document = transcript.omp_ui.get_or_insert_default();
+            match document.apply_message(message) {
+                Ok(()) => transcript.omp_ui_error = None,
+                Err(error) => {
+                    tracing::warn!(%error, "OMP semantic UI frame rejected");
+                    transcript.omp_ui_error = Some(error.to_string());
+                }
+            }
+        }
+        ChatEvent::OmpUiError { error } => {
+            transcript.omp_ui_error = Some(error.clone());
         }
         ChatEvent::TextDelta {
             item_id,

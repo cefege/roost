@@ -150,6 +150,11 @@ pub enum CoordWorkerUpstream {
     LiveMetrics(LiveHostSnapshot),
     #[serde(rename = "omp-events")]
     OmpEvents(roost_proto::WOmpEvents),
+    /// Ephemeral worker-to-browser effects, never part of the OMP transcript.
+    #[serde(rename = "omp-host-service-request")]
+    OmpHostServiceRequest(roost_proto::WOmpHostServiceRequest),
+    #[serde(rename = "omp-ui-action-receipt")]
+    OmpUiActionReceipt(roost_proto::WOmpUiActionReceipt),
 }
 
 impl CoordWorkerUpstream {
@@ -185,6 +190,8 @@ impl CoordWorkerUpstream {
             Self::AgentJobResult(_) => "agent-job-result",
             Self::LiveMetrics(_) => "live-metrics",
             Self::OmpEvents(_) => "omp-events",
+            Self::OmpHostServiceRequest(_) => "omp-host-service-request",
+            Self::OmpUiActionReceipt(_) => "omp-ui-action-receipt",
         }
     }
 

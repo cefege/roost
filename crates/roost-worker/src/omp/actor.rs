@@ -28,6 +28,7 @@ pub(super) enum OmpCommand {
     Prompt(DOmpPrompt),
     Respond(roost_proto::DOmpRespond),
     SetMode(roost_proto::DOmpSetMode),
+    Ui(roost_proto::DOmpUi),
     Cancel,
     Ack { run_id: String, seq: u64 },
     Resend,
@@ -47,7 +48,9 @@ pub(super) async fn conversation_actor<L: OmpLauncher>(
     let mut child_generation = 0_u64;
     let mut tick = interval(Duration::from_millis(50));
     let mut refresh: Option<DOmpOpen> = None;
+    let mut ui = super::ui::UiState::default();
     loop {
+        let mut initial_ui = None;
         let (prompt, start_turn) = if let Some(request) = refresh.take() {
             (
                 DOmpPrompt {
@@ -80,6 +83,28 @@ pub(super) async fn conversation_actor<L: OmpLauncher>(
                         mode: request.mode,
                         ..Default::default()
                     }, false),
+                    Some(OmpCommand::Ui(request)) => {
+                        let action = serde_json::from_str::<serde_json::Value>(&request.action_json).ok();
+                        let method = action.as_ref().and_then(|action| action.get("method")).and_then(serde_json::Value::as_str);
+                        if method == Some("close") {
+                            // No child exists: withdrawing the view needs no native call.
+                            ui.disconnected(&mut emitter);
+                            emitter.flush();
+                            continue;
+                        }
+                        if method != Some("open") {
+                            emitter.emit(OmpWorkerEvent::UiFailed { error: "Reopen the OMP view before interacting.".into() });
+                            continue;
+                        }
+                        let prompt = DOmpPrompt {
+                            conversation_id: request.conversation_id.clone(),
+                            cwd: request.cwd.clone(),
+                            acp_session_id: request.acp_session_id.clone(),
+                            ..Default::default()
+                        };
+                        initial_ui = Some(request);
+                        (prompt, false)
+                    },
                     Some(OmpCommand::Prompt(prompt)) if seen.insert(prompt.request_id.clone())=>(prompt, true),
                     Some(OmpCommand::Ack {run_id,seq})=>{emitter.ack(&run_id,seq);continue;}
                     Some(OmpCommand::Resend)=>{emitter.resend();continue;}
@@ -121,6 +146,7 @@ pub(super) async fn conversation_actor<L: OmpLauncher>(
         let notification_tx = events_tx.clone();
         let permission_tx = events_tx.clone();
         let elicitation_tx = events_tx.clone();
+        let ui_tx = events_tx.clone();
         let mut progress = ConnectionProgress {
             prompt_first: start_turn,
             has_started_turn: start_turn,
@@ -129,7 +155,27 @@ pub(super) async fn conversation_actor<L: OmpLauncher>(
         let permission_identity_prefix = identity_prefix.clone();
         let elicitation_identity_prefix = identity_prefix;
         let result = Client.v1()
-            .on_receive_notification(async move |notification:SessionNotification,_connection| {let _=notification_tx.send(AcpEvent::Notification(notification));Ok(())},agent_client_protocol::on_receive_notification!())
+            .on_receive_notification(async move |notification: AgentNotification, _connection| {
+                match notification {
+                    AgentNotification::SessionNotification(notification) => {
+                        let _ = notification_tx.send(AcpEvent::Notification(notification));
+                    }
+                    AgentNotification::ExtNotification(notification)
+                        if matches!(notification.method.as_ref(), "_omp/ui/message" | "_omp/ui/state" | "_omp/ui/host_service_request" | "_omp/ui/host_service_cancel") => {
+                        let payload: serde_json::Value = serde_json::from_str(notification.params.get())
+                            .map_err(|_| agent_client_protocol::Error::invalid_params())?;
+                        let event = match notification.method.as_ref() {
+                            "_omp/ui/state" => AcpEvent::UiState(payload),
+                            "_omp/ui/host_service_request" => AcpEvent::HostService(payload),
+                            "_omp/ui/host_service_cancel" => AcpEvent::HostServiceCancel(payload),
+                            _ => AcpEvent::Ui(payload),
+                        };
+                        let _ = ui_tx.send(event);
+                    }
+                    _ => {}
+                }
+                Ok(())
+            }, agent_client_protocol::on_receive_notification!())
             .on_receive_request(async move |request: RequestPermissionRequest, responder: Responder<RequestPermissionResponse>, _connection| {
                 let request_id = format!("{permission_identity_prefix}:{}", responder.id());
                 let mut payload = serde_json::to_value(&request).unwrap_or_default();
@@ -186,7 +232,7 @@ pub(super) async fn conversation_actor<L: OmpLauncher>(
                 let mut pending = PendingInteractions::new();
                 let result = connection_loop::connected_loop(
                     connection,
-                    ConnectionStart { prompt, progress: &mut progress, pending: &mut pending, deferred: &mut deferred },
+                    ConnectionStart { prompt, initial_ui, ui: &mut ui, progress: &mut progress, pending: &mut pending, deferred: &mut deferred },
                     &mut emitter,
                     &mut seen,
                     &mut inbox,
@@ -199,6 +245,7 @@ pub(super) async fn conversation_actor<L: OmpLauncher>(
                 result
             })
             .await;
+        ui.disconnected(&mut emitter);
         if let Ok(ConnectionExit::Refresh(prompt)) = result {
             tracing::info!(conversation_id=%emitter.conversation_id,"OMP process reloading its provider configuration");
             emitter.flush();

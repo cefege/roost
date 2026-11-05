@@ -36,6 +36,13 @@ impl AgentChatState {
         }
     }
 
+    /// The canonical chat sequence this replica has folded, or `None` while
+    /// no snapshot has loaded. A receipt whose `after_seq` is above this is
+    /// fenced until the missing events arrive.
+    pub fn loaded_seq(&self, id: &str) -> Option<u64> {
+        self.transcripts.get(id).map(|loaded| loaded.seq)
+    }
+
     pub fn apply_conversation_frame(
         &mut self,
         id: String,

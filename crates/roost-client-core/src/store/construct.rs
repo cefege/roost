@@ -29,6 +29,7 @@ impl Store {
             next_attempt_id: 1,
             agent_status: crate::client::agents::AgentStatusProjection::new(),
             agent_chat: crate::client::agent_chat::AgentChatState::default(),
+            omp_host: crate::client::agent_chat::OmpHostInbox::new(),
             agent_seen: crate::client::agents::AgentSeenLedger::new(),
             agent_seen_dirty: false,
             browse: crate::store::browse_state::BrowseState::new(),

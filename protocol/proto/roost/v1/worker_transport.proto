@@ -308,6 +308,30 @@ message WOmpEvents {
   repeated string events_json = 4;
 }
 
+// A user-triggered request for a browser-owned effect. This control bypasses
+// the durable OMP transcript and is addressed to one authenticated UI view.
+message WOmpHostServiceRequest {
+  string conversation_id = 1;
+  string service_id = 2;
+  string origin_request_id = 3;
+  string client_id = 4;
+  string view_id = 5;
+  string transport_id = 6;
+  string kind = 7;
+  string value = 8;
+  bool cancelled = 9;
+}
+
+// Native input/event completion, fenced behind its durable UI frames.
+message WOmpUiActionReceipt {
+  string conversation_id = 1;
+  string origin_request_id = 2;
+  string client_id = 3;
+  string view_id = 4;
+  string transport_id = 5;
+  string error = 6;
+}
+
 message CoordWorkerUp {
   reserved 4, 5, 8, 9, 13, 15;
   reserved "viewport_result", "transfer_line", "transfer_done";
@@ -341,6 +365,8 @@ message CoordWorkerUp {
     WAgentJobResult agent_job_result = 35;
     WLiveMetrics live_metrics = 36;
     WOmpEvents omp_events = 37;
+    WOmpHostServiceRequest omp_host_service_request = 38;
+    WOmpUiActionReceipt omp_ui_action_receipt = 39;
   }
   reserved 31, 32;
 }
@@ -680,6 +706,18 @@ message DOmpSetMode {
   string cwd = 4;
   string acp_session_id = 5;
 }
+message DOmpUi {
+  string conversation_id = 1;
+  string request_id = 2;
+  string action_json = 3;
+  string cwd = 4;
+  string acp_session_id = 5;
+  string client_id = 6;
+  string view_id = 7;
+  string tab_id = 8;
+  string transport_id = 9;
+  bool receipt = 10;
+}
 message CoordWorkerDown {
   reserved 11;
   reserved "viewport_request";
@@ -728,6 +766,7 @@ message CoordWorkerDown {
     DOmpOpen omp_open = 47;
     DOmpRespond omp_respond = 48;
     DOmpSetMode omp_set_mode = 49;
+    DOmpUi omp_ui = 50;
   }
   reserved 33, 34, 35, 36;
 }

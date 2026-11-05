@@ -152,6 +152,12 @@ pub(super) fn to_proto(frame: &CoordWorkerUpstream) -> ProtocolResult<CoordWorke
             ..Default::default()
         })),
         CoordWorkerUpstream::OmpEvents(events) => Frame::OmpEvents(Box::new((*events).clone())),
+        CoordWorkerUpstream::OmpHostServiceRequest(request) => {
+            Frame::OmpHostServiceRequest(Box::new(request.clone()))
+        }
+        CoordWorkerUpstream::OmpUiActionReceipt(receipt) => {
+            Frame::OmpUiActionReceipt(Box::new(receipt.clone()))
+        }
     };
     Ok(CoordWorkerUp {
         frame: Some(arm),
@@ -275,6 +281,12 @@ pub(super) fn from_proto(message: &CoordWorkerUp) -> ProtocolResult<CoordWorkerU
             CoordWorkerUpstream::LiveMetrics(live_host_snapshot_from_proto(snapshot)?)
         }
         Frame::OmpEvents(events) => CoordWorkerUpstream::OmpEvents((**events).clone()),
+        Frame::OmpHostServiceRequest(request) => {
+            CoordWorkerUpstream::OmpHostServiceRequest((**request).clone())
+        }
+        Frame::OmpUiActionReceipt(receipt) => {
+            CoordWorkerUpstream::OmpUiActionReceipt((**receipt).clone())
+        }
     };
     frame.check()?;
     Ok(frame)

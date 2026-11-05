@@ -218,7 +218,7 @@ fn every_bus_in_the_coordinator_has_a_producer() {
                 tab_id: "tab-1".to_owned(),
                 state: roost_proto::UiReportStateRequest::default(),
             },
-            &UiViewer::browser("socket-1"),
+            &UiViewer::browser("socket-1", "fingerprint", "tab-1"),
         )
         .expect("a browser receives a UI state report"),
     );

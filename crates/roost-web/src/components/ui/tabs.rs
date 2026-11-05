@@ -180,6 +180,7 @@ pub fn TabsTrigger(
     #[props(into, optional)] test_id: Option<String>,
     #[props(into, optional)] title: Option<String>,
     #[props(into, optional)] aria_label: Option<String>,
+    #[props(default = false)] disabled: bool,
     /// False when the tab selects content rendered outside a `TabsContent` panel.
     #[props(default = true)]
     has_panel: bool,
@@ -202,7 +203,9 @@ pub fn TabsTrigger(
     let is_active = active() == value;
     let tab_id = tab_element_id(&id_prefix(), &value);
     let panel_id = panel_element_id(&id_prefix(), &value);
-    let tabindex = if is_active || !handles_keys {
+    let tabindex = if disabled {
+        "-1"
+    } else if is_active || !handles_keys {
         "0"
     } else {
         "-1"
@@ -242,6 +245,7 @@ pub fn TabsTrigger(
             r#type: "button",
             role: "tab",
             id: "{tab_id}",
+            disabled,
             class: "{merged}",
             "data-name": "TabsTrigger",
             "data-testid": test_id.as_deref(),
@@ -252,18 +256,19 @@ pub fn TabsTrigger(
             title: title.as_deref(),
             tabindex,
             onpointerdown: move |event| {
-                if let Some(handler) = &onpointerdown {
+                if !disabled && let Some(handler) = &onpointerdown {
                     handler.call(event);
                 }
             },
             onclick: move |_| {
+                if disabled { return; }
                 active.set(click_value.clone());
                 if let Some(on_value_change) = &on_value_change {
                     on_value_change.call(click_value.clone());
                 }
             },
             onkeydown: move |event| {
-                if !handles_keys {
+                if disabled || !handles_keys {
                     return;
                 }
                 let vertical = ctx_vertical;

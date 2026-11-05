@@ -199,9 +199,26 @@ pub fn apply_cors(headers: &mut HeaderMap, request_origin: Option<&str>, allowed
 
 /// Stamp the security headers on one response.
 pub fn apply_security_headers(headers: &mut HeaderMap, options: &SecurityOptions) {
+    apply_security_headers_inner(headers, options, true);
+}
+
+/// The same headers, leaving the application CSP to a route that writes a
+/// sandbox policy for its own document.
+fn apply_security_headers_without_csp(headers: &mut HeaderMap, options: &SecurityOptions) {
+    apply_security_headers_inner(headers, options, false);
+}
+
+fn apply_security_headers_inner(
+    headers: &mut HeaderMap,
+    options: &SecurityOptions,
+    include_csp: bool,
+) {
     let prebuilt = &options.headers;
     for (name, value) in [
-        (CONTENT_SECURITY_POLICY, Some(&prebuilt.csp)),
+        (
+            CONTENT_SECURITY_POLICY,
+            include_csp.then_some(&prebuilt.csp),
+        ),
         (X_FRAME_OPTIONS, Some(&prebuilt.frame)),
         (X_CONTENT_TYPE_OPTIONS, Some(&prebuilt.content_type)),
         (REFERRER_POLICY, Some(&prebuilt.referrer)),
@@ -228,6 +245,69 @@ pub fn preflight_response(request_origin: Option<&str>, options: &SecurityOption
     (StatusCode::NO_CONTENT, headers).into_response()
 }
 
+/// Whether a path belongs to the native dashboard capability namespace.
+///
+/// The namespace is mounted outside the SPA and is the only route a sandboxed
+/// page can reach. Its authorization is the capability token in the path,
+/// which the route validates; nothing here is an authorization decision.
+#[must_use]
+pub fn is_native_capability_path(path: &str) -> bool {
+    path.strip_prefix(roost_protocol::native_dashboard::CAPABILITY_PREFIX)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
+
+/// The preflight a sandboxed capability page is owed.
+///
+/// Its origin is the literal `null`: a document with a CSP `sandbox` directive
+/// and no `allow-same-origin` has an opaque origin by design, and that is what
+/// keeps it from reading this coordinator's storage. The token in the path is
+/// the credential, so no `Access-Control-Allow-Credentials` is ever sent.
+#[must_use]
+fn capability_preflight_response() -> Response {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static("null"),
+    );
+    headers.insert(
+        axum::http::header::ACCESS_CONTROL_ALLOW_METHODS,
+        HeaderValue::from_static("GET, HEAD, POST"),
+    );
+    headers.insert(
+        axum::http::header::ACCESS_CONTROL_ALLOW_HEADERS,
+        HeaderValue::from_static("content-type, if-none-match, x-omp-stats-action"),
+    );
+    headers.insert(
+        axum::http::header::ACCESS_CONTROL_EXPOSE_HEADERS,
+        HeaderValue::from_static("etag, content-type, content-length"),
+    );
+    headers.insert(
+        axum::http::header::ACCESS_CONTROL_MAX_AGE,
+        HeaderValue::from_static("600"),
+    );
+    headers.insert(
+        HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(axum::http::header::VARY, HeaderValue::from_static("origin"));
+    (StatusCode::NO_CONTENT, headers).into_response()
+}
+
+/// Stamp the response a sandboxed capability page reads.
+fn apply_capability_cors(headers: &mut HeaderMap, request_origin: Option<&str>) {
+    if request_origin == Some("null") {
+        headers.insert(
+            axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN,
+            HeaderValue::from_static("null"),
+        );
+        headers.insert(
+            axum::http::header::ACCESS_CONTROL_EXPOSE_HEADERS,
+            HeaderValue::from_static("etag, content-type, content-length"),
+        );
+    }
+    headers.insert(axum::http::header::VARY, HeaderValue::from_static("origin"));
+}
+
 /// Answer preflights and decorate every other response.
 pub async fn security_layer(
     State(options): State<Arc<SecurityOptions>>,
@@ -239,16 +319,35 @@ pub async fn security_layer(
         .get(axum::http::header::ORIGIN)
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
+    let capability = is_native_capability_path(request.uri().path());
     if request.method() == Method::OPTIONS {
+        if capability {
+            return capability_preflight_response();
+        }
         return preflight_response(request_origin.as_deref(), &options);
     }
     let mut response = next.run(request).await;
-    apply_cors(
-        response.headers_mut(),
-        request_origin.as_deref(),
-        &options.cors_allowed_origins,
-    );
-    apply_security_headers(response.headers_mut(), &options);
+    if capability {
+        apply_capability_cors(response.headers_mut(), request_origin.as_deref());
+    } else {
+        apply_cors(
+            response.headers_mut(),
+            request_origin.as_deref(),
+            &options.cors_allowed_origins,
+        );
+    }
+    // The capability route writes its own sandbox CSP. Replacing it with the
+    // application CSP would either drop the sandbox (a same-origin dashboard)
+    // or block every asset the native page needs.
+    let opaque = response
+        .headers_mut()
+        .remove("x-roost-opaque-capability")
+        .is_some();
+    if opaque {
+        apply_security_headers_without_csp(response.headers_mut(), &options);
+    } else {
+        apply_security_headers(response.headers_mut(), &options);
+    }
     response
 }
 

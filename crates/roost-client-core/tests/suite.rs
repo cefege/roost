@@ -118,6 +118,10 @@ mod local_terminal_route;
 mod navigation_index;
 #[path = "navigation_query.rs"]
 mod navigation_query;
+#[path = "omp_host_actions.rs"]
+mod omp_host_actions;
+#[path = "omp_host_bridge.rs"]
+mod omp_host_bridge;
 #[path = "palette_catalog.rs"]
 mod palette_catalog;
 #[path = "predictive_echo_ack.rs"]

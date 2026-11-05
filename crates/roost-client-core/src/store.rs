@@ -46,7 +46,10 @@ pub mod ui;
 pub mod view_rotation;
 pub mod worker_live;
 
-pub use mutations::{PairRequest, delete_pair_request, delete_worker, replace_workers};
+pub use mutations::{
+    PairRequest, complete_omp_host_service, delete_pair_request, delete_worker,
+    discard_omp_host_transports, replace_workers, take_ready_omp_receipt,
+};
 pub use navigation::{
     NavigationSearchAttention, NavigationSearchDocument, NavigationSources,
     project_navigation_search_documents,
@@ -194,6 +197,9 @@ pub struct Store {
     /// acknowledgements one write. Initialise it to `false` in `Store::new`.
     /// Agent conversations and lazily loaded transcript replicas.
     pub agent_chat: crate::client::agent_chat::AgentChatState,
+    /// One-shot OMP browser host requests and native action receipts. Transient
+    /// by construction: never serialised, never folded into a transcript.
+    pub omp_host: crate::client::agent_chat::OmpHostInbox,
     pub agent_seen_dirty: bool,
     /// Machine-scoped browse state. Keyed by machine, not by path: two
     /// machines can hold the same folder path and a path is not an identity.

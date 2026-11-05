@@ -20,6 +20,7 @@ pub struct OmpConversation {
     pub error: Option<String>,
     pub created_ms: i64,
     pub updated_ms: i64,
+    /// ACP `loadSession` identifier for recovery, not the live worker session handle.
     pub acp_session_id: Option<String>,
     pub current_model: Option<String>,
     pub current_thinking_level: Option<String>,
@@ -173,6 +174,9 @@ pub fn empty_transcript() -> Transcript {
         queued: vec![],
         omp_commands: vec![],
         omp_interactions: vec![],
+        omp_ui: None,
+        omp_ui_transport_id: None,
+        omp_ui_error: None,
         schedules: vec![],
     }
 }

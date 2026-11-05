@@ -276,7 +276,7 @@ impl ViewportHost for ViewportCtx<'_> {
         let cell = match self.shared.cell.get() {
             Some(cell) => cell,
             None => {
-                let cell = measure_terminal_cell_box(self.shared.display.as_ref())?;
+                let cell = measure_terminal_cell_box(self.shared.display.as_ref(), "cell-row")?;
                 self.shared.cell.set(Some(cell));
                 cell
             }

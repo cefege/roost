@@ -14,7 +14,7 @@ use super::usage::UsageTotals;
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChatEvent {
     Reset {
-        transcript: Transcript,
+        transcript: Box<Transcript>,
     },
     Item {
         item: TranscriptItem,
@@ -88,5 +88,17 @@ pub enum ChatEvent {
     /// Removes an interaction after its original responder is completed.
     OmpInteractionResolved {
         id: String,
+    },
+    OmpHistoryReset,
+    OmpUiReset {
+        #[serde(default)]
+        transport_id: Option<String>,
+    },
+    /// A semantic frame from the actual OMP command and session UI.
+    OmpUi {
+        message: serde_json::Value,
+    },
+    OmpUiError {
+        error: String,
     },
 }

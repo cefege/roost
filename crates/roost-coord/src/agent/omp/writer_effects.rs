@@ -62,6 +62,31 @@ pub(super) async fn apply(
                 .execute(&mut **transaction)
                 .await?;
         }
+        OmpEffect::UiTransport(transport_id) => {
+            sqlx::query("UPDATE omp_sessions SET omp_ui_transport_id=$2 WHERE conversation_id=$1")
+                .bind(id)
+                .bind(transport_id.as_deref().unwrap_or_default())
+                .execute(&mut **transaction)
+                .await?;
+            tracing::info!(
+                conversation_id = id,
+                open = transport_id.is_some(),
+                "OMP semantic UI transport changed"
+            );
+        }
+        OmpEffect::UiState { resume_id, cwd } => {
+            sqlx::query("UPDATE omp_sessions SET acp_session_id=$2 WHERE conversation_id=$1")
+                .bind(id)
+                .bind(resume_id)
+                .execute(&mut **transaction)
+                .await?;
+            sqlx::query("UPDATE agent_conversations SET cwd=$2 WHERE id=$1 AND backend='omp'")
+                .bind(id)
+                .bind(cwd)
+                .execute(&mut **transaction)
+                .await?;
+            tracing::info!(conversation_id = id, "OMP resume identity updated");
+        }
     }
     Ok(())
 }

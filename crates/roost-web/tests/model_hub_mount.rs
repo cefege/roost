@@ -3,6 +3,7 @@
 //! Keyboard actions must not expose role assignments over default settings.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+#![cfg(feature = "archived-native-ui")]
 
 #[allow(dead_code)]
 mod palette_support;

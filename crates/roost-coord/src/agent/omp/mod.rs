@@ -3,13 +3,23 @@
 //! Native harness adoption and credentials never participate in this backend.
 
 pub mod catalog;
+mod dashboard_capability;
+mod host_reply;
+mod host_service_store;
+pub use dashboard_capability::{
+    DashboardCapabilities, DashboardCapability, DashboardRequestAdmission, DashboardRequestLease,
+    DashboardStreamLease,
+};
+pub mod host_services;
 pub mod projection;
 mod projection_todo;
 mod projection_tools;
+mod projection_ui;
 pub mod rpc;
 mod rpc_respond;
 mod rpc_session;
 pub mod rpc_settings;
+pub mod rpc_ui;
 mod settings;
 pub mod store;
 pub mod summary;
@@ -43,6 +53,9 @@ pub struct OmpService {
     pub workers: Arc<WorkerRegistry>,
     pub sink: Arc<CoordChatSink>,
     pub writers: Arc<OmpWriters>,
+    /// Ephemeral capabilities for the native `/stats` dashboard. In process
+    /// memory because the worker link that serves them is.
+    pub dashboards: Arc<DashboardCapabilities>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -64,6 +77,7 @@ impl OmpService {
             db,
             workers,
             sink,
+            dashboards: Arc::new(DashboardCapabilities::new()),
         }
     }
     pub fn receive(&self, worker_fp: &str, upstream: CoordWorkerUpstream) -> bool {
@@ -115,6 +129,19 @@ impl OmpService {
         } else {
             Ok(())
         }
+    }
+
+    /// Whether a dashboard capability still names this conversation's live
+    /// view on the worker that minted it.
+    pub async fn dashboard_binding_is_current(&self, capability: &DashboardCapability) -> bool {
+        host_service_store::dashboard_binding_current(
+            &self.db,
+            &capability.conversation_id,
+            &capability.worker_fp,
+            &capability.transport_id,
+        )
+        .await
+        .unwrap_or(false)
     }
 }
 

@@ -138,7 +138,7 @@ impl CoordChatSink {
                     ChatEvent::Reset {
                         transcript: replacement,
                     } => {
-                        let mut replacement = replacement.clone();
+                        let mut replacement = (**replacement).clone();
                         replacement
                             .queued
                             .retain(|message| queued_ids.contains(&message.id));

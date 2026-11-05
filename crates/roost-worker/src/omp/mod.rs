@@ -13,5 +13,6 @@ pub mod launcher;
 mod open_request;
 mod owner;
 mod session;
+mod ui;
 
 pub use owner::{OmpLinkLifecycle, OmpOwner, OmpResend};

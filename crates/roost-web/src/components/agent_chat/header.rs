@@ -3,7 +3,9 @@
 //! Mounted by desktop and compact deck chrome.
 
 use dioxus::prelude::*;
-use roost_protocol::wire::agent_chat::{ConversationSummary, ModelsCatalog};
+use roost_protocol::wire::agent_chat::ConversationSummary;
+#[cfg(feature = "archived-native-ui")]
+use roost_protocol::wire::agent_chat::ModelsCatalog;
 
 use super::toolbar_menu::{ToolbarMenu, ToolbarMenuItem, ToolbarTrigger};
 use crate::components::ui::{
@@ -15,6 +17,7 @@ use crate::router_state::use_navigate;
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::client::rpc::calls::agent_chat::ConfigureAgentChat;
 
+#[cfg(feature = "archived-native-ui")]
 /// The context window of the model this chat actually runs on, from the
 /// catalog, for the usage ring's fraction. `None` when the catalog hasn't
 /// loaded or the model isn't in it.
@@ -35,6 +38,7 @@ pub fn current_context_window(
         .map(|model| model.context_window)
 }
 
+#[cfg(feature = "archived-native-ui")]
 /// The composer's usage indicator: a fraction of the model's context window,
 /// when it's known, and a tooltip naming the exact tokens and cost.
 #[derive(Debug, Clone, PartialEq)]
@@ -43,6 +47,7 @@ pub struct HeaderUsage {
     pub title: String,
 }
 
+#[cfg(feature = "archived-native-ui")]
 /// `None` while nothing has been spent yet, so a fresh chat stays quiet.
 /// `context_window` is the current model's, from the catalog; without it the
 /// ring still draws an empty track while its tooltip retains token and cost
@@ -321,7 +326,7 @@ fn conversation_lineage(
     lineage
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "archived-native-ui"))]
 mod tests {
     use super::header_usage;
 

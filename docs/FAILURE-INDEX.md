@@ -4902,3 +4902,55 @@ abandoned states; an empty plan still clears all tasks.
 
 **Guard** — `roost-coord`'s
 `omp_todo_keeps_native_phases_and_blockers_across_flat_plan_updates`.
+
+### Browser swallows the picker's Backspace delete action
+
+**Symptom** — Backspace or Delete over an empty native search query does nothing
+in HTML, while the terminal opens the session picker's delete confirmation; the
+session picker's confirm strip never appears.
+
+**Wrong** — treat Backspace and Delete as browser text-editing keys whenever a
+text field owns focus. Over an empty caret side there is nothing to edit, and
+the terminal forwards those keys to the program (the picker's delete action).
+
+**Right** — `browser_editing_key` takes the field's text and caret: Backspace is
+an edit only with a non-empty caret prefix, Delete only with a non-empty caret
+suffix. Everything else forwards to OMP as native input. The delete confirmation
+is the picker's confirm strip; it captures its session when requested, the strip
+button confirms, and Esc cancels.
+
+**Guard** — `semantic_ui::keyboard::tests::delete_keys_over_an_empty_caret_side_belong_to_the_program`
+plus the recorded browser flow: strip appears, Esc cancels, strip Delete removes
+the session file.
+
+### OMP model assignment rejects a transient catalogue reset
+
+**Symptom** — selecting a role or switching picker scopes stops the native UI
+with `invalid TSP message: itemsAdd` or `itemsDel`; cleared subtitles render `null`.
+
+**Wrong** — require every delta property to remain an array, or retain null as
+an ordinary value. OMP's reconciler emits null when a previously sent property
+disappears; the next frame must not replay or undo the previous catalogue patch.
+
+**Right** — the canonical semantic fold removes null properties and ignores null
+transient catalogue deltas. Retain already-applied upserts/removals. Keep the
+operation journal so a malformed later patch restores every earlier mutation.
+
+**Guard** — `semantic_ui::property_tests::clearing_catalogue_deltas_keeps_upserts_and_removes_stale_properties`
+and `an_invalid_catalogue_patch_rolls_back_property_removal_and_upserts` in
+`crates/roost-protocol/src/wire/agent_chat/semantic_ui/property_tests.rs`.
+
+### Browser clipboard completion panics outside the native view runtime
+
+**Symptom** — `/copy` succeeds at the browser clipboard but OMP times out; Chrome
+reports `Must be called from inside a Dioxus runtime` and wasm `unreachable`.
+
+**Wrong** — construct a new `EventHandler` or spawn a scoped RPC from the raw
+clipboard Promise's continuation. That callback has no Dioxus scope on its stack.
+
+**Right** — construct the owning completion callback while the view is current.
+Invoke it after the Promise resolves; its call restores the original runtime and
+scope before constructing the private reply. Consume its captured state once.
+
+**Guard** — `accepted_clipboard_result_outside_runtime_keeps_reply_failure_recoverable`
+in `semantic_ui/host_services/copy_tests.rs`, plus actual browser copy completion.

@@ -853,7 +853,7 @@ message AuditListResponse {
 
 // ─── files ────────────────────────────────────────────────────────────────
 
-message FilesReadRequest { string worker_fp = 1; string path = 2; }
+message FilesReadRequest { string worker_fp = 1; string path = 2; string revision = 3; }
 message FilesReadResponse { bytes data = 1; uint64 size = 2; }
 
 message FilesReadChunkRequest { string worker_fp = 1; string path = 2; uint64 offset = 3; uint32 len = 4; }
@@ -1110,6 +1110,17 @@ message AgentOmpSettingsSetRequest { string scoped_json = 1; }
 message AgentOmpSettingsSetResponse {}
 message AgentOmpSessionOpenRequest { string conversation_id = 1; }
 message AgentOmpSessionOpenResponse {}
+// Semantic OMP UI action; the worker supplies the managed ACP session identity.
+message AgentOmpUiRequest {
+  string conversation_id = 1;
+  string request_id = 2;
+  string action_json = 3;
+  string view_id = 4;
+  string tab_id = 5;
+  string transport_id = 6;
+  bool receipt = 7;
+}
+message AgentOmpUiResponse {}
 message AgentChatPlanDecideRequest {
   string conversation_id = 1;
   string item_id = 2;
@@ -1212,6 +1223,7 @@ service CoordinatorService {
   rpc AgentOmpSettingsGet(AgentOmpSettingsGetRequest) returns (AgentOmpSettingsGetResponse);
   rpc AgentOmpSettingsSet(AgentOmpSettingsSetRequest) returns (AgentOmpSettingsSetResponse);
   rpc AgentOmpSessionOpen(AgentOmpSessionOpenRequest) returns (AgentOmpSessionOpenResponse);
+  rpc AgentOmpUi(AgentOmpUiRequest) returns (AgentOmpUiResponse);
   rpc AgentChatPlanDecide(AgentChatPlanDecideRequest) returns (AgentChatPlanDecideResponse);
   rpc AgentChatAnswer(AgentChatAnswerRequest) returns (AgentChatAnswerResponse);
   rpc AgentChatRewind(AgentChatRewindRequest) returns (AgentChatRewindResponse);

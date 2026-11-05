@@ -125,12 +125,19 @@ impl WriterState {
                 let previous: Option<String> = row.try_get("worker_epoch")?;
                 let pending = pending_interaction_resolutions(&transcript);
                 let was_running = transcript.run_state == AgentRunState::Running;
+                let ui_open = transcript.omp_ui_transport_id.is_some()
+                    || transcript.omp_ui.is_some()
+                    || transcript.omp_ui_error.is_some();
                 if &previous == worker_epoch {
                     return Ok(Commit {
                         cursor,
                         admitted: false,
                         worker_applied: false,
                     });
+                }
+                if ui_open {
+                    events.push(ChatEvent::OmpUiReset { transport_id: None });
+                    effects.push(OmpEffect::UiTransport(None));
                 }
                 effects.push(OmpEffect::WorkerEpoch(worker_epoch.clone()));
                 if was_running || !pending.is_empty() {

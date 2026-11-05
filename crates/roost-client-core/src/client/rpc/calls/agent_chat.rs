@@ -95,6 +95,47 @@ simple_call!(SetAgentSettings,AgentSettingsSetRequest,AgentSettingsSetResponse,(
 simple_call!(GetOmpSettings,AgentOmpSettingsGetRequest,AgentOmpSettingsGetResponse,OmpSettingsView,"AgentOmpSettingsGet",|response:AgentOmpSettingsGetResponse| decode_json("AgentOmpSettingsGet", response.settings_json););
 simple_call!(SetOmpSettings,AgentOmpSettingsSetRequest,AgentOmpSettingsSetResponse,(),"AgentOmpSettingsSet",empty; scoped_json:String);
 simple_call!(OpenOmpSession,AgentOmpSessionOpenRequest,AgentOmpSessionOpenResponse,(),"AgentOmpSessionOpen",empty; conversation_id:String);
+#[derive(Debug, Clone, Default)]
+pub struct SendOmpUi {
+    pub conversation_id: String,
+    pub request_id: String,
+    pub action: serde_json::Value,
+    pub view_id: String,
+    /// This document's live UI tab id, the same one the UI feed reports.
+    pub tab_id: String,
+    /// The native transport the transcript currently names. Empty on open.
+    pub transport_id: String,
+    /// Whether the native handler must emit a private receipt.
+    pub receipt: bool,
+}
+impl UnaryMethod for SendOmpUi {
+    const METHOD: &'static str = "AgentOmpUi";
+    type Response = ();
+
+    fn encode_request(&self) -> Result<Vec<u8>, RpcCodecError> {
+        let action_json = serde_json::to_string(&self.action).map_err(|error| {
+            RpcCodecError::RejectedRequest {
+                method: Self::METHOD,
+                detail: error.to_string(),
+            }
+        })?;
+        let request = AgentOmpUiRequest {
+            conversation_id: self.conversation_id.clone(),
+            request_id: self.request_id.clone(),
+            action_json,
+            view_id: self.view_id.clone(),
+            tab_id: self.tab_id.clone(),
+            transport_id: self.transport_id.clone(),
+            receipt: self.receipt,
+            ..Default::default()
+        };
+        encode_message(Self::METHOD, &request)
+    }
+
+    fn decode_response(body: &[u8]) -> Result<Self::Response, RpcCodecError> {
+        empty(decode_message::<AgentOmpUiResponse>(Self::METHOD, body)?)
+    }
+}
 simple_call!(DecideAgentPlan,AgentChatPlanDecideRequest,AgentChatPlanDecideResponse,String,"AgentChatPlanDecide",|response:AgentChatPlanDecideResponse| Ok(response.new_conversation_id); conversation_id:String,item_id:String,decision:String,feedback:String,request_id:String);
 simple_call!(AnswerAgentQuestion,AgentChatAnswerRequest,AgentChatAnswerResponse,(),"AgentChatAnswer",empty; conversation_id:String,item_id:String,answers_json:String,request_id:String);
 simple_call!(RewindAgentChat,AgentChatRewindRequest,AgentChatRewindResponse,RewoundUserMessage,"AgentChatRewind",|response:AgentChatRewindResponse| Ok(RewoundUserMessage { text: response.text, attachments: response.attachments.into_iter().map(|attachment| roost_protocol::wire::agent_chat::AgentChatAttachment { filename: attachment.filename, mime_type: attachment.mime_type, data: attachment.data, path: attachment.path }).collect() }); conversation_id:String,item_id:String,restore_files:bool,request_id:String);

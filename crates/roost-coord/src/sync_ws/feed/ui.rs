@@ -15,7 +15,7 @@
 
 use roost_proto::__buffa::oneof::firehose_frame::Frame;
 use roost_proto::buffa::MessageField;
-use roost_proto::{FirehoseFrame, UiCommandFrame, UiStateFrame};
+use roost_proto::{FirehoseFrame, OmpHostServiceFrame, UiCommandFrame, UiStateFrame};
 
 use crate::events::bus_messages::UiBusMsg;
 use crate::sync_ws::feed::FeedFrame;
@@ -23,31 +23,33 @@ use crate::ui_state::state_owner::UiStateOwner;
 
 /// What one Sync socket may receive of the UI stream.
 ///
-/// `browser_ui` is the gate v2 passes as `browserUi`; a worker socket and a
-/// read-only feed set it false and receive nothing here while remaining
-/// subscribed. `socket_id` is the Sync-v2 generation identity an `Apply` is
-/// addressed to, and is `None` on a feed with no v2 socket at all -- which is
-/// why an `Apply` is refused there rather than broadcast.
+/// Browser-host effects are scoped to the authenticated device tab as well as
+/// the request's originating view; no other attached browser receives them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct UiViewer {
-    /// Whether this socket is a browser with the UI capability.
     pub browser_ui: bool,
-    /// The socket an acknowledged apply is addressed to.
     pub socket_id: Option<String>,
+    pub fingerprint: Option<String>,
+    pub tab_id: Option<String>,
 }
 
 impl UiViewer {
     /// A browser on the socket with this identity.
     #[must_use]
-    pub fn browser(socket_id: impl Into<String>) -> Self {
+    pub fn browser(
+        socket_id: impl Into<String>,
+        fingerprint: impl Into<String>,
+        tab_id: impl Into<String>,
+    ) -> Self {
         Self {
             browser_ui: true,
             socket_id: Some(socket_id.into()),
+            fingerprint: Some(fingerprint.into()),
+            tab_id: Some(tab_id.into()),
         }
     }
 
-    /// A feed with no UI capability: a worker socket, or a read-only browser
-    /// that asked for nothing.
+    /// A feed with no UI capability.
     #[must_use]
     pub fn suppressed() -> Self {
         Self::default()
@@ -91,6 +93,48 @@ pub fn ui_bus_frame(message: &UiBusMsg, viewer: &UiViewer) -> Option<FeedFrame> 
                 correlation_id,
                 target_socket_id,
             )))
+        }
+        UiBusMsg::OmpHostService {
+            fingerprint,
+            tab_id,
+            frame,
+        } => {
+            if viewer.fingerprint.as_deref() != Some(fingerprint.as_str())
+                || viewer.tab_id.as_deref() != Some(tab_id.as_str())
+            {
+                return None;
+            }
+            Frame::OmpHostService(Box::new(OmpHostServiceFrame {
+                service_id: frame.service_id.clone(),
+                origin_request_id: frame.origin_request_id.clone(),
+                conversation_id: frame.conversation_id.clone(),
+                view_id: frame.view_id.clone(),
+                transport_id: frame.transport_id.clone(),
+                kind: frame.kind.clone(),
+                value: frame.value.clone(),
+                cancelled: frame.cancelled,
+                ..Default::default()
+            }))
+        }
+        UiBusMsg::OmpUiActionReceipt {
+            fingerprint,
+            tab_id,
+            frame,
+        } => {
+            if viewer.fingerprint.as_deref() != Some(fingerprint.as_str())
+                || viewer.tab_id.as_deref() != Some(tab_id.as_str())
+            {
+                return None;
+            }
+            Frame::OmpUiActionReceipt(Box::new(roost_proto::OmpUiActionReceiptFrame {
+                origin_request_id: frame.origin_request_id.clone(),
+                conversation_id: frame.conversation_id.clone(),
+                view_id: frame.view_id.clone(),
+                transport_id: frame.transport_id.clone(),
+                after_seq: frame.after_seq,
+                error: frame.error.clone(),
+                ..Default::default()
+            }))
         }
     };
     Some(FeedFrame::of(FirehoseFrame {

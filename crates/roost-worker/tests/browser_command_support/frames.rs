@@ -129,6 +129,16 @@ pub fn every_kind() -> Vec<(&'static str, Value)> {
             "respawn-if-missing",
             &[("request_id", json!("r18")), ("cwd", json!("/srv"))],
         ),
+        frame(
+            "stats-dashboard-http",
+            &[
+                ("request_id", json!("r20")),
+                ("host", json!("127.0.0.1")),
+                ("port", json!(3847)),
+                ("method", json!("GET")),
+                ("path", json!("/api/status")),
+            ],
+        ),
         frame("detach", &[]),
     ]
 }

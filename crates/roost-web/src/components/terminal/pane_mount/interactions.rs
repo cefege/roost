@@ -338,7 +338,7 @@ impl MouseForwardingHost for MouseHost {
         let Some(shared) = self.pane() else {
             return false;
         };
-        let measured = measure_terminal_cell_box(shared.display.as_ref());
+        let measured = measure_terminal_cell_box(shared.display.as_ref(), "cell-row");
         if measured.is_some() {
             shared.cell.set(measured);
         }

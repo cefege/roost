@@ -1,0 +1,4267 @@
+diff --git a/README.md b/README.md
+index cbd4085..4eba170 100644
+--- a/README.md
++++ b/README.md
+@@ -561,6 +561,8 @@ The [Agent Client Protocol](https://github.com/zed-industries/agent-client-proto
+ 
+ Full reference: [omp.sh/docs/sdk](https://omp.sh/docs/sdk).
+ 
++When an ACP client opts into `agentCapabilities._meta.commandUi` (`{ version: 1, protocol: "tsp" }`), it can drive the same interactive command UI over `_omp/ui/open`, `_omp/ui/event`, `_omp/ui/input`, `_omp/ui/command`, and `_omp/ui/close`. The TSP stream carries the actual terminal surfaces; ACP tool and permission requests remain on their standard channels.
++
+ ## A harness worth keeping is one you _don't_ outgrow.
+ 
+ Pick it up at **[omp.sh](https://omp.sh)**.
+diff --git a/docs/tui.md b/docs/tui.md
+index 2dc4933..5746439 100644
+--- a/docs/tui.md
++++ b/docs/tui.md
+@@ -19,6 +19,38 @@ The runtime has two layers:
+ 
+ If your extension/tool can run headless, guard with `ctx.hasUI` / `pi.hasUI`. RPC can expose `hasUI === true` for protocol-backed dialogs while still not supporting `custom()`; `hasUI` alone does not guarantee a component can be mounted.
+ 
++### ACP-hosted native command UI
++
++ACP advertises `agentCapabilities._meta.commandUi = {version:1,protocol:"tsp"}`.
++Clients opt in by opening `_omp/ui/open` on a managed `sessionId` with `cols`,
++`rows`, `dark`, `reduceMotion` and optional supported `kinds`/`features`.
++The existing `InteractiveMode` uses that record's canonical `AgentSession`;
++Models, Settings and Resume keep their terminal controllers and persistence.
++The adapter never acquires stdin/stdout or a controlling terminal.
++
++| Extension | Input / result |
++| --- | --- |
++| `_omp/ui/open` | View geometry and appearance; opens or reconstructs the TSP document. |
++| `_omp/ui/event` | Native `event:TspEvent`, including frame credits and UTF-16 edits. |
++| `_omp/ui/input` | Keyboard `data`; optional `before` edit applies atomically before the keys. |
++| `_omp/ui/command` | Complete `text` submitted through the ordinary interactive command dispatcher. |
++| `_omp/ui/close` | Detaches the view, cancels its pending host services, retains the managed session. |
++| `_omp/ui/host_service_reply` (notification) | Single-use `serviceId`, `accepted`, optional `error`, with its original view origin. |
++
++`_omp/ui/message` notifications carry `{sessionId,transportId,message}`; `message`
++is the native TSP `{verb,body,headers?}` payload without terminal escape framing.
++`_omp/ui/state` publishes durable resume identity, cwd, streaming state and history
++replacement/restart transitions. Clients must reject stale transport generations.
++Closing one view does not terminate the ACP process or another managed session.
++
++Browser effects use `_omp/ui/host_service_request` and `_omp/ui/host_service_cancel`, not
++worker clipboard/open commands. Kinds are `copy_text`, `open_url`, and
++`open_stats_dashboard`; origin binds request, view and transport. Replies settle
++only the matching pending request. At most 32 services wait for 30 seconds; view
++close, disposal and timeout cancel them. Secret editors describe mask cells,
++never stored plaintext. Standard ACP tool/permission channels remain unchanged.
++
++
+ ## Project-local TUI debug tool
+ 
+ `.omp/tools/tui.ts` provides the repository's `tui` debug tool. `start` accepts
+diff --git a/packages/coding-agent/CHANGELOG.md b/packages/coding-agent/CHANGELOG.md
+index a13d487..7bb83a3 100644
+--- a/packages/coding-agent/CHANGELOG.md
++++ b/packages/coding-agent/CHANGELOG.md
+@@ -2,6 +2,10 @@
+ 
+ ## [Unreleased]
+ 
++### Added
++
++- ACP advertises an opt-in TSP command UI that drives the existing interactive controllers and native terminal surfaces on the managed session; reconnects preserve drafts and picker state while rebuilding a full TSP snapshot.
++
+ ## [18.16.0] - 2026-11-02
+ 
+ ### Added
+diff --git a/packages/coding-agent/src/modes/acp/acp-agent.ts b/packages/coding-agent/src/modes/acp/acp-agent.ts
+index 4537538..82714d9 100644
+--- a/packages/coding-agent/src/modes/acp/acp-agent.ts
++++ b/packages/coding-agent/src/modes/acp/acp-agent.ts
+@@ -88,13 +88,16 @@ import {
+ 	TTS_SPEED_OPTIONS,
+ } from "../../tts/models";
+ import { canonicalizeMessage } from "@oh-my-pi/pi-tui/chat/thinking-display";
++import { ACP_TERMINAL_AUTH_FLAG } from "./terminal-auth";
+ import { createAcpClientBridge } from "./acp-client-bridge";
+ import {
+ 	extractAssistantMessageText,
+ 	mapAgentSessionEventToAcpSessionUpdates,
+ 	normalizeReplayToolArguments,
+ } from "./acp-event-mapper";
+-import { ACP_TERMINAL_AUTH_FLAG } from "./terminal-auth";
++import { RemoteCommandUi, type RemoteCommandUiOpen, type RemoteCommandUiState } from "./remote-command-ui";
++import type { TspEvent } from "@oh-my-pi/pi-wire";
++import { isHostServiceOrigin, isHostServiceReply } from "../host-services";
+ 
+ import { cfgDisabledExtensions } from "../../extensibility/settings";
+ import { cfgPlanEnabled } from "../../plan-mode/settings";
+@@ -391,6 +394,8 @@ type ManagedSessionRecord = {
+ 	closedError: RequestError | undefined;
+ 	promptEventHandlers: Set<Promise<void>>;
+ 	extensionUserMessageTasks: Set<Promise<void>>;
++	remoteUiDelivery: Promise<void>;
++	remoteUi: RemoteCommandUi | undefined;
+ };
+ 
+ type ReplayableMessage = {
+@@ -876,6 +881,7 @@ export class AcpAgent implements Agent {
+ 					resume: {},
+ 					close: {},
+ 				},
++				_meta: { commandUi: { version: 1, protocol: "tsp" } },
+ 			},
+ 			// Top-level `_meta` (sibling of `agentCapabilities`) is where
+ 			// claude-agent-acp and codex-acp advertise steering; clients such as
+@@ -1511,12 +1517,235 @@ export class AcpAgent implements Agent {
+ 				enableProvider(providerId);
+ 				return { enabled: true };
+ 			}
++			case "_omp/ui/open":
++			case "_omp/ui/event":
++			case "_omp/ui/input":
++			case "_omp/ui/command":
++			case "_omp/ui/close":
++				return await this.#handleRemoteUiAction(method, params);
+ 			case SESSION_STEERING_METHOD:
+ 				return await this.#handleSessionSteering(params);
+ 			default:
+ 				throw new Error(`Unknown ACP ext method: ${method}`);
+ 		}
+ 	}
++	async #handleRemoteUiAction(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
++		const sessionId = params.sessionId;
++		if (typeof sessionId !== "string") throw new Error("Remote UI sessionId required");
++		const record = this.#getSessionRecord(sessionId);
++		if (
++			method !== "_omp/ui/open" &&
++			typeof params.transportId === "string" &&
++			record.remoteUi?.transportId !== params.transportId
++		) {
++			throw new Error("Remote UI transport was replaced");
++		}
++		switch (method) {
++			case "_omp/ui/open": {
++				const open = this.#remoteUiOpenParams(params);
++				const remoteUi =
++					record.remoteUi ??
++					new RemoteCommandUi(
++						record.session,
++						(message, transportId) => {
++							void this.#connection
++								.notify("_omp/ui/message", {
++									sessionId: record.protocolSessionId,
++									transportId,
++									message: {
++										verb: message.verb,
++										body: message.body,
++										...(message.headers ? { headers: message.headers } : {}),
++									},
++								})
++								.catch(error => {
++									logger.warn("ACP remote UI notification failed", {
++										sessionId: record.protocolSessionId,
++										verb: message.verb,
++										error: String(error),
++									});
++								});
++						},
++						state => this.#queueRemoteUiState(record, state),
++						open,
++						{
++							send: request => {
++								void this.#connection
++									.notify("_omp/ui/host_service_request", {
++										sessionId: record.protocolSessionId,
++										...request,
++									})
++									.catch(error =>
++										logger.warn("ACP host-service notification failed", {
++											sessionId: record.protocolSessionId,
++											error: String(error),
++										}),
++									);
++							},
++							cancel: request => {
++								void this.#connection
++									.notify("_omp/ui/host_service_cancel", {
++										sessionId: record.protocolSessionId,
++										...request,
++									})
++									.catch(error =>
++										logger.warn("ACP host-service cancellation failed", {
++											sessionId: record.protocolSessionId,
++											error: String(error),
++										}),
++									);
++							},
++						},
++					);
++				record.remoteUi = remoteUi;
++				try {
++					await remoteUi.open(open, isHostServiceOrigin(params.origin) ? params.origin : undefined);
++				} catch (error) {
++					await remoteUi.dispose();
++					record.remoteUi = undefined;
++					throw error;
++				}
++				return { version: 1 };
++			}
++			case "_omp/ui/event": {
++				const event = params.event;
++				if (!this.#isTspEvent(event)) throw new Error("Invalid TSP event");
++				this.#requireRemoteUi(record).event(event, isHostServiceOrigin(params.origin) ? params.origin : undefined);
++				return {};
++			}
++			case "_omp/ui/input": {
++				if (typeof params.data !== "string") throw new Error("Remote UI input data required");
++				const rawBefore = params.before;
++				let before: TspEvent | undefined;
++				if (rawBefore !== undefined) {
++					if (!this.#isTspEvent(rawBefore) || rawBefore.ev !== "edit") {
++						throw new Error("Remote UI pre-input event must be an edit");
++					}
++					before = rawBefore;
++				}
++				this.#requireRemoteUi(record).input(
++					params.data,
++					isHostServiceOrigin(params.origin) ? params.origin : undefined,
++					before,
++				);
++				return {};
++			}
++			case "_omp/ui/command": {
++				if (typeof params.text !== "string") throw new Error("Remote UI command text required");
++				return {
++					handled: await this.#requireRemoteUi(record).command(
++						params.text,
++						isHostServiceOrigin(params.origin) ? params.origin : undefined,
++					),
++				};
++			}
++			case "_omp/ui/close":
++				await record.remoteUi?.close();
++				return {};
++			default:
++				throw new Error(`Unknown remote UI method: ${method}`);
++		}
++	}
++
++	#remoteUiOpenParams(params: Record<string, unknown>): RemoteCommandUiOpen {
++		const cols = params.cols;
++		const rows = params.rows;
++		if (!Number.isSafeInteger(cols) || !Number.isSafeInteger(rows) || (cols as number) < 1 || (rows as number) < 1) {
++			throw new Error("Remote UI cols and rows must be positive integers");
++		}
++		if (typeof params.dark !== "boolean" || typeof params.reduceMotion !== "boolean") {
++			throw new Error("Remote UI appearance and motion preferences are required");
++		}
++		const kinds = params.kinds;
++		const features = params.features;
++		if (kinds !== undefined && (!Array.isArray(kinds) || kinds.some(kind => typeof kind !== "string"))) {
++			throw new Error("Remote UI kinds must be strings");
++		}
++		if (
++			features !== undefined &&
++			(!Array.isArray(features) || features.some(feature => typeof feature !== "string"))
++		) {
++			throw new Error("Remote UI features must be strings");
++		}
++		if (
++			params.transportId !== undefined &&
++			(typeof params.transportId !== "string" || !params.transportId || params.transportId.length > 128)
++		) {
++			throw new Error("Remote UI transportId must be a bounded nonempty string");
++		}
++		return {
++			cols: cols as number,
++			rows: rows as number,
++			dark: params.dark,
++			reduceMotion: params.reduceMotion,
++			...(kinds ? { kinds: kinds as string[] } : {}),
++			...(features ? { features: features as string[] } : {}),
++			...(typeof params.transportId === "string" ? { transportId: params.transportId } : {}),
++		};
++	}
++
++	#isTspEvent(value: unknown): value is TspEvent {
++		if (typeof value !== "object" || value === null || !("ev" in value)) return false;
++		const event = value as Record<string, unknown>;
++		const string = (name: string): boolean => typeof event[name] === "string";
++		const integer = (name: string): boolean => typeof event[name] === "number" && Number.isSafeInteger(event[name]);
++		switch (event.ev) {
++			case "ack":
++				return string("sf") && integer("s");
++			case "resize":
++				return integer("cols");
++			case "theme":
++				return typeof event.dark === "boolean";
++			case "motion":
++				return typeof event.reduce === "boolean";
++			case "visible":
++				return typeof event.visible === "boolean";
++			case "toggle":
++				return string("sf") && string("id") && typeof event.collapsed === "boolean";
++			case "select":
++			case "activate":
++				return string("sf") && string("id") && string("item");
++			case "action":
++				return string("sf") && string("id") && string("act");
++			case "change":
++				return (
++					string("sf") &&
++					string("id") &&
++					string("item") &&
++					(event.value === null ||
++						typeof event.value === "string" ||
++						typeof event.value === "boolean" ||
++						(typeof event.value === "number" && Number.isFinite(event.value)) ||
++						(Array.isArray(event.value) && event.value.every(item => typeof item === "string")))
++				);
++			case "edit":
++				return (
++					string("sf") &&
++					string("id") &&
++					integer("from") &&
++					integer("to") &&
++					string("text") &&
++					integer("cursor") &&
++					integer("len")
++				);
++			case "undo":
++			case "focus":
++				return string("sf") && string("id");
++			case "send":
++				return string("sf") && string("id") && string("text");
++			case "error":
++				return string("msg");
++			case "gone":
++				return Array.isArray(event.ids) && event.ids.every(id => typeof id === "string");
++			default:
++				return false;
++		}
++	}
++
++	#requireRemoteUi(record: ManagedSessionRecord): RemoteCommandUi {
++		if (!record.remoteUi) throw new Error(`Remote command UI is not open for ${record.protocolSessionId}`);
++		return record.remoteUi;
++	}
+ 
+ 	/**
+ 	 * `_session/steering` — the steering extension method implemented by
+@@ -1594,7 +1823,18 @@ export class AcpAgent implements Agent {
+ 		return { outcome: "injected", queue };
+ 	}
+ 
+-	async extNotification(_method: string, _params: { [key: string]: unknown }): Promise<void> {}
++	async extNotification(method: string, params: { [key: string]: unknown }): Promise<void> {
++		if (method !== "_omp/ui/host_service_reply" || !isHostServiceReply(params)) return;
++		const sessionId = params.sessionId;
++		if (typeof sessionId !== "string") return;
++		let record: ManagedSessionRecord;
++		try {
++			record = this.#getSessionRecord(sessionId);
++		} catch {
++			return;
++		}
++		record.remoteUi?.hostServiceReply(params);
++	}
+ 
+ 	get signal(): AbortSignal {
+ 		return this.#connection.signal;
+@@ -1786,10 +2026,15 @@ export class AcpAgent implements Agent {
+ 			commandMetadataUnsubscribe: undefined,
+ 			lifetimeUpdatesReady: false,
+ 			pendingCompactionNotifications: undefined,
++			remoteUi: undefined,
++			remoteUiDelivery: Promise.resolve(),
+ 		};
+ 	}
+ 
+ 	#handleLifetimeEvent(record: ManagedSessionRecord, event: AgentSessionEvent): void {
++		if (record.remoteUi && !isPromptTurnInFlight(record.promptTurn)) {
++			this.#trackLifetimeDelivery(record, event.type, this.#forwardRemoteUiSessionEvent(record, event));
++		}
+ 		const sessionId = record.protocolSessionId;
+ 		let notification: AcpCompactionNotification;
+ 		if (event.type === "auto_compaction_start") {
+@@ -1816,7 +2061,11 @@ export class AcpAgent implements Agent {
+ 				record.lifetimeUpdatesReady &&
+ 				(event.type === "thinking_level_changed" || event.type === "model_changed")
+ 			) {
+-				this.#trackLifetimeDelivery(record, event.type, this.#pushConfigOptionUpdate(record));
++				const delivery = record.remoteUi
++					? record.remoteUiDelivery.then(() => this.#pushConfigOptionUpdate(record))
++					: this.#pushConfigOptionUpdate(record);
++				if (record.remoteUi) record.remoteUiDelivery = delivery.catch(() => {});
++				this.#trackLifetimeDelivery(record, event.type, delivery);
+ 			}
+ 			return;
+ 		}
+@@ -1833,6 +2082,66 @@ export class AcpAgent implements Agent {
+ 		);
+ 	}
+ 
++	#queueRemoteUiState(record: ManagedSessionRecord, state: RemoteCommandUiState): Promise<void> {
++		const delivery = record.remoteUiDelivery.then(async () => {
++			await this.#connection.notify("_omp/ui/state", {
++				sessionId: record.protocolSessionId,
++				...state,
++			});
++			if (state.resetHistory) await this.#replaySessionHistory(record);
++		});
++		record.remoteUiDelivery = delivery.catch(error => {
++			logger.warn("ACP remote UI state delivery failed", {
++				sessionId: record.protocolSessionId,
++				error: String(error),
++			});
++		});
++		return delivery;
++	}
++
++	#forwardRemoteUiSessionEvent(record: ManagedSessionRecord, event: AgentSessionEvent): Promise<void> {
++		const delivery = record.remoteUiDelivery.then(async () => {
++			if (event.type === "tool_execution_start" || event.type === "tool_execution_update") {
++				record.toolArgsById.set(event.toolCallId, event.args);
++			}
++			this.#prepareLiveAssistantMessage(record, event);
++			const imageDataCache = new Map<string, string>();
++			const resolveImageDataForAcp = (data: string, mimeType: string | undefined): string => {
++				const key = `${mimeType ?? ""}\u0000${data}`;
++				const cached = imageDataCache.get(key);
++				if (cached !== undefined) return cached;
++				const resolved = resolveImageDataSync(this.#blobs, data);
++				imageDataCache.set(key, resolved);
++				return resolved;
++			};
++			for (const notification of mapAgentSessionEventToAcpSessionUpdates(event, record.protocolSessionId, {
++				getMessageId: message => this.#getLiveMessageId(record, message),
++				getMessageProgress: message => this.#getLiveMessageProgress(record, message),
++				getToolArgs: toolCallId => record.toolArgsById.get(toolCallId),
++				cwd: record.session.sessionManager.getCwd(),
++				resolveImageData: resolveImageDataForAcp,
++			})) {
++				await this.#connection.sessionUpdate(notification);
++			}
++			if (event.type === "tool_execution_end") record.toolArgsById.delete(event.toolCallId);
++			this.#clearLiveAssistantMessageAfterEvent(record, event);
++			if (event.type === "agent_end") {
++				await this.#flushMissedFinalAssistantText(record, event);
++				await this.#emitEndOfTurnUpdates(record);
++				record.liveMessageId = undefined;
++				record.liveMessageProgress = undefined;
++			}
++		});
++		record.remoteUiDelivery = delivery.catch(error => {
++			logger.warn("ACP remote UI session event delivery failed", {
++				sessionId: record.protocolSessionId,
++				eventType: event.type,
++				error: String(error),
++			});
++		});
++		return delivery;
++	}
++
+ 	#activateLifetimeUpdates(record: ManagedSessionRecord): void {
+ 		if (record.lifetimeUpdatesReady) return;
+ 		record.lifetimeUpdatesReady = true;
+@@ -3284,6 +3593,13 @@ export class AcpAgent implements Agent {
+ 		record.lifetimeUnsubscribe?.();
+ 		record.commandMetadataUnsubscribe?.();
+ 		record.pendingCompactionNotifications = undefined;
++		await record.remoteUiDelivery.catch(error => {
++			logger.warn("Failed to flush ACP remote UI updates before disposal", { error });
++		});
++		if (record.remoteUi) {
++			await record.remoteUi.dispose();
++			record.remoteUi = undefined;
++		}
+ 		if (record.mcpManager) {
+ 			try {
+ 				await record.mcpManager.disconnectAll();
+diff --git a/packages/coding-agent/src/modes/controllers/btw-controller.ts b/packages/coding-agent/src/modes/controllers/btw-controller.ts
+index 6a5b7e8..df3a4fd 100644
+--- a/packages/coding-agent/src/modes/controllers/btw-controller.ts
++++ b/packages/coding-agent/src/modes/controllers/btw-controller.ts
+@@ -13,7 +13,6 @@ import {
+ } from "../../session/btw-history";
+ import { beginBtwTurn, patchLatestBtwTurn, runBtwTurn } from "../../session/btw-turn";
+ import { TRUNCATE_LENGTHS } from "@oh-my-pi/pi-tui/render/render-utils";
+-import { copyToClipboard } from "../../utils/clipboard";
+ import { BtwHistoryPanel } from "@oh-my-pi/pi-tui/overlays/btw-history-panel";
+ import { BtwPanelComponent } from "@oh-my-pi/pi-tui/overlays/btw-panel";
+ import type { BtwInjectState } from "@oh-my-pi/pi-tui/overlays/btw-inject";
+@@ -185,7 +184,7 @@ export class BtwController {
+ 		// start another /btw before they do. Confirm only the still-active surface.
+ 		const inlineRequest = options?.historyRecordId === undefined ? this.#activeRequest : undefined;
+ 		try {
+-			await copyToClipboard(replaceTabs(answer).trim());
++			await this.ctx.copyTextInHost(replaceTabs(answer).trim());
+ 			this.ctx.showStatus("Copied /btw answer to clipboard");
+ 			if (options?.historyRecordId !== undefined) this.#historyPanel?.markCopied(options.historyRecordId, answer);
+ 			else if (inlineRequest && this.#visible && this.#activeRequest === inlineRequest)
+diff --git a/packages/coding-agent/src/modes/controllers/command-controller.ts b/packages/coding-agent/src/modes/controllers/command-controller.ts
+index a45781a..b26b4a2 100644
+--- a/packages/coding-agent/src/modes/controllers/command-controller.ts
++++ b/packages/coding-agent/src/modes/controllers/command-controller.ts
+@@ -98,9 +98,7 @@ import {
+ 	renderChangelogEntries,
+ 	selectChangelogEntries,
+ } from "../../utils/changelog";
+-import { copyToClipboard } from "../../utils/clipboard";
+ import { formatDumpArchiveReport, type SessionDumpArchive } from "../../session/session-dump-format";
+-import { openPath } from "../../utils/open";
+ import { resumeCommand } from "../../utils/resume-command";
+ import { setSessionTerminalTitle } from "../../utils/title-generator";
+ import {
+@@ -354,7 +352,7 @@ export class CommandController {
+ 	}
+ 
+ 	openInBrowser(urlOrPath: string): void {
+-		openPath(urlOrPath);
++		this.ctx.openUrlInHost(urlOrPath);
+ 	}
+ 
+ 	async handleExportCommand(text: string): Promise<void> {
+@@ -412,7 +410,7 @@ export class CommandController {
+ 			const doc = sidecarPath
+ 				? `${formatted}\n\n---\nLLM request JSON: ${sidecarPath}\nThis file persists on disk and may contain raw context/secrets — treat accordingly.`
+ 				: formatted;
+-			await copyToClipboard(doc);
++			await this.ctx.copyTextInHost(doc);
+ 			const statusParts = ["Session copied to clipboard"];
+ 			if (sidecarPath) statusParts.push(`LLM request JSON: ${sidecarPath}`);
+ 			if (sidecarError) statusParts.push(`LLM request JSON unavailable: ${sidecarError}`);
+@@ -437,7 +435,7 @@ export class CommandController {
+ 				this.ctx.showError("No messages to dump yet.");
+ 				return;
+ 			}
+-			await copyToClipboard(archive.path);
++			await this.ctx.copyTextInHost(archive.path);
+ 			this.ctx.showStatus([...formatDumpArchiveReport(archive), "Archive path copied to clipboard"].join("\n"));
+ 		} catch (error: unknown) {
+ 			this.ctx.showError(
+@@ -446,7 +444,7 @@ export class CommandController {
+ 		}
+ 	}
+ 
+-	handleAdvisorDumpCommand(isRaw = false) {
++	async handleAdvisorDumpCommand(isRaw = false) {
+ 		try {
+ 			const advisorHistory = this.ctx.session.formatAdvisorHistoryAsText({ compact: !isRaw });
+ 			if (advisorHistory === null) {
+@@ -457,7 +455,7 @@ export class CommandController {
+ 				this.ctx.showError("Advisor has no history yet.");
+ 				return;
+ 			}
+-			copyToClipboard(advisorHistory);
++			await this.ctx.copyTextInHost(advisorHistory);
+ 			this.ctx.showStatus("Advisor history copied to clipboard");
+ 		} catch (error: unknown) {
+ 			this.ctx.showError(
+diff --git a/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts b/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
+index 76c5b60..4b4b1e3 100644
+--- a/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
++++ b/packages/coding-agent/src/modes/controllers/extension-ui-controller.ts
+@@ -48,7 +48,6 @@ import type { InteractiveModeContext, InteractiveSelectorDialogOptions } from ".
+ import { normalizeCustomMessagePayload, USER_INTERRUPT_LABEL } from "../../session/messages";
+ import { disambiguateDisplayLabels, sanitizeCarriageReturns } from "@oh-my-pi/pi-tui/render/render-utils";
+ import { setExtensionTerminalTitle, setSessionTerminalTitle } from "../../utils/title-generator";
+-import { getEditorCommand, openInEditor } from "../../utils/external-editor";
+ import { launchTerminal } from "../../subprocess/terminal-launch";
+ import { approvalAnswerForChoice, approvalChoiceLabels, approvalOnceLabel } from "../../tools/approval";
+ 
+@@ -78,11 +77,6 @@ function withTerminalLauncher(uiContext: ExtensionUIContext, hasUI: boolean): Ex
+ 	return Object.create(Object.getPrototypeOf(uiContext), descriptors) as ExtensionUIContext;
+ }
+ 
+-async function editDialogExternally(text: string): Promise<string | null> {
+-	const command = getEditorCommand();
+-	return command ? openInEditor(command, text) : null;
+-}
+-
+ interface CollabDialogWinner {
+ 	source: "local" | "remote";
+ 	value: string | undefined;
+@@ -891,7 +885,12 @@ export class ExtensionUiController {
+ 					prefill,
+ 					(text, images) => finishPrompt({ text, images }),
+ 					() => finishPrompt(undefined),
+-					{ promptStyle: true, externalEditor: editDialogExternally, question: prompt.question, ...options },
++					{
++						promptStyle: true,
++						externalEditor: text => this.ctx.editTextInHost(text),
++						question: prompt.question,
++						...options,
++					},
+ 				);
+ 				this.ctx.editorContainer.clear();
+ 				this.ctx.editorContainer.addChild(promptEditor);
+@@ -1282,7 +1281,7 @@ export class ExtensionUiController {
+ 				prefill,
+ 				value => settle(value),
+ 				() => settle(undefined),
+-				{ ...editorOptions, externalEditor: editDialogExternally },
++				{ ...editorOptions, externalEditor: text => this.ctx.editTextInHost(text) },
+ 			);
+ 			this.ctx.editorContainer.clear();
+ 			this.ctx.editorContainer.addChild(this.ctx.hookEditor);
+diff --git a/packages/coding-agent/src/modes/controllers/input-controller.ts b/packages/coding-agent/src/modes/controllers/input-controller.ts
+index 27537ca..d585629 100644
+--- a/packages/coding-agent/src/modes/controllers/input-controller.ts
++++ b/packages/coding-agent/src/modes/controllers/input-controller.ts
+@@ -61,7 +61,6 @@ import { resolveReadPath } from "../../tools/path-utils";
+ import { shortenPath, TRUNCATE_LENGTHS, truncateToWidth } from "@oh-my-pi/pi-tui/render/render-utils";
+ import { vocalizer } from "../../tts/vocalizer";
+ import {
+-	copyToClipboard,
+ 	isClipboardTerminalLocal,
+ 	readImageFromClipboard,
+ 	readMacFileUrlsFromClipboard,
+@@ -69,7 +68,6 @@ import {
+ } from "../../utils/clipboard";
+ import { commandUsage, hintUsage } from "../../utils/usage-counter";
+ import { EnhancedPasteController } from "../../utils/enhanced-paste";
+-import { getEditorCommand, openInEditor } from "../../utils/external-editor";
+ import { resendProgramStatus } from "../../utils/run-status";
+ import { loadImageInput } from "../../utils/image-loading";
+ import { materializeImageChipLinks } from "../utils/ui-helpers";
+@@ -3000,14 +2998,14 @@ export class InputController {
+ 			this.ctx.showStatus("Nothing to copy");
+ 			return;
+ 		}
+-		try {
+-			copyToClipboard(text);
+-			const sanitized = sanitizeText(text);
+-			const preview = sanitized.length > 30 ? `${sanitized.slice(0, 30)}...` : sanitized;
+-			this.ctx.showStatus(`Copied line: ${preview}`);
+-		} catch {
+-			this.ctx.showWarning("Failed to copy to clipboard");
+-		}
++		void this.ctx.copyTextInHost(text).then(
++			() => {
++				const sanitized = sanitizeText(text);
++				const preview = sanitized.length > 30 ? `${sanitized.slice(0, 30)}...` : sanitized;
++				this.ctx.showStatus(`Copied line: ${preview}`);
++			},
++			() => this.ctx.showWarning("Failed to copy to clipboard"),
++		);
+ 	}
+ 
+ 	/** Copy current prompt text to system clipboard. */
+@@ -3017,14 +3015,14 @@ export class InputController {
+ 			this.ctx.showStatus("Nothing to copy");
+ 			return;
+ 		}
+-		try {
+-			copyToClipboard(text);
+-			const sanitized = sanitizeText(text);
+-			const preview = sanitized.length > 30 ? `${sanitized.slice(0, 30)}...` : sanitized;
+-			this.ctx.showStatus(`Copied: ${preview}`);
+-		} catch {
+-			this.ctx.showWarning("Failed to copy to clipboard");
+-		}
++		void this.ctx.copyTextInHost(text).then(
++			() => {
++				const sanitized = sanitizeText(text);
++				const preview = sanitized.length > 30 ? `${sanitized.slice(0, 30)}...` : sanitized;
++				this.ctx.showStatus(`Copied: ${preview}`);
++			},
++			() => this.ctx.showWarning("Failed to copy to clipboard"),
++		);
+ 	}
+ 
+ 	cycleThinkingLevel(): void {
+@@ -3150,28 +3148,9 @@ export class InputController {
+ 	}
+ 
+ 	async openExternalEditor(): Promise<void> {
+-		const editorCmd = getEditorCommand();
+-		if (!editorCmd) {
+-			this.ctx.showWarning("No editor configured. Set $VISUAL or $EDITOR environment variable.");
+-			return;
+-		}
+-
+ 		const currentText = this.ctx.editor.getExpandedText?.() ?? this.ctx.editor.getText();
+-
+-		try {
+-			this.ctx.ui.stop();
+-			const result = await openInEditor(editorCmd, currentText, { extension: ".omp.md" });
+-			if (result !== null) {
+-				this.ctx.editor.setText(result);
+-			}
+-		} catch (error) {
+-			this.ctx.showWarning(
+-				`Failed to open external editor: ${error instanceof Error ? error.message : String(error)}`,
+-			);
+-		} finally {
+-			this.ctx.ui.start();
+-			this.ctx.ui.requestRender();
+-		}
++		const result = await this.ctx.editTextInHost(currentText, { extension: ".omp.md" });
++		if (result !== null) this.ctx.editor.setText(result);
+ 	}
+ 
+ 	/** Alt+G: the `/local` picker. `openLocalFileInEditor` refuses collab guests itself. */
+diff --git a/packages/coding-agent/src/modes/controllers/mcp-command-controller.ts b/packages/coding-agent/src/modes/controllers/mcp-command-controller.ts
+index efe9035..e177520 100644
+--- a/packages/coding-agent/src/modes/controllers/mcp-command-controller.ts
++++ b/packages/coding-agent/src/modes/controllers/mcp-command-controller.ts
+@@ -63,9 +63,7 @@ import {
+ import type { MCPAuthChallenge, MCPConfigFile, MCPServerConfig, MCPServerConnection } from "../../mcp/types";
+ import { shortenPath } from "@oh-my-pi/pi-tui/render/render-utils";
+ import { urlHyperlinkAlways } from "@oh-my-pi/pi-tui/render";
+-import { copyToClipboard } from "../../utils/clipboard";
+ import { isTimeoutError } from "../../utils/fetch-timeout";
+-import { openPath } from "../../utils/open";
+ import { ChatBlock } from "@oh-my-pi/pi-tui/chrome/chat-block";
+ import { DynamicBorder } from "@oh-my-pi/pi-tui/chrome/dynamic-border";
+ import { MCPAddWizard } from "@oh-my-pi/pi-tui/overlays/mcp-add-wizard";
+@@ -861,24 +859,15 @@ export class MCPCommandController {
+ 					block.addChild(new Text(theme.fg("muted", MCP_MANUAL_LOGIN_TIP), 1, 0));
+ 					block.addChild(new Spacer(1));
+ 					block.addChild(new Text(theme.fg("accent", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"), 1, 0));
+-					// `openPath` is best-effort — it logs spawn failures but never
+-					// throws, so we always render the copy-URL fallback beneath the
+-					// "attempting to open browser" line and no earlier try/catch is
+-					// worth keeping.
+-					openPath(info.url);
+-					// Stage the FULL authorization URL on the clipboard via OSC 52.
+-					// The full URL works from any machine (unlike `launchUrl`, which
+-					// only resolves against the OMP host), and OSC 52 is a
+-					// wire-level protocol — the terminal writes it to the user's
+-					// LOCAL clipboard even when OMP is on a remote SSH box.
+-					// Best-effort: falls back to the visible copy-URL rows below
+-					// whether or not the terminal honors OSC 52.
+-					void copyToClipboard(info.url).catch(() => {});
++					this.ctx.openUrlInHost(info.url);
++					void this.ctx.copyTextInHost(info.url).catch(() => {});
+ 					block.addChild(new Spacer(1));
+ 					block.addChild(new Text(theme.fg("success", "→ Attempting to open browser..."), 1, 0));
+ 					block.addChild(new Spacer(1));
+ 					block.addChild(new Text(theme.fg("muted", "Alternative if browser did not open:"), 1, 0));
+-					block.addChild(new MCPAuthorizationLinkPrompt(info.url, info.launchUrl));
++					block.addChild(
++						new MCPAuthorizationLinkPrompt(info.url, this.ctx.hostServices ? undefined : info.launchUrl),
++					);
+ 					this.ctx.ui.requestRender();
+ 				},
+ 				onProgress: message => {
+@@ -2092,12 +2081,7 @@ export class MCPCommandController {
+ 				"",
+ 			].join("\n"),
+ 		);
+-		try {
+-			openPath(session.authUrl);
+-		} catch {
+-			// URL is already shown above.
+-		}
+-
++		this.ctx.openUrlInHost(session.authUrl);
+ 		const apiKey = await this.#waitForSmitheryCliApiKey(session.sessionId, new AbortController().signal);
+ 		await this.#validateSmitheryApiKey(apiKey);
+ 		await saveSmitheryApiKey(apiKey);
+diff --git a/packages/coding-agent/src/modes/controllers/selector-controller.ts b/packages/coding-agent/src/modes/controllers/selector-controller.ts
+index 2f8413b..260a9f9 100644
+--- a/packages/coding-agent/src/modes/controllers/selector-controller.ts
++++ b/packages/coding-agent/src/modes/controllers/selector-controller.ts
+@@ -97,13 +97,10 @@ import { sanitizeDisplayWarnings, shortenPath } from "@oh-my-pi/pi-tui/render/re
+ import { sanitizeErrorLine } from "@oh-my-pi/pi-tui/chrome/error-block";
+ import { ToolAbortError } from "../../tools/tool-errors";
+ import { captureBrowserSession } from "../../utils/browser-session";
+-import { copyToClipboard } from "../../utils/clipboard";
+-import { openPath } from "../../utils/open";
+ import { setSessionTerminalTitle } from "../../utils/title-generator";
+ import { getAssistantMessageLinkTargets } from "@oh-my-pi/pi-tui/prompt/interactive-context-helpers";
+ import { type AdvisorConfigDeps, AdvisorConfigOverlayComponent } from "@oh-my-pi/pi-tui/overlays/advisor-config";
+ import { createAgentsHubDeps } from "../agents-hub-deps";
+-import { getEditorCommand, openInEditor } from "../../utils/external-editor";
+ import { collapseSharedUsageReports } from "@oh-my-pi/pi-tui/overlays/usage-display";
+ import { limitMatchesActiveAccount } from "../../slash-commands/helpers/active-oauth-account";
+ import { AgentHubOverlayComponent } from "@oh-my-pi/pi-tui/overlays/agent-hub";
+@@ -508,10 +505,7 @@ export class SelectorController {
+ 					this.ctx.session.effectiveServiceTier(model),
+ 				),
+ 				defaultToolNames: ADVISOR_DEFAULT_TOOL_NAMES,
+-				externalEditor: text => {
+-					const command = getEditorCommand();
+-					return command ? openInEditor(command, text) : Promise.resolve(null);
+-				},
++				externalEditor: text => this.ctx.editTextInHost(text),
+ 				scopedModels: this.ctx.session.scopedModels,
+ 				availableToolNames: this.ctx.session.getAdvisorAvailableToolNames(),
+ 				syncBacklog: cfgAdvisorSyncBacklog.get(this.ctx.settings),
+@@ -1468,12 +1462,15 @@ export class SelectorController {
+ 					this.ctx.showStatus("Nothing to copy in that item");
+ 					return;
+ 				}
+-				void copyToClipboard(content);
+-				this.ctx.showStatus(`Copied ${label} to clipboard`);
++				void this.ctx.copyTextInHost(content).then(
++					() => this.ctx.showStatus(`Copied ${label} to clipboard`),
++					(error: unknown) =>
++						this.ctx.showWarning(`Copy failed: ${error instanceof Error ? error.message : String(error)}`),
++				);
+ 			},
+ 			onOpen: (href, label) => {
+ 				done();
+-				openPath(href);
++				this.ctx.openUrlInHost(href);
+ 				this.ctx.showStatus(`Opening ${label}: ${href}`);
+ 			},
+ 			onCancel: done,
+@@ -2128,7 +2125,11 @@ export class SelectorController {
+ 		this.ctx.showStatus(`Logging in to ${providerId}…`);
+ 		const { getOAuthCredentialProvider, LoginDialogComponent, PASTE_CODE_LOGIN_PROVIDERS } =
+ 			await loadProviderAuthUi();
+-		const useManualInput = PASTE_CODE_LOGIN_PROVIDERS.has(providerId);
++		// A hosted command UI's browser cannot reach this worker's loopback
++		// callback, so every hosted login also offers the redirect-URL paste
++		// path the callback server races against its local listener.
++		const hosted = this.ctx.hostServices !== undefined;
++		const useManualInput = hosted || PASTE_CODE_LOGIN_PROVIDERS.has(providerId);
+ 		let restored = false;
+ 		const restoreEditor = () => {
+ 			if (restored) return;
+@@ -2147,7 +2148,7 @@ export class SelectorController {
+ 				restoreEditor();
+ 				if (message) this.ctx.showStatus(message);
+ 			},
+-			openPath,
++			url => this.ctx.openUrlInHost(url),
+ 		);
+ 		this.ctx.editorContainer.clear();
+ 		this.ctx.editorContainer.addChild(dialog);
+diff --git a/packages/coding-agent/src/modes/controllers/todo-command-controller.ts b/packages/coding-agent/src/modes/controllers/todo-command-controller.ts
+index dab0c5a..5c0e0ea 100644
+--- a/packages/coding-agent/src/modes/controllers/todo-command-controller.ts
++++ b/packages/coding-agent/src/modes/controllers/todo-command-controller.ts
+@@ -8,8 +8,6 @@ import {
+ 	USER_TODO_EDIT_CUSTOM_TYPE,
+ } from "../../tools/todo";
+ import { type TodoItem, type TodoPhase } from "@oh-my-pi/pi-tui/tools/todo";
+-import { copyToClipboard } from "../../utils/clipboard";
+-import { getEditorCommand, openInEditor } from "../../utils/external-editor";
+ import type { InteractiveModeContext } from "../types";
+ 
+ const USAGE = [
+@@ -213,12 +211,10 @@ export class TodoCommandController {
+ 			this.ctx.showWarning("No todos to copy.");
+ 			return;
+ 		}
+-		try {
+-			copyToClipboard(phasesToMarkdown(phases));
+-			this.ctx.showStatus("Copied todos as Markdown to clipboard.");
+-		} catch (error) {
+-			this.ctx.showError(error instanceof Error ? error.message : String(error));
+-		}
++		void this.ctx.copyTextInHost(phasesToMarkdown(phases)).then(
++			() => this.ctx.showStatus("Copied todos as Markdown to clipboard."),
++			(error: unknown) => this.ctx.showError(error instanceof Error ? error.message : String(error)),
++		);
+ 	}
+ 
+ 	#resolveTodoPath(rest: string): string {
+@@ -407,39 +403,22 @@ export class TodoCommandController {
+ 	// ------------------------------------------------------------- editor
+ 
+ 	async #editInExternalEditor(): Promise<void> {
+-		const editorCmd = getEditorCommand();
+-		if (!editorCmd) {
+-			this.ctx.showWarning("No editor configured. Set $VISUAL or $EDITOR environment variable.");
+-			return;
+-		}
+-
+ 		const current = this.#currentPhases();
+ 		const initialMarkdown =
+ 			current.length > 0 ? phasesToMarkdown(current) : "# Todos\n- [ ] (replace this with your tasks)\n";
+-
+-		this.ctx.ui.stop();
+-		try {
+-			const result = await openInEditor(editorCmd, initialMarkdown, { extension: ".todo.md" });
+-			if (result === null) {
+-				this.ctx.showWarning("Editor exited without saving; todos unchanged.");
+-				return;
+-			}
+-			const { phases: parsed, errors } = markdownToPhases(result);
+-			if (errors.length > 0) {
+-				this.ctx.showError(`Could not parse Markdown:\n  ${errors.join("\n  ")}`);
+-				return;
+-			}
+-			this.#commit(parsed, "/todo edit");
+-			const taskCount = parsed.reduce((sum, p) => sum + p.tasks.length, 0);
+-			this.ctx.showStatus(`Todos updated from editor: ${parsed.length} phase(s), ${taskCount} task(s).`);
+-		} catch (error) {
+-			this.ctx.showWarning(
+-				`Failed to open external editor: ${error instanceof Error ? error.message : String(error)}`,
+-			);
+-		} finally {
+-			this.ctx.ui.start();
+-			this.ctx.ui.requestRender();
++		const result = await this.ctx.editTextInHost(initialMarkdown, { extension: ".todo.md" });
++		if (result === null) {
++			this.ctx.showWarning("Editor exited without saving; todos unchanged.");
++			return;
++		}
++		const { phases: parsed, errors } = markdownToPhases(result);
++		if (errors.length > 0) {
++			this.ctx.showError(`Could not parse Markdown:\n  ${errors.join("\n  ")}`);
++			return;
+ 		}
++		this.#commit(parsed, "/todo edit");
++		const taskCount = parsed.reduce((sum, p) => sum + p.tasks.length, 0);
++		this.ctx.showStatus(`Todos updated from editor: ${parsed.length} phase(s), ${taskCount} task(s).`);
+ 	}
+ 
+ 	#commit(nextPhases: TodoPhase[], action: string, opts?: { removed?: boolean }): void {
+diff --git a/packages/coding-agent/src/modes/interactive-mode.ts b/packages/coding-agent/src/modes/interactive-mode.ts
+index b65a749..cfe30b5 100644
+--- a/packages/coding-agent/src/modes/interactive-mode.ts
++++ b/packages/coding-agent/src/modes/interactive-mode.ts
+@@ -225,9 +225,10 @@ import {
+ import { onNativeRenderingChange } from "@oh-my-pi/pi-tui/native/state";
+ import { renderTreeList } from "@oh-my-pi/pi-tui/render/tree-list";
+ import { formatStartupChangelogSummary, type StartupChangelogSelection } from "../utils/changelog";
++import type { InteractiveHostServices } from "./types";
+ import { copyToClipboard } from "../utils/clipboard";
+ import type { EventBus } from "../utils/event-bus";
+-import { getEditorCommand, getEditorName, openInEditor } from "../utils/external-editor";
++import { getEditorCommand, getEditorName, openEditorOnPath, openInEditor } from "../utils/external-editor";
+ import { openPath } from "../utils/open";
+ import { resumeCommand } from "../utils/resume-command";
+ import { getSessionAccentAnsi, getSessionAccentHex } from "@oh-my-pi/pi-tui/theme/session-color";
+@@ -1341,6 +1342,7 @@ export class InteractiveMode implements InteractiveModeContext {
+ 	keybindings: KeybindingsManager;
+ 	agent: Agent;
+ 	historyStorage?: HistoryStorage;
++	hostServices?: InteractiveHostServices;
+ 
+ 	/** Canonical composer shared by cold prepaint and the session-aware runtime. */
+ 	readonly composer: Composer;
+@@ -1969,6 +1971,8 @@ export class InteractiveMode implements InteractiveModeContext {
+ 	#dictationStarting = false;
+ 	#micCursor: MicCursor | undefined;
+ 	#resizeHandler?: () => void;
++	#remoteCommandUi = false;
++	#closeRemoteCommandUi: (() => void) | undefined;
+ 	#observerRegistry: SessionObserverRegistry;
+ 	/** Click override for the pinned jump-list density; undefined follows `display.pinnedAgents`. */
+ 	#pinnedHudOverride: boolean | undefined;
+@@ -2017,7 +2021,14 @@ export class InteractiveMode implements InteractiveModeContext {
+ 		composer?: Composer,
+ 		subagentEventBus?: EventBus,
+ 		refreshScopedModelsAfterLogin?: () => Promise<void>,
++		remoteCommandUi = false,
++		closeRemoteCommandUi?: () => void,
++		private readonly requestRemoteCommandUiRestart?: () => Promise<void>,
++		hostServices?: InteractiveHostServices,
+ 	) {
++		this.#remoteCommandUi = remoteCommandUi;
++		this.hostServices = remoteCommandUi ? hostServices : undefined;
++		this.#closeRemoteCommandUi = closeRemoteCommandUi;
+ 		this.refreshScopedModelsAfterLogin = refreshScopedModelsAfterLogin;
+ 		this.session = session;
+ 		this.sessionManager = session.sessionManager;
+@@ -2119,7 +2130,7 @@ export class InteractiveMode implements InteractiveModeContext {
+ 			}),
+ 		);
+ 		this.ui.setInlineMouseTrackingProvider(() => this.#mouseCapture);
+-		setExtensionLinkPicking(this.#linkPickable);
++		if (!this.#remoteCommandUi) setExtensionLinkPicking(this.#linkPickable);
+ 		// Tern's native view routes link clicks itself, so claimed links stop (or start) being
+ 		// pickable here: re-run the renderers reading `getLinkClicksAvailable()`.
+ 		this.#eventBusUnsubscribers.push(
+@@ -2165,13 +2176,12 @@ export class InteractiveMode implements InteractiveModeContext {
+ 		};
+ 		this.editor.setShimmerRepaintHandler(() => this.ui.requestComponentRender(this.editor));
+ 		this.#syncEditorMaxHeight();
+-		// Sync editor geometry only. TUI owns the alternate-buffer drag paint and
+-		// settled normal-buffer repaint for each SIGWINCH.
+-		this.#resizeHandler = () => {
+-			this.#syncEditorMaxHeight();
+-		};
+-		process.stdout.on("resize", this.#resizeHandler);
+-		setWordPredictionHost(textPredictionBackend);
++		if (!this.#remoteCommandUi) {
++			// Sync editor geometry only. TUI owns the alternate-buffer drag paint and settled SIGWINCH repaint.
++			this.#resizeHandler = () => this.#syncEditorMaxHeight();
++			process.stdout.on("resize", this.#resizeHandler);
++			setWordPredictionHost(textPredictionBackend);
++		}
+ 		try {
+ 			this.historyStorage = HistoryStorage.open();
+ 			this.editor.setHistoryStorage(this.historyStorage);
+@@ -2218,7 +2228,7 @@ export class InteractiveMode implements InteractiveModeContext {
+ 					void this.handleUsageCommand();
+ 					return;
+ 				case "status.path":
+-					openPath(this.sessionManager.getCwd());
++					this.openUrlInHost(this.sessionManager.getCwd());
+ 					return;
+ 			}
+ 		};
+@@ -2264,6 +2274,41 @@ export class InteractiveMode implements InteractiveModeContext {
+ 		this.session.setPromptDropped?.(prompt => this.#restoreDroppedPrompt(prompt));
+ 		this.#observerRegistry = new SessionObserverRegistry();
+ 	}
++	/** Edit text without acquiring ACP stdio; `null` preserves the caller's draft on cancellation. */
++	async editTextInHost(
++		text: string,
++		options?: { extension?: string; trimTrailingNewline?: boolean },
++	): Promise<string | null> {
++		if (this.#remoteCommandUi) {
++			return (await this.showHookEditor("Edit text", text)) ?? null;
++		}
++		const editorCmd = getEditorCommand();
++		if (!editorCmd) {
++			this.showWarning("No editor configured. Set $VISUAL or $EDITOR environment variable.");
++			return null;
++		}
++		return openInEditor(editorCmd, text, options);
++	}
++	async editFileInHost(filePath: string): Promise<number | null> {
++		if (!this.#remoteCommandUi) {
++			const editorCmd = getEditorCommand();
++			if (!editorCmd) {
++				this.showWarning("No editor configured. Set $VISUAL or $EDITOR environment variable.");
++				return null;
++			}
++			return openEditorOnPath(editorCmd, filePath);
++		}
++		try {
++			const contents = await Bun.file(filePath).text();
++			const edited = await this.editTextInHost(contents);
++			if (edited === null) return null;
++			await Bun.write(filePath, edited);
++			return 0;
++		} catch (error) {
++			this.showWarning(`Failed to open external editor: ${error instanceof Error ? error.message : String(error)}`);
++			return 1;
++		}
++	}
+ 
+ 	#handleJudgmentBatchProgress(progress: JudgmentBatchProgress): void {
+ 		const pendingClear = this.#judgmentBatchProgressClearTimers.get(progress.id);
+@@ -2413,25 +2458,20 @@ export class InteractiveMode implements InteractiveModeContext {
+ 		// `Settings.instance` is the disk-backed singleton; passing it explicitly
+ 		// guarantees the decision persists even when the prompt is triggered
+ 		// from a subagent whose own `Settings` is an in-memory snapshot.
+-		setAutoQaConsentHandler(() => this.session.waitForUser(() => this.#promptAutoQaConsent()), Settings.instance);
+-		// Same wiring for cfg:// writes: every settings change the agent makes is
+-		// confirmed here, and `/save` persists to disk. Subagents and headless
+-		// sessions are refused by the handler before reaching this host. Changes
+-		// to this session's settings get the settings panel's in-process side
+-		// effects (a `defaultThinkingLevel` change also switches the live session).
+-		setCfgApprovalHost({
+-			// With `ask.timeout` set the prompt settles on its own and the turn goes on, so it stays agent time,
+-			// like a timed `ask`.
+-			approve: (request, options) =>
+-				askTimeoutMs(this.session.settings) === undefined
+-					? this.session.waitForUser(() => this.#promptCfgChange(request, options?.signal))
+-					: this.#promptCfgChange(request, options?.signal),
+-			applied: change => {
+-				if (change.settings !== this.session.settings) return;
+-				this.#selectorController.handleSettingChange(change.path, change.value);
+-			},
+-			persistentSettings: Settings.instance,
+-		});
++		if (!this.#remoteCommandUi) {
++			setAutoQaConsentHandler(() => this.session.waitForUser(() => this.#promptAutoQaConsent()), Settings.instance);
++			setCfgApprovalHost({
++				approve: (request, options) =>
++					askTimeoutMs(this.session.settings) === undefined
++						? this.session.waitForUser(() => this.#promptCfgChange(request, options?.signal))
++						: this.#promptCfgChange(request, options?.signal),
++				applied: change => {
++					if (change.settings !== this.session.settings) return;
++					this.#selectorController.handleSettingChange(change.path, change.value);
++				},
++				persistentSettings: Settings.instance,
++			});
++		}
+ 
+ 		await logger.time(
+ 			"InteractiveMode.init:slashCommands",
+@@ -2569,7 +2609,7 @@ export class InteractiveMode implements InteractiveModeContext {
+ 					);
+ 					return;
+ 				case "copy":
+-					copyToClipboard(action.text).then(
++					void this.copyTextInHost(action.text).then(
+ 						() => this.showStatus("Copied to clipboard"),
+ 						(error: unknown) =>
+ 							this.showWarning(`Copy failed: ${error instanceof Error ? error.message : String(error)}`),
+@@ -4349,7 +4389,7 @@ export class InteractiveMode implements InteractiveModeContext {
+ 		const before = extensionLinksVersion();
+ 		const viewed = this.viewSession.extensionRunner;
+ 		viewed?.followSuspension(this.session.extensionRunner);
+-		setExtensionLinks(viewed?.getLinkSchemes() ?? []);
++		if (!this.#remoteCommandUi) setExtensionLinks(viewed?.getLinkSchemes() ?? []);
+ 		return extensionLinksVersion() !== before;
+ 	}
+ 
+@@ -6351,7 +6391,7 @@ export class InteractiveMode implements InteractiveModeContext {
+ 
+ 	async #copyYankToClipboard(content: string): Promise<void> {
+ 		try {
+-			await copyToClipboard(content);
++			await this.copyTextInHost(content);
+ 		} catch (error) {
+ 			// Best-effort: the yank already landed in the internal register, so `p` still puts it
+ 			// back. A per-yank warning would spam headless/SSH sessions on every `yy`.
+@@ -6363,7 +6403,7 @@ export class InteractiveMode implements InteractiveModeContext {
+ 
+ 	async #copyPlanToClipboard(content: string): Promise<void> {
+ 		try {
+-			await copyToClipboard(content);
++			await this.copyTextInHost(content);
+ 			this.showStatus("Copied plan to clipboard");
+ 		} catch (error) {
+ 			this.showWarning(
+@@ -6454,12 +6494,6 @@ export class InteractiveMode implements InteractiveModeContext {
+ 	}
+ 
+ 	async #openPlanInExternalEditor(planFilePath: string): Promise<void> {
+-		const editorCmd = getEditorCommand();
+-		if (!editorCmd) {
+-			this.showWarning("No editor configured. Set $VISUAL or $EDITOR environment variable.");
+-			return;
+-		}
+-
+ 		const resolvedPath = this.#resolvePlanFilePath(planFilePath);
+ 		let currentText: string;
+ 		try {
+@@ -6472,10 +6506,8 @@ export class InteractiveMode implements InteractiveModeContext {
+ 			this.showWarning(`Failed to open external editor: ${error instanceof Error ? error.message : String(error)}`);
+ 			return;
+ 		}
+-
+ 		try {
+-			this.ui.stop();
+-			const result = await openInEditor(editorCmd, currentText, {
++			const result = await this.editTextInHost(currentText, {
+ 				extension: path.extname(resolvedPath) || ".md",
+ 				trimTrailingNewline: false,
+ 			});
+@@ -6486,30 +6518,15 @@ export class InteractiveMode implements InteractiveModeContext {
+ 			}
+ 		} catch (error) {
+ 			this.showWarning(`Failed to open external editor: ${error instanceof Error ? error.message : String(error)}`);
+-		} finally {
+-			this.ui.start();
+-			this.ui.requestRender(true);
+ 		}
+ 	}
+ 
+ 	async #openPlanAnnotationInExternalEditor(draft: string, commit: (text: string | null) => void): Promise<void> {
+-		const editorCmd = getEditorCommand();
+-		if (!editorCmd) {
+-			this.showWarning("No editor configured. Set $VISUAL or $EDITOR environment variable.");
+-			return;
+-		}
+-
+ 		try {
+-			this.ui.stop();
+-			const result = await openInEditor(editorCmd, draft, { extension: ".md" });
+-			if (result !== null) {
+-				commit(result);
+-			}
++			const result = await this.editTextInHost(draft, { extension: ".md" });
++			if (result !== null) commit(result);
+ 		} catch (error) {
+ 			this.showWarning(`Failed to open external editor: ${error instanceof Error ? error.message : String(error)}`);
+-		} finally {
+-			this.ui.start();
+-			this.ui.requestRender(true);
+ 		}
+ 	}
+ 
+@@ -7907,10 +7924,10 @@ export class InteractiveMode implements InteractiveModeContext {
+ 		if (this.#cleanupUnsubscribe) {
+ 			this.#cleanupUnsubscribe();
+ 		}
+-		// Clear the process-global consent handler so it doesn't outlive this
+-		// InteractiveMode instance (e.g. test harnesses, headless re-init).
+-		setAutoQaConsentHandler(null, null);
+-		setCfgApprovalHost(null);
++		if (!this.#remoteCommandUi) {
++			setAutoQaConsentHandler(null, null);
++			setCfgApprovalHost(null);
++		}
+ 		this.#disposeImageBlobWriter?.();
+ 		this.#disposeImageBlobWriter = undefined;
+ 		this.#hideSessionInfo();
+@@ -7918,10 +7935,10 @@ export class InteractiveMode implements InteractiveModeContext {
+ 			this.ui.stop();
+ 			this.#ownsStartedUi = false;
+ 		}
+-		// The markdown renderer's extension-link state is process-wide; release this session's schemes
+-		// only after the TUI's final history flush, which still strips their markers.
+-		setExtensionLinks([]);
+-		setExtensionLinkPicking(undefined);
++		if (!this.#remoteCommandUi) {
++			setExtensionLinks([]);
++			setExtensionLinkPicking(undefined);
++		}
+ 		this.isInitialized = false;
+ 	}
+ 
+@@ -7936,6 +7953,10 @@ export class InteractiveMode implements InteractiveModeContext {
+ 	}
+ 
+ 	async shutdown(): Promise<void> {
++		if (this.#remoteCommandUi) {
++			this.#closeRemoteCommandUi?.();
++			return;
++		}
+ 		if (this.#isShuttingDown) return;
+ 		// The previous graceful teardown failed AT the memoized session.dispose()
+ 		// (the session is already disposing), so it re-rejects identically forever
+@@ -8022,6 +8043,22 @@ export class InteractiveMode implements InteractiveModeContext {
+ 	 * spawning the replacement and lingering only to forward its exit code.
+ 	 */
+ 	async restart(): Promise<void> {
++		if (this.#remoteCommandUi) {
++			if (!this.requestRemoteCommandUiRestart) {
++				this.showError("Remote restart is unavailable.");
++				return;
++			}
++			try {
++				await this.session.abort();
++				await this.session.waitForIdle();
++				await this.requestRemoteCommandUiRestart();
++			} catch (error) {
++				this.showError(
++					`Could not restart hosted session: ${error instanceof Error ? error.message : String(error)}`,
++				);
++			}
++			return;
++		}
+ 		if (this.#isShuttingDown) return;
+ 		this.#beginClose();
+ 		try {
+@@ -9141,9 +9178,62 @@ export class InteractiveMode implements InteractiveModeContext {
+ 		return this.#commandController.executeCompaction(customInstructionsOrOptions, isAuto);
+ 	}
+ 
++	async copyTextInHost(text: string): Promise<void> {
++		if (this.#remoteCommandUi) {
++			if (!this.hostServices) throw new Error("Browser clipboard service is unavailable.");
++			return this.hostServices.copyText(text);
++		}
++		await copyToClipboard(text);
++	}
++
++	openUrlInHost(url: string): void {
++		if (!this.#remoteCommandUi) {
++			openPath(url);
++			return;
++		}
++		const target = this.hostedOpenTarget(url);
++		if (!target) {
++			this.showWarning("This worker-local or unsupported URL cannot be opened in the browser.");
++			return;
++		}
++		const hostServices = this.hostServices;
++		if (!hostServices) {
++			this.showWarning("Browser URL service is unavailable.");
++			return;
++		}
++		void hostServices
++			.openUrl(target)
++			.catch((error: unknown) =>
++				this.showWarning(`Open failed: ${error instanceof Error ? error.message : String(error)}`),
++			);
++	}
++
+ 	openInBrowser(urlOrPath: string): void {
++		if (this.#remoteCommandUi) {
++			this.openUrlInHost(urlOrPath);
++			return;
++		}
+ 		this.#commandController.openInBrowser(urlOrPath);
+ 	}
++	/**
++	 * What a hosted view may open. Web links that only the browser can resolve
++	 * pass through; worker filesystem targets stay paths so the browser opens
++	 * them in the authenticated worker file viewer instead of the worker's OS.
++	 */
++	private hostedOpenTarget(value: string): string | undefined {
++		if (value.startsWith("/") || value.startsWith("file:")) return value;
++		try {
++			const url = new URL(value);
++			if (url.protocol !== "https:" && url.protocol !== "http:") return undefined;
++			const host = url.hostname.toLowerCase();
++			if (host === "localhost" || host.endsWith(".localhost") || host === "127.0.0.1" || host === "::1") {
++				return undefined;
++			}
++			return url.href;
++		} catch {
++			return undefined;
++		}
++	}
+ 
+ 	// Selector handling
+ 	showSettingsSelector(): void {
+diff --git a/packages/coding-agent/src/modes/local-file-editor.ts b/packages/coding-agent/src/modes/local-file-editor.ts
+index df2746b..84db880 100644
+--- a/packages/coding-agent/src/modes/local-file-editor.ts
++++ b/packages/coding-agent/src/modes/local-file-editor.ts
+@@ -3,9 +3,7 @@ import { disambiguateDisplayLabels, replaceTabs, shortenPath } from "@oh-my-pi/p
+ import { formatBytes, sanitizeText } from "@oh-my-pi/pi-utils";
+ import { InternalUrlRouter, type LocalFileEntry, type LocalProtocolOptions, listLocalFiles } from "../internal-urls";
+ import type { SessionManager } from "../session/session-manager";
+-import { getEditorCommand, openEditorOnPath } from "../utils/external-editor";
+ import type { InteractiveModeContext } from "./types";
+-
+ const PICKER_TITLE = "Open local:// file in external editor";
+ 
+ function errorMessage(error: unknown): string {
+@@ -111,11 +109,6 @@ export async function openLocalFileInEditor(ctx: InteractiveModeContext, target?
+ 		ctx.showStatus("/local is host-only during a collab session");
+ 		return;
+ 	}
+-	const editorCmd = getEditorCommand();
+-	if (!editorCmd) {
+-		ctx.showWarning("No editor configured. Set $VISUAL or $EDITOR environment variable.");
+-		return;
+-	}
+ 	const options = sessionLocalProtocolOptions(ctx.sessionManager);
+ 	let chosen: { url: string; path: string } | undefined;
+ 	if (target?.trim()) {
+@@ -139,17 +132,14 @@ export async function openLocalFileInEditor(ctx: InteractiveModeContext, target?
+ 		}
+ 	}
+ 
+-	let exitCode: number;
++	let exitCode: number | null;
+ 	try {
+-		ctx.ui.stop();
+-		exitCode = await openEditorOnPath(editorCmd, chosen.path);
++		exitCode = await ctx.editFileInHost(chosen.path);
+ 	} catch (error) {
+ 		ctx.showWarning(`Failed to open external editor: ${showErrorMessage(error)}`);
+ 		return;
+-	} finally {
+-		ctx.ui.start();
+-		ctx.ui.requestRender();
+ 	}
++	if (exitCode === null) return;
+ 
+ 	if (exitCode !== 0) {
+ 		ctx.showWarning(`Editor exited with code ${exitCode}; ${sanitizeText(chosen.url)} keeps whatever it saved.`);
+diff --git a/packages/coding-agent/src/modes/types.ts b/packages/coding-agent/src/modes/types.ts
+index 0210002..c5a0ff1 100644
+--- a/packages/coding-agent/src/modes/types.ts
++++ b/packages/coding-agent/src/modes/types.ts
+@@ -157,6 +157,13 @@ export interface AgentHubOpenOptions {
+ 	initialSection?: "agents" | "activity";
+ }
+ 
++export interface InteractiveHostServices {
++	copyText(text: string): Promise<void>;
++	openUrl(url: string): Promise<void>;
++	/** Open the worker's native stats dashboard through the hosted bridge. */
++	openStatsDashboard(url: string): Promise<void>;
++}
++
+ export interface InteractiveModeContext {
+ 	// UI access
+ 	ui: TUI;
+@@ -184,6 +191,17 @@ export interface InteractiveModeContext {
+ 	hookWidgetContainerBelow: Container;
+ 	statusLine: StatusLineComponent;
+ 	syncComposerShape(): void;
++	/** Edit text in the host's semantic editor; null means the user cancelled. */
++	editTextInHost(
++		text: string,
++		options?: { extension?: string; trimTrailingNewline?: boolean },
++	): Promise<string | null>;
++	/** Open a session-local file in the host editor, preserving the file on cancellation. */
++	editFileInHost(path: string): Promise<number | null>;
++	/** Browser-owned effects for a hosted command UI; absent in terminal mode. */
++	hostServices?: InteractiveHostServices;
++	copyTextInHost(text: string): Promise<void>;
++	openUrlInHost(url: string): void;
+ 	/**
+ 	 * Push the extension link schemes to the markdown renderer; redraws the transcript when that
+ 	 * changes how links are drawn.
+diff --git a/packages/coding-agent/src/slash-commands/builtin-collaboration.ts b/packages/coding-agent/src/slash-commands/builtin-collaboration.ts
+index b55af8d..dad4570 100644
+--- a/packages/coding-agent/src/slash-commands/builtin-collaboration.ts
++++ b/packages/coding-agent/src/slash-commands/builtin-collaboration.ts
+@@ -14,8 +14,6 @@ import { sanitizeDisplayLine } from "@oh-my-pi/pi-tui/overlays/extensions/displa
+ import { extractLastCodeBlock, extractLastCommand, extractLastLink } from "@oh-my-pi/pi-tui/overlays/copy-targets";
+ import { restartBrowserForModeChange } from "../tools/browser";
+ import { shortenPath, TRUNCATE_LENGTHS, truncateToWidth } from "@oh-my-pi/pi-tui/render/render-utils";
+-import { openPath } from "../utils/open";
+-import { copyToClipboard } from "../utils/clipboard";
+ import { refreshStatusLine } from "./builtin-modes";
+ import { CollabQrCodeComponent, collabBrowserLink } from "@oh-my-pi/pi-tui/chrome/collab-qrcode";
+ import { commandConsumed, errorMessage, parseSubcommand, usage } from "./helpers/parse";
+@@ -590,7 +588,7 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
+ 					clearSubmittedText(runtime);
+ 					return;
+ 				}
+-				await copyToClipboard(block.code);
++				await runtime.ctx.copyTextInHost(block.code);
+ 				runtime.ctx.showStatus("Copied code block to clipboard");
+ 				clearSubmittedText(runtime);
+ 				return;
+@@ -602,7 +600,7 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
+ 					clearSubmittedText(runtime);
+ 					return;
+ 				}
+-				await copyToClipboard(lastCommand.code);
++				await runtime.ctx.copyTextInHost(lastCommand.code);
+ 				runtime.ctx.showStatus(`Copied ${lastCommand.kind === "bash" ? "bash command" : "eval code"} to clipboard`);
+ 				clearSubmittedText(runtime);
+ 				return;
+@@ -614,7 +612,7 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
+ 					clearSubmittedText(runtime);
+ 					return;
+ 				}
+-				await copyToClipboard(link.href);
++				await runtime.ctx.copyTextInHost(link.href);
+ 				runtime.ctx.showStatus("Copied link to clipboard");
+ 				clearSubmittedText(runtime);
+ 				return;
+@@ -643,7 +641,7 @@ export const BUILTIN_COLLABORATION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpe
+ 				clearSubmittedText(runtime);
+ 				return;
+ 			}
+-			openPath(link.href);
++			runtime.ctx.openUrlInHost(link.href);
+ 			runtime.ctx.showStatus(`Opening ${link.href}`);
+ 			clearSubmittedText(runtime);
+ 		},
+diff --git a/packages/coding-agent/src/slash-commands/builtin-session.ts b/packages/coding-agent/src/slash-commands/builtin-session.ts
+index 0e1dde0..4837e9d 100644
+--- a/packages/coding-agent/src/slash-commands/builtin-session.ts
++++ b/packages/coding-agent/src/slash-commands/builtin-session.ts
+@@ -190,6 +190,7 @@ async function handleSessionPinCommand(
+ function launchSessionStatsDashboard(
+ 	args: StatsDashboardArgs,
+ 	owner: Pick<SlashCommandRuntime, "settings" | "session" | "sessionManager">,
++	openDashboard?: (url: string) => void | Promise<void>,
+ ): Promise<StatsDashboardLaunchResult> {
+ 	const judge = resolveJudge({
+ 		settings: owner.settings,
+@@ -200,7 +201,7 @@ function launchSessionStatsDashboard(
+ 		telemetry: owner.session.agent.telemetry,
+ 		cache: sharedJudgmentCache(),
+ 	});
+-	return launchStatsDashboard(args, async () => judge);
++	return launchStatsDashboard(args, async () => judge, openDashboard);
+ }
+ 
+ export const BUILTIN_SESSION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpec> = [
+@@ -474,8 +475,14 @@ export const BUILTIN_SESSION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpec> = [
+ 				return;
+ 			}
+ 			try {
+-				const result = await launchSessionStatsDashboard(parsed, ctx);
+-				ctx.presentCommandOutput(new StatsNotice(result.message, result.url));
++				// A hosted view owns the browser; the terminal keeps its Tern page.
++				const hostServices = ctx.hostServices;
++				const result = await launchSessionStatsDashboard(
++					parsed,
++					ctx,
++					hostServices ? url => hostServices.openStatsDashboard(url) : undefined,
++				);
++				ctx.presentCommandOutput(new StatsNotice(result.message, hostServices ? undefined : result.url));
+ 			} catch (error) {
+ 				ctx.showError(`Stats dashboard failed: ${errorMessage(error)}`);
+ 			}
+diff --git a/packages/coding-agent/src/slash-commands/helpers/stats-dashboard.ts b/packages/coding-agent/src/slash-commands/helpers/stats-dashboard.ts
+index 191902c..aeb0258 100644
+--- a/packages/coding-agent/src/slash-commands/helpers/stats-dashboard.ts
++++ b/packages/coding-agent/src/slash-commands/helpers/stats-dashboard.ts
+@@ -80,6 +80,7 @@ export function parseStatsDashboardArgs(args: string): StatsDashboardArgs | { er
+ export async function launchStatsDashboard(
+ 	args: StatsDashboardArgs,
+ 	judge?: stats.StatsJudgeProvider,
++	openDashboard?: (url: string) => void | Promise<void>,
+ ): Promise<StatsDashboardLaunchResult> {
+ 	let requestedAddressIgnored = false;
+ 
+@@ -92,15 +93,32 @@ export async function launchStatsDashboard(
+ 	}
+ 
+ 	const url = stats.formatStatsDashboardUrl(activeStatsServer.hostname, activeStatsServer.port);
+-	const page = await openTernPage(url, "beside");
+-	if (page) page.disconnect();
+-	else openUtils.openPath(url);
++	const hosted = openDashboard !== undefined;
++	if (openDashboard) {
++		try {
++			// A hosted view owns the browser: the callback settles only after
++			// the browser accepted the dashboard capability, so a dismissal is
++			// reported instead of leaving the native call pending.
++			await openDashboard(url);
++		} catch (error) {
++			throw new Error(
++				`The browser could not open the stats dashboard: ${error instanceof Error ? error.message : String(error)}`,
++			);
++		}
++	} else {
++		const page = await openTernPage(url, "beside");
++		if (page) page.disconnect();
++		else openUtils.openPath(url);
++	}
+ 
+ 	const serverLine = requestedAddressIgnored
+-		? `Dashboard already running at: ${url} (requested ${args.host}:${args.port} ignored)`
+-		: `Dashboard available at: ${url}`;
++		? `Dashboard already running (requested ${args.host}:${args.port} ignored)`
++		: "Dashboard running";
++	const message = hosted
++		? `${serverLine}; opened in your browser (sessions sync in the background)`
++		: `${serverLine} at: ${url}`;
+ 
+-	return { url, message: `${serverLine} (sessions sync in the background)` };
++	return { url, message };
+ }
+ 
+ export function stopStatsDashboard(): void {
+diff --git a/packages/coding-agent/test/acp-agent.test.ts b/packages/coding-agent/test/acp-agent.test.ts
+index 3923ab7..6899f4e 100644
+--- a/packages/coding-agent/test/acp-agent.test.ts
++++ b/packages/coding-agent/test/acp-agent.test.ts
+@@ -649,6 +649,40 @@ async function advanceBootstrapGuard(): Promise<void> {
+ }
+ 
+ describe("ACP agent", () => {
++	it("advertises the versioned TSP command UI capability", async () => {
++		const harness = await createHarness();
++		const initialized = await harness.agent.initialize({
++			protocolVersion: 1,
++		} as Parameters<typeof harness.agent.initialize>[0]);
++		expect(initialized.agentCapabilities?._meta).toMatchObject({ commandUi: { version: 1, protocol: "tsp" } });
++		await harness.agent.dispose();
++	});
++
++	it("rejects malformed remote TSP events before routing them", async () => {
++		const harness = await createHarness();
++		const created = await harness.agent.newSession({ cwd: harness.cwdA, mcpServers: [] });
++		await expect(
++			harness.agent.extMethod("_omp/ui/event", {
++				sessionId: created.sessionId,
++				event: { ev: "unknown" },
++			}),
++		).rejects.toThrow("Invalid TSP event");
++		await harness.agent.dispose();
++	});
++
++	it("rejects a remote input whose pre-edit is not an edit", async () => {
++		const harness = await createHarness();
++		const created = await harness.agent.newSession({ cwd: harness.cwdA, mcpServers: [] });
++		await expect(
++			harness.agent.extMethod("_omp/ui/input", {
++				sessionId: created.sessionId,
++				data: "x",
++				before: { ev: "ack", sf: "s:0", s: 1 },
++			}),
++		).rejects.toThrow("Remote UI pre-input event must be an edit");
++		await harness.agent.dispose();
++	});
++
+ 	it("keeps the ACP handle after the durable session changes", async () => {
+ 		const elicitations: CreateElicitationRequest[] = [];
+ 		const permissions: RequestPermissionRequest[] = [];
+diff --git a/packages/coding-agent/test/modes/controllers/btw-controller.test.ts b/packages/coding-agent/test/modes/controllers/btw-controller.test.ts
+index 4232ed5..819d067 100644
+--- a/packages/coding-agent/test/modes/controllers/btw-controller.test.ts
++++ b/packages/coding-agent/test/modes/controllers/btw-controller.test.ts
+@@ -97,6 +97,7 @@ function makeCtx(
+ 		} as unknown as InteractiveModeContext["sessionManager"],
+ 		showStatus: vi.fn(),
+ 		showError: vi.fn(),
++		copyTextInHost: (text: string) => clipboard.copyToClipboard(text),
+ 		handleBtwBranch: vi.fn(async () => {}),
+ 		setTestLeafId(nextLeafId: string | null) {
+ 			leafId = nextLeafId;
+diff --git a/packages/stats/src/client/api.ts b/packages/stats/src/client/api.ts
+index 794bb78..99b47d1 100644
+--- a/packages/stats/src/client/api.ts
++++ b/packages/stats/src/client/api.ts
+@@ -18,7 +18,7 @@ import type {
+ 	ToolDashboardStats,
+ } from "./types";
+ 
+-const API_BASE = "/api";
++const API_BASE = "api";
+ 
+ export class ApiError extends Error {
+ 	status: number;
+diff --git a/packages/stats/src/client/data/live.tsx b/packages/stats/src/client/data/live.tsx
+index 27a6adf..e577681 100644
+--- a/packages/stats/src/client/data/live.tsx
++++ b/packages/stats/src/client/data/live.tsx
+@@ -99,7 +99,7 @@ export function currentLiveVersion(): number {
+ /** Owns the `/api/events` stream; mount once at the app root. */
+ export function LiveProvider({ children }: { children: ReactNode }) {
+ 	useEffect(() => {
+-		const source = new EventSource("/api/events");
++		const source = new EventSource("api/events");
+ 		source.onopen = () => setConnected(true);
+ 		source.onerror = () => setConnected(false);
+ 		source.onmessage = event => receive(JSON.parse(event.data) as LiveStatus);
+diff --git a/packages/stats/src/client/useSystemTheme.ts b/packages/stats/src/client/useSystemTheme.ts
+index 1aa0bec..852183f 100644
+--- a/packages/stats/src/client/useSystemTheme.ts
++++ b/packages/stats/src/client/useSystemTheme.ts
+@@ -7,9 +7,16 @@ const STORAGE_KEY = "omp-stats-theme";
+ const DARK_SCHEME_QUERY = "(prefers-color-scheme: dark)";
+ 
+ function readStoredPreference(): ThemePreference {
+-	if (typeof localStorage === "undefined") return "system";
+-	const stored = localStorage.getItem(STORAGE_KEY);
+-	return stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
++	try {
++		if (typeof localStorage === "undefined") return "system";
++		const stored = localStorage.getItem(STORAGE_KEY);
++		return stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
++	} catch {
++		// A sandboxed hosted page has an opaque origin; storage access throws
++		// rather than reading as undefined, and the system preference is the
++		// only safe answer.
++		return "system";
++	}
+ }
+ 
+ function getSystemTheme(): SystemTheme {
+@@ -48,7 +55,12 @@ if (typeof window !== "undefined") {
+ 
+ export function setThemePreference(next: ThemePreference): void {
+ 	preference = next;
+-	if (typeof localStorage !== "undefined") localStorage.setItem(STORAGE_KEY, next);
++	try {
++		if (typeof localStorage !== "undefined") localStorage.setItem(STORAGE_KEY, next);
++	} catch {
++		// Same opaque-origin case as the reader: the theme still applies to
++		// this page, it just cannot persist across a reload.
++	}
+ 	applyResolvedTheme();
+ 	emit();
+ }
+diff --git a/packages/tui/CHANGELOG.md b/packages/tui/CHANGELOG.md
+index 422f0f5..2e1c8b6 100644
+--- a/packages/tui/CHANGELOG.md
++++ b/packages/tui/CHANGELOG.md
+@@ -2,6 +2,10 @@
+ 
+ ## [Unreleased]
+ 
++### Added
++
++- TUI supports an injected decoded-TSP transport, remote input and owner-routed events, plus a reconciler reset that rebuilds the native snapshot without replacing interactive controllers.
++
+ ## [18.16.0] - 2026-11-02
+ 
+ ### Breaking Changes
+diff --git a/packages/tui/src/apps/debug/log-viewer.ts b/packages/tui/src/apps/debug/log-viewer.ts
+index 04e7361..ca2c0ef 100644
+--- a/packages/tui/src/apps/debug/log-viewer.ts
++++ b/packages/tui/src/apps/debug/log-viewer.ts
+@@ -4,7 +4,15 @@ import type { Component } from "../../tui";
+ import { code } from "../../native/describe";
+ import { Memo } from "../../native/memo";
+ import type { DescribeContext, NativeNode, NativeUiEvent } from "../../native/node";
+-import { CLOSE_ACTION, picker, pickerAction, pickerEvent, pickerHits, pickerQuery } from "../../native/picker";
++import {
++	applyNativeQueryEdit as applyQueryEdit,
++	CLOSE_ACTION,
++	picker,
++	pickerAction,
++	pickerEvent,
++	pickerHits,
++	pickerQuery,
++} from "../../native/picker";
+ import { matchesKey } from "../../keys";
+ import { Input } from "../../components/input";
+ import { routeSgrMouseInput, type SgrMouseEvent } from "../../mouse";
+@@ -968,6 +976,15 @@ export class DebugLogViewerComponent implements Component {
+ 	 * bar's buttons mirror their keys.
+ 	 */
+ 	handleNativeEvent(event: NativeUiEvent): void {
++		if (event.type === "edit") {
++			if (event.key === "") {
++				applyQueryEdit(this.#filter, event, query => {
++					this.#statusMessage = undefined;
++					this.#model.setFilterQuery(query);
++				});
++			}
++			return;
++		}
+ 		const ev = pickerEvent(event);
+ 		if (!ev) return;
+ 		this.#statusMessage = undefined;
+diff --git a/packages/tui/src/components/editor.ts b/packages/tui/src/components/editor.ts
+index e9fa53c..1f9bb74 100644
+--- a/packages/tui/src/components/editor.ts
++++ b/packages/tui/src/components/editor.ts
+@@ -15,7 +15,7 @@ import { BracketedPasteHandler, decodeReencodedPasteControls } from "../brackete
+ import { canonicalKeyId, getKeybindings, type KeybindingsManager } from "../keybindings";
+ import { extractPrintableText, matchesKey, parseKey } from "../keys";
+ import { KillRing } from "../kill-ring";
+-import type { TspEditorDecoration, TspEditorProps, TspText, TspTone } from "@oh-my-pi/pi-wire";
++import type { TspEditAck, TspEditorDecoration, TspEditorProps, TspText, TspTone } from "@oh-my-pi/pi-wire";
+ import { col, node } from "../native/describe";
+ import { sameItems, sameProps } from "../native/memo";
+ import { plainText } from "../native/spans";
+@@ -23,6 +23,7 @@ import {
+ 	type DescribeContext,
+ 	type NativeChild,
+ 	type NativeNode,
++	nativeEditToken,
+ 	type NativeTextEdit,
+ 	type NativeUiEvent,
+ 	resolveTextEdit,
+@@ -803,6 +804,8 @@ export class Editor implements Component, Focusable {
+ 	#nativeGeneration = 0;
+ 	#nativeDecor?: { text: string; generation: number; decor: readonly TspEditorDecoration[] | undefined };
+ 	#nativeEditor?: { props: TspEditorProps; node: NativeNode };
++	/** Last applied native edit outcome, echoed in the node props. */
++	#nativeAck: TspEditAck | undefined;
+ 	#nativeOverlay?: { list: SelectList; caret: string; node: NativeNode };
+ 	#nativeRoot?: { role: string; tone: TspTone | undefined; children: readonly NativeChild[]; node: NativeNode };
+ 
+@@ -1935,6 +1938,7 @@ export class Editor implements Component, Focusable {
+ 			lang: this.describeLanguage?.(),
+ 			maxLines: this.#maxHeight,
+ 			typeahead: this.nativeTypeahead || undefined,
++			...(this.#nativeAck ? { ack: this.#nativeAck } : {}),
+ 		};
+ 		let editor = this.#nativeEditor;
+ 		if (!editor || !sameProps(editor.props, props)) {
+@@ -3512,7 +3516,11 @@ export class Editor implements Component, Focusable {
+ 	 * length) are dropped; a pure caret move only moves the caret.
+ 	 */
+ 	applyHostEdit(edit: NativeTextEdit): void {
++		const token = nativeEditToken(edit.n);
+ 		const current = this.getText();
++		if (token !== undefined) {
++			this.#nativeAck = { n: token, ok: false, cursor: this.#describedCursor() };
++		}
+ 		const resolved = resolveTextEdit(
+ 			current,
+ 			edit,
+@@ -3535,6 +3543,9 @@ export class Editor implements Component, Focusable {
+ 		while (line < lines.length - 1 && col > lines[line]!.length) col -= lines[line++]!.length + 1;
+ 		this.#state.cursorLine = line;
+ 		this.#setCursorCol(col);
++		if (token !== undefined) {
++			this.#nativeAck = { n: token, ok: true, cursor: this.#describedCursor() };
++		}
+ 		if (!resolved.changed) {
+ 			if (this.#vimSession !== null && (priorLine !== line || priorCol !== col)) {
+ 				this.#breakVimSession();
+@@ -3545,6 +3556,14 @@ export class Editor implements Component, Focusable {
+ 		this.#retriggerAutocompleteAtCursor();
+ 	}
+ 
++	/** The caret offset in the text `describe` sends. */
++	#describedCursor(): number {
++		const { lines, cursorLine, cursorCol } = this.#state;
++		let offset = 0;
++		for (let line = 0; line < cursorLine; line++) offset += (lines[line]?.length ?? 0) + 1;
++		return offset + cursorCol;
++	}
++
+ 	/** Widen `[from, to)` of `text` so neither end cuts through an atomic placeholder token. */
+ 	#widenOverAtomicTokens(text: string, from: number, to: number): { from: number; to: number } {
+ 		const fromLine = from === 0 ? 0 : text.lastIndexOf("\n", from - 1) + 1;
+diff --git a/packages/tui/src/components/input.ts b/packages/tui/src/components/input.ts
+index 23327c5..de95ae1 100644
+--- a/packages/tui/src/components/input.ts
++++ b/packages/tui/src/components/input.ts
+@@ -2,7 +2,7 @@ import { BracketedPasteHandler, decodeReencodedPasteControls } from "../brackete
+ import { canonicalKeyId, getKeybindings } from "../keybindings";
+ import { extractPrintableText, parseKey } from "../keys";
+ import { KillRing } from "../kill-ring";
+-import type { TspInputProps } from "@oh-my-pi/pi-wire";
++import type { TspEditAck, TspInputProps } from "@oh-my-pi/pi-wire";
+ import { node } from "../native/describe";
+ import { sameProps } from "../native/memo";
+ import { plainText } from "../native/spans";
+@@ -10,6 +10,7 @@ import {
+ 	clampTextOffset,
+ 	type DescribeContext,
+ 	type NativeNode,
++	nativeEditToken,
+ 	type NativeTextEdit,
+ 	type NativeUiEvent,
+ 	resolveTextEdit,
+@@ -96,6 +97,13 @@ export class Input implements Component, Focusable {
+ 	#volatileTextLen = 0;
+ 
+ 	#native?: { props: TspInputProps; node: NativeNode };
++	/** Last applied edit's outcome, echoed to the terminal in `describe`. */
++	#nativeAck: TspEditAck | undefined;
++
++	/** The latest edit acknowledgment, for a picker or prefs query describing this field. */
++	getNativeEditAck(): TspEditAck | undefined {
++		return this.#nativeAck;
++	}
+ 
+ 	getValue(): string {
+ 		return this.#value;
+@@ -306,40 +314,65 @@ export class Input implements Component, Focusable {
+ 	 * (`len` no longer the described length) are dropped.
+ 	 */
+ 	applyHostEdit(edit: NativeTextEdit): void {
++		const token = nativeEditToken(edit.n);
++		if (token !== undefined) {
++			this.#nativeAck = { n: token, ok: false, cursor: this.#describedCursor() };
++		}
+ 		let valueEdit = edit;
++		let stale = false;
+ 		if (this.mask) {
+ 			// Bullet offsets → value offsets through the grapheme starts.
+ 			const starts = Array.from(segmenter.segment(this.#value), grapheme => grapheme.index);
+ 			starts.push(this.#value.length);
+ 			const bullets = starts.length - 1;
+-			if (edit.len !== bullets) return;
+-			let from = clampTextOffset(edit.from, bullets);
+-			let to = clampTextOffset(edit.to, bullets);
+-			if (to < from) [from, to] = [to, from];
+-			const text = typeof edit.text === "string" ? edit.text : "";
+-			const cursor = clampTextOffset(edit.cursor, bullets - (to - from) + text.length);
+-			const after = cursor - from - text.length;
+-			valueEdit = {
+-				from: starts[from]!,
+-				to: starts[to]!,
+-				text,
+-				cursor:
++			if (edit.len !== bullets) {
++				stale = true;
++			} else {
++				let from = clampTextOffset(edit.from, bullets);
++				let to = clampTextOffset(edit.to, bullets);
++				if (to < from) [from, to] = [to, from];
++				const raw = typeof edit.text === "string" ? edit.text : "";
++				const text = raw ? toSingleLine(raw) : "";
++				const inserted = Array.from(segmenter.segment(text), grapheme => grapheme.index);
++				inserted.push(text.length);
++				const insertedBullets = inserted.length - 1;
++				const cursor = clampTextOffset(edit.cursor, bullets - (to - from) + insertedBullets);
++				const valueCursor =
+ 					cursor <= from
+ 						? starts[cursor]!
+-						: after >= 0
+-							? starts[from]! + text.length + starts[to + after]! - starts[to]!
+-							: starts[from]! + cursor - from,
+-				len: this.#value.length,
+-			};
+-		}
+-		const resolved = resolveTextEdit(this.#value, valueEdit, toSingleLine);
+-		if (!resolved) return;
++						: cursor < from + insertedBullets
++							? starts[from]! + inserted[cursor - from]!
++							: starts[from]! + text.length + starts[to + cursor - from - insertedBullets]! - starts[to]!;
++				valueEdit = {
++					from: starts[from]!,
++					to: starts[to]!,
++					text,
++					cursor: valueCursor,
++					len: this.#value.length,
++				};
++			}
++		}
++		const resolved = stale ? null : resolveTextEdit(this.#value, valueEdit, toSingleLine);
++		if (!resolved) {
++			// The terminal keeps the text it sent; `ok: false` releases its edit.
++			return;
++		}
+ 		this.#lastAction = null;
+ 		if (resolved.changed) {
+ 			this.#pushUndo();
+ 			this.#value = resolved.text;
+ 		}
+ 		this.#cursor = resolved.cursor;
++		if (token !== undefined) {
++			this.#nativeAck = { n: token, ok: true, cursor: this.#describedCursor() };
++		}
++	}
++
++	/** The caret in the text `describe` sends: UTF-16, or one cell per grapheme when masked. */
++	#describedCursor(): number {
++		return this.mask
++			? [...segmenter.segment(this.#value)].filter(grapheme => grapheme.index < this.#cursor).length
++			: this.#cursor;
+ 	}
+ 
+ 	/** Programmatically trigger submission (e.g. for voice submit). */
+@@ -594,6 +627,8 @@ export class Input implements Component, Focusable {
+ 			sendable: false,
+ 			prompt: prompt || undefined,
+ 			placeholder: this.placeholder,
++			...(this.mask ? { mask: true } : {}),
++			...(this.#nativeAck ? { ack: this.#nativeAck } : {}),
+ 		};
+ 		if (this.#native && sameProps(this.#native.props, props)) return this.#native.node;
+ 		const described = node("input", props);
+diff --git a/packages/tui/src/components/select-list.ts b/packages/tui/src/components/select-list.ts
+index ff60e7e..55eddad 100644
+--- a/packages/tui/src/components/select-list.ts
++++ b/packages/tui/src/components/select-list.ts
+@@ -6,8 +6,9 @@ import { extractPrintableText, matchesKey } from "../keys";
+ import { type MouseRoutable, routeSelectListMouse, type SgrMouseEvent } from "../mouse";
+ import { col, node, span } from "../native/describe";
+ import { sameItems, sameProps } from "../native/memo";
++import { applyNativeQueryEdit as applyQueryEdit } from "../native/picker";
+ import { plainLine } from "../native/spans";
+-import type { TspProps } from "@oh-my-pi/pi-wire";
++import type { TspEditAck, TspProps } from "@oh-my-pi/pi-wire";
+ import type { DescribeContext, NativeChild, NativeNode, NativeUiEvent } from "../native/node";
+ import type { SymbolTheme } from "../symbols";
+ import type { Component } from "../tui";
+@@ -253,6 +254,7 @@ export class SelectList implements Component, MouseRoutable {
+ 		readonly pending: string | null;
+ 		readonly query: string;
+ 		readonly cursor: number;
++		readonly queryAck: TspEditAck | undefined;
+ 	} {
+ 		return {
+ 			items: this.#selection.visibleItems,
+@@ -260,6 +262,7 @@ export class SelectList implements Component, MouseRoutable {
+ 			pending: this.#selection.pendingKey ?? null,
+ 			query: this.#selection.query,
+ 			cursor: this.#search.getCursor(),
++			queryAck: this.#search.getNativeEditAck(),
+ 		};
+ 	}
+ 
+@@ -340,6 +343,12 @@ export class SelectList implements Component, MouseRoutable {
+ 
+ 	/** Pointer select/activate on an item does what a click does today: select it and request activation. */
+ 	handleNativeEvent(event: NativeUiEvent): void {
++		if (event.type === "edit") {
++			if (["", "picker"].includes(event.key.replaceAll("^", "")) && this.#canEditSearch()) {
++				applyQueryEdit(this.#search, event, query => this.#setFilter(query, true));
++			}
++			return;
++		}
+ 		if (event.type !== "select" && event.type !== "activate") return;
+ 		const index = this.#selection.visibleItems.findIndex(item => item.value === event.item);
+ 		if (index >= 0) this.clickItem(index);
+diff --git a/packages/tui/src/components/settings-list.ts b/packages/tui/src/components/settings-list.ts
+index 73471c6..aa82e67 100644
+--- a/packages/tui/src/components/settings-list.ts
++++ b/packages/tui/src/components/settings-list.ts
+@@ -5,17 +5,27 @@ import { getKeybindings } from "../keybindings";
+ import { extractPrintableText } from "../keys";
+ import type { MouseRoutable, SgrMouseEvent } from "../mouse";
+ import { slugify } from "@oh-my-pi/pi-utils";
+-import type { TspPrefsControl, TspPrefsRow, TspPrefsSection, TspProps, TspSpan } from "@oh-my-pi/pi-wire";
++import type { TspEditAck, TspPrefsControl, TspPrefsRow, TspPrefsSection, TspProps, TspSpan } from "@oh-my-pi/pi-wire";
+ import { col, node, span } from "../native/describe";
+ import { sameItems, sameProps } from "../native/memo";
+ import { plainLine, plainText } from "../native/spans";
+ import type { DescribeContext, NativeChild, NativeNode, NativeUiEvent } from "../native/node";
+ import type { Component } from "../tui";
+-import { Ellipsis, padding, replaceTabs, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "../utils";
++import {
++	Ellipsis,
++	getSegmenter,
++	padding,
++	replaceTabs,
++	truncateToWidth,
++	visibleWidth,
++	wrapTextWithAnsi,
++} from "../utils";
+ import { ScrollView } from "./scroll-view";
+ import { FormField, type FormFieldOptions, type FormFieldTheme, SelectFormField, TextFormField } from "./form";
+ import { MenuSelection } from "./menu-selection";
+ 
++const segmenter = getSegmenter();
++
+ function sanitizeSingleLine(text: string): string {
+ 	return replaceTabs(text)
+ 		.replace(/[\r\n]+/g, " ")
+@@ -63,6 +73,10 @@ export interface PrefsEditing {
+ 	draft?: string;
+ 	cursor?: number;
+ 	option?: string;
++	/** The draft is a mask; the terminal keeps the plaintext it types. */
++	secret?: boolean;
++	/** The latest edit outcome on this field. */
++	ack?: TspEditAck;
+ }
+ 
+ /** A submenu that reports the option it highlights (multiselect toggles) to a native settings page. */
+@@ -349,8 +363,10 @@ export class SettingsList implements Component {
+ 			const draft = component.getValue();
+ 			return {
+ 				row: id,
+-				draft: component.input.mask ? "•".repeat(draft.length) : draft,
++				draft: component.input.mask ? "•".repeat([...segmenter.segment(draft)].length) : draft,
+ 				cursor: component.input.getCursor(),
++				secret: component.input.mask,
++				ack: component.input.getNativeEditAck(),
+ 			};
+ 		}
+ 		if (hasPrefsOption(component)) return { row: id, option: component.prefsOption };
+diff --git a/packages/tui/src/native/backend.ts b/packages/tui/src/native/backend.ts
+index d7a06d8..7da1f9b 100644
+--- a/packages/tui/src/native/backend.ts
++++ b/packages/tui/src/native/backend.ts
+@@ -97,6 +97,15 @@ export interface NativeBackendOptions {
+ 	readonly stats?: boolean;
+ 	/** Clock and timers (stall wake-up); defaults to `Date.now` and unref'd `setTimeout`. */
+ 	readonly scheduler?: RenderScheduler;
++	/** Deliver protocol messages without taking ownership of terminal stdout. */
++	readonly send?: (message: NativeTransportMessage) => void;
++}
++
++/** One decoded TSP transport message, before terminal APC framing. */
++export interface NativeTransportMessage {
++	readonly verb: "o" | "f" | "x" | "q" | "b";
++	readonly body: unknown;
++	readonly headers?: Readonly<Record<string, string>>;
+ }
+ 
+ /** Real clock and timers that never keep the process alive on their own. */
+@@ -301,6 +310,7 @@ export class NativeBackend {
+ 	#recordPath: string | undefined;
+ 	#stats: boolean;
+ 	#scheduler: RenderScheduler;
++	#sendTransport: NativeBackendOptions["send"];
+ 	/** Wakes a render when the oldest unacked frame of a credit-blocked surface turns stalled. */
+ 	#stallTimer: RenderTimer | undefined;
+ 	#recent: TspFrame[] = [];
+@@ -327,6 +337,7 @@ export class NativeBackend {
+ 		this.#recordPath = options.recordPath ?? (Bun.env.PI_TUI_TSP_RECORD || undefined);
+ 		this.#stats = options.stats ?? Bun.env.PI_TUI_NATIVE_STATS === "1";
+ 		this.#scheduler = options.scheduler ?? DEFAULT_SCHEDULER;
++		this.#sendTransport = options.send;
+ 		this.#inline = this.#newSurface("inline");
+ 	}
+ 
+@@ -513,10 +524,13 @@ export class NativeBackend {
+ 		this.#sendFrame(surface, ops);
+ 	}
+ 
+-	/**
+-	 * Handle one complete `ESC _ tsp;…` input string (events and late replies).
+-	 * Returns false when `sequence` isn't TSP.
+-	 */
++	/** Route a decoded protocol event through the same owner map as terminal input. */
++	handleEvent(event: TspEvent): void {
++		if (!this.#live) return;
++		this.#handleEvent(event);
++	}
++
++	/** Handle one complete framed TSP message; returns false for non-TSP input. */
+ 	handleInput(sequence: string): boolean {
+ 		const raw = splitTspMessage(sequence);
+ 		if (!raw) return false;
+@@ -701,7 +715,7 @@ export class NativeBackend {
+ 		const body = Buffer.from(blob.bytes.buffer, blob.bytes.byteOffset, blob.bytes.byteLength).toString("base64");
+ 		// The full body, so a replay (Tern's `surface-play`) shows the image.
+ 		this.#record("out", "b", blobParams(blob), body);
+-		this.#host.terminal.write(encodeTspMessage("b", body, blobParams(blob), this.#limit));
++		this.#send({ verb: "b", body, headers: blobParams(blob) });
+ 	}
+ 
+ 	/**
+@@ -721,7 +735,19 @@ export class NativeBackend {
+ 
+ 	#write(verb: "o" | "f" | "x" | "q", body: unknown): void {
+ 		this.#record("out", verb, undefined, body);
+-		this.#host.terminal.write(encodeTspJson(verb, body, undefined, this.#limit));
++		this.#send({ verb, body });
++	}
++
++	#send(message: NativeTransportMessage): void {
++		if (this.#sendTransport) {
++			this.#sendTransport(message);
++			return;
++		}
++		if (message.verb === "b") {
++			this.#host.terminal.write(encodeTspMessage("b", String(message.body), message.headers, this.#limit));
++			return;
++		}
++		this.#host.terminal.write(encodeTspJson(message.verb, message.body, undefined, this.#limit));
+ 	}
+ 
+ 	#record(dir: "in" | "out", verb: string, params: Readonly<Record<string, string>> | undefined, body: unknown): void {
+@@ -860,8 +886,8 @@ export class NativeBackend {
+ 				ui = { type: "change", key: target.keypath, item: event.item, value: event.value };
+ 				break;
+ 			case "edit": {
+-				const { from, to, text, cursor, len } = event;
+-				ui = { type: "edit", key: target.keypath, from, to, text, cursor, len };
++				const { from, to, text, cursor, len, n } = event;
++				ui = { type: "edit", key: target.keypath, from, to, text, cursor, len, ...(n === undefined ? {} : { n }) };
+ 				break;
+ 			}
+ 			case "undo":
+diff --git a/packages/tui/src/native/node.ts b/packages/tui/src/native/node.ts
+index f0987a0..39b4683 100644
+--- a/packages/tui/src/native/node.ts
++++ b/packages/tui/src/native/node.ts
+@@ -14,7 +14,7 @@
+  * the Tern SDK's Surface Protocol reference (`docs/sdk/src/protocol` in the
+  * Stencil repository, https://docs.stencil.so/tern/protocol/) for the spec.
+  */
+-import type { TspEvent, TspKind, TspProps, TspScrollBy, TspSpan } from "@oh-my-pi/pi-wire";
++import type { TspEditToken, TspEvent, TspKind, TspProps, TspScrollBy, TspSpan } from "@oh-my-pi/pi-wire";
+ import type { Component } from "../tui";
+ 
+ /** A described node: a wire node minus its id, with components allowed as children. */
+@@ -134,7 +134,7 @@ export type NativeUiEvent =
+ 			readonly item: string;
+ 			readonly value: boolean | number | string | readonly string[] | null;
+ 	  }
+-	/** An edit over the terminal's own selection in an `editor`/`input` node (see {@link NativeTextEdit}). */
++	/** An edit over a native `editor`/`input` or picker/prefs query field (see {@link NativeTextEdit}). */
+ 	| ({ readonly type: "edit"; readonly key: string } & NativeTextEdit)
+ 	/** Undo the last change to an `editor`/`input` node's text (the terminal's ⌃Z); a no-op with no history. */
+ 	| { readonly type: "undo"; readonly key: string }
+@@ -142,14 +142,13 @@ export type NativeUiEvent =
+ 	| { readonly type: "send"; readonly key: string; readonly text: string };
+ 
+ /**
+- * A primitive edit the terminal made over its own text selection (cut,
+- * typing, Backspace/Delete or paste over it, or collapsing it). Offsets are
+- * UTF-16 code units into the text last described (lines joined with `"\n"`),
++ * A primitive edit the terminal or browser made over its own text selection
++ * (cut, typing, Backspace/Delete or paste over it, or collapsing it). Offsets
++ * are UTF-16 code units into the text last described (lines joined with `\n`),
+  * the coordinates of the node's `cursor`: replace `[from, to)` with `text`,
+- * then put the caret at `cursor` in the resulting text. `from == to` with an
+- * empty `text` is a pure caret move. `len` is the length of the text the
+- * terminal saw: when the current text differs (keys in flight changed it) the
+- * edit is stale and ignored.
++ * then put the caret at `cursor` in the resulting text. `len` is the length of
++ * the text last described: when the current text differs, the edit is stale
++ * and the query/editor owner keeps its current value.
+  */
+ export interface NativeTextEdit {
+ 	readonly from: number;
+@@ -157,6 +156,13 @@ export interface NativeTextEdit {
+ 	readonly text: string;
+ 	readonly cursor: number;
+ 	readonly len: number;
++	/**
++	 * Optional correlation token. When present the owner echoes it in the
++	 * editable node's `ack` prop, so the terminal releases the edit even when
++	 * the visible text is unchanged (a no-op, a same-length secret
++	 * replacement, or a caret-only edit).
++	 */
++	readonly n?: TspEditToken;
+ }
+ 
+ /** A {@link NativeTextEdit} checked against the current text and clamped, ready to apply. */
+@@ -174,6 +180,16 @@ export interface ResolvedTextEdit {
+ 	readonly changed: boolean;
+ }
+ 
++/** A wire edit token as a bounded non-negative integer, or undefined when absent/malformed. */
++export function nativeEditToken(value: unknown): TspEditToken | undefined {
++	if (typeof value === "number") {
++		return Number.isInteger(value) && value > 0 && value <= 0xffffffff ? value : undefined;
++	}
++	return typeof value === "string" && value.length > 0 && value.length <= 128 && !/[\u0000-\u001f]/.test(value)
++		? value
++		: undefined;
++}
++
+ /** `value` as an integer offset in `[0, max]` (anything non-finite is 0). */
+ export function clampTextOffset(value: number, max: number): number {
+ 	return Number.isFinite(value) ? Math.min(Math.max(Math.trunc(value), 0), max) : 0;
+diff --git a/packages/tui/src/native/picker.ts b/packages/tui/src/native/picker.ts
+index 13b9624..0346b69 100644
+--- a/packages/tui/src/native/picker.ts
++++ b/packages/tui/src/native/picker.ts
+@@ -12,11 +12,13 @@
+  *
+  * Keys stay the program's: a search field is an {@link Input} (every editor
+  * text binding works), sent through {@link pickerQuery} with its caret.
+- * Pointer events arrive as `select`/`activate` with
++ * Browser edits arrive as native `edit` events addressed to the query owner;
++ * they are applied through that same Input, then its ordinary query callback
++ * refreshes filtering. Pointer events arrive as `select`/`activate` with
+  * the item id and `action` with an action id (plus `value` for
+  * `scope`/`tab`/`strip`). {@link pickerEvent} folds them into one shape.
+  */
+-import type { TspPickerAction, TspPickerItem, TspPickerProps, TspProps } from "@oh-my-pi/pi-wire";
++import type { TspEditAck, TspPickerAction, TspPickerItem, TspPickerProps, TspProps } from "@oh-my-pi/pi-wire";
+ import type { KeyName } from "../key-hint-format";
+ import { getKeybindings, type Keybinding } from "../keybindings";
+ import type { Input } from "../components/input";
+@@ -34,8 +36,18 @@ export function picker(p: TspProps<"picker">, preview?: readonly NativeChild[]):
+  * its caret. `null` hides the field. Memoized pickers MUST key on the caret
+  * too, or motion keys (word jumps, line start) never reach the screen.
+  */
+-export function pickerQuery(input: Input | null): Pick<TspPickerProps, "query" | "cursor"> {
+-	return input ? { query: input.getValue(), cursor: input.getCursor() } : { query: null };
++export function pickerQuery(input: Input | null): Pick<TspPickerProps, "query" | "cursor" | "queryAck"> {
++	return input
++		? { query: input.getValue(), cursor: input.getCursor(), queryAck: input.getNativeEditAck() }
++		: { query: null };
++}
++/** Apply an edit addressed to a native query field, rejecting stale snapshots. */
++export function applyNativeQueryEdit(input: Input, event: NativeUiEvent, onChange: (query: string) => void): boolean {
++	if (event.type !== "edit") return false;
++	// The Input owns the stale check so it can also echo the rejected token.
++	input.applyHostEdit(event);
++	onChange(input.getValue());
++	return true;
+ }
+ 
+ /** Key of the picker child a dock/editor-mounted selector describes; its events arrive at this keypath. */
+@@ -227,7 +239,7 @@ export function selectListPicker(list: SelectList, o: SelectPickerOptions): TspP
+ 		size: "md",
+ 		layout: "rows",
+ 		preview: "none",
+-		...(o.searchable ? { query: view.query, cursor: view.cursor } : { query: null }),
++		...(o.searchable ? { query: view.query, cursor: view.cursor, queryAck: view.queryAck } : { query: null }),
+ 		items,
+ 		selected: view.selected,
+ 		...(o.current ? { current: o.current } : {}),
+@@ -285,6 +297,7 @@ export class SelectListSheet {
+ 				readonly pending: string | null;
+ 				readonly query: string;
+ 				readonly cursor: number;
++				readonly queryAck: TspEditAck | undefined;
+ 				readonly node: NativeNode;
+ 		  }
+ 		| undefined;
+@@ -316,7 +329,8 @@ export class SelectListSheet {
+ 			memo.selected === view.selected &&
+ 			memo.pending === view.pending &&
+ 			memo.query === view.query &&
+-			memo.cursor === view.cursor
++			memo.cursor === view.cursor &&
++			memo.queryAck === view.queryAck
+ 		) {
+ 			return memo.node;
+ 		}
+@@ -328,6 +342,10 @@ export class SelectListSheet {
+ 
+ 	/** Route a picker event onto the list; see {@link routeSelectListPicker}. */
+ 	handle(event: NativeUiEvent): boolean {
++		if (event.type === "edit") {
++			this.list.handleNativeEvent(event);
++			return true;
++		}
+ 		return routeSelectListPicker(this.list, event, this.#docked ? PICKER_KEY : "");
+ 	}
+ }
+diff --git a/packages/tui/src/overlays/advisor-config.ts b/packages/tui/src/overlays/advisor-config.ts
+index deb1258..f4b1f97 100644
+--- a/packages/tui/src/overlays/advisor-config.ts
++++ b/packages/tui/src/overlays/advisor-config.ts
+@@ -808,6 +808,13 @@ export class AdvisorConfigOverlayComponent implements Component {
+ 			else input.onEscape?.();
+ 			return;
+ 		}
++		if (event.type === "edit") {
++			if (this.#active instanceof ModelBrowser) {
++				this.#active.applyNativeQueryEdit(event);
++				this.#cb.requestRender();
++			}
++			return;
++		}
+ 		if (event.key !== "") return;
+ 		const index = this.#pageIndex();
+ 		switch (event.type) {
+diff --git a/packages/tui/src/overlays/agent-hub.ts b/packages/tui/src/overlays/agent-hub.ts
+index a2ec31a..58ae33e 100644
+--- a/packages/tui/src/overlays/agent-hub.ts
++++ b/packages/tui/src/overlays/agent-hub.ts
+@@ -90,7 +90,7 @@ import { Stack } from "../components/layout/stack";
+ import { node, span, stableKey, text } from "../native/describe";
+ import { type DescribeContext, leafKey, type NativeChild, type NativeNode, type NativeUiEvent } from "../native/node";
+ import { hintsRow, type NativeHint, overlayCard } from "../native/overlay";
+-import { CLOSE_ACTION, picker, pickerQuery } from "../native/picker";
++import { applyNativeQueryEdit as applyQueryEdit, CLOSE_ACTION, picker, pickerQuery } from "../native/picker";
+ import { Input } from "../components/input";
+ 
+ /** A chrome-less search field: the hub draws its own prompt. */
+@@ -731,6 +731,19 @@ export class AgentHubOverlayComponent<TRecord extends AgentRecordLike = AgentRec
+ 	 * what Enter does on that row. Picker actions run the key handlers' paths.
+ 	 */
+ 	handleNativeEvent(event: NativeUiEvent): void {
++		if (event.type === "edit") {
++			if (event.key === "") {
++				if (this.#section === "activity") {
++					this.#activitySearchEditing = true;
++					applyQueryEdit(this.#activitySearch, event, () => this.#refreshActivityRows());
++				} else {
++					this.#agentFilterEditing = true;
++					applyQueryEdit(this.#agentFilter, event, () => this.#refreshRows());
++				}
++				this.#requestRender();
++			}
++			return;
++		}
+ 		if (event.key === "") {
+ 			this.#handlePickerEvent(event);
+ 			return;
+diff --git a/packages/tui/src/overlays/agents-hub.ts b/packages/tui/src/overlays/agents-hub.ts
+index 8026389..c07da00 100644
+--- a/packages/tui/src/overlays/agents-hub.ts
++++ b/packages/tui/src/overlays/agents-hub.ts
+@@ -29,7 +29,14 @@ import {
+ import { code, col, md, node, row, span, text } from "../native/describe";
+ import type { DescribeContext, NativeChild, NativeNode, NativeUiEvent } from "../native/node";
+ import { actionHint, type NativeHint, hintsRow } from "../native/overlay";
+-import { CLOSE_ACTION, type PickerEvent, picker, pickerEvent, pickerQuery } from "../native/picker";
++import {
++	applyNativeQueryEdit as applyQueryEdit,
++	CLOSE_ACTION,
++	type PickerEvent,
++	picker,
++	pickerEvent,
++	pickerQuery,
++} from "../native/picker";
+ import type { AgentSource } from "../tools/task";
+ import { shortenPath } from "../render/render-utils";
+ import { sanitizeDisplaySingleLine } from "./extensions/display-text";
+@@ -1300,6 +1307,19 @@ export class AgentsHubComponent implements Component {
+ 	}
+ 
+ 	handleNativeEvent(event: NativeUiEvent): void {
++		if (event.type === "edit") {
++			if (event.key === "") {
++				if (this.#assigning) this.#browser.applyNativeQueryEdit(event);
++				else {
++					applyQueryEdit(this.#search, event, () => {
++						this.#buildRows();
++						this.#clampRowIndex();
++					});
++				}
++				this.#requestRender();
++			}
++			return;
++		}
+ 		const target = event.key.slice(event.key.lastIndexOf("/") + 1);
+ 		const pick = pickerEvent(event);
+ 		if (pick) {
+diff --git a/packages/tui/src/overlays/extensions/extension-dashboard.ts b/packages/tui/src/overlays/extensions/extension-dashboard.ts
+index e546480..8c55532 100644
+--- a/packages/tui/src/overlays/extensions/extension-dashboard.ts
++++ b/packages/tui/src/overlays/extensions/extension-dashboard.ts
+@@ -757,6 +757,10 @@ export class ExtensionDashboard implements Component {
+ 	 * `close` closes. Provider tabs in the page route to the {@link TabBar}.
+ 	 */
+ 	handleNativeEvent(event: NativeUiEvent): void {
++		if (event.type === "edit" && event.key === "" && this.#mainList.editNativeQuery(event)) {
++			this.#requestRender();
++			return;
++		}
+ 		const pick = pickerEvent(event);
+ 		if (pick) {
+ 			this.#handlePick(pick);
+diff --git a/packages/tui/src/overlays/extensions/extension-list.ts b/packages/tui/src/overlays/extensions/extension-list.ts
+index 90d5034..a7b876d 100644
+--- a/packages/tui/src/overlays/extensions/extension-list.ts
++++ b/packages/tui/src/overlays/extensions/extension-list.ts
+@@ -8,8 +8,8 @@
+ import type { TspPickerGroup, TspPickerItem, TspProps, TspSpan, TspTone } from "@oh-my-pi/pi-wire";
+ import type { Component } from "../../tui";
+ import { node, span, stableKey } from "../../native/describe";
+-import type { NativeNode } from "../../native/node";
+-import { pickerFuzzyHits, pickerQuery } from "../../native/picker";
++import type { NativeNode, NativeUiEvent } from "../../native/node";
++import { applyNativeQueryEdit, pickerFuzzyHits, pickerQuery } from "../../native/picker";
+ import { matchesKey } from "../../keys";
+ import { padding, truncateToWidth, visibleWidth } from "../../utils";
+ import { theme } from "../../theme";
+@@ -197,6 +197,10 @@ export class ExtensionList implements Component {
+ 		return pickerQuery(this.#search);
+ 	}
+ 
++	editNativeQuery(event: NativeUiEvent): boolean {
++		return applyNativeQueryEdit(this.#search, event, query => this.setSearchQuery(query));
++	}
++
+ 	resetSelection(): void {
+ 		this.#menu.moveToBoundary("first");
+ 		this.#scrollOffset = 0;
+diff --git a/packages/tui/src/overlays/history-search.ts b/packages/tui/src/overlays/history-search.ts
+index 67730eb..4eff5de 100644
+--- a/packages/tui/src/overlays/history-search.ts
++++ b/packages/tui/src/overlays/history-search.ts
+@@ -40,7 +40,16 @@ import type { TspPickerItem } from "@oh-my-pi/pi-wire";
+ import { col, keyed, node, span } from "../native/describe";
+ import type { DescribeContext, NativeNode, NativeUiEvent } from "../native/node";
+ import { actionHint, hintsRow, overlayCard } from "../native/overlay";
+-import { picker, pickerAction, pickerAge, pickerDate, pickerEvent, pickerHits, pickerQuery } from "../native/picker";
++import {
++	applyNativeQueryEdit as applyQueryEdit,
++	picker,
++	pickerAction,
++	pickerAge,
++	pickerDate,
++	pickerEvent,
++	pickerHits,
++	pickerQuery,
++} from "../native/picker";
+ import { shortenPath } from "../render/render-utils";
+ 
+ const ENTER_KEYS: readonly KeyName[] = ["enter"];
+@@ -426,6 +435,13 @@ export class HistorySearchComponent extends OverlayPanel {
+ 	 * is still among them.
+ 	 */
+ 	handleNativeEvent(event: NativeUiEvent): void {
++		if (event.type === "edit") {
++			if (event.key.replaceAll("^", "") === PICKER_KEY) {
++				applyQueryEdit(this.#searchInput, event, () => this.#scheduleResults());
++				this.#onRequestRender?.();
++			}
++			return;
++		}
+ 		const ev = pickerEvent(event, PICKER_KEY);
+ 		if (ev) {
+ 			if (ev.kind === "action") {
+diff --git a/packages/tui/src/overlays/hook-selector.ts b/packages/tui/src/overlays/hook-selector.ts
+index a030ce0..c64e186 100644
+--- a/packages/tui/src/overlays/hook-selector.ts
++++ b/packages/tui/src/overlays/hook-selector.ts
+@@ -37,8 +37,15 @@ import { node, span } from "../native/describe";
+ import type { DescribeContext, NativeChild, NativeNode, NativeUiEvent } from "../native/node";
+ import { actionHint, hintsRow, overlayCard } from "../native/overlay";
+ import { plainText } from "../native/spans";
+-import { CLOSE_ACTION, dockedPicker, PICKER_KEY, pickerAction, pickerEvent, pickerQuery } from "../native/picker";
+-import type { TspPickerItem } from "@oh-my-pi/pi-wire";
++import {
++	applyNativeQueryEdit as applyQueryEdit,
++	CLOSE_ACTION,
++	dockedPicker,
++	PICKER_KEY,
++	pickerAction,
++	pickerEvent,
++	pickerQuery,
++} from "../native/picker";
+ 
+ /** One segment of a {@link HookSelectorSlider} — a label and an optional
+  *  detail line (e.g. the resolved model name) shown beneath the track while
+@@ -221,8 +228,6 @@ export class HookSelectorComponent extends OverlayPanel {
+ 	/** Title/detail/hint nodes, fixed for the dialog's lifetime. */
+ 	#nativeStatic: { title: string; detail: NativeNode | undefined; hints: NativeNode } | undefined;
+ 	#nativeMemo: HookSelectorNativeMemo | undefined;
+-	/** Every option as a picker row, by original index (built once; filtering only changes `order`). */
+-	#pickerItems: readonly TspPickerItem[] | undefined;
+ 	#pickerMemo:
+ 		| {
+ 				items: readonly FilteredOption[];
+@@ -704,12 +709,6 @@ export class HookSelectorComponent extends OverlayPanel {
+ 		}
+ 		const mdTheme = getMarkdownTheme();
+ 		const fixed = this.#describeStatic(mdTheme);
+-		this.#pickerItems ??= this.#options.map((option, index) => ({
+-			id: String(index),
+-			label: plainInline(option.label, mdTheme),
+-			...(option.description ? { detail: plainInline(option.description, mdTheme) } : {}),
+-			...(this.#isDisabled(index) ? { disabled: true as const } : {}),
+-		}));
+ 		const checkbox = this.#selectionMarker === "checkbox";
+ 		const result = dockedPicker({
+ 			title: fixed.title,
+@@ -719,7 +718,7 @@ export class HookSelectorComponent extends OverlayPanel {
+ 			layout: "rows",
+ 			preview: "none",
+ 			...pickerQuery(this.#isSearchEnabled() || query.length > 0 ? this.#search : null),
+-			items: this.#pickerItems,
++			...(this.#isSearchEnabled() || query.length > 0 ? { placeholder: "Search options…" } : {}),
+ 			...(query.length > 0 ? { order: items.map(filtered => String(filtered.index)) } : {}),
+ 			selected: selected ?? null,
+ 			...(checkbox ? { current: [...this.#checkedIndices].map(String) } : {}),
+@@ -799,6 +798,15 @@ export class HookSelectorComponent extends OverlayPanel {
+ 
+ 	/** Pointer pick of an option does what highlighting it and pressing Enter does; a tab pick moves the slider. */
+ 	handleNativeEvent(event: NativeUiEvent): void {
++		if (event.type === "edit") {
++			if (
++				event.key.replaceAll("^", "") === PICKER_KEY &&
++				applyQueryEdit(this.#search, event, () => this.#syncSearchQuery())
++			) {
++				this.#updateList();
++			}
++			return;
++		}
+ 		const ev = pickerEvent(event, PICKER_KEY);
+ 		if (ev?.kind === "action") {
+ 			this.#resetCountdown();
+diff --git a/packages/tui/src/overlays/model-browser.ts b/packages/tui/src/overlays/model-browser.ts
+index cb52726..48f80c3 100644
+--- a/packages/tui/src/overlays/model-browser.ts
++++ b/packages/tui/src/overlays/model-browser.ts
+@@ -21,6 +21,7 @@ import type { Component } from "../tui";
+ import { FuzzyCorpus, fuzzyRank } from "../fuzzy";
+ import { Input } from "../components/input";
+ import { ScrollView } from "../components/scroll-view";
++import type { NativeTextEdit } from "../native/node";
+ import { matchesKey } from "../keys";
+ import type { SgrMouseEvent } from "../mouse";
+ import { replaceTabs, truncateToWidth, visibleWidth } from "../utils";
+@@ -1203,6 +1204,19 @@ export class ModelBrowser implements Component {
+ 		this.#searchInput.setValue(query);
+ 		this.#applyQuery("reset-changed-prefix");
+ 	}
++	/** Apply a browser edit to the same Input and ranking callback as terminal typing. */
++	applyNativeQueryEdit(edit: NativeTextEdit): boolean {
++		if (edit.len !== this.query.length) {
++			this.onQueryChange?.(this.query);
++			return false;
++		}
++		const previous = this.query;
++		this.#searchInput.applyHostEdit(edit);
++		const query = this.query;
++		this.#applyQuery("reset-changed-prefix");
++		if (query !== previous) this.onQueryChange?.(query);
++		return true;
++	}
+ 
+ 	getSelected(): ModelBrowserItem | undefined {
+ 		return this.#menu.selectedItem;
+diff --git a/packages/tui/src/overlays/model-hub.ts b/packages/tui/src/overlays/model-hub.ts
+index d927daf..0ad8a08 100644
+--- a/packages/tui/src/overlays/model-hub.ts
++++ b/packages/tui/src/overlays/model-hub.ts
+@@ -2950,6 +2950,11 @@ export class ModelHubComponent implements Component {
+ 	}
+ 
+ 	handleNativeEvent(event: NativeUiEvent): void {
++		if (event.type === "edit") {
++			if (event.key === "" && !this.#assignmentPending) this.#browser.applyNativeQueryEdit(event);
++			this.#requestRender();
++			return;
++		}
+ 		const picked = pickerEvent(event);
+ 		if (picked) {
+ 			this.#handlePickerEvent(picked);
+diff --git a/packages/tui/src/overlays/model-picker.ts b/packages/tui/src/overlays/model-picker.ts
+index 67c029a..b4d9d1c 100644
+--- a/packages/tui/src/overlays/model-picker.ts
++++ b/packages/tui/src/overlays/model-picker.ts
+@@ -347,6 +347,13 @@ export class ModelPickerComponent implements Component {
+ 
+ 	/** Picker pointer events, each on the path of the key it stands for. */
+ 	handleNativeEvent(event: NativeUiEvent): void {
++		if (event.type === "edit") {
++			if (event.key === "") {
++				this.#browser.applyNativeQueryEdit(event);
++				this.#tui.requestRender();
++			}
++			return;
++		}
+ 		const picked = pickerEvent(event);
+ 		if (!picked) return;
+ 		if (picked.kind !== "action") {
+diff --git a/packages/tui/src/overlays/oauth-selector.ts b/packages/tui/src/overlays/oauth-selector.ts
+index 15830ea..74073f9 100644
+--- a/packages/tui/src/overlays/oauth-selector.ts
++++ b/packages/tui/src/overlays/oauth-selector.ts
+@@ -20,7 +20,15 @@ import { centeredViewportRange } from "../components/scroll-viewport";
+ import type { TspPickerAction, TspPickerItem, TspSpan, TspText, TspTone } from "@oh-my-pi/pi-wire";
+ import { node, span, text } from "../native/describe";
+ import type { DescribeContext, NativeNode, NativeUiEvent } from "../native/node";
+-import { CLOSE_ACTION, dockedPicker, PICKER_KEY, pickerAction, pickerEvent, pickerQuery } from "../native/picker";
++import {
++	applyNativeQueryEdit as applyQueryEdit,
++	CLOSE_ACTION,
++	dockedPicker,
++	PICKER_KEY,
++	pickerAction,
++	pickerEvent,
++	pickerQuery,
++} from "../native/picker";
+ import { overlayCard } from "../native/overlay";
+ import { isNativeRendering } from "../native/state";
+ 
+@@ -628,6 +636,12 @@ export class OAuthSelectorComponent extends OverlayPanel {
+ 
+ 	/** A click (or double-click) on a provider selects and confirms it, like the SGR click in {@link routeMouse}. */
+ 	handleNativeEvent(event: NativeUiEvent): void {
++		if (event.type === "edit") {
++			if (["", "search", PICKER_KEY].includes(event.key.replaceAll("^", ""))) {
++				applyQueryEdit(this.#search, event, () => this.#syncSearchQuery());
++			}
++			return;
++		}
+ 		const ev = pickerEvent(event, PICKER_KEY);
+ 		if (ev?.kind === "action") {
+ 			if (ev.act === "confirm") this.#confirmSelection();
+diff --git a/packages/tui/src/overlays/rewind-selector.ts b/packages/tui/src/overlays/rewind-selector.ts
+index 3bd5144..757a797 100644
+--- a/packages/tui/src/overlays/rewind-selector.ts
++++ b/packages/tui/src/overlays/rewind-selector.ts
+@@ -873,7 +873,15 @@ export class RewindSelectorComponent implements Component {
+ 					{ keys: ["f"], label: "filter" },
+ 					this.#truncated ? { keys: ["a"], label: "earlier turns" } : undefined,
+ 				]),
+-				actionBar([null, actionButton("Cancel", "cancel", { keys: "escape" }), rewind]),
++				actionBar([
++					null,
++					actionButton("Previous", "previous", { keys: "left" }),
++					actionButton(columns.length > 0 ? "Next branch" : "Next turn", "next", { keys: "right" }),
++					actionButton("Filter", "filter", { keys: "f" }),
++					...(this.#truncated ? [actionButton("Earlier turns", "earlier", { keys: "a" })] : []),
++					actionButton("Cancel", "cancel", { keys: "escape" }),
++					rewind,
++				]),
+ 			];
+ 		} else {
+ 			const matches = this.#filterMatches();
+@@ -890,7 +898,13 @@ export class RewindSelectorComponent implements Component {
+ 					{ wrap: "none" },
+ 				),
+ 				hintsRow([upDown, { keys: ["left", "right"], label: "user turns" }]),
+-				actionBar([null, actionButton("Show all", "cancel", { keys: "escape" }), rewind]),
++				actionBar([
++					null,
++					actionButton("Previous match", "previous", { keys: "up" }),
++					actionButton("Next match", "next", { keys: "down" }),
++					actionButton("Show all", "cancel", { keys: "escape" }),
++					rewind,
++				]),
+ 			];
+ 		}
+ 		const root = node("row", { role: "omp.rewind.bar", gap: "md", align: "center", wrap: true }, children);
+@@ -898,13 +912,23 @@ export class RewindSelectorComponent implements Component {
+ 		return root;
+ 	}
+ 
+-	/** The bar's buttons run their keys' paths; everything else belongs to the blocks. */
++	/** Action buttons run the same navigation and filter paths as their keys; blocks own their events. */
+ 	handleNativeEvent(event: NativeUiEvent): void {
+ 		if (event.type !== "action") return;
+ 		const filtering = this.#filter !== undefined;
+ 		if (event.act === "rewind") {
+ 			if (filtering) this.#selectFiltered();
+ 			else this.#selectOutlined();
++		} else if (event.act === "previous") {
++			if (filtering) this.#stepFiltered(-1, false);
++			else this.#left();
++		} else if (event.act === "next") {
++			if (filtering) this.#stepFiltered(1, false);
++			else this.#right();
++		} else if (event.act === "filter" && !filtering) {
++			this.#openFilter();
++		} else if (event.act === "earlier" && !filtering) {
++			this.#loadFullHistory();
+ 		} else if (event.act === "cancel") {
+ 			if (filtering) this.#closeFilter();
+ 			else this.deps.onCancel();
+diff --git a/packages/tui/src/overlays/session-selector.ts b/packages/tui/src/overlays/session-selector.ts
+index ac3ab81..e53fae0 100644
+--- a/packages/tui/src/overlays/session-selector.ts
++++ b/packages/tui/src/overlays/session-selector.ts
+@@ -25,6 +25,7 @@ import {
+ 	pickerDate,
+ 	type PickerEvent,
+ 	pickerEvent,
++	applyNativeQueryEdit as applyQueryEdit,
+ 	pickerHits,
+ } from "../native/picker";
+ import type { DescribeContext, NativeChild, NativeNode, NativeUiEvent } from "../native/node";
+@@ -966,6 +967,12 @@ class SessionList<T extends SessionSelectorEntry> implements Component {
+ 		this.#searchInput.setValue("");
+ 		this.#filterSessions("");
+ 	}
++	/** Apply a native/browser edit to the same query input used by terminal keys. */
++	applyNativeQueryEdit(event: NativeUiEvent): boolean {
++		if (!applyQueryEdit(this.#searchInput, event, query => this.#filterSessions(query))) return false;
++		this.onRequestRender?.();
++		return true;
++	}
+ 
+ 	get selectedSession(): T | undefined {
+ 		return this.#menu.selectedItem;
+@@ -2264,6 +2271,13 @@ export class SessionSelectorComponent<T extends SessionSelectorEntry = SessionSe
+ 	/** Picker events (root keypath); fallback: scope tab → toggle scope, click on a session → resume it, exactly like a mouse click. */
+ 	handleNativeEvent(event: NativeUiEvent): void {
+ 		if (this.#inputLocked) return;
++		if (event.type === "edit") {
++			if (event.key === "" && !this.#confirmationDialog && !this.#renameDialog) {
++				this.#pickerErrorOpen = false;
++				this.#sessionList.applyNativeQueryEdit(event);
++			}
++			return;
++		}
+ 		const ev = pickerEvent(event);
+ 		if (ev) {
+ 			this.#pickerErrorOpen = false;
+diff --git a/packages/tui/src/overlays/settings-selector.ts b/packages/tui/src/overlays/settings-selector.ts
+index 5154d07..dbb4f7c 100644
+--- a/packages/tui/src/overlays/settings-selector.ts
++++ b/packages/tui/src/overlays/settings-selector.ts
+@@ -1,3 +1,4 @@
++import { applyNativeQueryEdit as applyQueryEdit } from "../native/picker";
+ import type { ThinkingLevel } from "@oh-my-pi/pi-agent-core";
+ import type { Effort } from "@oh-my-pi/pi-ai";
+ import {
+@@ -884,6 +885,7 @@ export class SettingsSelectorComponent implements Component {
+ 			lead: searching ? undefined : (pluginPage?.lead ?? (tab ? TAB_LEADS[tab] : undefined)),
+ 			query: searching ? this.#searchQuery : undefined,
+ 			cursor: searching ? this.#searchInput.getCursor() : undefined,
++			queryAck: searching ? this.#searchInput.getNativeEditAck() : undefined,
+ 			sections,
+ 			focus,
+ 			editing,
+@@ -1212,6 +1214,26 @@ export class SettingsSelectorComponent implements Component {
+ 	 * jump, while searching), unless an open submenu owns the pointer.
+ 	 */
+ 	handleNativeEvent(event: NativeUiEvent): void {
++		if (event.type === "edit") {
++			const open = (this.#searchList ?? this.#currentList)?.openSubmenu;
++			if (event.key === "" && open) {
++				if (open.component instanceof TextFormField) {
++					open.component.input.applyHostEdit(event);
++					this.#context.requestRender?.();
++				}
++				return;
++			}
++			if (
++				event.key === "" &&
++				applyQueryEdit(this.#searchInput, event, query => {
++					if (this.#searchList) this.#setSearchQuery(query);
++					else if (query.length > 0) this.#startSearch(query, true);
++				})
++			) {
++				this.#context.requestRender?.();
++			}
++			return;
++		}
+ 		if (event.key === "") {
+ 			this.#handlePrefsEvent(event);
+ 			return;
+@@ -1290,12 +1312,14 @@ export class SettingsSelectorComponent implements Component {
+ 	// ═══════════════════════════════════════════════════════════════════════
+ 
+ 	/** Swap the tab content for the global search result list. */
+-	#startSearch(initialQuery: string): void {
++	#startSearch(initialQuery: string, preserveInput = false): void {
+ 		this.#preSearchTabId = this.#currentTabId;
+ 		this.#searchCorpora = null;
+-		this.#searchInput = new Input();
+-		this.#searchInput.prompt = "";
+-		this.#searchInput.setValue(initialQuery);
++		if (!preserveInput) {
++			this.#searchInput = new Input();
++			this.#searchInput.prompt = "";
++			this.#searchInput.setValue(initialQuery);
++		}
+ 		const list = new SettingsList(
+ 			[],
+ 			10,
+diff --git a/packages/tui/src/overlays/stats-notice.ts b/packages/tui/src/overlays/stats-notice.ts
+index 0debf04..27a3230 100644
+--- a/packages/tui/src/overlays/stats-notice.ts
++++ b/packages/tui/src/overlays/stats-notice.ts
+@@ -14,14 +14,14 @@ import { actionButton } from "../native/overlay";
+ export class StatsNotice extends Container {
+ 	readonly #native: NativeNode;
+ 
+-	/** `message` is the launch status line; `url` the dashboard address. */
+-	constructor(message: string, url: string) {
++	/** `message` is the launch status line; `url` the dashboard address, absent when the host owns the browser. */
++	constructor(message: string, url?: string) {
+ 		super();
+ 		this.addChild(new Spacer(1));
+ 		this.addChild(new Text(message, 1, 0).setStyleFn(line => theme.fg("dim", line)));
+ 		this.#native = node("row", { gap: "md", align: "center", wrap: true }, [
+ 			node("text", { spans: [span(message)], role: "omp.stats", wrap: "word", grow: 1 }),
+-			actionButton("Open dashboard ↗", "open", { href: url, title: url }),
++			...(url ? [actionButton("Open dashboard ↗", "open", { href: url, title: url })] : []),
+ 		]);
+ 	}
+ 
+diff --git a/packages/tui/src/overlays/tree-selector.ts b/packages/tui/src/overlays/tree-selector.ts
+index 6da3fc7..c655236 100644
+--- a/packages/tui/src/overlays/tree-selector.ts
++++ b/packages/tui/src/overlays/tree-selector.ts
+@@ -63,7 +63,15 @@ import type { ThemeColor } from "../theme/schema";
+ import { col, keyed, node, span, text } from "../native/describe";
+ import type { DescribeContext, NativeChild, NativeNode, NativeUiEvent } from "../native/node";
+ import { actionHint, hintsRow, overlayCard } from "../native/overlay";
+-import { CLOSE_ACTION, type PickerEvent, picker, pickerAction, pickerEvent, pickerQuery } from "../native/picker";
++import {
++	applyNativeQueryEdit as applyQueryEdit,
++	CLOSE_ACTION,
++	type PickerEvent,
++	picker,
++	pickerAction,
++	pickerEvent,
++	pickerQuery,
++} from "../native/picker";
+ import { plainText } from "../native/spans";
+ import type { OutlineTarget } from "../chat/transcript-outline";
+ import { collectBlocks, targetCopy, turnPreview } from "./copy-selector";
+@@ -506,6 +514,18 @@ class TreeList implements Component {
+ 				: (currentIndex + direction + targets.length) % targets.length;
+ 		this.#tree.setSelectedKey(targets[nextIndex]!.entry.id);
+ 	}
++	moveBranch(direction: -1 | 1): void {
++		this.#moveBranch(direction);
++	}
++
++	moveTurn(direction: -1 | 1): void {
++		this.#tree.moveSelectionWhere(
++			node =>
++				node.entry.type === "message" &&
++				(node.entry.message.role === "user" || node.entry.message.role === "assistant"),
++			direction,
++		);
++	}
+ 
+ 	#applyFilter(): void {
+ 		// TreeView retains the nearest visible selection (including an anchor
+@@ -866,6 +886,9 @@ class TreeList implements Component {
+ 		this.#listNative = { items: items.items, selected, query, filterMode: this.#filterMode, node: list };
+ 		return list;
+ 	}
++	applyNativeQueryEdit(event: NativeUiEvent): boolean {
++		return applyQueryEdit(this.searchInput, event, () => this.#applyFilter());
++	}
+ 
+ 	/** The empty-state explanation from {@link render}, as spans. */
+ 	#emptyText(): TspText {
+@@ -1356,23 +1379,13 @@ class TreeList implements Component {
+ 		} else if (matchesSelectDown(keyData)) {
+ 			this.#tree.moveSelection(1, true);
+ 		} else if (matchesKey(keyData, "alt+up")) {
+-			this.#tree.moveSelectionWhere(
+-				node =>
+-					node.entry.type === "message" &&
+-					(node.entry.message.role === "user" || node.entry.message.role === "assistant"),
+-				-1,
+-			);
++			this.moveTurn(-1);
+ 		} else if (matchesKey(keyData, "alt+down")) {
+-			this.#tree.moveSelectionWhere(
+-				node =>
+-					node.entry.type === "message" &&
+-					(node.entry.message.role === "user" || node.entry.message.role === "assistant"),
+-				1,
+-			);
++			this.moveTurn(1);
+ 		} else if (getKeybindings().matches(keyData, "app.tree.previousBranch")) {
+-			this.#moveBranch(-1);
++			this.moveBranch(-1);
+ 		} else if (getKeybindings().matches(keyData, "app.tree.nextBranch")) {
+-			this.#moveBranch(1);
++			this.moveBranch(1);
+ 		} else if (matchesKey(keyData, "home")) {
+ 			this.#tree.setSelectionIndex(0);
+ 		} else if (matchesKey(keyData, "end")) {
+@@ -1653,6 +1666,10 @@ export class TreeSelectorComponent extends OverlayPanel {
+ 				: [
+ 						pickerAction("switch", "Switch", "enter", { primary: true }),
+ 						pickerAction("summarize", "Summarize & switch", "shift+enter"),
++						pickerAction("previous-turn", "Previous turn", "alt+up"),
++						pickerAction("next-turn", "Next turn", "alt+down"),
++						pickerAction("previous-branch", "Previous branch", editorKey("app.tree.previousBranch")),
++						pickerAction("next-branch", "Next branch", editorKey("app.tree.nextBranch")),
+ 						pickerAction("label", "Label", "shift+l"),
+ 						pickerAction("filter", "Filter", "ctrl+o"),
+ 						CLOSE_ACTION,
+@@ -1679,6 +1696,18 @@ export class TreeSelectorComponent extends OverlayPanel {
+ 			return;
+ 		}
+ 		switch (event.act) {
++			case "previous-turn":
++				list.moveTurn(-1);
++				return;
++			case "next-turn":
++				list.moveTurn(1);
++				return;
++			case "previous-branch":
++				list.moveBranch(-1);
++				return;
++			case "next-branch":
++				list.moveBranch(1);
++				return;
+ 			case "tab":
+ 				if (event.value !== undefined) list.setFilterMode(event.value);
+ 				return;
+@@ -1746,6 +1775,10 @@ export class TreeSelectorComponent extends OverlayPanel {
+ 
+ 	/** Filter tab → switch mode; entry click → highlight it and switch, exactly like Enter. */
+ 	handleNativeEvent(event: NativeUiEvent): void {
++		if (event.type === "edit") {
++			if (event.key.replaceAll("^", "") === "picker") this.#treeList.applyNativeQueryEdit(event);
++			return;
++		}
+ 		const picked = pickerEvent(event, "picker");
+ 		if (picked) {
+ 			this.#handlePickerEvent(picked);
+diff --git a/packages/tui/src/setup/scenes/model.ts b/packages/tui/src/setup/scenes/model.ts
+index 4db32e6..16f2a62 100644
+--- a/packages/tui/src/setup/scenes/model.ts
++++ b/packages/tui/src/setup/scenes/model.ts
+@@ -133,6 +133,13 @@ class ModelSceneController implements SetupSceneController {
+ 
+ 	/** Sheet pointer events, each on the path of the key it stands for. */
+ 	handleNativeEvent(event: NativeUiEvent): void {
++		if (event.type === "edit") {
++			if (event.key.replaceAll("^", "") === PICKER_KEY && this.#saving === undefined) {
++				this.#browser.applyNativeQueryEdit(event);
++				this.#host.requestRender();
++			}
++			return;
++		}
+ 		const picked = pickerEvent(event, PICKER_KEY);
+ 		if (!picked || this.#saving !== undefined) return;
+ 		if (picked.kind !== "action") {
+diff --git a/packages/tui/src/tui.ts b/packages/tui/src/tui.ts
+index a5e0deb..e3afce4 100644
+--- a/packages/tui/src/tui.ts
++++ b/packages/tui/src/tui.ts
+@@ -18,13 +18,13 @@ import { getDebugLogPath } from "@oh-my-pi/pi-utils/dirs";
+ import { $flag } from "@oh-my-pi/pi-utils/env";
+ import * as logger from "@oh-my-pi/pi-utils/logger";
+ import * as postmortem from "@oh-my-pi/pi-utils/postmortem";
+-import type { TspFrame, TspNode, TspText } from "@oh-my-pi/pi-wire";
++import type { TspEvent, TspFrame, TspNode, TspText } from "@oh-my-pi/pi-wire";
+ import { DEFAULT_MAX_INLINE_IMAGES, ImageBudget } from "./components/image";
+ import { TuiDebugServer } from "./debug-server";
+ import { extractPrintableText, isKeyRelease, matchesKey } from "./keys";
+ import { KITTY_PLACEHOLDER } from "./kitty-graphics";
+ import { LoopWatchdog } from "./loop-watchdog";
+-import { assumedTspHello, NativeBackend, type NativeHost } from "./native/backend";
++import { assumedTspHello, NativeBackend, type NativeHost, type NativeTransportMessage } from "./native/backend";
+ import { col } from "./native/describe";
+ import { TSP_PREFIX, type TspHello } from "./native/encode";
+ import type { DescribeContext, NativeNode, NativeScreen, NativeSurfaceProvider, NativeUiEvent } from "./native/node";
+@@ -165,6 +165,7 @@ export type PaintListener = (paint: TuiPaint) => void;
+ export interface TUIOptions {
+ 	renderScheduler?: RenderScheduler;
+ 	onPaint?: PaintListener;
++	nativeSend?: (message: NativeTransportMessage) => void;
+ }
+ /** Physical terminal dimensions supplied to a frame provider. */
+ export interface ViewportSize {
+@@ -1094,6 +1095,7 @@ export class TUI extends Container {
+ 	// stop/start so a restart adopts the surface.
+ 	#native: NativeBackend | undefined;
+ 	#nativeLive = false;
++	#nativeSend: ((message: NativeTransportMessage) => void) | undefined;
+ 	// Holds the first paint while the `hello` probe is outstanding, so a TSP
+ 	// terminal never sees a row paint it would have to erase.
+ 	#nativeHoldTimer: RenderTimer | undefined;
+@@ -1127,6 +1129,7 @@ export class TUI extends Container {
+ 		super();
+ 		this.terminal = terminal;
+ 		this.#renderScheduler = options?.renderScheduler ?? DEFAULT_RENDER_SCHEDULER;
++		this.#nativeSend = options?.nativeSend;
+ 		if (options?.onPaint) this.#paintListeners.add(options.onPaint);
+ 		this.#showHardwareCursor = showHardwareCursor === undefined ? this.#showHardwareCursor : showHardwareCursor;
+ 		this.#watchdog = new LoopWatchdog();
+@@ -1304,6 +1307,12 @@ export class TUI extends Container {
+ 		this.#handleInput(data);
+ 	}
+ 
++	/** Feed a remote UI key sequence through the ordinary focused-component pipeline. */
++	handleRemoteInput(data: string): void {
++		if (this.#stopped) return;
++		this.#handleInput(data);
++	}
++
+ 	/**
+ 	 * Show an overlay component with configurable positioning and sizing.
+ 	 * Returns a handle to control the overlay's visibility.
+@@ -1723,6 +1732,42 @@ export class TUI extends Container {
+ 		return this.#native?.fallbackCount ?? 0;
+ 	}
+ 
++	/** Start semantic rendering against an externally negotiated TSP peer. */
++	startNative(hello: TspHello): void {
++		if (this.#stopped) return;
++		this.#nativeLive = true;
++		this.#startNative(hello, false);
++	}
++
++	/** Replace only the TSP reconciler, preserving every interactive controller. */
++	resetNative(hello: TspHello): void {
++		if (this.#stopped) return;
++		if (this.#nativeLive) this.#native?.stop();
++		this.#native = undefined;
++		this.#nativeLive = false;
++		this.#startNative(hello, false);
++	}
++
++	/**
++	 * Paint a pending native frame synchronously. A hosted surface answers an
++	 * input or event only after the frames that action produced are on the wire,
++	 * so the caller can fence its completion behind their durable delivery.
++	 */
++	flushNativeFrames(): void {
++		if (this.#stopped || !this.#nativeLive) return;
++		this.#renderTimer?.cancel();
++		this.#renderTimer = undefined;
++		if (!this.#renderRequested) return;
++		this.#renderRequested = false;
++		this.#executeRender();
++	}
++
++	/** Deliver a decoded remote event through NativeBackend's existing owner routing. */
++	dispatchNativeEvent(event: TspEvent): void {
++		if (!this.#nativeLive) return;
++		this.#native?.handleEvent(event);
++	}
++
+ 	#onTspHello(hello: TspHello | null): void {
+ 		const held = this.#nativeHoldTimer !== undefined;
+ 		this.#nativeHoldTimer?.cancel();
+@@ -1746,8 +1791,8 @@ export class TUI extends Container {
+ 	}
+ 
+ 	/** Switch to the surface (adopting the one a stop/start cycle closed). */
+-	#startNative(hello: TspHello): void {
+-		this.#eraseRowPaintForNative();
++	#startNative(hello: TspHello, clearRows = true): void {
++		if (clearRows) this.#eraseRowPaintForNative();
+ 		this.#nativeLive = true;
+ 		if (this.#native) {
+ 			this.#native.resume(hello);
+@@ -1756,6 +1801,7 @@ export class TUI extends Container {
+ 		this.#native = new NativeBackend(this.#nativeHost(), hello, {
+ 			mirror: this.#debugServer !== undefined,
+ 			scheduler: this.#renderScheduler === DEFAULT_RENDER_SCHEDULER ? undefined : this.#renderScheduler,
++			send: this.#nativeSend,
+ 		});
+ 		this.#native.start();
+ 	}
+@@ -3873,11 +3919,35 @@ export class TUI extends Container {
+ 		}
+ 	}
+ 
++	#notifyNativePaint(): void {
++		const width = this.terminal.columns;
++		const height = this.terminal.rows;
++		let rendered: readonly string[];
++		do {
++			this.#imageBudget.beginPass(false, true);
++			rendered = this.#frameProvider?.renderResizeFrame?.({ columns: width, rows: height }) ?? this.render(width);
++		} while (this.#imageBudget.endPass());
++		const viewport =
++			rendered.length > height ? Array.from(rendered.slice(rendered.length - height)) : Array.from(rendered);
++		while (viewport.length < height) viewport.unshift("");
++		const composite = this.#compositeVisibleOverlays(viewport, width, height);
++		const prepared = this.#prepareLinesArray(composite, width);
++		this.#notifyPaint({
++			history: [],
++			viewport: prepared.lines,
++			reset: false,
++			alt: this.#getTopmostVisibleOverlay()?.options?.fullscreen === true,
++			columns: width,
++			rows: height,
++		});
++	}
++
+ 	/** Render one frame: alt-screen modal, provider plan, or children fallback. */
+ 	#doRender(): void {
+ 		if (this.#stopped) return;
+ 		if (this.#nativeLive) {
+ 			this.#native!.render();
++			if (this.#paintListeners.size > 0) this.#notifyNativePaint();
+ 			return;
+ 		}
+ 		// Awaiting the TSP hello: its resolution (or the hold timeout) repaints.
+diff --git a/packages/tui/test/model-hub-roles-search.test.ts b/packages/tui/test/model-hub-roles-search.test.ts
+index 41c0457..86a4392 100644
+--- a/packages/tui/test/model-hub-roles-search.test.ts
++++ b/packages/tui/test/model-hub-roles-search.test.ts
+@@ -116,3 +116,11 @@ test("a live query keeps taking printable keys on the Roles rows", () => {
+ 	expect(props.query).toBe("sonne");
+ 	expect(props.scope).toBe("all");
+ });
++test("native query edits use the model browser's ranking and caret", () => {
++	const hub = createHub();
++	hub.handleNativeEvent({ type: "edit", key: "", from: 0, to: 0, text: "son", cursor: 2, len: 0 });
++	const props = pickerProps(hub);
++	expect(props.query).toBe("son");
++	expect(props.cursor).toBe(2);
++	expect(props.order?.length).toBeGreaterThan(0);
++});
+diff --git a/packages/tui/test/native/backend.test.ts b/packages/tui/test/native/backend.test.ts
+index 7974ebb..9d46616 100644
+--- a/packages/tui/test/native/backend.test.ts
++++ b/packages/tui/test/native/backend.test.ts
+@@ -1,14 +1,25 @@
+ import { afterEach, describe, expect, it } from "bun:test";
+ import { type LogEvent, registerLogSink } from "@oh-my-pi/pi-utils/logger";
++import { Input } from "@oh-my-pi/pi-tui/components/input";
++import { Text } from "@oh-my-pi/pi-tui/components/text";
++import { TspDocument } from "@oh-my-pi/pi-tui/native/apply";
+ import { card, md, node } from "@oh-my-pi/pi-tui/native/describe";
+ import type { NativeNode, NativeUiEvent } from "@oh-my-pi/pi-tui/native/node";
+ import { nativeComponentId } from "@oh-my-pi/pi-tui/native/reconcile";
+ import { settleNative } from "@oh-my-pi/pi-tui/native/settle";
+ import { isNativeRendering, onNativeRenderingChange } from "@oh-my-pi/pi-tui/native/state";
+-import { type Component, Container } from "@oh-my-pi/pi-tui/tui";
+-import type { TspOp } from "@oh-my-pi/pi-wire";
++import { TSP_KINDS, TSP_VERSION, type TspFrame, type TspNode, type TspOp } from "@oh-my-pi/pi-wire";
++import { type Component, Container, TUI } from "@oh-my-pi/pi-tui/tui";
+ import { ManualScheduler, TspHarness, TspTestTerminal } from "./tsp-harness";
+ 
++const remoteHello = {
++	r: "hello" as const,
++	v: TSP_VERSION,
++	term: "remote",
++	kinds: TSP_KINDS,
++	cols: 80,
++};
++
+ class Probe implements Component {
+ 	current: NativeNode;
+ 	events: NativeUiEvent[] = [];
+@@ -35,6 +46,115 @@ afterEach(() => {
+ const opsOf = (h: TspHarness, from: number): TspOp[] => h.frames.slice(from).flatMap(frame => frame.ops);
+ 
+ describe("native backend", () => {
++	it("observes recordable native viewport snapshots across content and overlay transitions", async () => {
++		const content = new Text("streaming text", 0, 0);
++		let tui: TUI | undefined;
++		harness = await TspHarness.start(ui => {
++			tui = ui;
++			ui.addChild(content);
++		});
++		const h = harness;
++		const paints: { viewport: readonly string[]; history: readonly string[] }[] = [];
++		const unsubscribe = tui!.addPaintListener(paint => paints.push(paint));
++		try {
++			await h.render();
++			content.setText("tool result");
++			await h.render();
++			tui!.showOverlay({ render: () => ["settings dialog"] });
++			await h.render();
++			tui!.hideOverlay();
++			await h.render();
++
++			const snapshots = paints.map(paint => paint.viewport.join("\n"));
++			expect(snapshots.some(snapshot => snapshot.includes("streaming text"))).toBe(true);
++			expect(snapshots.some(snapshot => snapshot.includes("tool result"))).toBe(true);
++			expect(snapshots.some(snapshot => snapshot.includes("settings dialog"))).toBe(true);
++			expect(snapshots.at(-1)).not.toContain("settings dialog");
++			expect(paints.every(paint => paint.history.length === 0)).toBe(true);
++		} finally {
++			unsubscribe();
++		}
++	});
++	it("reconnects a live editor without discarding its draft, caret or event ownership", () => {
++		const terminal = new TspTestTerminal({});
++		const messages: { verb: string; body: unknown }[] = [];
++		const tui = new TUI(terminal, false, {
++			renderScheduler: new ManualScheduler(),
++			nativeSend: message => messages.push(message),
++		});
++		const input = new Input();
++		input.setValue("draft kept");
++		input.applyHostEdit({ from: 5, to: 5, text: "", cursor: 5, len: 10 });
++		tui.addChild(input);
++		tui.startNative(remoteHello);
++		messages.length = 0;
++		tui.resetNative(remoteHello);
++		let document: TspDocument | undefined;
++		for (const message of messages) {
++			const body = message.body;
++			if (
++				message.verb === "o" &&
++				body !== null &&
++				typeof body === "object" &&
++				"id" in body &&
++				typeof body.id === "string"
++			) {
++				document = new TspDocument(body.id);
++			} else if (message.verb === "f") {
++				// NativeBackend erases its in-process frame type at the transport seam.
++				const frame = body as TspFrame;
++				expect(document?.applyFrame(frame)).toEqual([]);
++			}
++		}
++		function findInput(node: TspNode | undefined): Extract<TspNode, { k: "input" }> | undefined {
++			if (node?.k === "input") return node;
++			for (const child of node?.c ?? []) {
++				const found = findInput(child);
++				if (found) return found;
++			}
++			return undefined;
++		}
++		const node = findInput(document?.snapshot());
++		expect(node?.p?.text).toBe("draft kept");
++		expect(node?.p?.cursor).toBe(5);
++		tui.dispatchNativeEvent({
++			ev: "edit",
++			sf: document!.surface,
++			id: node!.id,
++			from: 5,
++			to: 5,
++			text: "!",
++			cursor: 6,
++			len: 10,
++		});
++		expect(input.getValue()).toBe("draft! kept");
++		expect(input.getCursor()).toBe(6);
++		tui.stop();
++	});
++
++	it("paints a pending frame synchronously so a hosted input is answered after its frames", () => {
++		const terminal = new TspTestTerminal({});
++		const messages: { verb: string; body: unknown }[] = [];
++		const scheduler = new ManualScheduler();
++		const tui = new TUI(terminal, false, {
++			renderScheduler: scheduler,
++			nativeSend: message => messages.push(message),
++		});
++		const text = new Text("first", 0, 0);
++		tui.addChild(text);
++		tui.startNative(remoteHello);
++		messages.length = 0;
++		text.setText("second");
++		tui.requestRender();
++		expect(messages).toEqual([]);
++		tui.flushNativeFrames();
++		expect(messages.some(message => message.verb === "f")).toBe(true);
++		const sent = messages.length;
++		tui.flushNativeFrames();
++		expect(messages.length).toBe(sent);
++		tui.stop();
++	});
++
+ 	it("keeps at most `credits` frames unacknowledged and coalesces changes made while blocked", async () => {
+ 		const stream = new Probe(md("", { stream: true }));
+ 		harness = await TspHarness.start(tui => tui.addChild(stream), { credits: 2, autoAck: false });
+diff --git a/packages/tui/test/selector-picker-native.test.ts b/packages/tui/test/selector-picker-native.test.ts
+index f372cac..8f5adc8 100644
+--- a/packages/tui/test/selector-picker-native.test.ts
++++ b/packages/tui/test/selector-picker-native.test.ts
+@@ -198,6 +198,19 @@ describe("hook selector picker", () => {
+ 		selector.handleNativeEvent(act("confirm"));
+ 		expect(picked).toEqual(["two"]);
+ 	});
++	it("applies native query edits through the existing option filter", () => {
++		const selector = new HookSelectorComponent(
++			"Pick",
++			["one", "two"],
++			() => {},
++			() => {},
++		);
++		selector.handleNativeEvent({ type: "edit", key: "^picker", from: 0, to: 0, text: "two", cursor: 1, len: 0 });
++		const props = sheet(selector.describe(pickerCx)).props;
++		expect(props.query).toBe("two");
++		expect(props.cursor).toBe(1);
++		expect(props.order).toEqual(["1"]);
++	});
+ 
+ 	it("inline stays in the dock as a card instead of a hoisted picker sheet", () => {
+ 		const picked: string[] = [];
+diff --git a/packages/tui/test/session-picker-native.test.ts b/packages/tui/test/session-picker-native.test.ts
+index 5d943dc..2cd4891 100644
+--- a/packages/tui/test/session-picker-native.test.ts
++++ b/packages/tui/test/session-picker-native.test.ts
+@@ -124,6 +124,22 @@ describe("session selector picker", () => {
+ 		expect(after.hits).toEqual({ [old.path]: [[0, 3]] });
+ 		expect(after.selected).toBe(old.path);
+ 	});
++	it("applies native UTF-16 query edits to the existing filter and keeps stale text truthful", () => {
++		const selector = make();
++		selector.handleNativeEvent({ type: "edit", key: "", from: 0, to: 0, text: "gam", cursor: 1, len: 0 });
++		const filtered = props(selector.describe(withPicker));
++		expect(filtered.query).toBe("gam");
++		expect(filtered.cursor).toBe(1);
++		expect(filtered.order).toEqual([old.path]);
++
++		selector.handleNativeEvent({ type: "edit", key: "", from: 0, to: 3, text: "😀", cursor: 2, len: 3 });
++		const emoji = props(selector.describe(withPicker));
++		expect(emoji.query).toBe("😀");
++		expect(emoji.cursor).toBe(2);
++
++		selector.handleNativeEvent({ type: "edit", key: "", from: 0, to: 0, text: "stale", cursor: 5, len: 0 });
++		expect(props(selector.describe(withPicker)).query).toBe("😀");
++	});
+ 
+ 	it("runs pointer events down the keys' paths", async () => {
+ 		const resumed: string[] = [];
+diff --git a/packages/tui/test/settings-prefs-native.test.ts b/packages/tui/test/settings-prefs-native.test.ts
+index 2608a66..c11655c 100644
+--- a/packages/tui/test/settings-prefs-native.test.ts
++++ b/packages/tui/test/settings-prefs-native.test.ts
+@@ -256,7 +256,6 @@ describe("settings as a native prefs page", () => {
+ 		send(selector, { type: "action", key: "", act: "page", value: "shell", mods: [] });
+ 		send(selector, { type: "activate", key: "", item: "shell.path" });
+ 		for (const ch of "/bin/zsh") selector.handleInput(ch);
+-		expect(prefs(selector).props.editing).toEqual({ row: "shell.path", draft: "/bin/zsh", cursor: 8 });
+ 		selector.handleInput(ENTER);
+ 		expect(values.get("shell.path")).toBe("/bin/zsh");
+ 
+@@ -343,6 +342,14 @@ describe("settings as a native prefs page", () => {
+ 		expect(after.query).toBeUndefined();
+ 		expect(after.page).toBe("context");
+ 	});
++	it("uses native UTF-16 edits to update the settings filter and caret", () => {
++		const { selector } = harness();
++		send(selector, { type: "edit", key: "", from: 0, to: 0, text: "theme", cursor: 2, len: 0 });
++		const { props } = prefs(selector);
++		expect(props.query).toBe("theme");
++		expect(props.cursor).toBe(2);
++		expect(props.sections.some(section => section.rows.some(setting => setting.id === "theme.dark"))).toBe(true);
++	});
+ 
+ 	it("keyboard focus follows the list selection", () => {
+ 		const { selector } = harness();
+diff --git a/packages/tui/test/timeline-picker-native.test.ts b/packages/tui/test/timeline-picker-native.test.ts
+index d515f0c..895ea9b 100644
+--- a/packages/tui/test/timeline-picker-native.test.ts
++++ b/packages/tui/test/timeline-picker-native.test.ts
+@@ -95,7 +95,6 @@ describe("rewind page", () => {
+ 	}
+ 
+ 	const UP = "\x1b[A";
+-	const RIGHT = "\x1b[C";
+ 
+ 	/** One entry per page child: a caption's key, a node's role, else the block's mark (`-` unmarked); runs of equal marks collapse. */
+ 	function marks(children: readonly NativeChild[]): string[] {
+@@ -227,7 +226,9 @@ describe("rewind page", () => {
+ 		expect(marks(current?.c ?? [])).toEqual(["omp.rewind.branch.head", "here:main:u2", "pick"]);
+ 		expect(marks(other?.c ?? [])).toEqual(["omp.rewind.branch.head", "-"]);
+ 
+-		selector.handleInput(RIGHT);
++		const bar = selector.describe(pickerCx);
++		expect(JSON.stringify(bar)).toContain('"click":"next"');
++		selector.handleNativeEvent({ type: "action", key: "next", act: "next", mods: [] });
+ 		main = selector.describeScreen(pickerCx).main;
+ 		const [, next] = ((main.at(-1) as NativeNode).c ?? []) as NativeNode[];
+ 		expect(next?.p?.tone).toBe("accent");
+@@ -335,6 +336,18 @@ describe("session tree picker", () => {
+ 		expect(p.selected).toBe("a3");
+ 	});
+ 
++	test("picker exposes and routes turn and branch navigation through the tree controller", () => {
++		const selector = treeSelector();
++		const propsBefore = treeProps(selector);
++		expect(propsBefore.actions?.map(action => action.id)).toContain("next-turn");
++		expect(propsBefore.actions?.map(action => action.id)).toContain("next-branch");
++
++		selector.handleNativeEvent({ type: "action", key: "^picker", act: "next-turn", mods: [] });
++		expect(treeProps(selector).selected).toBe("u3");
++		selector.handleNativeEvent({ type: "action", key: "^picker", act: "previous-branch", mods: [] });
++		expect(treeProps(selector).selected).toBe("u2");
++	});
++
+ 	test("an open tree keeps user and assistant labels apart as the theme switches", async () => {
+ 		const selector = treeSelector();
+ 		const labelStyles = () => {
+diff --git a/packages/wire/src/tsp.ts b/packages/wire/src/tsp.ts
+index 20300da..d7995ba 100644
+--- a/packages/wire/src/tsp.ts
++++ b/packages/wire/src/tsp.ts
+@@ -422,12 +422,43 @@ export interface TspEditorDecoration {
+ 	s: string;
+ 	fx?: TspEffect;
+ }
++/**
++ * One native edit's result, echoed in an editable node's `ack` prop. `n` is
++ * the token the terminal put on the edit (an opaque string, or a number for
++ * simple terminals): `ok` is false for an edit the
++ * program could not apply (stale `len`, malformed range); `cursor` is the
++ * authoritative caret in the node's described text after the edit, mask
++ * cells for a masked field.
++ */
++export type TspEditToken = string | number;
++
++export interface TspEditAck {
++	n: TspEditToken;
++	ok: boolean;
++	cursor?: number;
++}
++
+ export interface TspEditorProps {
+ 	text?: string;
+ 	/** Caret as a UTF-16 offset into `text`. */
+ 	cursor?: number;
+ 	/** Selection anchor, or null for none. */
+ 	anchor?: number | null;
++	/**
++	 * `text` is a display mask, one bullet per grapheme of a value the program
++	 * keeps private, `cursor`/`anchor` count those mask cells, and `edit`
++	 * events address the mask. A terminal renders a secret field, keeps the
++	 * characters typed into it in local memory, and sends them only in the
++	 * edit's `text`.
++	 */
++	mask?: boolean;
++	/**
++	 * The outcome of the most recent {@link NativeTextEdit} that carried an
++	 * `n`. The terminal releases the edit it correlated even when the text did
++	 * not change (a no-op, a same-length secret replacement, or a caret move);
++	 * `ok: false` says the program rejected it as stale and kept its text.
++	 */
++	ack?: TspEditAck;
+ 	decor?: readonly TspEditorDecoration[];
+ 	/** Inline completion suffix drawn after the caret. */
+ 	ghost?: string;
+@@ -597,6 +628,8 @@ export interface TspPickerProps {
+ 	query?: string | null;
+ 	/** Caret as a UTF-16 offset into `query`; absent puts it at the end. */
+ 	cursor?: number;
++	/** Outcome of the latest native edit on the query field (see {@link TspEditorProps.ack}). */
++	queryAck?: TspEditAck;
+ 	placeholder?: string;
+ 	scopes?: readonly TspPickerScope[];
+ 	scope?: string;
+@@ -705,11 +738,26 @@ export interface TspPrefsProps {
+ 	query?: string;
+ 	/** Caret as a UTF-16 offset into `query` while the program's search field has it; absent: no caret. */
+ 	cursor?: number;
++	/** Outcome of the latest native edit on the search field (see {@link TspEditorProps.ack}). */
++	queryAck?: TspEditAck;
+ 	sections: readonly TspPrefsSection[];
+ 	/** Row with keyboard focus (the program's selection). */
+ 	focus?: string | null;
+-	/** Row whose control the program has open for editing, with its draft (and its caret, a UTF-16 offset) for text rows. */
+-	editing?: { row: string; draft?: string; cursor?: number; option?: string } | null;
++	/**
++	 * Row whose control the program has open for editing, with its draft (and
++	 * its caret, a UTF-16 offset) for text rows. A secret row's draft is mask
++	 * cells (one bullet per grapheme); the terminal keeps the plaintext it
++	 * typed and sends it only in `edit` events. `ack` echoes the latest edit
++	 * on that row's field (see {@link TspEditorProps.ack}).
++	 */
++	editing?: {
++		row: string;
++		draft?: string;
++		cursor?: number;
++		option?: string;
++		secret?: boolean;
++		ack?: TspEditAck;
++	} | null;
+ }
+ 
+ /**
+@@ -1068,11 +1116,25 @@ export type TspEvent =
+ 			value: boolean | number | string | readonly string[] | null;
+ 	  }
+ 	/**
+-	 * An edit over the terminal's selection in an `editor`/`input` node: replace
+-	 * `[from, to)` with `text`, caret to `cursor` (UTF-16 offsets; `len` is the
+-	 * text length the terminal saw, a mismatch makes the edit stale).
++	 * An edit over the terminal's selection in an `editor`/`input` node or a
++	 * native picker/prefs query: replace `[from, to)` with `text`, caret to
++	 * `cursor` (UTF-16 offsets; `len` is the text length the terminal saw, a
++	 * mismatch makes the edit stale). On a `mask` node the offsets and `len`
++	 * count bullets, one per grapheme. Query owners apply it to their existing
++	 * input and filtering callback; it is not a keyboard event.
+ 	 */
+-	| { ev: "edit"; sf: string; id: string; from: number; to: number; text: string; cursor: number; len: number }
++	| {
++			ev: "edit";
++			sf: string;
++			id: string;
++			from: number;
++			to: number;
++			text: string;
++			cursor: number;
++			len: number;
++			/** Optional token echoed in the node's `ack` (see {@link TspEditAck}). */
++			n?: TspEditToken;
++	  }
+ 	/**
+ 	 * Undo the last change to the text of `editor`/`input` node `id` through the
+ 	 * program's own undo history (an applied `edit` is one unit, as typing is); a
+diff --git a/packages/coding-agent/src/modes/acp/remote-command-ui.ts b/packages/coding-agent/src/modes/acp/remote-command-ui.ts
+new file mode 100644
+index 0000000..a7ba153
+--- /dev/null
++++ b/packages/coding-agent/src/modes/acp/remote-command-ui.ts
+@@ -0,0 +1,336 @@
++import { VERSION } from "@oh-my-pi/pi-utils";
++import { Composer } from "@oh-my-pi/pi-tui/prompt/composer";
++import { ProcessTerminal, type Terminal, type TerminalAppearance } from "@oh-my-pi/pi-tui/terminal";
++import type { NativeTransportMessage } from "@oh-my-pi/pi-tui/native/backend";
++import { encodeTspJson, type TspHello } from "@oh-my-pi/pi-tui/native/encode";
++import { TSP_KINDS, TSP_VERSION, type TspEvent } from "@oh-my-pi/pi-wire";
++import type { AgentSession } from "../../session/agent-session";
++import { submitInteractiveInput } from "../../main";
++import { InteractiveMode } from "../interactive-mode";
++import {
++	RemoteHostServices,
++	type HostServiceChannel,
++	type HostServiceOrigin,
++	type HostServiceReply,
++} from "../host-services";
++
++export interface RemoteCommandUiOpen {
++	readonly cols: number;
++	readonly rows: number;
++	readonly dark: boolean;
++	readonly reduceMotion: boolean;
++	readonly kinds?: readonly string[];
++	readonly features?: readonly string[];
++	readonly transportId?: string;
++}
++export interface RemoteCommandUiState {
++	readonly resumeId: string;
++	readonly cwd: string;
++	readonly streaming: boolean;
++	readonly restartRequested?: true;
++	readonly resetHistory?: true;
++	readonly stopReason?: string;
++	readonly error?: string;
++}
++
++/** A terminal adapter that lets the existing interactive controllers run without acquiring a tty. */
++class RemoteTerminal extends ProcessTerminal {
++	#cols: number;
++	#rows: number;
++	#appearance: TerminalAppearance;
++
++	constructor(open: RemoteCommandUiOpen) {
++		super();
++		this.#cols = open.cols;
++		this.#rows = open.rows;
++		this.#appearance = open.dark ? "dark" : "light";
++	}
++
++	override start(): void {}
++	override stop(): void {}
++	override write(): void {}
++	override drainInput(): Promise<void> {
++		return Promise.resolve();
++	}
++	override get columns(): number {
++		return this.#cols;
++	}
++	override get rows(): number {
++		return this.#rows;
++	}
++	override get appearance(): TerminalAppearance {
++		return this.#appearance;
++	}
++	override onAppearanceChange(): void {}
++
++	resize(cols: number, rows: number): void {
++		this.#cols = cols;
++		this.#rows = rows;
++	}
++
++	setAppearance(dark: boolean): void {
++		this.#appearance = dark ? "dark" : "light";
++	}
++}
++
++/** Owns one remote view over the ACP record's canonical AgentSession. */
++export class RemoteCommandUi {
++	readonly mode: InteractiveMode;
++	readonly #terminal: RemoteTerminal;
++	readonly #send: (message: NativeTransportMessage, transportId: string) => void;
++	readonly #onState: (state: RemoteCommandUiState) => void | Promise<void>;
++	#closeRequested = false;
++	#opened = false;
++	#disposed = false;
++	#nativeStarted = false;
++	#forceHistoryReset = true;
++	#transportId = "";
++	#inputLoop: Promise<void> | undefined;
++	#opening: Promise<void> | undefined;
++	#commandPending = false;
++	#lastResumeId: string;
++	#lastStreaming: boolean;
++	#lastCwd: string;
++	#stateDelivery: Promise<void> | undefined;
++	readonly #hostServices: RemoteHostServices;
++	#unsubscribeRunState: () => void;
++	#unsubscribeSessionChange: () => void;
++
++	constructor(
++		session: AgentSession,
++		send: (message: NativeTransportMessage, transportId: string) => void,
++		onState: (state: RemoteCommandUiState) => void | Promise<void>,
++		initial: RemoteCommandUiOpen,
++		sendHostService: HostServiceChannel,
++	) {
++		this.#terminal = new RemoteTerminal(initial);
++		this.#send = send;
++		this.#onState = onState;
++		this.#hostServices = new RemoteHostServices(sendHostService);
++		this.#lastResumeId = session.sessionManager.getSessionId();
++		this.#lastCwd = session.sessionManager.getCwd();
++		this.#lastStreaming = session.isStreaming;
++		const composer = new Composer({
++			terminal: this.#terminal as Terminal,
++			tuiOptions: {
++				nativeSend: message => {
++					this.#send(message, this.#transportId);
++					// ACP has no shared terminal blob cache; transfer each blob inline.
++					if (
++						message.verb === "q" &&
++						typeof message.body === "object" &&
++						message.body !== null &&
++						"q" in message.body &&
++						message.body.q === "blobs"
++					) {
++						queueMicrotask(() => {
++							if (!this.#disposed) this.mode.ui.handleRemoteInput(encodeTspJson("r", { r: "blobs", have: [] }));
++						});
++					}
++				},
++			},
++			preferences: { quiet: true },
++			exit: () => {},
++		});
++		this.mode = new InteractiveMode(
++			session,
++			VERSION,
++			undefined,
++			undefined,
++			undefined,
++			undefined,
++			undefined,
++			composer,
++			undefined,
++			undefined,
++			true,
++			() => void this.close(),
++			async () => this.publishState(true),
++			this.#hostServices.adapter,
++		);
++		this.#unsubscribeRunState = session.subscribeRunState(() => {
++			void this.publishState().catch(() => {});
++		});
++		this.#unsubscribeSessionChange = session.registerSessionChangeCallback(() => {
++			void this.publishState().catch(() => {});
++		});
++	}
++
++	get transportId(): string {
++		return this.#transportId;
++	}
++
++	async open(options: RemoteCommandUiOpen, origin?: HostServiceOrigin): Promise<void> {
++		if (this.#disposed) throw new Error("Remote command UI is disposed");
++		if (this.#opening) {
++			await this.#opening;
++			return this.open(options, origin);
++		}
++		this.#closeRequested = false;
++		this.#forceHistoryReset = true;
++		const opening = origin
++			? this.#hostServices.run(origin, () => this.#initialize(options))
++			: this.#initialize(options);
++		this.#opening = opening;
++		try {
++			await opening;
++		} finally {
++			if (this.#opening === opening) this.#opening = undefined;
++		}
++	}
++
++	async #initialize(options: RemoteCommandUiOpen): Promise<void> {
++		this.#terminal.resize(options.cols, options.rows);
++		this.#terminal.setAppearance(options.dark);
++		if (!this.mode.isInitialized) {
++			await this.mode.init({ suppressWelcomeIntro: true });
++			await this.mode.renderInitialMessages({ preserveExistingChat: true });
++		}
++		if (this.#disposed || this.#closeRequested) return;
++		const hello: TspHello = {
++			r: "hello",
++			v: TSP_VERSION,
++			term: "acp",
++			kinds: options.kinds ?? TSP_KINDS,
++			features: options.features ?? [],
++			cols: options.cols,
++			dark: options.dark,
++			reduceMotion: options.reduceMotion,
++		};
++		this.#transportId = options.transportId ?? crypto.randomUUID();
++		if (this.#nativeStarted) this.mode.ui.resetNative(hello);
++		else this.mode.ui.startNative(hello);
++		this.#nativeStarted = true;
++		this.#opened = true;
++		if (!this.#inputLoop) this.#inputLoop = this.#runInputLoop();
++		await this.publishState();
++	}
++
++	event(event: TspEvent, origin?: HostServiceOrigin): void {
++		if (!this.#opened || this.#disposed) return;
++		const dispatch = () => {
++			if (event.ev === "resize") {
++				this.#terminal.resize(event.cols, this.#terminal.rows);
++				this.mode.ui.dispatchNativeEvent(event);
++				this.mode.ui.flushNativeFrames();
++				return;
++			}
++			if (event.ev === "theme") this.#terminal.setAppearance(event.dark);
++			this.mode.ui.dispatchNativeEvent(event);
++			this.mode.ui.flushNativeFrames();
++		};
++		if (origin) this.#hostServices.run(origin, dispatch);
++		else dispatch();
++	}
++
++	/**
++	 * Apply one key sequence. A browser-side caret edit rides along as `before`
++	 * and must land first, in the same origin, so the two RPCs cannot reorder.
++	 */
++	input(data: string, origin?: HostServiceOrigin, before?: TspEvent): void {
++		if (!this.#opened || this.#disposed) return;
++		const dispatch = () => {
++			if (before) this.mode.ui.dispatchNativeEvent(before);
++			this.mode.ui.handleRemoteInput(data);
++			this.mode.ui.flushNativeFrames();
++		};
++		if (origin) this.#hostServices.run(origin, dispatch);
++		else dispatch();
++	}
++
++	async command(text: string, origin?: HostServiceOrigin): Promise<boolean> {
++		if (!this.#opened || this.#disposed) return false;
++		if (this.#commandPending) throw new Error("A remote command is already being submitted");
++		this.#commandPending = true;
++		try {
++			const dispatch = async () => {
++				this.mode.editor.setText(text);
++				this.mode.ui.handleRemoteInput("\r");
++				this.mode.ui.flushNativeFrames();
++				await this.mode.waitForSubmissionDispatches();
++				await this.publishState();
++			};
++			if (origin) await this.#hostServices.run(origin, dispatch);
++			else await dispatch();
++			return true;
++		} finally {
++			this.#commandPending = false;
++		}
++	}
++	hostServiceReply(reply: HostServiceReply): boolean {
++		return this.#hostServices.reply(reply);
++	}
++
++	async publishState(restartRequested = false): Promise<void> {
++		if (this.#disposed || !this.#nativeStarted) return;
++		const resumeId = this.mode.sessionManager.getSessionId();
++		const cwd = this.mode.sessionManager.getCwd();
++		const resetHistory = this.#forceHistoryReset || resumeId !== this.#lastResumeId || cwd !== this.#lastCwd;
++		this.#forceHistoryReset = false;
++		this.#lastResumeId = resumeId;
++		this.#lastCwd = cwd;
++		const streaming = this.mode.session.isStreaming;
++		const ended = this.#lastStreaming && !streaming;
++		this.#lastStreaming = streaming;
++		const lastAssistant = ended
++			? this.mode.session.agent.state.messages.findLast(message => message.role === "assistant")
++			: undefined;
++		const state: RemoteCommandUiState = {
++			resumeId,
++			cwd,
++			streaming,
++			...(resetHistory ? { resetHistory: true } : {}),
++			...(lastAssistant?.stopReason ? { stopReason: lastAssistant.stopReason } : {}),
++			...(lastAssistant?.stopReason === "error" && lastAssistant.errorMessage
++				? { error: lastAssistant.errorMessage }
++				: {}),
++			...(restartRequested ? { restartRequested: true as const } : {}),
++		};
++		const delivery = this.#stateDelivery
++			? this.#stateDelivery.then(() => this.#onState(state))
++			: Promise.resolve(this.#onState(state));
++		this.#stateDelivery = delivery;
++		try {
++			await delivery;
++		} catch (error) {
++			if (resetHistory) this.#forceHistoryReset = true;
++			throw error;
++		} finally {
++			if (this.#stateDelivery === delivery) this.#stateDelivery = undefined;
++		}
++	}
++
++	async close(): Promise<void> {
++		if (this.#disposed) return;
++		this.#closeRequested = true;
++		await this.#opening?.catch(() => {});
++		if (!this.#opened) return;
++		this.#opened = false;
++		this.#hostServices.cancelPending("The OMP view closed before the host service completed.");
++		this.mode.ui.closeNative();
++	}
++
++	async dispose(): Promise<void> {
++		if (this.#disposed) return;
++		await this.close();
++		this.#disposed = true;
++		this.#hostServices.dispose();
++		this.#unsubscribeRunState();
++		this.#unsubscribeSessionChange();
++		this.mode.stop();
++		await this.mode.ui.stop();
++	}
++
++	async #runInputLoop(): Promise<void> {
++		while (!this.#disposed) {
++			try {
++				const input = await this.mode.getUserInput();
++				await submitInteractiveInput(this.mode, this.mode.session, input);
++				await this.publishState();
++			} catch (error) {
++				if (this.#disposed) return;
++				this.mode.showError(error instanceof Error ? error.message : String(error));
++			}
++		}
++	}
++}
+diff --git a/packages/coding-agent/src/modes/host-services.ts b/packages/coding-agent/src/modes/host-services.ts
+new file mode 100644
+index 0000000..9f52dc0
+--- /dev/null
++++ b/packages/coding-agent/src/modes/host-services.ts
+@@ -0,0 +1,226 @@
++import { randomUUID } from "node:crypto";
++import { AsyncLocalStorage } from "node:async_hooks";
++
++/**
++ * Routing identity of the native action that asked for a browser-owned effect.
++ * It is the worker-issued envelope; a child view can never retarget another one.
++ */
++export interface HostServiceOrigin {
++	readonly requestId: string;
++	readonly viewId: string;
++	readonly transportId: string;
++}
++
++export type HostServiceKind = "copy_text" | "open_url" | "open_stats_dashboard";
++
++export interface HostServiceRequest {
++	readonly serviceId: string;
++	readonly origin: HostServiceOrigin;
++	readonly kind: HostServiceKind;
++	readonly value: string;
++}
++
++/** Withdraws a request the browser may still be showing; it carries no value. */
++export interface HostServiceCancel {
++	readonly serviceId: string;
++	readonly origin: HostServiceOrigin;
++	readonly kind: HostServiceKind;
++}
++
++export interface HostServiceReply {
++	readonly serviceId: string;
++	readonly origin: HostServiceOrigin;
++	readonly accepted: boolean;
++	readonly error?: string;
++}
++
++export interface HostServiceChannel {
++	send(request: HostServiceRequest): void;
++	cancel(request: HostServiceCancel): void;
++}
++
++const MAX_PENDING = 32;
++const REQUEST_TIMEOUT_MS = 30_000;
++/** Matches the coordinator and browser host-service frame cap (1 MiB). */
++const MAX_COPY_BYTES = 1024 * 1024;
++/** URLs stay small; this is the native prompt's own bound. */
++const MAX_URL_BYTES = 8 * 1024;
++const MAX_ERROR_BYTES = 512;
++
++interface PendingRequest {
++	readonly origin: HostServiceOrigin;
++	readonly kind: HostServiceKind;
++	readonly resolve: () => void;
++	readonly reject: (error: Error) => void;
++	timer: ReturnType<typeof setTimeout>;
++}
++
++/**
++ * Routes browser-owned effects through the view whose native action requested
++ * them. Pending state is bounded, every promise is settled exactly once, and a
++ * reply is accepted only from the origin that created the request.
++ */
++export class RemoteHostServices {
++	readonly #origin = new AsyncLocalStorage<HostServiceOrigin>();
++	readonly #pending = new Map<string, PendingRequest>();
++	readonly #channel: HostServiceChannel;
++	readonly #timeoutMs: number;
++	#disposed = false;
++
++	constructor(channel: HostServiceChannel, timeoutMs = REQUEST_TIMEOUT_MS) {
++		this.#channel = channel;
++		this.#timeoutMs = timeoutMs;
++	}
++
++	readonly adapter = {
++		copyText: (text: string) => this.#request("copy_text", text),
++		openUrl: (url: string) => this.#request("open_url", url),
++		/**
++		 * Open the native stats dashboard in the hosted browser. A distinct
++		 * kind because a loopback URL here names the WORKER's dashboard; it
++		 * must never be treated as a generic provider callback the browser
++		 * cannot reach.
++		 */
++		openStatsDashboard: (url: string) => {
++			if (!isStatsBridgeOrigin(url)) {
++				return Promise.reject(new Error("The stats dashboard address is invalid."));
++			}
++			return this.#request("open_stats_dashboard", url);
++		},
++	};
++
++	/** Run one native action so its asynchronous callbacks keep the same origin. */
++	run<T>(origin: HostServiceOrigin, callback: () => T): T {
++		return this.#origin.run(origin, callback);
++	}
++
++	/** Settle a pending request from the browser; false means it was not this request's owner. */
++	reply(reply: HostServiceReply): boolean {
++		const pending = this.#pending.get(reply.serviceId);
++		if (
++			!pending ||
++			pending.origin.requestId !== reply.origin.requestId ||
++			pending.origin.viewId !== reply.origin.viewId ||
++			pending.origin.transportId !== reply.origin.transportId
++		) {
++			return false;
++		}
++		this.#settle(reply.serviceId, pending);
++		if (reply.accepted) pending.resolve();
++		else pending.reject(new Error(boundedError(reply.error)));
++		return true;
++	}
++
++	/** Reject outstanding work and withdraw its browser prompts (view closed). */
++	cancelPending(reason: string): void {
++		for (const [serviceId, pending] of this.#pending) {
++			clearTimeout(pending.timer);
++			this.#notifyCancel(serviceId, pending);
++			pending.reject(new Error(reason));
++		}
++		this.#pending.clear();
++	}
++
++	dispose(): void {
++		if (this.#disposed) return;
++		this.#disposed = true;
++		this.cancelPending("The remote command UI closed before the host service completed.");
++	}
++
++	#settle(serviceId: string, pending: PendingRequest): void {
++		this.#pending.delete(serviceId);
++		clearTimeout(pending.timer);
++	}
++
++	#notifyCancel(serviceId: string, pending: PendingRequest): void {
++		try {
++			this.#channel.cancel({ serviceId, origin: pending.origin, kind: pending.kind });
++		} catch {
++			// The view is already gone; the worker withdraws the request on its own.
++		}
++	}
++
++	#request(kind: HostServiceKind, value: string): Promise<void> {
++		const origin = this.#origin.getStore();
++		if (!origin) return Promise.reject(new Error("Host services require a view-owned user action."));
++		if (this.#disposed) return Promise.reject(new Error("The remote command UI is closed."));
++		const oversized = kind === "copy_text" ? MAX_COPY_BYTES : MAX_URL_BYTES;
++		if (value.length > oversized) {
++			return Promise.reject(new Error("The host service value exceeds its size limit."));
++		}
++		if (this.#pending.size >= MAX_PENDING) {
++			return Promise.reject(new Error("Too many pending host services."));
++		}
++		const serviceId = randomUUID();
++		const { promise, resolve, reject } = Promise.withResolvers<void>();
++		const timer = setTimeout(() => {
++			const pending = this.#pending.get(serviceId);
++			if (!pending) return;
++			this.#settle(serviceId, pending);
++			this.#notifyCancel(serviceId, pending);
++			reject(new Error("The browser host service timed out."));
++		}, this.#timeoutMs);
++		this.#pending.set(serviceId, { origin, kind, resolve, reject, timer });
++		try {
++			this.#channel.send({ serviceId, origin, kind, value });
++		} catch (error) {
++			const pending = this.#pending.get(serviceId);
++			if (pending) this.#settle(serviceId, pending);
++			reject(error instanceof Error ? error : new Error(String(error)));
++		}
++		return promise;
++	}
++}
++
++/**
++ * The native `/stats` helper reports one bare origin. Whether that host is
++ * actually assigned to the worker is proved by the worker's bind probe before
++ * it dials; the native side only rejects a shape that is not an origin.
++ */
++export function isStatsBridgeOrigin(url: string): boolean {
++	try {
++		const parsed = new URL(url);
++		return (
++			parsed.protocol === "http:" &&
++			parsed.pathname === "/" &&
++			parsed.search === "" &&
++			parsed.hash === "" &&
++			parsed.username === "" &&
++			parsed.password === "" &&
++			parsed.hostname.length > 0
++		);
++	} catch {
++		return false;
++	}
++}
++
++export function isHostServiceOrigin(value: unknown): value is HostServiceOrigin {
++	if (!value || typeof value !== "object") return false;
++	const origin = value as Partial<HostServiceOrigin>;
++	return (
++		typeof origin.requestId === "string" &&
++		origin.requestId.length > 0 &&
++		typeof origin.viewId === "string" &&
++		origin.viewId.length > 0 &&
++		typeof origin.transportId === "string" &&
++		origin.transportId.length > 0
++	);
++}
++
++export function isHostServiceReply(value: unknown): value is HostServiceReply {
++	if (!value || typeof value !== "object") return false;
++	const reply = value as Partial<HostServiceReply>;
++	return (
++		typeof reply.serviceId === "string" &&
++		reply.serviceId.length > 0 &&
++		isHostServiceOrigin(reply.origin) &&
++		typeof reply.accepted === "boolean" &&
++		(reply.error === undefined || typeof reply.error === "string")
++	);
++}
++
++function boundedError(error: string | undefined): string {
++	const message = error?.trim();
++	if (!message) return "The browser did not accept this host service.";
++	return message.length > MAX_ERROR_BYTES ? message.slice(0, MAX_ERROR_BYTES) : message;
++}
+diff --git a/packages/coding-agent/test/modes/host-services.test.ts b/packages/coding-agent/test/modes/host-services.test.ts
+new file mode 100644
+index 0000000..0a1fe8b
+--- /dev/null
++++ b/packages/coding-agent/test/modes/host-services.test.ts
+@@ -0,0 +1,131 @@
++import { describe, expect, it } from "bun:test";
++import {
++	type HostServiceCancel,
++	RemoteHostServices,
++	type HostServiceOrigin,
++	type HostServiceRequest,
++} from "../../src/modes/host-services";
++
++const origin: HostServiceOrigin = { requestId: "event-1", viewId: "view-1", transportId: "transport-1" };
++
++function channel() {
++	const requests: HostServiceRequest[] = [];
++	const cancels: HostServiceCancel[] = [];
++	return {
++		requests,
++		cancels,
++		channel: {
++			send: (request: HostServiceRequest) => {
++				requests.push(request);
++			},
++			cancel: (request: HostServiceCancel) => {
++				cancels.push(request);
++			},
++		},
++	};
++}
++
++describe("RemoteHostServices", () => {
++	it("settles only the matching service request from its originating view and transport", async () => {
++		const harness = channel();
++		const services = new RemoteHostServices(harness.channel);
++		const result = services.run(origin, () => services.adapter.copyText("private clipboard payload"));
++		const request = harness.requests[0];
++		if (!request) throw new Error("host service request was not sent");
++		expect(request.origin).toEqual(origin);
++		expect(request.kind).toBe("copy_text");
++		expect(request.value).toBe("private clipboard payload");
++		expect(
++			services.reply({
++				serviceId: request.serviceId,
++				origin: { ...origin, viewId: "other-view" },
++				accepted: true,
++			}),
++		).toBe(false);
++		expect(
++			services.reply({
++				serviceId: request.serviceId,
++				origin: { ...origin, transportId: "stale-transport" },
++				accepted: true,
++			}),
++		).toBe(false);
++		let settled = false;
++		void result.then(() => {
++			settled = true;
++		});
++		await Promise.resolve();
++		expect(settled).toBe(false);
++		expect(services.reply({ serviceId: request.serviceId, origin, accepted: true })).toBe(true);
++		await result;
++		// A duplicate reply is consumed once and cannot settle a later request.
++		expect(services.reply({ serviceId: request.serviceId, origin, accepted: true })).toBe(false);
++		services.dispose();
++	});
++
++	it("rejects failed browser services and refuses effects outside a view action", async () => {
++		const harness = channel();
++		const services = new RemoteHostServices(harness.channel);
++		await expect(services.adapter.openUrl("https://example.com")).rejects.toThrow("view-owned user action");
++		const result = services.run(origin, () => services.adapter.openUrl("https://example.com"));
++		const request = harness.requests[0];
++		if (!request) throw new Error("host service request was not sent");
++		expect(request.kind).toBe("open_url");
++		expect(harness.requests.length).toBe(1);
++		expect(services.reply({ serviceId: request.serviceId, origin, accepted: false, error: "popup blocked" })).toBe(
++			true,
++		);
++		await expect(result).rejects.toThrow("popup blocked");
++		services.dispose();
++	});
++
++	it("withdraws every outstanding request when the hosted view is disposed", async () => {
++		const harness = channel();
++		const services = new RemoteHostServices(harness.channel);
++		const result = services.run(origin, () => services.adapter.copyText("text"));
++		services.dispose();
++		expect(harness.cancels).toHaveLength(1);
++		expect(harness.cancels[0]).toMatchObject({ origin, kind: "copy_text" });
++		expect(harness.cancels[0]).not.toHaveProperty("value");
++		await expect(result).rejects.toThrow("closed before the host service completed");
++	});
++
++	it("withdraws a request the browser never answered before its timeout", async () => {
++		const harness = channel();
++		const services = new RemoteHostServices(harness.channel, 5);
++		const result = services.run(origin, () => services.adapter.openUrl("https://example.com"));
++		await expect(result).rejects.toThrow("timed out");
++		expect(harness.cancels).toHaveLength(1);
++		expect(harness.cancels[0]).toMatchObject({ kind: "open_url", origin });
++		services.dispose();
++	});
++
++	it("bounds pending work and value sizes without sending anything", async () => {
++		const harness = channel();
++		const services = new RemoteHostServices(harness.channel);
++		const pending = Array.from({ length: 32 }, () => services.run(origin, () => services.adapter.copyText("x")));
++		expect(harness.requests).toHaveLength(32);
++		await expect(services.run(origin, () => services.adapter.copyText("x"))).rejects.toThrow("Too many pending");
++		expect(harness.requests).toHaveLength(32);
++		await expect(services.run(origin, () => services.adapter.copyText("x".repeat(1024 * 1024 + 1)))).rejects.toThrow(
++			"size limit",
++		);
++		expect(harness.requests).toHaveLength(32);
++		for (const request of harness.requests) {
++			services.reply({ serviceId: request.serviceId, origin, accepted: true });
++		}
++		await Promise.all(pending);
++		services.dispose();
++		expect(harness.cancels).toHaveLength(0);
++	});
++
++	it("rejects an oversized browser error without leaking it whole", async () => {
++		const harness = channel();
++		const services = new RemoteHostServices(harness.channel);
++		const result = services.run(origin, () => services.adapter.copyText("x"));
++		const request = harness.requests[0];
++		if (!request) throw new Error("host service request was not sent");
++		services.reply({ serviceId: request.serviceId, origin, accepted: false, error: "e".repeat(4096) });
++		await expect(result).rejects.toThrow(/^e{512}$/);
++		services.dispose();
++	});
++});
+diff --git a/packages/tui/test/input-secret-ack.test.ts b/packages/tui/test/input-secret-ack.test.ts
+new file mode 100644
+index 0000000..973a7b1
+--- /dev/null
++++ b/packages/tui/test/input-secret-ack.test.ts
+@@ -0,0 +1,88 @@
++import { describe, expect, it } from "bun:test";
++import type { TspKind } from "@oh-my-pi/pi-wire";
++import { Editor } from "@oh-my-pi/pi-tui";
++import { Input } from "@oh-my-pi/pi-tui/components/input";
++import type { DescribeContext } from "@oh-my-pi/pi-tui/native/node";
++import { defaultEditorTheme } from "./test-themes";
++import { TspHarness } from "./native/tsp-harness";
++
++const cx: DescribeContext = {
++	cols: 80,
++	reduceMotion: false,
++	dark: true,
++	supports: (_kind: TspKind) => true,
++	feature: () => true,
++};
++
++describe("masked input edit acknowledgment", () => {
++	it("advertises the mask and never sends the secret as node text", () => {
++		const input = new Input();
++		input.mask = true;
++		input.setValue("correct horse");
++		const node = input.describe(cx);
++		expect(node.p).toMatchObject({ mask: true, text: "•".repeat(13), cursor: 13 });
++		expect(JSON.stringify(node.p)).not.toContain("correct");
++	});
++
++	it("acks a same-length secret replacement without a visible text change", () => {
++		const input = new Input();
++		input.mask = true;
++		input.setValue("abc");
++		input.applyHostEdit({ from: 0, to: 3, text: "xyz", cursor: 3, len: 3, n: 7 });
++		const node = input.describe(cx);
++		expect(input.getValue()).toBe("xyz");
++		expect(node.p).toMatchObject({ mask: true, text: "•••", ack: { n: 7, ok: true, cursor: 3 } });
++	});
++
++	it("releases a stale edit with ok:false and keeps the text", () => {
++		const input = new Input();
++		input.mask = true;
++		input.setValue("abc");
++		input.applyHostEdit({ from: 0, to: 3, text: "x", cursor: 1, len: 9, n: 8 });
++		const node = input.describe(cx);
++		expect(input.getValue()).toBe("abc");
++		expect(node.p).toMatchObject({ ack: { n: 8, ok: false } });
++	});
++
++	it("types a whole unicode secret and reports its grapheme caret", () => {
++		const input = new Input();
++		input.mask = true;
++		const secret = "pässwörd-e\u0301😀";
++		// Native single-line input normalizes NFC: the stored value is composed.
++		const stored = "pässwörd-é😀";
++		input.applyHostEdit({ from: 0, to: 0, text: secret, cursor: 11, len: 0, n: 10 });
++		expect(input.getValue()).toBe(stored);
++		const node = input.describe(cx);
++		expect(node.p).toMatchObject({ text: "•".repeat(11), cursor: 11, ack: { n: 10, ok: true, cursor: 11 } });
++	});
++
++	it("maps combining-mark and astral secret edits through grapheme cells", () => {
++		const input = new Input();
++		input.mask = true;
++		input.setValue("e\u0301😀x");
++		input.applyHostEdit({ from: 1, to: 2, text: "z", cursor: 2, len: 3, n: 9 });
++		expect(input.getValue()).toBe("e\u0301zx");
++		const node = input.describe(cx);
++		expect(node.p).toMatchObject({ text: "•••", ack: { n: 9, ok: true, cursor: 2 } });
++	});
++});
++
++describe("editor edit acknowledgment", () => {
++	it("emits a no-op caret move and a normalized replacement on the actual editor node", async () => {
++		const editor = new Editor(defaultEditorTheme);
++		editor.focused = true;
++		editor.setText("abc");
++		editor.applyHostEdit({ from: 0, to: 0, text: "", cursor: 2, len: 3, n: 11 });
++		const harness = await TspHarness.start(tui => {
++			tui.addChild(editor);
++		});
++		await harness.render();
++		const first = harness.find(node => node.k === "editor");
++		expect(first?.p).toMatchObject({ ack: { n: 11, ok: true, cursor: 2 } });
++		editor.applyHostEdit({ from: 0, to: 3, text: "abc", cursor: 3, len: 3, n: 12 });
++		await harness.render();
++		const second = harness.find(node => node.k === "editor");
++		expect(second?.p).toMatchObject({ ack: { n: 12, ok: true, cursor: 3 } });
++		harness.stop();
++	});
++});

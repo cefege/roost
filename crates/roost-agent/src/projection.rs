@@ -375,7 +375,9 @@ pub fn transcript(
         queued,
         omp_commands: Vec::new(),
         omp_interactions: Vec::new(),
-        // The runtime overwrites this from the store after projection;
+        omp_ui: None,
+        omp_ui_transport_id: None,
+        omp_ui_error: None, // The runtime overwrites this from the store after projection;
         // schedules are not journal-derived like `queued` is.
         schedules: Vec::new(),
         omp_session: None,

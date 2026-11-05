@@ -66,10 +66,11 @@ fn accepting_worker(
     sent
 }
 
-fn read_request(worker_fp: &str) -> FilesReadRequest {
+fn read_request(worker_fp: &str, revision: &str) -> FilesReadRequest {
     FilesReadRequest {
         worker_fp: worker_fp.to_owned(),
         path: "/tmp/notes.txt".to_owned(),
+        revision: revision.to_owned(),
         ..Default::default()
     }
 }
@@ -96,7 +97,11 @@ async fn a_reply_that_races_the_send_still_settles_the_read() {
     );
     let served = tokio::time::timeout(
         Duration::from_secs(5),
-        handle_files_read(&harness.core, &harness.caller(), read_request(WORKER_FP)),
+        handle_files_read(
+            &harness.core,
+            &harness.caller(),
+            read_request(WORKER_FP, "HEAD"),
+        ),
     )
     .await
     .expect("a reply that beat the handler to its wait must not be lost to the deadline")
@@ -109,8 +114,15 @@ async fn a_reply_that_races_the_send_still_settles_the_read() {
     let (browser_id, frame, viewer_id, _) = frame_of(&frames[0]);
     assert_eq!((browser_id, viewer_id), ("browser-fp", "browser-fp"));
     assert!(
-        matches!(frame, ClientControlFrame::ReadFile { path, .. } if path == "/tmp/notes.txt"),
-        "a read is a read-file frame naming the path, got {frame:?}"
+        matches!(
+            frame,
+            ClientControlFrame::ReadFile {
+                path,
+                revision: Some(revision),
+                ..
+            } if path == "/tmp/notes.txt" && revision == "HEAD"
+        ),
+        "the read relay preserves the requested revision, got {frame:?}"
     );
 }
 
@@ -132,7 +144,7 @@ async fn the_worker_lookup_answers_v2s_refusal_table() {
         let core = harness.core.clone();
         let caller = harness.caller();
         async move {
-            handle_files_read(&core, &caller, read_request(fp))
+            handle_files_read(&core, &caller, read_request(fp, ""))
                 .await
                 .map(|_| ())
                 .expect_err("the read is refused")

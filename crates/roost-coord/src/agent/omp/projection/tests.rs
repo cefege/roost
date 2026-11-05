@@ -294,3 +294,97 @@ fn omp_edit_snapshot_normalizes_numbered_diff_without_losing_context() {
     assert!(diff.contains("\n-old\n+new\n unchanged\n"));
     assert_eq!(details["firstChangedLine"], 1);
 }
+
+#[test]
+fn semantic_ui_frames_and_errors_fold_into_durable_transcript_state() {
+    let mut transcript = super::super::store::empty_transcript();
+    let message =
+        json!({"verb":"o","body":{"id":"command-surface","mode":"inline","title":"Model"}});
+    let events = apply(
+        &mut transcript,
+        1,
+        OmpWorkerEvent::Ui {
+            message: message.clone(),
+        },
+    );
+    assert_eq!(events, vec![ChatEvent::OmpUi { message }]);
+    assert!(
+        transcript
+            .omp_ui
+            .as_ref()
+            .is_some_and(|document| document.surfaces.contains_key("command-surface"))
+    );
+    let failed = apply(
+        &mut transcript,
+        2,
+        OmpWorkerEvent::UiFailed {
+            error: "semantic UI transport failed".into(),
+        },
+    );
+    assert_eq!(
+        failed,
+        vec![ChatEvent::OmpUiError {
+            error: "semantic UI transport failed".into(),
+        }]
+    );
+    assert_eq!(
+        transcript.omp_ui_error.as_deref(),
+        Some("semantic UI transport failed")
+    );
+    let events = apply(
+        &mut transcript,
+        3,
+        OmpWorkerEvent::UiReset {
+            transport_id: Some("nonce-a".into()),
+        },
+    );
+    assert_eq!(
+        events,
+        vec![ChatEvent::OmpUiReset {
+            transport_id: Some("nonce-a".into()),
+        }]
+    );
+    assert_eq!(
+        transcript.omp_ui_transport_id.as_deref(),
+        Some("nonce-a"),
+        "the live token must survive the fold for later admission"
+    );
+    assert!(transcript.omp_ui.is_none());
+    assert!(transcript.omp_ui_error.is_none());
+
+    let events = apply(
+        &mut transcript,
+        4,
+        OmpWorkerEvent::UiReset { transport_id: None },
+    );
+    assert_eq!(events, vec![ChatEvent::OmpUiReset { transport_id: None }]);
+    assert_eq!(
+        transcript.omp_ui_transport_id, None,
+        "a closed view must leave no token a stale action could name"
+    );
+}
+
+#[test]
+fn process_exit_closes_the_live_ui_transport_before_the_transcript_is_reloaded() {
+    let mut transcript = super::super::store::empty_transcript();
+    transcript.omp_ui_transport_id = Some("nonce-a".into());
+    transcript.omp_ui = Some(Default::default());
+    let projected = project(
+        &transcript,
+        "r1",
+        7,
+        &OmpWorkerEvent::ProcessExited { error: None },
+    );
+    assert!(
+        projected
+            .events
+            .iter()
+            .any(|event| matches!(event, ChatEvent::OmpUiReset { transport_id: None }))
+    );
+    assert!(
+        projected
+            .effects
+            .iter()
+            .any(|effect| matches!(effect, OmpEffect::UiTransport(None)))
+    );
+}

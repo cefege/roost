@@ -23,6 +23,9 @@ pub enum NonConnectSurface {
     DbExport,
     /// An `/api/*` path that no route claimed.
     Api,
+    /// The native dashboard capability namespace. Its path contains a bearer
+    /// token and is therefore never recorded verbatim.
+    Capability,
 }
 
 /// Why an outcome is not worth a row, when it is not.
@@ -52,7 +55,16 @@ pub fn should_persist_non_connect_audit(
     method: &str,
     status: u16,
 ) -> bool {
-    if surface == NonConnectSurface::Api && status == 404 {
+    if matches!(
+        surface,
+        NonConnectSurface::Api | NonConnectSurface::Capability
+    ) && status == 404
+    {
+        return false;
+    }
+    if surface == NonConnectSurface::Capability {
+        // The namespace carries a bearer token and its content is not a
+        // forensic record worth a durable row; telemetry still counts it.
         return false;
     }
     let read = method == "GET" || method == "HEAD";

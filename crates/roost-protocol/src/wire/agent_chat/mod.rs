@@ -25,6 +25,7 @@ pub use interaction_validation::{
 mod omp;
 pub use omp::*;
 mod proto;
+pub mod semantic_ui;
 mod tools;
 mod usage;
 /// An attachment admitted with a user submission.

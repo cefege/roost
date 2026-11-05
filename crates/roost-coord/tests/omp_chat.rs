@@ -4,6 +4,12 @@
 
 mod agent_fixture;
 mod db_support;
+#[path = "omp_chat/host_routing.rs"]
+mod host_routing;
+#[path = "omp_chat/host_routing_support.rs"]
+mod host_routing_support;
+#[path = "omp_chat/host_service_bounds.rs"]
+mod host_service_bounds;
 #[path = "omp_chat/ordering.rs"]
 mod ordering;
 #[path = "omp_chat/respond.rs"]

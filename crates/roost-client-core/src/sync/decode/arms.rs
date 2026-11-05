@@ -85,9 +85,11 @@ const TERMINAL_SIGNALS: FirehoseArm = application(55, "terminal_signals", SyncDo
 const AGENT_CONVERSATION: FirehoseArm = application(56, "agent_conversation", SyncDomain::Agent);
 const AGENT_CHAT_EVENTS: FirehoseArm = application(57, "agent_chat_events", SyncDomain::Agent);
 const WORKER_LIVE_METRICS: FirehoseArm = control(58, "worker_live_metrics");
+const OMP_HOST_SERVICE: FirehoseArm = control(59, "omp_host_service");
+const OMP_UI_ACTION_RECEIPT: FirehoseArm = control(60, "omp_ui_action_receipt");
 /// Every arm, in field order. All of them are mapped: `decode::map_arm` has no
 /// wildcard, so an arm with no row here cannot have a mapping either.
-pub const FIREHOSE_ARMS: [FirehoseArm; 35] = [
+pub const FIREHOSE_ARMS: [FirehoseArm; 37] = [
     SESSIONS,
     SESSION_PRESENCE,
     AUDIT_ROW,
@@ -123,6 +125,8 @@ pub const FIREHOSE_ARMS: [FirehoseArm; 35] = [
     AGENT_CONVERSATION,
     AGENT_CHAT_EVENTS,
     WORKER_LIVE_METRICS,
+    OMP_HOST_SERVICE,
+    OMP_UI_ACTION_RECEIPT,
 ];
 
 /// The table row for a decoded arm.
@@ -163,5 +167,7 @@ pub const fn arm_of(frame: &Frame) -> FirehoseArm {
         Frame::AgentConversation(_) => AGENT_CONVERSATION,
         Frame::AgentChatEvents(_) => AGENT_CHAT_EVENTS,
         Frame::WorkerLiveMetrics(_) => WORKER_LIVE_METRICS,
+        Frame::OmpHostService(_) => OMP_HOST_SERVICE,
+        Frame::OmpUiActionReceipt(_) => OMP_UI_ACTION_RECEIPT,
     }
 }

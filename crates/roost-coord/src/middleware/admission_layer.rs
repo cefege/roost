@@ -225,9 +225,18 @@ pub async fn admission_gate(
     };
     let host = host_header(&request);
     let origin = origin_header(&request);
+    // A sandboxed capability page has an opaque origin, so its fetches carry
+    // the literal `null`. That is admissible only inside the capability
+    // namespace, whose route validates the token in the path; every other
+    // `null` origin stays refused.
+    let opaque_capability =
+        crate::middleware::security::is_native_capability_path(request.uri().path());
     let decision = match &origin {
         OriginHeader::Unreadable => Admission::ForbiddenOrigin,
         OriginHeader::Absent => admit(host.as_deref(), None, policy),
+        OriginHeader::Value(origin) if opaque_capability && origin == "null" => {
+            admit(host.as_deref(), None, policy)
+        }
         OriginHeader::Value(origin) => admit(host.as_deref(), Some(origin), policy),
     };
     match decision {

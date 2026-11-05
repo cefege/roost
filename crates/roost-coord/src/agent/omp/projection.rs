@@ -1,6 +1,6 @@
-//! Pure ACP-to-chat projection; the ordered writer owns folding and persistence.
+//! Pure ACP and semantic UI projection; the ordered writer owns folding and persistence.
 //! Only the final streaming assistant can accept a chunk, never earlier history.
-//! Effects update OMP metadata atomically beside the transcript event batch.
+//! Session identity effects commit atomically beside their transcript events.
 
 use agent_client_protocol::v1::schema::{ContentBlock, SessionUpdate};
 use roost_protocol::wire::agent_chat::*;
@@ -16,6 +16,12 @@ pub enum OmpEffect {
     Mode(String),
     Modes(Vec<OmpChoice>),
     RunState(AgentRunState, Option<String>),
+    UiState {
+        resume_id: String,
+        cwd: String,
+    },
+    /// The current worker-generated semantic UI transport, or `None` closed.
+    UiTransport(Option<String>),
     WorkerEpoch(Option<String>),
 }
 #[derive(Debug, Default)]
@@ -201,7 +207,35 @@ pub fn project(
         OmpWorkerEvent::Notice { level, title, body } => projected
             .events
             .push(notice(run_id, seq, level, title, body)),
+        OmpWorkerEvent::UiState {
+            resume_id,
+            cwd,
+            streaming,
+            reset_history,
+        } => {
+            projected.effects.push(OmpEffect::UiState {
+                resume_id: resume_id.clone(),
+                cwd: cwd.clone(),
+            });
+            if *reset_history {
+                projected.events.push(ChatEvent::OmpHistoryReset);
+            }
+            let run_state = if *streaming {
+                AgentRunState::Running
+            } else {
+                AgentRunState::Idle
+            };
+            if *reset_history || transcript.run_state != run_state {
+                set_state(&mut projected, run_state, None);
+            }
+        }
+        OmpWorkerEvent::Ui { .. }
+        | OmpWorkerEvent::UiReset { .. }
+        | OmpWorkerEvent::UiFailed { .. } => {
+            super::projection_ui::project_event(&mut projected, event);
+        }
         OmpWorkerEvent::ProcessExited { error } => {
+            super::projection_ui::close(transcript, &mut projected);
             close_open_items(transcript, &mut projected.events);
             for interaction in &transcript.omp_interactions {
                 projected.events.push(ChatEvent::OmpInteractionResolved {

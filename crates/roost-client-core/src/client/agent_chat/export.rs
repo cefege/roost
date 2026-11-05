@@ -192,6 +192,9 @@ mod tests {
             queued: Vec::new(),
             omp_commands: Vec::new(),
             omp_interactions: Vec::new(),
+            omp_ui: None,
+            omp_ui_transport_id: None,
+            omp_ui_error: None,
             schedules: Vec::new(),
             omp_session: None,
         };

@@ -35,6 +35,19 @@ impl Emitter {
             loss_reported: false,
         }
     }
+    pub fn last_sequence(&self) -> u64 {
+        self.next_seq.saturating_sub(1)
+    }
+    /// One private effect request. It never enters the durable event run.
+    pub fn host_service(&self, request: roost_proto::WOmpHostServiceRequest) -> bool {
+        self.uplink
+            .send(CoordWorkerUpstream::OmpHostServiceRequest(request))
+    }
+    /// One private action receipt, fenced by the browser on canonical chat sequence.
+    pub fn receipt(&self, receipt: roost_proto::WOmpUiActionReceipt) -> bool {
+        self.uplink
+            .send(CoordWorkerUpstream::OmpUiActionReceipt(receipt))
+    }
     pub fn emit(&mut self, event: OmpWorkerEvent) {
         match serde_json::to_string(&event) {
             Ok(json) => {

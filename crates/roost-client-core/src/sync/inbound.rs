@@ -312,4 +312,17 @@ pub enum SyncFrame {
         /// The worker and its newest snapshot.
         frame: roost_protocol::wire::live_metrics::WorkerLiveMetricsFrame,
     },
+    /// One one-shot browser host request, or its cancellation. A control frame
+    /// addressed by the coordinator to the initiating device tab; it is never
+    /// persisted or replayed.
+    OmpHostService {
+        /// The request, or the withdrawal of one.
+        service: crate::client::agent_chat::OmpHostService,
+    },
+    /// One private native receipt for a receipt-tracked UI action, fenced by
+    /// the canonical chat sequence that contains its rendered effect.
+    OmpUiActionReceipt {
+        /// The receipt.
+        receipt: crate::client::agent_chat::OmpUiActionReceipt,
+    },
 }

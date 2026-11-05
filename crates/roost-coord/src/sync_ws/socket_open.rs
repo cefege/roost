@@ -189,10 +189,16 @@ pub(in crate::sync_ws) async fn open_socket(
     }
     let viewer = match (scope.read_only, v2) {
         (true, _) => UiViewer::suppressed(),
-        (false, true) => UiViewer::browser(socket_id.clone()),
+        (false, true) => UiViewer::browser(
+            socket_id.clone(),
+            caller.fingerprint.clone(),
+            scope.tab_id.clone().unwrap_or_default(),
+        ),
         (false, false) => UiViewer {
             browser_ui: true,
             socket_id: None,
+            fingerprint: Some(caller.fingerprint.clone()),
+            tab_id: scope.tab_id.clone(),
         },
     };
     let mut feed = LiveFeed::install(&link, &services.buses, viewer, scope.viewer_key.clone());

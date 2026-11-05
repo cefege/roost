@@ -1,31 +1,17 @@
-//! The OMP agent workspace: transcript and composer inside a deck agent tab.
-//! Owns snapshot repair, draft and reader position; `workspace` owns responsive
-//! layout. Mounted by `AgentSlot`, with conversation state supplied by the store.
+//! The agent chat route loads transcript state and mounts the active OMP view.
+//! Native conversations remain archived; the browser-owned view reads the live
+//! semantic document directly from the store without copying the transcript.
 
 use dioxus::prelude::*;
-use roost_protocol::wire::agent_chat::{AgentRunState, ModelsCatalog, ProviderEntry, Transcript};
 
-use super::composer::AgentComposer;
-use super::draft::use_conversation_draft;
-use super::interaction_cards::TodoCard;
 use super::last_conversation::use_remember_conversation;
-use super::message_actions::EditTarget;
-use super::plan_refinement::PlanRefinement;
-use super::surface_dom::copy_code_block;
-#[cfg(target_arch = "wasm32")]
-use super::surface_dom::{distance_from_bottom, scroll_to_bottom};
-use super::surface_state::{assistant_is_streaming, latest_todo};
-use super::working_row::{WorkingRow, working_label};
-use super::workspace::AgentWorkspace;
-use crate::components::ui::{
-    ButtonSize, ButtonVariant, EmptyState, IconButton, IconType, Skeleton,
-};
+use super::omp_ui_mount::OmpUiMount;
+use crate::components::ui::{EmptyState, IconType, Skeleton};
 use crate::pump::use_store;
 
 const ROOT_CLASS: &str =
     "relative flex h-full w-full min-h-0 min-w-0 flex-col bg-background text-foreground";
 const TRANSCRIPT_CLASS: &str = "min-h-0 flex-1 overflow-y-auto overscroll-y-contain py-5";
-const COLUMN_CLASS: &str = "mx-auto w-full max-w-reading px-4";
 
 #[cfg(target_arch = "wasm32")]
 use super::surface_fetch::{fetch_events_or_snapshot, fetch_snapshot};
@@ -34,53 +20,26 @@ use roost_client_core::ClientEvent;
 #[cfg(target_arch = "wasm32")]
 use roost_client_core::client::agent_chat::AgentChatIntent;
 
-/// Scrolled further than this from the bottom, the reader is reading history
-/// and new output must not pull the view down.
-#[cfg(target_arch = "wasm32")]
-const STICK_THRESHOLD_PX: i32 = 80;
-
 #[component]
 pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
     let pump = use_store();
     let _revision = pump.revision()();
     #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
-    let (conversation, transcript, _stale, loaded_seq, host_connected) =
+    let (conversation, transcript_loaded, _stale, loaded_seq, host_connected) =
         read_store(&pump, &conversation_id);
     let not_found = use_signal(|| false);
     #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
     let fetch_attempt = use_signal(|| 0_u32);
     #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
     let snapshot_generation = use_signal(|| 0_u64);
-    let catalog = use_signal(|| None::<ModelsCatalog>);
-    let catalog_failed = use_signal(|| false);
-    let draft = use_conversation_draft(&conversation_id);
     use_remember_conversation(
         &conversation_id,
         active,
         conversation.as_ref().is_some_and(|row| !row.is_native()),
     );
-    let mut edit_target = use_signal(|| None::<EditTarget>);
-    let mut edit_target_owner = use_signal(|| conversation_id.clone());
-    if *edit_target_owner.peek() != conversation_id {
-        edit_target.set(None);
-        edit_target_owner.set(conversation_id.clone());
-    }
-    let plan_refinement = PlanRefinement::provide(edit_target);
-    let mut plan_refinement_owner = use_signal(|| conversation_id.clone());
-    if *plan_refinement_owner.peek() != conversation_id {
-        plan_refinement.cancel();
-        plan_refinement_owner.set(conversation_id.clone());
-    }
-    let model_hub_open = use_signal(|| false);
-    let connect_provider = use_signal(|| None::<ProviderEntry>);
-    let mut scroll_node = use_signal(|| None::<std::rc::Rc<MountedData>>);
-    // Decided on scroll, not after render: by the time a large chunk of output
-    // has rendered, the distance to the bottom already includes it.
-    let mut pinned_to_bottom = use_signal(|| true);
     #[cfg(target_arch = "wasm32")]
     {
-        let fetch_needed = transcript.is_none() || _stale;
-        let has_transcript = transcript.is_some();
+        let fetch_needed = !transcript_loaded || _stale;
         let snapshot_pump = pump.clone();
         use_effect(use_reactive(
             (
@@ -91,7 +50,7 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
             ),
             move |(conversation_id, fetch_needed, _attempt, loaded_seq)| {
                 if fetch_needed {
-                    if has_transcript {
+                    if transcript_loaded {
                         fetch_events_or_snapshot(
                             snapshot_pump.clone(),
                             conversation_id,
@@ -112,21 +71,6 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
                 }
             },
         ));
-        let transcript_for_scroll = transcript.clone();
-        use_effect(use_reactive((&transcript_for_scroll,), move |_| {
-            if let (Some(node), true) = (scroll_node(), *pinned_to_bottom.peek()) {
-                scroll_to_bottom(&node);
-            }
-        }));
-        // The draft sizes the composer's field and so the transcript above it;
-        // re-pin so the newest messages move up instead of hiding. Read here,
-        // not in the body, so a keystroke reruns this effect, not the surface.
-        use_effect(move || {
-            let _ = draft.read();
-            if let (Some(node), true) = (scroll_node(), *pinned_to_bottom.peek()) {
-                scroll_to_bottom(&node);
-            }
-        });
     }
     use_drop({
         let pump = pump.clone();
@@ -160,93 +104,16 @@ pub fn AgentChatSurface(conversation_id: String, active: bool) -> Element {
             }
         };
     }
-    let Some(transcript) = transcript else {
+    if !transcript_loaded {
         return rsx! { div { class: ROOT_CLASS, LoadingTranscript {} } };
-    };
-    let running = transcript.run_state == AgentRunState::Running;
-    let composer = rsx! {
-        AgentComposer {
-            conversation: conversation.clone(),
-            catalog: catalog(),
-            catalog_failed: catalog_failed(),
-            transcript: transcript.clone(),
-            draft,
-            edit_target,
-            running,
-            host_connected,
-            active,
-            pump: pump.clone(),
-            model_hub_open,
-            connect_provider,
-        }
-    };
+    }
     rsx! {
-        AgentWorkspace {
-            conversation: conversation.clone(),
-            transcript: transcript.clone(),
-            catalog: catalog(),
-            pump: pump.clone(),
+        OmpUiMount {
+            key: "{conversation_id}",
+            conversation,
             active,
-            div { class: "flex min-h-0 flex-1",
-                div { class: "flex min-h-0 min-w-0 flex-1 flex-col",
-                    div {
-                        class: TRANSCRIPT_CLASS,
-                        role: "log",
-                        "aria-live": "polite",
-                        "aria-relevant": "additions text",
-                        "aria-label": "Conversation transcript",
-                        onmounted: move |event| scroll_node.set(Some(event.data())),
-                        onscroll: move |_| {
-                            #[cfg(target_arch = "wasm32")]
-                            if let Some(node) = scroll_node() {
-                                let near = distance_from_bottom(&node).is_some_and(|distance| distance < STICK_THRESHOLD_PX);
-                                if near != *pinned_to_bottom.peek() {
-                                    pinned_to_bottom.set(near);
-                                }
-                            }
-                        },
-                        onclick: move |event: MouseEvent| copy_code_block(&event),
-                        div { class: COLUMN_CLASS,
-                            if transcript.items.is_empty() && !running {
-                                super::welcome::AgentWelcome {}
-                            }
-                            super::transcript::AgentTranscriptView { transcript: transcript.clone(), conversation_id: conversation_id.clone(), native: false, pump: pump.clone(), draft, edit_target }
-                        }
-                    }
-                    div { class: "relative mx-auto flex w-full max-w-reading shrink-0 flex-col gap-3 pl-[max(env(safe-area-inset-left,0px),0.5rem)] pr-[max(env(safe-area-inset-right,0px),0.5rem)] pt-2 pb-(--term-chat-dock-rest-offset)",
-                        if running || !transcript.omp_interactions.is_empty() {
-                            WorkingRow {
-                                label: if !transcript.omp_interactions.is_empty() {
-                                    "Waiting for your answer…".to_string()
-                                } else if assistant_is_streaming(&transcript) {
-                                    "Writing…".to_string()
-                                } else {
-                                    working_label(&transcript.items)
-                                },
-                            }
-                        }
-                        if !pinned_to_bottom() {
-                            IconButton {
-                                icon: IconType::ArrowDown,
-                                label: "Jump to the latest message",
-                                title: "Jump to latest",
-                                variant: ButtonVariant::Secondary,
-                                size: ButtonSize::IconSm,
-                                class: "absolute bottom-full left-1/2 z-10 mb-2 -translate-x-1/2",
-                                onclick: move |_| {
-                                    pinned_to_bottom.set(true);
-                                    #[cfg(target_arch = "wasm32")]
-                                    if let Some(node) = scroll_node() {
-                                        scroll_to_bottom(&node);
-                                    }
-                                },
-                            }
-                        }
-                        if let Some(phases) = latest_todo(&transcript) { TodoCard { phases } }
-                        {composer}
-                    }
-                }
-            }
+            host_connected,
+            pump,
         }
     }
 }
@@ -267,7 +134,7 @@ fn LoadingTranscript() -> Element {
 
 type StoreReading = (
     Option<roost_protocol::wire::agent_chat::ConversationSummary>,
-    Option<Transcript>,
+    bool,
     bool,
     u64,
     bool,
@@ -281,7 +148,7 @@ fn read_store(pump: &crate::pump::Pump, conversation_id: &str) -> StoreReading {
     let loaded = store.agent_chat.transcripts.get(conversation_id);
     (
         conversation,
-        loaded.map(|loaded| loaded.transcript.clone()),
+        loaded.is_some(),
         loaded.is_some_and(|loaded| loaded.stale),
         loaded.map(|loaded| loaded.seq).unwrap_or_default(),
         store.agent_chat.host_connected,

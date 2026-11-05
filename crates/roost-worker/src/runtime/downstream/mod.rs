@@ -213,6 +213,13 @@ impl Dispatcher {
                     tracing::debug!("OMP mode change has no owner");
                 }
             }
+            CoordWorkerDownstream::OmpUi(request) => {
+                if let Some(owner) = self.owners.as_ref().and_then(|owners| owners.omp.as_ref()) {
+                    owner.ui(request);
+                } else {
+                    tracing::warn!("OMP semantic UI request has no owner");
+                }
+            }
             CoordWorkerDownstream::OmpRespond(request) => {
                 if let Some(owner) = self.owners.as_ref().and_then(|owners| owners.omp.as_ref()) {
                     owner.respond(request);

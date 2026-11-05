@@ -18,6 +18,7 @@ pub mod global_search;
 
 use serde::{Deserialize, Serialize};
 
+use crate::native_dashboard::HttpHeader;
 use crate::wire::AttachmentTargetId;
 use crate::wire::brand::{SessionId, TraceId};
 
@@ -49,6 +50,10 @@ pub const CAPTURE_REASONS: [&str; 5] = [
     "worker_emission",
     "pre_repair",
 ];
+
+/// The maximum UTF-8 bytes in a Git revision a browser may ask a worker to
+/// read. Revisions are commit-ish names or the `:0` index entry, never paths.
+pub const READ_FILE_REVISION_MAX_UTF8_BYTES: usize = 256;
 
 /// The geometry a respawn falls back to when the client named none, and the
 /// only geometry the coordinator may omit: a keeper PTY spawned at the wrong
@@ -110,6 +115,8 @@ pub enum ClientControlFrame {
     ReadFile {
         request_id: String,
         path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        revision: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max_lines: Option<i64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -328,6 +335,29 @@ pub enum ClientControlFrame {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         trace_id: Option<TraceId>,
     },
+    /// One request for the native stats dashboard listening on this worker's
+    /// loopback. Only a coordinator capability may construct it; the host,
+    /// port and path are the ones the native `/stats` helper named, and the
+    /// worker validates them again before dialling.
+    #[serde(rename = "stats-dashboard-http")]
+    StatsDashboardHttp {
+        request_id: String,
+        /// The reported native host: a loopback, wildcard or locally
+        /// assigned address the worker must prove before dialling.
+        host: String,
+        port: u16,
+        /// `GET`, `HEAD` or `POST`.
+        method: String,
+        /// An absolute upstream path, query included.
+        path: String,
+        #[serde(default)]
+        headers: Vec<HttpHeader>,
+        /// Standard base64, empty when the request has no body.
+        #[serde(default)]
+        body_base64: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        trace_id: Option<TraceId>,
+    },
 }
 
 impl ClientControlFrame {
@@ -361,6 +391,7 @@ impl ClientControlFrame {
             Self::DiagTerminalCapture { .. } => "diag-terminal-capture",
             Self::DiagSnapshot { .. } => "diag-snapshot",
             Self::RespawnIfMissing { .. } => "respawn-if-missing",
+            Self::StatsDashboardHttp { .. } => "stats-dashboard-http",
         }
     }
 }

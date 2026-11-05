@@ -42,6 +42,7 @@ pub async fn files_read(
     worker_fp: &WorkerFp,
     viewer_id: &str,
     path: &str,
+    revision: &str,
     request_id: &str,
 ) -> Result<FilesReadResponse, ConnectError> {
     let reply = relay_once(
@@ -53,6 +54,7 @@ pub async fn files_read(
         ClientControlFrame::ReadFile {
             request_id: request_id.to_owned(),
             path: path.to_owned(),
+            revision: (!revision.is_empty()).then(|| revision.to_owned()),
             max_lines: None,
             trace_id: None,
         },

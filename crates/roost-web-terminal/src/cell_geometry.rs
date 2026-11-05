@@ -76,14 +76,17 @@ pub fn css_px(value: &str) -> f64 {
         .unwrap_or(0.0)
 }
 
-/// Measure one cell INSIDE a mounted `.cell-grid` box: `.cell-grid .cell-row`
-/// carries the row's line-height, so a probe parented anywhere else measures
-/// the UA `line-height: normal` and under-counts rows.
+/// Measure text cells inside the mounted viewport using its declared probe recipe.
+/// Terminal callers use `cell-row`; semantic HTML uses its monospace UI recipe,
+/// independent of the surrounding proportional text.
 #[cfg(target_arch = "wasm32")]
-pub fn measure_terminal_cell_box(grid: &web_sys::Element) -> Option<TerminalCellBox> {
+pub fn measure_terminal_cell_box(
+    grid: &web_sys::Element,
+    probe_class: &str,
+) -> Option<TerminalCellBox> {
     use wasm_bindgen::JsCast;
     let probe = grid.owner_document()?.create_element("span").ok()?;
-    probe.set_class_name("cell-row");
+    probe.set_class_name(probe_class);
     if let Some(styled) = probe.dyn_ref::<web_sys::HtmlElement>() {
         let style = styled.style();
         for (name, value) in [

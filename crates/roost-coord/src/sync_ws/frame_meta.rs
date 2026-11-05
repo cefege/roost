@@ -161,6 +161,8 @@ pub fn frame_meta_for(frame: &Frame) -> SyncFrameMeta {
         // produces the frame.
         Frame::UiState(_)
         | Frame::UiCommand(_)
+        | Frame::OmpHostService(_)
+        | Frame::OmpUiActionReceipt(_)
         | Frame::Keepalive(_)
         | Frame::CoordinatorRelocation(_)
         | Frame::Subscribed(_)

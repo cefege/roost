@@ -110,6 +110,42 @@ impl UnaryMethod for ReadFile {
             &FilesReadRequest {
                 worker_fp: self.worker_fp.clone(),
                 path: self.path.clone(),
+                revision: String::new(),
+                ..Default::default()
+            },
+        )
+    }
+
+    fn decode_response(body: &[u8]) -> Result<ReadFileContents, RpcCodecError> {
+        let response: FilesReadResponse = decode_message(Self::METHOD, body)?;
+        Ok(ReadFileContents {
+            data: response.data,
+            size: response.size,
+        })
+    }
+}
+/// `FilesRead` at a Git revision (or the staged `:0` index entry).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadFileRevision {
+    /// The worker the file lives on.
+    pub worker_fp: String,
+    /// The absolute or working-directory-relative file path.
+    pub path: String,
+    /// A commit-ish or `:0` for the index.
+    pub revision: String,
+}
+
+impl UnaryMethod for ReadFileRevision {
+    const METHOD: &'static str = "FilesRead";
+    type Response = ReadFileContents;
+
+    fn encode_request(&self) -> Result<Vec<u8>, RpcCodecError> {
+        encode_message(
+            Self::METHOD,
+            &FilesReadRequest {
+                worker_fp: self.worker_fp.clone(),
+                path: self.path.clone(),
+                revision: self.revision.clone(),
                 ..Default::default()
             },
         )

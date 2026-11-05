@@ -260,6 +260,9 @@ mod tests {
             omp_session: None,
             omp_commands: Vec::new(),
             omp_interactions: Vec::new(),
+            omp_ui: None,
+            omp_ui_transport_id: None,
+            omp_ui_error: None,
         }
     }
 

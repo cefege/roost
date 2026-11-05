@@ -199,6 +199,42 @@ pub fn file_size(_file: &web_sys::File) -> u64 {
     0
 }
 
+/// Create a browser-owned media URL for bytes returned by the authenticated
+/// worker file reader. The caller releases it with [`revoke_preview`].
+#[cfg(target_arch = "wasm32")]
+pub fn preview_bytes(data: &[u8], mime: &str) -> Option<String> {
+    if !matches!(
+        mime,
+        "image/png"
+            | "image/jpeg"
+            | "image/gif"
+            | "image/webp"
+            | "image/avif"
+            | "image/bmp"
+            | "audio/mpeg"
+            | "audio/mp4"
+            | "audio/wav"
+            | "audio/ogg"
+            | "video/mp4"
+            | "video/webm"
+            | "video/ogg"
+    ) {
+        return None;
+    }
+    let options = web_sys::BlobPropertyBag::new();
+    options.set_type(mime);
+    let bytes = js_sys::Uint8Array::from(data);
+    let parts = js_sys::Array::of1(&bytes.into());
+    let blob = web_sys::Blob::new_with_u8_array_sequence_and_options(&parts, &options).ok()?;
+    web_sys::Url::create_object_url_with_blob(&blob).ok()
+}
+
+/// No media URL outside a browser.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn preview_bytes(_data: &[u8], _mime: &str) -> Option<String> {
+    None
+}
+
 /// A blob URL for a chosen image shown in the staged attachment tray.
 /// `None` for any other type. The caller owns the URL and revokes it with
 /// [`revoke_preview`].

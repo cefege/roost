@@ -156,3 +156,46 @@ pub fn delete_mcp_relay(store: &mut Store, id: &str) -> bool {
     tracing::debug!(target: "store", relay = %id, "mcp relay removed");
     true
 }
+
+/// Drop a host-service prompt once its reply reached the coordinator.
+pub fn complete_omp_host_service(store: &mut Store, service_id: &str) -> bool {
+    if !store.omp_host.complete_service(service_id) {
+        return false;
+    }
+    store.note_change();
+    true
+}
+
+/// Drop prompts and receipts for a transport this view no longer owns.
+pub fn discard_omp_host_transports(
+    store: &mut Store,
+    conversation_id: &str,
+    view_id: &str,
+    transport_id: &str,
+) -> bool {
+    let discarded = store
+        .omp_host
+        .discard_other_transports(conversation_id, view_id, transport_id);
+    if discarded {
+        store.note_change();
+    }
+    discarded
+}
+
+/// Release one receipt whose transcript fence has passed.
+pub fn take_ready_omp_receipt(
+    store: &mut Store,
+    conversation_id: &str,
+    view_id: &str,
+    transport_id: &str,
+    loaded_seq: u64,
+) -> Option<crate::client::agent_chat::OmpUiActionReceipt> {
+    let receipt =
+        store
+            .omp_host
+            .take_ready_receipt(conversation_id, view_id, transport_id, loaded_seq);
+    if receipt.is_some() {
+        store.note_change();
+    }
+    receipt
+}

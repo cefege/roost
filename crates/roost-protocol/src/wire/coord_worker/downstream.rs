@@ -173,6 +173,8 @@ pub enum CoordWorkerDownstream {
     OmpRespond(roost_proto::DOmpRespond),
     #[serde(rename = "omp-set-mode")]
     OmpSetMode(roost_proto::DOmpSetMode),
+    #[serde(rename = "omp-ui")]
+    OmpUi(roost_proto::DOmpUi),
 }
 
 impl CoordWorkerDownstream {
@@ -223,6 +225,7 @@ impl CoordWorkerDownstream {
             Self::OmpClose(_) => "omp-close",
             Self::OmpRespond(_) => "omp-respond",
             Self::OmpSetMode(_) => "omp-set-mode",
+            Self::OmpUi(_) => "omp-ui",
         }
     }
 

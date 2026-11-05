@@ -209,6 +209,22 @@ pub enum OmpWorkerEvent {
     SessionFailed {
         error: String,
     },
+    UiReset {
+        #[serde(default)]
+        transport_id: Option<String>,
+    },
+    UiState {
+        resume_id: String,
+        cwd: String,
+        streaming: bool,
+        reset_history: bool,
+    },
+    Ui {
+        message: serde_json::Value,
+    },
+    UiFailed {
+        error: String,
+    },
 }
 
 #[cfg(test)]

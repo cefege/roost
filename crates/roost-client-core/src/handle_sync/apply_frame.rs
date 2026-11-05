@@ -18,7 +18,8 @@ use crate::terminal::smoke_faults::FaultedFrameKind;
 use crate::terminal::token::TerminalTransport;
 
 use super::fold_controls::{
-    fold_audit_row, fold_coordinator_relocation, fold_pair_request, fold_ui_command,
+    fold_audit_row, fold_coordinator_relocation, fold_omp_host_service, fold_omp_receipt,
+    fold_pair_request, fold_ui_command,
 };
 use super::fold_registry::{
     fold_mcp_message, fold_task_delta, fold_worker_presence, fold_worker_routable,
@@ -330,6 +331,9 @@ pub(super) fn apply_frame(
                 conversation.clone(),
                 *host_connected,
             );
+            if *removed {
+                store.omp_host.forget_conversation(conversation_id);
+            }
             store.note_change();
         }
         SyncFrame::AgentChatEvents {
@@ -345,6 +349,8 @@ pub(super) fn apply_frame(
                 store.note_change();
             }
         }
+        SyncFrame::OmpHostService { service } => fold_omp_host_service(store, service),
+        SyncFrame::OmpUiActionReceipt { receipt } => fold_omp_receipt(store, receipt),
         SyncFrame::CoordinatorRelocation { relocation } => {
             fold_coordinator_relocation(store, generation, relocation, out);
         }

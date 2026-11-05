@@ -26,6 +26,7 @@ use roost_worker::attachments::store_paths::AttachmentBase;
 use roost_worker::browser_commands::Deps;
 use roost_worker::browser_commands::attachments::SessionAttachments;
 pub use roost_worker::browser_commands::file_commands::LocalFiles;
+use roost_worker::browser_commands::native_dashboard::NativeDashboardHttp;
 use roost_worker::browser_commands::search::Searches;
 
 pub mod dispatch;
@@ -96,6 +97,7 @@ pub fn harness() -> Harness {
             searches: Arc::new(Mutex::new(Searches::new())),
             attachments,
             diagnostics: diagnostics.clone(),
+            dashboard: Arc::new(NativeDashboardHttp::new()),
         },
         root,
         sessions,

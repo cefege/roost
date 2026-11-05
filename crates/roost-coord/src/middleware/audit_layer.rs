@@ -71,6 +71,10 @@ const SPA_LABEL: &str = "<spa-static>";
 /// `API_NOT_FOUND_AUDIT_PATH`.
 const API_404_LABEL: &str = "<api-404>";
 
+/// The fixed label and redacted route for a dashboard capability request.
+/// The real path contains a live bearer token and is never persisted/logged.
+const CAPABILITY_LABEL: &str = "<omp-stats>";
+
 /// The proto service namespace, which Connect owns.
 const PROTO_PREFIX: &str = "/roost.";
 
@@ -113,6 +117,9 @@ fn surface_of(method: &str, path: &str, spa_available: bool) -> Option<NonConnec
     if path == DB_EXPORT_PATH {
         return Some(NonConnectSurface::DbExport);
     }
+    if crate::middleware::security::is_native_capability_path(path) {
+        return Some(NonConnectSurface::Capability);
+    }
     // A `POST` to the proto namespace that Connect did not claim is an API
     // miss, not a page (`coord-factory.ts:174-176`).
     if path.starts_with(API_PREFIX) || (method == "POST" && path.starts_with(PROTO_PREFIX)) {
@@ -145,6 +152,7 @@ fn bounded_label(surface: NonConnectSurface, path: &str, status: u16) -> String 
     match surface {
         NonConnectSurface::Spa => SPA_LABEL.to_owned(),
         NonConnectSurface::Api if status == 404 => API_404_LABEL.to_owned(),
+        NonConnectSurface::Capability => CAPABILITY_LABEL.to_owned(),
         // The export is ONE path, so its real name is already bounded — and a
         // label that says which export was asked for is worth more than a fixed
         // one. v2 makes the same choice (`coord-factory.ts:212-215`).
@@ -166,6 +174,11 @@ pub async fn audit_layer(
     let trace = trace_id(&request);
     let response = next.run(request).await;
     let status = response.status().as_u16();
+    let path = if surface == NonConnectSurface::Capability {
+        CAPABILITY_LABEL.to_owned()
+    } else {
+        path
+    };
     // The bounded telemetry label, recorded for EVERY response on this surface
     // and not only for the ones that persist a row: a static success and an
     // unmatched probe each happened, and the counter that `MiscMetrics` reports
@@ -195,4 +208,28 @@ pub async fn audit_layer(
         "non-Connect request audited"
     );
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_dashboard_capability_never_reaches_audit_with_its_bearer() {
+        let token = "a".repeat(64);
+        let path = format!("/omp-stats/{token}/api/stats");
+        assert_eq!(
+            surface_of("GET", &path, true),
+            Some(NonConnectSurface::Capability)
+        );
+        assert_eq!(
+            bounded_label(NonConnectSurface::Capability, &path, 200),
+            CAPABILITY_LABEL
+        );
+        assert!(!should_persist_non_connect_audit(
+            NonConnectSurface::Capability,
+            "POST",
+            200
+        ));
+    }
 }

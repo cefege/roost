@@ -258,7 +258,71 @@ fn map_arm(frame: Frame, domain_generation: u64) -> Result<SyncFrame, String> {
             .map(|frame| SyncFrame::WorkerLiveMetrics { frame })
             .map_err(|error| error.to_string())
         }
+        Frame::OmpHostService(value) => Ok(SyncFrame::OmpHostService {
+            service: omp_host_service(*value)?,
+        }),
+        Frame::OmpUiActionReceipt(value) => Ok(SyncFrame::OmpUiActionReceipt {
+            receipt: omp_ui_action_receipt(*value)?,
+        }),
     }
+}
+
+/// Check the bounded, privacy-relevant shape of one host-service frame.
+fn omp_host_service(
+    value: roost_proto::OmpHostServiceFrame,
+) -> Result<crate::client::agent_chat::OmpHostService, String> {
+    use crate::client::agent_chat::{
+        MAX_HOST_SERVICE_VALUE_BYTES, OmpHostService, OmpHostServiceKind,
+    };
+    if value.service_id.is_empty()
+        || value.conversation_id.is_empty()
+        || value.view_id.is_empty()
+        || value.transport_id.is_empty()
+    {
+        return Err("host service frame is missing its identity".to_owned());
+    }
+    let kind = OmpHostServiceKind::from_wire(&value.kind)
+        .ok_or_else(|| "host service frame carried an unknown kind".to_owned())?;
+    if value.value.len() > MAX_HOST_SERVICE_VALUE_BYTES {
+        return Err("host service value exceeds the browser bound".to_owned());
+    }
+    if value.cancelled && !value.value.is_empty() {
+        return Err("cancelled host service carried a value".to_owned());
+    }
+    if !value.cancelled && value.value.is_empty() {
+        return Err("host service request carried no value".to_owned());
+    }
+    Ok(OmpHostService {
+        service_id: value.service_id,
+        origin_request_id: value.origin_request_id,
+        conversation_id: value.conversation_id,
+        view_id: value.view_id,
+        transport_id: value.transport_id,
+        kind,
+        value: value.value.into(),
+        cancelled: value.cancelled,
+    })
+}
+
+/// Check the identity a receipt must carry to be matchable at all.
+fn omp_ui_action_receipt(
+    value: roost_proto::OmpUiActionReceiptFrame,
+) -> Result<crate::client::agent_chat::OmpUiActionReceipt, String> {
+    if value.origin_request_id.is_empty()
+        || value.conversation_id.is_empty()
+        || value.view_id.is_empty()
+        || value.transport_id.is_empty()
+    {
+        return Err("OMP action receipt is missing its identity".to_owned());
+    }
+    Ok(crate::client::agent_chat::OmpUiActionReceipt {
+        origin_request_id: value.origin_request_id,
+        conversation_id: value.conversation_id,
+        view_id: value.view_id,
+        transport_id: value.transport_id,
+        after_seq: value.after_seq,
+        error: value.error,
+    })
 }
 
 fn clipboard_history(value: roost_proto::ClipboardHistoryFrame) -> Result<SyncFrame, String> {

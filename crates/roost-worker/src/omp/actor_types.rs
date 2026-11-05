@@ -18,6 +18,18 @@ use std::collections::VecDeque;
 )]
 pub(super) enum AcpEvent {
     Notification(SessionNotification),
+    Ui(serde_json::Value),
+    UiState(serde_json::Value),
+    /// A native action asked for a browser-owned effect; carries no durable data.
+    HostService(serde_json::Value),
+    /// The native action withdrew its own request (its own timeout).
+    HostServiceCancel(serde_json::Value),
+    UiCompleted {
+        method: &'static str,
+        transport_id: String,
+        request_id: String,
+        result: Result<serde_json::Value, Error>,
+    },
     Completed {
         request_id: String,
         result: Result<PromptResponse, Error>,
@@ -36,6 +48,8 @@ pub(super) struct ConnectionProgress {
 
 pub(super) struct ConnectionStart<'a> {
     pub prompt: DOmpPrompt,
+    pub initial_ui: Option<roost_proto::DOmpUi>,
+    pub ui: &'a mut super::ui::UiState,
     pub progress: &'a mut ConnectionProgress,
     pub pending: &'a mut PendingInteractions,
     pub deferred: &'a mut VecDeque<OmpCommand>,

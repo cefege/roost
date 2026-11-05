@@ -238,3 +238,145 @@ async fn omp_response_validates_pending_form_deduplicates_and_rejects_stale_item
     assert_eq!(stale.code, connectrpc::ErrorCode::FailedPrecondition);
     assert!(downstream.try_recv().is_err());
 }
+
+#[tokio::test]
+async fn omp_ui_opens_new_conversations_and_deduplicates_per_conversation() {
+    let fixture = AgentFixture::new("omp-ui-admission-idempotency").await;
+    let mut caller = fixture.caller.clone();
+    caller.tab_id = Some("tab-a".into());
+    let (_worker, mut downstream) = register_worker(&fixture, "worker-epoch");
+    let fresh = create(&fixture).await;
+    let first = create(&fixture).await;
+    let second = create(&fixture).await;
+    for conversation_id in [&first, &second] {
+        fixture.core.services.omp.receive(
+            WORKER_A,
+            CoordWorkerUpstream::OmpEvents(interaction_frame(
+                conversation_id,
+                1,
+                OmpWorkerEvent::SessionReady {
+                    acp_session_id: "session-a".into(),
+                    config_options: serde_json::json!([]),
+                    mode: None,
+                },
+            )),
+        );
+        assert!(matches!(
+            receive(&mut downstream).await,
+            CoordWorkerDownstream::OmpEventsAck(_)
+        ));
+    }
+    let action_json =
+        r#"{"method":"open","params":{"cols":80,"rows":24,"dark":true,"reduceMotion":false}}"#;
+    let request = |conversation_id: &str| proto::AgentOmpUiRequest {
+        conversation_id: conversation_id.into(),
+        request_id: "key-1".into(),
+        action_json: action_json.into(),
+        view_id: "view-a".into(),
+        tab_id: "tab-a".into(),
+        ..Default::default()
+    };
+    roost_coord::agent::omp::rpc_ui::handle_agent_omp_ui(&fixture.core, &caller, request(&fresh))
+        .await
+        .expect("new conversation UI open admitted without a resume ID");
+    let CoordWorkerDownstream::OmpUi(frame) = receive(&mut downstream).await else {
+        panic!("expected new-conversation UI open");
+    };
+    assert_eq!(frame.conversation_id, fresh);
+    assert!(frame.acp_session_id.is_empty());
+
+    roost_coord::agent::omp::rpc_ui::handle_agent_omp_ui(&fixture.core, &caller, request(&first))
+        .await
+        .expect("first UI action admitted");
+    let CoordWorkerDownstream::OmpUi(frame) = receive(&mut downstream).await else {
+        panic!("expected OMP UI action");
+    };
+    assert_eq!(frame.conversation_id, first);
+    assert_eq!(frame.cwd, "/work");
+    assert_eq!(frame.acp_session_id, "session-a");
+    assert_eq!(
+        frame.client_id,
+        format!("{}:view-a", fixture.caller.principal.fingerprint())
+    );
+
+    roost_coord::agent::omp::rpc_ui::handle_agent_omp_ui(&fixture.core, &caller, request(&first))
+        .await
+        .expect("duplicate UI action is idempotent");
+    assert!(downstream.try_recv().is_err());
+
+    roost_coord::agent::omp::rpc_ui::handle_agent_omp_ui(&fixture.core, &caller, request(&second))
+        .await
+        .expect("request id is scoped to its conversation");
+    let CoordWorkerDownstream::OmpUi(frame) = receive(&mut downstream).await else {
+        panic!("expected OMP UI action for second conversation");
+    };
+    assert_eq!(frame.conversation_id, second);
+    let error = roost_coord::agent::omp::rpc_ui::handle_agent_omp_ui(
+        &fixture.core,
+        &caller,
+        request("missing-conversation"),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code, connectrpc::ErrorCode::NotFound);
+    assert!(downstream.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn ui_state_persists_resume_identity_and_resets_history_without_losing_surface() {
+    let fixture = AgentFixture::new("omp-ui-resume-state").await;
+    let (_worker, mut downstream) = register_worker(&fixture, "worker-epoch");
+    let conversation_id = create(&fixture).await;
+    let events = [
+        OmpWorkerEvent::SessionReady {
+            acp_session_id: "live-handle".into(),
+            config_options: serde_json::json!([]),
+            mode: None,
+        },
+        OmpWorkerEvent::Ui {
+            message: serde_json::json!({"verb":"o","body":{"id":"surface-a"}}),
+        },
+        OmpWorkerEvent::Update {
+            update: serde_json::json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"old history"}}),
+        },
+        OmpWorkerEvent::UiState {
+            resume_id: "session-manager-id".into(),
+            cwd: "/work/next".into(),
+            streaming: false,
+            reset_history: true,
+        },
+        OmpWorkerEvent::Update {
+            update: serde_json::json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"new history"}}),
+        },
+    ];
+    for (index, event) in events.into_iter().enumerate() {
+        fixture.core.services.omp.receive(
+            WORKER_A,
+            CoordWorkerUpstream::OmpEvents(interaction_frame(
+                &conversation_id,
+                index as u64 + 1,
+                event,
+            )),
+        );
+        assert!(matches!(
+            receive(&mut downstream).await,
+            CoordWorkerDownstream::OmpEventsAck(_)
+        ));
+    }
+    let conversation =
+        roost_coord::agent::omp::store::find(&fixture.core.services.db, &conversation_id)
+            .await
+            .unwrap()
+            .unwrap();
+    assert_eq!(
+        conversation.acp_session_id.as_deref(),
+        Some("session-manager-id")
+    );
+    assert_eq!(conversation.cwd, "/work/next");
+    let transcript = snapshot(&fixture, &conversation_id).await.1;
+    assert_eq!(transcript.items.len(), 1);
+    assert!(transcript.omp_ui.is_some());
+    let transcript_json = serde_json::to_string(&transcript).unwrap();
+    assert!(transcript_json.contains("new history"));
+    assert!(!transcript_json.contains("old history"));
+}

@@ -174,6 +174,7 @@ pub fn handle_event(
             store.clipboard_history.clear();
             store.command_finished_requests.clear();
             store.terminal_signals.clear();
+            store.omp_host.clear();
             store.note_change();
             // No session is left to keep a peer warm for.
             crate::handle_terminal::reconcile_prewarm(store, host_now_ms, out);

@@ -36,6 +36,9 @@ fn transcript() -> Transcript {
         queued: Vec::new(),
         omp_commands: Vec::new(),
         omp_interactions: Vec::new(),
+        omp_ui: None,
+        omp_ui_transport_id: None,
+        omp_ui_error: None,
         schedules: Vec::new(),
         omp_session: None,
     }
@@ -64,7 +67,7 @@ fn reset_and_deltas_build_text() {
     fold_chat_event(
         &mut value,
         &ChatEvent::Reset {
-            transcript: reset.clone(),
+            transcript: Box::new(reset.clone()),
         },
     );
     assert_eq!(value, reset);
@@ -144,7 +147,7 @@ fn every_chat_event_round_trips_spec_json() {
         (
             r#"{"type":"reset","transcript":{"items":[],"run_state":"idle","error":null,"model":null,"thinking_level":null,"mode":null,"usage":{"input_tokens":0,"output_tokens":0,"cost_usd":0.0}}}"#,
             ChatEvent::Reset {
-                transcript: Transcript {
+                transcript: Box::new(Transcript {
                     items: vec![],
                     run_state: AgentRunState::Idle,
                     error: None,
@@ -155,9 +158,12 @@ fn every_chat_event_round_trips_spec_json() {
                     queued: Vec::new(),
                     omp_commands: Vec::new(),
                     omp_interactions: Vec::new(),
+                    omp_ui: None,
+                    omp_ui_transport_id: None,
+                    omp_ui_error: None,
                     schedules: Vec::new(),
                     omp_session: None,
-                },
+                }),
             },
         ),
         (
@@ -256,6 +262,32 @@ fn every_chat_event_round_trips_spec_json() {
                 submission_ids: vec!["u7".into()],
             },
         ),
+        (
+            r#"{"type":"omp_history_reset"}"#,
+            ChatEvent::OmpHistoryReset,
+        ),
+        (
+            r#"{"type":"omp_ui_reset","transport_id":"nonce-a"}"#,
+            ChatEvent::OmpUiReset {
+                transport_id: Some("nonce-a".into()),
+            },
+        ),
+        (
+            r#"{"type":"omp_ui_reset","transport_id":null}"#,
+            ChatEvent::OmpUiReset { transport_id: None },
+        ),
+        (
+            r#"{"type":"omp_ui","message":{"verb":"o","body":{"id":"surface-a"}}}"#,
+            ChatEvent::OmpUi {
+                message: serde_json::json!({"verb":"o","body":{"id":"surface-a"}}),
+            },
+        ),
+        (
+            r#"{"type":"omp_ui_error","error":"bad frame"}"#,
+            ChatEvent::OmpUiError {
+                error: "bad frame".into(),
+            },
+        ),
     ];
     for (json, event) in pairs {
         assert_eq!(
@@ -337,54 +369,5 @@ fn queue_removal_removes_the_submission_from_live_transcript_state() {
     );
 }
 
-#[test]
-fn notice_plan_and_advisory_items_fold_and_plan_updates_replace() {
-    let mut value = transcript();
-    for item in [
-        TranscriptItem::Notice {
-            id: "n".into(),
-            level: "warn".into(),
-            title: "Warning".into(),
-            body: "Details".into(),
-        },
-        TranscriptItem::Plan {
-            id: "p".into(),
-            title: "Plan".into(),
-            content: "Steps".into(),
-            state: "proposed".into(),
-        },
-        TranscriptItem::Advisory {
-            id: "adv".into(),
-            severity: "concern".into(),
-            note: "Check this".into(),
-            delivered: false,
-        },
-        TranscriptItem::Plan {
-            id: "p".into(),
-            title: "Plan".into(),
-            content: "Updated".into(),
-            state: "approved".into(),
-        },
-    ] {
-        fold_chat_event(&mut value, &ChatEvent::Item { item });
-    }
-    assert!(matches!(&value.items[2], TranscriptItem::Notice { body, .. } if body == "Details"));
-    assert!(
-        matches!(&value.items[3], TranscriptItem::Plan { state, content, .. } if state == "approved" && content == "Updated")
-    );
-    assert!(matches!(
-        &value.items[4],
-        TranscriptItem::Advisory {
-            delivered: false,
-            ..
-        }
-    ));
-}
-
-#[test]
-fn tool_children_default_when_omitted_from_json() {
-    let item: TranscriptItem = serde_json::from_str(
-        r#"{"kind":"tool","id":"t","call_id":"c","tool_name":"task","args_json":"{}","output":"","is_error":false,"running":false}"#,
-    ).expect("legacy tool item");
-    assert!(matches!(item, TranscriptItem::Tool { children, .. } if children.is_empty()));
-}
+#[path = "agent_chat_fold/items.rs"]
+mod items;

@@ -28,6 +28,7 @@ use crate::attachments::store_paths::AttachmentBase;
 use crate::browser_commands::Deps;
 use crate::browser_commands::attachments::SessionAttachments;
 use crate::browser_commands::file_commands::LocalFiles;
+use crate::browser_commands::native_dashboard::NativeDashboardHttp;
 use crate::browser_commands::presence::WorkerPresence;
 use crate::browser_commands::search;
 use crate::browser_commands::search_scan::GridScanner;
@@ -98,6 +99,7 @@ impl WorkerCapabilities {
             searches: Arc::clone(&searches),
             attachments: Arc::new(SessionAttachments::new(attachments)),
             diagnostics: capture,
+            dashboard: Arc::new(NativeDashboardHttp::new()),
         }
     }
 }

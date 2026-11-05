@@ -23,6 +23,27 @@ use crate::sync::inbound::{AuditEntry, CoordinatorRelocation, PairRequestChange,
 
 use super::close_failed::close_failed_sync_link;
 
+/// One browser host request or its cancellation. The value lives only in the
+/// transient inbox; nothing here folds it into a transcript.
+pub(super) fn fold_omp_host_service(
+    store: &mut Store,
+    service: &crate::client::agent_chat::OmpHostService,
+) {
+    if store.omp_host.apply_service(service.clone()) {
+        store.note_change();
+    }
+}
+
+/// One private native action receipt, held until the transcript fence passes.
+pub(super) fn fold_omp_receipt(
+    store: &mut Store,
+    receipt: &crate::client::agent_chat::OmpUiActionReceipt,
+) {
+    if store.omp_host.apply_receipt(receipt.clone()) {
+        store.note_change();
+    }
+}
+
 /// One pair-request change. A snapshot REPLACES the set, so a removal missed
 /// while disconnected cannot linger.
 pub(super) fn fold_pair_request(

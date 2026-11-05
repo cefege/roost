@@ -2,8 +2,11 @@
 //! Todo and loop state have one visible home beside the composer; neither is
 //! rendered as conversation content by the transcript view.
 
-use roost_protocol::wire::agent_chat::{TodoPhase, Transcript, TranscriptItem};
+#[cfg(feature = "archived-native-ui")]
+use roost_protocol::wire::agent_chat::TodoPhase;
+use roost_protocol::wire::agent_chat::{Transcript, TranscriptItem};
 
+#[cfg(feature = "archived-native-ui")]
 pub(super) fn latest_todo(transcript: &Transcript) -> Option<Vec<TodoPhase>> {
     transcript.items.iter().rev().find_map(|item| match item {
         TranscriptItem::Todo { phases, .. } => Some(phases.clone()),
@@ -11,8 +14,7 @@ pub(super) fn latest_todo(transcript: &Transcript) -> Option<Vec<TodoPhase>> {
     })
 }
 
-// Retained with the archived native UI, which does not mount loop controls.
-#[allow(dead_code)]
+#[cfg(feature = "archived-native-ui")]
 pub(super) fn loop_status(transcript: &Transcript) -> Option<&str> {
     transcript.items.iter().find_map(|item| match item {
         TranscriptItem::LoopStatus { status, .. } => Some(status.as_str()),

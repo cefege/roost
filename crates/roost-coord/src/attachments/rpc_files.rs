@@ -35,7 +35,17 @@ pub async fn handle_files_read(
     let relay = &core.services.scrollback;
     let worker_fp = require_worker_hub_socket(&core.services.db, relay, &req.worker_fp).await?;
     let request_id = relay.pending().next_request_id();
-    Response::ok(files_read(relay, &worker_fp, viewer_id, &req.path, &request_id).await?)
+    Response::ok(
+        files_read(
+            relay,
+            &worker_fp,
+            viewer_id,
+            &req.path,
+            &req.revision,
+            &request_id,
+        )
+        .await?,
+    )
 }
 
 /// One page of a download. v2 `filesReadChunk`: the worker is resolved before

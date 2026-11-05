@@ -360,6 +360,28 @@ message InputAmbiguous {
 }
 
 
+// One-shot host service request, never replayed or stored in a transcript.
+message OmpHostServiceFrame {
+  string service_id = 1;
+  string origin_request_id = 2;
+  string conversation_id = 3;
+  string view_id = 4;
+  string transport_id = 5;
+  string kind = 6;
+  string value = 7;
+  bool cancelled = 8;
+}
+
+// A private native action result; apply only after the transcript fence.
+message OmpUiActionReceiptFrame {
+  string origin_request_id = 1;
+  string conversation_id = 2;
+  string view_id = 3;
+  string transport_id = 4;
+  uint64 after_seq = 5;
+  string error = 6;
+}
+
 message FirehoseFrame {
   reserved 7, 14, 15, 28, 30, 42, 43, 47;  // retired fields
   reserved "webhook_token_delta", "permission_delta",
@@ -414,6 +436,8 @@ message FirehoseFrame {
     TerminalBellFrame terminal_bell = 54;
     TerminalSignalsFrame terminal_signals = 55;
     WorkerLiveMetricsFrame worker_live_metrics = 58;
+    OmpHostServiceFrame omp_host_service = 59;
+    OmpUiActionReceiptFrame omp_ui_action_receipt = 60;
   }
 }
 

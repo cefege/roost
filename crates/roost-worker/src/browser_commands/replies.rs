@@ -126,6 +126,7 @@ pub fn trace_id(frame: &ClientControlFrame) -> Option<TraceId> {
         | ClientControlFrame::DeleteAttachment { trace_id, .. }
         | ClientControlFrame::DiagTerminalCapture { trace_id, .. }
         | ClientControlFrame::DiagSnapshot { trace_id, .. }
-        | ClientControlFrame::RespawnIfMissing { trace_id, .. } => trace_id.clone(),
+        | ClientControlFrame::RespawnIfMissing { trace_id, .. }
+        | ClientControlFrame::StatsDashboardHttp { trace_id, .. } => trace_id.clone(),
     }
 }

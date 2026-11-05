@@ -67,7 +67,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{any, get, post};
 
 use crate::coord_core::CoordCore;
 use crate::http::db_export::db_export;
@@ -221,6 +221,10 @@ pub fn build_router(state: Arc<ListenerState>) -> MountedListener {
         .route("/ws/coord-worker/{fingerprint}", get(worker_upgrade))
         .route(DB_EXPORT_PATH, get(db_export).head(db_export))
         .route(RETIRED_SYNC_PATH, post(retired_sync))
+        .route(
+            "/omp-stats/{*capability}",
+            any(crate::http::native_dashboard::serve),
+        )
         .merge(crate::http::health::health_routes())
         .merge(version_routes())
         .fallback_service(connect)

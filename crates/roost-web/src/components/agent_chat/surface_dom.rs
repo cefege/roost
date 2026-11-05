@@ -2,8 +2,10 @@
 //! Called by `surface`; uses the existing clipboard hook and mounted element.
 //! Scroll ownership stays with the surface's pre-update reader decision.
 
+#[cfg(any(target_arch = "wasm32", feature = "archived-native-ui"))]
 use dioxus::prelude::*;
 
+#[cfg(feature = "archived-native-ui")]
 #[cfg_attr(not(target_arch = "wasm32"), allow(unused_variables))]
 pub(super) fn copy_code_block(event: &MouseEvent) {
     #[cfg(target_arch = "wasm32")]

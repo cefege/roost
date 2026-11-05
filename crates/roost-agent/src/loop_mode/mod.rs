@@ -145,7 +145,15 @@ impl AgentRuntime {
         tracing::info!(conversation_id = id, "loop mode stopped");
         // A reset is the only way to remove an item the client has upserted.
         match self.transcript(id).await {
-            Ok(transcript) => self.emit(id, vec![ChatEvent::Reset { transcript }]).await,
+            Ok(transcript) => {
+                self.emit(
+                    id,
+                    vec![ChatEvent::Reset {
+                        transcript: Box::new(transcript),
+                    }],
+                )
+                .await
+            }
             Err(error) => {
                 tracing::warn!(conversation_id = id, %error, "loop status was not cleared");
             }

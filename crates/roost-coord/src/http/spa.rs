@@ -125,6 +125,7 @@ fn owns_another_surface(path: &str) -> bool {
         || path.starts_with("/internal/")
         || path.starts_with(API_PREFIX)
         || path.starts_with(WS_PREFIX)
+        || crate::middleware::security::is_native_capability_path(path)
         || path == HEALTHZ_PATH
         || path == READYZ_PATH
         || path == VERSION_PATH

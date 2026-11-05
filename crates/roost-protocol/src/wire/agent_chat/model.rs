@@ -139,6 +139,12 @@ pub struct Transcript {
     pub schedules: Vec<ScheduledMessage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub omp_session: Option<OmpSessionState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub omp_ui: Option<super::semantic_ui::OmpUiDocument>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub omp_ui_transport_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub omp_ui_error: Option<String>,
 }
 
 /// A user message accepted but not yet read by the running agent.

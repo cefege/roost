@@ -144,7 +144,9 @@ fn classify(upstream: CoordWorkerUpstream) -> LinkFrame {
         | Up::AgentToolOutput(_)
         | Up::AgentToolResult(_)
         | Up::AgentJobResult(_)
-        | Up::OmpEvents(_) => (FrameClass::Rpc, 0),
+        | Up::OmpEvents(_)
+        | Up::OmpHostServiceRequest(_)
+        | Up::OmpUiActionReceipt(_) => (FrameClass::Rpc, 0),
     };
     LinkFrame::Dispatch(Box::new(InboundFrame {
         class,

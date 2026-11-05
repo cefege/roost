@@ -22,6 +22,7 @@ use crate::agent::omp::rpc::{handle_agent_omp_respond, handle_agent_omp_session_
 use crate::agent::omp::rpc_settings::{
     handle_agent_omp_settings_get, handle_agent_omp_settings_set,
 };
+use crate::agent::omp::rpc_ui::handle_agent_omp_ui;
 use crate::agent::rpc_accounts::{
     handle_agent_account_remove, handle_agent_accounts_list, handle_agent_settings_get,
     handle_agent_settings_set, handle_agent_usage_get,
@@ -868,6 +869,17 @@ impl CoordinatorService for CoordinatorServiceImpl {
         async move {
             let caller = caller_of(&ctx, "AgentOmpSessionOpen")?;
             handle_agent_omp_session_open(&self.core, caller, r.to_owned_message()).await
+        }
+    }
+    fn agent_omp_ui<'a>(
+        &'a self,
+        ctx: RequestContext,
+        r: ServiceRequest<'_, AgentOmpUiRequest>,
+    ) -> impl Future<Output = ServiceResult<impl Encodable<AgentOmpUiResponse> + Send + use<'a>>> + Send
+    {
+        async move {
+            let caller = caller_of(&ctx, "AgentOmpUi")?;
+            handle_agent_omp_ui(&self.core, caller, r.to_owned_message()).await
         }
     }
     fn agent_omp_respond<'a>(

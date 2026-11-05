@@ -111,6 +111,9 @@ impl<L: OmpLauncher> OmpPort for OmpOwner<L> {
             OmpCommand::SetMode(request),
         );
     }
+    fn ui(&self, request: roost_proto::DOmpUi) {
+        self.start(request.conversation_id.clone(), OmpCommand::Ui(request));
+    }
     fn ack(&self, request: roost_proto::DOmpEventsAck) {
         self.forward(
             &request.conversation_id,

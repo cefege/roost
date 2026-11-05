@@ -27,6 +27,9 @@ use roost_proto::{Task, UiCommand, UiReportStateRequest};
 use roost_protocol::wire::{SessionEvent, WorkerFp};
 use serde_json::Value;
 
+#[path = "ui_bus_debug.rs"]
+mod ui_debug;
+
 /// Durable session fan-out, carrying the durable row's id as the replay order.
 ///
 /// The stamp is **internal**: it is never a wire field. It exists so the Sync
@@ -302,40 +305,25 @@ pub enum UiBusMsg {
     Apply {
         /// The tab meant.
         target_tab_id: String,
-        /// The socket that acknowledged it.
+        /// The Sync socket generation this command is addressed to.
         target_socket_id: String,
-        /// The RPC correlation id, so the acknowledgement can be matched.
+        /// The caller's request id.
         correlation_id: String,
         /// The command.
         command: UiCommand,
     },
-}
-
-impl std::fmt::Debug for UiBusMsg {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::State { fp, tab_id, .. } => formatter
-                .debug_struct("UiBusMsg::State")
-                .field("fp", fp)
-                .field("tab_id", tab_id)
-                .finish(),
-            Self::Command { target_tab_id, .. } => formatter
-                .debug_struct("UiBusMsg::Command")
-                .field("target_tab_id", target_tab_id)
-                .finish(),
-            Self::Apply {
-                target_tab_id,
-                target_socket_id,
-                correlation_id,
-                ..
-            } => formatter
-                .debug_struct("UiBusMsg::Apply")
-                .field("target_tab_id", target_tab_id)
-                .field("target_socket_id", target_socket_id)
-                .field("correlation_id", correlation_id)
-                .finish(),
-        }
-    }
+    /// An ephemeral browser-host request addressed to one device tab.
+    OmpHostService {
+        fingerprint: String,
+        tab_id: String,
+        frame: roost_proto::OmpHostServiceFrame,
+    },
+    /// A private native-action receipt, fenced by the canonical chat sequence.
+    OmpUiActionReceipt {
+        fingerprint: String,
+        tab_id: String,
+        frame: roost_proto::OmpUiActionReceiptFrame,
+    },
 }
 
 /// A clipboard history mutation, delivered to every install-wide Sync link.

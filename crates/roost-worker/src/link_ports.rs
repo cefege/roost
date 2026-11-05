@@ -253,6 +253,7 @@ pub trait OmpPort: Send + Sync + std::fmt::Debug {
     fn cancel(&self, request: roost_proto::DOmpCancel);
     fn respond(&self, request: roost_proto::DOmpRespond);
     fn set_mode(&self, request: roost_proto::DOmpSetMode);
+    fn ui(&self, request: roost_proto::DOmpUi);
     fn ack(&self, request: roost_proto::DOmpEventsAck);
     fn close(&self, request: roost_proto::DOmpClose);
 }

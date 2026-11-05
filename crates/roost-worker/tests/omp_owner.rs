@@ -8,6 +8,8 @@ mod duplex;
 mod interactions;
 #[path = "omp_owner/ordering.rs"]
 mod ordering;
+#[path = "omp_owner/ui.rs"]
+mod ui;
 use duplex::{DuplexLauncher, MissingLauncher};
 use roost_proto::{DOmpCancel, DOmpEventsAck, DOmpOpen, DOmpPrompt, DOmpSetMode, WOmpEvents};
 use roost_protocol::wire::{agent_chat::OmpWorkerEvent, coord_worker::CoordWorkerUpstream};

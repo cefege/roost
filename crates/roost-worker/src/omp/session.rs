@@ -19,10 +19,13 @@ use tokio::sync::mpsc;
 
 pub(super) struct Session {
     pub id: SessionId,
+    pub resume_id: String,
+    pub cwd: String,
     pub model: Option<String>,
     pub thinking: Option<String>,
     pub mode: Option<String>,
     pub available_modes: Vec<roost_protocol::wire::agent_chat::OmpChoice>,
+    pub command_ui: bool,
 }
 
 pub(super) async fn open(
@@ -31,7 +34,7 @@ pub(super) async fn open(
     mut startup: OpenRequestPump<'_>,
     catalog: Option<&CatalogReadiness>,
 ) -> Result<Session, Error> {
-    startup
+    let initialized = startup
         .service(
             connection
                 .send_request(
@@ -43,7 +46,18 @@ pub(super) async fn open(
                 .block_task(),
         )
         .await?;
-    let result = open_authenticated(connection, prompt, &mut startup, catalog).await;
+    let command_ui = serde_json::to_value(initialized.agent_capabilities)
+        .ok()
+        .and_then(|value| {
+            value
+                .pointer("/_meta/commandUi/version")
+                .and_then(serde_json::Value::as_u64)
+        })
+        == Some(1);
+    let mut result = open_authenticated(connection, prompt, &mut startup, catalog).await;
+    if let Ok(session) = &mut result {
+        session.command_ui = command_ui;
+    }
     if result
         .as_ref()
         .is_err_and(|error| error.code == ErrorCode::AUTH_REQUIRED)
@@ -82,6 +96,7 @@ async fn open_authenticated(
                     tracing::info!(conversation_id=%prompt.conversation_id,acp_session_id=%prompt.acp_session_id,"OMP session loaded");
                     return ready(
                         prompt.acp_session_id.clone().into(),
+                        &prompt.cwd,
                         response.config_options,
                         response.modes,
                         startup.emitter,
@@ -121,6 +136,7 @@ async fn open_authenticated(
                 tracing::info!(conversation_id=%prompt.conversation_id,acp_session_id=%response.session_id,"OMP session created");
                 return ready(
                     response.session_id,
+                    &prompt.cwd,
                     response.config_options,
                     response.modes,
                     startup.emitter,
@@ -144,6 +160,7 @@ async fn open_authenticated(
 
 fn ready(
     id: SessionId,
+    cwd: &str,
     options: Option<Vec<SessionConfigOption>>,
     mode_state: Option<SessionModeState>,
     emitter: &mut Emitter,
@@ -179,11 +196,14 @@ fn ready(
         mode: mode.clone(),
     });
     Ok(Session {
+        resume_id: id.to_string(),
+        cwd: cwd.to_owned(),
         id,
         model,
         thinking,
         mode,
         available_modes,
+        command_ui: false,
     })
 }
 

@@ -29,6 +29,7 @@ use roost_host::env::EnvSource;
 use roost_platform::{HostPlatform, native_path_to_fs_path, normalize_native_path};
 use roost_protocol::wire::control::ClientControlFrame;
 
+use super::file_helpers::{describe, head_lines};
 use super::{Answered, Boxed, Command, Deps, Refusal, Reply};
 
 /// The largest whole-file read one request may return.
@@ -73,6 +74,8 @@ pub trait FileCommands: Send + Sync {
 
     fn read_file(&self, path: String, max_lines: Option<i64>) -> Boxed<FileOutcome>;
 
+    fn read_file_revision(&self, path: String, revision: String) -> Boxed<FileOutcome>;
+
     fn read_file_chunk(&self, path: String, offset: i64, len: i64) -> Boxed<FileOutcome>;
 
     fn list_dir(&self, path: String) -> Boxed<FileOutcome>;
@@ -86,6 +89,15 @@ pub async fn execute(command: &Command, deps: &Deps) -> Result<Answered, Refusal
     let files = deps.files.as_ref();
     let request_id = command.request_id.as_str();
     let outcome = match &command.frame {
+        ClientControlFrame::ReadFile {
+            path,
+            revision: Some(revision),
+            ..
+        } if !revision.is_empty() => {
+            files
+                .read_file_revision(path.clone(), revision.clone())
+                .await
+        }
         ClientControlFrame::ReadFile {
             path, max_lines, ..
         } => files.read_file(path.clone(), *max_lines).await,
@@ -308,6 +320,15 @@ impl FileCommands for LocalFiles {
         let shell = self.shell();
         Box::pin(async move { shell.read_file(&path, max_lines).await })
     }
+    fn read_file_revision(&self, path: String, revision: String) -> Boxed<FileOutcome> {
+        Box::pin(async move {
+            let bytes = super::git_revision::read_git_file(&path, &revision).await?;
+            Ok(serde_json::json!({
+                "content_b64": BASE64.encode(&bytes),
+                "size": bytes.len(),
+            }))
+        })
+    }
 
     fn read_file_chunk(&self, path: String, offset: i64, len: i64) -> Boxed<FileOutcome> {
         let shell = self.shell();
@@ -357,29 +378,4 @@ async fn read_range(
         .map_err(|error| Refusal::failed(kind, describe(resolved, &error)))?;
     bytes.truncate(read);
     Ok(bytes)
-}
-
-/// The first `limit` lines of a file, cut on a character boundary.
-///
-/// The boundary matters: a cut that lands inside a multi-byte character keeps
-/// that character rather than emitting a replacement for it, so a preview of a
-/// file with non-ASCII text does not end in a glyph the file never contained.
-fn head_lines(bytes: &[u8], limit: i64) -> Vec<u8> {
-    let limit = usize::try_from(limit).unwrap_or(0);
-    let mut end = 0usize;
-    for line in String::from_utf8_lossy(bytes)
-        .split_inclusive('\n')
-        .take(limit)
-    {
-        end += line.len();
-    }
-    let mut end = end.min(bytes.len());
-    while end > 0 && std::str::from_utf8(&bytes[..end]).is_err() {
-        end -= 1;
-    }
-    bytes[..end].to_vec()
-}
-
-fn describe(path: &str, error: &std::io::Error) -> String {
-    format!("{path}: {error}")
 }

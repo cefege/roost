@@ -60,6 +60,8 @@ impl SyncFrame {
             | Self::CoordinatorRelocation { .. }
             | Self::TransportProbeResult { .. }
             | Self::WorkerLiveMetrics { .. }
+            | Self::OmpHostService { .. }
+            | Self::OmpUiActionReceipt { .. }
             | Self::Keepalive => None,
         }
     }
@@ -103,6 +105,8 @@ impl SyncFrame {
             Self::AgentChatEvents { .. } => "agent_chat_events",
             Self::Keepalive => "keepalive",
             Self::WorkerLiveMetrics { .. } => "worker_live_metrics",
+            Self::OmpHostService { .. } => "omp_host_service",
+            Self::OmpUiActionReceipt { .. } => "omp_ui_action_receipt",
         }
     }
 

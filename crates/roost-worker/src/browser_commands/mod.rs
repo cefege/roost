@@ -26,6 +26,9 @@ use roost_protocol::wire::coord_worker::CoordWorkerUpstream;
 pub mod attachments;
 pub mod diagnostics;
 pub mod file_commands;
+mod file_helpers;
+mod git_revision;
+pub mod native_dashboard;
 pub mod presence;
 pub mod replies;
 pub mod scrollback_page;
@@ -145,6 +148,9 @@ pub enum Owner {
     Attachments,
     /// What the worker is willing to say about itself.
     Diagnostics,
+    /// One request for the native OMP stats dashboard on this worker's
+    /// loopback, reached through a coordinator capability.
+    NativeDashboard,
     /// The capability this build does not have, and the reason a caller is
     /// given instead of silence. Answering is the point: a dropped command
     /// leaves a request to time out rather than fail.
@@ -196,6 +202,7 @@ pub const OWNERS: &[CommandOwner] = &[
     cmd("diag-terminal-capture", Owner::Diagnostics),
     cmd("diag-snapshot", Owner::Diagnostics),
     cmd("respawn-if-missing", Owner::Sessions),
+    cmd("stats-dashboard-http", Owner::NativeDashboard),
     cmd("detach", Owner::Presence),
 ];
 
@@ -278,6 +285,7 @@ pub struct Deps {
     pub searches: Arc<std::sync::Mutex<search::Searches>>,
     pub attachments: Arc<dyn attachments::AttachmentStore>,
     pub diagnostics: Arc<dyn diagnostics::DiagnosticReports>,
+    pub dashboard: Arc<dyn native_dashboard::NativeDashboardProxy>,
 }
 
 impl std::fmt::Debug for Deps {
@@ -318,6 +326,7 @@ pub async fn dispatch(command: &Command, deps: &Deps) -> Vec<CoordWorkerUpstream
         Owner::Search => search::execute(command, deps).await,
         Owner::Attachments => attachments::execute(command, deps).await,
         Owner::Diagnostics => diagnostics::execute(command, deps).await,
+        Owner::NativeDashboard => native_dashboard::execute(command, deps).await,
         Owner::Absent(reason) => Err(Refusal::unavailable(row.kind, reason)),
     };
     match answered {

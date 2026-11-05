@@ -2,11 +2,14 @@
 //! Choices come only from the machine's ACP catalog, never native providers.
 //! Mounted by the composer; the shared resolver supplies inheritance details.
 
+#[cfg(feature = "archived-native-ui")]
 use super::{agent_alert::AgentAlert, omp_setting_menu::OmpSettingMenu};
 use crate::pump::Pump;
+#[cfg(feature = "archived-native-ui")]
 use dioxus::prelude::*;
 use roost_protocol::wire::agent_chat::*;
 
+#[cfg(feature = "archived-native-ui")]
 #[derive(Clone, PartialEq)]
 struct SessionView {
     worker_build: Option<String>,
@@ -17,6 +20,7 @@ struct SessionView {
     settings_seq: u64,
 }
 
+#[cfg(feature = "archived-native-ui")]
 #[component]
 pub fn OmpModelControls(conversation: ConversationSummary, active: bool, pump: Pump) -> Element {
     let state_pump = pump.clone();
@@ -157,6 +161,7 @@ pub fn OmpModelControls(conversation: ConversationSummary, active: bool, pump: P
     }
 }
 
+#[cfg(feature = "archived-native-ui")]
 fn session_view(pump: &Pump, id: &str, worker_fp: &str) -> SessionView {
     let core = pump.core();
     let core = core.borrow();
@@ -185,10 +190,12 @@ fn session_view(pump: &Pump, id: &str, worker_fp: &str) -> SessionView {
             .map_or(0, |loaded| loaded.settings_seq),
     }
 }
+#[cfg(feature = "archived-native-ui")]
 pub(super) fn settings_revision(pump: &Pump, conversation_id: &str, worker_fp: &str) -> u64 {
     session_view(pump, conversation_id, worker_fp).settings_seq
 }
 
+#[cfg(feature = "archived-native-ui")]
 async fn open_session(pump: Pump, conversation_id: String) -> Result<(), String> {
     #[cfg(target_arch = "wasm32")]
     {
@@ -240,6 +247,7 @@ pub(crate) async fn fetch_settings(pump: Pump) -> Result<OmpSettingsView, String
     }
 }
 
+#[cfg(feature = "archived-native-ui")]
 fn configure(
     pump: Pump,
     id: String,

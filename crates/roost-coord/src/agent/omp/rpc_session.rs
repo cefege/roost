@@ -1,4 +1,4 @@
-//! Reopens a persisted ACP session for an authorized OMP conversation.
+//! Reopens a persisted ACP load-session identity for an authorized OMP conversation.
 //! The worker capability gate rejects peers that cannot expose session modes.
 
 use super::rpc;

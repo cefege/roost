@@ -82,7 +82,13 @@ impl AgentRuntime {
             self.append(id, Entry::Rewind { to_seq: seq }).await?;
         }
         let transcript = self.transcript(id).await?;
-        self.emit(id, vec![ChatEvent::Reset { transcript }]).await;
+        self.emit(
+            id,
+            vec![ChatEvent::Reset {
+                transcript: Box::new(transcript),
+            }],
+        )
+        .await;
         if let Some(files) = restored_files {
             self.notice(id, "info", "Files restored", &files).await;
         }

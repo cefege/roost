@@ -105,11 +105,13 @@ pub fn clear_auth_scoped_state(store: &mut Store) {
     let toasts_cleared = crate::store::toasts::clear_all(&mut store.toasts);
     let transfers_cleared = crate::store::transfers::clear_all(&mut store.transfers);
     let dialogs_cleared = store.shell_dialogs.clear_all();
+    let host_cleared = store.omp_host.clear();
     let had_any = dialogs_cleared
         || !store.mcp_relays.is_empty()
         || !store.pair_requests.is_empty()
         || toasts_cleared
         || transfers_cleared
+        || host_cleared
         || !store.spawns.is_empty()
         || !store.pending_closes.is_empty();
     if !had_any {
@@ -137,11 +139,13 @@ pub fn clear_account_state_for_logout(store: &mut Store) {
     let toasts_cleared = crate::store::toasts::clear_all(&mut store.toasts);
     let transfers_cleared = crate::store::transfers::clear_all(&mut store.transfers);
     let dialogs_cleared = store.shell_dialogs.clear_all();
+    let host_cleared = store.omp_host.clear();
     let had_scoped = dialogs_cleared
         || !store.mcp_relays.is_empty()
         || !store.pair_requests.is_empty()
         || toasts_cleared
         || transfers_cleared
+        || host_cleared
         || !store.spawns.is_empty()
         || !store.pending_closes.is_empty();
     store.mcp_relays.clear();

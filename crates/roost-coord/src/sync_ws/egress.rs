@@ -305,6 +305,8 @@ pub fn frame_kind(frame: &FirehoseFrame) -> &'static str {
         Some(Frame::PairRequestDelta(_)) => "pair_request_delta",
         Some(Frame::UiState(_)) => "ui_state",
         Some(Frame::UiCommand(_)) => "ui_command",
+        Some(Frame::OmpHostService(_)) => "omp_host_service",
+        Some(Frame::OmpUiActionReceipt(_)) => "omp_ui_action_receipt",
         Some(Frame::Keepalive(_)) => "keepalive",
         Some(Frame::CoordinatorRelocation(_)) => "coordinator_relocation",
         Some(Frame::AgentStatus(_)) => "agent_status",

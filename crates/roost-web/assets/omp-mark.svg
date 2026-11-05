@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 50" width="120" height="50" role="img" aria-labelledby="omp-mark-title">
+  <!--
+    The omp block mark, drawn from oh-my-pi's PI_LOGO block grid (MIT License,
+    Copyright (c) 2025 Mario Zechner, 2025-2026 Can Bölük, 2026 Stencil Labs, Inc.).
+    The diagonal gradient stops are the ones the terminal uses for the same mark.
+  -->
+  <title id="omp-mark-title">omp</title>
+  <defs>
+    <linearGradient id="omp-mark-gradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f84fcc"/>
+      <stop offset="0.5" stop-color="#9362f4"/>
+      <stop offset="1" stop-color="#00dbe4"/>
+    </linearGradient>
+  </defs>
+  <g fill="url(#omp-mark-gradient)">
+    <rect x="0" y="0" width="120" height="10"/>
+    <rect x="30" y="10" width="20" height="10"/>
+    <rect x="70" y="10" width="20" height="10"/>
+    <rect x="30" y="20" width="20" height="10"/>
+    <rect x="70" y="20" width="20" height="10"/>
+    <rect x="70" y="30" width="20" height="10"/>
+    <rect x="70" y="40" width="20" height="10"/>
+  </g>
+  <g fill="url(#omp-mark-gradient)" opacity="0.6">
+    <rect x="30" y="30" width="20" height="10"/>
+  </g>
+</svg>

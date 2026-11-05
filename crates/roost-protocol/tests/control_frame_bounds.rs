@@ -180,3 +180,25 @@ fn a_negative_where_a_position_is_named_is_refused() {
     chunk["len"] = json!(0);
     assert!(ClientControlFrame::parse(chunk).is_err());
 }
+
+#[test]
+fn a_read_file_revision_is_bounded_and_never_carries_a_line_break() {
+    use roost_protocol::wire::control::READ_FILE_REVISION_MAX_UTF8_BYTES;
+
+    let mut frame = frame_of("read-file");
+    frame["revision"] = json!("HEAD~2");
+    assert!(ClientControlFrame::parse(frame.clone()).is_ok());
+
+    frame["revision"] = json!("e".repeat(READ_FILE_REVISION_MAX_UTF8_BYTES));
+    assert!(ClientControlFrame::parse(frame.clone()).is_ok());
+    frame["revision"] = json!("e".repeat(READ_FILE_REVISION_MAX_UTF8_BYTES + 1));
+    assert!(ClientControlFrame::parse(frame.clone()).is_err());
+
+    for revision in ["main\n--output=/tmp/x", "main\r", "main\0"] {
+        frame["revision"] = json!(revision);
+        assert!(
+            ClientControlFrame::parse(frame.clone()).is_err(),
+            "a revision of {revision:?} was admitted"
+        );
+    }
+}
