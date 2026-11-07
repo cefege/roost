@@ -30,7 +30,6 @@
 //! the one thing the boot-facts rule exists to prevent.
 use std::sync::Arc;
 
-use crate::agent::tool_calls::ToolCallRegistry;
 use crate::agents::AgentsRuntime;
 use crate::attachments::AttachmentsRuntime;
 use crate::auth::jwt_key_cache::JwtKeyCache;
@@ -146,7 +145,6 @@ pub struct CoordServices {
     /// OMP conversations: the per-conversation writer and the worker frames that feed it.
     pub omp: Arc<crate::agent::omp::OmpService>,
     /// Native worker tool calls and their generation-bound completions.
-    pub agent_tools: Arc<ToolCallRegistry>,
     /// File RPCs, the chunk relay, direct grants, and peer negotiations.
     pub attachments: AttachmentsRuntime,
     /// Global session search across every worker, and its cancellations.
@@ -292,7 +290,6 @@ impl CoordServices {
         );
         let deploy = DeployRuntime::new();
         let cluster = crate::cluster::notify::ClusterNotifier::new(db.clone());
-        let agent_tools = Arc::new(ToolCallRegistry::new(Arc::clone(&workers), db.clone()));
         let agent = crate::agent::AgentService::new(
             db.clone(),
             Arc::clone(&buses),
@@ -322,8 +319,6 @@ impl CoordServices {
             attachments.worker_lifecycle_observer(),
             catch_up_on_ready
                 as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
-            Arc::clone(&agent_tools)
-                as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
             Arc::clone(&omp)
                 as Arc<dyn crate::coord_core::worker_lifecycle::WorkerLifecycleObserver>,
         ]);
@@ -340,7 +335,6 @@ impl CoordServices {
             live_metrics: std::sync::Mutex::new(LiveMetricsHub::default()),
             worker_lifecycle,
             agent,
-            agent_tools,
             omp,
             diag_pipelines: WorkerTerminalPipelineSnapshotCache::new(scrollback.clone()),
             terminal_capture,

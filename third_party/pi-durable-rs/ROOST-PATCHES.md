@@ -5,7 +5,9 @@
 - Base: [`revpidev/rpi@7ee970aad1d825b30b9413ce251c98e610214e2b`](https://github.com/revpidev/rpi/tree/7ee970aad1d825b30b9413ce251c98e610214e2b), `v0.1.7`.
 - Base Durable lineage: official Pi `abe508e1b89912adde45528136c3221eb69acdd7`, `packages/durable` 1.1.0.
 - Behavioral reference: [`earendil-works/pi@d5b3de22d0e24a3e9c38a9410d3329b099717283`](https://github.com/earendil-works/pi/tree/d5b3de22d0e24a3e9c38a9410d3329b099717283/packages/durable). Its manifest says 1.4.0; the published npm 1.4.0 artifact is not the same source.
-- MIT; [`LICENSE`](LICENSE) is copied from the base revision. Included crates: `rpi-durable`, `rpi-ai`, `rpi-codemode`, and the test-only `rpi-test-env`. Code-mode embeds the base's licensed QuickJS-WASM artifact and runs it through Wasmtime; no second JavaScript engine is retained.
+- MIT; [`LICENSE`](LICENSE) is copied from the base revision. Included crates: `rpi-durable`, `rpi-ai`, `rpi-agent`, `rpi-codemode`, and the test-only `rpi-test-env`. Code-mode embeds the base's licensed QuickJS-WASM artifact and runs it through Wasmtime; no second JavaScript engine is retained.
+- `rpi-agent` is vendored as source only: upstream's `tests/` and its dev-dependency chain (`rpi-test-support` → `rpi-ext-host`) are not carried, because Roost's own suites cover the integration and the extension host is not part of the native runtime. Its two extra workspace dependencies, `serde_yaml` and `ignore`, are pinned here.
+- The workspace declares `edition = "2024"` and `rust-version = "1.98"`, matching Roost's pinned toolchain, so the vendored tree and the product build under one compiler.
 
 This is a maintained local fork, not an unmodified upstream dependency. Roost owns the patches below and must rerun its differential oracle when changing the reference or engine. No CLI/TUI, Node agent host, or upstream OAuth/account store is part of the native Roost runtime.
 

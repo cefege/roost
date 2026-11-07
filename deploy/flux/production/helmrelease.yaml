@@ -14,6 +14,8 @@
 # default (`ChartVersion`) would only notice a bumped Chart.yaml version.
 # The chart's `lookup` of the existing coordinator Secret keeps
 # ROOST_COORDINATOR_SECRET_KEY across upgrades, as it did under the Helm CLI.
+# Nothing reads that key now; it is preserved so credentials written by older
+# releases stay decryptable.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:

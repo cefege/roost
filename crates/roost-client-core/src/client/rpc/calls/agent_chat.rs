@@ -4,8 +4,8 @@ use crate::client::rpc::codec::{RpcCodecError, decode_message, encode_message};
 use crate::client::rpc::unary::UnaryMethod;
 use roost_proto::*;
 use roost_protocol::wire::agent_chat::{
-    AgentBackend, AgentInspection, ChatEvent, LoginState, ModelRef, ModelsCatalog, OmpSettingsView,
-    RewoundUserMessage, Transcript, validate_agent_chat_image_payload,
+    AgentBackend, ChatEvent, ModelRef, OmpSettingsView, Transcript,
+    validate_agent_chat_image_payload,
 };
 
 macro_rules! simple_call {
@@ -81,17 +81,7 @@ impl UnaryMethod for SubmitAgentChat {
 }
 simple_call!(AbortAgentChat,AgentChatAbortRequest,AgentChatAbortResponse,(),"AgentChatAbort",empty; conversation_id:String,request_id:String,background:Option<bool>);
 simple_call!(WithdrawAgentChat,AgentChatWithdrawRequest,AgentChatWithdrawResponse,bool,"AgentChatWithdraw",|response:AgentChatWithdrawResponse| Ok(response.withdrawn); conversation_id:String,submission_id:String,request_id:String);
-simple_call!(InspectAgentChat,AgentChatInspectRequest,AgentChatInspectResponse,AgentInspection,"AgentChatInspect",|response:AgentChatInspectResponse| decode_json("AgentChatInspect", response.inspection_json); conversation_id:String);
 simple_call!(DeleteAgentChat,AgentChatDeleteRequest,AgentChatDeleteResponse,(),"AgentChatDelete",empty; conversation_id:String);
-simple_call!(StartAgentLogin,AgentAuthLoginStartRequest,AgentAuthLoginStartResponse,String,"AgentAuthLoginStart",|response:AgentAuthLoginStartResponse| Ok(response.login_id); provider:String);
-simple_call!(RespondAgentLogin,AgentAuthLoginRespondRequest,AgentAuthLoginRespondResponse,(),"AgentAuthLoginRespond",empty; login_id:String,prompt_id:String,value:String);
-simple_call!(CancelAgentLogin,AgentAuthLoginCancelRequest,AgentAuthLoginCancelResponse,(),"AgentAuthLoginCancel",empty; login_id:String);
-simple_call!(SetAgentApiKey,AgentAuthSetApiKeyRequest,AgentAuthSetApiKeyResponse,(),"AgentAuthSetApiKey",empty; provider:String,api_key:String);
-simple_call!(RemoveAgentAccount,AgentAccountRemoveRequest,AgentAccountRemoveResponse,(),"AgentAccountRemove",empty; credential_id:i64);
-simple_call!(ListAgentAccounts,AgentAccountsListRequest,AgentAccountsListResponse,String,"AgentAccountsList",|response:AgentAccountsListResponse| Ok(response.accounts_json););
-simple_call!(GetAgentUsage,AgentUsageGetRequest,AgentUsageGetResponse,String,"AgentUsageGet",|response:AgentUsageGetResponse| Ok(response.usage_json); conversation_id:String,provider:String);
-simple_call!(GetAgentSettings,AgentSettingsGetRequest,AgentSettingsGetResponse,String,"AgentSettingsGet",|response:AgentSettingsGetResponse| Ok(response.settings_json););
-simple_call!(SetAgentSettings,AgentSettingsSetRequest,AgentSettingsSetResponse,(),"AgentSettingsSet",empty; settings_json:String);
 simple_call!(GetOmpSettings,AgentOmpSettingsGetRequest,AgentOmpSettingsGetResponse,OmpSettingsView,"AgentOmpSettingsGet",|response:AgentOmpSettingsGetResponse| decode_json("AgentOmpSettingsGet", response.settings_json););
 simple_call!(SetOmpSettings,AgentOmpSettingsSetRequest,AgentOmpSettingsSetResponse,(),"AgentOmpSettingsSet",empty; scoped_json:String);
 simple_call!(OpenOmpSession,AgentOmpSessionOpenRequest,AgentOmpSessionOpenResponse,(),"AgentOmpSessionOpen",empty; conversation_id:String);
@@ -136,10 +126,6 @@ impl UnaryMethod for SendOmpUi {
         empty(decode_message::<AgentOmpUiResponse>(Self::METHOD, body)?)
     }
 }
-simple_call!(DecideAgentPlan,AgentChatPlanDecideRequest,AgentChatPlanDecideResponse,String,"AgentChatPlanDecide",|response:AgentChatPlanDecideResponse| Ok(response.new_conversation_id); conversation_id:String,item_id:String,decision:String,feedback:String,request_id:String);
-simple_call!(AnswerAgentQuestion,AgentChatAnswerRequest,AgentChatAnswerResponse,(),"AgentChatAnswer",empty; conversation_id:String,item_id:String,answers_json:String,request_id:String);
-simple_call!(RewindAgentChat,AgentChatRewindRequest,AgentChatRewindResponse,RewoundUserMessage,"AgentChatRewind",|response:AgentChatRewindResponse| Ok(RewoundUserMessage { text: response.text, attachments: response.attachments.into_iter().map(|attachment| roost_protocol::wire::agent_chat::AgentChatAttachment { filename: attachment.filename, mime_type: attachment.mime_type, data: attachment.data, path: attachment.path }).collect() }); conversation_id:String,item_id:String,restore_files:bool,request_id:String);
-simple_call!(ForkAgentChat,AgentChatForkRequest,AgentConversation,AgentConversation,"AgentChatFork",|response:AgentConversation| Ok(response); conversation_id:String,item_id:String,request_id:String);
 
 #[derive(Debug, Clone, Default)]
 pub struct CreateAgentChat {
@@ -295,42 +281,6 @@ impl UnaryMethod for GetAgentChatEvents {
             .map(|batch| Ok((batch.cursor, decode_json(Self::METHOD, batch.events_json)?)))
             .collect::<Result<Vec<_>, RpcCodecError>>()?;
         Ok((batches, response.truncated))
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ListAgentModels;
-impl UnaryMethod for ListAgentModels {
-    const METHOD: &'static str = "AgentModelsList";
-    type Response = ModelsCatalog;
-    fn encode_request(&self) -> Result<Vec<u8>, RpcCodecError> {
-        encode_message(Self::METHOD, &AgentModelsListRequest::default())
-    }
-    fn decode_response(body: &[u8]) -> Result<Self::Response, RpcCodecError> {
-        let response: AgentModelsListResponse = decode_message(Self::METHOD, body)?;
-        decode_json(Self::METHOD, response.catalog_json)
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct PollAgentLogin {
-    pub login_id: String,
-}
-impl UnaryMethod for PollAgentLogin {
-    const METHOD: &'static str = "AgentAuthLoginPoll";
-    type Response = LoginState;
-    fn encode_request(&self) -> Result<Vec<u8>, RpcCodecError> {
-        encode_message(
-            Self::METHOD,
-            &AgentAuthLoginPollRequest {
-                login_id: self.login_id.clone(),
-                ..Default::default()
-            },
-        )
-    }
-    fn decode_response(body: &[u8]) -> Result<Self::Response, RpcCodecError> {
-        let response: AgentAuthLoginPollResponse = decode_message(Self::METHOD, body)?;
-        decode_json(Self::METHOD, response.state_json)
     }
 }
 

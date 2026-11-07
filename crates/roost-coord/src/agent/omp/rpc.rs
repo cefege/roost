@@ -9,9 +9,9 @@ use super::{
     store::{self, OmpConversation},
     summary::summary,
 };
+use crate::agent::sink::ChatSink;
 use crate::{coord_core::CoordCore, rpc::service::ok_response};
 use connectrpc::{ConnectError, ErrorCode, ServiceResult};
-use roost_agent::ChatSink;
 use roost_proto as proto;
 use roost_protocol::wire::{agent_chat::*, coord_worker::CoordWorkerDownstream};
 
@@ -22,13 +22,6 @@ pub(crate) async fn find_omp(
     store::find(&core.services.db, id)
         .await
         .map_err(database_error)
-}
-
-pub(crate) fn unsupported() -> ConnectError {
-    ConnectError::new(
-        ErrorCode::FailedPrecondition,
-        "not supported for OMP conversations",
-    )
 }
 pub(crate) fn unavailable(error: super::OmpUnavailable) -> ConnectError {
     match error {

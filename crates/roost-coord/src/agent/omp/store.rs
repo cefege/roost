@@ -1,6 +1,6 @@
 //! OMP conversation rows and their durable projected transcript.
-//! The OMP service and RPCs use these queries; native stores filter these out.
-//! Settings and catalogs share this database but never native credentials.
+//! The OMP service and RPCs use these queries; native rows are filtered out.
+//! Settings and catalogs share this database but never provider credentials.
 
 pub use super::settings::{catalogs, put_catalog, put_settings, settings};
 use crate::db::CoordDb;
@@ -40,7 +40,7 @@ pub struct OmpNew {
 
 pub async fn create(db: &CoordDb, new: OmpNew) -> Result<OmpConversation, sqlx::Error> {
     let id = super::super::random_hex("c-");
-    let now = super::super::store::now_ms();
+    let now = super::super::now_ms();
     let mut transaction = super::super::chat_events::begin_chat_write(db).await?;
     sqlx::query("INSERT INTO agent_conversations(id,title,worker_fp,worker_label,worker_os,cwd,thinking_level,mode,read_only,run_state,created_ms,updated_ms,revision,backend) VALUES($1,'',$2,$3,$4,$5,'','normal',$7,'idle',$6,$6,1,'omp')")
         .bind(&id).bind(new.worker_fp).bind(new.worker_label).bind(new.worker_os).bind(new.cwd).bind(now).bind(false)
@@ -71,7 +71,7 @@ pub async fn set_title(db: &CoordDb, id: &str, title: &str) -> Result<(), sqlx::
     )
     .bind(id)
     .bind(title)
-    .bind(super::super::store::now_ms())
+    .bind(super::super::now_ms())
     .execute(db.pool())
     .await?;
     Ok(())
@@ -89,11 +89,11 @@ pub async fn set_override(
         let model = value.as_deref().and_then(split_omp_model);
         sqlx::query("UPDATE agent_conversations SET model_provider=$2,model_id=$3,updated_ms=$4 WHERE id=$1 AND backend='omp'")
             .bind(id).bind(model.as_ref().map(|model| &model.provider)).bind(model.as_ref().map(|model| &model.model_id))
-            .bind(super::super::store::now_ms()).execute(&mut *transaction).await?;
+            .bind(super::super::now_ms()).execute(&mut *transaction).await?;
     }
     if let Some(value) = thinking {
         sqlx::query("UPDATE agent_conversations SET thinking_level=$2,updated_ms=$3 WHERE id=$1 AND backend='omp'")
-            .bind(id).bind(value.unwrap_or_default()).bind(super::super::store::now_ms()).execute(&mut *transaction).await?;
+            .bind(id).bind(value.unwrap_or_default()).bind(super::super::now_ms()).execute(&mut *transaction).await?;
     }
     if let Some(value) = mode {
         sqlx::query(
@@ -101,7 +101,7 @@ pub async fn set_override(
         )
         .bind(id)
         .bind(value.unwrap_or_default())
-        .bind(super::super::store::now_ms())
+        .bind(super::super::now_ms())
         .execute(&mut *transaction)
         .await?;
     }
@@ -123,7 +123,7 @@ pub async fn admit_input(
     kind: &str,
 ) -> Result<bool, sqlx::Error> {
     Ok(sqlx::query("INSERT INTO omp_inputs(conversation_id,request_id,kind,created_ms) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING")
-        .bind(id).bind(request_id).bind(kind).bind(super::super::store::now_ms()).execute(db.pool()).await?.rows_affected() == 1)
+        .bind(id).bind(request_id).bind(kind).bind(super::super::now_ms()).execute(db.pool()).await?.rows_affected() == 1)
 }
 
 pub async fn has_prompt_admission(

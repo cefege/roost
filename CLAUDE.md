@@ -265,9 +265,27 @@ still type their paths, and staged terminal images use compact inline
 thumbnails with progress overlays and a completion check instead of a duplicate
 transfer card; hidden uploads and failures remain visible in the transfer dock),
 and the per-message "Fork from here" button on every assistant reply in agent chat (the
-operator retired it; `/fork` and the `AgentChatFork` RPC still fork a
-conversation, surfaced through the "Conversation forked" notice's "Open
-fork" link).
+operator retired it; OMP's own `/fork` still forks a conversation, and Roost's
+`AgentChatFork` RPC, its route row and the "Conversation forked" notice are all
+gone), and the whole `roost-agent` crate: the native engine, its
+conversation/journal store, tool-call registry, scheduler, executor, native
+transcript/inspect/turn RPC paths and their fixtures. OMP is the only agent
+backend; vendored `rpi-agent` (`third_party/pi-durable-rs/crates/rpi-agent/`)
+is the runtime a second backend builds on.
+
+Also dropped in the same sweep: the whole provider-account layer — the
+`roost-llm` crate (model catalogs, wire clients, OAuth logins, credential
+rotation, usage and judging), the coordinator's credential store and login
+registry, the `AgentAuth*`, `AgentAccountsList`, `AgentAccountRemove`,
+`AgentUsageGet`, `AgentModelsList` and `AgentSettingsGet`/`Set` RPCs with their
+messages and route rows, the wire types behind them, and
+`ROOST_COORDINATOR_SECRET_KEY`, which only the credential store read (the Helm
+Secret still carries it so rows written by older releases stay decryptable; no
+code reads it); the native-only `AgentChatInspect`, `AgentChatAnswer`,
+`AgentChatRewind` and `AgentChatPlanDecide` RPCs; and the `archived-native-ui`
+cargo feature with the 51 Rust-native chat and settings modules it kept
+compiled. An OMP conversation's model, provider and credentials come from the
+worker's own `~/.omp`.
 
 The alternate Workspaces/Agents sidebar mode is retired (`sidebar_agents.rs`,
 `agents_projection.rs`, and the old `roost.sidebarView` Workspaces/Agents values,

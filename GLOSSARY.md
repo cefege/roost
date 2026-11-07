@@ -161,10 +161,11 @@ wins.
   models, providers and commands come from the worker's OMP process. It creates
   no shell PTY and is the only active web-agent backend.
 
-- **Rust-native agent (archived)** — Roost's retained custom coordinator harness:
-  `roost-agent`, `roost-llm` and `roost-agent-tools`. Its code, conversations and
-  credentials remain stored, but production execution and native UI entry
-  points are disabled. It is not the OMP web agent.
+- **Rust-native agent (removed)** — Roost's former custom coordinator harness,
+  built on `roost-llm` and `roost-agent-tools`. Its engine crate, its provider
+  layer and their RPC paths are gone; stored native conversations are no longer
+  listed or resumable. Vendored `rpi-agent` is the runtime a second backend
+  builds on. It is not the OMP web agent.
 
 - **agent runtime state** — what a coding agent inside a shell PTY is doing:
   `working`, `blocked` (waiting on the user), or `idle`. Volatile metadata on a

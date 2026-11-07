@@ -1023,8 +1023,6 @@ message AgentChatWithdrawRequest {
   string request_id = 3;
 }
 message AgentChatWithdrawResponse { bool withdrawn = 1; }
-message AgentChatInspectRequest { string conversation_id = 1; }
-message AgentChatInspectResponse { string inspection_json = 1; }
 message AgentChatConfigureRequest {
   string conversation_id = 1;
   optional string model_provider = 2;
@@ -1067,41 +1065,9 @@ message AgentChatEventsResponse {
   repeated AgentChatEventBatch batches = 1;
   bool truncated = 2;
 }
-message AgentModelsListRequest {}
-message AgentModelsListResponse { string catalog_json = 1; }
-message AgentAuthLoginStartRequest { string provider = 1; }
-message AgentAuthLoginStartResponse { string login_id = 1; }
-message AgentAuthLoginPollRequest { string login_id = 1; }
-message AgentAuthLoginPollResponse { string state_json = 1; }
-message AgentAuthLoginRespondRequest {
-  string login_id = 1;
-  string prompt_id = 2;
-  string value = 3;
-}
-message AgentAuthLoginRespondResponse {}
-message AgentAuthLoginCancelRequest { string login_id = 1; }
-message AgentAuthLoginCancelResponse {}
-message AgentAuthSetApiKeyRequest {
-  string provider = 1;
-  string api_key = 2;
-}
-message AgentAuthSetApiKeyResponse {}
-message AgentAccountsListRequest {}
 // JSON array of AccountEntry (roost-protocol wire/agent_chat).
-message AgentAccountsListResponse { string accounts_json = 1; }
-message AgentAccountRemoveRequest { int64 credential_id = 1; }
-message AgentAccountRemoveResponse {}
-message AgentUsageGetRequest {
-  string conversation_id = 1;
-  string provider = 2;
-}
 // JSON array of AccountEntry with fresh usage reports; selected is true for the next account chat would resolve.
-message AgentUsageGetResponse { string usage_json = 1; }
-message AgentSettingsGetRequest {}
 // JSON AgentSettingsView (roost-protocol wire/agent_chat).
-message AgentSettingsGetResponse { string settings_json = 1; }
-message AgentSettingsSetRequest { string settings_json = 1; }
-message AgentSettingsSetResponse {}
 message AgentOmpSettingsGetRequest {}
 // JSON OmpSettingsView (roost-protocol wire/agent_chat).
 message AgentOmpSettingsGetResponse { string settings_json = 1; }
@@ -1121,43 +1087,7 @@ message AgentOmpUiRequest {
   bool receipt = 7;
 }
 message AgentOmpUiResponse {}
-message AgentChatPlanDecideRequest {
-  string conversation_id = 1;
-  string item_id = 2;
-  // approve | approve_new | refine | reject
-  string decision = 3;
-  string feedback = 4;
-  string request_id = 5;
-}
-message AgentChatPlanDecideResponse { string new_conversation_id = 1; }
-message AgentChatAnswerRequest {
-  string conversation_id = 1;
-  // The `ask` transcript item being answered.
-  string item_id = 2;
-  // JSON object: question id -> array of chosen labels (or one typed answer).
-  string answers_json = 3;
-  string request_id = 4;
-}
-message AgentChatAnswerResponse {}
-message AgentChatRewindRequest {
-  string conversation_id = 1;
-  // The `user` transcript item to rewind to; it and everything after go.
-  string item_id = 2;
-  // Also restore the files the rewound turns changed.
-  bool restore_files = 3;
-  string request_id = 4;
-}
 // The original user content for a retry or edit-and-resend.
-message AgentChatRewindResponse {
-  string text = 1;
-  repeated AgentChatAttachment attachments = 2;
-}
-message AgentChatForkRequest {
-  string conversation_id = 1;
-  // Copy up to and including this transcript item; empty copies everything.
-  string item_id = 2;
-  string request_id = 3;
-}
 
 // ─── service ──────────────────────────────────────────────────────────────
 
@@ -1203,31 +1133,15 @@ service CoordinatorService {
   rpc AgentChatSubmit(AgentChatSubmitRequest) returns (AgentChatSubmitResponse);
   rpc AgentChatAbort(AgentChatAbortRequest) returns (AgentChatAbortResponse);
   rpc AgentChatWithdraw(AgentChatWithdrawRequest) returns (AgentChatWithdrawResponse);
-  rpc AgentChatInspect(AgentChatInspectRequest) returns (AgentChatInspectResponse);
   rpc AgentChatConfigure(AgentChatConfigureRequest) returns (AgentConversation);
   rpc AgentOmpRespond(AgentOmpRespondRequest) returns (AgentOmpRespondResponse);
   rpc AgentChatDelete(AgentChatDeleteRequest) returns (AgentChatDeleteResponse);
   rpc AgentChatSnapshot(AgentChatSnapshotRequest) returns (AgentChatSnapshotResponse);
   rpc AgentChatEvents(AgentChatEventsRequest) returns (AgentChatEventsResponse);
-  rpc AgentModelsList(AgentModelsListRequest) returns (AgentModelsListResponse);
-  rpc AgentAuthLoginStart(AgentAuthLoginStartRequest) returns (AgentAuthLoginStartResponse);
-  rpc AgentAuthLoginPoll(AgentAuthLoginPollRequest) returns (AgentAuthLoginPollResponse);
-  rpc AgentAuthLoginRespond(AgentAuthLoginRespondRequest) returns (AgentAuthLoginRespondResponse);
-  rpc AgentAuthLoginCancel(AgentAuthLoginCancelRequest) returns (AgentAuthLoginCancelResponse);
-  rpc AgentAuthSetApiKey(AgentAuthSetApiKeyRequest) returns (AgentAuthSetApiKeyResponse);
-  rpc AgentAccountsList(AgentAccountsListRequest) returns (AgentAccountsListResponse);
-  rpc AgentAccountRemove(AgentAccountRemoveRequest) returns (AgentAccountRemoveResponse);
-  rpc AgentUsageGet(AgentUsageGetRequest) returns (AgentUsageGetResponse);
-  rpc AgentSettingsGet(AgentSettingsGetRequest) returns (AgentSettingsGetResponse);
-  rpc AgentSettingsSet(AgentSettingsSetRequest) returns (AgentSettingsSetResponse);
   rpc AgentOmpSettingsGet(AgentOmpSettingsGetRequest) returns (AgentOmpSettingsGetResponse);
   rpc AgentOmpSettingsSet(AgentOmpSettingsSetRequest) returns (AgentOmpSettingsSetResponse);
   rpc AgentOmpSessionOpen(AgentOmpSessionOpenRequest) returns (AgentOmpSessionOpenResponse);
   rpc AgentOmpUi(AgentOmpUiRequest) returns (AgentOmpUiResponse);
-  rpc AgentChatPlanDecide(AgentChatPlanDecideRequest) returns (AgentChatPlanDecideResponse);
-  rpc AgentChatAnswer(AgentChatAnswerRequest) returns (AgentChatAnswerResponse);
-  rpc AgentChatRewind(AgentChatRewindRequest) returns (AgentChatRewindResponse);
-  rpc AgentChatFork(AgentChatForkRequest) returns (AgentConversation);
   // workspaces
   rpc WorkspacesList(WorkspacesListRequest) returns (WorkspacesListResponse);
   rpc WorkspacesCreate(WorkspacesCreateRequest) returns (WorkspacesCreateResponse);

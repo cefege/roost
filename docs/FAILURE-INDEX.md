@@ -2504,25 +2504,6 @@ pool size alone is not a cross-replica lock.
 `two_coordinator_pools_cannot_both_take_the_last_subscription_slot` races two `CoordDb` pools over the
 same database on SQLite and Postgres.
 
-### Two coordinator replicas run one agent conversation
-
-**Symptom** — after a restart or with two coordinator pods, one prompt produces two assistant replies,
-a tool runs twice, or a Stop pressed in one browser does nothing while another browser's replica keeps
-streaming.
-
-**Wrong** — treat the in-memory run registry (`RuntimeInner.runs`) as the owner of a conversation, start
-a run wherever a submit lands, or let boot recovery resume every unfinished journal it reads.
-
-**Right** — a run is owned by the `agent_run_leases` row (`owner_instance`, `epoch`, `expires_ms`).
-`start_run_now` and `recover_run` claim it before any write; every journal write of the run carries the
-fence and `append_entry` refuses a superseded epoch (`AgentError::Fenced`), after which the run stops
-without a settlement. Input and aborts are admitted with their run intent and request id in one
-transaction (`admit_command`), then the owner is woken (`pg_notify('roost_agent', id)`) and re-reads the
-journal. A replica that stops renewing loses the run when its lease expires.
-
-**Guard** — `crates/roost-coord/tests/agent_two_instances.rs` (every case, against Postgres in the CI
-`postgres` job), `crates/roost-coord/tests/agent_store_execution.rs`.
-
 ### A second coordinator replica cannot reach the worker another replica holds
 
 **Symptom** — with two coordinator pods, a terminal, scrollback page, file read or agent tool call fails
@@ -2952,32 +2933,9 @@ runtime, or import its browser UI.
 Roost transports those terminals without owning their agent sessions. The explicit OMP chat
 backend is the one supervised external agent: `roost-worker::omp` launches `omp acp
 --approval-mode yolo` only for OMP conversations, using that machine's OMP login. The coordinator
-stores its projected transcript. The Rust-native harness's code and data remain retained,
-but its production runtime and native UI entry points are archived.
+stores its projected transcript. The Rust-native harness is deleted; its stored rows are inert.
 
 **Guard** — `crates/roost-worker/tests/omp_owner.rs`; `crates/roost-coord/tests/omp_chat.rs`.
-
-### Archived native data still needs identity and ownership readers
-
-**Symptom** — an old native conversation URL is not recognized as archived even
-though its row remains stored, or an unknown attachment target reports
-`FailedPrecondition` instead of `NotFound`.
-
-**Wrong** — equate an absent native runtime with absent native data, or gate
-identity lookup on native execution availability. Relabeling stored native
-summaries as OMP also destroys the distinction the archived notice needs.
-
-**Right** — production constructs no native engine or provider clients. Read
-native identity and retained transcript/reminder data through `CoordAgentStore`;
-keep the backend Native and exclude it only from normal UI projections.
-Attachment admission resolves persisted identity first, then rejects a known
-native target as archived; a missing target stays missing.
-
-**Guard** — `roost-coord`'s
-`agent_chat_rpc::archive::production_archive_rejects_native_delete_and_preserves_transcript`
-and
-`attachments_file_rpcs::conversation_targets::archived_native_upload_is_refused_without_changing_conversation`.
-
 
 ### A removed migration's history row reads as corruption
 
@@ -4289,23 +4247,6 @@ reserve).
 `a_status_dot_never_puts_its_token_in_a_shorthand`; `layout::shell_style::editor_style_tests` —
 `every_editor_style_names_every_property_it_can_set`.
 
-### Every agent turn fails: `tools: Tool names must be unique.`
-
-**Symptom** — the built-in agent's first turn ends with `provider returned HTTP 400:
-{"type":"error","error":{"type":"invalid_request_error","message":"tools: Tool names must be unique."}}`
-on Anthropic.
-
-**Wrong** — dedupe in the provider adapter, or `dedup_by` a list whose duplicates are not adjacent.
-`toolset_for` chained `worker_tool_specs(false)`'s `edit`/`write` onto a list that already held
-them, so the request carried `…, edit, write, edit, write`, and the adjacent-only dedup kept both.
-
-**Right** — build the tool list from one `worker_tool_specs` call filtered by the agent kind's
-names (`roost_agent::toolset::toolset_for`); a first-seen name guard, as OMP's
-`normalizeToolNames`, catches a later merge.
-
-**Guard** — `crates/roost-agent/tests/quality_tools.rs` —
-`every_agent_kind_and_mode_offers_each_tool_name_once`.
-
 ### An authorized browser stays on "Checking access…" while Sync closes `1013 byte_limit`
 
 **Symptom** — the access probe succeeds, but a resuming Sync socket logs `backfill_started`
@@ -4332,107 +4273,6 @@ oversized events reset recovery rather than waiting forever. History and limits 
 `live_events_wait_for_the_paced_tail_and_repeated_held_events_are_not_delivered_twice`.
 `crates/roost-coord/tests/sync_seed_socket/recovery_limits.rs`:
 `an_unqueueable_replay_resets_then_accepts_hydration_and_live_events`.
-
-### A completed assistant answer is retried after a process restart
-
-**Symptom** — after a restart, the built-in harness sends another primary model request even though the
-previous answer was already durably written, or an accepted steer made during that request disappears.
-
-**Wrong** — infer completion from the last `Assistant` row or the active `RunIntent`, retry the primary model
-request whenever settlement has not yet written an inactive intent, or suppress recovery whenever any
-assistant answer exists. The answer can be durable while end-of-turn policy and run settlement are not.
-
-**Right** — persist success, stop reason, and the accepted-input sequence represented by each Assistant
-response. Resume post-turn policy from a completed text response without repeating its primary request;
-retry partial provider output, process any submission beyond the response's input-through sequence, and
-reconcile interrupted tool calls without replaying their side effects. A durable inactive intent ends the old
-run; only a later accepted submission re-admits work.
-
-**Guard** — `crates/roost-agent/tests/plan_and_tasks.rs`:
-`recovered_successful_output_finishes_without_repeating_its_primary_call`,
-`late_user_and_advisory_inputs_are_not_marked_consumed_by_prior_output`,
-`pending_advisory_card_does_not_restart_a_settled_run`;
-`crates/roost-agent/tests/plan_and_tasks/recovery.rs`:
-`recovered_partial_assistant_output_retries_the_primary_call`;
-`crates/roost-agent/tests/quality_tools/recovery.rs`:
-`late_run_intent_does_not_discard_already_consumed_output`;
-`crates/roost-agent/tests/rewind_fork/recovery.rs`:
-`recovery_replays_unexpected_stop_policy_once_for_completed_output`;
-`crates/roost-agent/tests/loop_mode/recovery/completion.rs`:
-`recovered_final_output_admits_the_next_loop_iteration`.
-
-### Interrupted provider output becomes an invalid continuation request
-
-**Symptom** — recovery repeatedly receives provider errors because the request ends with an assistant
-prefill, or an interrupted thinking block is sent back with an empty signature.
-
-**Wrong** — replay the unfinished assistant response as the final request message or treat any saved
-thinking metadata as a complete signed block. A dropped stream can persist content before its signature.
-
-**Right** — retain partial output as context and append a request-only user continuation when the history
-ends with an assistant message. Do not journal it as another accepted input or spend loop budget. Replay
-Anthropic thinking as a signed block only when its signature is nonempty; otherwise use text context.
-
-**Guard** — `crates/roost-agent/tests/plan_and_tasks/recovery.rs`:
-`recovered_partial_assistant_output_retries_the_primary_call`;
-`crates/roost-llm/tests/provider_stream.rs`:
-`unsigned_interrupted_thinking_becomes_context_without_an_invalid_signature`.
-
-### Goal usage snapshots hide progress and terminate useful continuation
-
-**Symptom** — a goal stops with “No tool activity” after a successful tool round.
-
-**Wrong** — use the latest goal counter snapshot as the start of its progress window.
-Counter updates move that window past the tools whose progress it should inspect.
-
-**Right** — anchor the window at the earliest snapshot for that goal ID and fingerprint
-only relevant tool progress. Persist waiting only for no/repeated progress or blockers.
-
-**Guard** — `crates/roost-agent/tests/agent_loop/goal_progress.rs`:
-`tool_progress_continues_after_usage_snapshots_until_explicit_completion`.
-
-### A live goal exhausting its budget skips the promised wrap-up
-
-**Symptom** — the request crossing the soft budget ends without a final wrap-up request.
-
-**Wrong** — finalize only goals whose status is still active after charging the request.
-
-**Right** — admit the single hidden wrap-up for the newly budget-limited live goal;
-subsequent turns remain limited unless the user explicitly re-arms it.
-
-**Guard** — `crates/roost-agent/tests/agent_loop/goal_progress.rs`:
-`a_live_turn_reaching_the_budget_gets_exactly_one_hidden_wrap_up`.
-
-### Goal counters absorb unrelated turns or overwrite an in-flight re-arm
-
-**Symptom** — paused/completed goals gain tokens, or clearing a budget/resuming during
-a request ends in a new no-progress wait instead of the requested continuation.
-
-**Wrong** — charge whichever goal exists at finalization; derive re-arm solely from
-transient active status that finalization can overwrite.
-
-**Right** — record the admitted goal ID in primary request metadata and charge only
-that identity. Journal budget/resume re-arm markers and consume each once at the next
-continuation, including when the current request has no tool progress.
-
-**Guard** — `crates/roost-agent/tests/agent_loop/goal_progress.rs`:
-`unrelated_turns_do_not_charge_paused_dropped_or_completed_goals`,
-`clearing_the_budget_during_wrap_up_rearms_after_that_request`,
-`resume_during_an_in_flight_request_survives_no_progress_finalization`.
-
-### Stopping a dispatched agent tool appears as a failed operation
-
-**Symptom** — Stop paints a dispatched tool as an error, or its deadline loses the
-distinction between timeout and cancellation.
-
-**Wrong** — return an untyped error for every interrupted worker-call wait.
-
-**Right** — return structured cancellation/timeout facts, remove the pending call and
-ignore late results. Cancellation is neutral; timeout is a warning. Neither proves
-the dispatched effect did not happen: persist and display its unknown final outcome.
-
-**Guard** — `crates/roost-coord/tests/agent_tool_calls.rs` cancellation and deadline
-cases exercise offline cancellation, dispatched cancellation and dispatched timeout.
 
 ### A worker restart "settles" on the release it was moving away from (systemd)
 
@@ -4559,111 +4399,23 @@ compares its byte count with the OS. Native worker proof verifies restored
 admission and a real keeper PTY whose browser input writes the expected file.
 
 
-### Agent rollback targets a retired advisor-state key
+### A schema upgrade leaves a half-applied migration
 
-**Symptom** — the single-advisor state cannot be saved after restoring the agent:
-SQLite reports `ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint`.
+**Symptom** — after a failed upgrade the coordinator refuses to boot, or reports
+`ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint` against a
+table an earlier release created.
 
-**Wrong** — restore the old conflict target or remove applied migration history.
+**Wrong** — restore an old conflict target, hand-edit `_migrations`, or remove
+applied migration history to make the check pass.
 
-**Right** — keep numbered migrations and their checksums intact. Native reads
-and writes use the empty `roster_slug` slot and `(conversation_id, roster_slug)`
-key; named slots stay inactive. Migration `0012_agent_advisor_writer_key` retains
-the conversation-only key that deployed writers still use. Commit the pending
-batch atomically under the migration lock so no replica sees the intermediate key.
+**Right** — keep numbered migrations and their checksums intact, and commit the
+pending batch atomically under the migration lock so no replica sees an
+intermediate schema. Retired tables keep their shipped shape; nothing reads or
+writes them.
 
 **Guard** — `roost-coord`:
-`agent_store::conversation_entries_settings_and_credentials_round_trip` checks
-native save/read/cascade behavior;
-`agent_store::deployed_advisor_writer_survives_schema_upgrade` exercises the
-deployed upsert and native reader/writer against the migrated schema;
 `db::migration_apply::tests::failed_upgrade_leaves_no_partial_schema_and_can_retry`
 pins whole-upgrade rollback and recovery.
-
-### A fork treats new input as already consumed
-
-**Symptom** — a new steer in a fork disappears from its queue or cannot be
-withdrawn after the source conversation accumulated auxiliary usage or rewinds.
-
-**Wrong** — copy source journal sequence references unchanged while omitting
-entries. The destination's sequence space is smaller, so a copied consumption
-boundary can incorrectly cover its future user entries.
-
-**Right** — map sequence references onto the actual destination sequences
-returned by append. Inclusive consumed-through boundaries round down; a
-compaction keep-from boundary rounds up across omitted source entries.
-
-**Guard** — `roost-agent`:
-`rewind_fork::queued_inputs::forked_steer_remains_withdrawable_after_source_sequence_gaps`
-holds a real fork request and withdraws a later steer;
-`rewind::tests::fork_compaction_boundary_uses_first_copied_source_at_or_after_it`
-pins the keep-from boundary across source gaps.
-
-### A loaded model catalog exposes unloaded settings to replacement saves
-
-**Symptom** — model roles, folder overrides, presets or search configuration
-disappear after changing the advisor switch or search server during initial load.
-
-**Wrong** — treat `AgentSettingsView::default()` as an editable saved document
-because the independent model catalog request succeeded. Reusing the catalog's
-error signal can also hide a settings-read failure when the catalog succeeds later.
-
-**Right** — mount settings-writing controls only after the settings document
-loads successfully. Keep the settings-read error separate from catalog/account
-errors, and preserve the complete loaded document when changing one field.
-
-**Guard** — `roost-web`
-`model_hub_mount::unhydrated_settings_block_keyboard_role_assignment` prevents
-keyboard assignment over an unhydrated document. Browser proof holds
-`AgentSettingsGet`, checks that advisor/search writes stay unavailable, then
-checks persisted roles, folder overrides and presets after real saves; a failed
-read remains visible after a later successful catalog response.
-
-### Cluster test cleanup removes an open SQLite database on Windows
-
-**Symptom** — the read-only cluster regression passes its behavioral assertions,
-then Windows rejects `remove_dir_all` with sharing violation 32.
-
-**Wrong** — delete the scratch directory while replica pools still own SQLite
-connections, or ignore the deletion failure.
-
-**Right** — leave the cluster and await closure of both replica database pools
-before removing their shared scratch directory.
-
-**Guard** — `roost-coord`
-`agent_read_only_cluster::read_only_update_reaches_peer_summary_without_waking_a_run`
-checks persisted peer visibility without model calls and requires scratch removal
-to succeed; the Windows CI job exercises the file-sharing constraint.
-
-### An unset subagent role ignores the parent's model pin
-
-**Symptom** — a scout or reviewer uses Main model despite inheriting a different
-explicit model from its parent chat.
-
-**Wrong** — resolve an unset role through its generic default before considering
-the inherited pin.
-
-**Right** — use the role chain only when configured. Otherwise preserve the
-inherited pin before falling back to Main model.
-
-**Guard** — `roost-agent`
-`model_scope::subagents::an_unset_subagent_role_keeps_the_pin_it_inherited_until_its_role_is_configured`
-checks actual scout and reviewer requests with unset and configured roles.
-
-### A classifier replaces a conversation's chat model
-
-**Symptom** — direct model configuration accepts a classifier that cannot answer
-a chat turn.
-
-**Wrong** — rely on picker filtering while allowing every catalog entry through
-the native set-model API.
-
-**Right** — reject non-chat models before changing the conversation record.
-Classifier selection belongs in the Judge role.
-
-**Guard** — `roost-agent`
-`model_scope::model_kinds::a_classifier_cannot_replace_a_conversations_chat_model`
-checks rejection and preservation of the previous pin.
 
 ### A Windows automatic update stages its release under the Windows directory
 
@@ -4685,20 +4437,6 @@ launches a Windows child with the actual forwarded environment, writes a staging
 probe and verifies that its temp root matches the worker's.
 
 
-### Rewind updates model history but leaves hidden turns in the live transcript
-
-**Symptom** — Retry or Edit sends the correct replacement history to the model,
-but an already-open transcript still shows the discarded turn beside its replacement.
-
-**Wrong** — append `Entry::Rewind` without replacing the subscribed projection,
-or refresh only the browser that initiated the rewind.
-
-**Right** — after committing the rewind, rebuild the canonical runtime transcript
-and emit `ChatEvent::Reset` before file-restoration notices or replacement input.
-
-**Guard** — `crates/roost-agent/tests/rewind_fork/live_projection.rs`:
-`a_live_subscriber_drops_the_hidden_turn_before_its_replacement`.
-
 ### An inset popup trigger lets a wide panel cross the opposite viewport edge
 
 **Symptom** — a usage popover clips its left border on a narrow phone even
@@ -4713,20 +4451,6 @@ anchored edge to the opposite bounds margin, in viewport coordinates before
 conversion to the containing block.
 
 **Guard** — `components::menu_placement::tests::inset_triggers_keep_wide_popups_inside_both_viewport_margins`.
-
-### A versioned OpenAI-compatible root receives `/v1` twice
-
-**Symptom** — a provider whose catalog root ends in `/v1` receives requests at
-`/v1/v1/chat/completions` instead of its advertised chat endpoint.
-
-**Wrong** — append `/v1/chat/completions` to every provider root.
-
-**Right** — append `/chat/completions` to a versioned root and
-`/v1/chat/completions` to a bare override; strip trailing slashes first.
-
-**Guard** — `roost-llm`
-`providers::completions::tests::appends_the_completions_path_once_to_a_versioned_root`
-and `provider_stream::experiential_chat_posts_once_to_the_v1_completions_path`.
 
 ### `roost api cells` rejects its default newest-row request
 

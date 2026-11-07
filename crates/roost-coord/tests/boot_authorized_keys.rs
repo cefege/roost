@@ -38,7 +38,6 @@ impl Scratch {
     async fn config(&self) -> CoordConfig {
         CoordConfig::parse(CoordConfigInput {
             database: Some(db_support::test_database_location(&self.root).await),
-            credential_secret_key: db_support::test_secret_key(),
             authorized_keys_path: Some(self.keys_path()),
             log_dir: Some(self.root.join("logs")),
             ..CoordConfigInput::default()

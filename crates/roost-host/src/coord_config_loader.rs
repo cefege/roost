@@ -22,7 +22,7 @@ use crate::env::EnvSource;
 use crate::paths::{coord_data_dir, coord_log_dir};
 
 mod sources;
-use sources::{agent_endpoint_overrides, coordinator_database, parse_credential_secret_key};
+use sources::{agent_endpoint_overrides, coordinator_database};
 
 /// The listen address, defaulting to loopback.
 pub const ENV_COORDINATOR_BIND: &str = "ROOST_COORDINATOR_BIND";
@@ -33,9 +33,6 @@ pub const ENV_COORDINATOR_DB: &str = "ROOST_COORDINATOR_DB";
 /// A `postgres://` URL. Set, it replaces the SQLite file entirely: the
 /// coordinator keeps no durable state on its own disk.
 pub const ENV_COORDINATOR_DATABASE_URL: &str = "ROOST_COORDINATOR_DATABASE_URL";
-
-/// Base64 encoding of the 32-byte key used to encrypt provider credentials.
-pub const ENV_COORDINATOR_SECRET_KEY: &str = "ROOST_COORDINATOR_SECRET_KEY";
 
 /// The authorized-keys file, defaulting to the coordinator data directory.
 pub const ENV_COORDINATOR_AUTHORIZED_KEYS: &str = "ROOST_COORDINATOR_AUTHORIZED_KEYS";
@@ -130,7 +127,6 @@ pub fn load_coord_config(
     }
     let data_dir = coord_data_dir(env, platform)?;
     let database = coordinator_database(env, &data_dir)?;
-    let credential_secret_key = parse_credential_secret_key(env)?;
     let log_dir = match env.get(ENV_COORDINATOR_LOG_DIR) {
         Some(declared) => PathBuf::from(declared),
         None => coord_log_dir(env, platform)?,
@@ -138,7 +134,6 @@ pub fn load_coord_config(
     let config = CoordConfig::parse(CoordConfigInput {
         bind: env.get(ENV_COORDINATOR_BIND),
         database: Some(database),
-        credential_secret_key,
         authorized_keys_path: Some(
             env.get(ENV_COORDINATOR_AUTHORIZED_KEYS)
                 .map_or_else(|| data_dir.join(AUTHORIZED_KEYS_FILE_NAME), PathBuf::from),

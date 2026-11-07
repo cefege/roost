@@ -13,8 +13,6 @@ use roost_protocol::{ProtocolError, ProtocolResult};
 
 use crate::database_location::DatabaseLocation;
 
-mod secret_key;
-pub use secret_key::CoordinatorSecretKey;
 mod cf_access;
 use cf_access::{validate_cf_access_aud, validate_cf_access_team_domain};
 
@@ -45,8 +43,6 @@ pub struct CoordConfig {
     pub bind: String,
     /// The database the coordinator keeps its durable state in.
     pub database: DatabaseLocation,
-    /// The key encrypting provider credentials stored in `agent_credentials`.
-    pub credential_secret_key: Option<CoordinatorSecretKey>,
     /// The file listing the Ed25519 keys allowed to pair.
     pub authorized_keys_path: PathBuf,
     /// The SPA build output served on the same listener.
@@ -102,7 +98,6 @@ pub struct CoordConfig {
 pub struct CoordConfigInput {
     pub bind: Option<String>,
     pub database: Option<DatabaseLocation>,
-    pub credential_secret_key: Option<CoordinatorSecretKey>,
 
     pub authorized_keys_path: Option<PathBuf>,
     pub web_dist_path: Option<PathBuf>,
@@ -138,13 +133,6 @@ impl CoordConfig {
         let database = input
             .database
             .ok_or_else(|| ProtocolError::new("config.database", "is required"))?;
-        let credential_secret_key = input.credential_secret_key;
-        if matches!(&database, DatabaseLocation::Postgres(_)) && credential_secret_key.is_none() {
-            return Err(ProtocolError::new(
-                "ROOST_COORDINATOR_SECRET_KEY",
-                "is required when ROOST_COORDINATOR_DATABASE_URL selects Postgres",
-            ));
-        }
         let authorized_keys_path =
             require(input.authorized_keys_path, "config.authorized_keys_path")?;
         let cf_access_team_domain = match input.cf_access_team_domain {
@@ -166,7 +154,6 @@ impl CoordConfig {
                 .bind
                 .unwrap_or_else(|| DEFAULT_COORDINATOR_BIND.to_string()),
             database,
-            credential_secret_key,
             authorized_keys_path,
             web_dist_path: input.web_dist_path,
             jwt_max_age_secs: positive_or(

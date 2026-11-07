@@ -3,13 +3,13 @@
 //! These routes never read or distribute the machines' OMP credentials.
 
 use super::{store, summary::summary};
+use crate::agent::sink::ChatSink;
 use crate::{
     auth::principal::require_account_device,
     coord_core::{Caller, CoordCore},
     rpc::service::ok_response,
 };
 use connectrpc::{ConnectError, ErrorCode, ServiceResult};
-use roost_agent::ChatSink;
 use roost_proto as proto;
 use roost_protocol::wire::agent_chat::*;
 

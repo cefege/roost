@@ -42,6 +42,7 @@
 
 mod backend;
 mod in_list;
+mod lease;
 mod migration_apply;
 mod migration_validation;
 pub mod postgres_to_sqlite;
@@ -56,6 +57,7 @@ use roost_host::DatabaseLocation;
 
 pub use backend::{POSTGRES_POOL_SIZE, sqlite_url};
 pub use in_list::{IN_LIST_CHUNK, push_in_list};
+pub use lease::{LeaseRow, lease_expiry, next_lease_epoch};
 pub use sql_builder::{Separated, SqlBuilder};
 
 /// Which server is behind a [`CoordDb`].

@@ -4,24 +4,12 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::duplicate_mod)]
 
-#[path = "agent_chat_rpc.rs"]
-mod agent_chat_rpc;
-#[path = "agent_chat_turns.rs"]
-mod agent_chat_turns;
 #[path = "agent_config_rpc.rs"]
 mod agent_config_rpc;
-#[path = "agent_credentials.rs"]
-mod agent_credentials;
-#[path = "agent_job_loss.rs"]
-mod agent_job_loss;
 #[path = "agent_prompt_handlers.rs"]
 mod agent_prompt_handlers;
 #[path = "agent_prompt_status_wait.rs"]
 mod agent_prompt_status_wait;
-#[path = "agent_read_only_cluster.rs"]
-mod agent_read_only_cluster;
-#[path = "agent_schedules.rs"]
-mod agent_schedules;
 #[path = "agent_status_ordering.rs"]
 mod agent_status_ordering;
 #[path = "agent_status_push.rs"]
@@ -32,18 +20,6 @@ mod agent_status_retirement;
 mod agent_status_rpc;
 #[path = "agent_status_wait.rs"]
 mod agent_status_wait;
-#[path = "agent_store.rs"]
-mod agent_store;
-#[path = "agent_store_completion.rs"]
-mod agent_store_completion;
-#[path = "agent_store_durable.rs"]
-mod agent_store_durable;
-#[path = "agent_store_execution.rs"]
-mod agent_store_execution;
-#[path = "agent_tool_calls.rs"]
-mod agent_tool_calls;
-#[path = "agent_two_instances.rs"]
-mod agent_two_instances;
 #[path = "announced_barrier.rs"]
 mod announced_barrier;
 #[path = "announced_retention.rs"]
@@ -396,8 +372,6 @@ mod ui_state_legacy_command;
 mod ui_state_reports;
 #[path = "upgrade_admission.rs"]
 mod upgrade_admission;
-#[path = "web_search_settings.rs"]
-mod web_search_settings;
 #[path = "worker_frame_dispatch.rs"]
 mod worker_frame_dispatch;
 #[path = "worker_frame_ordering.rs"]

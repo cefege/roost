@@ -1,11 +1,17 @@
 [workspace]
 resolver = "3"
-members = ["crates/rpi-ai", "crates/rpi-codemode", "crates/rpi-durable", "crates/rpi-test-env"]
+members = [
+    "crates/rpi-ai",
+    "crates/rpi-agent",
+    "crates/rpi-codemode",
+    "crates/rpi-durable",
+    "crates/rpi-test-env",
+]
 
 [workspace.package]
 version = "0.1.7"
 edition = "2024"
-rust-version = "1.95"
+rust-version = "1.98"
 license = "MIT"
 
 [workspace.dependencies]
@@ -37,6 +43,8 @@ zstd = "0.13"
 ring = "0.17"
 base64 = "0.22"
 unicode-normalization = "0.1"
+serde_yaml = "0.9"
+ignore = "0.4"
 libc = "0.2"
 notify = "8.2"
 rusqlite = { version = "0.39", default-features = false, features = ["bundled"] }

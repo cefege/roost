@@ -1,12 +1,11 @@
 # Third-party notices
 
-Parts of the agent harness (`crates/roost-llm`, `crates/roost-agent`,
-`crates/roost-agent-tools`, and the agent-chat tool shapes in
+Parts of the agent harness (`crates/roost-agent-tools`, the vendored
+`third_party/pi-durable-rs/`, and the agent-chat tool shapes in
 `crates/roost-protocol`) are ported from the projects below. The agent
 workspace UI adaptation is attributed centrally to the pinned durable-pi
-repository and commit below. This reference UI is distinct from Roost's native
-Rust agent engine. Roost did not import the JavaScript runtime, demo workflows,
-Jev registry or extensions. Ported Rust files name their source path on the
+repository and commit below. Roost did not import the JavaScript runtime, demo
+workflows, Jev registry or extensions. Ported Rust files name their source path on the
 first line of their `//!` header; the centrally attributed UI adaptation does
 not use that per-file attribution.
 
@@ -25,11 +24,6 @@ https://raw.githubusercontent.com/disler/durable-pi/37165c619573dbaf425463038bbf
 
 Source: https://github.com/can1357/oh-my-pi at commit
 `d46bd42f39e82d41b4a04c022fb94e595bd8c3c8`.
-
-The per-model `int`, `tps`, `kind`, `priority` and `pricingStatus` fields in
-`crates/roost-llm/catalog/*.json` come from `packages/catalog/src/models.json`
-of pi-catalog 18.6.2 at commit `a507b6235d`, merged by provider and id. The
-other fields in those files are unchanged from pi-ai 1.1.0.
 
 ```
 MIT License
@@ -57,11 +51,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-## pi-ai (`@earendil-works/pi-ai` 1.1.0)
+## pi-ai (`@earendil-works/pi-ai`)
 
-Source: https://github.com/earendil-works/pi, package `@earendil-works/pi-ai`
-version 1.1.0, author Mario Zechner, license MIT (as declared in the
-package's `package.json`). The model catalog JSON in
-`crates/roost-llm/catalog/` and the provider request, streaming and OAuth
-logic are ported from its compiled `dist/` sources. The MIT license text above
-applies with the copyright line `Copyright (c) 2025 Mario Zechner`.
+Source: https://github.com/earendil-works/pi, package `@earendil-works/pi-ai`,
+author Mario Zechner, license MIT (as declared in the package's
+`package.json`). The vendored `third_party/pi-durable-rs/crates/rpi-ai/` is a
+port of pi-ai 0.82.1: core types, streaming events, tool schema validation,
+usage and cost, model catalog, auth, cross-provider message transforms, retry
+and overflow detection. The MIT license text above applies with the copyright
+line `Copyright (c) 2025 Mario Zechner`.

@@ -1,5 +1,5 @@
 //! SQL storage for central OMP scopes and machine-reported catalogs.
-//! OMP RPCs and the ordered writer share these queries and no credentials.
+//! OMP RPCs and the ordered writer share these queries; no credentials.
 //! Catalog rows retain ACP options for projection through the same parser.
 
 use crate::db::CoordDb;
@@ -39,7 +39,7 @@ pub async fn put_settings(db: &CoordDb, settings: OmpScopedSettings) -> Result<(
             .await?;
     } else {
         sqlx::query("INSERT INTO omp_settings(scope,worker_fp,cwd,model,thinking_level,updated_ms) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(scope,worker_fp,cwd) DO UPDATE SET model=excluded.model,thinking_level=excluded.thinking_level,updated_ms=excluded.updated_ms")
-            .bind(scope).bind(worker).bind(cwd).bind(model).bind(thinking).bind(super::super::store::now_ms()).execute(db.pool()).await?;
+            .bind(scope).bind(worker).bind(cwd).bind(model).bind(thinking).bind(super::super::now_ms()).execute(db.pool()).await?;
     }
     Ok(())
 }
@@ -63,7 +63,7 @@ pub async fn put_catalog(
     options: &serde_json::Value,
 ) -> Result<(), sqlx::Error> {
     sqlx::query("INSERT INTO omp_worker_catalogs(worker_fp,config_options_json,updated_ms) VALUES($1,$2,$3) ON CONFLICT(worker_fp) DO UPDATE SET config_options_json=excluded.config_options_json,updated_ms=excluded.updated_ms")
-        .bind(worker_fp).bind(super::store::encode(options)?).bind(super::super::store::now_ms()).execute(&mut **transaction).await?;
+        .bind(worker_fp).bind(super::store::encode(options)?).bind(super::super::now_ms()).execute(&mut **transaction).await?;
     Ok(())
 }
 pub async fn put_modes(
@@ -74,7 +74,7 @@ pub async fn put_modes(
     sqlx::query("INSERT INTO omp_worker_catalogs(worker_fp,config_options_json,modes_json,updated_ms) VALUES($1,'[]',$2,$3) ON CONFLICT(worker_fp) DO UPDATE SET modes_json=excluded.modes_json,updated_ms=excluded.updated_ms")
         .bind(worker_fp)
         .bind(super::store::encode(&modes)?)
-        .bind(super::super::store::now_ms())
+        .bind(super::super::now_ms())
         .execute(&mut **transaction)
         .await?;
     Ok(())

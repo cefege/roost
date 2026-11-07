@@ -1,26 +1,6 @@
 //! Small read-only projections the chat surface uses to mount its controls.
-//! Todo and loop state have one visible home beside the composer; neither is
-//! rendered as conversation content by the transcript view.
 
-#[cfg(feature = "archived-native-ui")]
-use roost_protocol::wire::agent_chat::TodoPhase;
 use roost_protocol::wire::agent_chat::{Transcript, TranscriptItem};
-
-#[cfg(feature = "archived-native-ui")]
-pub(super) fn latest_todo(transcript: &Transcript) -> Option<Vec<TodoPhase>> {
-    transcript.items.iter().rev().find_map(|item| match item {
-        TranscriptItem::Todo { phases, .. } => Some(phases.clone()),
-        _ => None,
-    })
-}
-
-#[cfg(feature = "archived-native-ui")]
-pub(super) fn loop_status(transcript: &Transcript) -> Option<&str> {
-    transcript.items.iter().find_map(|item| match item {
-        TranscriptItem::LoopStatus { status, .. } => Some(status.as_str()),
-        _ => None,
-    })
-}
 
 /// Whether the newest visible item is an assistant message still receiving
 /// text. Docked goal/status records are not transcript progress indicators.

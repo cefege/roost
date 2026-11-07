@@ -57,13 +57,13 @@ pub(super) fn non_modal_dock(slots: &[OverlaySlot], surface_id: &str, occluded: 
     }
     let docked: Vec<&OverlaySlot> = slots
         .iter()
-    .filter(|slot| {
-        !slot.shape.modal
-            && !matches!(
-                &slot.shape.anchor,
-                OverlayAnchor::Top | OverlayAnchor::Center
-            )
-    })
+        .filter(|slot| {
+            !slot.shape.modal
+                && !matches!(
+                    &slot.shape.anchor,
+                    OverlayAnchor::Top | OverlayAnchor::Center
+                )
+        })
         .collect();
     if docked.is_empty() {
         return rsx! {};

@@ -67,7 +67,7 @@ container image built from `Dockerfile` and the Helm chart in
 | Protocol | `roost-proto`, `roost-protocol` | `roost-proto`: protobuf messages and Connect stubs generated from `protocol/proto/roost/v1/` (the only protobuf runtime). `roost-protocol`: I/O-free wire logic — the one event fold, cell model, chunk assembly, viewport geometry, view registry, peer packet framing, layout documents. Builds for wasm32 and native. |
 | Host/platform | `roost-host`, `roost-platform`, `roost-observability` | `ROOST_*` config and service names; path/shell conventions; the JSON log line `roost status`/`roost doctor` parse. |
 | OMP web agent | `roost-worker`, `roost-coord::agent::omp`, `roost-web` | Worker-hosted `omp acp`, its real provider/model settings and commands, durable transcript/interaction projection, and semantic HTML. No PTY is created for an agent conversation. |
-| Archived Rust-native harness | `roost-agent`, vendored `rpi-durable`/`rpi-ai`, `roost-llm`, `roost-agent-tools` | Retained native engine, provider accounts, journals and worker-tool implementation. Production does not execute or recover native runs; explicit native fixtures keep the implementation testable. |
+| Retained native tools | `roost-agent-tools` | Worker-side tool implementations (hashline read/edit, write, bash, grep, glob, LSP) kept for the archived native harness. The native engine that drove them was removed; vendored `rpi-agent` is the runtime a second backend builds on. |
 
 `roost-client-core` is UI-free: no DOM type, no async runtime I/O, no timer.
 `roost-web` calls `ClientCore::handle` from exactly one place

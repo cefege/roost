@@ -8,7 +8,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use futures::future::BoxFuture;
 use sqlx::postgres::PgListener;
 use tokio::sync::broadcast;
 
@@ -143,19 +142,5 @@ impl ClusterNotifier {
                 }
             }
         }
-    }
-}
-
-/// Runtime cluster signals for waking run owners and refreshing summaries.
-#[derive(Debug, Clone)]
-pub struct AgentClusterSignal(pub Arc<ClusterNotifier>);
-
-impl roost_agent::ClusterSignal for AgentClusterSignal {
-    fn conversation_changed<'a>(&'a self, conversation_id: &'a str) -> BoxFuture<'a, ()> {
-        Box::pin(self.0.notify(AGENT_CHANNEL, conversation_id))
-    }
-
-    fn conversation_summary_changed<'a>(&'a self, conversation_id: &'a str) -> BoxFuture<'a, ()> {
-        Box::pin(self.0.notify(AGENT_SUMMARY_CHANNEL, conversation_id))
     }
 }

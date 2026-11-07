@@ -203,11 +203,7 @@ impl WorkerFrameDispatcher {
                 | CoordWorkerUpstream::AgentToolResult(_)
                 | CoordWorkerUpstream::AgentJobResult(_)
         ) {
-            return if self.core.services.agent_tools.receive(worker_fp, upstream) {
-                DispatchOutcome::Handled
-            } else {
-                self.refuse(channel, "agent_tool_frame_has_no_pending_call")
-            };
+            return self.refuse(channel, "agent_tool_frame_has_no_pending_call");
         }
         match upstream {
             CoordWorkerUpstream::RpcOk {

@@ -23,26 +23,12 @@ use crate::agent::omp::rpc_settings::{
     handle_agent_omp_settings_get, handle_agent_omp_settings_set,
 };
 use crate::agent::omp::rpc_ui::handle_agent_omp_ui;
-use crate::agent::rpc_accounts::{
-    handle_agent_account_remove, handle_agent_accounts_list, handle_agent_settings_get,
-    handle_agent_settings_set, handle_agent_usage_get,
-};
-use crate::agent::rpc_auth::{
-    handle_agent_auth_login_cancel, handle_agent_auth_login_poll, handle_agent_auth_login_respond,
-    handle_agent_auth_login_start, handle_agent_auth_set_api_key,
-};
 use crate::agent::rpc_chat::{
     handle_agent_chat_abort, handle_agent_chat_configure, handle_agent_chat_create,
-    handle_agent_chat_delete, handle_agent_chat_list, handle_agent_chat_plan_decide,
-    handle_agent_chat_submit, handle_agent_chat_withdraw,
+    handle_agent_chat_delete, handle_agent_chat_list, handle_agent_chat_submit,
+    handle_agent_chat_withdraw,
 };
-use crate::agent::rpc_chat_transcript::{
-    handle_agent_chat_events, handle_agent_chat_snapshot, handle_agent_models_list,
-};
-use crate::agent::rpc_inspect::handle_agent_chat_inspect;
-use crate::agent::rpc_turns::{
-    handle_agent_chat_answer, handle_agent_chat_fork, handle_agent_chat_rewind,
-};
+use crate::agent::rpc_chat_transcript::{handle_agent_chat_events, handle_agent_chat_snapshot};
 use crate::agents::rpc_status::{
     handle_agent_config_get, handle_agent_config_set, handle_agent_status_get,
     handle_agent_status_list, handle_agent_status_wait,
@@ -627,19 +613,6 @@ impl CoordinatorService for CoordinatorServiceImpl {
         }
     }
 
-    fn agent_chat_inspect<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, AgentChatInspectRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<AgentChatInspectResponse> + Send + use<'a>>,
-    > + Send {
-        async move {
-            let caller = caller_of(&ctx, "AgentChatInspect")?;
-            handle_agent_chat_inspect(&self.core, caller, r.to_owned_message()).await
-        }
-    }
-
     fn agent_chat_configure<'a>(
         &'a self,
         ctx: RequestContext,
@@ -688,148 +661,6 @@ impl CoordinatorService for CoordinatorServiceImpl {
         async move {
             let caller = caller_of(&ctx, "AgentChatEvents")?;
             handle_agent_chat_events(&self.core, caller, r.to_owned_message()).await
-        }
-    }
-
-    fn agent_models_list<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, AgentModelsListRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<AgentModelsListResponse> + Send + use<'a>>,
-    > + Send {
-        async move {
-            let caller = caller_of(&ctx, "AgentModelsList")?;
-            handle_agent_models_list(&self.core, caller, r.to_owned_message()).await
-        }
-    }
-
-    fn agent_auth_login_start<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, AgentAuthLoginStartRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<AgentAuthLoginStartResponse> + Send + use<'a>>,
-    > + Send {
-        async move {
-            let caller = caller_of(&ctx, "AgentAuthLoginStart")?;
-            handle_agent_auth_login_start(&self.core, caller, r.to_owned_message()).await
-        }
-    }
-
-    fn agent_auth_login_poll<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, AgentAuthLoginPollRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<AgentAuthLoginPollResponse> + Send + use<'a>>,
-    > + Send {
-        async move {
-            let caller = caller_of(&ctx, "AgentAuthLoginPoll")?;
-            handle_agent_auth_login_poll(&self.core, caller, r.to_owned_message()).await
-        }
-    }
-
-    fn agent_auth_login_respond<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, AgentAuthLoginRespondRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<AgentAuthLoginRespondResponse> + Send + use<'a>>,
-    > + Send {
-        async move {
-            let caller = caller_of(&ctx, "AgentAuthLoginRespond")?;
-            handle_agent_auth_login_respond(&self.core, caller, r.to_owned_message()).await
-        }
-    }
-
-    fn agent_auth_login_cancel<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, AgentAuthLoginCancelRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<AgentAuthLoginCancelResponse> + Send + use<'a>>,
-    > + Send {
-        async move {
-            let caller = caller_of(&ctx, "AgentAuthLoginCancel")?;
-            handle_agent_auth_login_cancel(&self.core, caller, r.to_owned_message()).await
-        }
-    }
-
-    fn agent_auth_set_api_key<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, AgentAuthSetApiKeyRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<AgentAuthSetApiKeyResponse> + Send + use<'a>>,
-    > + Send {
-        async move {
-            let caller = caller_of(&ctx, "AgentAuthSetApiKey")?;
-            handle_agent_auth_set_api_key(&self.core, caller, r.to_owned_message()).await
-        }
-    }
-
-    fn agent_accounts_list<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, AgentAccountsListRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<AgentAccountsListResponse> + Send + use<'a>>,
-    > + Send {
-        async move {
-            let caller = caller_of(&ctx, "AgentAccountsList")?;
-            handle_agent_accounts_list(&self.core, caller, r.to_owned_message()).await
-        }
-    }
-
-    fn agent_account_remove<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, AgentAccountRemoveRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<AgentAccountRemoveResponse> + Send + use<'a>>,
-    > + Send {
-        async move {
-            let caller = caller_of(&ctx, "AgentAccountRemove")?;
-            handle_agent_account_remove(&self.core, caller, r.to_owned_message()).await
-        }
-    }
-
-    fn agent_usage_get<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, AgentUsageGetRequest>,
-    ) -> impl Future<Output = ServiceResult<impl Encodable<AgentUsageGetResponse> + Send + use<'a>>> + Send
-    {
-        async move {
-            let caller = caller_of(&ctx, "AgentUsageGet")?;
-            handle_agent_usage_get(&self.core, caller, r.to_owned_message()).await
-        }
-    }
-
-    fn agent_settings_get<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, AgentSettingsGetRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<AgentSettingsGetResponse> + Send + use<'a>>,
-    > + Send {
-        async move {
-            let caller = caller_of(&ctx, "AgentSettingsGet")?;
-            handle_agent_settings_get(&self.core, caller, r.to_owned_message()).await
-        }
-    }
-
-    fn agent_settings_set<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, AgentSettingsSetRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<AgentSettingsSetResponse> + Send + use<'a>>,
-    > + Send {
-        async move {
-            let caller = caller_of(&ctx, "AgentSettingsSet")?;
-            handle_agent_settings_set(&self.core, caller, r.to_owned_message()).await
         }
     }
 
@@ -892,57 +723,6 @@ impl CoordinatorService for CoordinatorServiceImpl {
         async move {
             let caller = caller_of(&ctx, "AgentOmpRespond")?;
             handle_agent_omp_respond(&self.core, caller, r.to_owned_message()).await
-        }
-    }
-
-    fn agent_chat_plan_decide<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, AgentChatPlanDecideRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<AgentChatPlanDecideResponse> + Send + use<'a>>,
-    > + Send {
-        async move {
-            let caller = caller_of(&ctx, "AgentChatPlanDecide")?;
-            handle_agent_chat_plan_decide(&self.core, caller, r.to_owned_message()).await
-        }
-    }
-
-    fn agent_chat_answer<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, AgentChatAnswerRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<AgentChatAnswerResponse> + Send + use<'a>>,
-    > + Send {
-        async move {
-            let caller = caller_of(&ctx, "AgentChatAnswer")?;
-            handle_agent_chat_answer(&self.core, caller, r.to_owned_message()).await
-        }
-    }
-
-    fn agent_chat_rewind<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, AgentChatRewindRequest>,
-    ) -> impl Future<
-        Output = ServiceResult<impl Encodable<AgentChatRewindResponse> + Send + use<'a>>,
-    > + Send {
-        async move {
-            let caller = caller_of(&ctx, "AgentChatRewind")?;
-            handle_agent_chat_rewind(&self.core, caller, r.to_owned_message()).await
-        }
-    }
-
-    fn agent_chat_fork<'a>(
-        &'a self,
-        ctx: RequestContext,
-        r: ServiceRequest<'_, AgentChatForkRequest>,
-    ) -> impl Future<Output = ServiceResult<impl Encodable<AgentConversation> + Send + use<'a>>> + Send
-    {
-        async move {
-            let caller = caller_of(&ctx, "AgentChatFork")?;
-            handle_agent_chat_fork(&self.core, caller, r.to_owned_message()).await
         }
     }
 

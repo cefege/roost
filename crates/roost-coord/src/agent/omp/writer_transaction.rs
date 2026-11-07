@@ -9,7 +9,7 @@ use super::{
     summary::summary,
     writer::{Commit, WriteError, WriterJob, WriterState},
 };
-use roost_agent::ChatSink;
+use crate::agent::sink::ChatSink;
 use roost_protocol::wire::{WorkerFp, agent_chat::*, coord_worker::CoordWorkerDownstream};
 use sqlx::Row;
 
@@ -50,7 +50,7 @@ impl WriterState {
                     return Err(WriteError::Busy);
                 }
                 let inserted = sqlx::query("INSERT INTO omp_inputs(conversation_id,request_id,kind,created_ms) VALUES($1,$2,'prompt',$3) ON CONFLICT DO NOTHING")
-                    .bind(id).bind(&input.prompt.request_id).bind(super::super::store::now_ms()).execute(&mut *transaction).await?.rows_affected();
+                    .bind(id).bind(&input.prompt.request_id).bind(super::super::now_ms()).execute(&mut *transaction).await?.rows_affected();
                 if inserted == 0 {
                     return Ok(Commit {
                         cursor,
@@ -146,7 +146,7 @@ impl WriterState {
                         projection::close_open_items(&transcript, &mut events);
                         events.push(projection::notice(
                             "restart",
-                            super::super::store::now_ms() as u64,
+                            super::super::now_ms() as u64,
                             "error",
                             "OMP stopped",
                             "The worker restarted during this turn.",
@@ -193,7 +193,7 @@ impl WriterState {
         if !events.is_empty() || !effects.is_empty() {
             sqlx::query("UPDATE agent_conversations SET updated_ms=$2 WHERE id=$1")
                 .bind(id)
-                .bind(super::super::store::now_ms())
+                .bind(super::super::now_ms())
                 .execute(&mut *transaction)
                 .await?;
         }

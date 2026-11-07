@@ -1,9 +1,7 @@
 //! Resolves agent conversation identity before its worker receives an attachment.
-//! OMP reads durable worker/workspace metadata without a native runtime.
-//! Native attachment dispatch is available only to explicit native fixtures.
+//! Only worker-hosted OMP conversations exist; the native runtime is gone.
 
 use connectrpc::{ConnectError, ErrorCode};
-use roost_agent::AgentStore;
 use roost_protocol::wire::{AttachmentTargetId, WorkerFp};
 
 use crate::coord_core::CoordCore;
@@ -21,27 +19,13 @@ pub(super) async fn conversation_attachment_target(
         return Ok(None);
     }
     let conversation_id = target_id.as_str();
-    let (resolved_id, cwd, target_worker_fp) = if let Some(omp) =
-        crate::agent::omp::store::find(&core.services.db, conversation_id)
-            .await
-            .map_err(|error| ConnectError::new(ErrorCode::Internal, error.to_string()))?
-    {
-        (omp.id, omp.cwd, omp.worker_fp)
-    } else {
-        let store = crate::agent::store::CoordAgentStore::new(core.services.db.clone());
-        let Some(record) = store
-            .conversation(conversation_id)
-            .await
-            .map_err(|error| {
-                tracing::error!(conversation_id, %error, "attachments: agent conversation lookup failed");
-                ConnectError::new(ErrorCode::Internal, "attachment conversation lookup failed")
-            })?
-        else {
-            return Ok(None);
-        };
-        core.services.agent.native_service()?;
-        (record.id, record.cwd, record.worker_fp)
+    let Some(omp) = crate::agent::omp::store::find(&core.services.db, conversation_id)
+        .await
+        .map_err(|error| ConnectError::new(ErrorCode::Internal, error.to_string()))?
+    else {
+        return Ok(None);
     };
+    let (resolved_id, cwd, target_worker_fp) = (omp.id, omp.cwd, omp.worker_fp);
     if resolved_id != conversation_id || cwd.trim().is_empty() {
         tracing::error!(
             conversation_id,

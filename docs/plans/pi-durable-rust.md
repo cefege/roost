@@ -29,12 +29,12 @@ This is **fork maintenance**, not zero maintenance. Any native reactivation requ
 | Transactions, document history/migrations/watches, tasks, sleeping/wake, submissions, ownership, context heads/edits | Vendored `rpi-durable` |
 | Generation, retries/deferred polling, tool rounds/nested calls, code-mode journaling, compaction | Vendored built-in Harness tasks |
 | Native input request IDs, queues/withdrawal, run intent, leases/epochs, coordinator wake-ups | Roost `AgentRuntime` and SQL stores |
-| Provider accounts, OAuth, transport, account rotation and model chains | `roost-llm`, through the trusted Durable provider adapter |
+| Provider accounts, OAuth, transport, account rotation and model chains | Retired with `roost-llm`; a future backend takes them from the vendored provider adapter |
 | Worker dispatch, effect receipts, file restore checkpoints and read-only enforcement | Roost worker tools and coordinator dispatch ledger |
 | Goals/loop/advisor/plan/ask/todo/subagents/roles/slash commands | Roost extensions/hooks and product policies |
 | Native transcript/cursors/inspection and stock Rust/UI | Roost projections and existing client APIs |
 
-`crates/roost-agent/src/durable/` is the host adapter. The outer run supervisor enters the real Durable generation task; it does not implement another tool loop. Embedded QuickJS runs code-mode programs without introducing a production Node process.
+This plan targeted the `roost-agent` host adapter, which has since been deleted. Vendored `rpi-agent` (`third_party/pi-durable-rs/crates/rpi-agent/`) is the runtime a future backend builds on; nothing starts it in production.
 
 ## DURABLE-PERSISTENCE
 

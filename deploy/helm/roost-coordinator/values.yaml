@@ -6,13 +6,14 @@ image:
 
 database:
   # A postgres:// URL, stored in a Secret this chart creates. Set this OR
-  # existingSecret (a Secret with ROOST_COORDINATOR_DATABASE_URL and
-  # ROOST_COORDINATOR_SECRET_KEY), or enable the in-chart postgres below.
+  # existingSecret (a Secret with ROOST_COORDINATOR_DATABASE_URL), or enable
+  # the in-chart postgres below.
   url: ""
   existingSecret: ""
 
-# Base64-encoded 32-byte key for stored provider credentials. Changing it
-# makes existing credentials unreadable. Set explicitly when using GitOps.
+# Base64-encoded 32-byte key older releases encrypted stored provider
+# credentials under. No coordinator code reads it now; the chart keeps it so
+# those rows stay decryptable. Changing it makes them unreadable.
 secretKey: ""
 
 # The HTTPS origin browsers and workers reach the coordinator at. Becomes

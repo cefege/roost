@@ -180,16 +180,6 @@ impl AgentFixture {
         // as it is in production: a worker's frame is accepted only when the
         // coordinator's own binding names that worker.
         services.byte_hub.prime_channel_map(&route_rows());
-        services.agent = roost_coord::agent::AgentService::with_worker_tools(
-            services.db.clone(),
-            Arc::clone(&services.buses),
-            Arc::clone(&services.agent_tools),
-            std::collections::BTreeMap::new(),
-            roost_coord::agent::ClusterMembership {
-                instance_id: services.instance_id.clone(),
-                notifier: Arc::clone(&services.cluster),
-            },
-        );
         let core = CoordCore::with_terminal(Arc::new(services), CoordTerminal::none());
 
         Self {

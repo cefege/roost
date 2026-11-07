@@ -46,10 +46,6 @@ mod keyboard_shortcuts;
 mod machine_actions;
 #[path = "mic_unmount_lifecycle.rs"]
 mod mic_unmount_lifecycle;
-#[path = "model_hub_logic.rs"]
-mod model_hub_logic;
-#[path = "model_hub_mount.rs"]
-mod model_hub_mount;
 #[path = "notification_dock_lift.rs"]
 mod notification_dock_lift;
 #[path = "notify_target_ring.rs"]

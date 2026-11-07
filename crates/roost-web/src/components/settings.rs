@@ -2,21 +2,7 @@
 //! `settings_navigation` owns destinations and descriptions for this shell
 //! and the `/design` specimen. Each pane owns its data and mutations.
 
-#[cfg(feature = "archived-native-ui")]
-pub mod agent_accounts;
-#[cfg(feature = "archived-native-ui")]
-pub mod agent_connect_dialog;
 pub mod agent_launcher;
-#[cfg(feature = "archived-native-ui")]
-pub mod agent_login_dialog;
-#[cfg(feature = "archived-native-ui")]
-pub mod agent_models;
-#[cfg(feature = "archived-native-ui")]
-pub mod agent_provider_list;
-#[cfg(feature = "archived-native-ui")]
-pub mod agent_provider_status;
-#[cfg(feature = "archived-native-ui")]
-pub mod agent_roles;
 pub mod agents;
 pub mod attachments;
 pub mod audit;
@@ -27,14 +13,6 @@ pub mod format;
 pub mod machines;
 pub mod mcp;
 pub mod metrics;
-#[cfg(feature = "archived-native-ui")]
-pub mod model_chain;
-#[cfg(feature = "archived-native-ui")]
-pub mod model_chain_editor;
-#[cfg(feature = "archived-native-ui")]
-pub mod model_chain_table;
-#[cfg(feature = "archived-native-ui")]
-pub mod model_scope;
 pub mod notifications;
 mod omp_scope;
 pub mod omp_settings;

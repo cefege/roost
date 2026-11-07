@@ -32,10 +32,6 @@ impl ChatDelivery {
         }
     }
 
-    pub fn buses(&self) -> Arc<Buses> {
-        Arc::clone(&self.buses)
-    }
-
     /// Publishes the batch at `cursor` unless this replica already published
     /// it or a later one. The check and the publish share one lock, so the
     /// direct path and the relay can race without either duplicating or

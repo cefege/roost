@@ -15,7 +15,6 @@ use roost_protocol::wire::agent_chat::ConversationSummary;
 use super::pane_tab::direct_transport_label;
 use super::workspace_tabs_sheet::WorkspaceTabsSheet;
 use crate::components::agent_chat::AgentChatHeader;
-use crate::components::deck::terminal_deck::AgentInspectorRequest;
 use crate::components::terminal::terminal_transport_indicator::TerminalTransportIndicator;
 use crate::components::ui::{
     Button, ButtonSize, ButtonVariant, Icon, IconButton, IconType, StatusDot,
@@ -45,7 +44,6 @@ pub fn MobileDeckBar(
 ) -> Element {
     let pump = use_store();
     let mut sheet_open = tabs_sheet_open;
-    let inspector_request = try_consume_context::<AgentInspectorRequest>();
     let reading = {
         let core = pump.core();
         let core = core.borrow();
@@ -121,20 +119,10 @@ pub fn MobileDeckBar(
                     }
                     if show_agent_actions {
                         if let Some(conversation) = reading.agent_conversation.clone() {
-                            {
-                                let conversation_id = conversation.id.clone();
-                                rsx! {
-                                    AgentChatHeader {
-                                        conversation,
-                                        online: None,
-                                        pump: pump.clone(),
-                                        on_inspector: move |_| {
-                                            if let Some(mut request) = inspector_request {
-                                                request.0.set(Some(conversation_id.clone()));
-                                            }
-                                        },
-                                    }
-                                }
+                            AgentChatHeader {
+                                conversation,
+                                online: None,
+                                pump: pump.clone(),
                             }
                         }
                     }

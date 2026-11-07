@@ -1,13 +1,11 @@
-//! Device-authorized agent chat RPCs over the harness: conversation list,
-//! create, submit, abort, configure, delete and plan decisions.
-//! Worker metadata comes from the registry.
+//! Device-authorized agent chat RPCs: conversation list, create, submit,
+//! abort, configure, delete and plan decisions. Every conversation is a
+//! worker-hosted OMP session; the native runtime is gone.
 
 use connectrpc::{ConnectError, ErrorCode, ServiceResult};
-use roost_agent::{AgentStore, NewConversation, SubmitMode};
 use roost_proto as proto;
 use roost_protocol::wire::agent_chat::{ModelRef, conversation_to_proto};
 
-use super::rpc_errors::{agent_status, internal};
 use crate::auth::principal::require_account_device;
 use crate::coord_core::{Caller, CoordCore};
 use crate::rpc::service::ok_response;
@@ -18,26 +16,15 @@ pub async fn handle_agent_chat_list(
     _request: proto::AgentChatListRequest,
 ) -> ServiceResult<proto::AgentChatListResponse> {
     require_account_device(caller)?;
-    let mut conversations = match core.services.agent.native.as_ref() {
-        Some(native) => native.runtime.conversations().await.map_err(agent_status)?,
-        None => super::store::CoordAgentStore::new(core.services.db.clone())
-            .conversations()
-            .await
-            .map_err(agent_status)?
-            .iter()
-            .map(|record| record.to_summary(None, false))
-            .collect(),
-    };
     let scopes = super::omp::store::settings(&core.services.db)
         .await
         .map_err(super::omp::rpc_settings::database_error)?;
-    conversations.extend(
-        super::omp::store::list(&core.services.db)
-            .await
-            .map_err(super::omp::rpc_settings::database_error)?
-            .iter()
-            .map(|conversation| super::omp::summary::summary(conversation, &scopes)),
-    );
+    let mut conversations: Vec<_> = super::omp::store::list(&core.services.db)
+        .await
+        .map_err(super::omp::rpc_settings::database_error)?
+        .iter()
+        .map(|conversation| super::omp::summary::summary(conversation, &scopes))
+        .collect();
     conversations.sort_by(|left, right| {
         right
             .updated_ms
@@ -57,9 +44,13 @@ async fn live_worker(
 ) -> Result<(String, String, String), ConnectError> {
     let worker = crate::workers::rows::read_live_worker(&core.services.db, worker_fp)
         .await
-        .map_err(|_| internal("worker lookup failed"))?
+        .map_err(|_| ConnectError::new(ErrorCode::Internal, "worker lookup failed"))?
         .ok_or_else(|| ConnectError::new(ErrorCode::NotFound, "worker not found"))?;
     Ok((worker.fp, worker.label, worker.os))
+}
+
+fn conversation_not_found() -> ConnectError {
+    ConnectError::new(ErrorCode::NotFound, "conversation not found")
 }
 
 /// What a configure or create request asks for the session model: leave it,
@@ -100,27 +91,6 @@ pub async fn handle_agent_chat_create(
         let worker = live_worker(core, &request.worker_fp).await?;
         return super::omp::rpc::create(core, request, worker).await;
     }
-    if request.backend == "native" {
-        let runtime = core.services.agent.native_runtime()?;
-        let (worker_fp, worker_label, worker_os) = live_worker(core, &request.worker_fp).await?;
-        let model = match model_update(Some(&request.model_provider), Some(&request.model_id))? {
-            ModelUpdate::Set(model) => Some(model),
-            ModelUpdate::Unchanged | ModelUpdate::Clear => None,
-        };
-        let summary = runtime
-            .create_conversation(NewConversation {
-                worker_fp,
-                worker_label,
-                worker_os,
-                cwd: request.cwd,
-                title: None,
-                model,
-                thinking_level: None,
-            })
-            .await
-            .map_err(agent_status)?;
-        return ok_response(conversation_to_proto(&summary));
-    }
     Err(ConnectError::new(
         ErrorCode::InvalidArgument,
         format!("unsupported agent backend: {}", request.backend),
@@ -134,24 +104,10 @@ pub async fn handle_agent_chat_submit(
 ) -> ServiceResult<proto::AgentChatSubmitResponse> {
     require_account_device(caller)?;
     require_request_id(&request.request_id)?;
-    if let Some(omp) = super::omp::rpc::find_omp(core, &request.conversation_id).await? {
-        return super::omp::rpc::submit(core, omp, request).await;
-    }
-    let mode = SubmitMode::parse(&request.when_busy).map_err(agent_status)?;
-    let attachments = super::rpc_chat_attachments::to_domain_attachments(request.attachments);
-    core.services
-        .agent
-        .native_runtime()?
-        .submit_request_with_attachments(
-            &request.conversation_id,
-            &request.request_id,
-            request.text,
-            attachments,
-            mode,
-        )
-        .await
-        .map_err(agent_status)?;
-    ok_response(proto::AgentChatSubmitResponse::default())
+    let Some(omp) = super::omp::rpc::find_omp(core, &request.conversation_id).await? else {
+        return Err(conversation_not_found());
+    };
+    super::omp::rpc::submit(core, omp, request).await
 }
 
 pub async fn handle_agent_chat_withdraw(
@@ -163,26 +119,12 @@ pub async fn handle_agent_chat_withdraw(
     require_request_id(&request.request_id)?;
     if super::omp::rpc::find_omp(core, &request.conversation_id)
         .await?
-        .is_some()
+        .is_none()
     {
-        return ok_response(proto::AgentChatWithdrawResponse {
-            withdrawn: false,
-            ..Default::default()
-        });
+        return Err(conversation_not_found());
     }
-    let withdrawn = core
-        .services
-        .agent
-        .native_runtime()?
-        .withdraw(
-            &request.conversation_id,
-            &request.request_id,
-            &request.submission_id,
-        )
-        .await
-        .map_err(agent_status)?;
     ok_response(proto::AgentChatWithdrawResponse {
-        withdrawn,
+        withdrawn: false,
         ..Default::default()
     })
 }
@@ -194,28 +136,10 @@ pub async fn handle_agent_chat_abort(
 ) -> ServiceResult<proto::AgentChatAbortResponse> {
     require_account_device(caller)?;
     require_request_id(&request.request_id)?;
-    if let Some(omp) = super::omp::rpc::find_omp(core, &request.conversation_id).await? {
-        return super::omp::rpc::abort(core, omp, request).await;
-    }
-    let runtime = core.services.agent.native_runtime()?;
-    runtime
-        .deduplicated(
-            &request.conversation_id,
-            &request.request_id,
-            "abort",
-            || async {
-                runtime
-                    .abort_with_background(
-                        &request.conversation_id,
-                        request.background.unwrap_or(true),
-                    )
-                    .await?;
-                Ok(String::new())
-            },
-        )
-        .await
-        .map_err(agent_status)?;
-    ok_response(proto::AgentChatAbortResponse::default())
+    let Some(omp) = super::omp::rpc::find_omp(core, &request.conversation_id).await? else {
+        return Err(conversation_not_found());
+    };
+    super::omp::rpc::abort(core, omp, request).await
 }
 
 /// Every agent command carries a client-minted id so a retry is applied once.
@@ -235,40 +159,10 @@ pub async fn handle_agent_chat_configure(
     request: proto::AgentChatConfigureRequest,
 ) -> ServiceResult<proto::AgentConversation> {
     require_account_device(caller)?;
-    if let Some(omp) = super::omp::rpc::find_omp(core, &request.conversation_id).await? {
-        return super::omp::rpc::configure(core, omp, request).await;
-    }
-    let runtime = core.services.agent.native_runtime()?;
-    let id = &request.conversation_id;
-    match model_update(
-        request.model_provider.as_deref(),
-        request.model_id.as_deref(),
-    )? {
-        ModelUpdate::Unchanged => {}
-        ModelUpdate::Clear => runtime.clear_model(id).await.map_err(agent_status)?,
-        ModelUpdate::Set(model) => runtime.set_model(id, model).await.map_err(agent_status)?,
-    }
-    if let Some(level) = request.thinking_level {
-        runtime
-            .set_thinking_level(id, level)
-            .await
-            .map_err(agent_status)?;
-    }
-    let worker = match request.worker_fp.as_deref() {
-        Some(fp) => Some(live_worker(core, fp).await?),
-        None => None,
+    let Some(omp) = super::omp::rpc::find_omp(core, &request.conversation_id).await? else {
+        return Err(conversation_not_found());
     };
-    let mut summary = runtime
-        .set_details(id, request.title, worker, request.cwd)
-        .await
-        .map_err(agent_status)?;
-    if let Some(read_only) = request.read_only {
-        summary = runtime
-            .set_read_only(id, read_only)
-            .await
-            .map_err(agent_status)?;
-    }
-    ok_response(conversation_to_proto(&summary))
+    super::omp::rpc::configure(core, omp, request).await
 }
 
 pub async fn handle_agent_chat_delete(
@@ -277,55 +171,10 @@ pub async fn handle_agent_chat_delete(
     request: proto::AgentChatDeleteRequest,
 ) -> ServiceResult<proto::AgentChatDeleteResponse> {
     require_account_device(caller)?;
-    if let Some(omp) = super::omp::rpc::find_omp(core, &request.conversation_id).await? {
-        return super::omp::rpc::delete(core, omp).await;
-    }
-    core.services
-        .agent
-        .native_runtime()?
-        .delete_conversation(&request.conversation_id)
-        .await
-        .map_err(agent_status)?;
-    ok_response(proto::AgentChatDeleteResponse::default())
-}
-
-pub async fn handle_agent_chat_plan_decide(
-    core: &CoordCore,
-    caller: &Caller,
-    request: proto::AgentChatPlanDecideRequest,
-) -> ServiceResult<proto::AgentChatPlanDecideResponse> {
-    require_account_device(caller)?;
-    require_request_id(&request.request_id)?;
-    if super::omp::rpc::find_omp(core, &request.conversation_id)
-        .await?
-        .is_some()
-    {
-        return Err(super::omp::rpc::unsupported());
-    }
-    let runtime = core.services.agent.native_runtime()?;
-    let created = runtime
-        .deduplicated(
-            &request.conversation_id,
-            &request.request_id,
-            "plan_decide",
-            || async {
-                let created = runtime
-                    .plan_decide(
-                        &request.conversation_id,
-                        &request.item_id,
-                        &request.decision,
-                        &request.feedback,
-                    )
-                    .await?;
-                Ok(created.unwrap_or_default())
-            },
-        )
-        .await
-        .map_err(agent_status)?;
-    ok_response(proto::AgentChatPlanDecideResponse {
-        new_conversation_id: created.unwrap_or_default(),
-        ..Default::default()
-    })
+    let Some(omp) = super::omp::rpc::find_omp(core, &request.conversation_id).await? else {
+        return Err(conversation_not_found());
+    };
+    super::omp::rpc::delete(core, omp).await
 }
 
 pub const METHOD_HANDLERS: &[(&str, &str)] = &[
@@ -346,9 +195,5 @@ pub const METHOD_HANDLERS: &[(&str, &str)] = &[
     (
         "AgentChatDelete",
         "agent::rpc_chat::handle_agent_chat_delete",
-    ),
-    (
-        "AgentChatPlanDecide",
-        "agent::rpc_chat::handle_agent_chat_plan_decide",
     ),
 ];

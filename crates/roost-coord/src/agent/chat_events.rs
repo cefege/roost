@@ -15,25 +15,6 @@ pub struct ChatEventRow {
     pub events_json: String,
 }
 
-pub async fn append(
-    db: &CoordDb,
-    conversation_id: &str,
-    events_json: &str,
-    run_start: bool,
-) -> Result<u64, sqlx::Error> {
-    let mut transaction = begin_chat_write(db).await?;
-    let cursor = append_in(
-        &mut transaction,
-        db.backend(),
-        conversation_id,
-        events_json,
-        run_start,
-    )
-    .await?;
-    transaction.commit().await?;
-    Ok(cursor)
-}
-
 pub(super) async fn begin_chat_write(
     db: &CoordDb,
 ) -> Result<sqlx::Transaction<'_, sqlx::Any>, sqlx::Error> {
@@ -104,43 +85,6 @@ pub async fn read_after(
             })
             .collect(),
         truncated,
-    ))
-}
-
-pub async fn snapshot_rows(
-    db: &CoordDb,
-    conversation_id: &str,
-) -> Result<(u64, Vec<ChatEventRow>), sqlx::Error> {
-    let mut transaction = db.pool().begin().await?;
-    if db.backend() == DbBackend::Postgres {
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-            .execute(&mut *transaction)
-            .await?;
-    }
-    let cursor: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(MAX(cursor), 0) FROM agent_chat_events WHERE conversation_id=$1",
-    )
-    .bind(conversation_id)
-    .fetch_one(&mut *transaction)
-    .await?;
-    let start = sqlx::query_scalar::<_, i64>("SELECT cursor FROM agent_chat_events WHERE conversation_id=$1 AND cursor <= $2 AND run_start=1 ORDER BY cursor DESC LIMIT 1")
-        .bind(conversation_id).bind(cursor).fetch_optional(&mut *transaction).await?;
-    let batches = if let Some(start) = start {
-        sqlx::query_as::<_, (i64, String)>("SELECT cursor, events_json FROM agent_chat_events WHERE conversation_id=$1 AND cursor >= $2 AND cursor <= $3 ORDER BY cursor")
-            .bind(conversation_id).bind(start).bind(cursor).fetch_all(&mut *transaction).await?
-    } else {
-        Vec::new()
-    };
-    transaction.commit().await?;
-    Ok((
-        u64::try_from(cursor).unwrap_or_default(),
-        batches
-            .into_iter()
-            .map(|(cursor, events_json)| ChatEventRow {
-                cursor: u64::try_from(cursor).unwrap_or_default(),
-                events_json,
-            })
-            .collect(),
     ))
 }
 

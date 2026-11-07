@@ -157,19 +157,9 @@ fn output(id: &str) -> proto::WOmpEvents {
 }
 
 #[tokio::test]
-async fn omp_chat_submit_projection_replay_and_native_isolation() {
+async fn omp_chat_submit_projection_replay() {
     let fixture = AgentFixture::new("omp-chat").await;
     let (_handle, mut downstream) = register_worker(&fixture, "worker-epoch");
-    let native_count = fixture
-        .core
-        .services
-        .agent
-        .native_runtime()
-        .unwrap()
-        .conversations()
-        .await
-        .unwrap()
-        .len();
     let id = create(&fixture).await;
     let list = handle_agent_chat_list(
         &fixture.core,
@@ -185,18 +175,11 @@ async fn omp_chat_submit_projection_replay_and_native_isolation() {
             .any(|conversation| conversation.id == id
                 && conversation_from_proto(conversation).backend == AgentBackend::Omp)
     );
-    assert_eq!(
-        fixture
-            .core
-            .services
-            .agent
-            .native_runtime()
-            .unwrap()
-            .conversations()
-            .await
-            .unwrap()
-            .len(),
-        native_count
+    assert!(
+        list.conversations
+            .iter()
+            .all(|conversation| conversation_from_proto(conversation).backend == AgentBackend::Omp),
+        "every listed conversation is worker-hosted OMP"
     );
     for (scope, model) in [
         (OmpSettingsScope::Defaults, "defaults/model"),

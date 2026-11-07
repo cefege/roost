@@ -15,7 +15,7 @@
 | Workers | `Workers*`, `WorkersDeploy*`, `WorkersPrepareKeeperUpdate*`; `coordinator.proto:938-945` | Browser and worker methods share one service; principal is method-specific. |
 | Sessions | `Sessions*`; `coordinator.proto:948-964` | Includes lifecycle, input, scrollback/search, direct terminal grant/signaling, attachment-peer signaling. |
 | Agent | `AgentStatusGet/List/Wait`, `SessionsPrompt`; `coordinator.proto:954,967-969` | Dashboard-authorized PID-free observation and fenced ordinary PTY input. |
-| OMP agent / archived native APIs | `AgentChat*`, `AgentOmp*`, `AgentModelsList`, `AgentAuth*` | Device-authorized OMP conversations run on workers through ACP. Native creation, execution, configuration and provider-auth mutations reject as archived; native data remains stored. See [`agent-chat.md`](agent-chat.md). |
+| OMP agent | `AgentChat*`, `AgentOmp*` | Device-authorized OMP conversations run on workers through ACP. Stored native conversations are inert: nothing lists, reads, resumes or mutates them. See [`agent-chat.md`](agent-chat.md). |
 | Organization | `Workspaces*`, `Tasks*`, `Mcp*`; `coordinator.proto:972-989` | Durable dashboard-local coordination state. |
 | Auth/devices/pair | `Auth*`, `Devices*`, `Pair*`; `coordinator.proto:992-1025` | Public identity/bootstrap redemption alternate with device-gated and split pairing authority. |
 | System/audit | `Misc*`, `Audit*`; `coordinator.proto:1028-1034` | Health is public; DB export URL additionally requires on-host; metrics/diagnostics/audit require device authority. |

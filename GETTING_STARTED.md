@@ -58,7 +58,6 @@ The fresh local coordinator service uses this profile:
 
 ```text
 ROOST_COORDINATOR_BIND=127.0.0.1:4113
-ROOST_COORDINATOR_SECRET_KEY=
 ROOST_TRUST_PROXY=0
 ROOST_WEB_PUBLIC_URL=
 ROOST_COORDINATOR_PUBLIC_URL=
@@ -108,10 +107,6 @@ read-only root filesystem, can be rescheduled freely, and its backups are the
 Postgres operator's. Without that variable it uses its SQLite file under
 `/var/lib/roost`, which must then be a volume. Setting both it and
 `ROOST_COORDINATOR_DB` is refused.
-
-Postgres requires `ROOST_COORDINATOR_SECRET_KEY`, a base64-encoded 32-byte key
-used to encrypt provider credentials in the shared database. SQLite may omit
-the key, in which case credentials remain plaintext.
 
 For a multi-replica Postgres deployment, set `ROOST_COORDINATOR_INTERNAL_URL`
 to this pod's peer-reachable HTTP address (for example
@@ -169,10 +164,11 @@ kubectl -n roost exec deploy/roost-coordinator -- roost add-browser
 kubectl -n roost exec deploy/roost-coordinator -- roost add-machine --platform linux
 ```
 
-`roost-db` is a Secret with the keys `ROOST_COORDINATOR_DATABASE_URL` and
-`ROOST_COORDINATOR_SECRET_KEY` (base64-encoded 32-byte key). Changing the
-secret key makes stored provider credentials unreadable; keep it stable and
-backed up. Or run the chart's own single Postgres: `--set postgres.enabled=true
+`roost-db` is a Secret holding `ROOST_COORDINATOR_DATABASE_URL`. It may also
+carry `ROOST_COORDINATOR_SECRET_KEY`, the base64 32-byte key older releases
+encrypted stored provider credentials under; nothing reads it now, and the
+chart preserves it so those rows stay decryptable if a provider backend
+returns. Or run the chart's own single Postgres: `--set postgres.enabled=true
 --set postgres.password=…`, plus
 `--set postgres.backup.enabled=true` for a daily `pg_dump` CronJob that keeps
 14 archives on its own PVC (restore with
@@ -203,15 +199,14 @@ Choose **New agent**, select a worker and folder, and chat with OMP through the
 web UI. This creates an agent conversation, not a terminal. **Terminal** remains
 the separate launcher for shells and terminal agent CLIs.
 
-OMP is the only active agent backend. Roost's custom Rust-native agent is
-archived: its code, conversation journals, settings and credentials remain
-stored, but its runtime and creation/settings UI are not active. Old native
-links show an archived notice; nothing is converted into an OMP conversation.
-The retained native contract is in
+OMP is the only agent backend. Roost's custom Rust-native agent is removed: its
+engine crate and RPC paths are deleted, and stored native conversation rows are
+inert — nothing lists, reads or resumes them, and nothing is converted into an
+OMP conversation. The contract is in
 [`protocol/spec/agent-chat.md`](protocol/spec/agent-chat.md).
 
 Models, connected providers and commands come from the selected worker's actual
-OMP configuration, not Roost's archived provider-account store. Provider
+OMP configuration, not the coordinator's provider-account store. Provider
 discovery finishes before choices are advertised. OMP credentials stay on that
 worker under `~/.omp`.
 
@@ -224,8 +219,8 @@ OMP defaults for a machine or folder.
 Type `/` or open the command button for commands offered by OMP. Bare `/model`
 opens the worker-backed picker. `/plan` uses the plan and non-plan modes ACP
 actually offers; `/plan <prompt>` enters plan mode before submitting an idle,
-non-plan conversation's prompt. Commands are not translated into the archived
-Rust-native agent's commands.
+non-plan conversation's prompt. Commands are not translated into Roost-authored
+commands.
 
 Questions, forms, confirmations and plan approvals wait for an explicit answer.
 Closing or canceling a request is not approval. Stop also cancels unanswered

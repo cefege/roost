@@ -17,7 +17,6 @@ use super::pane_tab_hover_card::PaneTabHoverCard;
 use super::pane_tab_list::{PaneTabList, TAB_LIST_MENU_ID};
 use super::pane_tab_new_menu::PaneTabNewMenu;
 use crate::components::agent_chat::AgentChatHeader;
-use crate::components::deck::terminal_deck::AgentInspectorRequest;
 use crate::components::layout::window_size::use_is_compact;
 use crate::components::terminal::terminal_transport_indicator::TerminalTransportIndicator;
 use crate::components::ui::{
@@ -81,7 +80,6 @@ pub fn PaneStrip(
         });
         (agent, online)
     };
-    let inspector_request = try_consume_context::<AgentInspectorRequest>();
     let drag = gesture.drag.read().clone();
 
     use_effect(use_reactive((&selected_tab, &tab_ids), move |_| {
@@ -245,20 +243,10 @@ pub fn PaneStrip(
                 },
             }
             if let Some(conversation) = selected_agent {
-                {
-                    let conversation_id = conversation.id.clone();
-                    rsx! {
-                        AgentChatHeader {
-                            conversation,
-                            online: Some(online),
-                            pump: pump.clone(),
-                            on_inspector: move |_| {
-                                if let Some(mut request) = inspector_request {
-                                    request.0.set(Some(conversation_id.clone()));
-                                }
-                            },
-                        }
-                    }
+                AgentChatHeader {
+                    conversation,
+                    online: Some(online),
+                    pump: pump.clone(),
                 }
             }
             if !matches!(roost_client_core::deck::tab::DeckTab::parse(&selected_tab), Some(roost_client_core::deck::tab::DeckTab::Agent(_))) {

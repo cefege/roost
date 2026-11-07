@@ -72,7 +72,7 @@ impl CoordinatorServiceImpl {
 /// The answer for a method whose domain is not in this slice.
 ///
 /// Names the domain so the failure says who owns the work, and never claims the
-/// method is retired -- sixteen of the 122 are, and those say so separately.
+/// method is retired -- sixteen of the 124 are, and those say so separately.
 #[must_use]
 pub fn unimplemented_for_domain(method: &str) -> ConnectError {
     let domain = super::method_route::owning_domain(method).unwrap_or("unassigned");

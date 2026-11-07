@@ -113,17 +113,10 @@ const ALLOWED: &[(&str, &[&str])] = &[
             "roost-protocol",
             "roost-platform",
             "roost-observability",
-            "roost-agent",
-            "roost-llm",
         ],
     ),
-    // Providers and accounts sit below the agent loop. The worker tools share
-    // the protocol's argument shapes with the coordinator-owned harness.
-    ("roost-llm", &["roost-observability"]),
-    (
-        "roost-agent",
-        &["roost-llm", "roost-protocol", "roost-observability"],
-    ),
+    // Providers and accounts sit below every consumer. The worker tools share
+    // the protocol's argument shapes with the coordinator's agent RPCs.
     (
         "roost-agent-tools",
         &["roost-protocol", "roost-platform", "roost-observability"],

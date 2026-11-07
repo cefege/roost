@@ -1,6 +1,6 @@
 //! Worker-hosted OMP conversations, durable projection, and scoped settings.
 //! Browser commands and worker ACP frames converge through one ordered writer.
-//! Native harness adoption and credentials never participate in this backend.
+//! Provider credentials stay on the worker; this backend never reads them.
 
 pub mod catalog;
 mod dashboard_capability;

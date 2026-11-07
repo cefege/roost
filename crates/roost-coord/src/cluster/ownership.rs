@@ -8,11 +8,10 @@ use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use roost_agent::admission::{LeaseRow, lease_expiry, next_lease_epoch};
 use tokio::sync::watch;
 
 use crate::cluster::notify::{CLUSTER_CHANNEL, ClusterNotifier};
-use crate::db::{CoordDb, DbBackend};
+use crate::db::{CoordDb, DbBackend, LeaseRow, lease_expiry, next_lease_epoch};
 
 /// The link-owner lease name shared by every replica.
 pub const LINK_LEASE_NAME: &str = "cluster:links";
@@ -93,7 +92,6 @@ pub async fn run(
     if db.backend() == DbBackend::Sqlite {
         state.set_owner(true);
         agent.join_cluster();
-        agent.recover().await;
         tracing::info!(instance_id, "coordinator link ownership acquired");
     }
 
@@ -116,7 +114,6 @@ pub async fn run(
                 last_renewed = now;
                 tracing::info!(instance_id, "coordinator link ownership acquired");
                 agent.join_cluster();
-                agent.recover().await;
             }
             Ok(Tick::Following) => {}
             Ok(Tick::Lost) => {

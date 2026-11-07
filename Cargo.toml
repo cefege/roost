@@ -32,13 +32,12 @@ roost-worker = { path = "crates/roost-worker" }
 roost-coord = { path = "crates/roost-coord" }
 roost-client-core = { path = "crates/roost-client-core" }
 roost-web-terminal = { path = "crates/roost-web-terminal" }
-roost-llm = { path = "crates/roost-llm" }
-roost-agent = { path = "crates/roost-agent" }
 roost-agent-tools = { path = "crates/roost-agent-tools" }
 roost-vcs = { path = "crates/roost-vcs" }
 # Pi Durable's Rust kernel is vendored independently from its CLI and providers.
 rpi-durable = { path = "third_party/pi-durable-rs/crates/rpi-durable" }
 rpi-ai = { path = "third_party/pi-durable-rs/crates/rpi-ai" }
+rpi-agent = { path = "third_party/pi-durable-rs/crates/rpi-agent" }
 # `zstd` is deliberately off. It is a C library built through `cc`, so it
 # cannot compile for `wasm32-unknown-unknown`, and the browser client is a
 # first-class target of this workspace. Connect's compression is per-request
