@@ -8,9 +8,7 @@
 use dioxus::prelude::*;
 use serde_json::{Value, json};
 
-use crate::components::ui::{
-    Card, CardSize, Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
-};
+use crate::components::ui::{Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle};
 
 use super::host_services::OmpHostServicePrompts;
 use super::overlay::{
@@ -52,37 +50,40 @@ pub(super) fn non_modal_surface(
 }
 
 /// Non-modal overlays anchored to the composer/caret, above the dock.
+// Non-modal overlays anchored to the composer/caret, above the dock.
 pub(super) fn non_modal_dock(slots: &[OverlaySlot], surface_id: &str, occluded: bool) -> Element {
     if occluded {
         return rsx! {};
     }
     let docked: Vec<&OverlaySlot> = slots
         .iter()
-        .filter(|slot| {
-            !slot.shape.modal
-                && !matches!(
-                    &slot.shape.anchor,
-                    OverlayAnchor::Top | OverlayAnchor::Center
-                )
-        })
+    .filter(|slot| {
+        !slot.shape.modal
+            && !matches!(
+                &slot.shape.anchor,
+                OverlayAnchor::Top | OverlayAnchor::Center
+            )
+    })
         .collect();
     if docked.is_empty() {
         return rsx! {};
     }
+    // Caret/node-anchored overlays (the autocomplete) flow inline above the
+    // dock's editor, like the terminal draws them in the composer; center and
+    // bottom-anchored ones stay floating popups above the dock.
+    // All non-modal dock overlays flow inline above the dock's editor.
+    let elements = docked
+        .into_iter()
+        .map(|slot| non_modal_child(slot, surface_id))
+        .collect::<Vec<_>>();
     rsx! {
-        div { class: "pointer-events-none absolute inset-x-0 bottom-full z-50 flex justify-center pb-2",
-            for slot in docked { {non_modal_child(slot, surface_id)} }
+        div { class: "flex w-full flex-col items-center gap-2 pb-2",
+            for element in elements { {element} }
         }
     }
 }
 
 fn non_modal_child(slot: &OverlaySlot, surface_id: &str) -> Element {
-    let width = match slot.shape.size {
-        OverlaySize::Sm => "w-72",
-        OverlaySize::Md => "w-80",
-        OverlaySize::Lg => "w-96",
-        OverlaySize::Full => "w-full",
-    };
     let (anchor, anchor_node) = anchor_attributes(&slot.shape.anchor);
     let content = slot.content.clone();
     let head = slot.shape.head.clone().filter(|_| slot.head_visible);
@@ -91,13 +92,13 @@ fn non_modal_child(slot: &OverlaySlot, surface_id: &str) -> Element {
     rsx! {
         div {
             key: "{slot.id}",
-            class: "pointer-events-auto {width} max-w-full",
+            class: "pointer-events-auto w-full max-w-full",
             "data-omp-overlay": "nonmodal",
             "data-omp-overlay-id": id,
             "data-omp-surface": surface,
             "data-omp-anchor": anchor,
             "data-omp-anchor-node": anchor_node,
-            Card { size: CardSize::Sm, class: Some("max-h-96 overflow-y-auto overscroll-contain p-1".into()),
+            div { class: "max-h-96 overflow-y-auto overscroll-contain",
                 if let Some(head) = head {
                     p { class: "px-2 pt-1 pb-0.5 text-xs font-medium text-muted-foreground", "{head}" }
                 }
