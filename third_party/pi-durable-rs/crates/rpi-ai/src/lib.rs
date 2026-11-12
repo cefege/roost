@@ -17,7 +17,6 @@ pub mod images;
 pub mod models;
 pub mod models_json;
 pub mod models_store;
-pub mod provider_config;
 pub mod providers;
 pub mod session_resources;
 pub mod types;

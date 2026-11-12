@@ -28,7 +28,6 @@ pub mod ops;
 pub mod overlay_env;
 pub mod push;
 pub mod quickstart;
-pub mod rpi;
 pub mod self_update;
 pub mod services;
 pub mod status;
@@ -65,7 +64,6 @@ use crate::quickstart::QuickstartArgs;
 use crate::quickstart::add_browser::AddBrowserArgs;
 use crate::quickstart::add_machine::AddMachineArgs;
 use crate::quickstart::join;
-use crate::rpi::RpiArgs;
 use crate::status::StatusArgs;
 use crate::update::UpdateArgs;
 
@@ -114,8 +112,6 @@ pub enum Command {
     KeeperRefresh(KeeperRefreshArgs),
     /// Introspect and drive a running coordinator without a browser.
     Api(ApiArgs),
-    /// Configure machine-local Rpi providers and list available chat models.
-    Rpi(RpiArgs),
     /// Install a coordinator and this machine's worker, then open a browser.
     Quickstart(QuickstartArgs),
     /// Publish this commit and roll the whole fleet onto it.
@@ -174,7 +170,6 @@ impl Command {
             Command::KeeperRefresh(_) => "keeper-refresh",
             Command::Quickstart(_) => "quickstart",
             Command::Api(_) => "api",
-            Command::Rpi(_) => "rpi",
             Command::Push(_) => "push",
             Command::Join => "join",
             Command::AddMachine(_) => "add-machine",
@@ -211,7 +206,6 @@ pub async fn dispatch(cli: Cli) -> Result<ExitCode, CommandFailure> {
         Command::KeeperRefresh(args) => deploy::keeper_refresh::run(&args).await,
         Command::Quickstart(args) => quickstart::run(&args).await,
         Command::Api(args) => api::run(&args).await,
-        Command::Rpi(args) => rpi::run(&args).await,
         Command::Push(args) => push::run(&args).await,
         Command::Join => join::run(&roost_host::ProcessEnv::new()).await,
         Command::AddMachine(args) => quickstart::add_machine::run(&args).await,

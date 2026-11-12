@@ -25,7 +25,6 @@ pub mod local_terminal;
 pub mod omp;
 pub mod outbox;
 pub mod peer;
-pub mod rpi;
 pub mod runtime;
 
 // The crate-root contract a host depends on: `serve` blocks until the worker is

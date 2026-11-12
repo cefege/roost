@@ -12,7 +12,6 @@ autotests = false
 agent-client-protocol = { workspace = true, features = ["process"] }
 anyhow.workspace = true
 async-compression.workspace = true
-async-trait.workspace = true
 base64.workspace = true
 futures-util.workspace = true
 getrandom.workspace = true
@@ -30,8 +29,6 @@ roost-observability.workspace = true
 roost-platform.workspace = true
 roost-proto.workspace = true
 roost-agent-tools.workspace = true
-rpi-agent.workspace = true
-rpi-ai.workspace = true
 tokio-util = { workspace = true, features = ["rt"] }
 roost-protocol.workspace = true
 serde.workspace = true

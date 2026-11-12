@@ -48,10 +48,6 @@ connectrpc = { workspace = true, features = ["client", "client-tls"] }
 axum = { workspace = true, features = ["http1", "tokio"] }
 
 clap.workspace = true
-crossterm.workspace = true
-futures-util.workspace = true
-rpi-ai.workspace = true
-tokio-util = { workspace = true, features = ["rt"] }
 anyhow.workspace = true
 reqwest = { workspace = true, features = ["json", "rustls"] }
 serde.workspace = true

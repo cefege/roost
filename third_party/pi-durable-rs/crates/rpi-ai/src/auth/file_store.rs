@@ -532,12 +532,6 @@ impl FileCredentialStore {
     /// `reload()` — refresh the in-memory snapshot from storage. On any
     /// failure (lock, IO, malformed JSON) the last valid snapshot is kept.
     pub async fn reload(&self) {
-        let _ = self.reload_checked().await;
-    }
-
-    /// Reload under the storage lock, refusing unreadable or malformed data.
-    /// Failure leaves the previous snapshot unchanged.
-    pub async fn reload_checked(&self) -> Result<(), ModelsError> {
         let content = self
             .backend
             .with_lock_async(
@@ -550,10 +544,13 @@ impl FileCredentialStore {
                     })
                 },
             )
-            .await?;
-        let data = parse_storage_data(content.as_deref())?;
-        *self.data.write().await = data;
-        Ok(())
+            .await;
+        let Ok(content) = content else {
+            return;
+        };
+        if let Ok(data) = parse_storage_data(content.as_deref()) {
+            *self.data.write().await = data;
+        }
     }
 }
 
@@ -1342,46 +1339,6 @@ mod tests {
             storage.read("anthropic", None).await.expect("read"),
             Some(api_key_credential("new")),
             "reload failure must preserve the last valid snapshot"
-        );
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[tokio::test]
-    async fn reload_checked_refuses_corruption_then_observes_external_logout() {
-        let dir = temp_dir();
-        let auth_path = dir.join("auth.json");
-        write_auth_json(
-            &auth_path,
-            json!({ "anthropic": { "type": "api_key", "key": "valid" } }),
-        );
-        let storage = FileCredentialStore::new(&auth_path);
-        std::fs::write(&auth_path, "{invalid-json").expect("corrupt");
-        assert!(storage.reload_checked().await.is_err());
-        assert_eq!(
-            storage.read("anthropic", None).await.expect("read"),
-            Some(api_key_credential("valid")),
-        );
-        write_auth_json(&auth_path, json!({}));
-        storage.reload_checked().await.expect("checked logout reload");
-        assert_eq!(storage.read("anthropic", None).await.expect("read"), None);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[tokio::test]
-    async fn reload_checked_refuses_unreadable_path_without_erasing_snapshot() {
-        let dir = temp_dir();
-        let auth_path = dir.join("auth.json");
-        write_auth_json(
-            &auth_path,
-            json!({ "anthropic": { "type": "api_key", "key": "valid" } }),
-        );
-        let storage = FileCredentialStore::new(&auth_path);
-        std::fs::remove_file(&auth_path).expect("remove file");
-        std::fs::create_dir(&auth_path).expect("replace with directory");
-        assert!(storage.reload_checked().await.is_err());
-        assert_eq!(
-            storage.read("anthropic", None).await.expect("read"),
-            Some(api_key_credential("valid")),
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
